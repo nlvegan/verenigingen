@@ -1,0 +1,305 @@
+{
+ "app": "verenigingen",
+ "autoname": "format:MANDATE-{YY}-{MM}-{####}",
+ "creation": "2024-01-01 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "mandate_details_section",
+  "mandate_id",
+  "member",
+  "member_name",
+  "column_break_1",
+  "status",
+  "mandate_type",
+  "scheme",
+  "bank_details_section",
+  "account_holder_name",
+  "iban",
+  "bic",
+  "column_break_2",
+  "bank_name",
+  "bank_branch",
+  "validity_section",
+  "sign_date",
+  "first_collection_date",
+  "expiry_date",
+  "column_break_3",
+  "is_active",
+  "cancelled_date",
+  "cancellation_reason",
+  "usage_section",
+  "frequency",
+  "maximum_amount",
+  "column_break_4",
+  "used_for_memberships",
+  "used_for_donations",
+  "used_for_other",
+  "other_purpose_description",
+  "history_section",
+  "usage_history",
+  "notes_section",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "mandate_details_section",
+   "fieldtype": "Section Break",
+   "label": "Mandate Details"
+  },
+  {
+   "fieldname": "mandate_id",
+   "fieldtype": "Data",
+   "label": "Mandate Reference",
+   "reqd": 1,
+   "unique": 1,
+   "description": "Unique reference for this SEPA mandate"
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "label": "Member",
+   "options": "Member",
+   "description": "Leave blank for non-member donors"
+  },
+  {
+   "fetch_from": "member.full_name",
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "label": "Member Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nActive\nCancelled\nExpired\nSuspended",
+   "reqd": 1
+  },
+  {
+   "default": "RCUR",
+   "fieldname": "mandate_type",
+   "fieldtype": "Select",
+   "label": "Mandate Type",
+   "options": "CORE\nRCUR\nFNAL\nOOFF",
+   "reqd": 1,
+   "description": "CORE: Core, RCUR: Recurring, FNAL: Final, OOFF: One-off"
+  },
+  {
+   "default": "SEPA",
+   "fieldname": "scheme",
+   "fieldtype": "Select",
+   "label": "Scheme",
+   "options": "SEPA\nNon-SEPA",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bank_details_section",
+   "fieldtype": "Section Break",
+   "label": "Bank Details"
+  },
+  {
+   "fieldname": "account_holder_name",
+   "fieldtype": "Data",
+   "label": "Account Holder Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "iban",
+   "fieldtype": "Data",
+   "label": "IBAN",
+   "reqd": 1,
+   "length": 34
+  },
+  {
+   "fieldname": "bic",
+   "fieldtype": "Data",
+   "label": "BIC/SWIFT",
+   "length": 11
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "label": "Bank Name"
+  },
+  {
+   "fieldname": "bank_branch",
+   "fieldtype": "Data",
+   "label": "Bank Branch"
+  },
+  {
+   "fieldname": "validity_section",
+   "fieldtype": "Section Break",
+   "label": "Validity"
+  },
+  {
+   "fieldname": "sign_date",
+   "fieldtype": "Date",
+   "label": "Mandate Sign Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "first_collection_date",
+   "fieldtype": "Date",
+   "label": "First Collection Date",
+   "description": "Date of first allowed collection"
+  },
+  {
+   "fieldname": "expiry_date",
+   "fieldtype": "Date",
+   "label": "Expiry Date",
+   "description": "Leave blank for open-ended mandates"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active",
+   "description": "Uncheck to temporarily suspend mandate"
+  },
+  {
+   "fieldname": "cancelled_date",
+   "fieldtype": "Date",
+   "label": "Cancelled Date",
+   "depends_on": "eval:doc.status=='Cancelled'"
+  },
+  {
+   "fieldname": "cancellation_reason",
+   "fieldtype": "Small Text",
+   "label": "Cancellation Reason",
+   "depends_on": "eval:doc.status=='Cancelled'"
+  },
+  {
+   "fieldname": "usage_section",
+   "fieldtype": "Section Break",
+   "label": "Usage"
+  },
+  {
+   "fieldname": "frequency",
+   "fieldtype": "Select",
+   "label": "Collection Frequency",
+   "options": "Monthly\nQuarterly\nBiannual\nAnnual\nVariable",
+   "default": "Monthly"
+  },
+  {
+   "fieldname": "maximum_amount",
+   "fieldtype": "Currency",
+   "label": "Maximum Collection Amount",
+   "description": "Maximum amount per collection"
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "used_for_memberships",
+   "fieldtype": "Check",
+   "label": "Used for Memberships"
+  },
+  {
+   "default": "0",
+   "fieldname": "used_for_donations",
+   "fieldtype": "Check",
+   "label": "Used for Donations"
+  },
+  {
+   "default": "0",
+   "fieldname": "used_for_other",
+   "fieldtype": "Check",
+   "label": "Used for Other"
+  },
+  {
+   "fieldname": "other_purpose_description",
+   "fieldtype": "Data",
+   "label": "Other Purpose Description",
+   "depends_on": "eval:doc.used_for_other"
+  },
+  {
+   "fieldname": "history_section",
+   "fieldtype": "Section Break",
+   "label": "Usage History"
+  },
+  {
+   "fieldname": "usage_history",
+   "fieldtype": "Table",
+   "label": "Usage History",
+   "options": "SEPA Mandate Usage"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
+  }
+ ],
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "SEPA Mandate",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Member",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

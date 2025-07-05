@@ -1,0 +1,102 @@
+{
+  "actions": [],
+  "allow_import": 1,
+  "creation": "2025-07-02 13:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "mutation_id",
+    "mutation_data",
+    "mutation_type",
+    "mutation_date",
+    "amount",
+    "ledger_id",
+    "relation_id",
+    "invoice_number",
+    "entry_number",
+    "description",
+    "fetched_at"
+  ],
+  "fields": [
+    {
+      "fieldname": "mutation_id",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "label": "Mutation ID",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "mutation_data",
+      "fieldtype": "JSON",
+      "label": "Mutation Data",
+      "description": "Complete mutation data from REST API"
+    },
+    {
+      "fieldname": "mutation_type",
+      "fieldtype": "Int",
+      "in_list_view": 1,
+      "label": "Mutation Type"
+    },
+    {
+      "fieldname": "mutation_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "Mutation Date"
+    },
+    {
+      "fieldname": "amount",
+      "fieldtype": "Currency",
+      "label": "Amount"
+    },
+    {
+      "fieldname": "ledger_id",
+      "fieldtype": "Int",
+      "label": "Ledger ID"
+    },
+    {
+      "fieldname": "relation_id",
+      "fieldtype": "Int",
+      "label": "Relation ID"
+    },
+    {
+      "fieldname": "invoice_number",
+      "fieldtype": "Data",
+      "label": "Invoice Number"
+    },
+    {
+      "fieldname": "entry_number",
+      "fieldtype": "Data",
+      "label": "Entry Number"
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Text",
+      "label": "Description"
+    },
+    {
+      "fieldname": "fetched_at",
+      "fieldtype": "Datetime",
+      "label": "Fetched At",
+      "default": "NOW()"
+    }
+  ],
+  "istable": 0,
+  "modified": "2025-07-02 13:00:00.000000",
+  "module": "Verenigingen",
+  "name": "EBoekhouden REST Mutation Cache",
+  "naming_rule": "Expression (old style)",
+  "autoname": "CACHE-.####",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "read": 1,
+      "role": "System Manager",
+      "write": 1
+    }
+  ],
+  "sort_field": "mutation_id",
+  "sort_order": "ASC",
+  "track_changes": 0
+}

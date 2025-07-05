@@ -1,0 +1,31 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Chapter Administrator",
+  "role_profile": "Verenigingen Chapter Administrator",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Verenigingen Staff"
+   },
+   {
+    "role": "Chapter Board Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Projects User"
+   },
+   {
+    "role": "Website Manager"
+   }
+  ]
+ }
+]

@@ -1,0 +1,28 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Team Leader",
+  "role_profile": "Verenigingen Team Leader",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Volunteer"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Projects User"
+   },
+   {
+    "role": "Expense Approver"
+   }
+  ]
+ }
+]

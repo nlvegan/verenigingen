@@ -1,0 +1,23 @@
+{
+ "action": "Go to Page",
+ "action_label": "Get Started with Members",
+ "creation": "2025-06-21 15:30:44.523059",
+ "description": "Create a member profile to get started with membership management, or generate test members to explore the system.",
+ "docstatus": 0,
+ "doctype": "Onboarding Step",
+ "idx": 0,
+ "intro_video_url": "",
+ "is_complete": 0,
+ "is_single": 0,
+ "is_skipped": 0,
+ "modified": "2025-07-02 16:28:56.497656",
+ "modified_by": "Administrator",
+ "name": "Verenigingen-Create-Member",
+ "owner": "Administrator",
+ "path": "/onboarding_member_setup",
+ "reference_document": "Member",
+ "show_form_tour": 0,
+ "show_full_form": 0,
+ "title": "Create Member",
+ "validate_action": 0
+}

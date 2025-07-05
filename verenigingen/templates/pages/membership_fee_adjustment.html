@@ -1,0 +1,460 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Adjust Membership Fee") }}{% endblock %}
+
+{% block head_include %}
+{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+/* Custom slider styling to prevent overflow and match brand colors */
+#fee-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    outline: none;
+    opacity: 0.9;
+    transition: opacity 0.2s;
+    max-width: 100%;
+    box-sizing: border-box;
+    background: transparent;
+}
+
+#fee-slider:hover {
+    opacity: 1;
+}
+
+/* Webkit slider track */
+#fee-slider::-webkit-slider-track {
+    width: 100%;
+    height: 12px;
+    cursor: pointer;
+    background: #e5e7eb;
+    border-radius: 6px;
+    border: none;
+}
+
+/* Webkit slider thumb */
+#fee-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #cf3131;
+    cursor: pointer;
+    border: 3px solid white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    margin-top: -6px;
+}
+
+/* Firefox slider track */
+#fee-slider::-moz-range-track {
+    width: 100%;
+    height: 12px;
+    cursor: pointer;
+    background: #e5e7eb;
+    border-radius: 6px;
+    border: none;
+}
+
+/* Firefox slider thumb */
+#fee-slider::-moz-range-thumb {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #cf3131;
+    cursor: pointer;
+    border: 3px solid white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    border: none;
+}
+
+/* Ensure container doesn't overflow */
+.w-full {
+    max-width: 100%;
+    overflow: hidden;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="max-w-6xl mx-auto p-8">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div class="lg:col-span-2">
+            <h2 class="text-3xl font-bold text-gray-800 mb-8">{{ _("Adjust Your Membership Fee") }}</h2>
+
+            {% if not can_adjust_fee[0] %}
+            <div class="bg-yellow-50 border border-yellow-200 text-yellow-800 p-4 rounded-lg mb-6">
+                <div class="flex items-center">
+                    <i class="fa fa-exclamation-triangle mr-3"></i>
+                    <span>{{ can_adjust_fee[1] }}</span>
+                </div>
+            </div>
+            {% else %}
+
+            <!-- Current Fee Information -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Current Membership Information") }}</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Membership Type") }}:</span> {{ membership_type.membership_type_name }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Fee") }}:</span> {{ frappe.format_value(membership_type.amount, {"fieldtype": "Currency"}) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Fee") }}:</span> {{ frappe.format_value(current_fee.amount, {"fieldtype": "Currency"}) }}</p>
+                    </div>
+                    <div>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Minimum Allowed") }}:</span> {{ frappe.format_value(minimum_fee, {"fieldtype": "Currency"}) }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pending Requests -->
+            {% if pending_requests %}
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Pending Requests") }}</h4>
+                {% for request in pending_requests %}
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                    <div class="flex flex-col md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <p class="mb-1"><span class="font-medium">{{ _("Requested Amount") }}:</span> {{ frappe.format_value(request.requested_amount, {"fieldtype": "Currency"}) }}</p>
+                            <p class="mb-1"><span class="font-medium">{{ _("Status") }}:</span> {{ _(request.status) }}</p>
+                            <p class="text-sm text-gray-600">{{ _("Submitted") }}: {{ frappe.utils.format_datetime(request.creation) }}</p>
+                        </div>
+                        <div class="mt-3 md:mt-0">
+                            <a href="/app/contribution-amendment-request/{{ request.name }}" class="inline-flex items-center px-3 py-1 border border-blue-300 text-blue-700 rounded-md hover:bg-blue-50 transition-colors duration-200 text-sm" target="_blank">
+                                {{ _("View Details") }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Fee Adjustment Form -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Adjust Your Fee") }}</h4>
+
+                <div class="bg-primary-50 border-l-4 border-primary-400 p-4 rounded-r-lg mb-6">
+                    <h6 class="font-medium text-primary-800 mb-2">{{ _("Important Information") }}</h6>
+                    <ul class="text-sm text-primary-700 space-y-1">
+                        <li>{{ _("You can adjust your membership fee up to {0} times per year").format(settings.max_adjustments_per_year) }}</li>
+                        <li>{{ _("Minimum fee is {0}").format(frappe.format_value(minimum_fee, {"fieldtype": "Currency"})) }}</li>
+                        <li>{{ _("Maximum fee via this form is {0}").format(frappe.format_value(minimum_fee * maximum_fee_multiplier, {"fieldtype": "Currency"})) }}</li>
+                        <li>{{ _("For higher amounts, please contact us directly") }}</li>
+                        {% if settings.require_approval_for_decreases %}
+                        <li>{{ _("Fee reductions require approval") }}</li>
+                        {% endif %}
+                        {% if settings.require_approval_for_increases %}
+                        <li>{{ _("Fee increases require approval") }}</li>
+                        {% endif %}
+                    </ul>
+                </div>
+
+                <form id="fee-adjustment-form">
+                    <div class="mb-6">
+                        <label for="new-fee-amount" class="block text-sm font-medium text-gray-700 mb-2">{{ _("New {0} Fee Amount").format(_(billing_frequency)) }}</label>
+                        <div class="w-full mb-4">
+                            <input type="range"
+                                   id="fee-slider"
+                                   class="w-full cursor-pointer"
+                                   min="{{ minimum_fee }}"
+                                   max="{{ minimum_fee * maximum_fee_multiplier }}"
+                                   step="1"
+                                   value="{{ current_fee.amount }}">
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <input type="number"
+                                       id="new-fee-amount"
+                                       class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                                       min="{{ minimum_fee }}"
+                                       max="{{ minimum_fee * maximum_fee_multiplier }}"
+                                       step="0.50"
+                                       value="{{ current_fee.amount }}"
+                                       required>
+                            </div>
+                            <div class="flex items-center justify-center">
+                                <div class="text-2xl font-bold text-primary-600" id="fee-display">
+                                    {{ frappe.format_value(current_fee.amount, {"fieldtype": "Currency"}) }}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if settings.adjustment_reason_required %}
+                    <div class="mb-6">
+                        <label for="adjustment-reason" class="block text-sm font-medium text-gray-700 mb-2">{{ _("Reason for Adjustment") }} <span class="text-red-500">*</span></label>
+                        <textarea id="adjustment-reason"
+                                  class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
+                                  rows="3"
+                                  placeholder="{{ _('Please explain why you want to adjust your membership fee...') }}"
+                                  required></textarea>
+                    </div>
+                    {% endif %}
+
+                    <div>
+                        <button type="submit" class="w-full bg-secondary-500 hover:bg-secondary-600 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium py-3 px-6 rounded-md transition-colors duration-200" id="submit-btn">
+                            {{ _("Submit Fee Adjustment") }}
+                        </button>
+                    </div>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="lg:col-span-1">
+            <!-- Sidebar with help information -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Why Adjust Your Fee?") }}</h5>
+                <p class="text-gray-600 mb-4">{{ _("We believe everyone should be able to contribute according to their ability. You can:") }}</p>
+                <ul class="text-sm text-gray-600 space-y-2">
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Increase your fee to provide extra support") }}</li>
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Reduce your fee if facing financial difficulties") }}</li>
+                    <li class="flex items-start"><span class="text-green-500 mr-2">•</span>{{ _("Set a fee that reflects your current situation") }}</li>
+                </ul>
+            </div>
+
+            <!-- Income Calculator -->
+            {% if enable_income_calculator %}
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
+                <p class="text-sm text-gray-600 mb-4">{{ calculator_description }}</p>
+
+                <div class="mb-4">
+                    <label for="calc-monthly-income" class="block text-sm font-medium text-gray-700 mb-1">{{ _("Monthly Net Income (€)") }}</label>
+                    <input type="number" class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm" id="calc-monthly-income"
+                           placeholder="3500" min="0" step="0.01">
+                </div>
+
+                <div class="mb-4">
+                    <label for="calc-payment-interval" class="block text-sm font-medium text-gray-700 mb-1">{{ _("Payment Interval") }}</label>
+                    <select class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm" id="calc-payment-interval">
+                        <option value="monthly">{{ _("Monthly") }}</option>
+                        <option value="quarterly">{{ _("Quarterly") }}</option>
+                    </select>
+                </div>
+
+                <div id="calc-result" class="bg-accent-50 border border-accent-200 text-accent-800 p-4 rounded-lg mb-4" style="display: none;">
+                    <p class="text-sm font-medium mb-1">{{ _("Suggested Contribution:") }}</p>
+                    <p class="text-lg font-bold">
+                        <span id="calc-suggested-amount"></span>
+                        <span id="calc-payment-frequency"></span>
+                    </p>
+                    <p class="text-xs text-accent-600 mt-1">
+                        {{ _("Based on") }} <span id="calc-income-percentage">{{ income_percentage_rate }}%</span> {{ _("of your monthly income") }}
+                    </p>
+                </div>
+
+                <button type="button" class="w-full bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-4 rounded-md transition-colors duration-200" id="apply-calculated-fee" style="display: none;">
+                    {{ _("Use This Amount") }}
+                </button>
+            </div>
+            {% endif %}
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Need Help?") }}</h5>
+                <p class="text-gray-600 mb-4">{{ _("If you have questions about fee adjustments or need financial assistance, please contact us.") }}</p>
+                <a href="mailto:{{ member_contact_email }}" class="inline-flex items-center px-4 py-2 border border-primary-300 text-primary-700 rounded-md hover:bg-primary-50 transition-colors duration-200 text-sm">
+                    {{ _("Contact Support") }}
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Success/Error Messages -->
+<div id="message-container" style="position: fixed; top: 20px; right: 20px; z-index: 1000;"></div>
+{% endblock %}
+
+{% block script %}
+<script>
+$(document).ready(function() {
+    const feeSlider = $('#fee-slider');
+    const feeInput = $('#new-fee-amount');
+    const feeDisplay = $('#fee-display');
+    const form = $('#fee-adjustment-form');
+    const submitBtn = $('#submit-btn');
+
+    // Income calculator variables
+    const calculatorSettings = {
+        enabled: {{ enable_income_calculator|default(false)|lower }},
+        percentage: {{ income_percentage_rate|default(0.5) }}
+    };
+    let calculatedAmount = 0;
+
+    // Sync slider and input
+    feeSlider.on('input', function() {
+        const value = parseFloat($(this).val());
+        feeInput.val(value);
+        updateFeeDisplay(value);
+    });
+
+    feeInput.on('input', function() {
+        const value = parseFloat($(this).val());
+        if (!isNaN(value)) {
+            feeSlider.val(value);
+            updateFeeDisplay(value);
+        }
+    });
+
+    function updateFeeDisplay(amount) {
+        feeDisplay.text('€' + amount.toFixed(2));
+
+        // Update button state based on amount validity
+        const minFee = parseFloat(feeSlider.attr('min'));
+        const maxFee = parseFloat(feeSlider.attr('max'));
+
+        if (amount < minFee || amount > maxFee) {
+            submitBtn.prop('disabled', true);
+            submitBtn.text('{{ _("Contact us for amounts outside this range") }}');
+            submitBtn.attr('title', '{{ _("For amounts outside the normal range, please contact us at {0}").format(member_contact_email) }}');
+        } else {
+            submitBtn.prop('disabled', false);
+            submitBtn.text('{{ _("Submit Fee Adjustment") }}');
+            submitBtn.removeAttr('title');
+        }
+    }
+
+    // Income calculator functionality
+    if (calculatorSettings.enabled) {
+        function calculateContribution() {
+            const monthlyIncome = parseFloat($('#calc-monthly-income').val()) || 0;
+            const paymentInterval = $('#calc-payment-interval').val();
+
+            if (monthlyIncome <= 0) {
+                $('#calc-result').hide();
+                $('#apply-calculated-fee').hide();
+                calculatedAmount = 0;
+                return;
+            }
+
+            // Calculate based on percentage of monthly income
+            const monthlyContribution = monthlyIncome * (calculatorSettings.percentage / 100);
+            let displayAmount, displayFrequency;
+
+            if (paymentInterval === 'quarterly') {
+                displayAmount = monthlyContribution * 3; // 3 months worth
+                displayFrequency = '{{ _("per quarter") }}';
+            } else {
+                displayAmount = monthlyContribution;
+                displayFrequency = '{{ _("per month") }}';
+            }
+
+            calculatedAmount = displayAmount;
+
+            // Format currency
+            const formattedAmount = '€' + displayAmount.toFixed(2);
+
+            // Update display
+            $('#calc-suggested-amount').text(formattedAmount);
+            $('#calc-payment-frequency').text(' ' + displayFrequency);
+            $('#calc-result').show();
+            $('#apply-calculated-fee').show();
+        }
+
+        // Bind calculator events
+        $('#calc-monthly-income, #calc-payment-interval').on('input change', calculateContribution);
+
+        // Apply calculated fee to main form
+        $('#apply-calculated-fee').on('click', function() {
+            if (calculatedAmount > 0) {
+                feeInput.val(calculatedAmount.toFixed(2));
+                feeSlider.val(calculatedAmount.toFixed(2));
+                updateFeeDisplay(calculatedAmount);
+
+                // Show confirmation message
+                showMessage('{{ _("Calculated amount applied to fee adjustment form") }}', 'info');
+            }
+        });
+    }
+
+    // Form submission
+    form.on('submit', function(e) {
+        e.preventDefault();
+
+        const newAmount = parseFloat(feeInput.val());
+        const reason = $('#adjustment-reason').val();
+
+        // Validate
+        if (isNaN(newAmount) || newAmount < parseFloat(feeSlider.attr('min'))) {
+            showMessage('{{ _("Please enter a valid amount above the minimum") }}', 'danger');
+            return;
+        }
+
+        {% if settings.adjustment_reason_required %}
+        if (!reason.trim()) {
+            showMessage('{{ _("Please provide a reason for the adjustment") }}', 'danger');
+            return;
+        }
+        {% endif %}
+
+        submitBtn.prop('disabled', true);
+        submitBtn.text('{{ _("Processing...") }}');
+
+        // Submit request
+        frappe.call({
+            method: 'verenigingen.templates.pages.membership_fee_adjustment.submit_fee_adjustment_request',
+            args: {
+                new_amount: newAmount,
+                reason: reason || ''
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    showMessage(r.message.message, 'success');
+
+                    // Reload page after 2 seconds
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 2000);
+                } else {
+                    showMessage('{{ _("An error occurred. Please try again.") }}', 'danger');
+                    submitBtn.prop('disabled', false);
+                    submitBtn.text('{{ _("Submit Fee Adjustment") }}');
+                }
+            },
+            error: function(r) {
+                let errorMsg = '{{ _("An error occurred. Please try again.") }}';
+                if (r && r._server_messages) {
+                    try {
+                        const messages = JSON.parse(r._server_messages);
+                        if (messages.length > 0) {
+                            const parsed = JSON.parse(messages[0]);
+                            errorMsg = parsed.message || errorMsg;
+                        }
+                    } catch (e) {
+                        // Use default error message
+                    }
+                }
+
+                showMessage(errorMsg, 'danger');
+                submitBtn.prop('disabled', false);
+                submitBtn.text('{{ _("Submit Fee Adjustment") }}');
+            }
+        });
+    });
+
+    function showMessage(message, type) {
+        const alertClass = 'alert-' + type;
+        const messageHtml = `
+            <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert">
+                    <span>&times;</span>
+                </button>
+            </div>
+        `;
+
+        $('#message-container').html(messageHtml);
+
+        // Auto-dismiss after 5 seconds
+        setTimeout(function() {
+            $('.alert').alert('close');
+        }, 5000);
+    }
+});
+</script>
+{% endblock %}

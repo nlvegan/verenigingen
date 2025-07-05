@@ -1,0 +1,22 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Volunteer",
+  "role_profile": "Verenigingen Volunteer",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Volunteer"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   }
+  ]
+ }
+]

@@ -1,0 +1,109 @@
+/* Volunteer Portal Styles */
+
+/* Global Portal Styles */
+.volunteer-portal,
+.expense-portal {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    color: #333;
+}
+
+/* Button Styles */
+.btn-portal,
+.btn-submit {
+    transition: all 0.3s ease;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+    vertical-align: middle;
+    border: none;
+    white-space: nowrap;
+}
+
+.btn-portal:focus,
+.btn-submit:focus,
+.btn-portal:active,
+.btn-submit:active {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.25);
+}
+
+/* Card Styles */
+.card {
+    border: none;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    transition: box-shadow 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* Form Styles */
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+/* Status Badge Styles */
+.status-badge,
+.badge {
+    font-weight: 600;
+    text-transform: none;
+    font-size: 0.85rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .volunteer-portal,
+    .expense-portal {
+        padding: 10px !important;
+    }
+
+    .dashboard-header,
+    .portal-header {
+        padding: 20px !important;
+    }
+
+    .stats-cards,
+    .stats-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 15px !important;
+    }
+}
+
+@media (max-width: 480px) {
+    .stats-cards,
+    .stats-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .form-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* Print Styles */
+@media print {
+    .btn-portal,
+    .btn-submit,
+    .header-actions {
+        display: none !important;
+    }
+
+    .card {
+        box-shadow: none !important;
+        border: 1px solid #ddd !important;
+    }
+
+    .portal-header,
+    .dashboard-header {
+        background: #f8f9fa !important;
+        color: #333 !important;
+        -webkit-print-color-adjust: exact;
+    }
+}

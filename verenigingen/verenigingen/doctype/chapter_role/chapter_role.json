@@ -1,0 +1,87 @@
+{
+ "app": "verenigingen",
+  "autoname": "field:role_name",
+  "creation": "2025-05-05 12:00:00.000000",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "module": "Verenigingen",
+  "field_order": [
+    "role_name",
+    "description",
+    "permissions_level",
+    "is_chair",
+    "is_unique",
+    "is_active"
+  ],
+  "fields": [
+    {
+      "fieldname": "role_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Role Name",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "description",
+      "fieldtype": "Text Editor",
+      "label": "Description"
+    },
+    {
+      "fieldname": "permissions_level",
+      "fieldtype": "Select",
+      "label": "Permissions Level",
+      "options": "Basic\nFinancial\nAdmin"
+    },
+    {
+      "default": "0",
+      "fieldname": "is_chair",
+      "fieldtype": "Check",
+      "label": "Is Chapter Chair",
+      "description": "Indicates if this role represents the Chair/Head of the chapter"
+    },
+    {
+      "default": "0",
+      "fieldname": "is_unique",
+      "fieldtype": "Check",
+      "label": "Is Unique Role",
+      "description": "If checked, only one person can have this role at a time (e.g., Chair, Treasurer)"
+    },
+    {
+      "default": "1",
+      "fieldname": "is_active",
+      "fieldtype": "Check",
+      "label": "Is Active"
+    }
+  ],
+  "name": "Chapter Role",
+  "naming_rule": "By fieldname",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 0,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Verenigingen Administrator",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

@@ -1,0 +1,525 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Apply for Membership") }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+{% endblock %}
+
+{% block page_content %}
+<div class="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 py-8">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+
+        <!-- Organization Logo & Header -->
+        <div class="organization-logo animate-fade-in">
+            <img src="/assets/verenigingen/images/logo.png" alt="Organization Logo" class="logo-img">
+        </div>
+
+        <div class="page-header animate-slide-up">
+            <h1 class="page-title">{{ _("Become a Member") }}</h1>
+            <p class="page-subtitle">{{ _("Join our association and become part of our community dedicated to making a positive impact!") }}</p>
+        </div>
+
+        <!-- Progress Indicator -->
+        <div class="progress-container animate-slide-up">
+            <div class="progress-bar-container">
+                <div class="progress-bar" style="width: 16.67%" id="form-progress"></div>
+            </div>
+            <div class="progress-steps">
+                <span class="progress-step active" data-step="1">{{ _("Personal Info") }}</span>
+                <span class="progress-step" data-step="2">{{ _("Address") }}</span>
+                <span class="progress-step" data-step="3">{{ _("Membership") }}</span>
+                <span class="progress-step" data-step="4">{{ _("Volunteer") }}</span>
+                <span class="progress-step" data-step="5">{{ _("Payment") }}</span>
+                <span class="progress-step" data-step="6">{{ _("Confirm") }}</span>
+            </div>
+        </div>
+
+        <!-- Multi-Step Form -->
+        <form id="membership-application-form" class="space-y-6" onsubmit="return false;">
+
+            <!-- Step 1: Personal Information -->
+            <div class="form-step active" data-step="1">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Personal Information") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="input-group">
+                                <label for="first_name" class="input-label required">{{ _("Preferred Name") }}</label>
+                                <input type="text" class="form-input" id="first_name" name="first_name" required
+                                       placeholder="{{ _('Enter your preferred name') }}">
+                                <div class="text-red-500 text-sm hidden" id="first_name_error">{{ _("This field is required") }}</div>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="middle_name" class="input-label">{{ _("Middle Name") }}</label>
+                                <input type="text" class="form-input" id="middle_name" name="middle_name"
+                                       placeholder="{{ _('Optional') }}">
+                            </div>
+
+                            <div class="input-group">
+                                <label for="last_name" class="input-label required">{{ _("Last Name") }}</label>
+                                <input type="text" class="form-input" id="last_name" name="last_name" required
+                                       placeholder="{{ _('Enter your last name') }}">
+                                <div class="text-red-500 text-sm hidden" id="last_name_error">{{ _("This field is required") }}</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="input-group">
+                                <label for="email" class="input-label required">{{ _("Email Address") }}</label>
+                                <input type="email" class="form-input" id="email" name="email" required
+                                       placeholder="{{ _('your.email@example.com') }}">
+                                <div class="text-red-500 text-sm hidden" id="email_error">{{ _("Please enter a valid email address") }}</div>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="mobile_no" class="input-label">{{ _("Mobile Number") }}</label>
+                                <input type="tel" class="form-input" id="mobile_no" name="mobile_no"
+                                       placeholder="{{ _('Optional') }}">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="input-group">
+                                <label for="pronouns" class="input-label">{{ _("Pronouns") }}</label>
+                                <select class="form-input" id="pronouns" name="pronouns">
+                                    <option value="">{{ _("Select pronouns") }}</option>
+                                    <option value="he/him">{{ _("He/Him") }}</option>
+                                    <option value="she/her">{{ _("She/Her") }}</option>
+                                    <option value="they/them">{{ _("They/Them") }}</option>
+                                    <option value="other">{{ _("Other") }}</option>
+                                </select>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="birth_date" class="input-label">{{ _("Date of Birth") }}</label>
+                                <input type="date" class="form-input" id="birth_date" name="birth_date">
+                                <div class="text-red-500 text-sm hidden" id="birth_date_error">{{ _("This field is required") }}</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Address Information -->
+            <div class="form-step" data-step="2">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Address Information") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="input-group">
+                            <label for="address_line1" class="input-label required">{{ _("Street Address") }}</label>
+                            <input type="text" class="form-input" id="address_line1" name="address_line1" required
+                                   placeholder="{{ _('Street name and house number') }}">
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="input-group">
+                                <label for="postal_code" class="input-label required">{{ _("Postal Code") }}</label>
+                                <input type="text" class="form-input" id="postal_code" name="postal_code" required
+                                       placeholder="{{ _('1234 AB') }}">
+                            </div>
+
+                            <div class="input-group">
+                                <label for="city" class="input-label required">{{ _("City") }}</label>
+                                <input type="text" class="form-input" id="city" name="city" required
+                                       placeholder="{{ _('City name') }}">
+                            </div>
+
+                            <div class="input-group">
+                                <label for="country" class="input-label required">{{ _("Country") }}</label>
+                                <select class="form-input" id="country" name="country" required>
+                                    <option value="">{{ _("Select country") }}</option>
+                                    <option value="Netherlands">{{ _("Netherlands") }}</option>
+                                    <option value="Belgium">{{ _("Belgium") }}</option>
+                                    <option value="Germany">{{ _("Germany") }}</option>
+                                    <option value="Other">{{ _("Other") }}</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Membership Type -->
+            <div class="form-step" data-step="3">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Choose Your Membership") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <!-- Chapter Selection -->
+                        <div id="chapter-selection" class="mb-6" style="display: none;">
+                            <h5 class="input-label">{{ _("Chapter Selection") }} <small class="text-gray-500">({{ _("Optional") }})</small></h5>
+                            <div id="suggested-chapter" class="alert-success mb-4" style="display: none;">
+                                <p>{{ _("Based on your postal code, we suggest:") }} <strong id="suggested-chapter-name"></strong></p>
+                                <button type="button" class="btn-primary mt-2" id="accept-suggestion">
+                                    {{ _("Join this chapter") }}
+                                </button>
+                            </div>
+
+                            <div class="input-group">
+                                <label for="selected_chapter" class="input-label">{{ _("Which chapter would you like to join?") }}</label>
+                                <select class="form-input" id="selected_chapter" name="selected_chapter">
+                                    <option value="">{{ _("Select a chapter...") }}</option>
+                                </select>
+                                <p class="text-sm text-gray-600 mt-1">
+                                    {{ _("Choose the chapter you'd like to be part of. Leave blank to be assigned automatically based on your location.") }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Income Calculator -->
+                        {% if enable_income_calculator %}
+                        <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200" id="income-calculator">
+                            <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
+                            <p class="text-sm text-gray-600 mb-4">{{ calculator_description }}</p>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div class="input-group">
+                                    <label for="calc-monthly-income" class="input-label">{{ _("Monthly Net Income (€)") }}</label>
+                                    <input type="number" class="form-input text-sm" id="calc-monthly-income"
+                                           placeholder="3500" min="0" step="0.01">
+                                </div>
+
+                                <div class="input-group">
+                                    <label for="calc-payment-interval" class="input-label">{{ _("Payment Interval") }}</label>
+                                    <select class="form-input text-sm" id="calc-payment-interval">
+                                        <option value="monthly">{{ _("Monthly") }}</option>
+                                        <option value="quarterly">{{ _("Quarterly") }}</option>
+                                        <option value="annually">{{ _("Annually") }}</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div id="calc-result" class="bg-green-50 border border-green-200 text-green-800 p-4 rounded-lg mb-4" style="display: none;">
+                                <p class="text-sm font-medium mb-1">{{ _("Suggested Contribution:") }}</p>
+                                <p class="text-lg font-bold">
+                                    <span id="calc-suggested-amount"></span>
+                                    <span id="calc-payment-frequency"></span>
+                                </p>
+                                <p class="text-xs text-green-600 mt-1">
+                                    {{ _("Based on") }} <span id="calc-income-percentage">{{ income_percentage_rate }}%</span> {{ _("of your monthly income") }}
+                                </p>
+                            </div>
+
+                            <button type="button" class="w-full bg-gray-600 hover:bg-gray-700 text-white text-sm py-2 px-4 rounded-md transition-colors duration-200" id="apply-calculated-amount" style="display: none;">
+                                {{ _("Use This Amount") }}
+                            </button>
+                        </div>
+                        {% endif %}
+
+                        <!-- Membership Type Selection -->
+                        <h5 class="input-label required">{{ _("Membership Type") }}</h5>
+                        <div id="membership-types" class="card-grid">
+                            <div class="text-center">
+                                <div class="text-gray-500">{{ _("Loading membership types...") }}</div>
+                            </div>
+                        </div>
+
+                        <input type="hidden" id="membership_type" name="membership_type" required>
+
+                        <!-- Custom Contribution Amount -->
+                        <div class="input-group mt-6" id="custom-contribution" style="display: none;">
+                            <label for="custom_amount" class="input-label">{{ _("Custom Annual Contribution Amount") }}</label>
+                            <div class="flex items-center">
+                                <span class="text-gray-500 mr-2">€</span>
+                                <input type="number" class="form-input" id="custom_amount" name="custom_amount"
+                                       min="10" step="0.01" placeholder="25.00">
+                            </div>
+                            <p class="text-sm text-gray-600 mt-1">{{ _("Minimum contribution is €10. Suggested amount is €25.") }}</p>
+                        </div>
+
+                        <div class="text-red-500 text-sm hidden" id="membership_type_error">{{ _("Please select a membership type") }}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: Volunteer Information -->
+            <div class="form-step" data-step="4">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Volunteer Interests") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="input-group">
+                            <div class="flex items-center space-x-3 mb-4">
+                                <input type="checkbox" id="interested_in_volunteering" name="interested_in_volunteering" class="form-input w-auto">
+                                <label for="interested_in_volunteering" class="input-label">
+                                    {{ _("I'm interested in volunteering with the association") }}
+                                </label>
+                            </div>
+                        </div>
+
+                        <div id="volunteer-details" style="display: none;">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                                <div class="input-group">
+                                    <label for="volunteer_availability" class="input-label">{{ _("Availability") }}</label>
+                                    <select class="form-input" id="volunteer_availability" name="volunteer_availability">
+                                        <option value="">{{ _("Select...") }}</option>
+                                        <option value="Occasional">{{ _("Occasional (Few times a year)") }}</option>
+                                        <option value="Monthly">{{ _("Monthly") }}</option>
+                                        <option value="Weekly">{{ _("Weekly") }}</option>
+                                        <option value="Project-based">{{ _("Project-based") }}</option>
+                                    </select>
+                                </div>
+
+                                <div class="input-group">
+                                    <label for="volunteer_experience_level" class="input-label">{{ _("Experience Level") }}</label>
+                                    <select class="form-input" id="volunteer_experience_level" name="volunteer_experience_level">
+                                        <option value="">{{ _("Select...") }}</option>
+                                        <option value="Beginner">{{ _("Beginner") }}</option>
+                                        <option value="Intermediate">{{ _("Intermediate") }}</option>
+                                        <option value="Experienced">{{ _("Experienced") }}</option>
+                                        <option value="Expert">{{ _("Expert") }}</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="input-group" id="volunteer-areas" style="display: none;">
+                            <label class="input-label">{{ _("Which areas interest you?") }}</label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                                <label class="flex items-center space-x-3">
+                                    <input type="checkbox" name="volunteer_areas[]" value="events" class="form-input w-auto">
+                                    <span>{{ _("Event Organization") }}</span>
+                                </label>
+                                <label class="flex items-center space-x-3">
+                                    <input type="checkbox" name="volunteer_areas[]" value="communications" class="form-input w-auto">
+                                    <span>{{ _("Communications") }}</span>
+                                </label>
+                                <label class="flex items-center space-x-3">
+                                    <input type="checkbox" name="volunteer_areas[]" value="fundraising" class="form-input w-auto">
+                                    <span>{{ _("Fundraising") }}</span>
+                                </label>
+                                <label class="flex items-center space-x-3">
+                                    <input type="checkbox" name="volunteer_areas[]" value="outreach" class="form-input w-auto">
+                                    <span>{{ _("Community Outreach") }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="input-group">
+                            <label for="volunteer_skills" class="input-label">{{ _("Skills & Experience") }}</label>
+                            <textarea class="form-input" id="volunteer_skills" name="volunteer_skills" rows="2"
+                                      placeholder="{{ _('What skills or experience do you have that could help our organization?') }}"></textarea>
+                        </div>
+
+                        <div class="input-group">
+                            <label for="volunteer_availability_time" class="input-label">{{ _("Availability") }}</label>
+                            <textarea class="form-input" id="volunteer_availability_time" name="volunteer_availability_time" rows="2"
+                                      placeholder="{{ _('When are you typically available? (e.g., weekends, evenings, specific days)') }}"></textarea>
+                        </div>
+
+                        <div class="input-group">
+                            <label for="volunteer_comments" class="input-label">{{ _("Additional Comments") }}</label>
+                            <textarea class="form-input" id="volunteer_comments" name="volunteer_comments" rows="3"
+                                      placeholder="{{ _('Tell us about your motivation, special interests, or anything else you\'d like us to know...') }}"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 5: Payment Information -->
+            <div class="form-step" data-step="5">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Payment Information") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="alert-success mb-6">
+                            <p class="font-medium mb-2">{{ _("Membership Fee Summary") }}</p>
+                            <p class="text-sm" id="payment-summary">{{ _("Your selected membership fee will be displayed here.") }}</p>
+                        </div>
+
+                        <div class="input-group">
+                            <label class="input-label required">{{ _("Payment Method") }}</label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                                <label class="flex items-center space-x-3 cursor-pointer">
+                                    <input type="radio" name="payment_method" value="bank_transfer" class="form-input w-auto" required>
+                                    <span>{{ _("Bank Transfer") }}</span>
+                                </label>
+                                <label class="flex items-center space-x-3 cursor-pointer">
+                                    <input type="radio" name="payment_method" value="sepa_direct_debit" class="form-input w-auto" required>
+                                    <span>{{ _("SEPA Direct Debit") }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="input-group" id="bank-details">
+                            <label for="iban" class="input-label required">{{ _("IBAN") }}</label>
+                            <input type="text" class="form-input" id="iban" name="iban"
+                                   placeholder="{{ _('NL00 BANK 0000 0000 00') }}">
+                            <p class="text-sm text-gray-600 mt-1" id="bank-details-description">{{ _("Your bank account details for payment matching and processing.") }}</p>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                                <div class="input-group">
+                                    <label for="account_holder_name" class="input-label required">{{ _("Account Holder Name") }}</label>
+                                    <input type="text" class="form-input" id="account_holder_name" name="account_holder_name"
+                                           placeholder="{{ _('Full name as on bank account') }}">
+                                </div>
+
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 6: Confirmation -->
+            <div class="form-step" data-step="6">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Confirm Your Application") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="alert-success mb-6">
+                            <p class="font-medium">{{ _("Please review your information before submitting.") }}</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-3">{{ _("Personal Information") }}</h4>
+                                <div class="space-y-2 text-sm">
+                                    <p><span class="font-medium">{{ _("Name") }}:</span> <span id="confirm-name"></span></p>
+                                    <p><span class="font-medium">{{ _("Email") }}:</span> <span id="confirm-email"></span></p>
+                                    <p><span class="font-medium">{{ _("Phone") }}:</span> <span id="confirm-phone"></span></p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-3">{{ _("Address") }}</h4>
+                                <div class="space-y-2 text-sm">
+                                    <p><span class="font-medium">{{ _("Address") }}:</span> <span id="confirm-address"></span></p>
+                                    <p><span class="font-medium">{{ _("City") }}:</span> <span id="confirm-city"></span></p>
+                                    <p><span class="font-medium">{{ _("Country") }}:</span> <span id="confirm-country"></span></p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-3">{{ _("Membership") }}</h4>
+                                <div class="space-y-2 text-sm">
+                                    <p><span class="font-medium">{{ _("Type") }}:</span> <span id="confirm-membership-type"></span></p>
+                                    <p><span class="font-medium">{{ _("Fee") }}:</span> <span id="confirm-membership-fee"></span></p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-3">{{ _("Payment") }}</h4>
+                                <div class="space-y-2 text-sm">
+                                    <p><span class="font-medium">{{ _("Method") }}:</span> <span id="confirm-payment-method"></span></p>
+                                    <p id="confirm-bank-details" style="display: none;"><span class="font-medium">{{ _("Bank Details") }}:</span> <span id="confirm-bank-info"></span></p>
+                                    <p><span class="font-medium">{{ _("Volunteering") }}:</span> <span id="confirm-volunteering"></span></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="input-group">
+                            <label class="flex items-center space-x-3">
+                                <input type="checkbox" name="terms_accepted" class="form-input w-auto" required>
+                                <span class="text-sm">{{ _("I agree to the membership terms and conditions") }}</span>
+                            </label>
+                        </div>
+
+                        <div class="input-group">
+                            <label class="flex items-center space-x-3">
+                                <input type="checkbox" name="privacy_accepted" class="form-input w-auto" required>
+                                <span class="text-sm">{{ _("I agree to the privacy policy and data processing") }}</span>
+                            </label>
+                        </div>
+
+                        <div class="mt-6 p-4 bg-gray-50 rounded-lg">
+                            <p class="text-sm text-gray-700">
+                                {{ _("By submitting this application, you confirm that all information provided is accurate and complete. You will receive a confirmation email with payment instructions.") }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div class="flex justify-between pt-6">
+                <button type="button" class="btn-secondary hidden" id="btn-prev">
+                    ← {{ _("Previous") }}
+                </button>
+
+                <div class="ml-auto">
+                    <button type="button" class="btn-primary" id="btn-next">
+                        {{ _("Next") }} →
+                    </button>
+                    <button type="submit" class="btn-success hidden" id="btn-submit">
+                        {{ _("Submit Application") }}
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Success Message (Hidden by default) -->
+        <div class="hidden" id="success-message">
+            <div class="alert-success text-center">
+                <div class="text-2xl mb-4">🎉</div>
+                <h3 class="text-xl font-semibold mb-2">{{ _("Application Submitted Successfully!") }}</h3>
+                <p class="mb-4">{{ _("Thank you for applying to join our association. We'll review your application and get back to you soon.") }}</p>
+                <p class="text-sm text-gray-600 mb-4">{{ _("You will receive a confirmation email shortly with your application details.") }}</p>
+                <a href="/" class="btn-primary inline-block">{{ _("Return to Home") }}</a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<!-- Load service dependencies first -->
+<script src="/assets/verenigingen/js/services/api-service.js"></script>
+<script src="/assets/verenigingen/js/services/validation-service.js"></script>
+<script src="/assets/verenigingen/js/services/storage-service.js"></script>
+
+<!-- Load main application -->
+<script src="/assets/verenigingen/js/membership_application.js"></script>
+
+<script>
+// Initialize the membership application form when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Initializing membership application form...');
+
+    try {
+        // Check if all required classes are available
+        if (typeof MembershipApplication === 'undefined') {
+            console.error('MembershipApplication class not found');
+            return;
+        }
+
+        // Initialize the application with Tailwind-specific configuration
+        const app = new MembershipApplication({
+            maxSteps: 6,
+            enableAutoSave: true,
+            enableErrorHandling: true,
+            autoSaveInterval: 30000
+        });
+
+        console.log('MembershipApplication initialized successfully');
+
+        // Make app globally available for debugging
+        window.membershipApp = app;
+
+    } catch (error) {
+        console.error('Error initializing membership application:', error);
+
+        // Fallback: Show a user-friendly error message
+        const form = document.getElementById('membership-application-form');
+        if (form) {
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert-danger mb-4';
+            errorDiv.innerHTML = 'There was an error loading the form. Please refresh the page or contact support.';
+            form.insertBefore(errorDiv, form.firstChild);
+        }
+    }
+});
+</script>
+{% endblock %}

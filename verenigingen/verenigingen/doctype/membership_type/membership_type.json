@@ -1,0 +1,184 @@
+{
+ "app": "verenigingen",
+ "autoname": "field:membership_type_name",
+ "creation": "2023-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "membership_type_name",
+  "description",
+  "is_active",
+  "column_break_4",
+  "subscription_period",
+  "subscription_period_in_months",
+  "pricing_section",
+  "amount",
+  "currency",
+  "subscription_settings_section",
+  "subscription_plan",
+  "require_approval",
+  "column_break_14",
+  "allow_auto_renewal",
+  "default_for_new_members"
+ ],
+ "fields": [
+  {
+   "fieldname": "membership_type_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Membership Type Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Annual",
+   "fieldname": "subscription_period",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Subscription Period",
+   "options": "Daily\nMonthly\nQuarterly\nBiannual\nAnnual\nLifetime\nCustom",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.subscription_period=='Custom'",
+   "fieldname": "subscription_period_in_months",
+   "fieldtype": "Int",
+   "label": "Subscription Period in Months",
+   "mandatory_depends_on": "eval:doc.subscription_period=='Custom'"
+  },
+  {
+   "fieldname": "pricing_section",
+   "fieldtype": "Section Break",
+   "label": "Pricing"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "default": "EUR",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "subscription_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Subscription Settings"
+  },
+  {
+   "fieldname": "subscription_plan",
+   "fieldtype": "Link",
+   "label": "Subscription Plan",
+   "options": "Subscription Plan"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_approval",
+   "fieldtype": "Check",
+   "label": "Require Approval"
+  },
+  {
+   "fieldname": "column_break_14",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_auto_renewal",
+   "fieldtype": "Check",
+   "label": "Allow Auto Renewal"
+  },
+  {
+   "default": "0",
+   "fieldname": "default_for_new_members",
+   "fieldtype": "Check",
+   "label": "Default for New Members"
+  },
+  {
+   "default": "1",
+   "fieldname": "enforce_minimum_period",
+   "fieldtype": "Check",
+   "label": "Enforce 1-Year Minimum Period",
+   "description": "When enabled, memberships of this type must be at least 1 year in duration. When disabled, memberships follow the subscription period (e.g., daily, monthly)."
+  }
+ ],
+ "modified": "2023-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Membership Type",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Staff",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "membership_type_name",
+ "track_changes": 1
+}

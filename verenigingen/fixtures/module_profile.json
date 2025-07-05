@@ -1,0 +1,132 @@
+[
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Basic Access",
+  "module_profile_name": "Verenigingen Basic Access",
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   }
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Volunteer Access",
+  "module_profile_name": "Verenigingen Volunteer Access",
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Projects"
+   },
+   {
+    "module": "Support"
+   }
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Financial Access",
+  "module_profile_name": "Verenigingen Financial Access",
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Accounts"
+   },
+   {
+    "module": "Banking"
+   },
+   {
+    "module": "Selling"
+   }
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Management Access",
+  "module_profile_name": "Verenigingen Management Access",
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Projects"
+   },
+   {
+    "module": "CRM"
+   },
+   {
+    "module": "Support"
+   },
+   {
+    "module": "Accounts"
+   },
+   {
+    "module": "Banking"
+   },
+   {
+    "module": "Selling"
+   },
+   {
+    "module": "Assets"
+   },
+   {
+    "module": "Setup"
+   }
+  ]
+ },
+ {
+  "doctype": "Module Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Audit Access",
+  "module_profile_name": "Verenigingen Audit Access",
+  "modules": [
+   {
+    "module": "Verenigingen"
+   },
+   {
+    "module": "Portal"
+   },
+   {
+    "module": "Communication"
+   },
+   {
+    "module": "Accounts"
+   },
+   {
+    "module": "Quality Management"
+   }
+  ]
+ }
+]

@@ -1,0 +1,599 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Personal Details") }}{% endblock %}
+
+{% block head_include %}
+<style>
+.personal-details-form {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 2rem;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.form-section {
+    margin-bottom: 2.5rem;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+}
+
+.form-section h3 {
+    margin-bottom: 1.5rem;
+    color: #333;
+    border-bottom: 2px solid #cf3131;
+    padding-bottom: 0.5rem;
+    display: flex;
+    align-items: center;
+}
+
+.form-section h3 .icon {
+    margin-right: 0.75rem;
+    color: #cf3131;
+}
+
+.form-row {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.form-group {
+    flex: 1;
+    margin-bottom: 1.5rem;
+}
+
+.form-group.half {
+    flex: 0 0 48%;
+}
+
+.form-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: #333;
+}
+
+.form-control {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #cf3131;
+    box-shadow: 0 0 0 2px rgba(207,49,49,0.25);
+}
+
+.form-control:disabled {
+    background-color: #f8f9fa;
+    color: #6c757d;
+}
+
+.help-text {
+    font-size: 0.875rem;
+    color: #666;
+    margin-top: 0.25rem;
+}
+
+.required {
+    color: #dc3545;
+}
+
+.current-info {
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+    border-left: 4px solid #cf3131;
+}
+
+.current-info h5 {
+    margin-bottom: 0.5rem;
+    color: #333;
+}
+
+.current-info .current-value {
+    font-weight: 500;
+    color: #cf3131;
+}
+
+.pronouns-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.pronoun-option {
+    display: flex;
+    align-items: center;
+}
+
+.pronoun-option input[type="radio"] {
+    margin-right: 0.5rem;
+}
+
+.pronoun-option label {
+    margin: 0;
+    cursor: pointer;
+}
+
+.custom-pronoun-group {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border: 1px dashed #dee2e6;
+}
+
+.image-upload-section {
+    text-align: center;
+    padding: 2rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 2px dashed #dee2e6;
+    transition: all 0.2s ease;
+}
+
+.image-upload-section:hover {
+    border-color: #cf3131;
+    background: #fef2f2;
+}
+
+.current-image {
+    max-width: 150px;
+    max-height: 150px;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.image-upload-label {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    background: #cf3131;
+    color: white;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.image-upload-label:hover {
+    background: #b82828;
+}
+
+.image-upload-input {
+    display: none;
+}
+
+.btn {
+    padding: 0.75rem 2rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    text-decoration: none;
+    display: inline-block;
+    text-align: center;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-primary {
+    background-color: #cf3131;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #b82828;
+    color: white;
+    text-decoration: none;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+    margin-right: 1rem;
+}
+
+.btn-secondary:hover {
+    background-color: #545b62;
+    color: white;
+    text-decoration: none;
+}
+
+.btn-danger {
+    background-color: #dc3545;
+    color: white;
+}
+
+.btn-danger:hover {
+    background-color: #c82333;
+    color: white;
+    text-decoration: none;
+}
+
+.action-buttons {
+    text-align: center;
+    margin-top: 2rem;
+    padding-top: 2rem;
+    border-top: 1px solid #eee;
+}
+
+.alert {
+    padding: 1rem;
+    border-radius: 4px;
+    margin-bottom: 1.5rem;
+}
+
+.alert-info {
+    background-color: #d1ecf1;
+    border: 1px solid #bee5eb;
+    color: #0c5460;
+}
+
+.alert-warning {
+    background-color: #fff3cd;
+    border: 1px solid #ffeaa7;
+    color: #856404;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.privacy-note {
+    background: #f1f8ff;
+    border: 1px solid #c1e7ff;
+    border-radius: 4px;
+    padding: 1rem;
+    margin-bottom: 2rem;
+}
+
+.privacy-note h6 {
+    color: #cf3131;
+    margin-bottom: 0.5rem;
+}
+
+@media (max-width: 768px) {
+    .personal-details-form {
+        padding: 1rem;
+        margin: 1rem;
+    }
+
+    .form-row {
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .form-group.half {
+        flex: 1;
+    }
+
+    .pronouns-options {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .action-buttons .btn {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <div class="personal-details-form">
+        <h2>{{ _("Personal Details") }}</h2>
+        <p class="text-muted">{{ _("Manage your personal information and preferences") }}</p>
+
+        <div class="privacy-note">
+            <h6>{{ _("Privacy & Data Protection") }}</h6>
+            <p>{{ _("Your personal information is protected according to GDPR regulations. You can update, view, or request deletion of your data at any time. Changes to your name may require verification.") }}</p>
+        </div>
+
+        {% if success_messages %}
+        <div class="alert alert-success">
+            <h6>{{ _("Changes Saved Successfully!") }}</h6>
+            <ul style="margin-bottom: 0;">
+                {% for message in success_messages %}
+                <li>{{ message }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <form method="post" action="/api/method/verenigingen.templates.pages.personal_details.update_personal_details" id="personal-details-form" enctype="multipart/form-data">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <!-- Basic Information Section -->
+            <div class="form-section">
+                <h3><span class="icon">👤</span>{{ _("Basic Information") }}</h3>
+
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="first_name" class="form-label">{{ _("Preferred Name") }} <span class="required">*</span></label>
+                        <input type="text"
+                               class="form-control"
+                               id="first_name"
+                               name="first_name"
+                               value="{{ member.first_name or '' }}"
+                               required>
+                        <div class="help-text">{{ _("Your preferred first name or calling name") }}</div>
+                    </div>
+
+                    <div class="form-group half">
+                        <label for="middle_name" class="form-label">{{ _("Middle Name(s)") }}</label>
+                        <input type="text"
+                               class="form-control"
+                               id="middle_name"
+                               name="middle_name"
+                               value="{{ member.middle_name or '' }}">
+                        <div class="help-text">{{ _("Including prefixes like 'van', 'de', 'von'") }}</div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="last_name" class="form-label">{{ _("Last Name") }} <span class="required">*</span></label>
+                    <input type="text"
+                           class="form-control"
+                           id="last_name"
+                           name="last_name"
+                           value="{{ member.last_name or '' }}"
+                           required>
+                </div>
+
+                <div class="form-group">
+                    <label for="birth_date" class="form-label">{{ _("Date of Birth") }}</label>
+                    <input type="date"
+                           class="form-control"
+                           id="birth_date"
+                           name="birth_date"
+                           value="{{ member.birth_date or '' }}">
+                    <div class="help-text">{{ _("Optional - helps us provide age-appropriate services") }}</div>
+                </div>
+            </div>
+
+            <!-- Pronouns Section -->
+            <div class="form-section">
+                <h3><span class="icon">🏷️</span>{{ _("Pronouns & Identity") }}</h3>
+
+                <div class="form-group">
+                    <label class="form-label">{{ _("Preferred Pronouns") }}</label>
+                    <div class="pronouns-options">
+                        <div class="pronoun-option">
+                            <input type="radio"
+                                   id="pronouns_she"
+                                   name="pronouns"
+                                   value="She/her"
+                                   {% if member.pronouns == "She/her" %}checked{% endif %}>
+                            <label for="pronouns_she">{{ _("She/her") }}</label>
+                        </div>
+                        <div class="pronoun-option">
+                            <input type="radio"
+                                   id="pronouns_he"
+                                   name="pronouns"
+                                   value="He/him"
+                                   {% if member.pronouns == "He/him" %}checked{% endif %}>
+                            <label for="pronouns_he">{{ _("He/him") }}</label>
+                        </div>
+                        <div class="pronoun-option">
+                            <input type="radio"
+                                   id="pronouns_they"
+                                   name="pronouns"
+                                   value="They/them"
+                                   {% if member.pronouns == "They/them" %}checked{% endif %}>
+                            <label for="pronouns_they">{{ _("They/them") }}</label>
+                        </div>
+                        <div class="pronoun-option">
+                            <input type="radio"
+                                   id="pronouns_custom"
+                                   name="pronouns"
+                                   value="custom"
+                                   {% if member.pronouns and member.pronouns not in ["She/her", "He/him", "They/them"] %}checked{% endif %}>
+                            <label for="pronouns_custom">{{ _("Other") }}</label>
+                        </div>
+                    </div>
+
+                    <div class="custom-pronoun-group" id="custom-pronoun-group" style="display: none;">
+                        <label for="custom_pronouns" class="form-label">{{ _("Please specify your pronouns") }}</label>
+                        <input type="text"
+                               class="form-control"
+                               id="custom_pronouns"
+                               name="custom_pronouns"
+                               placeholder="{{ _('e.g., Ze/zir, Name only, etc.') }}"
+                               value="{% if member.pronouns and member.pronouns not in ['She/her', 'He/him', 'They/them'] %}{{ member.pronouns }}{% endif %}">
+                        <div class="help-text">{{ _("Enter your preferred pronouns or indicate if you prefer your name to be used") }}</div>
+                    </div>
+
+                    <div class="help-text">{{ _("Help us address you respectfully in communications and events") }}</div>
+                </div>
+            </div>
+
+            <!-- Contact Information Section -->
+            <div class="form-section">
+                <h3><span class="icon">📞</span>{{ _("Contact Information") }}</h3>
+
+                <div class="alert alert-info">
+                    <strong>{{ _("Note:") }}</strong> {{ _("Your email address is your account login and cannot be changed here. Contact support if you need to change your email address.") }}
+                </div>
+
+                <div class="form-group">
+                    <label for="email_display" class="form-label">{{ _("Email Address") }}</label>
+                    <input type="email"
+                           class="form-control"
+                           id="email_display"
+                           value="{{ member.email or '' }}"
+                           disabled>
+                    <div class="help-text">{{ _("Primary contact email and account login") }}</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="contact_number" class="form-label">{{ _("Contact Number") }}</label>
+                    <input type="tel"
+                           class="form-control"
+                           id="contact_number"
+                           name="contact_number"
+                           value="{{ member.contact_number or '' }}"
+                           placeholder="{{ _('e.g., +31 6 12345678') }}">
+                    <div class="help-text">{{ _("Mobile or landline number for important communications") }}</div>
+                </div>
+            </div>
+
+            <!-- Profile Image Section -->
+            <div class="form-section">
+                <h3><span class="icon">📷</span>{{ _("Profile Image") }}</h3>
+
+                <div class="image-upload-section">
+                    {% if member.image %}
+                    <div class="current-image-container">
+                        <img src="{{ member.image }}" alt="{{ _('Current profile image') }}" class="current-image">
+                        <p>{{ _("Current profile image") }}</p>
+                    </div>
+                    {% endif %}
+
+                    <label for="image" class="image-upload-label">
+                        {% if member.image %}
+                        {{ _("Change Profile Image") }}
+                        {% else %}
+                        {{ _("Upload Profile Image") }}
+                        {% endif %}
+                    </label>
+                    <input type="file"
+                           class="image-upload-input"
+                           id="image"
+                           name="image"
+                           accept="image/*">
+
+                    <div class="help-text">{{ _("Upload a clear photo of yourself (optional). Max 5MB, JPG/PNG format.") }}</div>
+
+                    {% if member.image %}
+                    <div style="margin-top: 1rem;">
+                        <label>
+                            <input type="checkbox" name="remove_image" value="1">
+                            {{ _("Remove current profile image") }}
+                        </label>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Privacy Preferences Section -->
+            <div class="form-section">
+                <h3><span class="icon">🔒</span>{{ _("Privacy Preferences") }}</h3>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox"
+                               name="allow_directory_listing"
+                               value="1"
+                               {% if member.get("allow_directory_listing") %}checked{% endif %}>
+                        {{ _("Include me in the member directory") }}
+                    </label>
+                    <div class="help-text">{{ _("Allow other members to find your contact information in the member directory") }}</div>
+                </div>
+
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox"
+                               name="allow_photo_usage"
+                               value="1"
+                               {% if member.get("allow_photo_usage") %}checked{% endif %}>
+                        {{ _("Allow use of my photos in publications") }}
+                    </label>
+                    <div class="help-text">{{ _("Permission to use photos taken at events in newsletters, website, and social media") }}</div>
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <a href="/member_portal" class="btn btn-secondary">{{ _("Cancel") }}</a>
+                <button type="submit" class="btn btn-primary">{{ _("Save Changes") }}</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const pronounRadios = document.querySelectorAll('input[name="pronouns"]');
+    const customGroup = document.getElementById('custom-pronoun-group');
+    const customInput = document.getElementById('custom_pronouns');
+
+    // Show/hide custom pronoun input
+    function toggleCustomPronouns() {
+        const isCustom = document.getElementById('pronouns_custom').checked;
+        customGroup.style.display = isCustom ? 'block' : 'none';
+
+        if (isCustom) {
+            customInput.required = true;
+            customInput.focus();
+        } else {
+            customInput.required = false;
+        }
+    }
+
+    pronounRadios.forEach(radio => {
+        radio.addEventListener('change', toggleCustomPronouns);
+    });
+
+    // Initial state
+    toggleCustomPronouns();
+
+    // Form validation
+    document.getElementById('personal-details-form').addEventListener('submit', function(e) {
+        const firstName = document.getElementById('first_name').value.trim();
+        const lastName = document.getElementById('last_name').value.trim();
+
+        if (!firstName || !lastName) {
+            e.preventDefault();
+            alert('{{ _("Please enter both first name and last name") }}');
+            return false;
+        }
+
+        // Validate custom pronouns if selected
+        const customSelected = document.getElementById('pronouns_custom').checked;
+        const customValue = customInput.value.trim();
+
+        if (customSelected && !customValue) {
+            e.preventDefault();
+            alert('{{ _("Please specify your preferred pronouns") }}');
+            customInput.focus();
+            return false;
+        }
+
+        return true;
+    });
+
+    // Image upload preview
+    document.getElementById('image').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            // Validate file size (5MB)
+            if (file.size > 5 * 1024 * 1024) {
+                alert('{{ _("File size must be less than 5MB") }}');
+                e.target.value = '';
+                return;
+            }
+
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                alert('{{ _("Please select a valid image file") }}');
+                e.target.value = '';
+                return;
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

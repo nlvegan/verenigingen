@@ -1,0 +1,61 @@
+/* IBAN Validation Feedback Styles */
+
+/* Valid feedback styling */
+.valid-feedback {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.875em;
+    color: #28a745;
+}
+
+/* Enhanced invalid feedback */
+.invalid-feedback {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 0.875em;
+    color: #dc3545;
+}
+
+/* Input field states */
+.form-control.is-valid {
+    border-color: #28a745;
+    padding-right: calc(1.5em + 0.75rem);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3e%3cpath fill='%2328a745' d='M2.3 6.73L.6 4.53c-.4-1.04.46-1.4 1.1-.8l1.1 1.4 3.4-3.8c.6-.63 1.6-.27 1.2.7l-4 4.6c-.43.5-.8.4-1.1.1z'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right calc(0.375em + 0.1875rem) center;
+    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+}
+
+.form-control.is-invalid {
+    border-color: #dc3545;
+    padding-right: calc(1.5em + 0.75rem);
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='%23dc3545' viewBox='-2 -2 7 7'%3e%3cpath stroke='%23dc3545' d='M0 0l3 3m0-3L0 3'/%3e%3ccircle r='.5'/%3e%3ccircle cx='3' r='.5'/%3e%3ccircle cy='3' r='.5'/%3e%3ccircle cx='3' cy='3' r='.5'/%3e%3c/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right calc(0.375em + 0.1875rem) center;
+    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
+}
+
+/* BIC field auto-fill indication */
+#bic[readonly] {
+    background-color: #f8f9fa;
+    cursor: not-allowed;
+}
+
+/* Confirmation page bank details */
+#confirm-bank-details .text-danger {
+    font-weight: 500;
+}
+
+/* IBAN input enhancement */
+#iban {
+    font-family: 'Courier New', Courier, monospace;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+/* Loading state for validation */
+#iban.validating {
+    background-image: url("data:image/svg+xml,%3csvg width='16' height='16' viewBox='0 0 16 16' xmlns='http://www.w3.org/2000/svg'%3e%3cstyle%3e.spinner_P7sC%7banimation:spinner_svv2 .8s linear infinite%7d.spinner_P7sC%3e:nth-child(1)%7banimation-delay:-.8s%7d.spinner_P7sC%3e:nth-child(2)%7banimation-delay:-.65s%7d.spinner_P7sC%3e:nth-child(3)%7banimation-delay:-.5s%7d%40keyframes spinner_svv2%7b0%25,75%25%7bopacity:0%7d50%25%7bopacity:1%7d%7d%3c/style%3e%3ccircle class='spinner_P7sC' cx='4' cy='12' r='1.5'/%3e%3ccircle class='spinner_P7sC' cx='8' cy='12' r='1.5'/%3e%3ccircle class='spinner_P7sC' cx='12' cy='12' r='1.5'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right calc(0.375em + 0.1875rem) center;
+}

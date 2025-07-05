@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #f8f9fa; padding: 20px; border-radius: 8px 8px 0 0; }
+        .content { background-color: #ffffff; padding: 30px; border: 1px solid #e9ecef; }
+        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; border-radius: 0 0 8px 8px; }
+        .alert-box { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; }
+        .mandate-details { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .mandate-details td { padding: 8px 0; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #dc3545; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0; }
+        .button-secondary { background-color: #6c757d; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name }}</h2>
+        </div>
+
+        <div class="content">
+            <h3>Dear {{ member_name }},</h3>
+
+            <div class="alert-box">
+                <strong>Action Required:</strong> Your SEPA Direct Debit mandate will expire in {{ days_until_expiry }} days.
+            </div>
+
+            <p>Your SEPA mandate needs to be renewed to ensure uninterrupted payment processing for your membership.</p>
+
+            <div class="mandate-details">
+                <h4 style="margin-top: 0;">Expiring Mandate Details:</h4>
+                <table style="width: 100%;">
+                    <tr>
+                        <td><strong>Mandate Reference:</strong></td>
+                        <td>{{ mandate_id }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>IBAN:</strong></td>
+                        <td>{{ iban }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Expiry Date:</strong></td>
+                        <td style="color: #dc3545; font-weight: bold;">{{ expiry_date }}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <p><strong>Why is my mandate expiring?</strong><br>
+            SEPA mandates expire after 36 months without use as per European banking regulations. This is a standard security measure.</p>
+
+            <p><strong>What happens if I don't renew?</strong><br>
+            If your mandate expires, we won't be able to collect payments automatically. You'll need to make manual payments or set up a new mandate.</p>
+
+            <center>
+                <a href="{{ renewal_link }}" class="button">Renew Mandate Now</a>
+                <br>
+                <a href="{{ website_url }}/payment-dashboard" class="button button-secondary">View Payment Options</a>
+            </center>
+
+            <p>Renewing your mandate only takes a few minutes and ensures continued convenient payment processing.</p>
+
+            <p>If you have any questions or need assistance, please don't hesitate to contact us.</p>
+
+            <p>Best regards,<br>
+            {{ company_name }} Membership Team</p>
+        </div>
+
+        <div class="footer">
+            <p>This is an automated message from {{ company_name }}.<br>
+            Please do not reply to this email. For support, visit your member portal.<br>
+            © {{ current_year }} {{ company_name }}. All rights reserved.<br>
+            <a href="{{ unsubscribe_link }}" style="color: #6c757d;">Manage email preferences</a></p>
+        </div>
+    </div>
+</body>
+</html>

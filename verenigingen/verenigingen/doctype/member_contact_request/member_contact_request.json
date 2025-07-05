@@ -1,0 +1,287 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-01-14 10:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "contact_request_section",
+  "member",
+  "member_name",
+  "email",
+  "phone",
+  "column_break_5",
+  "request_type",
+  "preferred_contact_method",
+  "urgency",
+  "status",
+  "request_details_section",
+  "subject",
+  "message",
+  "preferred_time",
+  "notes",
+  "crm_integration_section",
+  "crm_lead",
+  "crm_opportunity",
+  "lead_source",
+  "column_break_16",
+  "assigned_to",
+  "follow_up_date",
+  "resolution",
+  "tracking_section",
+  "request_date",
+  "response_date",
+  "closed_date",
+  "column_break_22",
+  "created_by_portal",
+  "organization"
+ ],
+ "fields": [
+  {
+   "default": "MCR-.####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "MCR-.####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_request_section",
+   "fieldtype": "Section Break",
+   "label": "Contact Request"
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Member",
+   "options": "Member",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "member.member_name",
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Member Name",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "member.email_address",
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "member.phone_number",
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "General Inquiry",
+   "fieldname": "request_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Request Type",
+   "options": "General Inquiry\nMembership Question\nDonation Information\nVolunteer Opportunity\nEvent Information\nComplaint\nCompliment\nTechnical Support\nOther",
+   "reqd": 1
+  },
+  {
+   "default": "Email",
+   "fieldname": "preferred_contact_method",
+   "fieldtype": "Select",
+   "label": "Preferred Contact Method",
+   "options": "Email\nPhone\nEither",
+   "reqd": 1
+  },
+  {
+   "default": "Normal",
+   "fieldname": "urgency",
+   "fieldtype": "Select",
+   "label": "Urgency",
+   "options": "Low\nNormal\nHigh\nUrgent"
+  },
+  {
+   "default": "Open",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Open\nIn Progress\nWaiting for Response\nResolved\nClosed",
+   "reqd": 1
+  },
+  {
+   "fieldname": "request_details_section",
+   "fieldtype": "Section Break",
+   "label": "Request Details"
+  },
+  {
+   "fieldname": "subject",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Subject",
+   "reqd": 1
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Long Text",
+   "label": "Message",
+   "reqd": 1
+  },
+  {
+   "fieldname": "preferred_time",
+   "fieldtype": "Data",
+   "label": "Preferred Contact Time"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Internal Notes"
+  },
+  {
+   "fieldname": "crm_integration_section",
+   "fieldtype": "Section Break",
+   "label": "CRM Integration"
+  },
+  {
+   "fieldname": "crm_lead",
+   "fieldtype": "Link",
+   "label": "CRM Lead",
+   "options": "Lead",
+   "read_only": 1
+  },
+  {
+   "fieldname": "crm_opportunity",
+   "fieldtype": "Link",
+   "label": "CRM Opportunity",
+   "options": "Opportunity",
+   "read_only": 1
+  },
+  {
+   "default": "Member Portal",
+   "fieldname": "lead_source",
+   "fieldtype": "Data",
+   "label": "Lead Source"
+  },
+  {
+   "fieldname": "column_break_16",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "Assigned To",
+   "options": "User"
+  },
+  {
+   "fieldname": "follow_up_date",
+   "fieldtype": "Date",
+   "label": "Follow Up Date"
+  },
+  {
+   "fieldname": "resolution",
+   "fieldtype": "Small Text",
+   "label": "Resolution"
+  },
+  {
+   "fieldname": "tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Tracking"
+  },
+  {
+   "default": "Today",
+   "fieldname": "request_date",
+   "fieldtype": "Date",
+   "label": "Request Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "response_date",
+   "fieldtype": "Date",
+   "label": "Response Date"
+  },
+  {
+   "fieldname": "closed_date",
+   "fieldtype": "Date",
+   "label": "Closed Date"
+  },
+  {
+   "fieldname": "column_break_22",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "created_by_portal",
+   "fieldtype": "Check",
+   "label": "Created by Portal"
+  },
+  {
+   "fetch_from": "member.organization",
+   "fieldname": "organization",
+   "fieldtype": "Link",
+   "label": "Organization",
+   "options": "Organization",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2025-01-14 10:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Member Contact Request",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Member",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "subject",
+ "track_changes": 1
+}

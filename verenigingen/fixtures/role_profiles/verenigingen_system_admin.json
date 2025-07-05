@@ -1,0 +1,22 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen System Administrator",
+  "role_profile": "Verenigingen System Administrator",
+  "roles": [
+   {
+    "role": "Verenigingen Administrator"
+   },
+   {
+    "role": "System Manager"
+   },
+   {
+    "role": "Administrator"
+   },
+   {
+    "role": "All"
+   }
+  ]
+ }
+]

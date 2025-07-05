@@ -1,0 +1,141 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-8 col-md-offset-2">
+            <div class="page-header">
+                <h1>📧 Install Email Templates</h1>
+                <p class="lead">Set up email templates for your association management system</p>
+            </div>
+
+            {% if all_installed %}
+                <div class="alert alert-success">
+                    <h4>✅ All Email Templates Installed</h4>
+                    <p>All required email templates are already available in your system.</p>
+                    <hr>
+                    <h5>Installed Templates:</h5>
+                    <ul>
+                        {% for template in existing_templates %}
+                        <li><strong>{{ template.title }}</strong> ({{ template.name }})</li>
+                        {% endfor %}
+                    </ul>
+                    <hr>
+                    <a href="/app/email-template" class="btn btn-primary">
+                        <i class="fa fa-envelope"></i> Manage Email Templates
+                    </a>
+                    <a href="/app/verenigingen" class="btn btn-default">
+                        <i class="fa fa-arrow-left"></i> Back to Verenigingen
+                    </a>
+                </div>
+            {% else %}
+                <div class="panel panel-default">
+                    <div class="panel-body">
+                        <h4>Email Template Installation</h4>
+                        <p>The following email templates will be installed for your association:</p>
+
+                        {% if missing_templates %}
+                        <div class="alert alert-info">
+                            <h5>📥 Templates to Install:</h5>
+                            <ul>
+                                {% for template in missing_templates %}
+                                <li><strong>{{ template.title }}</strong> - Used for {{ template.name | replace("_", " ") }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+
+                        {% if existing_templates %}
+                        <div class="alert alert-success">
+                            <h5>✅ Already Installed:</h5>
+                            <ul>
+                                {% for template in existing_templates %}
+                                <li><strong>{{ template.title }}</strong></li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        {% endif %}
+
+                        <hr>
+
+                        <h5>What will be installed:</h5>
+                        <ul>
+                            <li><strong>Membership Application Confirmation</strong> - Sent when someone applies for membership</li>
+                            <li><strong>Membership Welcome</strong> - Welcome email for new members</li>
+                            <li><strong>Volunteer Welcome</strong> - Welcome email for new volunteers</li>
+                            <li><strong>Membership Payment Failed</strong> - Notification for failed payments</li>
+                            <li><strong>Additional templates</strong> - Termination notices, reminders, and other communication templates</li>
+                        </ul>
+
+                        <div class="mt-4">
+                            <button id="install-btn" class="btn btn-primary btn-lg">
+                                <i class="fa fa-download"></i> Install Email Templates
+                            </button>
+                            <a href="/app/verenigingen" class="btn btn-default">
+                                <i class="fa fa-arrow-left"></i> Back to Verenigingen
+                            </a>
+                        </div>
+
+                        <div id="result-message" style="margin-top: 20px;"></div>
+                    </div>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    $('#install-btn').click(function() {
+        var btn = $(this);
+        var originalText = btn.html();
+
+        // Show loading state
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Installing...');
+
+        // Call the installation method
+        frappe.call({
+            method: 'verenigingen.templates.pages.install_email_templates.install_templates',
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    $('#result-message').html(
+                        '<div class="alert alert-success">' +
+                        '<h4>' + r.message.message + '</h4>' +
+                        '<p>Installed ' + r.message.templates_installed + ' email templates total:</p>' +
+                        '<ul>' +
+                        '<li>Basic templates: ' + r.message.basic_count + '</li>' +
+                        '<li>Enhanced templates: ' + r.message.enhanced_count + '</li>' +
+                        '<li>Comprehensive templates: ' + r.message.comprehensive_count + '</li>' +
+                        '</ul>' +
+                        '<hr>' +
+                        '<a href="/app/email-template" class="btn btn-primary">View Email Templates</a> ' +
+                        '<a href="/app/verenigingen" class="btn btn-default">Back to Verenigingen</a>' +
+                        '</div>'
+                    );
+                    btn.hide();
+                } else {
+                    $('#result-message').html(
+                        '<div class="alert alert-danger">' +
+                        '<h4>Installation Failed</h4>' +
+                        '<p>' + (r.message ? r.message.message : 'Unknown error occurred') + '</p>' +
+                        '</div>'
+                    );
+                    btn.prop('disabled', false).html(originalText);
+                }
+            },
+            error: function() {
+                $('#result-message').html(
+                    '<div class="alert alert-danger">' +
+                    '<h4>Installation Failed</h4>' +
+                    '<p>An error occurred while installing email templates. Please try again.</p>' +
+                    '</div>'
+                );
+                btn.prop('disabled', false).html(originalText);
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

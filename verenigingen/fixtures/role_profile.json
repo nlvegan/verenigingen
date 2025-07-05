@@ -1,0 +1,221 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Member",
+  "role_profile": "Verenigingen Member",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Employee"
+   }
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Volunteer",
+  "role_profile": "Verenigingen Volunteer",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Volunteer"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   }
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Team Leader",
+  "role_profile": "Verenigingen Team Leader",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Volunteer"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Projects User"
+   },
+   {
+    "role": "Expense Approver"
+   }
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Chapter Board",
+  "role_profile": "Verenigingen Chapter Board",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Chapter Board Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Projects User"
+   }
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Treasurer",
+  "role_profile": "Verenigingen Treasurer",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Verenigingen Staff"
+   },
+   {
+    "role": "Accounts User"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Sales User"
+   },
+   {
+    "role": "Bank Reconciliation User"
+   }
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Chapter Administrator",
+  "role_profile": "Verenigingen Chapter Administrator",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Verenigingen Staff"
+   },
+   {
+    "role": "Chapter Board Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Projects User"
+   },
+   {
+    "role": "Website Manager"
+   }
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Manager",
+  "role_profile": "Verenigingen Manager",
+  "roles": [
+   {
+    "role": "Verenigingen Manager"
+   },
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Projects Manager"
+   },
+   {
+    "role": "Accounts Manager"
+   },
+   {
+    "role": "Sales Manager"
+   },
+   {
+    "role": "Expense Approver"
+   },
+   {
+    "role": "Website Manager"
+   },
+   {
+    "role": "Support Team"
+   }
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen System Administrator",
+  "role_profile": "Verenigingen System Administrator",
+  "roles": [
+   {
+    "role": "Verenigingen Administrator"
+   },
+   {
+    "role": "System Manager"
+   },
+   {
+    "role": "Administrator"
+   },
+   {
+    "role": "All"
+   }
+  ]
+ },
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Auditor",
+  "role_profile": "Verenigingen Auditor",
+  "roles": [
+   {
+    "role": "Governance Auditor"
+   },
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Auditor"
+   }
+  ]
+ }
+]

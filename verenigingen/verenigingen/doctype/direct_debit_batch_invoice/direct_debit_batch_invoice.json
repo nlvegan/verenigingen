@@ -1,0 +1,131 @@
+{
+ "app": "verenigingen",
+ "creation": "2023-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "invoice",
+  "membership",
+  "member",
+  "member_name",
+  "column_break_5",
+  "amount",
+  "currency",
+  "section_break_8",
+  "bank_account",
+  "iban",
+  "mandate_reference",
+  "column_break_12",
+  "status",
+  "result_code",
+  "result_message"
+ ],
+ "fields": [
+  {
+   "fieldname": "invoice",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Invoice",
+   "options": "Sales Invoice",
+   "reqd": 1
+  },
+  {
+   "fieldname": "membership",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Membership",
+   "options": "Membership",
+   "reqd": 1
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "label": "Member",
+   "options": "Member",
+   "reqd": 1
+  },
+  {
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "label": "Member Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "default": "EUR",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_8",
+   "fieldtype": "Section Break",
+   "label": "Bank Details"
+  },
+  {
+   "fieldname": "bank_account",
+   "fieldtype": "Data",
+   "label": "Bank Account"
+  },
+  {
+   "fieldname": "iban",
+   "fieldtype": "Data",
+   "label": "IBAN",
+   "reqd": 1
+  },
+  {
+   "fieldname": "mandate_reference",
+   "fieldtype": "Data",
+   "label": "Mandate Reference",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_12",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nProcessed\nSuccessful\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "result_code",
+   "fieldtype": "Data",
+   "label": "Result Code",
+   "read_only": 1
+  },
+  {
+   "fieldname": "result_message",
+   "fieldtype": "Small Text",
+   "label": "Result Message",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2023-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Direct Debit Batch Invoice",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

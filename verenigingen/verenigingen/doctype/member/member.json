@@ -1,0 +1,978 @@
+{
+ "actions": [],
+ "app": "verenigingen",
+ "autoname": "format:Assoc-Member-{YYYY}-{MM}-{####}",
+ "creation": "2023-01-01 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "member_details_section",
+  "aanhef",
+  "first_name",
+  "middle_name",
+  "tussenvoegsel",
+  "last_name",
+  "full_name",
+  "pronouns",
+  "birth_date",
+  "age",
+  "column_break_8",
+  "email",
+  "contact_number",
+  "image",
+  "status",
+  "member_id",
+  "member_since",
+  "cumulative_membership_duration",
+  "address_section",
+  "primary_address",
+  "address_display",
+  "other_members_at_address",
+  "notes_section",
+  "notes",
+  "membership_tab",
+  "subscription_section",
+  "current_membership_details",
+  "current_membership_type",
+  "current_membership_start",
+  "current_membership_end",
+  "current_subscription_summary_section",
+  "current_subscription_summary",
+  "fee_management_section",
+  "membership_fee_override",
+  "fee_override_reason",
+  "column_break_fee",
+  "fee_override_date",
+  "fee_override_by",
+  "fee_change_history_section",
+  "fee_change_history",
+  "payments_tab",
+  "payment_method_section",
+  "payment_method",
+  "bank_details_section",
+  "iban",
+  "bic",
+  "bank_account_name",
+  "payment_reference",
+  "credit_card_number",
+  "column_break_31",
+  "iban_history_section",
+  "iban_history",
+  "membership_status",
+  "sepa_mandates_section",
+  "sepa_mandates",
+  "subscription_history_section",
+  "subscription_history",
+  "payment_history_tab",
+  "payment_history_section",
+  "payment_history",
+  "chapter_data_tab",
+  "chapter_and_volunteer_activity_section",
+  "current_chapter_display",
+  "chapter_assigned_by",
+  "previous_chapter",
+  "chapter_change_reason",
+  "chapter_membership_history_section",
+  "chapter_membership_history",
+  "volunteer_details_section",
+  "volunteer_details_html",
+  "volunteer_assignment_history_section",
+  "volunteer_assignment_history",
+  "administration_tab",
+  "application_section",
+  "application_id",
+  "application_status",
+  "application_date",
+  "selected_membership_type",
+  "column_break_app1",
+  "reviewed_by",
+  "review_date",
+  "review_notes",
+  "termination_status_section",
+  "termination_status_html",
+  "amendment_status_section",
+  "amendment_status_html",
+  "erpnext_integration_section",
+  "customer",
+  "column_break_24",
+  "user",
+  "employee",
+  "membership_analytics_section",
+  "total_membership_days",
+  "last_duration_update",
+  "next_member_id",
+  "reset_counter_to",
+  "reset_counter_button",
+  "permission_category",
+  "miscellaneous_tab",
+  "custom_fields_section",
+  "custom_field_1",
+  "custom_field_2",
+  "column_break_37",
+  "custom_field_3",
+  "custom_field_4",
+  "financial_details_section",
+  "employer",
+  "occupation",
+  "column_break_financial",
+  "annual_income",
+  "tax_residence",
+  "student_status",
+  "donation_interest"
+ ],
+ "fields": [
+  {
+   "depends_on": "eval:doc.customer",
+   "fieldname": "payment_history_section",
+   "fieldtype": "Section Break",
+   "label": "Financial History"
+  },
+  {
+   "fieldname": "member_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Member ID",
+   "read_only_depends_on": "eval:!doc.__islocal",
+   "unique": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.iban",
+   "fieldname": "iban_history_section",
+   "fieldtype": "Section Break",
+   "label": "IBAN History"
+  },
+  {
+   "fieldname": "iban_history",
+   "fieldtype": "Table",
+   "label": "IBAN History",
+   "options": "Member IBAN History",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.name",
+   "fieldname": "sepa_mandates_section",
+   "fieldtype": "Section Break",
+   "label": "SEPA Mandates"
+  },
+  {
+   "fieldname": "sepa_mandates",
+   "fieldtype": "Table",
+   "label": "SEPA Mandates",
+   "options": "Member SEPA Mandate Link"
+  },
+  {
+   "fieldname": "payment_history",
+   "fieldtype": "Table",
+   "label": "Payment History",
+   "options": "Member Payment History",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bank_details_section",
+   "fieldtype": "Section Break",
+   "label": "Bank Details"
+  },
+  {
+   "fieldname": "iban",
+   "fieldtype": "Data",
+   "label": "IBAN",
+   "length": 34,
+   "mandatory_depends_on": "eval:doc.payment_method=='SEPA Direct Debit'"
+  },
+  {
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "label": "Payment Method",
+   "options": "Bank Transfer\nSEPA Direct Debit\nCredit Card\nCash\nOther"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "application_section",
+   "fieldtype": "Section Break",
+   "label": "Application Details"
+  },
+  {
+   "description": "Unique identifier for the membership application",
+   "fieldname": "application_id",
+   "fieldtype": "Data",
+   "label": "Application ID",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "application_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Application Status",
+   "options": "Pending\nUnder Review\nApproved\nRejected\nPayment Pending\nActive"
+  },
+  {
+   "depends_on": "eval:frappe.user.has_role('System Manager')",
+   "description": "The next sequential member ID that will be assigned",
+   "fieldname": "next_member_id",
+   "fieldtype": "Int",
+   "label": "Next Member ID",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:frappe.user.has_role('System Manager')",
+   "description": "Set this to reset the member ID counter to a specific number",
+   "fieldname": "reset_counter_to",
+   "fieldtype": "Int",
+   "label": "Reset Counter To"
+  },
+  {
+   "depends_on": "eval:doc.reset_counter_to && frappe.user.has_role('System Manager')",
+   "fieldname": "reset_counter_button",
+   "fieldtype": "Button",
+   "label": "Reset Counter"
+  },
+  {
+   "fieldname": "application_date",
+   "fieldtype": "Datetime",
+   "label": "Application Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "selected_membership_type",
+   "fieldtype": "Link",
+   "label": "Selected Membership Type",
+   "options": "Membership Type"
+  },
+  {
+   "fieldname": "column_break_app1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reviewed_by",
+   "fieldtype": "Link",
+   "label": "Reviewed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_date",
+   "fieldtype": "Datetime",
+   "label": "Review Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "review_notes",
+   "fieldtype": "Small Text",
+   "label": "Review Notes"
+  },
+  {
+   "fieldname": "bic",
+   "fieldtype": "Data",
+   "label": "BIC/SWIFT",
+   "length": 11
+  },
+  {
+   "fieldname": "bank_account_name",
+   "fieldtype": "Data",
+   "label": "Account Holder Name"
+  },
+  {
+   "fieldname": "payment_reference",
+   "fieldtype": "Data",
+   "label": "Payment Reference",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.payment_method === 'Credit Card'",
+   "description": "Last 4 digits only for verification purposes",
+   "fieldname": "credit_card_number",
+   "fieldtype": "Data",
+   "label": "Credit Card Number"
+  },
+  {
+   "fieldname": "member_details_section",
+   "fieldtype": "Section Break",
+   "label": "Member Details"
+  },
+  {
+   "description": "Displays member's current chapter membership(s) based on Chapter Member relationships",
+   "fieldname": "current_chapter_display",
+   "fieldtype": "HTML",
+   "label": "Current Chapter(s)",
+   "read_only": 1
+  },
+  {
+   "description": "User who assigned member to current chapter",
+   "fieldname": "chapter_assigned_by",
+   "fieldtype": "Link",
+   "label": "Chapter Assigned By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "description": "Member's previous chapter before current assignment",
+   "fieldname": "previous_chapter",
+   "fieldtype": "Link",
+   "label": "Previous Chapter",
+   "options": "Chapter",
+   "read_only": 1
+  },
+  {
+   "description": "Reason for chapter assignment/change",
+   "fieldname": "chapter_change_reason",
+   "fieldtype": "Small Text",
+   "label": "Chapter Change Reason"
+  },
+  {
+   "depends_on": "eval:doc.name",
+   "fieldname": "chapter_membership_history_section",
+   "fieldtype": "Section Break",
+   "label": "Chapter Membership History"
+  },
+  {
+   "description": "Historical record of all chapter memberships and board positions",
+   "fieldname": "chapter_membership_history",
+   "fieldtype": "Table",
+   "label": "Chapter Membership History",
+   "options": "Chapter Membership History"
+  },
+  {
+   "default": "Board Only",
+   "description": "Controls who can see payment and personal information",
+   "fieldname": "permission_category",
+   "fieldtype": "Select",
+   "label": "Information Visibility",
+   "options": "Public\nBoard Only\nAdmin Only"
+  },
+  {
+   "fieldname": "aanhef",
+   "fieldtype": "Select",
+   "label": "Salutation",
+   "options": "\nMr.\nMrs.\nMs.\nDr.\nProf.\nMr./Mrs."
+  },
+  {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Preferred Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "middle_name",
+   "fieldtype": "Data",
+   "label": "Middle Names"
+  },
+  {
+   "description": "Dutch name particles/prefixes (van, de, van der, etc.)",
+   "fieldname": "tussenvoegsel",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Tussenvoegsel"
+  },
+  {
+   "fieldname": "last_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Last Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "full_name",
+   "fieldtype": "Data",
+   "label": "Full Name",
+   "read_only": 1
+  },
+  {
+   "description": "Preferred pronouns (e.g., She/her, He/him, They/them, or specify your own)",
+   "fieldname": "pronouns",
+   "fieldtype": "Data",
+   "label": "Pronouns"
+  },
+  {
+   "fieldname": "birth_date",
+   "fieldtype": "Date",
+   "label": "Birth Date"
+  },
+  {
+   "fieldname": "column_break_8",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "description": "Primary contact number (mobile or landline)",
+   "fieldname": "contact_number",
+   "fieldtype": "Data",
+   "label": "Contact Number",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "label": "Image"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Pending\nActive\nRejected\nExpired\nSuspended\nBanned\nDeceased\nTerminated"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "termination_status_section",
+   "fieldtype": "Section Break",
+   "label": "Termination Status"
+  },
+  {
+   "description": "Shows current termination status and any pending requests",
+   "fieldname": "termination_status_html",
+   "fieldtype": "HTML",
+   "label": "Termination Status",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.name",
+   "fieldname": "amendment_status_section",
+   "fieldtype": "Section Break",
+   "label": "Fee Amendment Status"
+  },
+  {
+   "description": "Shows pending membership fee amendment requests",
+   "fieldname": "amendment_status_html",
+   "fieldtype": "HTML",
+   "label": "Amendment Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "address_section",
+   "fieldtype": "Section Break",
+   "label": "Address"
+  },
+  {
+   "fetch_from": "primary_address.address_line1",
+   "fieldname": "address_display",
+   "fieldtype": "HTML",
+   "label": "Address Details",
+   "read_only": 1
+  },
+  {
+   "fieldname": "other_members_at_address",
+   "fieldtype": "HTML",
+   "label": "Other Members at This Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "erpnext_integration_section",
+   "fieldtype": "Section Break",
+   "label": "ERPNext Integration"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer"
+  },
+  {
+   "fieldname": "column_break_24",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User",
+   "show_dashboard": 1
+  },
+  {
+   "description": "Link to ERPNext Employee record for expense claims and HR operations",
+   "fieldname": "employee",
+   "fieldtype": "Link",
+   "label": "Employee",
+   "options": "Employee",
+   "show_dashboard": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "membership_analytics_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Analytics"
+  },
+  {
+   "description": "Total number of days this member has been active (updated daily)",
+   "fieldname": "total_membership_days",
+   "fieldtype": "Int",
+   "label": "Total Membership Days",
+   "read_only": 1
+  },
+  {
+   "description": "Last time the membership duration was calculated",
+   "fieldname": "last_duration_update",
+   "fieldtype": "Datetime",
+   "label": "Last Duration Update",
+   "read_only": 1
+  },
+  {
+   "fieldname": "subscription_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Information"
+  },
+  {
+   "fieldname": "current_membership_details",
+   "fieldtype": "Link",
+   "label": "Current Membership",
+   "options": "Membership",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "current_membership_details.membership_type",
+   "fieldname": "current_membership_type",
+   "fieldtype": "Data",
+   "label": "Membership Type",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "current_membership_details.start_date",
+   "fieldname": "current_membership_start",
+   "fieldtype": "Date",
+   "label": "Start Date",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "current_membership_details.renewal_date",
+   "fieldname": "current_membership_end",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_31",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "current_membership_details.status",
+   "fieldname": "membership_status",
+   "fieldtype": "Data",
+   "label": "Membership Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "custom_fields_section",
+   "fieldtype": "Section Break",
+   "label": "Additional Information"
+  },
+  {
+   "fieldname": "custom_field_1",
+   "fieldtype": "Data",
+   "label": "Custom Field 1"
+  },
+  {
+   "fieldname": "custom_field_2",
+   "fieldtype": "Data",
+   "label": "Custom Field 2"
+  },
+  {
+   "fieldname": "column_break_37",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "custom_field_3",
+   "fieldtype": "Data",
+   "label": "Custom Field 3"
+  },
+  {
+   "fieldname": "custom_field_4",
+   "fieldtype": "Data",
+   "label": "Custom Field 4"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text Editor",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "age",
+   "fieldtype": "Int",
+   "label": "Age",
+   "read_only": 1
+  },
+  {
+   "fieldname": "primary_address",
+   "fieldtype": "Link",
+   "label": "Primary address",
+   "options": "Address"
+  },
+  {
+   "description": "Date when membership application was approved",
+   "fieldname": "member_since",
+   "fieldtype": "Date",
+   "label": "Member Since",
+   "read_only": 1
+  },
+  {
+   "description": "Total cumulative time as an active member, calculated from membership days",
+   "fieldname": "cumulative_membership_duration",
+   "fieldtype": "Data",
+   "label": "Total Membership Duration",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "membership_tab",
+   "fieldtype": "Tab Break",
+   "label": "Membership Data"
+  },
+  {
+   "fieldname": "payments_tab",
+   "fieldtype": "Tab Break",
+   "label": "Financial information"
+  },
+  {
+   "fieldname": "administration_tab",
+   "fieldtype": "Tab Break",
+   "label": "Administration"
+  },
+  {
+   "fieldname": "miscellaneous_tab",
+   "fieldtype": "Tab Break",
+   "label": "Miscellaneous"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "financial_details_section",
+   "fieldtype": "Section Break",
+   "label": "Financial Details"
+  },
+  {
+   "fieldname": "employer",
+   "fieldtype": "Data",
+   "label": "Employer"
+  },
+  {
+   "fieldname": "occupation",
+   "fieldtype": "Data",
+   "label": "Occupation"
+  },
+  {
+   "fieldname": "column_break_financial",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "annual_income",
+   "fieldtype": "Select",
+   "label": "Annual Income Range",
+   "options": "\nUnder \u20ac25,000\n\u20ac25,000 - \u20ac40,000\n\u20ac40,000 - \u20ac60,000\n\u20ac60,000 - \u20ac80,000\n\u20ac80,000 - \u20ac100,000\nOver \u20ac100,000\nPrefer not to say"
+  },
+  {
+   "fieldname": "tax_residence",
+   "fieldtype": "Data",
+   "label": "Tax Residence Country"
+  },
+  {
+   "default": "0",
+   "fieldname": "student_status",
+   "fieldtype": "Check",
+   "label": "Student Status"
+  },
+  {
+   "default": "0",
+   "fieldname": "donation_interest",
+   "fieldtype": "Check",
+   "label": "Interested in Donations"
+  },
+  {
+   "fieldname": "payment_method_section",
+   "fieldtype": "Section Break",
+   "label": "Payment method"
+  },
+  {
+   "fieldname": "chapter_and_volunteer_activity_section",
+   "fieldtype": "Section Break",
+   "label": "Chapter and Volunteer activity"
+  },
+  {
+   "fieldname": "volunteer_details_section",
+   "fieldtype": "Section Break",
+   "label": "Volunteer Details"
+  },
+  {
+   "fieldname": "volunteer_details_html",
+   "fieldtype": "HTML",
+   "label": "Volunteer Information"
+  },
+  {
+   "depends_on": "eval:doc.name",
+   "fieldname": "volunteer_assignment_history_section",
+   "fieldtype": "Section Break",
+   "label": "Volunteer Assignment History"
+  },
+  {
+   "description": "Historical record of all volunteer assignments and roles",
+   "fieldname": "volunteer_assignment_history",
+   "fieldtype": "Table",
+   "label": "Volunteer Assignment History",
+   "options": "Volunteer Assignment"
+  },
+  {
+   "depends_on": "eval:!doc.__islocal",
+   "fieldname": "fee_management_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Fee Management"
+  },
+  {
+   "description": "Override the standard membership fee with a custom amount",
+   "fieldname": "membership_fee_override",
+   "fieldtype": "Currency",
+   "label": "Custom Membership Fee"
+  },
+  {
+   "depends_on": "eval:doc.membership_fee_override",
+   "fieldname": "fee_override_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Fee Override"
+  },
+  {
+   "fieldname": "column_break_fee",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.membership_fee_override",
+   "fieldname": "fee_override_date",
+   "fieldtype": "Date",
+   "label": "Override Date",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.membership_fee_override",
+   "fieldname": "fee_override_by",
+   "fieldtype": "Link",
+   "label": "Override Set By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.fee_change_history && doc.fee_change_history.length > 0",
+   "fieldname": "fee_change_history_section",
+   "fieldtype": "Section Break",
+   "label": "Fee Change History"
+  },
+  {
+   "fieldname": "fee_change_history",
+   "fieldtype": "Table",
+   "label": "Fee Change History",
+   "options": "Member Fee Change History",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.customer",
+   "fieldname": "subscription_history_section",
+   "fieldtype": "Section Break",
+   "label": "Subscription History"
+  },
+  {
+   "fieldname": "subscription_history",
+   "fieldtype": "Table",
+   "label": "Subscription History",
+   "options": "Member Subscription History",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.customer",
+   "fieldname": "current_subscription_summary_section",
+   "fieldtype": "Section Break",
+   "label": "Current Subscription Details"
+  },
+  {
+   "fieldname": "current_subscription_summary",
+   "fieldtype": "HTML",
+   "label": "Current Subscription Summary",
+   "options": "<div id=\"subscription-summary-placeholder\">Loading subscription details...</div>"
+  },
+  {
+   "fieldname": "payment_history_tab",
+   "fieldtype": "Tab Break",
+   "label": "Payment history"
+  },
+  {
+   "fieldname": "chapter_data_tab",
+   "fieldtype": "Tab Break",
+   "label": "Volunteer & Chapter Data"
+  }
+ ],
+ "links": [
+  {
+   "group": "Memberships",
+   "link_doctype": "Membership",
+   "link_fieldname": "member"
+  },
+  {
+   "group": "Memberships",
+   "link_doctype": "Contribution Amendment Request",
+   "link_fieldname": "member"
+  },
+  {
+   "group": "Memberships",
+   "link_doctype": "Membership Termination Request",
+   "link_fieldname": "member"
+  },
+  {
+   "group": "Transactions",
+   "link_doctype": "Payment Entry",
+   "link_fieldname": "party",
+   "table_fieldname": "references"
+  },
+  {
+   "group": "Financial",
+   "link_doctype": "Sales Invoice",
+   "link_fieldname": "customer"
+  },
+  {
+   "group": "Financial",
+   "link_doctype": "SEPA Mandate",
+   "link_fieldname": "member"
+  },
+  {
+   "group": "Volunteer",
+   "link_doctype": "Volunteer",
+   "link_fieldname": "member"
+  },
+  {
+   "group": "Volunteer",
+   "link_doctype": "Volunteer Activity",
+   "link_fieldname": "volunteer"
+  },
+  {
+   "group": "Volunteer",
+   "link_doctype": "Volunteer Expense",
+   "link_fieldname": "volunteer"
+  }
+ ],
+ "modified": "2025-07-04 21:56:18.824987",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Member",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Staff",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Verenigingen Manager",
+   "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Verenigingen Administrator",
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Chapter Board Member",
+   "share": 1
+  },
+  {
+   "if_owner": 1,
+   "read": 1,
+   "role": "Verenigingen Member",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "search_fields": "full_name,email,contact_number",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Yellow",
+   "title": "Pending"
+  },
+  {
+   "color": "Green",
+   "title": "Active"
+  },
+  {
+   "color": "Red",
+   "title": "Rejected"
+  },
+  {
+   "color": "Orange",
+   "title": "Expired"
+  },
+  {
+   "color": "Gray",
+   "title": "Suspended"
+  },
+  {
+   "color": "Purple",
+   "title": "Banned"
+  },
+  {
+   "color": "Red",
+   "title": "Terminated"
+  }
+ ],
+ "title_field": "full_name",
+ "track_changes": 1
+}

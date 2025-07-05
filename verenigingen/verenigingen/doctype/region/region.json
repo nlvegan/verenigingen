@@ -1,0 +1,228 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","allow_rename": 1,
+ "autoname": "field:region_name",
+ "creation": "2025-06-15 16:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "region_name",
+  "region_code",
+  "column_break_3",
+  "country",
+  "is_active",
+  "section_break_6",
+  "regional_coordinator",
+  "backup_coordinator",
+  "section_break_9",
+  "postal_code_patterns",
+  "coverage_description",
+  "section_break_12",
+  "description",
+  "regional_settings_section",
+  "preferred_language",
+  "time_zone",
+  "column_break_16",
+  "membership_fee_adjustment",
+  "communication_settings_section",
+  "regional_email",
+  "regional_phone",
+  "column_break_20",
+  "website_url",
+  "social_media_links"
+ ],
+ "fields": [
+  {
+   "fieldname": "region_name",
+   "fieldtype": "Data",
+   "label": "Region Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "Short code for the region (e.g., ZH, NH, LB)",
+   "fieldname": "region_code",
+   "fieldtype": "Data",
+   "label": "Region Code",
+   "reqd": 1,
+   "unique": 1,
+   "uppercase": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Netherlands",
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country"
+  },
+  {
+   "default": 1,
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "section_break_6",
+   "fieldtype": "Section Break",
+   "label": "Regional Management"
+  },
+  {
+   "fieldname": "regional_coordinator",
+   "fieldtype": "Link",
+   "label": "Regional Coordinator",
+   "options": "Member"
+  },
+  {
+   "fieldname": "backup_coordinator",
+   "fieldtype": "Link",
+   "label": "Backup Coordinator",
+   "options": "Member"
+  },
+  {
+   "fieldname": "section_break_9",
+   "fieldtype": "Section Break",
+   "label": "Geographic Coverage"
+  },
+  {
+   "description": "Comma-separated postal code patterns (e.g., 1000-1999, 2000-2500, 3*)",
+   "fieldname": "postal_code_patterns",
+   "fieldtype": "Small Text",
+   "label": "Postal Code Patterns"
+  },
+  {
+   "fieldname": "coverage_description",
+   "fieldtype": "Small Text",
+   "label": "Coverage Description",
+   "description": "Human-readable description of geographic coverage"
+  },
+  {
+   "fieldname": "section_break_12",
+   "fieldtype": "Section Break",
+   "label": "Description"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text Editor",
+   "label": "Description"
+  },
+  {
+   "fieldname": "regional_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Regional Settings"
+  },
+  {
+   "default": "Dutch",
+   "fieldname": "preferred_language",
+   "fieldtype": "Select",
+   "label": "Preferred Language",
+   "options": "Dutch\nEnglish\nGerman\nFrench"
+  },
+  {
+   "default": "Europe/Amsterdam",
+   "fieldname": "time_zone",
+   "fieldtype": "Data",
+   "label": "Time Zone"
+  },
+  {
+   "fieldname": "column_break_16",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1.0",
+   "description": "Multiplier for regional membership fee adjustments (1.0 = standard rate)",
+   "fieldname": "membership_fee_adjustment",
+   "fieldtype": "Float",
+   "label": "Membership Fee Adjustment",
+   "precision": "3"
+  },
+  {
+   "fieldname": "communication_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Communication Settings"
+  },
+  {
+   "fieldname": "regional_email",
+   "fieldtype": "Data",
+   "label": "Regional Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "regional_phone",
+   "fieldtype": "Data",
+   "label": "Regional Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "column_break_20",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "website_url",
+   "fieldtype": "Data",
+   "label": "Website URL",
+   "options": "URL"
+  },
+  {
+   "fieldname": "social_media_links",
+   "fieldtype": "Small Text",
+   "label": "Social Media Links"
+  }
+ ],
+ "has_web_view": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-06-15 16:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Region",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Chapter Manager",
+   "share": 1
+  }
+ ],
+ "route": "regions",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "region_name",
+ "track_changes": 1,
+ "web_view": 1
+}

@@ -1,0 +1,318 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("My Teams") }}{% endblock %}
+
+{% block head_include %}
+<style>
+.teams-page {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 2rem;
+}
+
+.page-header {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+
+.page-header h1 {
+    color: #333;
+    margin-bottom: 0.5rem;
+}
+
+.page-header p {
+    color: #666;
+    font-size: 1.1rem;
+}
+
+.teams-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 2rem;
+    margin-bottom: 3rem;
+}
+
+.team-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow: hidden;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.team-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.team-header {
+    background: linear-gradient(135deg, #663399, #cf3131);
+    color: white;
+    padding: 1.5rem;
+}
+
+.team-header h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.3rem;
+}
+
+.team-type {
+    display: inline-block;
+    background: rgba(255,255,255,0.2);
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.team-content {
+    padding: 1.5rem;
+}
+
+.team-description {
+    color: #666;
+    margin-bottom: 1.5rem;
+    font-style: italic;
+}
+
+.roles-section {
+    margin-bottom: 1.5rem;
+}
+
+.roles-section h4 {
+    color: #333;
+    margin: 0 0 0.75rem 0;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+}
+
+.roles-section .icon {
+    margin-right: 0.5rem;
+    color: #cf3131;
+}
+
+.role-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: #f8f9fa;
+    border-radius: 6px;
+    margin-bottom: 0.5rem;
+}
+
+.role-item:last-child {
+    margin-bottom: 0;
+}
+
+.role-details {
+    flex: 1;
+}
+
+.role-name {
+    font-weight: 500;
+    color: #333;
+}
+
+.role-type {
+    font-size: 0.875rem;
+    color: #666;
+    margin-top: 0.25rem;
+}
+
+.role-duration {
+    font-size: 0.75rem;
+    color: #888;
+    text-align: right;
+}
+
+.team-actions {
+    border-top: 1px solid #eee;
+    padding: 1rem 1.5rem;
+    background: #f8f9fa;
+}
+
+.action-button {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    background: #cf3131;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.action-button:hover {
+    background: #b82828;
+    color: white;
+    text-decoration: none;
+}
+
+.action-button.disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.no-teams {
+    text-align: center;
+    padding: 3rem;
+    color: #666;
+}
+
+.no-teams .icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    color: #ccc;
+}
+
+.no-teams h3 {
+    margin-bottom: 1rem;
+    color: #333;
+}
+
+.no-teams p {
+    margin-bottom: 2rem;
+}
+
+.no-volunteer {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.no-volunteer .icon {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    color: #856404;
+}
+
+.no-volunteer h3 {
+    color: #856404;
+    margin-bottom: 1rem;
+}
+
+.no-volunteer p {
+    color: #856404;
+    margin-bottom: 1.5rem;
+}
+
+.btn {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    background: #cf3131;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.btn:hover {
+    background: #b82828;
+    color: white;
+    text-decoration: none;
+}
+
+@media (max-width: 768px) {
+    .teams-page {
+        padding: 1rem;
+    }
+
+    .teams-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .role-item {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .role-duration {
+        text-align: left;
+        margin-top: 0.25rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="teams-page">
+    <div class="page-header">
+        <h1>{{ _("My Teams") }}</h1>
+        <p>{{ _("View and manage your team memberships") }}</p>
+    </div>
+
+    {% if not volunteer %}
+    <div class="no-volunteer">
+        <div class="icon">🤝</div>
+        <h3>{{ _("Not a Volunteer Yet") }}</h3>
+        <p>{{ _("You need to be a registered volunteer to join teams. Apply to become a volunteer to start collaborating with teams.") }}</p>
+        <a href="/volunteer/apply" class="btn">{{ _("Become a Volunteer") }}</a>
+    </div>
+    {% elif not teams %}
+    <div class="no-teams">
+        <div class="icon">👥</div>
+        <h3>{{ _("No Team Memberships") }}</h3>
+        <p>{{ _("You are not currently a member of any teams. Contact your organization administrator to join teams.") }}</p>
+        <a href="/contact_request" class="btn">{{ _("Contact Support") }}</a>
+    </div>
+    {% else %}
+    <div class="teams-grid">
+        {% for team in teams %}
+        <div class="team-card">
+            <div class="team-header">
+                <h3>{{ team.info.team_name }}</h3>
+                <span class="team-type">{{ _(team.info.team_type) }}</span>
+            </div>
+            <div class="team-content">
+                {% if team.info.description %}
+                <div class="team-description">
+                    {{ team.info.description }}
+                </div>
+                {% endif %}
+
+                <div class="roles-section">
+                    <h4><span class="icon">🏷️</span>{{ _("Your Roles") }}</h4>
+                    {% for role in team.roles %}
+                    <div class="role-item">
+                        <div class="role-details">
+                            <div class="role-name">{{ role.role or role.role_type }}</div>
+                            <div class="role-type">{{ _(role.role_type) }}</div>
+                        </div>
+                        <div class="role-duration">
+                            {% if role.from_date %}
+                            {{ _("Since") }} {{ frappe.utils.formatdate(role.from_date, "dd MMM yyyy") }}
+                            {% endif %}
+                            {% if role.to_date %}
+                            <br>{{ _("Until") }} {{ frappe.utils.formatdate(role.to_date, "dd MMM yyyy") }}
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="team-actions">
+                {% if team.can_view_members %}
+                <a href="/team_members?team={{ team.info.name }}" class="action-button">
+                    <i class="fa fa-users"></i> {{ _("View Team Members") }}
+                </a>
+                {% else %}
+                <span class="action-button disabled" title="{{ _('Only team members can view member lists') }}">
+                    <i class="fa fa-users"></i> {{ _("View Team Members") }}
+                </span>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,93 @@
+{
+ "app": "verenigingen",
+ "creation": "2025-06-06 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "subscription_name",
+  "status",
+  "amount",
+  "column_break_2",
+  "start_date",
+  "end_date",
+  "last_update",
+  "section_break_3",
+  "plan_details",
+  "cancellation_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "subscription_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Subscription",
+   "options": "Subscription",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Start Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_update",
+   "fieldtype": "Datetime",
+   "label": "Last Updated",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_3",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "plan_details",
+   "fieldtype": "Small Text",
+   "label": "Plan Details",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_reason",
+   "fieldtype": "Data",
+   "label": "Cancellation Reason",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2025-06-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Member Subscription History",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

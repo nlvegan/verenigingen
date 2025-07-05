@@ -1,0 +1,340 @@
+@import "tailwindcss";
+
+/* Custom color definitions for TailwindCSS v4 */
+@theme {
+  --color-primary-50: #fef2f2;
+  --color-primary-100: #fee2e2;
+  --color-primary-200: #fecaca;
+  --color-primary-300: #fca5a5;
+  --color-primary-400: #f87171;
+  --color-primary-500: #cf3131;  /* RSP Red */
+  --color-primary-600: #b82828;
+  --color-primary-700: #a01f1f;
+  --color-primary-800: #891717;
+  --color-primary-900: #721212;
+
+  --color-secondary-50: #f0f9f0;
+  --color-secondary-100: #dcf2dc;
+  --color-secondary-200: #bae5ba;
+  --color-secondary-300: #86d186;
+  --color-secondary-400: #4fb74f;
+  --color-secondary-500: #01796F;  /* Pine Green */
+  --color-secondary-600: #016B63;
+  --color-secondary-700: #015A54;
+  --color-secondary-800: #014A44;
+  --color-secondary-900: #013A35;
+
+  --color-accent-50: #f8f4ff;
+  --color-accent-100: #f0e7ff;
+  --color-accent-200: #e4d3ff;
+  --color-accent-300: #d1b3ff;
+  --color-accent-400: #b885ff;
+  --color-accent-500: #663399;  /* Royal Purple */
+  --color-accent-600: #5c2e8a;
+  --color-accent-700: #4f277a;
+  --color-accent-800: #42206b;
+  --color-accent-900: #35195c;
+
+  --color-success-50: #f0f9f0;
+  --color-success-100: #dcf2dc;
+  --color-success-200: #bae5ba;
+  --color-success-300: #86d186;
+  --color-success-400: #4fb74f;
+  --color-success-500: #01796F;  /* Pine Green */
+  --color-success-600: #016B63;
+  --color-success-700: #015A54;
+  --color-success-800: #014A44;
+  --color-success-900: #013A35;
+
+  --color-danger-50: #fef2f2;
+  --color-danger-100: #fee2e2;
+  --color-danger-200: #fecaca;
+  --color-danger-300: #fca5a5;
+  --color-danger-400: #f87171;
+  --color-danger-500: #cf3131;  /* RSP Red */
+  --color-danger-600: #b82828;
+  --color-danger-700: #a01f1f;
+  --color-danger-800: #891717;
+  --color-danger-900: #721212;
+
+  --color-warning-50: #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-300: #fcd34d;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-warning-800: #92400e;
+  --color-warning-900: #78350f;
+}
+
+/* Custom Verenigingen Components */
+@layer components {
+  /* Form Components */
+  .form-card {
+    @apply bg-white rounded-xl border border-gray-200 overflow-hidden;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+
+  .form-header {
+    @apply bg-gradient-to-r from-primary-500 to-primary-600 px-6 py-4;
+  }
+
+  .form-header h3 {
+    @apply text-white text-xl font-bold mb-0 tracking-wide;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  }
+
+  .form-body {
+    @apply p-6 space-y-4;
+  }
+
+  /* Input Components */
+  .input-group {
+    @apply space-y-2;
+  }
+
+  .input-label {
+    @apply block text-sm font-medium text-gray-800;
+  }
+
+  .input-label.required::after {
+    @apply text-danger-500;
+    margin-left: 0.25rem;
+    content: '*';
+  }
+
+  .form-input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg
+           focus:ring-2 focus:ring-accent-500 focus:border-accent-500
+           transition-colors duration-200;
+  }
+
+  .form-input:invalid {
+    @apply border-danger-500 focus:ring-danger-500 focus:border-danger-500;
+  }
+
+  .form-input:valid {
+    @apply border-success-500 focus:ring-success-500 focus:border-success-500;
+  }
+
+  /* Button Components */
+  .btn-primary {
+    @apply bg-primary-500 hover:bg-primary-600 text-white font-medium
+           px-6 rounded-lg transition-colors duration-200
+           focus:ring-2 focus:ring-primary-500 focus:ring-offset-2;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+
+  .btn-secondary {
+    @apply bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium
+           px-6 rounded-lg transition-colors duration-200
+           focus:ring-2 focus:ring-gray-500 focus:ring-offset-2;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+
+  .btn-success {
+    @apply bg-success-500 hover:bg-success-600 text-white font-medium
+           px-6 rounded-lg transition-colors duration-200;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+
+  /* Progress Components */
+  .progress-container {
+    @apply bg-gray-50 border border-gray-200 rounded-xl p-6 mb-6;
+  }
+
+  .progress-bar-container {
+    @apply w-full bg-gray-200 rounded-full h-2 mb-4;
+  }
+
+  .progress-bar {
+    @apply bg-gradient-to-r from-accent-500 to-accent-600 h-2 rounded-full
+           transition-all duration-300 ease-out;
+  }
+
+  .progress-steps {
+    @apply flex justify-between text-sm;
+  }
+
+  .progress-step {
+    @apply text-gray-500 font-medium transition-colors duration-200;
+  }
+
+  .progress-step.active {
+    @apply text-accent-500 font-semibold;
+  }
+
+  .progress-step.completed {
+    @apply text-success-500;
+  }
+
+  /* Logo Components */
+  .organization-logo {
+    @apply flex justify-center mb-6;
+  }
+
+  .logo-img {
+    @apply h-16 w-auto object-contain transition-transform duration-200 hover:scale-105;
+  }
+
+  /* Page Header */
+  .page-header {
+    @apply text-center border-b border-gray-200 pb-8 mb-8;
+  }
+
+  .page-title {
+    @apply text-3xl font-bold text-gray-900 mb-3;
+  }
+
+  .page-subtitle {
+    @apply text-lg text-gray-600 max-w-2xl mx-auto;
+  }
+
+  /* Alert Components */
+  .alert-success {
+    @apply bg-success-100 border border-success-500 text-success-800 px-4 py-3 rounded-lg;
+  }
+
+  .alert-warning {
+    @apply bg-warning-100 border border-warning-600 text-warning-800 px-4 py-3 rounded-lg;
+  }
+
+  .alert-danger {
+    @apply bg-danger-100 border border-danger-500 text-danger-800 px-4 py-3 rounded-lg;
+  }
+
+  /* Card Grid */
+  .card-grid {
+    @apply grid gap-6 md:grid-cols-2 lg:grid-cols-3;
+  }
+
+  /* Form Step Management */
+  .form-step {
+    @apply hidden;
+  }
+
+  .form-step.active {
+    @apply block;
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  /* Membership Type Cards */
+  .membership-type-card {
+    @apply border-2 border-gray-200 rounded-xl p-6 cursor-pointer
+           transition-all duration-200 hover:border-accent-300;
+    &:hover {
+      box-shadow: 0 2px 15px 0 rgba(0, 0, 0, 0.1);
+    }
+  }
+
+  .membership-type-card.selected {
+    @apply border-accent-500 bg-accent-50;
+    box-shadow: 0 2px 15px 0 rgba(0, 0, 0, 0.1);
+  }
+
+  .membership-type-title {
+    @apply text-lg font-semibold text-gray-900 mb-2;
+  }
+
+  .membership-type-price {
+    @apply text-2xl font-bold text-primary-500 mb-3;
+  }
+
+  .membership-type-description {
+    @apply text-gray-600 text-sm;
+  }
+
+  /* Amount Pills */
+  .amount-pill {
+    @apply bg-gray-100 hover:bg-gray-200 border-gray-300
+           transition-colors duration-200 cursor-pointer;
+  }
+
+  .amount-pill.selected,
+  .amount-pill.bg-accent-500 {
+    @apply bg-accent-500 text-white border-accent-500;
+  }
+
+  /* Custom Amount Section */
+  .custom-amount-section {
+    @apply border-t border-gray-200 pt-4;
+  }
+
+  /* Button Groups */
+  .btn-group {
+    @apply flex flex-col sm:flex-row gap-2;
+  }
+
+  /* Responsive button sizing for membership cards */
+  .membership-type-card .btn-group {
+    @apply flex flex-col gap-2;
+  }
+
+  .membership-type-card .btn-group button {
+    @apply text-sm px-3 py-2 w-full;
+  }
+
+  /* SEPA Details Enhancement */
+  #sepa-details {
+    @apply border border-gray-200 rounded-lg p-4 bg-gray-50;
+  }
+
+  /* Portal Link Components */
+  .portal-link-card {
+    @apply block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors duration-200 text-gray-800;
+  }
+
+  .portal-link-card:hover {
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .portal-link-icon {
+    @apply w-10 h-10 bg-white rounded-lg flex items-center justify-center mr-4 shadow-sm;
+  }
+
+  .portal-link-title {
+    @apply font-semibold text-gray-900 mb-1;
+  }
+
+  .portal-link-description {
+    @apply text-sm text-gray-600;
+  }
+}
+
+/* Custom keyframes */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Custom utilities */
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.4s ease-out;
+  }
+}

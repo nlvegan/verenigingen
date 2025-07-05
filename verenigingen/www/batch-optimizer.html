@@ -1,0 +1,396 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("SEPA Direct Debit Batch Optimizer") }}{% endblock %}
+
+{% block head_include %}
+<style>
+.batch-card {
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    background: white;
+}
+
+.risk-high { border-left: 4px solid #dc3545; }
+.risk-medium { border-left: 4px solid #fd7e14; }
+.risk-low { border-left: 4px solid #28a745; }
+
+.config-section {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 1rem;
+}
+
+.preview-results {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.metric-card {
+    text-align: center;
+    padding: 1rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.btn-optimize {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    color: white;
+    padding: 0.75rem 2rem;
+    border-radius: 6px;
+    font-weight: 600;
+}
+
+.btn-optimize:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-2">{{ _("SEPA Direct Debit Batch Optimizer") }}</h1>
+            <p class="text-muted">{{ _("Automatically create optimally-sized batches for efficient SEPA processing") }}</p>
+        </div>
+    </div>
+
+    <!-- Configuration Section -->
+    <div class="row mb-4">
+        <div class="col-lg-6">
+            <div class="config-section">
+                <h4>{{ _("Batch Configuration") }}</h4>
+                <form id="config-form">
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label>{{ _("Max Amount per Batch (€)") }}</label>
+                                <input type="number" class="form-control" id="max_amount"
+                                       value="{{ current_config.max_amount_per_batch }}" min="1000" max="10000">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label>{{ _("Max Invoices per Batch") }}</label>
+                                <input type="number" class="form-control" id="max_invoices"
+                                       value="{{ current_config.max_invoices_per_batch }}" min="5" max="50">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label>{{ _("Min Invoices per Batch") }}</label>
+                                <input type="number" class="form-control" id="min_invoices"
+                                       value="{{ current_config.min_invoices_per_batch }}" min="1" max="10">
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="form-group">
+                                <label>{{ _("Preferred Batch Size") }}</label>
+                                <input type="number" class="form-control" id="preferred_size"
+                                       value="{{ current_config.preferred_batch_size }}" min="5" max="30">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>{{ _("Target Date") }}</label>
+                        <input type="date" class="form-control" id="target_date"
+                               value="{{ frappe.utils.add_days(frappe.utils.today(), 1) }}">
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="col-lg-6">
+            <div class="metric-card">
+                <h3 id="eligible-count">-</h3>
+                <p class="mb-0">{{ _("Eligible Invoices") }}</p>
+            </div>
+            <div class="metric-card">
+                <h3 id="total-amount">-</h3>
+                <p class="mb-0">{{ _("Total Amount") }}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <button class="btn btn-info me-3" onclick="previewBatches()">
+                <i class="fa fa-eye"></i> {{ _("Preview Batches") }}
+            </button>
+            <button class="btn btn-optimize me-3" onclick="createOptimalBatches()">
+                <i class="fa fa-magic"></i> {{ _("Create Optimal Batches") }}
+            </button>
+            <button class="btn btn-secondary" onclick="loadEligibleInvoices()">
+                <i class="fa fa-refresh"></i> {{ _("Refresh Data") }}
+            </button>
+        </div>
+    </div>
+
+    <!-- Preview Results -->
+    <div class="row">
+        <div class="col-12">
+            <div id="preview-section" style="display: none;">
+                <h4>{{ _("Batch Preview") }}</h4>
+                <div id="preview-results" class="preview-results"></div>
+            </div>
+
+            <div id="results-section" style="display: none;">
+                <h4>{{ _("Created Batches") }}</h4>
+                <div id="creation-results"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+         background: rgba(0,0,0,0.5); z-index: 9999;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+             background: white; padding: 2rem; border-radius: 8px; text-align: center;">
+            <div class="spinner-border text-primary mb-3"></div>
+            <h5 id="loading-message">{{ _("Processing...") }}</h5>
+        </div>
+    </div>
+</div>
+
+<script>
+// Load initial data
+document.addEventListener('DOMContentLoaded', function() {
+    loadEligibleInvoices();
+});
+
+function showLoading(message) {
+    document.getElementById('loading-message').textContent = message;
+    document.getElementById('loading-overlay').style.display = 'block';
+}
+
+function hideLoading() {
+    document.getElementById('loading-overlay').style.display = 'none';
+}
+
+function getConfig() {
+    return {
+        max_amount_per_batch: parseInt(document.getElementById('max_amount').value),
+        max_invoices_per_batch: parseInt(document.getElementById('max_invoices').value),
+        min_invoices_per_batch: parseInt(document.getElementById('min_invoices').value),
+        preferred_batch_size: parseInt(document.getElementById('preferred_size').value)
+    };
+}
+
+function loadEligibleInvoices() {
+    showLoading('{{ _("Loading eligible invoices...") }}');
+
+    frappe.call({
+        method: 'verenigingen.api.dd_batch_optimizer.get_batching_preview',
+        args: {
+            config: getConfig()
+        },
+        callback: function(r) {
+            hideLoading();
+            if (r.message && r.message.success) {
+                document.getElementById('eligible-count').textContent = r.message.eligible_invoices;
+                document.getElementById('total-amount').textContent = '€' +
+                    new Intl.NumberFormat('nl-NL').format(r.message.total_amount);
+            } else {
+                document.getElementById('eligible-count').textContent = '0';
+                document.getElementById('total-amount').textContent = '€0';
+            }
+        },
+        error: function() {
+            hideLoading();
+            frappe.msgprint('{{ _("Error loading invoice data") }}');
+        }
+    });
+}
+
+function previewBatches() {
+    showLoading('{{ _("Generating batch preview...") }}');
+
+    frappe.call({
+        method: 'verenigingen.api.dd_batch_optimizer.get_batching_preview',
+        args: {
+            config: getConfig()
+        },
+        callback: function(r) {
+            hideLoading();
+            if (r.message && r.message.success) {
+                displayPreview(r.message);
+            } else {
+                frappe.msgprint('{{ _("Error generating preview") }}');
+            }
+        },
+        error: function() {
+            hideLoading();
+            frappe.msgprint('{{ _("Error generating preview") }}');
+        }
+    });
+}
+
+function displayPreview(data) {
+    const previewHtml = generatePreviewHtml(data);
+    document.getElementById('preview-results').innerHTML = previewHtml;
+    document.getElementById('preview-section').style.display = 'block';
+}
+
+function generatePreviewHtml(data) {
+    if (!data.preview || data.preview.length === 0) {
+        return '<div class="alert alert-info">{{ _("No batches would be created with current configuration") }}</div>';
+    }
+
+    let html = `
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <div class="metric-card">
+                    <h4>${data.preview.length}</h4>
+                    <p class="mb-0">{{ _("Batches") }}</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="metric-card">
+                    <h4>${data.eligible_invoices}</h4>
+                    <p class="mb-0">{{ _("Invoices") }}</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="metric-card">
+                    <h4>€${new Intl.NumberFormat('nl-NL').format(data.total_amount)}</h4>
+                    <p class="mb-0">{{ _("Total Amount") }}</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    data.preview.forEach(batch => {
+        const riskClass = `risk-${batch.risk_level.toLowerCase()}`;
+        html += `
+            <div class="batch-card ${riskClass}">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h5>{{ _("Batch") }} #${batch.batch_number}</h5>
+                        <p class="mb-1"><strong>{{ _("Invoices:") }}</strong> ${batch.invoice_count}</p>
+                        <p class="mb-1"><strong>{{ _("Amount:") }}</strong> €${new Intl.NumberFormat('nl-NL').format(batch.total_amount)}</p>
+                        <p class="mb-1"><strong>{{ _("Customers:") }}</strong> ${batch.customers.length}</p>
+                        <p class="mb-0"><small class="text-muted">{{ _("Sample invoices:") }} ${batch.sample_invoices.join(', ')}</small></p>
+                    </div>
+                    <div class="col-md-4 text-right">
+                        <span class="badge badge-${batch.risk_level === 'High' ? 'danger' : batch.risk_level === 'Medium' ? 'warning' : 'success'}">
+                            ${batch.risk_level} {{ _("Risk") }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    return html;
+}
+
+function createOptimalBatches() {
+    if (!confirm('{{ _("Create optimal batches with current configuration?") }}')) {
+        return;
+    }
+
+    showLoading('{{ _("Creating optimal batches...") }}');
+
+    frappe.call({
+        method: 'verenigingen.api.dd_batch_optimizer.create_optimal_batches',
+        args: {
+            target_date: document.getElementById('target_date').value,
+            config: getConfig()
+        },
+        callback: function(r) {
+            hideLoading();
+            if (r.message && r.message.success) {
+                displayCreationResults(r.message);
+                loadEligibleInvoices(); // Refresh eligible count
+            } else {
+                frappe.msgprint(`{{ _("Error creating batches:") }} ${r.message.error || 'Unknown error'}`);
+            }
+        },
+        error: function() {
+            hideLoading();
+            frappe.msgprint('{{ _("Error creating batches") }}');
+        }
+    });
+}
+
+function displayCreationResults(data) {
+    const report = data.optimization_report;
+    const efficiency = report.summary.efficiency_score;
+
+    let html = `
+        <div class="alert alert-success">
+            <h5>{{ _("✅ Batch Creation Successful!") }}</h5>
+            <p>${data.message}</p>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <h4>${data.batches_created}</h4>
+                    <p class="mb-0">{{ _("Batches Created") }}</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <h4>${report.summary.average_batch_size}</h4>
+                    <p class="mb-0">{{ _("Avg Batch Size") }}</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <h4>€${new Intl.NumberFormat('nl-NL').format(report.summary.average_batch_amount)}</h4>
+                    <p class="mb-0">{{ _("Avg Batch Amount") }}</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="metric-card">
+                    <h4>${efficiency}%</h4>
+                    <p class="mb-0">{{ _("Efficiency Score") }}</p>
+                </div>
+            </div>
+        </div>
+
+        <h5>{{ _("Created Batches:") }}</h5>
+    `;
+
+    report.batch_details.forEach(batch => {
+        const riskClass = `risk-${batch.risk_level.toLowerCase()}`;
+        html += `
+            <div class="batch-card ${riskClass}">
+                <div class="row">
+                    <div class="col-md-8">
+                        <h6><a href="/app/direct-debit-batch/${batch.name}" target="_blank">${batch.name}</a></h6>
+                        <p class="mb-1"><strong>{{ _("Invoices:") }}</strong> ${batch.invoice_count}</p>
+                        <p class="mb-1"><strong>{{ _("Amount:") }}</strong> €${new Intl.NumberFormat('nl-NL').format(batch.total_amount)}</p>
+                        <p class="mb-0"><strong>{{ _("Type:") }}</strong> ${batch.batch_type}</p>
+                    </div>
+                    <div class="col-md-4 text-right">
+                        <span class="badge badge-${batch.risk_level === 'High' ? 'danger' : batch.risk_level === 'Medium' ? 'warning' : 'success'}">
+                            ${batch.risk_level} {{ _("Risk") }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+
+    document.getElementById('creation-results').innerHTML = html;
+    document.getElementById('results-section').style.display = 'block';
+
+    // Hide preview section
+    document.getElementById('preview-section').style.display = 'none';
+}
+</script>
+
+{% endblock %}

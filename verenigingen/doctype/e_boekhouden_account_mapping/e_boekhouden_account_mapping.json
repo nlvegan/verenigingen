@@ -1,0 +1,132 @@
+{
+  "actions": [],
+  "allow_copy": 1,
+  "creation": "2025-06-28 22:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "account_code",
+    "account_name",
+    "column_break_1",
+    "document_type",
+    "category",
+    "section_break_1",
+    "confidence",
+    "reason",
+    "is_active",
+    "column_break_2",
+    "usage_count",
+    "sample_description"
+  ],
+  "fields": [
+    {
+      "fieldname": "account_code",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Account Code",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "fieldname": "account_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Account Name"
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "document_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Document Type",
+      "options": "purchase_invoice\njournal_entry\nskip",
+      "reqd": 1
+    },
+    {
+      "fieldname": "category",
+      "fieldtype": "Select",
+      "label": "Category",
+      "options": "general\nwages\ntax_payment\nbenefits\nrecurring_expense\nsupplier_expense"
+    },
+    {
+      "fieldname": "section_break_1",
+      "fieldtype": "Section Break",
+      "label": "Analysis Details"
+    },
+    {
+      "fieldname": "confidence",
+      "fieldtype": "Select",
+      "label": "Confidence Level",
+      "options": "high\nmedium\nlow",
+      "read_only": 1
+    },
+    {
+      "fieldname": "reason",
+      "fieldtype": "Small Text",
+      "label": "Reason for Suggestion",
+      "read_only": 1
+    },
+    {
+      "fieldname": "is_active",
+      "fieldtype": "Check",
+      "label": "Is Active",
+      "default": 1
+    },
+    {
+      "fieldname": "column_break_2",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "usage_count",
+      "fieldtype": "Int",
+      "label": "Usage Count",
+      "read_only": 1
+    },
+    {
+      "fieldname": "sample_description",
+      "fieldtype": "Small Text",
+      "label": "Sample Descriptions",
+      "read_only": 1
+    }
+  ],
+  "links": [],
+  "modified": "2025-06-28 22:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "E-Boekhouden Account Mapping",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "Accounts Manager",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "quick_entry": 1,
+  "sort_field": "account_code",
+  "sort_order": "ASC",
+  "track_changes": 1
+}

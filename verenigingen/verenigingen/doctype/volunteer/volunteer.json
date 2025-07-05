@@ -1,0 +1,293 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","allow_rename": 1,
+ "autoname": "field:volunteer_name",
+ "creation": "2017-09-19 16:16:45.676019",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_info_section",
+  "volunteer_name",
+  "member",
+  "image",
+  "personal_email",
+  "preferred_pronouns",
+  "user",
+  "column_break_5",
+  "email",
+  "employee_id",
+  "status",
+  "start_date",
+  "volunteer_profile_section",
+  "interests",
+  "column_break_12",
+  "commitment_level",
+  "experience_level",
+  "preferred_work_style",
+  "assignment_section",
+  "assignment_history_section",
+  "assignment_history",
+  "skills_section",
+  "skills_and_qualifications",
+  "column_break_20",
+  "desired_skill_development",
+  "address_section",
+  "address_html",
+  "column_break_23",
+  "contact_html",
+  "notes_section",
+  "note"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_info_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Information"
+  },
+  {
+   "fieldname": "volunteer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Volunteer Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "label": "Image"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Organization Email",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "description": "Linked Employee record for expense management",
+   "fieldname": "employee_id",
+   "fieldtype": "Link",
+   "label": "Employee ID",
+   "options": "Employee",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:!doc.__islocal;",
+   "fieldname": "address_section",
+   "fieldtype": "Section Break",
+   "label": "Address and Contact Information"
+  },
+  {
+   "fieldname": "address_html",
+   "fieldtype": "HTML",
+   "label": "Address HTML"
+  },
+  {
+   "fieldname": "column_break_23",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_html",
+   "fieldtype": "HTML",
+   "label": "Contact HTML"
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Text Editor",
+   "label": "Notes and Additional Information"
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "label": "Member",
+   "options": "Member"
+  },
+  {
+   "fetch_from": "member.pronouns",
+   "fieldname": "preferred_pronouns",
+   "fieldtype": "Data",
+   "label": "Preferred pronouns",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "member.email",
+   "fieldname": "personal_email",
+   "fieldtype": "Data",
+   "label": "Personal Email",
+   "options": "Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User Account",
+   "options": "User",
+   "description": "System user account for this volunteer"
+  },
+  {
+   "fieldname": "volunteer_profile_section",
+   "fieldtype": "Section Break",
+   "label": "Volunteer Profile"
+  },
+  {
+   "description": "Select areas where the volunteer is interested in contributing",
+   "fieldname": "interests",
+   "fieldtype": "Table MultiSelect",
+   "label": "Areas of Interest",
+   "options": "Volunteer Interest Area"
+  },
+  {
+   "fieldname": "column_break_12",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Occasional",
+   "fieldname": "commitment_level",
+   "fieldtype": "Select",
+   "label": "Commitment Level",
+   "options": "Occasional\nRegular (Monthly)\nWeekly\nIntensive"
+  },
+  {
+   "default": "Beginner",
+   "fieldname": "experience_level",
+   "fieldtype": "Select",
+   "label": "Experience Level",
+   "options": "Beginner\nIntermediate\nExperienced\nExpert"
+  },
+  {
+   "default": "Hybrid",
+   "fieldname": "preferred_work_style",
+   "fieldtype": "Select",
+   "label": "Preferred Work Style",
+   "options": "In-person\nRemote\nHybrid"
+  },
+  {
+   "fieldname": "skills_section",
+   "fieldtype": "Section Break",
+   "label": "Skills and Development"
+  },
+  {
+   "fieldname": "skills_and_qualifications",
+   "fieldtype": "Table",
+   "label": "Skills and Qualifications",
+   "options": "Volunteer Skill"
+  },
+  {
+   "fieldname": "column_break_20",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "desired_skill_development",
+   "fieldtype": "Table",
+   "label": "Skills I Want to Develop",
+   "options": "Volunteer Development Goal"
+  },
+  {
+   "fieldname": "assignment_section",
+   "fieldtype": "Section Break",
+   "label": "Current Assignments"
+  },
+  {
+   "fieldname": "assignment_history_section",
+   "fieldtype": "Section Break",
+   "label": "Assignment History"
+  },
+  {
+   "fieldname": "assignment_history",
+   "fieldtype": "Table",
+   "label": "Past Assignments",
+   "options": "Volunteer Assignment"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "New\nOnboarding\nActive\nInactive\nRetired"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date"
+  }
+ ],
+ "image_field": "image",
+ "links": [],
+ "modified": "2025-05-18 12:43:45.267592",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Volunteer",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Volunteer Manager",
+   "share": 1
+  },
+  {
+   "if_owner": 1,
+   "read": 1,
+   "role": "Verenigingen Member",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "volunteer_name",
+ "track_changes": 1
+}

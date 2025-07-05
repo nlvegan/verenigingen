@@ -1,0 +1,21 @@
+{
+ "action": "Create Entry",
+ "action_label": "Set up Membership Types",
+ "creation": "2025-06-21 15:30:44.533247",
+ "description": "Define the different types of memberships your association offers.",
+ "docstatus": 0,
+ "doctype": "Onboarding Step",
+ "idx": 0,
+ "is_complete": 0,
+ "is_single": 0,
+ "is_skipped": 0,
+ "modified": "2025-07-02 16:29:36.559197",
+ "modified_by": "Administrator",
+ "name": "Verenigingen-Create-Membership-Type",
+ "owner": "Administrator",
+ "reference_document": "Membership Type",
+ "show_form_tour": 0,
+ "show_full_form": 0,
+ "title": "Create Membership Type",
+ "validate_action": 1
+}

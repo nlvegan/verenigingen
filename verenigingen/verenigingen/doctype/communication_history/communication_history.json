@@ -1,0 +1,47 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","allow_rename": 1,
+ "creation": "2023-06-15 11:19:08.978125",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "communication_date",
+  "comm_type",
+  "comm_description"
+ ],
+ "fields": [
+  {
+   "fieldname": "communication_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "comm_type",
+   "fieldtype": "Select",
+   "label": "Type",
+   "options": "\nCall\nEmail\nMeeting"
+  },
+  {
+   "fieldname": "comm_description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2023-06-15 11:19:08.978125",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Communication History",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

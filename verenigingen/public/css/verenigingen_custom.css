@@ -1,0 +1,417 @@
+/* Add this CSS to your custom app's CSS file or include it in a custom script */
+
+/* Style for the payment history grid */
+.payment-history-grid .grid-row {
+    position: relative;
+}
+
+/* Style for donation/unreconciled payment rows */
+.payment-history-grid .donation-row {
+    background-color: #fcf8e3 !important; /* Light yellow background */
+    font-style: italic;
+}
+
+/* Add a small badge to indicate the record type */
+.payment-history-grid .grid-row::before {
+    position: absolute;
+    left: 0;
+    top: 0;
+    content: "";
+    width: 3px;
+    height: 100%;
+}
+
+/* Regular invoice */
+.payment-history-grid .grid-row[data-type="Regular Invoice"]::before {
+    background-color: #5e64ff; /* Blue */
+}
+
+/* Membership invoice */
+.payment-history-grid .grid-row[data-type="Membership Invoice"]::before {
+    background-color: #7cd6fd; /* Light blue */
+}
+
+/* Donation payment */
+.payment-history-grid .grid-row[data-type="Donation Payment"]::before {
+    background-color: #ff5858; /* Red */
+}
+
+/* Unreconciled payment */
+.payment-history-grid .grid-row[data-type="Unreconciled Payment"]::before {
+    background-color: #b8c2cc; /* Gray */
+}
+
+/* Highlight overdue rows */
+.payment-history-grid .grid-row[data-status="Overdue"] {
+    background-color: #fff8f7 !important; /* Light red background */
+}
+
+/* Full-width notes */
+.payment-history-grid [data-fieldname="notes"] {
+    white-space: normal !important;
+    max-width: none !important;
+}
+/* Add this CSS to your membership application form */
+
+.membership-type-card {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    margin-bottom: 1rem;
+}
+
+.membership-type-card:hover {
+    border-color: #007bff;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.membership-type-card.selected {
+    border-color: #007bff;
+    background-color: #e7f3ff;
+    box-shadow: 0 4px 12px rgba(0,123,255,0.15);
+}
+
+.membership-type-card h5 {
+    margin-bottom: 0.75rem;
+    color: #2c3e50;
+}
+
+.membership-type-card .description {
+    margin-bottom: 1rem;
+    color: #6c757d;
+    font-size: 0.9rem;
+}
+
+.membership-type-card .price {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #28a745;
+    margin-bottom: 0.5rem;
+}
+
+.membership-type-card .minimum-amount {
+    font-size: 0.9rem;
+    color: #6c757d;
+    margin-bottom: 0.5rem;
+}
+
+.membership-type-card .period {
+    font-size: 0.85rem;
+    color: #6c757d;
+    text-transform: uppercase;
+    font-weight: 500;
+}
+
+.membership-type-card .custom-amount-input {
+    margin: 0.75rem 0;
+}
+
+.membership-type-card .custom-amount-input label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+    display: block;
+}
+
+.membership-type-card .custom-amount {
+    font-weight: bold;
+}
+
+.membership-type-card .custom-amount.is-valid {
+    border-color: #28a745;
+}
+
+.membership-type-card .custom-amount.is-invalid {
+    border-color: #dc3545;
+}
+
+.membership-type-card .suggested-amounts {
+    margin-top: 0.5rem;
+}
+
+.membership-type-card .suggested-amount {
+    margin-right: 0.25rem;
+    margin-bottom: 0.25rem;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+}
+
+.membership-type-card .suggested-amount:hover {
+    background-color: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.price-section {
+    margin: 1rem 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .membership-type-card {
+        padding: 1rem;
+    }
+
+    .membership-type-card .price {
+        font-size: 1.25rem;
+    }
+
+    .suggested-amount {
+        font-size: 0.75rem !important;
+        padding: 0.2rem 0.4rem !important;
+    }
+}
+
+.membership-type-selection {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.membership-type-card {
+    border: 2px solid #dee2e6;
+    border-radius: 12px;
+    padding: 1.5rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    position: relative;
+    background: #fff;
+}
+
+.membership-type-card:hover {
+    border-color: #007bff;
+    box-shadow: 0 4px 12px rgba(0,123,255,0.15);
+    transform: translateY(-2px);
+}
+
+.membership-type-card.selected {
+    border-color: #007bff;
+    background-color: #f8f9ff;
+    box-shadow: 0 4px 12px rgba(0,123,255,0.25);
+}
+
+.membership-type-card h5 {
+    color: #333;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.membership-price {
+    font-size: 1.5rem;
+    font-weight: bold;
+    color: #007bff;
+    margin-bottom: 1rem;
+}
+
+.membership-description {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+    min-height: 3rem;
+}
+
+.custom-amount-section {
+    background: #f8f9fa;
+    padding: 1rem;
+    border-radius: 8px;
+    margin: 1rem 0;
+    border-left: 4px solid #007bff;
+}
+
+.custom-amount-section label {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 0.5rem;
+}
+
+.custom-amount-input {
+    font-size: 1.1rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+.membership-type-card .btn-group {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.membership-type-card .btn {
+    flex: 1;
+}
+
+/* Payment methods styling */
+.payment-methods-container {
+    margin-bottom: 2rem;
+}
+
+.payment-method-option {
+    border: 2px solid #dee2e6;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    background: #fff;
+}
+
+.payment-method-option:hover {
+    border-color: #007bff;
+    box-shadow: 0 2px 8px rgba(0,123,255,0.15);
+}
+
+.payment-method-option.selected {
+    border-color: #007bff;
+    background-color: #f8f9ff;
+}
+
+.payment-method-option .payment-method-icon {
+    font-size: 1.5rem;
+    color: #007bff;
+    margin-right: 1rem;
+}
+
+.payment-method-option .payment-method-info h6 {
+    margin-bottom: 0.25rem;
+    color: #333;
+}
+
+.payment-method-option .payment-method-info small {
+    color: #666;
+}
+
+.payment-info-panel {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 1rem;
+    height: fit-content;
+}
+
+.amount-suggestion-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.amount-pill {
+    background: #e9ecef;
+    border: 1px solid #dee2e6;
+    border-radius: 20px;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.amount-pill:hover {
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+.amount-pill.selected {
+    background: #007bff;
+    color: white;
+    border-color: #007bff;
+}
+
+/* Form validation enhancements */
+.is-invalid {
+    border-color: #dc3545 !important;
+}
+
+.invalid-feedback {
+    color: #dc3545;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+}
+
+.valid-feedback {
+    color: #28a745;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .membership-type-selection {
+        grid-template-columns: 1fr;
+    }
+
+    .membership-type-card {
+        padding: 1rem;
+    }
+
+    .payment-methods-container .row {
+        flex-direction: column;
+    }
+
+    .payment-info-panel {
+        margin-top: 1rem;
+    }
+}
+
+/* Animation for step transitions */
+.form-step {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Enhanced progress steps */
+.progress-steps .step {
+    position: relative;
+    padding: 0.5rem 1rem;
+    background: #f8f9fa;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    transition: all 0.3s ease;
+}
+
+.progress-steps .step.active {
+    background: #007bff;
+    color: white;
+    font-weight: 600;
+}
+
+.progress-steps .step.completed {
+    background: #28a745;
+    color: white;
+}
+
+/* Loading states */
+.loading {
+    position: relative;
+    pointer-events: none;
+}
+
+.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #007bff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}

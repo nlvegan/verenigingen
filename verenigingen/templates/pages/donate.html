@@ -1,0 +1,622 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Make a Donation") }}{% endblock %}
+
+{% block head_include %}
+<style>
+.donation-form {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.progress-container {
+    margin-bottom: 30px;
+}
+
+.progress {
+    height: 8px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-bar {
+    background-color: #cf3131;
+    transition: width 0.3s ease;
+}
+
+.progress-steps {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+}
+
+.step {
+    font-size: 12px;
+    color: #6c757d;
+    padding: 5px 10px;
+    border-radius: 15px;
+    background-color: #f8f9fa;
+    transition: all 0.3s ease;
+}
+
+.step.active {
+    background-color: #cf3131;
+    color: white;
+}
+
+.step.completed {
+    background-color: #01796f;
+    color: white;
+}
+
+.form-step {
+    display: none;
+    animation: fadeIn 0.5s ease-in;
+}
+
+.form-step.active {
+    display: block;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.card {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+    background-color: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-control {
+    width: 100%;
+    padding: 10px 15px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 14px;
+    transition: border-color 0.3s ease;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: #cf3131;
+    box-shadow: 0 0 0 2px rgba(207,49,49,0.25);
+}
+
+.form-check {
+    display: flex;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.form-check-input {
+    margin-right: 10px;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.3s ease;
+}
+
+.btn-primary {
+    background-color: #cf3131;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #b82828;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #5a6268;
+}
+
+.payment-method {
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 10px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.payment-method:hover {
+    border-color: #cf3131;
+}
+
+.payment-method.selected {
+    border-color: #cf3131;
+    background-color: #fef2f2;
+}
+
+.payment-method h5 {
+    margin: 0 0 5px 0;
+    color: #495057;
+}
+
+.payment-method p {
+    margin: 0;
+    color: #6c757d;
+    font-size: 13px;
+}
+
+.alert {
+    padding: 12px 15px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.alert-danger {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.alert-info {
+    background-color: #d1ecf1;
+    border: 1px solid #bee5eb;
+    color: #0c5460;
+}
+
+.donation-summary {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.summary-row:last-child {
+    margin-bottom: 0;
+    font-weight: bold;
+    font-size: 16px;
+    border-top: 1px solid #dee2e6;
+    padding-top: 10px;
+}
+
+.bank-details {
+    background-color: #f8f9fa;
+    border-left: 4px solid #cf3131;
+    padding: 15px;
+    margin: 20px 0;
+}
+
+.bank-details h5 {
+    margin-top: 0;
+    color: #cf3131;
+}
+
+.copy-button {
+    background: none;
+    border: 1px solid #cf3131;
+    color: #cf3131;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-left: 10px;
+}
+
+.copy-button:hover {
+    background-color: #cf3131;
+    color: white;
+}
+
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #f3f3f3;
+    border-top: 2px solid #cf3131;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 10px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    margin: -10px;
+}
+
+.col-6 {
+    flex: 0 0 50%;
+    padding: 10px;
+}
+
+.col-12 {
+    flex: 0 0 100%;
+    padding: 10px;
+}
+
+@media (max-width: 768px) {
+    .col-6 {
+        flex: 0 0 100%;
+    }
+
+    .progress-steps {
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+
+    .step {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="donation-form">
+    <div class="page-header text-center">
+        <h1>{{ _("Support Our Mission") }}</h1>
+        <p class="lead">{{ _("Your donation helps us make a positive impact in our community") }}</p>
+    </div>
+
+    <!-- Progress Bar -->
+    <div class="progress-container">
+        <div class="progress">
+            <div class="progress-bar" role="progressbar" style="width: 20%" id="form-progress"></div>
+        </div>
+        <div class="progress-steps">
+            <span class="step active" data-step="1">{{ _("Amount") }}</span>
+            <span class="step" data-step="2">{{ _("Purpose") }}</span>
+            <span class="step" data-step="3">{{ _("Details") }}</span>
+            <span class="step" data-step="4">{{ _("Payment") }}</span>
+            <span class="step" data-step="5">{{ _("Complete") }}</span>
+        </div>
+    </div>
+
+    <!-- Alert Container -->
+    <div id="alert-container"></div>
+
+    <form id="donation-form" onsubmit="return false;">
+        <!-- Step 1: Donation Amount -->
+        <div class="form-step active" data-step="1">
+            <div class="card">
+                <h3>{{ _("How much would you like to donate?") }}</h3>
+
+                <div class="form-group">
+                    <label for="donation_type">{{ _("Donation Type") }}</label>
+                    <select class="form-control" name="donation_type" id="donation_type">
+                        {% for dtype in donation_types %}
+                        <option value="{{ dtype.name }}"
+                                {% if dtype.name == default_donation_type %}selected{% endif %}>
+                            {{ dtype.donation_type }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="amount">{{ _("Amount (€)") }}</label>
+                    <input type="number" class="form-control" name="amount" id="amount"
+                           min="1" step="0.01" required placeholder="50.00">
+                </div>
+
+                <div class="form-group">
+                    <label>{{ _("Quick amounts") }}</label>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px;">
+                        <button type="button" class="btn btn-secondary" onclick="setAmount(25)">€25</button>
+                        <button type="button" class="btn btn-secondary" onclick="setAmount(50)">€50</button>
+                        <button type="button" class="btn btn-secondary" onclick="setAmount(100)">€100</button>
+                        <button type="button" class="btn btn-secondary" onclick="setAmount(250)">€250</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="donation_status">{{ _("Donation Frequency") }}</label>
+                    <select class="form-control" name="donation_status" id="donation_status">
+                        <option value="One-time">{{ _("One-time donation") }}</option>
+                        <option value="Recurring">{{ _("Monthly recurring") }}</option>
+                        <option value="Promised">{{ _("Promised donation") }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="text-right">
+                <button type="button" class="btn btn-primary" onclick="nextStep()">
+                    {{ _("Continue") }} →
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 2: Donation Purpose -->
+        <div class="form-step" data-step="2">
+            <div class="card">
+                <h3>{{ _("How should we use your donation?") }}</h3>
+
+                <div class="form-group">
+                    <label for="donation_purpose_type">{{ _("Purpose Type") }}</label>
+                    <select class="form-control" name="donation_purpose_type" id="donation_purpose_type"
+                            onchange="togglePurposeFields()">
+                        <option value="General">{{ _("General Fund") }}</option>
+                        <option value="Campaign">{{ _("Specific Campaign") }}</option>
+                        {% if settings.enable_chapter_management %}
+                        <option value="Chapter">{{ _("Local Chapter") }}</option>
+                        {% endif %}
+                        <option value="Specific Goal">{{ _("Specific Goal") }}</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="campaign-field" style="display: none;">
+                    <label for="campaign_reference">{{ _("Campaign Reference") }}</label>
+                    <input type="text" class="form-control" name="campaign_reference"
+                           placeholder="{{ _('Enter campaign name or reference') }}">
+                </div>
+
+                {% if settings.enable_chapter_management %}
+                <div class="form-group" id="chapter-field" style="display: none;">
+                    <label for="chapter_reference">{{ _("Chapter") }}</label>
+                    <select class="form-control" name="chapter_reference">
+                        <option value="">{{ _("Select a chapter") }}</option>
+                        {% for chapter in chapters %}
+                        <option value="{{ chapter.name }}">
+                            {{ chapter.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+
+                <div class="form-group" id="goal-field" style="display: none;">
+                    <label for="specific_goal_description">{{ _("Specific Goal Description") }}</label>
+                    <textarea class="form-control" name="specific_goal_description" rows="3"
+                              placeholder="{{ _('Describe the specific goal or purpose for this donation') }}"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="donation_notes">{{ _("Additional Notes") }} ({{ _("Optional") }})</label>
+                    <textarea class="form-control" name="donation_notes" rows="2"
+                              placeholder="{{ _('Any additional message or instructions') }}"></textarea>
+                </div>
+
+                <!-- ANBI Section -->
+                <div class="form-group" style="margin-top: 30px;">
+                    <h4>{{ _("Tax Deduction (ANBI)") }}</h4>
+                    <p class="text-muted">{{ _("For donations of €%s or more, we can provide tax deduction benefits") | format(settings.anbi_minimum_reportable_amount) }}</p>
+
+                    <div class="form-check">
+                        <input type="checkbox" class="form-check-input" id="request_anbi"
+                               onchange="toggleAnbiFields()">
+                        <label class="form-check-label" for="request_anbi">
+                            {{ _("I want to request tax deduction benefits for this donation") }}
+                        </label>
+                    </div>
+
+                    <div id="anbi-fields" style="display: none; margin-top: 15px;">
+                        <div class="row">
+                            <div class="col-6">
+                                <input type="text" class="form-control" name="anbi_agreement_number"
+                                       placeholder="{{ _('ANBI Agreement Number (if known)') }}">
+                            </div>
+                            <div class="col-6">
+                                <input type="date" class="form-control" name="anbi_agreement_date"
+                                       value="{{ frappe.utils.today() }}">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between;">
+                <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                    ← {{ _("Back") }}
+                </button>
+                <button type="button" class="btn btn-primary" onclick="nextStep()">
+                    {{ _("Continue") }} →
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 3: Donor Details -->
+        <div class="form-step" data-step="3">
+            <div class="card">
+                <h3>{{ _("Your Information") }}</h3>
+
+                {% if existing_donor %}
+                <div class="alert alert-info">
+                    {{ _("We found your existing donor record. You can update the information below if needed.") }}
+                </div>
+                {% endif %}
+
+                <div class="row">
+                    <div class="col-6">
+                        <div class="form-group">
+                            <label for="donor_name">{{ _("Full Name") }}</label>
+                            <input type="text" class="form-control" name="donor_name" required
+                                   value="{% if existing_donor %}{{ existing_donor.donor_name }}{% elif user_info.full_name %}{{ user_info.full_name }}{% endif %}"
+                                   placeholder="{{ _('Your full name') }}">
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="form-group">
+                            <label for="donor_email">{{ _("Email Address") }}</label>
+                            <input type="email" class="form-control" name="donor_email" required
+                                   value="{% if existing_donor %}{{ existing_donor.donor_email }}{% elif user_info.email %}{{ user_info.email }}{% endif %}"
+                                   placeholder="{{ _('your.email@example.com') }}">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-6">
+                        <div class="form-group">
+                            <label for="donor_phone">{{ _("Phone Number") }} ({{ _("Optional") }})</label>
+                            <input type="tel" class="form-control" name="donor_phone"
+                                   value="{% if existing_donor %}{{ existing_donor.phone }}{% endif %}"
+                                   placeholder="{{ _('Your phone number') }}">
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="form-group">
+                            <label for="donor_type">{{ _("Donor Type") }}</label>
+                            <select class="form-control" name="donor_type">
+                                {% for dtype in donor_types %}
+                                <option value="{{ dtype.name }}"
+                                        {% if (existing_donor and dtype.name == existing_donor.donor_type) or
+                                              (not existing_donor and dtype.name == default_donor_type) %}selected{% endif %}>
+                                    {{ dtype.donor_type }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="donor_address">{{ _("Address") }} ({{ _("Optional") }})</label>
+                    <textarea class="form-control" name="donor_address" rows="2"
+                              placeholder="{{ _('Your address (required for tax deduction)') }}"></textarea>
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between;">
+                <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                    ← {{ _("Back") }}
+                </button>
+                <button type="button" class="btn btn-primary" onclick="nextStep()">
+                    {{ _("Continue") }} →
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 4: Payment Method -->
+        <div class="form-step" data-step="4">
+            <div class="card">
+                <h3>{{ _("How would you like to pay?") }}</h3>
+
+                <div class="form-group">
+                    {% for method in payment_methods %}
+                    <div class="payment-method" data-method="{{ method.value }}" onclick="selectPaymentMethod(this)">
+                        <input type="radio" name="payment_method" value="{{ method.value }}" style="display: none;">
+                        <h5>{{ method.label }}</h5>
+                        <p>{{ method.description }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Payment-specific fields will be shown here -->
+                <div id="payment-details"></div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between;">
+                <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                    ← {{ _("Back") }}
+                </button>
+                <button type="button" class="btn btn-primary" onclick="nextStep()">
+                    {{ _("Continue") }} →
+                </button>
+            </div>
+        </div>
+
+        <!-- Step 5: Confirmation -->
+        <div class="form-step" data-step="5">
+            <div class="card">
+                <h3>{{ _("Confirm Your Donation") }}</h3>
+
+                <div class="donation-summary" id="donation-summary">
+                    <!-- Summary will be populated by JavaScript -->
+                </div>
+
+                <div class="form-check" style="margin: 20px 0;">
+                    <input type="checkbox" class="form-check-input" id="terms_accepted" required>
+                    <label class="form-check-label" for="terms_accepted">
+                        {{ _("I agree to the terms and conditions and confirm that this donation is voluntary") }}
+                    </label>
+                </div>
+
+                <div class="form-check">
+                    <input type="checkbox" class="form-check-input" id="privacy_accepted" required>
+                    <label class="form-check-label" for="privacy_accepted">
+                        {{ _("I consent to the processing of my personal data as described in the privacy policy") }}
+                    </label>
+                </div>
+
+                <div id="payment-instructions" style="display: none; margin-top: 20px;">
+                    <!-- Payment instructions will be shown here -->
+                </div>
+            </div>
+
+            <div style="display: flex; justify-content: space-between;">
+                <button type="button" class="btn btn-secondary" onclick="prevStep()">
+                    ← {{ _("Back") }}
+                </button>
+                <button type="button" class="btn btn-primary" id="submit-btn" onclick="submitDonation()">
+                    <span id="submit-text">{{ _("Submit Donation") }}</span>
+                    <span id="submit-loading" style="display: none;">
+                        <span class="spinner"></span>{{ _("Processing...") }}
+                    </span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Success Step -->
+        <div class="form-step" data-step="success" style="text-align: center;">
+            <div class="card">
+                <h2 style="color: #28a745;">{{ _("Thank You!") }}</h2>
+                <p class="lead">{{ _("Your donation has been submitted successfully.") }}</p>
+
+                <div id="success-details">
+                    <!-- Success details will be populated by JavaScript -->
+                </div>
+
+                <div style="margin-top: 30px;">
+                    <button type="button" class="btn btn-primary" onclick="window.location.reload()">
+                        {{ _("Make Another Donation") }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+// JavaScript will be added in the next step
+</script>
+{% endblock %}
+
+{% block script %}
+<script src="/assets/verenigingen/js/donation_form.js"></script>
+{% endblock %}

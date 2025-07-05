@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #f8f9fa; padding: 20px; border-radius: 8px 8px 0 0; }
+        .content { background-color: #ffffff; padding: 30px; border: 1px solid #e9ecef; }
+        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; border-radius: 0 0 8px 8px; }
+        .warning-box { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+        .mandate-details { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .mandate-details td { padding: 8px 0; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #0066cc; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name }}</h2>
+        </div>
+
+        <div class="content">
+            <h3>Dear {{ member_name }},</h3>
+
+            <p>This confirms that your SEPA Direct Debit mandate has been cancelled as requested.</p>
+
+            <div class="mandate-details">
+                <h4 style="margin-top: 0;">Cancelled Mandate Details:</h4>
+                <table style="width: 100%;">
+                    <tr>
+                        <td><strong>Mandate Reference:</strong></td>
+                        <td>{{ mandate_id }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>IBAN:</strong></td>
+                        <td>{{ iban }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Cancellation Date:</strong></td>
+                        <td>{{ cancellation_date }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Reason:</strong></td>
+                        <td>{{ cancellation_reason }}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="warning-box">
+                <strong>What this means:</strong>
+                <ul style="margin: 10px 0; padding-left: 20px;">
+                    <li>We will no longer collect payments via direct debit from this account</li>
+                    <li>Any scheduled payments have been cancelled</li>
+                    <li>You may need to arrange alternative payment methods for your membership</li>
+                    <li>Outstanding balances may still need to be settled</li>
+                </ul>
+            </div>
+
+            <p>If you cancelled this mandate by mistake or would like to set up a new payment method, please visit your member portal or contact our support team.</p>
+
+            <center>
+                <a href="{{ website_url }}/bank_details" class="button">Set Up New Payment Method</a>
+            </center>
+
+            <p>If you have any questions, please don't hesitate to contact us at <a href="mailto:{{ support_email }}">{{ support_email }}</a>.</p>
+
+            <p>Best regards,<br>
+            {{ company_name }} Membership Team</p>
+        </div>
+
+        <div class="footer">
+            <p>This is an automated message from {{ company_name }}.<br>
+            Please do not reply to this email. For support, visit your member portal.<br>
+            © {{ current_year }} {{ company_name }}. All rights reserved.<br>
+            <a href="{{ unsubscribe_link }}" style="color: #6c757d;">Manage email preferences</a></p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,330 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","autoname": "format:TERM-REQ-{YY}-{MM}-{####}",
+ "creation": "2025-01-20 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "termination_details_section",
+  "member",
+  "member_name",
+  "termination_type",
+  "column_break_1",
+  "requested_by",
+  "request_date",
+  "status",
+  "reason_section",
+  "termination_reason",
+  "disciplinary_documentation",
+  "approval_section",
+  "requires_secondary_approval",
+  "secondary_approver",
+  "column_break_2",
+  "approved_by",
+  "approval_date",
+  "approver_notes",
+  "execution_section",
+  "termination_date",
+  "grace_period_end",
+  "column_break_3",
+  "executed_by",
+  "execution_date",
+  "execution_notes",
+  "system_updates_section",
+  "cancel_sepa_mandates",
+  "unsubscribe_newsletters",
+  "end_board_positions",
+  "column_break_4",
+  "sepa_mandates_cancelled",
+  "positions_ended",
+  "newsletters_updated",
+  "audit_section",
+  "audit_trail"
+ ],
+ "fields": [
+  {
+   "fieldname": "termination_details_section",
+   "fieldtype": "Section Break",
+   "label": "Termination Details"
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "label": "Member",
+   "options": "Member",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fetch_from": "member.full_name",
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "label": "Member Name",
+   "read_only": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "termination_type",
+   "fieldtype": "Select",
+   "label": "Termination Type",
+   "options": "Voluntary\nNon-payment\nDeceased\n--- Disciplinary ---\nPolicy Violation\nDisciplinary Action\nExpulsion",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "request_date",
+   "fieldtype": "Date",
+   "label": "Request Date",
+   "default": "Today",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nPending\nApproved\nRejected\nExecuted",
+   "default": "Draft",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "reason_section",
+   "fieldtype": "Section Break",
+   "label": "Reason & Documentation"
+  },
+  {
+   "fieldname": "termination_reason",
+   "fieldtype": "Small Text",
+   "label": "Termination Reason",
+   "reqd": 1
+  },
+  {
+   "fieldname": "disciplinary_documentation",
+   "fieldtype": "Text Editor",
+   "label": "Documentation Required",
+   "depends_on": "eval:['Policy Violation', 'Disciplinary Action', 'Expulsion'].includes(doc.termination_type)",
+   "mandatory_depends_on": "eval:['Policy Violation', 'Disciplinary Action', 'Expulsion'].includes(doc.termination_type)",
+   "description": "Required for disciplinary actions - will be included in expulsion report"
+  },
+  {
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Approval Process"
+  },
+  {
+   "fieldname": "requires_secondary_approval",
+   "fieldtype": "Check",
+   "label": "Requires Secondary Approval",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "secondary_approver",
+   "fieldtype": "Link",
+   "label": "Secondary Approver",
+   "options": "User",
+   "depends_on": "eval:doc.requires_secondary_approval",
+   "mandatory_depends_on": "eval:doc.requires_secondary_approval && doc.status == 'Pending'"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Datetime",
+   "label": "Approval Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approver_notes",
+   "fieldtype": "Small Text",
+   "label": "Approver Notes",
+   "depends_on": "eval:doc.status == 'Approved' || doc.status == 'Rejected'"
+  },
+  {
+   "fieldname": "execution_section",
+   "fieldtype": "Section Break",
+   "label": "Execution Details"
+  },
+  {
+   "fieldname": "termination_date",
+   "fieldtype": "Date",
+   "label": "Termination Date",
+   "depends_on": "eval:doc.status == 'Approved' || doc.status == 'Executed'"
+  },
+  {
+   "fieldname": "grace_period_end",
+   "fieldtype": "Date",
+   "label": "Grace Period End",
+   "depends_on": "eval:['Voluntary', 'Non-payment', 'Deceased'].includes(doc.termination_type) && doc.status != 'Draft'"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "executed_by",
+   "fieldtype": "Link",
+   "label": "Executed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "execution_date",
+   "fieldtype": "Datetime",
+   "label": "Execution Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "execution_notes",
+   "fieldtype": "Small Text",
+   "label": "Execution Notes"
+  },
+  {
+   "fieldname": "system_updates_section",
+   "fieldtype": "Section Break",
+   "label": "System Updates"
+  },
+  {
+   "fieldname": "cancel_sepa_mandates",
+   "fieldtype": "Check",
+   "label": "Cancel SEPA Mandates",
+   "default": "1"
+  },
+  {
+   "fieldname": "unsubscribe_newsletters",
+   "fieldtype": "Check",
+   "label": "Unsubscribe from Member Newsletters",
+   "default": "1"
+  },
+  {
+   "fieldname": "end_board_positions",
+   "fieldtype": "Check",
+   "label": "End Board/Committee Positions",
+   "default": "1"
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sepa_mandates_cancelled",
+   "fieldtype": "Int",
+   "label": "SEPA Mandates Cancelled",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "positions_ended",
+   "fieldtype": "Int",
+   "label": "Board Positions Ended",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "newsletters_updated",
+   "fieldtype": "Check",
+   "label": "Newsletter Subscriptions Updated",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "volunteers_terminated",
+   "fieldtype": "Int",
+   "label": "Volunteer Records Updated",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "volunteer_expenses_cancelled",
+   "fieldtype": "Int",
+   "label": "Volunteer Expenses Cancelled",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "employees_terminated",
+   "fieldtype": "Int",
+   "label": "Employee Records Updated",
+   "read_only": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "audit_section",
+   "fieldtype": "Section Break",
+   "label": "Audit Trail"
+  },
+  {
+   "fieldname": "audit_trail",
+   "fieldtype": "Table",
+   "label": "Audit Trail",
+   "options": "Termination Audit Entry",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2025-01-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Membership Termination Request",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Chapter Board Member",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "member_name",
+ "track_changes": 1
+}

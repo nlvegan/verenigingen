@@ -1,0 +1,246 @@
+{
+ "actions": [],
+
+ "app": "verenigingen",
+ "creation": "2025-06-10 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "volunteer",
+  "column_break_1",
+  "expense_date",
+  "section_break_2",
+  "category",
+  "description",
+  "column_break_3",
+  "amount",
+  "currency",
+  "section_break_4",
+  "receipt_attachment",
+  "column_break_5",
+  "notes",
+  "section_break_6",
+  "organization_type",
+  "chapter",
+  "team",
+  "column_break_6a",
+  "company",
+  "column_break_7",
+  "status",
+  "approved_by",
+  "approved_on",
+  "section_break_9",
+  "expense_claim_id",
+  "section_break_8",
+  "reimbursement_details"
+ ],
+ "fields": [
+  {
+   "fieldname": "volunteer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Volunteer",
+   "options": "Volunteer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "expense_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Expense Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_2",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Expense Category",
+   "options": "Expense Category",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "default": "EUR"
+  },
+  {
+   "fieldname": "section_break_4",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "receipt_attachment",
+   "fieldtype": "Attach",
+   "label": "Receipt Attachment"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "section_break_6",
+   "fieldtype": "Section Break",
+   "label": "Organization Details"
+  },
+  {
+   "fieldname": "organization_type",
+   "fieldtype": "Select",
+   "label": "Team, Commission or Chapter",
+   "options": "Chapter\nTeam\nNational",
+   "default": "Chapter",
+   "reqd": 1
+  },
+  {
+   "fieldname": "chapter",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Chapter",
+   "options": "Chapter",
+   "depends_on": "eval:doc.organization_type=='Chapter'"
+  },
+  {
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Team",
+   "options": "Team",
+   "depends_on": "eval:doc.organization_type=='Team'"
+  },
+  {
+   "fieldname": "column_break_6a",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_7",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nSubmitted\nApproved\nRejected\nReimbursed",
+   "default": "Draft",
+   "reqd": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "approved_on",
+   "fieldtype": "Datetime",
+   "label": "Approved On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_9",
+   "fieldtype": "Section Break",
+   "label": "ERPNext Integration"
+  },
+  {
+   "fieldname": "expense_claim_id",
+   "fieldtype": "Link",
+   "label": "ERPNext Expense Claim",
+   "options": "Expense Claim",
+   "read_only": 1,
+   "description": "Link to the corresponding ERPNext Expense Claim record"
+  },
+  {
+   "fieldname": "section_break_8",
+   "fieldtype": "Section Break",
+   "label": "Reimbursement"
+  },
+  {
+   "fieldname": "reimbursement_details",
+   "fieldtype": "Text",
+   "label": "Reimbursement Details"
+  }
+ ],
+ "links": [],
+ "modified": "2025-06-10 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Volunteer Expense",
+ "naming_rule": "Expression (Old Style)",
+ "autoname": "format:VE-{YYYY}-{MM}-{#####}",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Chapter Board Member",
+   "if_owner": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "write": 1,
+   "role": "Volunteer",
+   "if_owner": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

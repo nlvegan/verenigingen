@@ -1,0 +1,66 @@
+{
+ "add_total_row": 0,
+ "columns": [],
+ "creation": "2025-01-20 00:00:00.000000",
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "label": "From Date",
+   "mandatory": 0,
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "label": "To Date",
+   "mandatory": 0,
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "termination_type",
+   "fieldtype": "Select",
+   "label": "Termination Type",
+   "mandatory": 0,
+   "options": "\nVoluntary\nNon-payment\nDeceased\nPolicy Violation\nDisciplinary Action\nExpulsion",
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "chapter",
+   "fieldtype": "Link",
+   "label": "Chapter",
+   "mandatory": 0,
+   "options": "Chapter",
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "compliance_issues_only",
+   "fieldtype": "Check",
+   "label": "Compliance Issues Only",
+   "mandatory": 0,
+   "wildcard_filter": 0
+  }
+ ],
+ "is_standard": "Yes",
+ "modified": "2025-01-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Termination Compliance Report",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "",
+ "ref_doctype": "Membership Termination Request",
+ "report_name": "Termination Compliance Report",
+ "report_type": "Script Report",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Verenigingen Administrator"
+  }
+ ]
+}

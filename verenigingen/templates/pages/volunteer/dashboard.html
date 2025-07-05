@@ -1,0 +1,477 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Volunteer Dashboard") }}{% endblock %}
+
+{% block head_include %}
+<style>
+    .volunteer-dashboard {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+    }
+
+    .dashboard-header {
+        background: linear-gradient(135deg, #663399 0%, #cf3131 100%);
+        color: white;
+        padding: 30px;
+        border-radius: 10px;
+        margin-bottom: 30px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .header-content h1 {
+        margin: 0 0 10px 0;
+        font-size: 2.5rem;
+        font-weight: 300;
+    }
+
+    .header-content p {
+        margin: 0;
+        opacity: 0.9;
+        font-size: 1.1rem;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 15px;
+    }
+
+    .btn-portal {
+        background: rgba(255, 255, 255, 0.2);
+        color: white;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        padding: 12px 24px;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .btn-portal:hover {
+        background: rgba(255, 255, 255, 0.3);
+        border-color: rgba(255, 255, 255, 0.5);
+        color: white;
+        text-decoration: none;
+        transform: translateY(-2px);
+    }
+
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 30px;
+        margin-bottom: 30px;
+    }
+
+    .main-content {
+        display: flex;
+        flex-direction: column;
+        gap: 30px;
+    }
+
+    .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .card {
+        background: white;
+        border-radius: 10px;
+        padding: 25px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .card h2 {
+        margin: 0 0 20px 0;
+        color: #333;
+        font-size: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .card h3 {
+        margin: 0 0 15px 0;
+        color: #333;
+        font-size: 1.2rem;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 20px;
+    }
+
+    .stat-item {
+        text-align: center;
+        padding: 20px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        border-left: 4px solid #663399;
+    }
+
+    .stat-item h4 {
+        margin: 0 0 5px 0;
+        font-size: 2rem;
+        color: #333;
+        font-weight: bold;
+    }
+
+    .stat-item p {
+        margin: 0;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .activity-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 15px;
+        padding: 15px 0;
+        border-bottom: 1px solid #e9ecef;
+    }
+
+    .activity-item:last-child {
+        border-bottom: none;
+    }
+
+    .activity-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        font-size: 16px;
+        color: white;
+    }
+
+    .activity-icon.assignment { background: #28a745; }
+    .activity-icon.expense { background: #17a2b8; }
+    .activity-icon.task { background: #ffc107; color: #333; }
+
+    .activity-content {
+        flex: 1;
+    }
+
+    .activity-title {
+        margin: 0 0 5px 0;
+        font-weight: 600;
+        color: #333;
+    }
+
+    .activity-description {
+        margin: 0 0 5px 0;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .activity-meta {
+        font-size: 0.85rem;
+        color: #999;
+    }
+
+    .org-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 15px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        margin-bottom: 10px;
+    }
+
+    .org-info h4 {
+        margin: 0 0 5px 0;
+        color: #333;
+    }
+
+    .org-info p {
+        margin: 0;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .org-type {
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        background: #663399;
+        color: white;
+    }
+
+    .org-type.team {
+        background: #01796f;
+    }
+
+    .profile-info {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .profile-field {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .profile-field label {
+        font-weight: 600;
+        color: #666;
+        font-size: 0.9rem;
+    }
+
+    .profile-field span {
+        color: #333;
+    }
+
+    .interests-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+    }
+
+    .interest-tag {
+        padding: 4px 12px;
+        background: #e9ecef;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        color: #333;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+    }
+
+    .empty-state i {
+        font-size: 3rem;
+        margin-bottom: 15px;
+        color: #ccc;
+    }
+
+    @media (max-width: 768px) {
+        .volunteer-dashboard {
+            padding: 10px;
+        }
+
+        .dashboard-header {
+            flex-direction: column;
+            text-align: center;
+            gap: 20px;
+        }
+
+        .header-content h1 {
+            font-size: 2rem;
+        }
+
+        .dashboard-grid {
+            grid-template-columns: 1fr;
+        }
+
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        .profile-info {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="volunteer-dashboard">
+    {% if error_message %}
+        <div class="alert alert-danger">
+            <i class="fa fa-exclamation-triangle"></i>
+            {{ error_message }}
+        </div>
+    {% else %}
+        <!-- Dashboard Header -->
+        <div class="dashboard-header">
+            <div class="header-content">
+                <h1>{{ _("Welcome back,") }} {{ volunteer_profile.volunteer_name }}!</h1>
+                <p>{{ _("Your volunteer dashboard") }}</p>
+            </div>
+            <div class="header-actions">
+                <a href="/volunteer/expenses" class="btn-portal">
+                    <i class="fa fa-receipt"></i>
+                    {{ _("Submit Expenses") }}
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Grid -->
+        <div class="dashboard-grid">
+            <!-- Main Content -->
+            <div class="main-content">
+                <!-- Expense Summary -->
+                <div class="card">
+                    <h2>
+                        <i class="fa fa-chart-line"></i>
+                        {{ _("Expense Summary") }}
+                    </h2>
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <h4>€{{ "{:,.2f}".format(expense_summary.total_submitted) }}</h4>
+                            <p>{{ _("Total Submitted (12 months)") }}</p>
+                        </div>
+                        <div class="stat-item">
+                            <h4>€{{ "{:,.2f}".format(expense_summary.total_approved) }}</h4>
+                            <p>{{ _("Total Approved") }}</p>
+                        </div>
+                        <div class="stat-item">
+                            <h4>{{ expense_summary.pending_count }}</h4>
+                            <p>{{ _("Pending Approval") }}</p>
+                        </div>
+                        <div class="stat-item">
+                            <h4>{{ expense_summary.recent_count }}</h4>
+                            <p>{{ _("This Month") }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Activities -->
+                <div class="card">
+                    <h2>
+                        <i class="fa fa-clock"></i>
+                        {{ _("Recent Activities") }}
+                    </h2>
+                    {% if recent_activities %}
+                        {% for activity in recent_activities %}
+                            <div class="activity-item">
+                                <div class="activity-icon {{ activity.type }}">
+                                    <i class="fa {{ activity.icon }}"></i>
+                                </div>
+                                <div class="activity-content">
+                                    <div class="activity-title">{{ activity.title }}</div>
+                                    <div class="activity-description">{{ activity.description }}</div>
+                                    <div class="activity-meta">
+                                        {{ frappe.utils.formatdate(activity.date) }} • {{ _(activity.status) }}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">
+                            <i class="fa fa-calendar"></i>
+                            <h3>{{ _("No recent activities") }}</h3>
+                            <p>{{ _("Your volunteer activities will appear here") }}</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="sidebar">
+                <!-- Profile Summary -->
+                <div class="card">
+                    <h3>
+                        <i class="fa fa-user"></i>
+                        {{ _("Profile") }}
+                    </h3>
+                    <div class="profile-info">
+                        <div class="profile-field">
+                            <label>{{ _("Email") }}</label>
+                            <span>{{ volunteer_profile.email or _("Not set") }}</span>
+                        </div>
+                        <div class="profile-field">
+                            <label>{{ _("Status") }}</label>
+                            <span>{{ _(volunteer_profile.status) }}</span>
+                        </div>
+                        {% if volunteer_profile.member_info %}
+                            <div class="profile-field">
+                                <label>{{ _("Member ID") }}</label>
+                                <span>{{ volunteer_profile.member_info.member_id }}</span>
+                            </div>
+                        {% endif %}
+                    </div>
+
+                    {% if volunteer_profile.interests %}
+                        <label style="font-weight: 600; color: #666; font-size: 0.9rem; margin-top: 15px; display: block;">
+                            {{ _("Interests") }}
+                        </label>
+                        <div class="interests-tags">
+                            {% for interest in volunteer_profile.interests %}
+                                <span class="interest-tag">{{ interest.interest_area }}</span>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Organizations -->
+                <div class="card">
+                    <h3>
+                        <i class="fa fa-building"></i>
+                        {{ _("Organizations") }}
+                    </h3>
+
+                    {% if organizations.chapters %}
+                        {% for chapter in organizations.chapters %}
+                            <div class="org-item">
+                                <div class="org-info">
+                                    <h4>{{ chapter.chapter_name }}</h4>
+                                    <p>{{ chapter.city }}</p>
+                                </div>
+                                <span class="org-type">{{ _("Chapter") }}</span>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    {% if organizations.teams %}
+                        {% for team in organizations.teams %}
+                            <div class="org-item">
+                                <div class="org-info">
+                                    <h4>{{ team.team_name }}</h4>
+                                    <p>{{ team.role or _("Member") }}</p>
+                                </div>
+                                <span class="org-type team">{{ _("Team") }}</span>
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+
+                    {% if not organizations.chapters and not organizations.teams %}
+                        <div class="empty-state">
+                            <i class="fa fa-building"></i>
+                            <p>{{ _("No organizations assigned") }}</p>
+                        </div>
+                    {% endif %}
+                </div>
+
+                <!-- Upcoming Activities -->
+                {% if upcoming_activities %}
+                    <div class="card">
+                        <h3>
+                            <i class="fa fa-calendar-alt"></i>
+                            {{ _("Upcoming") }}
+                        </h3>
+                        {% for activity in upcoming_activities %}
+                            <div class="activity-item">
+                                <div class="activity-content">
+                                    <div class="activity-title">{{ activity.title }}</div>
+                                    <div class="activity-description">{{ activity.description }}</div>
+                                    <div class="activity-meta">
+                                        {{ frappe.utils.formatdate(activity.date) }}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,379 @@
+{% extends "templates/web.html" %}
+
+{% macro format_date(date_val, format='%B %d, %Y') -%}
+    {%- if date_val -%}
+        {%- if date_val is string -%}
+            {{ date_val }}
+        {%- else -%}
+            {{ date_val.strftime(format) }}
+        {%- endif -%}
+    {%- else -%}
+
+    {%- endif -%}
+{%- endmacro %}
+
+{% macro format_datetime(date_val, format='%B %d, %Y at %H:%M') -%}
+    {%- if date_val -%}
+        {%- if date_val is string -%}
+            {{ date_val }}
+        {%- else -%}
+            {{ date_val.strftime(format) }}
+        {%- endif -%}
+    {%- else -%}
+        Recently
+    {%- endif -%}
+{%- endmacro %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block head_include %}
+<link rel="stylesheet" href="/assets/verenigingen/css/chapter_dashboard.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+{% endblock %}
+
+{% block page_content %}
+<div class="chapter-dashboard">
+    {% if error_message %}
+        <div class="alert alert-danger">
+            <h4>Access Denied</h4>
+            <p>{{ error_message }}</p>
+            {% if user_roles %}
+                <small>Your current roles: {{ ", ".join(user_roles) }}</small>
+            {% endif %}
+        </div>
+    {% elif has_data %}
+        <!-- Dashboard Header -->
+        <div class="dashboard-header">
+            <div class="header-content">
+                <div class="header-left">
+                    <h1 class="chapter-title">
+                        <span class="chapter-icon">🏛️</span>
+                        {{ selected_chapter.upper() }} CHAPTER DASHBOARD
+                    </h1>
+                    <div class="header-info">
+                        <span class="user-role">{{ user_board_role.role if user_board_role else 'Board Member' }}</span>
+                        {% if user_board_role and user_board_role.since %}
+                            <span class="role-since">Since {{ format_date(user_board_role.since, '%B %Y') }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="last-updated">
+                        Last Updated: {{ format_datetime(dashboard_data.last_updated) }}
+                    </div>
+                    {% if user_chapters|length > 1 %}
+                        <div class="chapter-selector">
+                            <select id="chapter-select" class="form-control">
+                                {% for chapter in user_chapters %}
+                                    <option value="{{ chapter.chapter_name }}"
+                                        {{ 'selected' if chapter.chapter_name == selected_chapter else '' }}>
+                                        {{ chapter.chapter_name }} ({{ chapter.chapter_role if chapter.chapter_role else 'Board Member' }})
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Key Metrics Cards -->
+        <div class="metrics-row">
+            <div class="metric-card members-card">
+                <div class="metric-icon">👥</div>
+                <div class="metric-content">
+                    <h3>{{ dashboard_data.key_metrics.members.active }}</h3>
+                    <p>Active Members</p>
+                    {% if dashboard_data.key_metrics.members.new_this_month > 0 %}
+                        <small class="trend positive">+{{ dashboard_data.key_metrics.members.new_this_month }} this month</small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="metric-card pending-card">
+                <div class="metric-icon">⏳</div>
+                <div class="metric-content">
+                    <h3>{{ dashboard_data.key_metrics.members.pending }}</h3>
+                    <p>Pending Applications</p>
+                    {% set overdue_count = dashboard_data.pending_actions.membership_applications | selectattr('is_overdue') | list | length %}
+                    {% if overdue_count > 0 %}
+                        <small class="trend overdue">{{ overdue_count }} overdue</small>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="metric-card expenses-card">
+                <div class="metric-icon">💰</div>
+                <div class="metric-content">
+                    <h3>€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.pending_amount) }}</h3>
+                    <p>Pending Expenses</p>
+                    <small class="trend">€{{ "%.0f"|format(dashboard_data.key_metrics.expenses.ytd_total) }} YTD</small>
+                </div>
+            </div>
+
+            <div class="metric-card activities-card">
+                <div class="metric-icon">📅</div>
+                <div class="metric-content">
+                    <h3>{{ dashboard_data.key_metrics.activities.this_month }}</h3>
+                    <p>Activities This Month</p>
+                    <small class="trend">{{ dashboard_data.key_metrics.activities.upcoming }} upcoming</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard Content -->
+        <div class="dashboard-content">
+            <div class="dashboard-grid">
+
+                <!-- Member Management Section -->
+                <div class="dashboard-card member-management">
+                    <div class="card-header">
+                        <h3>👥 Chapter Members</h3>
+                        <div class="card-actions">
+                            <button class="btn btn-sm btn-chapter-primary" onclick="viewAllMembers()">
+                                <i class="fa fa-list"></i> View All
+                            </button>
+                            {% if user_board_role and user_board_role.permissions.can_approve_members %}
+                                <button class="btn btn-sm btn-chapter-success" onclick="addNewMember()">
+                                    <i class="fa fa-plus"></i> Add Member
+                                </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <div class="quick-stats">
+                            <div class="stat-item">
+                                <span class="stat-label">Active:</span>
+                                <span class="stat-value active">{{ dashboard_data.key_metrics.members.active }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Pending:</span>
+                                <span class="stat-value pending">{{ dashboard_data.key_metrics.members.pending }}</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Inactive:</span>
+                                <span class="stat-value inactive">{{ dashboard_data.key_metrics.members.inactive }}</span>
+                            </div>
+                        </div>
+
+                        {% if dashboard_data.member_overview.recent_members %}
+                            <div class="recent-activity">
+                                <h4>Recent Activity</h4>
+                                <ul class="activity-list">
+                                    {% for member in dashboard_data.member_overview.recent_members %}
+                                        <li class="activity-item">
+                                            <strong>{{ member.full_name }}</strong>
+                                            {% if member.status == 'Pending' %}
+                                                <span class="status-badge pending">Pending Approval</span>
+                                            {% elif member.enabled == 0 %}
+                                                <span class="status-badge inactive">Left Chapter</span>
+                                            {% else %}
+                                                <span class="status-badge active">Joined</span>
+                                            {% endif %}
+                                            <small class="activity-date">
+                                                {{ format_date(member.chapter_join_date) }}
+                                            </small>
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Pending Actions Section -->
+                {% if dashboard_data.pending_actions.total_pending > 0 %}
+                <div class="dashboard-card pending-actions urgent">
+                    <div class="card-header">
+                        <h3>⚠️ Requires Your Attention</h3>
+                        <div class="urgency-indicator">
+                            {{ dashboard_data.pending_actions.total_pending }} items
+                        </div>
+                    </div>
+                    <div class="card-content">
+
+                        <!-- Pending Member Applications -->
+                        {% if dashboard_data.pending_actions.membership_applications %}
+                            <div class="pending-section">
+                                <h4>🆕 New Member Applications ({{ dashboard_data.pending_actions.membership_applications|length }})</h4>
+                                <ul class="pending-list">
+                                    {% for app in dashboard_data.pending_actions.membership_applications %}
+                                        <li class="pending-item {{ 'overdue' if app.is_overdue else '' }}">
+                                            <div class="pending-info">
+                                                <strong>{{ app.full_name }}</strong>
+                                                <small>Applied {{ app.days_pending }} days ago</small>
+                                                {% if app.is_overdue %}
+                                                    <span class="overdue-label">OVERDUE</span>
+                                                {% endif %}
+                                            </div>
+                                            {% if user_board_role and user_board_role.permissions.can_approve_members %}
+                                                <div class="pending-actions">
+                                                    <button class="btn btn-xs btn-chapter-success"
+                                                            onclick="approveMember('{{ app.member }}')">
+                                                        Approve
+                                                    </button>
+                                                    <button class="btn btn-xs btn-chapter-default"
+                                                            onclick="reviewMember('{{ app.member }}')">
+                                                        Review
+                                                    </button>
+                                                </div>
+                                            {% endif %}
+                                        </li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+                        {% endif %}
+
+                        <!-- Placeholder for expense approvals -->
+                        {% if dashboard_data.pending_actions.expense_approvals %}
+                            <div class="pending-section">
+                                <h4>💰 Expense Approvals ({{ dashboard_data.pending_actions.expense_approvals|length }})</h4>
+                                <!-- Will be implemented when expense system is integrated -->
+                            </div>
+                        {% endif %}
+
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Board Information Section -->
+                <div class="dashboard-card board-info">
+                    <div class="card-header">
+                        <h3>👨‍💼 Board Members</h3>
+                        {% if user_board_role and user_board_role.permissions.can_manage_board %}
+                            <div class="card-actions">
+                                <button class="btn btn-sm btn-chapter-default" onclick="manageBoardMembers()">
+                                    <i class="fa fa-cog"></i> Manage
+                                </button>
+                            </div>
+                        {% endif %}
+                    </div>
+                    <div class="card-content">
+                        {% if dashboard_data.board_info.members %}
+                            <ul class="board-list">
+                                {% for board_member in dashboard_data.board_info.members %}
+                                    <li class="board-item {{ 'current-user' if board_member.is_current_user else '' }}">
+                                        <div class="board-member-info">
+                                            <strong>{{ board_member.volunteer_name }}</strong>
+                                            <span class="board-role">({{ board_member.role }})</span>
+                                            {% if board_member.is_current_user %}
+                                                <span class="you-indicator">YOU</span>
+                                            {% endif %}
+                                        </div>
+                                        <small class="board-since">
+                                            Since {{ format_date(board_member.from_date, '%B %Y') if board_member.from_date else 'Unknown' }}
+                                        </small>
+                                    </li>
+                                {% endfor %}
+                            </ul>
+                        {% else %}
+                            <p class="no-data">No board members found.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Financial Summary Section -->
+                {% if user_board_role and user_board_role.permissions.can_view_finances %}
+                <div class="dashboard-card financial-summary">
+                    <div class="card-header">
+                        <h3>💰 Chapter Finances</h3>
+                        <div class="card-actions">
+                            <button class="btn btn-sm btn-chapter-default" onclick="viewFinancialReports()">
+                                <i class="fa fa-chart-bar"></i> Reports
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-content">
+                        <div class="financial-overview">
+                            <div class="financial-period">
+                                <h4>This Month</h4>
+                                <ul class="financial-stats">
+                                    <li>Expenses Submitted: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_submitted) }}</strong></li>
+                                    <li>Expenses Approved: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.expenses_approved) }}</strong></li>
+                                    <li>Pending Approval: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.this_month.pending_approval) }}</strong></li>
+                                </ul>
+                            </div>
+
+                            <div class="financial-period">
+                                <h4>Year to Date</h4>
+                                <ul class="financial-stats">
+                                    <li>Total Expenses: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.total_expenses) }}</strong></li>
+                                    <li>Average per Claim: <strong>€{{ "%.2f"|format(dashboard_data.financial_summary.ytd.average_claim) }}</strong></li>
+                                    <li>Total Claims: <strong>{{ dashboard_data.financial_summary.ytd.total_claims }}</strong></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Recent Activity Section -->
+                {% if dashboard_data.recent_activity %}
+                <div class="dashboard-card recent-activity">
+                    <div class="card-header">
+                        <h3>📋 Recent Activity</h3>
+                    </div>
+                    <div class="card-content">
+                        <ul class="activity-timeline">
+                            {% for activity in dashboard_data.recent_activity[:5] %}
+                                <li class="timeline-item">
+                                    <div class="timeline-content">
+                                        <p>{{ activity.description }}</p>
+                                        <small class="timeline-date">
+                                            {{ format_datetime(activity.timestamp) }}
+                                        </small>
+                                    </div>
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                {% endif %}
+
+            </div>
+        </div>
+
+    {% else %}
+        <div class="alert alert-warning">
+            <h4>Dashboard Unavailable</h4>
+            <p>Unable to load dashboard data at this time. Please try again later.</p>
+        </div>
+    {% endif %}
+</div>
+
+<!-- Loading overlay -->
+<div id="loading-overlay" class="loading-overlay" style="display: none;">
+    <div class="loading-spinner">
+        <i class="fa fa-spinner fa-spin"></i>
+        <p>Loading...</p>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block script %}
+<script src="/assets/verenigingen/js/chapter_dashboard.js"></script>
+<script>
+    // Initialize dashboard
+    $(document).ready(function() {
+        // Set up chapter selector
+        $('#chapter-select').on('change', function() {
+            const selectedChapter = $(this).val();
+            if (selectedChapter) {
+                window.location.href = '/chapter-dashboard?chapter=' + encodeURIComponent(selectedChapter);
+            }
+        });
+
+        // Set up auto-refresh
+        setInterval(function() {
+            // Refresh dashboard data every 5 minutes
+            refreshDashboardData();
+        }, 300000);
+    });
+
+    // Pass dashboard data to JavaScript
+    window.dashboardData = {{ dashboard_data | tojson | safe if dashboard_data else '{}' }};
+    window.userPermissions = {{ user_board_role.permissions | tojson | safe if user_board_role and user_board_role.permissions else '{}' }};
+    window.selectedChapter = '{{ selected_chapter }}';
+</script>
+{% endblock %}

@@ -1,0 +1,133 @@
+{
+ "app": "verenigingen",
+  "autoname": "hash",
+  "creation": "2025-05-17 12:43:45.267592",
+  "doctype": "DocType",
+  "engine": "InnoDB",
+  "field_order": [
+    "title",
+    "reference_doctype",
+    "reference_name",
+    "assignment_type",
+    "role",
+    "column_break_4",
+    "start_date",
+    "end_date",
+    "status",
+    "hours_section",
+    "estimated_hours",
+    "actual_hours",
+    "details_section",
+    "accomplishments",
+    "notes"
+  ],
+  "fields": [
+    {
+      "fieldname": "title",
+      "fieldtype": "Data",
+      "label": "Title",
+      "read_only": 1,
+      "hidden": 1
+    },
+    {
+      "fieldname": "assignment_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Assignment Type",
+      "options": "Board Position\nCommittee\nTeam\nProject\nEvent\nOther",
+      "reqd": 1,
+      "columns": 2
+    },
+    {
+      "fieldname": "reference_doctype",
+      "fieldtype": "Link",
+      "label": "Related To",
+      "options": "DocType",
+      "in_list_view": 1,
+      "columns": 1
+    },
+    {
+      "fieldname": "reference_name",
+      "fieldtype": "Dynamic Link",
+      "label": "Reference Name",
+      "options": "reference_doctype",
+      "in_list_view": 1,
+      "columns": 2
+    },
+    {
+      "fieldname": "role",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Role/Position",
+      "reqd": 1,
+      "columns": 2
+    },
+    {
+      "fieldname": "column_break_4",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "start_date",
+      "fieldtype": "Date",
+      "in_list_view": 1,
+      "label": "Start Date",
+      "reqd": 1,
+      "columns": 1
+    },
+    {
+      "fieldname": "end_date",
+      "fieldtype": "Date",
+      "label": "End Date",
+      "in_list_view": 1,
+      "columns": 1
+    },
+    {
+      "default": "Active",
+      "fieldname": "status",
+      "fieldtype": "Select",
+      "in_list_view": 0,
+      "label": "Status",
+      "options": "Active\nCompleted\nPaused\nCancelled"
+    },
+    {
+      "fieldname": "hours_section",
+      "fieldtype": "Section Break",
+      "label": "Time Contribution"
+    },
+    {
+      "fieldname": "estimated_hours",
+      "fieldtype": "Float",
+      "label": "Estimated Hours"
+    },
+    {
+      "fieldname": "actual_hours",
+      "fieldtype": "Float",
+      "label": "Actual Hours"
+    },
+    {
+      "fieldname": "details_section",
+      "fieldtype": "Section Break",
+      "label": "Details"
+    },
+    {
+      "fieldname": "accomplishments",
+      "fieldtype": "Text",
+      "label": "Accomplishments"
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Text",
+      "label": "Notes"
+    }
+  ],
+  "istable": 1,
+  "modified": "2025-05-17 12:43:45.267592",
+  "modified_by": "Administrator",
+  "module": "Verenigingen",
+  "name": "Volunteer Assignment",
+  "owner": "Administrator",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "title_field": "title"
+}

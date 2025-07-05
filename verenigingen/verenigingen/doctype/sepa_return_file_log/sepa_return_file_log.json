@@ -1,0 +1,151 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-19 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "file_details_section",
+  "file_hash",
+  "file_name",
+  "file_size",
+  "column_break_4",
+  "processing_date",
+  "processed_by",
+  "status",
+  "processing_section",
+  "processing_result",
+  "error_message",
+  "column_break_10",
+  "return_count",
+  "successful_reversals",
+  "failed_reversals"
+ ],
+ "fields": [
+  {
+   "fieldname": "file_details_section",
+   "fieldtype": "Section Break",
+   "label": "File Details"
+  },
+  {
+   "fieldname": "file_hash",
+   "fieldtype": "Data",
+   "label": "File Hash",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "file_name",
+   "fieldtype": "Data",
+   "label": "File Name"
+  },
+  {
+   "fieldname": "file_size",
+   "fieldtype": "Int",
+   "label": "File Size (bytes)"
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "now",
+   "fieldname": "processing_date",
+   "fieldtype": "Datetime",
+   "label": "Processing Date",
+   "reqd": 1
+  },
+  {
+   "default": "user",
+   "fieldname": "processed_by",
+   "fieldtype": "Link",
+   "label": "Processed By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "default": "Processing",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Processing\nCompleted\nFailed\nPartially Processed",
+   "reqd": 1
+  },
+  {
+   "fieldname": "processing_section",
+   "fieldtype": "Section Break",
+   "label": "Processing Results"
+  },
+  {
+   "fieldname": "processing_result",
+   "fieldtype": "Long Text",
+   "label": "Processing Result JSON"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Text",
+   "label": "Error Message"
+  },
+  {
+   "fieldname": "column_break_10",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "return_count",
+   "fieldtype": "Int",
+   "label": "Return Count"
+  },
+  {
+   "default": "0",
+   "fieldname": "successful_reversals",
+   "fieldtype": "Int",
+   "label": "Successful Reversals"
+  },
+  {
+   "default": "0",
+   "fieldname": "failed_reversals",
+   "fieldtype": "Int",
+   "label": "Failed Reversals"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-01-19 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "SEPA Return File Log",
+ "naming_rule": "By fieldname",
+ "naming_series_field": "file_hash",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

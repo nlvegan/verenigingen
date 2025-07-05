@@ -1,0 +1,48 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("My Account") }}{% endblock %}
+
+{% block page_content %}
+<div style="max-width: 800px; margin: 2rem auto; padding: 2rem;">
+    <h1>{{ _("My Account") }}</h1>
+
+    {% if error_message %}
+    <div style="background: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin: 1rem 0;">
+        {{ error_message }}
+    </div>
+    {% endif %}
+
+    {% if member %}
+    <div style="background: white; padding: 2rem; border-radius: 8px; margin: 1rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <h3>{{ _("Account Information") }}</h3>
+        <p><strong>{{ _("Name") }}:</strong> {{ member.full_name }}</p>
+        <p><strong>{{ _("Email") }}:</strong> {{ member.email }}</p>
+        <p><strong>{{ _("Member ID") }}:</strong> {{ member.member_id or _("Pending") }}</p>
+        <p><strong>{{ _("Status") }}:</strong> {{ member.status or _("Active") }}</p>
+    </div>
+    {% endif %}
+
+    {% if has_user_info %}
+    <div style="background: white; padding: 2rem; border-radius: 8px; margin: 1rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <h3>{{ _("User Information") }}</h3>
+        <p><strong>{{ _("Email") }}:</strong> {{ user_email }}</p>
+        <p><strong>{{ _("User Type") }}:</strong> {{ user_type }}</p>
+        <p><strong>{{ _("Enabled") }}:</strong> {{ _("Yes") if user_enabled else _("No") }}</p>
+        {% if last_login %}
+        <p><strong>{{ _("Last Login") }}:</strong> {{ frappe.utils.format_datetime(last_login) }}</p>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <div style="background: white; padding: 2rem; border-radius: 8px; margin: 1rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <h3>{{ _("Quick Links") }}</h3>
+        <ul>
+            <li><a href="/member_portal">{{ _("Member Portal") }}</a></li>
+            <li><a href="/member_dashboard">{{ _("Dashboard") }}</a></li>
+            <li><a href="/address_change">{{ _("Update Address") }}</a></li>
+            <li><a href="/bank_details">{{ _("Bank Details") }}</a></li>
+            <li><a href="/personal_details">{{ _("Personal Details") }}</a></li>
+        </ul>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,261 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Chapter Portal{% endblock %}
+
+{% block page_content %}
+<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+<link rel="stylesheet" href="/assets/verenigingen/css/member_portal.css">
+<style>
+    /* Brand colors */
+    :root {
+        --brand-primary: #cf3131;
+        --brand-secondary: #01796f;
+        --brand-accent: #663399;
+        --brand-success: #10b981;
+        --brand-warning: #f59e0b;
+        --brand-error: #ef4444;
+        --brand-info: #3b82f6;
+    }
+
+    /* Use brand colors */
+    .chapter-link:hover {
+        color: #cf3131 !important;
+    }
+
+    .badge-member {
+        background-color: #d4f3e5;
+        color: #10b981;
+    }
+
+    .badge-available {
+        background-color: #dbeafe;
+        color: #3b82f6;
+    }
+
+    .tab-btn:hover {
+        border-color: #cf3131 !important;
+        color: #cf3131 !important;
+    }
+
+    .error-alert {
+        background-color: #fee;
+        border-color: #ef4444;
+        color: #ef4444;
+    }
+
+    /* Override Tailwind classes with brand colors */
+    .text-primary-600 { color: #cf3131 !important; }
+    .bg-primary-600 { background-color: #cf3131 !important; }
+    .border-primary-600 { border-color: #cf3131 !important; }
+    .hover\:bg-primary-700:hover { background-color: #b82828 !important; }
+</style>
+<div class="min-h-screen bg-gray-50 py-8">
+    <div class="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900 mb-4">Chapter Portal</h1>
+            <p class="text-xl text-gray-600">Connect with your local chapter community</p>
+        </div>
+
+        <!-- User Info -->
+        <div id="user-info" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6 hidden">
+            <div class="text-sm text-blue-800">
+                Logged in as: <span class="font-semibold" id="user-email"></span> |
+                Member ID: <span class="font-semibold" id="member-id">None</span>
+            </div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="text-center py-12">
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2" style="border-color: #cf3131;"></div>
+            <p class="mt-4 text-gray-600">Loading chapters...</p>
+        </div>
+
+        <!-- Error Container -->
+        <div id="error-container"></div>
+
+        <!-- Main Content -->
+        <div id="content" class="hidden">
+            <!-- Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white rounded-lg shadow-md p-6 text-center transform transition-transform hover:scale-105">
+                    <div class="text-4xl font-bold text-gray-900" id="total-count">0</div>
+                    <div class="text-gray-600 mt-2">All Chapters</div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6 text-center transform transition-transform hover:scale-105">
+                    <div class="text-4xl font-bold" style="color: #10b981;" id="my-count">0</div>
+                    <div class="text-gray-600 mt-2">My Chapters</div>
+                </div>
+                <div class="bg-white rounded-lg shadow-md p-6 text-center transform transition-transform hover:scale-105">
+                    <div class="text-4xl font-bold" style="color: #3b82f6;" id="available-count">0</div>
+                    <div class="text-gray-600 mt-2">Available to Join</div>
+                </div>
+            </div>
+
+            <!-- Filter Tabs -->
+            <div class="flex flex-wrap gap-4 mb-8">
+                <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('all')">
+                    All Chapters (<span id="all-tab-count">0</span>)
+                </button>
+                <button class="tab-btn active px-6 py-3 border-2 rounded-lg font-medium text-white transition-all" style="background-color: #cf3131; border-color: #cf3131;" onclick="showTab('my')">
+                    My Chapters (<span id="my-tab-count">0</span>)
+                </button>
+                <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('available')">
+                    Available (<span id="available-tab-count">0</span>)
+                </button>
+            </div>
+
+            <!-- Chapter Lists -->
+            <div id="chapters-container">
+                <div id="all-chapters" class="tab-content hidden"></div>
+                <div id="my-chapters" class="tab-content"></div>
+                <div id="available-chapters" class="tab-content hidden"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+    <script>
+        let allChapters = [];
+        let myChapters = [];
+        let currentUser = '';
+        let memberInfo = null;
+
+        // Load chapters on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            loadChapters();
+        });
+
+        function loadChapters() {
+            fetch('/api/method/verenigingen.api.get_user_chapters.get_user_chapter_data')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message && data.message.success) {
+                        allChapters = data.message.chapters;
+                        myChapters = data.message.user_chapters;
+                        currentUser = data.message.user;
+                        memberInfo = data.message.member;
+
+                        displayChapters();
+
+                        // Show user info
+                        document.getElementById('user-email').textContent = currentUser;
+                        document.getElementById('member-id').textContent = memberInfo || 'None';
+                        document.getElementById('user-info').classList.remove('hidden');
+
+                        document.getElementById('loading').classList.add('hidden');
+                        document.getElementById('content').classList.remove('hidden');
+                    } else {
+                        showError('Failed to load chapters');
+                    }
+                })
+                .catch(error => {
+                    showError('Error loading chapters: ' + error.message);
+                });
+        }
+
+        function displayChapters() {
+            const myChaptersList = allChapters.filter(c => myChapters.includes(c.name));
+            const availableChaptersList = allChapters.filter(c => !myChapters.includes(c.name));
+
+            // Update counts
+            document.getElementById('total-count').textContent = allChapters.length;
+            document.getElementById('my-count').textContent = myChaptersList.length;
+            document.getElementById('available-count').textContent = availableChaptersList.length;
+
+            document.getElementById('all-tab-count').textContent = allChapters.length;
+            document.getElementById('my-tab-count').textContent = myChaptersList.length;
+            document.getElementById('available-tab-count').textContent = availableChaptersList.length;
+
+            // Display all chapters
+            displayChapterList('all-chapters', allChapters, 'all');
+            displayChapterList('my-chapters', myChaptersList, 'my');
+            displayChapterList('available-chapters', availableChaptersList, 'available');
+        }
+
+        function displayChapterList(containerId, chapters, type) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+
+            if (chapters.length === 0) {
+                const emptyMessage = document.createElement('div');
+                emptyMessage.className = 'text-center py-12';
+                if (type === 'my') {
+                    emptyMessage.innerHTML = `
+                        <i class="fa fa-users text-6xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-medium text-gray-600 mb-2">No Chapter Memberships</h3>
+                        <p class="text-gray-500">You are not a member of any chapters yet.</p>
+                    `;
+                } else if (type === 'available') {
+                    emptyMessage.innerHTML = `
+                        <i class="fa fa-star text-6xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-medium text-gray-600 mb-2">All Chapters Joined</h3>
+                        <p class="text-gray-500">You are already a member of all available chapters.</p>
+                    `;
+                } else {
+                    emptyMessage.innerHTML = `
+                        <i class="fa fa-search text-6xl text-gray-300 mb-4"></i>
+                        <h3 class="text-xl font-medium text-gray-600 mb-2">No Chapters Found</h3>
+                        <p class="text-gray-500">No chapters are currently available.</p>
+                    `;
+                }
+                container.appendChild(emptyMessage);
+                return;
+            }
+
+            chapters.forEach(chapter => {
+                const isMember = chapter.is_member || myChapters.includes(chapter.name);
+                const card = document.createElement('div');
+                card.className = 'bg-white rounded-lg shadow-md p-6 mb-4 hover:shadow-lg transition-shadow';
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1">
+                            <a href="/${chapter.route}" class="text-xl font-semibold text-gray-900 transition-colors chapter-link">
+                                ${chapter.name}
+                            </a>
+                            ${chapter.introduction ? `<p class="text-gray-600 mt-2">${chapter.introduction}</p>` : ''}
+                            ${chapter.region ? `<p class="text-sm text-gray-500 mt-2"><span class="font-medium">Region:</span> ${chapter.region}</p>` : ''}
+                        </div>
+                        <span class="ml-4 px-3 py-1 rounded-full text-sm font-medium ${isMember ? 'badge-member' : 'badge-available'}">
+                            ${isMember ? 'Member' : 'Available'}
+                        </span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function showTab(tab) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(t => {
+                t.classList.add('hidden');
+            });
+
+            // Update button styles
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.classList.remove('text-white');
+                b.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+                b.style.backgroundColor = '';
+                b.style.borderColor = '';
+            });
+
+            // Show selected tab
+            document.getElementById(tab + '-chapters').classList.remove('hidden');
+
+            // Style active button
+            event.target.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+            event.target.classList.add('text-white');
+            event.target.style.backgroundColor = '#cf3131';
+            event.target.style.borderColor = '#cf3131';
+        }
+
+        function showError(message) {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('error-container').innerHTML =
+                '<div class="error-alert px-4 py-3 rounded-lg border" role="alert">' +
+                '<strong class="font-bold">Error: </strong>' +
+                '<span class="block sm:inline">' + message + '</span>' +
+                '</div>';
+        }
+    </script>
+{% endblock %}

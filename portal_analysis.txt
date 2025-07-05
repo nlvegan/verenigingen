@@ -1,0 +1,58 @@
+
+================================================================================
+PORTAL SETTINGS MENU ANALYSIS
+================================================================================
+
+CURRENT MENU ITEMS:
+--------------------------------------------------------------------------------
+#   Title                          Route                     Role            Enabled
+--------------------------------------------------------------------------------
+1   Issues & Support               /issues                   Customer        Yes
+2   Request for Quotations         /rfq                      Supplier        Yes
+3   Supplier Quotation             /supplier-quotations      Supplier        Yes
+4   Purchase Orders                /purchase-orders          Supplier        Yes
+5   Purchase Invoices              /purchase-invoices        Supplier        Yes
+6   Invoices                       /invoices                 Customer        Yes
+7   Addresses                      /addresses                Public          Yes
+8   Timesheets                     /timesheets               Customer        Yes
+9   Material Request               /material-requests        Customer        Yes
+10  Projects                       /project                  Customer        Yes
+11  Quotations                     /quotations               Customer        Yes
+12  Orders                         /orders                   Customer        Yes
+13  Shipments                      /shipments                Customer        Yes
+14  Newsletter                     /newsletters              Public          Yes
+
+
+SUMMARY:
+Total items: 14
+Enabled: 14
+Disabled: 0
+
+
+CATEGORIZATION:
+
+ERP/Business Items (10 items) - NOT RELEVANT:
+  - Request for Quotations (Role: Supplier)
+  - Supplier Quotation (Role: Supplier)
+  - Purchase Orders (Role: Supplier)
+  - Purchase Invoices (Role: Supplier)
+  - Invoices (Role: Customer)
+  - Timesheets (Role: Customer)
+  - Material Request (Role: Customer)
+  - Quotations (Role: Customer)
+  - Orders (Role: Customer)
+  - Shipments (Role: Customer)
+
+Association-Relevant Items (4 items) - KEEP:
+  - Issues & Support (Role: Customer)
+  - Addresses (Role: Public)
+  - Projects (Role: Customer)
+  - Newsletter (Role: Public)
+
+Missing Association Items (5 items) - TO ADD:
+  - Member Portal (/member_portal)
+  - My Memberships (/memberships)
+  - Volunteer Portal (/volunteer_portal)
+  - My Expenses (/my_expenses)
+  - My Addresses (/my_addresses)
+{"success": true, "summary": {"total_items": 14, "enabled_items": 14, "disabled_items": 0}, "all_items": [{"idx": 1, "title": "Issues & Support", "route": "/issues", "enabled": 1, "role": "Customer", "reference_doctype": "Issue"}, {"idx": 2, "title": "Request for Quotations", "route": "/rfq", "enabled": 1, "role": "Supplier", "reference_doctype": "Request for Quotation"}, {"idx": 3, "title": "Supplier Quotation", "route": "/supplier-quotations", "enabled": 1, "role": "Supplier", "reference_doctype": "Supplier Quotation"}, {"idx": 4, "title": "Purchase Orders", "route": "/purchase-orders", "enabled": 1, "role": "Supplier", "reference_doctype": "Purchase Order"}, {"idx": 5, "title": "Purchase Invoices", "route": "/purchase-invoices", "enabled": 1, "role": "Supplier", "reference_doctype": "Purchase Invoice"}, {"idx": 6, "title": "Invoices", "route": "/invoices", "enabled": 1, "role": "Customer", "reference_doctype": "Sales Invoice"}, {"idx": 7, "title": "Addresses", "route": "/addresses", "enabled": 1, "role": null, "reference_doctype": "Address"}, {"idx": 8, "title": "Timesheets", "route": "/timesheets", "enabled": 1, "role": "Customer", "reference_doctype": "Timesheet"}, {"idx": 9, "title": "Material Request", "route": "/material-requests", "enabled": 1, "role": "Customer", "reference_doctype": "Material Request"}, {"idx": 10, "title": "Projects", "route": "/project", "enabled": 1, "role": "Customer", "reference_doctype": "Project"}, {"idx": 11, "title": "Quotations", "route": "/quotations", "enabled": 1, "role": "Customer", "reference_doctype": "Quotation"}, {"idx": 12, "title": "Orders", "route": "/orders", "enabled": 1, "role": "Customer", "reference_doctype": "Sales Order"}, {"idx": 13, "title": "Shipments", "route": "/shipments", "enabled": 1, "role": "Customer", "reference_doctype": "Delivery Note"}, {"idx": 14, "title": "Newsletter", "route": "/newsletters", "enabled": 1, "role": null, "reference_doctype": "Newsletter"}], "categorization": {"erp_items": [{"idx": 2, "title": "Request for Quotations", "route": "/rfq", "enabled": 1, "role": "Supplier", "reference_doctype": "Request for Quotation"}, {"idx": 3, "title": "Supplier Quotation", "route": "/supplier-quotations", "enabled": 1, "role": "Supplier", "reference_doctype": "Supplier Quotation"}, {"idx": 4, "title": "Purchase Orders", "route": "/purchase-orders", "enabled": 1, "role": "Supplier", "reference_doctype": "Purchase Order"}, {"idx": 5, "title": "Purchase Invoices", "route": "/purchase-invoices", "enabled": 1, "role": "Supplier", "reference_doctype": "Purchase Invoice"}, {"idx": 6, "title": "Invoices", "route": "/invoices", "enabled": 1, "role": "Customer", "reference_doctype": "Sales Invoice"}, {"idx": 8, "title": "Timesheets", "route": "/timesheets", "enabled": 1, "role": "Customer", "reference_doctype": "Timesheet"}, {"idx": 9, "title": "Material Request", "route": "/material-requests", "enabled": 1, "role": "Customer", "reference_doctype": "Material Request"}, {"idx": 11, "title": "Quotations", "route": "/quotations", "enabled": 1, "role": "Customer", "reference_doctype": "Quotation"}, {"idx": 12, "title": "Orders", "route": "/orders", "enabled": 1, "role": "Customer", "reference_doctype": "Sales Order"}, {"idx": 13, "title": "Shipments", "route": "/shipments", "enabled": 1, "role": "Customer", "reference_doctype": "Delivery Note"}], "association_relevant": [{"idx": 1, "title": "Issues & Support", "route": "/issues", "enabled": 1, "role": "Customer", "reference_doctype": "Issue"}, {"idx": 7, "title": "Addresses", "route": "/addresses", "enabled": 1, "role": null, "reference_doctype": "Address"}, {"idx": 10, "title": "Projects", "route": "/project", "enabled": 1, "role": "Customer", "reference_doctype": "Project"}, {"idx": 14, "title": "Newsletter", "route": "/newsletters", "enabled": 1, "role": null, "reference_doctype": "Newsletter"}], "missing_items": [{"title": "Member Portal", "route": "/member_portal"}, {"title": "My Memberships", "route": "/memberships"}, {"title": "Volunteer Portal", "route": "/volunteer_portal"}, {"title": "My Expenses", "route": "/my_expenses"}, {"title": "My Addresses", "route": "/my_addresses"}]}, "recommendations": {"disable": ["Request for Quotations", "Supplier Quotation", "Purchase Orders", "Purchase Invoices", "Invoices", "Timesheets", "Material Request", "Quotations", "Orders", "Shipments"], "keep": ["Issues & Support", "Addresses", "Projects", "Newsletter"], "add": [{"title": "Member Portal", "route": "/member_portal"}, {"title": "My Memberships", "route": "/memberships"}, {"title": "Volunteer Portal", "route": "/volunteer_portal"}, {"title": "My Expenses", "route": "/my_expenses"}, {"title": "My Addresses", "route": "/my_addresses"}]}}

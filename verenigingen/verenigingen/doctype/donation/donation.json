@@ -1,0 +1,446 @@
+{
+ "actions": [],
+ "app": "verenigingen",
+ "autoname": "naming_series:",
+ "creation": "2021-02-17 10:28:52.645731",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "donor_information_section",
+  "donor",
+  "column_break_cmsyi",
+  "donor_email",
+  "column_break_hksq1",
+  "donor_phone",
+  "column_break_4",
+  "donor_address",
+  "column_break_p1tan",
+  "donor_type",
+  "column_break_t0nkc",
+  "preferred_communication_method",
+  "section_break_ebzqn",
+  "company",
+  "donation_details_section",
+  "donation_type",
+  "column_break_donation_type",
+  "date",
+  "payment_details_section",
+  "amount",
+  "column_break_cpx8b",
+  "payment_method",
+  "mode_of_payment",
+  "section_break_vgxdm",
+  "paid",
+  "payment_id",
+  "bank_reference",
+  "column_break_12",
+  "donation_status",
+  "column_break_status",
+  "donation_category",
+  "section_break_haeey",
+  "fund_designation",
+  "column_break_6ufkk",
+  "donation_purpose",
+  "column_break_xs5h2",
+  "donation_notes",
+  "sepa_section",
+  "sepa_mandate",
+  "column_break_sepa",
+  "recurring_frequency",
+  "next_collection_date",
+  "anbi_section",
+  "anbi_agreement_number",
+  "column_break_anbi",
+  "anbi_agreement_date",
+  "belastingdienst_reportable",
+  "purpose_section",
+  "donation_purpose_type",
+  "column_break_purpose",
+  "campaign_reference",
+  "chapter_reference",
+  "specific_goal_description",
+  "accounting_section",
+  "sales_invoice",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "donor",
+   "fieldtype": "Link",
+   "label": "Donor",
+   "options": "Donor",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "label": "Donation Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "payment_details_section",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "label": "Donation Amount",
+   "options": "Company:company:default_currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "label": "Payment Method",
+   "options": "Bank Transfer\nSEPA Direct Debit\nMollie\nCash\nCheck",
+   "reqd": 1
+  },
+  {
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "label": "Mode of Payment",
+   "options": "Mode of Payment",
+   "depends_on": "eval:doc.payment_method"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "options": "Assoc-Dnt-.YYYY.-",
+   "report_hide": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "paid",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Paid"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Company",
+   "options": "Company",
+   "print_hide": 1,
+   "report_hide": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Donation",
+   "print_hide": 1,
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.paid == 1",
+   "fieldname": "payment_id",
+   "fieldtype": "Data",
+   "label": "Payment ID"
+  },
+  {
+   "fieldname": "bank_reference",
+   "fieldtype": "Data",
+   "label": "Bank Reference/Transaction ID",
+   "depends_on": "eval:doc.payment_method == 'Bank Transfer' || doc.payment_method == 'Mollie'"
+  },
+  {
+   "fieldname": "column_break_12",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_cmsyi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donor_information_section",
+   "fieldtype": "Section Break",
+   "label": "Donor Information"
+  },
+  {
+   "fetch_from": "donor.phone",
+   "fieldname": "donor_phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_hksq1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "donor.contact_person_address",
+   "fieldname": "donor_address",
+   "fieldtype": "Data",
+   "label": "Donor Address",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_p1tan",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "donor.donor_type",
+   "fieldname": "donor_type",
+   "fieldtype": "Data",
+   "label": "Donor Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_t0nkc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "donor.preferred_communication_method",
+   "fieldname": "preferred_communication_method",
+   "fieldtype": "Data",
+   "label": "Preferred Communication Method",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_ebzqn",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "donation_details_section",
+   "fieldtype": "Section Break",
+   "label": "Donation Details"
+  },
+  {
+   "fieldname": "donation_type",
+   "fieldtype": "Link",
+   "label": "Donation Type",
+   "options": "Donation Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_donation_type",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_cpx8b",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_vgxdm",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_xs5h2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donation_status",
+   "fieldtype": "Select",
+   "label": "Donation Status",
+   "options": "One-time\nPromised\nRecurring",
+   "default": "One-time"
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donation_category",
+   "fieldtype": "Select",
+   "label": "Donation Category",
+   "options": "General Fund\nSpecial Project\nEmergency Relief\nOther"
+  },
+  {
+   "fieldname": "fund_designation",
+   "fieldtype": "Small Text",
+   "label": "Fund Designation"
+  },
+  {
+   "fieldname": "donation_purpose",
+   "fieldtype": "Small Text",
+   "label": "Donation Purpose"
+  },
+  {
+   "fieldname": "donation_notes",
+   "fieldtype": "Small Text",
+   "label": "Donation Notes"
+  },
+  {
+   "fieldname": "sepa_section",
+   "fieldtype": "Section Break",
+   "label": "SEPA & Recurring Donations",
+   "depends_on": "eval:doc.payment_method == 'SEPA Direct Debit' || doc.donation_status != 'One-time'"
+  },
+  {
+   "fieldname": "sepa_mandate",
+   "fieldtype": "Link",
+   "label": "SEPA Mandate",
+   "options": "SEPA Mandate",
+   "depends_on": "eval:doc.payment_method == 'SEPA Direct Debit'"
+  },
+  {
+   "fieldname": "column_break_sepa",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "recurring_frequency",
+   "fieldtype": "Select",
+   "label": "Recurring Frequency",
+   "options": "Monthly\nQuarterly\nYearly",
+   "depends_on": "eval:doc.donation_status == 'Recurring'"
+  },
+  {
+   "fieldname": "next_collection_date",
+   "fieldtype": "Date",
+   "label": "Next Collection Date",
+   "depends_on": "eval:doc.donation_status != 'One-time'"
+  },
+  {
+   "fieldname": "anbi_section",
+   "fieldtype": "Section Break",
+   "label": "ANBI Tax Deduction"
+  },
+  {
+   "fieldname": "anbi_agreement_number",
+   "fieldtype": "Data",
+   "label": "ANBI Agreement Number",
+   "description": "Reference number for tax-deductible donations under ANBI status"
+  },
+  {
+   "fieldname": "column_break_anbi",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "anbi_agreement_date",
+   "fieldtype": "Date",
+   "label": "ANBI Agreement Date"
+  },
+  {
+   "default": "0",
+   "fieldname": "belastingdienst_reportable",
+   "fieldtype": "Check",
+   "label": "Reportable to Belastingdienst",
+   "description": "Check if this donation needs to be reported to Dutch tax authorities"
+  },
+  {
+   "fieldname": "purpose_section",
+   "fieldtype": "Section Break",
+   "label": "Donation Purpose & Earmarking"
+  },
+  {
+   "fieldname": "donation_purpose_type",
+   "fieldtype": "Select",
+   "label": "Purpose Type",
+   "options": "General\nCampaign\nChapter\nSpecific Goal",
+   "default": "General"
+  },
+  {
+   "fieldname": "column_break_purpose",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "campaign_reference",
+   "fieldtype": "Data",
+   "label": "Campaign Reference",
+   "depends_on": "eval:doc.donation_purpose_type == 'Campaign'",
+   "description": "Reference to specific fundraising campaign"
+  },
+  {
+   "fieldname": "chapter_reference",
+   "fieldtype": "Link",
+   "label": "Chapter",
+   "options": "Chapter",
+   "depends_on": "eval:doc.donation_purpose_type == 'Chapter'",
+   "description": "Donation earmarked for specific chapter"
+  },
+  {
+   "fieldname": "specific_goal_description",
+   "fieldtype": "Small Text",
+   "label": "Specific Goal Description",
+   "depends_on": "eval:doc.donation_purpose_type == 'Specific Goal'",
+   "description": "Description of the specific goal or purpose for this donation"
+  },
+  {
+   "fieldname": "column_break_6ufkk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_haeey",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fetch_from": "donor.donor_email",
+   "fieldname": "donor_email",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "accounting_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Integration",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "sales_invoice",
+   "fieldtype": "Link",
+   "label": "Sales Invoice",
+   "options": "Sales Invoice",
+   "read_only": 1,
+   "description": "Auto-created Sales Invoice for standard ERPNext accounting flow"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2023-06-21 07:12:48.111873",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Donation",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "select": 1,
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "search_fields": "donor, donor_email",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "donor",
+ "track_changes": 1
+}

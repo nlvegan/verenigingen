@@ -1,0 +1,104 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","allow_rename": 1,
+ "creation": "2025-05-18 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "volunteer",
+  "volunteer_name",
+  "role_type",
+  "role",
+  "column_break_5",
+  "from_date",
+  "to_date",
+  "is_active",
+  "status",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "volunteer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Volunteer",
+   "options": "Volunteer",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "volunteer.volunteer_name",
+   "fieldname": "volunteer_name",
+   "fieldtype": "Data",
+   "in_list_view": 0,
+   "label": "Volunteer Name",
+   "read_only": 1
+  },
+  {
+   "default": "Team Member",
+   "fieldname": "role_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Role Type",
+   "options": "Team Leader\nTeam Member",
+   "reqd": 1
+  },
+  {
+   "fieldname": "role",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Role",
+   "reqd": 0
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "From Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "label": "To Date"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nInactive\nCompleted\nOn Leave"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-05-18 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Team Member",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

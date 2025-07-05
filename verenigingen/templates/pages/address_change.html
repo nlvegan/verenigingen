@@ -1,0 +1,431 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Update Address") }}{% endblock %}
+
+{% block head_include %}
+<style>
+    .address-form {
+        max-width: 600px;
+        margin: 0 auto;
+    }
+
+    .current-address-box {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .form-group {
+        margin-bottom: 1rem;
+    }
+
+    .required-field {
+        color: #cf3131;
+    }
+
+    .confirmation-box {
+        background-color: #f8f4ff;
+        border: 1px solid #663399;
+        border-radius: 0.25rem;
+        padding: 1rem;
+        margin: 1rem 0;
+        display: none;
+    }
+
+    .address-comparison {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+        margin: 1rem 0;
+    }
+
+    .address-column {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+        padding: 1rem;
+    }
+
+    .btn-primary {
+        background-color: #cf3131;
+        border-color: #cf3131;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background-color: #b82828;
+        border-color: #b82828;
+    }
+
+    .btn-secondary {
+        background-color: #6c757d;
+        border-color: #6c757d;
+    }
+
+    .alert {
+        padding: 0.75rem 1.25rem;
+        margin-bottom: 1rem;
+        border: 1px solid transparent;
+        border-radius: 0.25rem;
+    }
+
+    .alert-success {
+        color: #014a44;
+        background-color: #dcf2dc;
+        border-color: #01796f;
+    }
+
+    .alert-danger {
+        color: #891717;
+        background-color: #fee2e2;
+        border-color: #cf3131;
+    }
+
+    @media (max-width: 768px) {
+        .address-comparison {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-12">
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="/member_portal">{{ _("Dashboard") }}</a></li>
+                    <li class="breadcrumb-item active" aria-current="page">{{ _("Update Address") }}</li>
+                </ol>
+            </nav>
+
+            <h2>{{ _("Update Your Address") }}</h2>
+            <p class="text-muted">{{ _("Update your current address information. Changes will be applied immediately.") }}</p>
+
+            <div class="address-form">
+                <!-- Current Address Display -->
+                {% if current_address %}
+                <div class="current-address-box">
+                    <h5>{{ _("Current Address") }}</h5>
+                    <address id="current-address-display">
+                        {% if current_address.address_line1 %}{{ current_address.address_line1 }}<br>{% endif %}
+                        {% if current_address.address_line2 %}{{ current_address.address_line2 }}<br>{% endif %}
+                        {% if current_address.city %}{{ current_address.city }}{% endif %}
+                        {% if current_address.state and current_address.city %}, {% endif %}
+                        {% if current_address.state %}{{ current_address.state }}{% endif %}
+                        {% if current_address.pincode %} - {{ current_address.pincode }}{% endif %}
+                        <br>
+                        {% if current_address.country %}{{ current_address.country }}<br>{% endif %}
+                        {% if current_address.phone %}<strong>{{ _("Phone") }}:</strong> {{ current_address.phone }}<br>{% endif %}
+                        {% if current_address.email_id %}<strong>{{ _("Email") }}:</strong> {{ current_address.email_id }}{% endif %}
+                    </address>
+                </div>
+                {% else %}
+                <div class="current-address-box">
+                    <h5>{{ _("Current Address") }}</h5>
+                    <p class="text-muted">{{ _("No address on file. Please add your address below.") }}</p>
+                </div>
+                {% endif %}
+
+                <!-- Address Form -->
+                <form id="address-form">
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="form-group">
+                                <label for="address_line1">{{ _("Street Address") }} <span class="required-field">*</span></label>
+                                <input type="text" class="form-control" id="address_line1" name="address_line1"
+                                       value="{{ address_data.address_line1 }}"
+                                       placeholder="{{ _('Enter your street address') }}" required>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="form-group">
+                                <label for="address_line2">{{ _("Address Line 2") }}</label>
+                                <input type="text" class="form-control" id="address_line2" name="address_line2"
+                                       value="{{ address_data.address_line2 }}"
+                                       placeholder="{{ _('Apartment, suite, etc. (optional)') }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="city">{{ _("City") }} <span class="required-field">*</span></label>
+                                <input type="text" class="form-control" id="city" name="city"
+                                       value="{{ address_data.city }}"
+                                       placeholder="{{ _('Enter your city') }}" required>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="state">{{ _("State/Province") }}</label>
+                                <input type="text" class="form-control" id="state" name="state"
+                                       value="{{ address_data.state }}"
+                                       placeholder="{{ _('Enter your state/province') }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="pincode">{{ _("Postal Code") }}</label>
+                                <input type="text" class="form-control" id="pincode" name="pincode"
+                                       value="{{ address_data.pincode }}"
+                                       placeholder="{{ _('Enter your postal code') }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="country">{{ _("Country") }} <span class="required-field">*</span></label>
+                                <select class="form-control" id="country" name="country" required>
+                                    <option value="">{{ _("Select Country") }}</option>
+                                    {% for country in countries %}
+                                    <option value="{{ country.name }}"
+                                            {% if address_data.country == country.name %}selected{% endif %}>
+                                        {{ country.name }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="phone">{{ _("Phone Number") }}</label>
+                                <input type="tel" class="form-control" id="phone" name="phone"
+                                       value="{{ address_data.phone }}"
+                                       placeholder="{{ _('Enter your phone number') }}">
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="form-group">
+                                <label for="email_id">{{ _("Email Address") }}</label>
+                                <input type="email" class="form-control" id="email_id" name="email_id"
+                                       value="{{ address_data.email_id }}"
+                                       placeholder="{{ _('Enter your email address') }}">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <button type="submit" class="btn btn-primary" id="submit-btn">
+                            {{ _("Review Changes") }}
+                        </button>
+                        <a href="/member_portal" class="btn btn-secondary ml-2">{{ _("Cancel") }}</a>
+                    </div>
+                </form>
+
+                <!-- Confirmation Box -->
+                <div id="confirmation-box" class="confirmation-box">
+                    <h5>{{ _("Please Confirm Your Changes") }}</h5>
+                    <p>{{ _("Please review your address information below and confirm that it is correct:") }}</p>
+
+                    <div class="address-comparison">
+                        <div class="address-column">
+                            <h6>{{ _("Current Address") }}</h6>
+                            <address id="comparison-current"></address>
+                        </div>
+                        <div class="address-column">
+                            <h6>{{ _("New Address") }}</h6>
+                            <address id="comparison-new"></address>
+                        </div>
+                    </div>
+
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-success" id="confirm-btn">
+                            {{ _("Confirm and Update") }}
+                        </button>
+                        <button type="button" class="btn btn-secondary ml-2" id="edit-btn">
+                            {{ _("Edit Again") }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Success Message -->
+                <div id="success-message" class="alert alert-success" style="display: none;">
+                    <h5>{{ _("Address Updated Successfully!") }}</h5>
+                    <p id="success-text"></p>
+                    <a href="/member_portal" class="btn btn-primary">{{ _("Return to Dashboard") }}</a>
+                </div>
+
+                <!-- Error Message -->
+                <div id="error-message" class="alert alert-danger" style="display: none;">
+                    <h5>{{ _("Error") }}</h5>
+                    <p id="error-text"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+$(document).ready(function() {
+    let currentAddressData = {
+        address_line1: "{{ address_data.address_line1 }}",
+        address_line2: "{{ address_data.address_line2 }}",
+        city: "{{ address_data.city }}",
+        state: "{{ address_data.state }}",
+        country: "{{ address_data.country }}",
+        pincode: "{{ address_data.pincode }}",
+        phone: "{{ address_data.phone }}",
+        email_id: "{{ address_data.email_id }}"
+    };
+
+    // Handle form submission
+    $('#address-form').on('submit', function(e) {
+        e.preventDefault();
+
+        // Collect form data
+        const formData = {
+            address_line1: $('#address_line1').val().trim(),
+            address_line2: $('#address_line2').val().trim(),
+            city: $('#city').val().trim(),
+            state: $('#state').val().trim(),
+            country: $('#country').val().trim(),
+            pincode: $('#pincode').val().trim(),
+            phone: $('#phone').val().trim(),
+            email_id: $('#email_id').val().trim()
+        };
+
+        // Basic validation
+        if (!formData.address_line1 || !formData.city || !formData.country) {
+            showError('{{ _("Please fill in all required fields") }}');
+            return;
+        }
+
+        // Check if anything actually changed
+        let hasChanges = false;
+        for (let key in formData) {
+            if (formData[key] !== currentAddressData[key]) {
+                hasChanges = true;
+                break;
+            }
+        }
+
+        if (!hasChanges) {
+            showError('{{ _("No changes detected. Please modify your address information or cancel.") }}');
+            return;
+        }
+
+        // Show confirmation
+        showConfirmation(currentAddressData, formData);
+    });
+
+    // Handle confirmation
+    $('#confirm-btn').on('click', function() {
+        const formData = collectFormData();
+        submitAddressUpdate(formData);
+    });
+
+    // Handle edit button
+    $('#edit-btn').on('click', function() {
+        $('#confirmation-box').hide();
+        $('#address-form').show();
+    });
+
+    function collectFormData() {
+        return {
+            address_line1: $('#address_line1').val().trim(),
+            address_line2: $('#address_line2').val().trim(),
+            city: $('#city').val().trim(),
+            state: $('#state').val().trim(),
+            country: $('#country').val().trim(),
+            pincode: $('#pincode').val().trim(),
+            phone: $('#phone').val().trim(),
+            email_id: $('#email_id').val().trim()
+        };
+    }
+
+    function showConfirmation(current, newData) {
+        // Format current address
+        let currentFormatted = formatAddressForDisplay(current);
+        let newFormatted = formatAddressForDisplay(newData);
+
+        $('#comparison-current').html(currentFormatted || '<em>{{ _("No address on file") }}</em>');
+        $('#comparison-new').html(newFormatted);
+
+        $('#address-form').hide();
+        $('#confirmation-box').show();
+    }
+
+    function formatAddressForDisplay(addr) {
+        let lines = [];
+
+        if (addr.address_line1) lines.push(addr.address_line1);
+        if (addr.address_line2) lines.push(addr.address_line2);
+
+        let cityLine = '';
+        if (addr.city) cityLine += addr.city;
+        if (addr.state && addr.city) cityLine += ', ' + addr.state;
+        else if (addr.state) cityLine += addr.state;
+        if (addr.pincode && cityLine) cityLine += ' - ' + addr.pincode;
+        else if (addr.pincode) cityLine += addr.pincode;
+
+        if (cityLine) lines.push(cityLine);
+        if (addr.country) lines.push(addr.country);
+        if (addr.phone) lines.push('<strong>{{ _("Phone") }}:</strong> ' + addr.phone);
+        if (addr.email_id) lines.push('<strong>{{ _("Email") }}:</strong> ' + addr.email_id);
+
+        return lines.join('<br>');
+    }
+
+    function submitAddressUpdate(formData) {
+        $('#confirm-btn').prop('disabled', true).text('{{ _("Updating...") }}');
+
+        frappe.call({
+            method: 'verenigingen.templates.pages.address_change.update_member_address',
+            args: {
+                address_data: formData
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    showSuccess(r.message.message);
+                } else {
+                    showError('{{ _("An unexpected error occurred") }}');
+                }
+            },
+            error: function(r) {
+                const error_msg = r.responseJSON && r.responseJSON.message
+                    ? r.responseJSON.message
+                    : '{{ _("An error occurred while updating your address") }}';
+                showError(error_msg);
+            },
+            always: function() {
+                $('#confirm-btn').prop('disabled', false).text('{{ _("Confirm and Update") }}');
+            }
+        });
+    }
+
+    function showSuccess(message) {
+        $('#success-text').text(message);
+        $('#confirmation-box').hide();
+        $('#address-form').hide();
+        $('#success-message').show();
+        $('html, body').animate({ scrollTop: $('#success-message').offset().top - 100 }, 500);
+    }
+
+    function showError(message) {
+        $('#error-text').text(message);
+        $('#error-message').show();
+        $('html, body').animate({ scrollTop: $('#error-message').offset().top - 100 }, 500);
+
+        // Hide error after 5 seconds
+        setTimeout(function() {
+            $('#error-message').fadeOut();
+        }, 5000);
+    }
+});
+</script>
+{% endblock %}

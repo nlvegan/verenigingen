@@ -1,0 +1,395 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","autoname": "format:MEMB-{YY}-{MM}-{####}",
+ "creation": "2023-01-01 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "member_section",
+  "member",
+  "member_name",
+  "email",
+  "contact_number",
+  "column_break_5",
+  "membership_type",
+  "auto_renew",
+  "status",
+  "details_section",
+  "start_date",
+  "renewal_date",
+  "next_billing_date",
+  "column_break_11",
+  "cancellation_date",
+  "cancellation_reason",
+  "cancellation_type",
+  "payment_details_section",
+  "last_payment_date",
+  "unpaid_amount",
+  "column_break_payment",
+  "membership_fee",
+  "mandate_section",
+  "sepa_mandate",
+  "mandate_reference",
+  "mandate_status",
+  "subscription_section",
+  "allow_multiple_memberships",
+  "subscription",
+  "subscription_plan",
+  "column_break_24",
+  "create_subscription",
+  "view_subscription",
+  "view_payments",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "member_section",
+   "fieldtype": "Section Break",
+   "label": "Member"
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Member",
+   "options": "Member",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "member.full_name",
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "label": "Member Name",
+   "read_only": 1
+  },
+  {
+  "fieldname": "allow_multiple_memberships",
+  "fieldtype": "Check",
+  "label": "Allow Multiple Memberships",
+  "default": 0,
+  "hidden": 1
+  },
+  {
+   "fetch_from": "member.email",
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "member.contact_number",
+   "fieldname": "contact_number",
+   "fieldtype": "Data",
+   "label": "Contact Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "membership_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Membership Type",
+   "options": "Membership Type",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_renew",
+   "fieldtype": "Check",
+   "label": "Auto Renew"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nActive\nPending\nInactive\nExpired\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Period"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "renewal_date",
+   "fieldtype": "Date",
+   "label": "Renewal Date",
+   "read_only": 1,
+   "description": "Calculated based on start date and membership type (minimum 1 year)"
+  },
+  {
+   "fieldname": "next_billing_date",
+   "fieldtype": "Date",
+   "label": "Next Billing Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_11",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cancellation_date",
+   "fieldtype": "Date",
+   "label": "Cancellation Date"
+  },
+  {
+   "fieldname": "cancellation_reason",
+   "fieldtype": "Small Text",
+   "label": "Cancellation Reason"
+  },
+  {
+   "fieldname": "cancellation_type",
+   "fieldtype": "Select",
+   "label": "Cancellation Type",
+   "options": "Immediate\nEnd of Period",
+   "depends_on": "eval:doc.cancellation_date"
+  },
+  {
+   "fieldname": "payment_details_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Details"
+  },
+  {
+   "fieldname": "last_payment_date",
+   "fieldtype": "Date",
+   "label": "Last Payment Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "unpaid_amount",
+   "fieldtype": "Currency",
+   "label": "Balance",
+   "read_only": 1,
+   "description": "Total amount of unpaid invoices"
+  },
+  {
+   "fieldname": "column_break_payment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "membership_fee",
+   "fieldtype": "Currency",
+   "label": "Membership Fee",
+   "read_only": 1,
+   "description": "Current membership fee amount"
+  },
+  {
+   "fieldname": "mandate_section",
+   "fieldtype": "Section Break",
+   "label": "SEPA Mandate"
+  },
+  {
+   "fieldname": "sepa_mandate",
+   "fieldtype": "Link",
+   "label": "SEPA Mandate",
+   "options": "SEPA Mandate",
+   "get_query": "verenigingen.verenigingen.doctype.membership.membership.get_member_sepa_mandates",
+   "description": "Select from member's active SEPA mandates"
+  },
+  {
+   "fetch_from": "sepa_mandate.mandate_id",
+   "fieldname": "mandate_reference",
+   "fieldtype": "Data",
+   "label": "Mandate Reference",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "sepa_mandate.status",
+   "fieldname": "mandate_status",
+   "fieldtype": "Data",
+   "label": "Mandate Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "subscription_section",
+   "fieldtype": "Section Break",
+   "label": "Subscription Details"
+  },
+  {
+   "fieldname": "subscription",
+   "fieldtype": "Link",
+   "label": "Subscription",
+   "options": "Subscription",
+   "get_query": "verenigingen.verenigingen.doctype.membership.membership.get_subscription_query"
+  },
+  {
+   "fieldname": "subscription_plan",
+   "fieldtype": "Link",
+   "label": "Subscription Plan",
+   "options": "Subscription Plan",
+   "fetch_from": "membership_type.subscription_plan"
+  },
+  {
+   "fieldname": "custom_amount_section",
+   "fieldtype": "Section Break",
+   "label": "Custom Amount",
+   "insert_after": "subscription_plan",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "uses_custom_amount",
+   "fieldtype": "Check",
+   "label": "Uses Custom Amount",
+   "insert_after": "custom_amount_section",
+   "description": "Check if this membership uses a custom amount different from the membership type default"
+  },
+  {
+   "fieldname": "custom_amount",
+   "fieldtype": "Currency",
+   "label": "Custom Amount",
+   "insert_after": "uses_custom_amount",
+   "depends_on": "eval:doc.uses_custom_amount",
+   "mandatory_depends_on": "eval:doc.uses_custom_amount",
+   "description": "Custom amount for this specific membership"
+  },
+  {
+   "fieldname": "amount_reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Custom Amount",
+   "insert_after": "custom_amount",
+   "depends_on": "eval:doc.uses_custom_amount",
+   "description": "Optional reason for the custom amount (e.g., 'Student discount', 'Supporter contribution')"
+  },
+  {
+   "fieldname": "column_break_custom",
+   "fieldtype": "Column Break",
+   "insert_after": "amount_reason"
+  },
+  {
+   "fieldname": "effective_amount",
+   "fieldtype": "Currency",
+   "label": "Effective Amount",
+   "insert_after": "column_break_custom",
+   "read_only": 1,
+   "description": "The actual amount used for this membership (custom amount or membership type amount)"
+  },
+  {
+   "fieldname": "amount_difference",
+   "fieldtype": "Currency",
+   "label": "Difference from Standard",
+   "insert_after": "effective_amount",
+   "read_only": 1,
+   "description": "Difference between effective amount and membership type standard amount"
+  },
+  {
+   "fieldname": "column_break_24",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:!doc.subscription && doc.docstatus==1",
+   "fieldname": "create_subscription",
+   "fieldtype": "Button",
+   "label": "Create Subscription"
+  },
+  {
+   "depends_on": "eval:doc.subscription",
+   "fieldname": "view_subscription",
+   "fieldtype": "Button",
+   "label": "View Subscription"
+  },
+  {
+   "fieldname": "view_payments",
+   "fieldtype": "Button",
+   "label": "View Payment History",
+   "depends_on": "eval:doc.docstatus==1 && doc.subscription"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Membership",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "is_submittable": 1,
+ "links": [
+  {
+   "link_doctype": "Member",
+   "link_fieldname": "name",
+   "parent_doctype": "Member"
+  }
+ ],
+ "modified": "2025-05-06 20:21:52.947759",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Membership",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Staff",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "if_owner": 1,
+   "read": 1,
+   "role": "Verenigingen Member"
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "member_name",
+ "track_changes": 1
+}

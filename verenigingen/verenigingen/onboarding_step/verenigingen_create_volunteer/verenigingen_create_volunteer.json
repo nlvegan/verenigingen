@@ -1,0 +1,21 @@
+{
+ "action": "Create Entry",
+ "action_label": "Register your first Volunteer",
+ "creation": "2025-06-21 15:30:44.557536",
+ "description": "Track volunteers and their activities within your association.",
+ "docstatus": 0,
+ "doctype": "Onboarding Step",
+ "idx": 0,
+ "is_complete": 0,
+ "is_single": 0,
+ "is_skipped": 0,
+ "modified": "2025-07-02 16:35:15.077286",
+ "modified_by": "Administrator",
+ "name": "Verenigingen-Create-Volunteer",
+ "owner": "Administrator",
+ "reference_document": "Volunteer",
+ "show_form_tour": 0,
+ "show_full_form": 0,
+ "title": "Create Volunteer",
+ "validate_action": 1
+}

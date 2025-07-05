@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:ledger_id",
+ "creation": "2025-07-04 10:43:43.300268",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "ledger_id",
+  "ledger_code",
+  "ledger_name",
+  "erpnext_account"
+ ],
+ "fields": [
+  {
+   "fieldname": "ledger_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Ledger ID",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "ledger_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Ledger Code",
+   "reqd": 1
+  },
+  {
+   "fieldname": "ledger_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Ledger Name"
+  },
+  {
+   "fieldname": "erpnext_account",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "ERPNext Account",
+   "options": "Account"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-07-04 10:43:43.300268",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "E-Boekhouden Ledger Mapping",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

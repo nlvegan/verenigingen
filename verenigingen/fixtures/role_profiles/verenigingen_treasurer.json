@@ -1,0 +1,31 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Treasurer",
+  "role_profile": "Verenigingen Treasurer",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Verenigingen Staff"
+   },
+   {
+    "role": "Accounts User"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Sales User"
+   },
+   {
+    "role": "Bank Reconciliation User"
+   }
+  ]
+ }
+]

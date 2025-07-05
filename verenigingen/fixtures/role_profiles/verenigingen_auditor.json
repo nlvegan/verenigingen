@@ -1,0 +1,22 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Auditor",
+  "role_profile": "Verenigingen Auditor",
+  "roles": [
+   {
+    "role": "Governance Auditor"
+   },
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Auditor"
+   }
+  ]
+ }
+]

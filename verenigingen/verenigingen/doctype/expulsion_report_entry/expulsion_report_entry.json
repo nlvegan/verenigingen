@@ -1,0 +1,218 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","autoname": "format:EXP-{YY}-{MM}-{####}",
+ "creation": "2025-01-20 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "member_details_section",
+  "member_name",
+  "member_id",
+  "chapter_involved",
+  "column_break_1",
+  "expulsion_date",
+  "expulsion_type",
+  "status",
+  "process_details_section",
+  "initiated_by",
+  "approved_by",
+  "column_break_2",
+  "documentation",
+  "notes",
+  "review_section",
+  "under_appeal",
+  "appeal_date",
+  "governance_section",
+  "compliance_checked",
+
+  "column_break_3",
+  "reversal_date",
+  "reversal_reason"
+ ],
+ "fields": [
+  {
+   "fieldname": "member_details_section",
+   "fieldtype": "Section Break",
+   "label": "Member Details"
+  },
+  {
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "label": "Member Name",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "member_id",
+   "fieldtype": "Link",
+   "label": "Member",
+   "options": "Member",
+   "reqd": 1
+  },
+  {
+   "fieldname": "chapter_involved",
+   "fieldtype": "Link",
+   "label": "Chapter Involved",
+   "options": "Chapter"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "governance_section",
+   "fieldtype": "Section Break",
+   "label": "Governance Tracking",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "compliance_checked",
+   "fieldtype": "Check",
+   "label": "Compliance Verified",
+   "default": "0",
+   "description": "Mark when compliance has been verified"
+  },
+  {
+   "fieldname": "board_review_date",
+   "fieldtype": "Date",
+   "label": "Board Review Date",
+   "description": "Date when case was reviewed by governance board"
+  },
+  {
+   "fieldname": "case_priority",
+   "fieldtype": "Select",
+   "label": "Case Priority",
+   "options": "Low\nMedium\nHigh\nUrgent",
+   "default": "Medium"
+  },
+  {
+   "fieldname": "expulsion_date",
+   "fieldtype": "Date",
+   "label": "Expulsion Date",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "expulsion_type",
+   "fieldtype": "Select",
+   "label": "Expulsion Type",
+   "options": "Policy Violation\nDisciplinary Action\nExpulsion",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Active\nReversed\nUnder Appeal",
+   "default": "Active",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "process_details_section",
+   "fieldtype": "Section Break",
+   "label": "Process Details"
+  },
+  {
+   "fieldname": "initiated_by",
+   "fieldtype": "Link",
+   "label": "Initiated By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "documentation",
+   "fieldtype": "Text Editor",
+   "label": "Documentation",
+   "reqd": 1
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Additional Notes"
+  },
+  {
+   "fieldname": "review_section",
+   "fieldtype": "Section Break",
+   "label": "Review & Appeals"
+  },
+  {
+   "fieldname": "under_appeal",
+   "fieldtype": "Check",
+   "label": "Under Appeal",
+   "default": "0"
+  },
+  {
+   "fieldname": "appeal_date",
+   "fieldtype": "Date",
+   "label": "Appeal Date",
+   "depends_on": "eval:doc.under_appeal"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reversal_date",
+   "fieldtype": "Date",
+   "label": "Reversal Date",
+   "depends_on": "eval:doc.status=='Reversed'"
+  },
+  {
+   "fieldname": "reversal_reason",
+   "fieldtype": "Small Text",
+   "label": "Reversal Reason",
+   "depends_on": "eval:doc.status=='Reversed'"
+  }
+ ],
+ "links": [],
+ "modified": "2025-01-20 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Expulsion Report Entry",
+ "owner": "Administrator",
+ "is_submittable": 1,
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "member_name",
+ "track_changes": 1
+}

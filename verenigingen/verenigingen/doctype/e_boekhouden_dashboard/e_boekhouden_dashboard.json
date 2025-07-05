@@ -1,0 +1,158 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-06-25 14:30:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "dashboard_section",
+  "dashboard_html",
+  "connection_section",
+  "connection_status",
+  "last_sync_time",
+  "column_break_5",
+  "total_migrations",
+  "active_migrations",
+  "failed_migrations",
+  "data_overview_section",
+  "accounts_available",
+  "cost_centers_available",
+  "column_break_11",
+  "customers_available",
+  "suppliers_available",
+  "recent_migrations_section",
+  "recent_migrations_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "dashboard_section",
+   "fieldtype": "Section Break",
+   "label": "E-Boekhouden Migration Dashboard"
+  },
+  {
+   "fieldname": "dashboard_html",
+   "fieldtype": "HTML",
+   "label": "Dashboard"
+  },
+  {
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "Connection Status"
+  },
+  {
+   "fieldname": "connection_status",
+   "fieldtype": "Data",
+   "label": "API Connection Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_sync_time",
+   "fieldtype": "Datetime",
+   "label": "Last Sync Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_migrations",
+   "fieldtype": "Int",
+   "label": "Total Migrations",
+   "read_only": 1
+  },
+  {
+   "fieldname": "active_migrations",
+   "fieldtype": "Int",
+   "label": "Active Migrations",
+   "read_only": 1
+  },
+  {
+   "fieldname": "failed_migrations",
+   "fieldtype": "Int",
+   "label": "Failed Migrations",
+   "read_only": 1
+  },
+  {
+   "fieldname": "data_overview_section",
+   "fieldtype": "Section Break",
+   "label": "Available Data Overview"
+  },
+  {
+   "fieldname": "accounts_available",
+   "fieldtype": "Int",
+   "label": "Chart of Accounts",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_centers_available",
+   "fieldtype": "Int",
+   "label": "Cost Centers",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_11",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customers_available",
+   "fieldtype": "Int",
+   "label": "Customers",
+   "read_only": 1
+  },
+  {
+   "fieldname": "suppliers_available",
+   "fieldtype": "Int",
+   "label": "Suppliers",
+   "read_only": 1
+  },
+  {
+   "fieldname": "recent_migrations_section",
+   "fieldtype": "Section Break",
+   "label": "Recent Migrations"
+  },
+  {
+   "fieldname": "recent_migrations_html",
+   "fieldtype": "HTML",
+   "label": "Recent Migrations"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-06-25 14:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "E-Boekhouden Dashboard",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

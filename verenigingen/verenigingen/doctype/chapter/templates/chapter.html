@@ -1,0 +1,153 @@
+{% extends "templates/web.html" %}
+
+{% block page_content %}
+<h1>{{ title }}</h1>
+<p>{{ introduction }}</p>
+{% if meetup_embed_html %}
+	{{ meetup_embed_html }}
+{% endif %}
+
+<h3>Chapter Head</h3>
+<div style="margin-bottom: 30px; max-width: 600px" class="with-border">
+
+<table class="table table-bordered small" style="max-width: 600px;">
+	{% if chapter_head_member %}
+	<tr>
+		<td style='width: 15%'>Name</td>
+		<td>
+			<b>{{ chapter_head_member.full_name }}</b>
+			{% if is_system_manager or is_board_member %}
+			<a href="/app/member/{{ chapter_head_member.name }}" class="btn btn-xs btn-default pull-right">
+				<i class="fa fa-external-link"></i> View Profile
+			</a>
+			{% endif %}
+		</td>
+	</tr>
+	<tr>
+		<td>Email</td>
+		<td>{{ chapter_head_member.email or '' }}</td>
+	</tr>
+	<tr>
+		<td>Phone</td>
+		<td>{{ chapter_head_member.mobile_no or chapter_head_member.phone or '' }}</td>
+	</tr>
+	{% else %}
+	<tr>
+		<td colspan="2">
+			<div class="text-muted">No chapter head assigned yet. This will be automatically set based on board members with a Chair role.</div>
+		</td>
+	</tr>
+	{% endif %}
+</table>
+</div>
+
+{% if board_members and (is_board_member or is_system_manager) %}
+<h3>Chapter Board</h3>
+<div style="margin-bottom: 30px; max-width: 600px" class="with-border">
+    <table class="table table-bordered table-condensed">
+        <thead>
+            <tr>
+                <th>Role</th>
+                <th>Name</th>
+                <th>Since</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for board_member in board_members %}
+                <tr>
+                    <td>{{ board_member.role }}</td>
+                    <td>{{ board_member.volunteer_name }}</td>
+                    <td>{{ frappe.format_date(board_member.from_date) }}</td>
+                    <td>
+                        <a href="/app/member/{{ board_member.member }}" class="btn btn-xs btn-default">
+                            <i class="fa fa-user"></i> View
+                        </a>
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if is_board_member or is_system_manager %}
+<h3>Member Details</h3>
+
+{% if members %}
+	<table class="table" style="max-width: 600px;">
+		{% set index = [1] %}
+		{% for member in members %}
+			{% if member.enabled == 1 %}
+				<tr>
+					<td>
+						<div style="margin-bottom: 30px; max-width: 600px" class="with-border">
+						<div class="row">
+							<div class="col-lg-6 col-md-6 col-sm-6">
+             <div class="pull-left">
+								<b>{{ index|length }}. {{ member.member_name }}</b></div>
+							</div>
+								<div class="pull-right">
+								{% if member.website_url %}
+									<a href="{{ member.website_url }}">{{ member.website_url | truncate (50) or '' }}</a>
+								{% endif %}
+
+								<a href="/app/member/{{ member.name }}" class="btn btn-xs btn-default">
+									<i class="fa fa-user"></i> View
+								</a>
+							</div>
+							<div class="clearfix"></div>
+							</div>
+							<br><br>
+							<div class="col-lg-12">
+							{% if member.introduction %}
+								{{ member.introduction }}
+							{% endif %}
+							</div>
+						</div>
+					</div>
+					</td>
+				</tr>
+				{% set __ = index.append(1) %}
+			{% endif %}
+		{% endfor %}
+	</table>
+{% else %}
+	<p>No member yet.</p>
+{% endif %}
+{% endif %}
+
+{% if address %}
+<h3>Address</h3>
+<div style="margin-bottom: 30px; max-width: 600px" class="with-border">
+<p>{{ address or ''}}</p>
+</div>
+{% endif %}
+
+<p style="margin: 20px 0 30px;"><a href="/verenigingen/join-chapter?name={{ name }}" class='btn btn-primary'>Join this Chapter</a></p>
+<p style="margin: 20px 0 30px;"><a href="/verenigingen/leave-chapter?name={{ name }}" class=''>Leave this Chapter</a></p>
+
+{% if is_board_member %}
+<div class="board-member-actions">
+    <h4>Board Member Actions</h4>
+    <p>You are currently serving as {{ board_role }} for this chapter.</p>
+
+    <div class="btn-group">
+        <a href="/app/query-report/Chapter%20Members?chapter={{ name }}" class="btn btn-default">
+            View Chapter Members
+        </a>
+
+        {% if can_write_chapter %}
+        <a href="/app/chapter/{{ name }}" class="btn btn-primary">
+            Manage Chapter
+        </a>
+        {% else %}
+        <a href="/app/chapter/{{ name }}" class="btn btn-secondary">
+            View Chapter Details
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

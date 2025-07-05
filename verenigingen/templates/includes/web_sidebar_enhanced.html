@@ -1,0 +1,173 @@
+{% macro render_sidebar_item(item) %}
+<li class="{{ 'sidebar-group' if item.group_title else 'sidebar-item' }} {{ 'has-submenu' if item.submenu else '' }}">
+	{%- if item.group_title -%}
+
+	<h6>{{ _(item.group_title) }}</h6>
+	{{ render_sidebar_items(item.group_items) }}
+
+	{%- else -%}
+
+	{% if item.type != 'input' %}
+	{%- set item_route = item.route[1:] if item.route[0] == '/' else item.route -%}
+	<a href="{{ item.route }}" class="{{ 'active' if pathname == item_route else '' }} main-menu-link"
+		{% if item.target %}target="{{ item.target }}" {% endif %}>
+		{{ _(item.title) or _(item.label) }}
+	</a>
+
+	{%- if item.submenu -%}
+	<ul class="submenu-items list-unstyled">
+		{% for submenu_item in item.submenu %}
+		<li class="submenu-item">
+			<i class="{{ submenu_item.icon }}"></i>
+			<span class="submenu-title">{{ _(submenu_item.title) }}</span>
+		</li>
+		{% endfor %}
+	</ul>
+	{%- endif -%}
+
+	{% else %}
+	<form action='{{ item.route }}' class="mr-4">
+		<input name='q' class='form-control' type='text' style="outline: none"
+			placeholder="{{ _(item.title) or _(item.label) }}">
+	</form>
+	{% endif %}
+
+	{%- endif -%}
+</li>
+{% endmacro %}
+
+{% macro render_sidebar_items(items) %}
+{%- if items | len > 0 -%}
+<ul class="list-unstyled">
+	{% for item in items -%}
+	{{ render_sidebar_item(item) }}
+	{%- endfor %}
+</ul>
+{%- endif -%}
+{% endmacro %}
+
+{% macro my_account() %}
+{% if frappe.user != 'Guest' %}
+<ul class="list-unstyled">
+	<li class="sidebar-item">
+		<a href="/me">{{ _("My Account") }}</a>
+	</li>
+</ul>
+{% endif %}
+{% endmacro %}
+
+<div class="web-sidebar web-sidebar-enhanced">
+	{% if sidebar_title %}
+	<li class="title">
+		{{ _(sidebar_title) }}
+	</li>
+	{% endif %}
+	<div class="sidebar-items">
+		{{ render_sidebar_items(sidebar_items) }}
+		{{ my_account() }}
+	</div>
+</div>
+
+<style>
+/* Enhanced sidebar styling */
+.web-sidebar-enhanced {
+	padding: 20px 0;
+}
+
+.web-sidebar-enhanced .sidebar-item {
+	margin-bottom: 8px;
+}
+
+.web-sidebar-enhanced .sidebar-item.has-submenu {
+	margin-bottom: 20px;
+}
+
+.web-sidebar-enhanced .main-menu-link {
+	display: block;
+	padding: 8px 12px;
+	color: #333;
+	font-weight: 500;
+	text-decoration: none;
+	border-radius: 4px;
+	transition: background-color 0.2s ease;
+}
+
+.web-sidebar-enhanced .main-menu-link:hover,
+.web-sidebar-enhanced .main-menu-link.active {
+	background-color: #f8f9fa;
+	color: #2c3e50;
+	text-decoration: none;
+}
+
+.web-sidebar-enhanced .submenu-items {
+	margin-top: 5px;
+	margin-left: 15px;
+	border-left: 2px solid #e9ecef;
+	padding-left: 10px;
+}
+
+.web-sidebar-enhanced .submenu-item {
+	display: flex;
+	align-items: center;
+	padding: 4px 0;
+	margin-bottom: 3px;
+	font-size: 12px;
+	color: #6c757d;
+}
+
+.web-sidebar-enhanced .submenu-item i {
+	margin-right: 8px;
+	min-width: 14px;
+	font-size: 11px;
+	color: #adb5bd;
+}
+
+.web-sidebar-enhanced .submenu-title {
+	line-height: 1.3;
+}
+
+.web-sidebar-enhanced .submenu-item:hover {
+	color: #495057;
+}
+
+.web-sidebar-enhanced .submenu-item:hover i {
+	color: #6c757d;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+	.web-sidebar-enhanced .submenu-items {
+		margin-left: 10px;
+		padding-left: 8px;
+	}
+
+	.web-sidebar-enhanced .submenu-item {
+		font-size: 11px;
+	}
+}
+</style>
+
+<script>
+	frappe.ready(function () {
+		$('.sidebar-item a.main-menu-link').each(function (index) {
+			const active_class = 'active'
+			const non_active_class = ''
+			let page_href = window.location.href;
+			if (page_href.indexOf('#') !== -1) {
+				page_href = page_href.slice(0, page_href.indexOf('#'));
+			}
+			if (this.href.trim() == page_href) {
+				$(this).removeClass(non_active_class).addClass(active_class);
+			} else {
+				$(this).removeClass(active_class).addClass(non_active_class);
+			}
+		});
+
+		// scroll the active sidebar item into view
+		let active_sidebar_item = $('.sidebar-item a.active');
+		if (active_sidebar_item.length > 0) {
+			active_sidebar_item.get(0)
+				.scrollIntoView({behavior: "auto", block: "center", inline: "nearest"});
+		}
+	});
+</script>

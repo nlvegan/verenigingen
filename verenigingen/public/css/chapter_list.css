@@ -1,0 +1,109 @@
+/* Chapter List Custom Styles */
+
+/* Override primary color for consistency */
+.text-primary-600 {
+    color: var(--brand-primary, #cf3131) !important;
+}
+
+.bg-primary-100 {
+    background-color: color-mix(in srgb, var(--brand-primary, #cf3131) 10%, white) !important;
+}
+
+/* Green colors for member chapters */
+.border-green-400 {
+    border-color: #4ade80 !important;
+}
+
+.border-green-300 {
+    border-color: #86efac !important;
+}
+
+.border-green-200 {
+    border-color: #bbf7d0 !important;
+}
+
+.bg-green-50 {
+    background-color: #f0fdf4 !important;
+}
+
+.bg-green-100 {
+    background-color: #dcfce7 !important;
+}
+
+.text-green-600 {
+    color: #16a34a !important;
+}
+
+.text-green-700 {
+    color: #15803d !important;
+}
+
+.text-green-800 {
+    color: #166534 !important;
+}
+
+.text-green-900 {
+    color: #14532d !important;
+}
+
+/* Hover effects */
+.hover\:bg-green-50:hover {
+    background-color: #f0fdf4 !important;
+}
+
+/* Ensure consistent card styling */
+.chapter-item {
+    transition: all 0.3s ease;
+}
+
+/* Animation for filtering */
+.chapter-item[style*="display: none"] {
+    animation: fadeOut 0.3s ease;
+}
+
+.chapter-item:not([style*="display: none"]) {
+    animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .chapter-filter-tabs {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .filter-tab {
+        white-space: nowrap;
+        font-size: 0.875rem;
+    }
+
+    .chapter-stats-card {
+        padding: 1rem;
+    }
+
+    .chapter-stats-number {
+        font-size: 1.5rem;
+    }
+}

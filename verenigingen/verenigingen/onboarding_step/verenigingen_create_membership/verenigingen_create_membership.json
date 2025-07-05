@@ -1,0 +1,21 @@
+{
+ "action": "Create Entry",
+ "action_label": "Create your first Membership",
+ "creation": "2025-06-21 15:30:44.542329",
+ "description": "Link members to their membership types and track their status.",
+ "docstatus": 0,
+ "doctype": "Onboarding Step",
+ "idx": 0,
+ "is_complete": 0,
+ "is_single": 0,
+ "is_skipped": 0,
+ "modified": "2025-07-02 16:35:13.749633",
+ "modified_by": "Administrator",
+ "name": "Verenigingen-Create-Membership",
+ "owner": "Administrator",
+ "reference_document": "Membership",
+ "show_form_tour": 0,
+ "show_full_form": 0,
+ "title": "Create Membership",
+ "validate_action": 1
+}

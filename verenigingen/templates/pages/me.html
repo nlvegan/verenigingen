@@ -1,0 +1,74 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Portal") }}{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <div class="col-md-10 col-md-offset-1">
+            <div class="page-header text-center">
+                <h1>{{ _("Welcome to the Portal") }}</h1>
+                {% if is_member %}
+                <p class="lead">{{ _("Hello") }} {{ member_name }}!</p>
+                {% endif %}
+                <p class="text-muted">{{ _("Access your member services and information below") }}</p>
+            </div>
+
+            <!-- Enhanced Portal Menu with Submenus -->
+            <div class="portal-menu-container">
+                {{ enhanced_menu_html|safe }}
+            </div>
+
+            <div class="text-center" style="margin-top: 40px; margin-bottom: 40px;">
+                <div class="well well-sm">
+                    <p class="text-muted" style="margin: 0;">
+                        <i class="fa fa-info-circle"></i>
+                        {{ _("Need help? Contact support through") }}
+                        <strong>Issues & Support</strong> {{ _("above") }}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.portal-menu-container {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.page-header {
+    margin-bottom: 40px;
+}
+
+.page-header h1 {
+    color: #2c3e50;
+    margin-bottom: 10px;
+}
+
+.lead {
+    color: #34495e;
+    font-weight: 300;
+}
+
+.well {
+    background-color: #f8f9fa;
+    border: 1px solid #e7e7e7;
+}
+
+@media (max-width: 768px) {
+    .col-md-10 {
+        padding: 0 15px;
+    }
+
+    .page-header h1 {
+        font-size: 28px;
+    }
+
+    .lead {
+        font-size: 18px;
+    }
+}
+</style>
+{% endblock %}

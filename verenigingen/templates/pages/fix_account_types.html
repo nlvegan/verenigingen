@@ -1,0 +1,158 @@
+{% extends "templates/web.html" %}
+
+{% block title %}Fix Account Types{% endblock %}
+
+{% block page_content %}
+<div class="container mt-5">
+    <h1>Fix Account Types</h1>
+    <p class="lead">Fix account types for accounts imported from E-Boekhouden</p>
+
+    <div class="alert alert-info">
+        <h5>What this tool does:</h5>
+        <ul>
+            <li>Identifies accounts with "te ontvangen" (to receive) and sets them as Receivable</li>
+            <li>Identifies accounts with "te betalen" (to pay) and sets them as Payable</li>
+            <li>Fixes Income/Expense account types</li>
+            <li>Ensures all accounts have the correct type for ERPNext</li>
+        </ul>
+    </div>
+
+    <div id="analysis-results" style="display: none;">
+        <h3>Analysis Results</h3>
+        <div id="results-content"></div>
+    </div>
+
+    <div class="mt-4">
+        <button id="analyze-btn" class="btn btn-primary">Analyze Accounts</button>
+        <button id="fix-now-btn" class="btn btn-warning ml-2">Fix All Now (No Preview)</button>
+        <a href="/app/e-boekhouden-migration" class="btn btn-secondary ml-2">Back to Migration</a>
+    </div>
+</div>
+
+<script>
+frappe.ready(function() {
+    // Get buttons
+    var analyzeBtn = document.getElementById('analyze-btn');
+    var fixNowBtn = document.getElementById('fix-now-btn');
+    var analysisResults = document.getElementById('analysis-results');
+    var resultsContent = document.getElementById('results-content');
+
+    // Analyze button handler
+    analyzeBtn.addEventListener('click', function() {
+        analyzeBtn.disabled = true;
+        analyzeBtn.textContent = 'Analyzing...';
+
+        frappe.call({
+            method: 'verenigingen.utils.fix_receivable_payable_entries.analyze_and_fix_entries',
+            callback: function(r) {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze Accounts';
+
+                if (r.message && r.message.success) {
+                    if (r.message.action === 'preview') {
+                        resultsContent.innerHTML = r.message.preview_html;
+                        analysisResults.style.display = 'block';
+
+                        // Add apply button
+                        var applyBtn = document.createElement('button');
+                        applyBtn.className = 'btn btn-success mt-3';
+                        applyBtn.textContent = 'Apply These Fixes';
+                        applyBtn.id = 'apply-fixes-btn';
+                        resultsContent.appendChild(applyBtn);
+
+                        // Store the fixes data
+                        window.accounts_to_fix = r.message.accounts_to_fix;
+
+                        // Handle apply button
+                        applyBtn.addEventListener('click', function() {
+                            applyBtn.disabled = true;
+                            applyBtn.textContent = 'Applying fixes...';
+
+                            frappe.call({
+                                method: 'verenigingen.utils.fix_receivable_payable_entries.apply_account_type_fixes',
+                                args: {
+                                    accounts_to_fix: window.accounts_to_fix
+                                },
+                                callback: function(fix_r) {
+                                    applyBtn.disabled = false;
+                                    applyBtn.textContent = 'Apply These Fixes';
+
+                                    if (fix_r.message && fix_r.message.success) {
+                                        frappe.msgprint({
+                                            title: 'Success',
+                                            message: fix_r.message.summary,
+                                            indicator: 'green'
+                                        });
+                                        analysisResults.style.display = 'none';
+                                    } else {
+                                        frappe.msgprint({
+                                            title: 'Error',
+                                            message: fix_r.message ? fix_r.message.error : 'Unknown error',
+                                            indicator: 'red'
+                                        });
+                                    }
+                                }
+                            });
+                        });
+                    } else {
+                        frappe.msgprint({
+                            title: 'Analysis Complete',
+                            message: r.message.summary,
+                            indicator: 'green'
+                        });
+                    }
+                } else {
+                    frappe.msgprint({
+                        title: 'Error',
+                        message: r.message ? r.message.error : 'Unknown error occurred',
+                        indicator: 'red'
+                    });
+                }
+            },
+            error: function(err) {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze Accounts';
+                frappe.msgprint({
+                    title: 'Error',
+                    message: 'Failed to analyze accounts. Check console for details.',
+                    indicator: 'red'
+                });
+                console.error('Error:', err);
+            }
+        });
+    });
+
+    // Fix now button handler
+    fixNowBtn.addEventListener('click', function() {
+        if (!confirm('This will fix all account types without preview. Are you sure?')) {
+            return;
+        }
+
+        fixNowBtn.disabled = true;
+        fixNowBtn.textContent = 'Fixing...';
+
+        frappe.call({
+            method: 'verenigingen.api.fix_account_types_simple.fix_account_types_now',
+            callback: function(r) {
+                fixNowBtn.disabled = false;
+                fixNowBtn.textContent = 'Fix All Now (No Preview)';
+
+                if (r.message && r.message.success) {
+                    frappe.msgprint({
+                        title: 'Success',
+                        message: r.message.summary,
+                        indicator: 'green'
+                    });
+                } else {
+                    frappe.msgprint({
+                        title: 'Error',
+                        message: r.message ? r.message.error : 'Unknown error',
+                        indicator: 'red'
+                    });
+                }
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

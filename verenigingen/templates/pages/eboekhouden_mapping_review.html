@@ -1,0 +1,556 @@
+{% extends "templates/web.html" %}
+
+{% block title %}E-Boekhouden Account Review{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <h1>E-Boekhouden Account Review</h1>
+
+    <!-- Account Types Section -->
+    <div class="account-types-section">
+            <div class="row mb-4">
+                <div class="col-md-12">
+                    <div class="alert alert-info">
+                        <h5>Account Type Management</h5>
+                        <p>Review and adjust account types for all imported E-Boekhouden accounts. Proper account types are essential for correct financial reporting.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <button id="load-account-types" class="btn btn-primary">
+                        <i class="fa fa-refresh"></i> Load All Accounts
+                    </button>
+                    <button id="show-empty-only" class="btn btn-secondary ml-2" style="display: none;">
+                        <i class="fa fa-filter"></i> Show Empty Only
+                    </button>
+                </div>
+                <div class="col-md-6 text-right">
+                    <button id="update-all-types" class="btn btn-success" style="display: none;">
+                        <i class="fa fa-save"></i> Update All Changes
+                    </button>
+                </div>
+            </div>
+
+            <!-- Account Types Table -->
+            <div id="account-types-section" style="display: none;">
+                <div class="table-responsive">
+                    <table id="account-types-table" class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Account Code</th>
+                                <th>Account Name</th>
+                                <th>Current Type</th>
+                                <th>Recommended Type</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Content will be populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+</div>
+
+<style>
+.confidence-high { color: #28a745; font-weight: bold; }
+.confidence-medium { color: #ffc107; }
+.confidence-low { color: #dc3545; }
+.mapping-tag {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    margin: 0.1rem;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+}
+.mapping-tag.journal-entry { background-color: #e3f2fd; color: #1976d2; }
+.mapping-tag.purchase-invoice { background-color: #f3e5f5; color: #7b1fa2; }
+</style>
+
+<script>
+frappe.ready(function() {
+    let analysisData = null;
+    let accountTypesData = [];
+    let pendingChanges = {};
+    const defaultCompany = '{{ default_company }}';
+
+    // Account Types functionality
+    $('#load-account-types').click(function() {
+        const btn = $(this);
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Loading...');
+
+        frappe.call({
+            method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.get_account_type_recommendations',
+            args: {
+                company: defaultCompany,
+                show_all: true
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    accountTypesData = r.message.recommendations;
+
+                    if (accountTypesData.length === 0) {
+                        // No accounts found - replace entire section with warning
+                        $('#account-types-section').html(`
+                            <div class="alert alert-warning">
+                                <h5><i class="fa fa-exclamation-triangle"></i> No E-Boekhouden Accounts Found</h5>
+                                <p>No accounts have been imported from E-Boekhouden yet.</p>
+                                <p>Please run <strong>"1. Setup Chart of Accounts"</strong> from the E-Boekhouden Migration form first to import your accounts.</p>
+                                <a href="/app/e-boekhouden-migration" class="btn btn-primary mt-2">
+                                    <i class="fa fa-arrow-right"></i> Go to Migration Form
+                                </a>
+                            </div>
+                        `);
+                        $('#account-types-section').show();
+                        $('#show-empty-only').hide();
+                        $('#update-all-types').hide();
+                    } else {
+                        // Restore table structure if it was replaced by warning
+                        if ($('#account-types-table').length === 0) {
+                            $('#account-types-section').html(`
+                                <div class="table-responsive">
+                                    <table id="account-types-table" class="table table-striped">
+                                        <thead>
+                                            <tr>
+                                                <th>Account Code</th>
+                                                <th>Account Name</th>
+                                                <th>Current Type</th>
+                                                <th>Recommended Type</th>
+                                                <th>Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <!-- Content will be populated by JavaScript -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            `);
+                        }
+                        displayAccountTypes(accountTypesData);
+                        $('#account-types-section').show();
+                        $('#show-empty-only').show();
+                    }
+                    btn.html('<i class="fa fa-refresh"></i> Refresh');
+                } else {
+                    frappe.msgprint({
+                        title: 'Error',
+                        message: r.message ? r.message.error : 'Failed to load accounts',
+                        indicator: 'red'
+                    });
+                }
+                btn.prop('disabled', false);
+            }
+        });
+    });
+
+    // Filter empty types only
+    $('#show-empty-only').click(function() {
+        const showEmpty = $(this).data('show-empty') || false;
+        if (showEmpty) {
+            // Show all
+            displayAccountTypes(accountTypesData);
+            $(this).html('<i class="fa fa-filter"></i> Show Empty Only');
+            $(this).data('show-empty', false);
+        } else {
+            // Show empty only
+            const emptyAccounts = accountTypesData.filter(acc => !acc.current_type || acc.current_type === 'Not Set');
+            displayAccountTypes(emptyAccounts);
+            $(this).html('<i class="fa fa-list"></i> Show All');
+            $(this).data('show-empty', true);
+        }
+    });
+
+    function displayAccountTypes(accounts) {
+        const tbody = $('#account-types-table tbody');
+        tbody.empty();
+
+        accounts.forEach(function(account) {
+            if (account.is_group) return; // Skip group accounts
+
+            const row = $('<tr>');
+            row.append(`<td><strong>${account.account_code}</strong></td>`);
+            row.append(`<td>${account.account_name}</td>`);
+
+            // Current type (editable)
+            const currentType = pendingChanges[account.account] || account.current_type || '';
+            const typeSelect = $('<select class="form-control form-control-sm account-type-select">');
+            typeSelect.data('account', account.account);
+            typeSelect.data('original', account.current_type);
+
+            // Add options
+            const accountTypes = {{ account_types|tojson }};
+            accountTypes.forEach(function(type) {
+                const option = $('<option>').val(type).text(type || 'Not Set');
+                if (type === currentType) option.prop('selected', true);
+                typeSelect.append(option);
+            });
+
+            // Change handler
+            typeSelect.on('change', function() {
+                const newType = $(this).val();
+                const accountName = $(this).data('account');
+                const originalType = $(this).data('original');
+
+                if (newType !== originalType) {
+                    pendingChanges[accountName] = newType;
+                    $(this).closest('tr').addClass('table-warning');
+                } else {
+                    delete pendingChanges[accountName];
+                    $(this).closest('tr').removeClass('table-warning');
+                }
+
+                // Show/hide update button
+                if (Object.keys(pendingChanges).length > 0) {
+                    $('#update-all-types').show();
+                } else {
+                    $('#update-all-types').hide();
+                }
+            });
+
+            const currentTd = $('<td>').append(typeSelect);
+            row.append(currentTd);
+
+            // Recommended type
+            row.append(`<td>${account.recommended_type}</td>`);
+
+            // Action buttons
+            const actionTd = $('<td>');
+            // Show Apply Recommendation button when recommendation differs from current
+            if (account.recommended_type && account.recommended_type !== 'Not Sure' && account.recommended_type !== currentType) {
+                const applyBtn = $('<button class="btn btn-sm btn-outline-primary apply-recommendation">')
+                    .html('<i class="fa fa-magic"></i> Use Recommendation')
+                    .attr('title', `Apply recommended type: ${account.recommended_type}`)
+                    .click(function() {
+                        typeSelect.val(account.recommended_type).trigger('change');
+                    });
+                actionTd.append(applyBtn);
+            }
+            row.append(actionTd);
+
+            tbody.append(row);
+        });
+    }
+
+    // Update all changes
+    $('#update-all-types').click(function() {
+        const changes = Object.keys(pendingChanges).map(account => ({
+            account: account,
+            new_type: pendingChanges[account]
+        }));
+
+        if (changes.length === 0) return;
+
+        frappe.confirm(
+            `Update ${changes.length} account type(s)?`,
+            function() {
+                frappe.show_alert({
+                    message: `Updating ${changes.length} accounts...`,
+                    indicator: 'blue'
+                });
+
+                let completed = 0;
+                changes.forEach(function(change) {
+                    frappe.call({
+                        method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.update_account_type_mapping',
+                        args: {
+                            account_name: change.account,
+                            new_account_type: change.new_type,
+                            company: defaultCompany
+                        },
+                        callback: function(r) {
+                            completed++;
+                            if (completed === changes.length) {
+                                frappe.show_alert({
+                                    message: 'All account types updated successfully!',
+                                    indicator: 'green'
+                                });
+                                pendingChanges = {};
+                                $('#update-all-types').hide();
+                                $('#load-account-types').click(); // Refresh
+                            }
+                        }
+                    });
+                });
+            }
+        );
+    });
+
+    // Legacy analyze accounts (disabled - now uses native transaction types)
+    $('#analyze-accounts').click(function() {
+        frappe.msgprint({
+            title: 'Feature Deprecated',
+            message: 'Complex account analysis is no longer needed. The system now uses E-Boekhouden\'s native transaction types for automatic mapping.',
+            indicator: 'blue'
+        });
+    });
+
+    // Display analysis results
+    function displayAnalysisResults(data) {
+        // Update summary stats
+        $('#total-accounts').text(data.accounts_analyzed);
+        $('#suggested-mappings').text(data.suggestions.length);
+        $('#existing-mappings').text(data.existing_mappings.total);
+
+        let journalCount = 0;
+        data.existing_mappings.by_type['Journal Entry'] && (journalCount = data.existing_mappings.by_type['Journal Entry']);
+        $('#journal-entries').text(journalCount);
+
+        // Populate suggestions table
+        const tbody = $('#suggestions-table tbody');
+        tbody.empty();
+
+        data.suggestions.forEach(function(suggestion) {
+            const row = $('<tr>');
+            row.append(`<td><strong>${suggestion.account_code}</strong></td>`);
+            row.append(`<td>${suggestion.account_name}</td>`);
+            row.append(`<td><span class="mapping-tag ${suggestion.suggested_type.toLowerCase().replace(' ', '-')}">${suggestion.suggested_type}</span></td>`);
+            row.append(`<td>${suggestion.category}</td>`);
+            row.append(`<td><span class="confidence-${suggestion.confidence}">${suggestion.confidence.toUpperCase()}</span></td>`);
+            row.append(`
+                <td>
+                    <button class="btn btn-sm btn-primary create-mapping"
+                            data-suggestion='${JSON.stringify(suggestion)}'>
+                        <i class="fa fa-plus"></i> Create
+                    </button>
+                </td>
+            `);
+            tbody.append(row);
+        });
+    }
+
+    // Create individual mapping
+    $(document).on('click', '.create-mapping', function() {
+        const btn = $(this);
+        const suggestion = JSON.parse(btn.attr('data-suggestion'));
+
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+
+        frappe.call({
+            method: 'verenigingen.utils.eboekhouden_account_analyzer.create_mapping_from_suggestion',
+            args: { suggestion: suggestion },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    btn.removeClass('btn-primary').addClass('btn-success')
+                       .html('<i class="fa fa-check"></i> Created');
+                    loadExistingMappings();
+                    frappe.show_alert({
+                        message: r.message.message,
+                        indicator: 'green'
+                    });
+                }
+            },
+            error: function() {
+                btn.prop('disabled', false).html('<i class="fa fa-plus"></i> Create');
+            }
+        });
+    });
+
+    // Create all suggestions
+    $('#create-all-suggestions').click(function() {
+        if (!analysisData || !analysisData.suggestions.length) {
+            frappe.msgprint('No suggestions to create.');
+            return;
+        }
+
+        frappe.confirm(
+            `Create ${analysisData.suggestions.length} mapping suggestions?`,
+            function() {
+                frappe.call({
+                    method: 'verenigingen.utils.eboekhouden_account_analyzer.bulk_create_mappings',
+                    args: { suggestions: analysisData.suggestions },
+                    callback: function(r) {
+                        if (r.message) {
+                            frappe.msgprint({
+                                title: 'Mappings Created',
+                                message: r.message.message,
+                                indicator: 'green'
+                            });
+                            loadExistingMappings();
+                            // Refresh analysis
+                            $('#analyze-accounts').click();
+                        }
+                    }
+                });
+            }
+        );
+    });
+
+    // Create default mappings
+    $('#create-defaults').click(function() {
+        const btn = $(this);
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Creating...');
+
+        frappe.call({
+            method: 'verenigingen.utils.eboekhouden_account_analyzer.create_default_range_mappings',
+            callback: function(r) {
+                if (r.message) {
+                    frappe.msgprint({
+                        title: 'Default Mappings Created',
+                        message: r.message.message,
+                        indicator: 'green'
+                    });
+                    loadExistingMappings();
+                }
+                btn.prop('disabled', false).html('<i class="fa fa-magic"></i> Create Default Mappings');
+            }
+        });
+    });
+
+    // Load existing mappings
+    function loadExistingMappings() {
+        frappe.call({
+            method: 'frappe.client.get_list',
+            args: {
+                doctype: 'E-Boekhouden Account Mapping',
+                fields: ['name', 'account_code', 'account_name', 'document_type',
+                        'transaction_category', 'priority', 'usage_count'],
+                filters: { is_active: 1 },
+                order_by: 'priority desc',
+                limit_page_length: 100
+            },
+            callback: function(r) {
+                if (r.message) {
+                    displayExistingMappings(r.message);
+                }
+            }
+        });
+    }
+
+    // Display existing mappings
+    function displayExistingMappings(mappings) {
+        const container = $('#existing-mappings-table');
+
+        if (!mappings.length) {
+            container.html('<p class="text-muted">No mappings configured yet.</p>');
+            return;
+        }
+
+        const table = $(`
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Account</th>
+                            <th>Document Type</th>
+                            <th>Category</th>
+                            <th>Priority</th>
+                            <th>Usage</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        `);
+
+        const tbody = table.find('tbody');
+        mappings.forEach(function(mapping) {
+            const row = $('<tr>');
+            row.append(`<td><strong>${mapping.account_code || 'N/A'}</strong><br><small>${mapping.account_name}</small></td>`);
+            row.append(`<td><span class="mapping-tag ${mapping.document_type.toLowerCase().replace(' ', '-')}">${mapping.document_type}</span></td>`);
+            row.append(`<td>${mapping.transaction_category || '-'}</td>`);
+            row.append(`<td>${mapping.priority}</td>`);
+            row.append(`<td>${mapping.usage_count || 0}</td>`);
+            row.append(`
+                <td>
+                    <a href="/app/e-boekhouden-account-mapping/${mapping.name}"
+                       class="btn btn-sm btn-outline-primary">
+                        <i class="fa fa-edit"></i>
+                    </a>
+                </td>
+            `);
+            tbody.append(row);
+        });
+
+        container.html(table);
+    }
+
+    // Refresh mappings
+    $('#refresh-mappings').click(function() {
+        loadExistingMappings();
+    });
+
+    // Load on page load
+    loadExistingMappings();
+
+    // New transaction type mapping functionality
+    $('#show-type-mapping').click(function() {
+        frappe.call({
+            method: 'verenigingen.utils.eboekhouden_transaction_type_mapper.get_transaction_type_mapping',
+            callback: function(r) {
+                if (r.message) {
+                    const tbody = $('#type-mapping-table');
+                    tbody.empty();
+
+                    // Add mapping rows
+                    for (const [eboekType, erpType] of Object.entries(r.message.mappings)) {
+                        const row = $('<tr>');
+                        row.append(`<td><strong>${eboekType}</strong></td>`);
+                        row.append(`<td><span class="mapping-tag ${erpType.toLowerCase().replace(' ', '-')}">${erpType}</span></td>`);
+
+                        let notes = '';
+                        if (erpType === 'Payment Entry') {
+                            if (eboekType.includes('ontvangen') || eboekType.includes('received')) {
+                                notes = 'Links to Sales Invoice';
+                            } else {
+                                notes = 'Links to Purchase Invoice';
+                            }
+                        }
+                        row.append(`<td>${notes}</td>`);
+                        tbody.append(row);
+                    }
+
+                    $('#type-mapping-display').slideDown();
+                }
+            }
+        });
+    });
+
+    // Test transaction type detection
+    $('#test-transaction-type').click(function() {
+        frappe.prompt([
+            {
+                label: 'E-Boekhouden Transaction Type',
+                fieldname: 'transaction_type',
+                fieldtype: 'Select',
+                options: [
+                    'Factuur ontvangen',
+                    'Factuur verstuurd',
+                    'Factuurbetaling ontvangen',
+                    'Factuurbetaling verstuurd',
+                    'Geld ontvangen',
+                    'Geld verstuurd',
+                    'Memoriaal'
+                ],
+                reqd: 1
+            }
+        ], function(values) {
+            frappe.call({
+                method: 'verenigingen.utils.eboekhouden_transaction_type_mapper.test_transaction_type_detection',
+                args: {
+                    transaction_type: values.transaction_type
+                },
+                callback: function(r) {
+                    if (r.message) {
+                        let message = `<strong>Input:</strong> ${r.message.input}<br>`;
+                        message += `<strong>Document Type:</strong> ${r.message.document_type}<br>`;
+                        if (r.message.reference_type) {
+                            message += `<strong>Reference Type:</strong> ${r.message.reference_type}`;
+                        }
+
+                        frappe.msgprint({
+                            title: 'Transaction Type Detection Result',
+                            message: message,
+                            indicator: 'green'
+                        });
+                    }
+                }
+            });
+        }, 'Test Transaction Type Detection');
+    });
+});
+</script>
+{% endblock %}

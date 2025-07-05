@@ -1,0 +1,332 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Team Members") }} - {{ team.team_name }}{% endblock %}
+
+{% block head_include %}
+<style>
+.team-members-page {
+    max-width: 1000px;
+    margin: 2rem auto;
+    padding: 2rem;
+}
+
+.page-header {
+    text-align: center;
+    margin-bottom: 3rem;
+    padding: 2rem;
+    background: linear-gradient(135deg, #663399, #cf3131);
+    color: white;
+    border-radius: 12px;
+}
+
+.page-header h1 {
+    margin: 0 0 0.5rem 0;
+    font-size: 2.5rem;
+    font-weight: 300;
+}
+
+.page-header p {
+    margin: 0;
+    opacity: 0.9;
+    font-size: 1.1rem;
+}
+
+.team-info {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 2rem;
+    margin-bottom: 2rem;
+}
+
+.team-info h3 {
+    color: #333;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+}
+
+.team-info .icon {
+    margin-right: 0.75rem;
+    color: #cf3131;
+}
+
+.members-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.member-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 1.5rem;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.member-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.member-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 1rem;
+}
+
+.member-name {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #333;
+    margin: 0;
+}
+
+.member-id {
+    font-size: 0.875rem;
+    color: #666;
+    margin-top: 0.25rem;
+}
+
+.role-badge {
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-align: center;
+}
+
+.role-badge.leader {
+    background: #cf3131;
+    color: white;
+}
+
+.role-badge.member {
+    background: #01796f;
+    color: white;
+}
+
+.role-badge.coordinator {
+    background: #663399;
+    color: white;
+}
+
+.role-badge.volunteer {
+    background: #6c757d;
+    color: white;
+}
+
+.member-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.detail-item {
+    display: flex;
+    flex-direction: column;
+}
+
+.detail-label {
+    font-size: 0.75rem;
+    color: #666;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.detail-value {
+    color: #333;
+    font-weight: 500;
+}
+
+.member-contact {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid #eee;
+}
+
+.contact-item {
+    display: flex;
+    align-items: center;
+    color: #666;
+    font-size: 0.875rem;
+    margin-bottom: 0.5rem;
+}
+
+.contact-item:last-child {
+    margin-bottom: 0;
+}
+
+.contact-item .icon {
+    margin-right: 0.5rem;
+    color: #cf3131;
+    width: 16px;
+    text-align: center;
+}
+
+.back-button {
+    display: inline-block;
+    padding: 0.75rem 2rem;
+    background: #6c757d;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+    margin-bottom: 2rem;
+}
+
+.back-button:hover {
+    background: #545b62;
+    color: white;
+    text-decoration: none;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: #666;
+}
+
+.empty-state .icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    color: #ccc;
+}
+
+@media (max-width: 768px) {
+    .team-members-page {
+        padding: 1rem;
+    }
+
+    .page-header {
+        padding: 1.5rem;
+    }
+
+    .page-header h1 {
+        font-size: 2rem;
+    }
+
+    .members-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .member-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+
+    .member-details {
+        grid-template-columns: 1fr;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="team-members-page">
+    <div class="page-header">
+        <h1>{{ team.team_name }}</h1>
+        <p>{{ _("Team Members") }}</p>
+    </div>
+
+    <a href="/my_teams" class="back-button">
+        <i class="fa fa-arrow-left"></i> {{ _("Back to My Teams") }}
+    </a>
+
+    <div class="team-info">
+        <h3><span class="icon">📋</span>{{ _("Team Information") }}</h3>
+
+        {% if team.description %}
+        <p><strong>{{ _("Description") }}:</strong> {{ team.description }}</p>
+        {% endif %}
+
+        <div class="team-details" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+            <div class="detail-item">
+                <span class="detail-label">{{ _("Team Type") }}</span>
+                <span class="detail-value">{{ _(team.team_type) }}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">{{ _("Status") }}</span>
+                <span class="detail-value">{{ _(team.status) }}</span>
+            </div>
+            <div class="detail-item">
+                <span class="detail-label">{{ _("Total Members") }}</span>
+                <span class="detail-value">{{ team_members|length }}</span>
+            </div>
+        </div>
+    </div>
+
+    {% if team_members %}
+    <div class="members-grid">
+        {% for member in team_members %}
+        <div class="member-card">
+            <div class="member-header">
+                <div>
+                    <h4 class="member-name">{{ member.display_name }}</h4>
+                    {% if member.member_id %}
+                    <div class="member-id">{{ _("ID") }}: {{ member.member_id }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="role-badge {% if member.role_type == 'Team Leader' %}leader{% elif member.role_type == 'Coordinator' %}coordinator{% elif member.role_type == 'Team Member' %}member{% else %}volunteer{% endif %}">
+                    {{ _(member.role_type) }}
+                </div>
+            </div>
+
+            <div class="member-details">
+                {% if member.role and member.role != member.role_type %}
+                <div class="detail-item">
+                    <span class="detail-label">{{ _("Specific Role") }}</span>
+                    <span class="detail-value">{{ member.role }}</span>
+                </div>
+                {% endif %}
+
+                {% if member.formatted_from_date %}
+                <div class="detail-item">
+                    <span class="detail-label">{{ _("Since") }}</span>
+                    <span class="detail-value">{{ member.formatted_from_date }}</span>
+                </div>
+                {% endif %}
+
+                {% if member.formatted_to_date %}
+                <div class="detail-item">
+                    <span class="detail-label">{{ _("Until") }}</span>
+                    <span class="detail-value">{{ member.formatted_to_date }}</span>
+                </div>
+                {% endif %}
+
+                <div class="detail-item">
+                    <span class="detail-label">{{ _("Status") }}</span>
+                    <span class="detail-value">{{ _(member.status) }}</span>
+                </div>
+            </div>
+
+            {% if member.email %}
+            <div class="member-contact">
+                <div class="contact-item">
+                    <i class="fa fa-envelope icon"></i>
+                    <span>{{ member.email }}</span>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="icon">👥</div>
+        <h3>{{ _("No Team Members") }}</h3>
+        <p>{{ _("This team currently has no active members.") }}</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

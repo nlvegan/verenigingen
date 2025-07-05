@@ -1,0 +1,16 @@
+{% extends "templates/web.html" %}
+
+{% block head_include %}
+{{ super() }}
+<style>
+.portal-container {
+    min-height: 400px;
+}
+</style>
+{% endblock %}
+
+{# body_class now set dynamically via update_website_context hook #}
+
+{% block sidebar %}
+{% include "templates/includes/web_sidebar_enhanced.html" %}
+{% endblock %}

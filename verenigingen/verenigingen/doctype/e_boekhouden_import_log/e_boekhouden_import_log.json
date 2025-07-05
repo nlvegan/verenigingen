@@ -1,0 +1,119 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2025-06-25 09:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "migration",
+  "import_type",
+  "eb_reference",
+  "column_break_4",
+  "erpnext_doctype",
+  "erpnext_name",
+  "import_status",
+  "details_section",
+  "eb_data",
+  "error_message",
+  "created_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "migration",
+   "fieldtype": "Link",
+   "label": "Migration",
+   "options": "E-Boekhouden Migration",
+   "reqd": 1
+  },
+  {
+   "fieldname": "import_type",
+   "fieldtype": "Select",
+   "label": "Import Type",
+   "options": "Account\nCustomer\nSupplier\nJournal Entry",
+   "reqd": 1
+  },
+  {
+   "fieldname": "eb_reference",
+   "fieldtype": "Data",
+   "label": "E-Boekhouden Reference",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "erpnext_doctype",
+   "fieldtype": "Data",
+   "label": "ERPNext DocType"
+  },
+  {
+   "fieldname": "erpnext_name",
+   "fieldtype": "Data",
+   "label": "ERPNext Name"
+  },
+  {
+   "default": "Success",
+   "fieldname": "import_status",
+   "fieldtype": "Select",
+   "label": "Import Status",
+   "options": "Success\nFailed\nSkipped"
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "eb_data",
+   "fieldtype": "Long Text",
+   "label": "E-Boekhouden Data"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Long Text",
+   "label": "Error Message"
+  },
+  {
+   "default": "Now",
+   "fieldname": "created_on",
+   "fieldtype": "Datetime",
+   "label": "Created On",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-06-25 09:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "E-Boekhouden Import Log",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

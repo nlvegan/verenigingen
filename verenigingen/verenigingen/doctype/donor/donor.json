@@ -1,0 +1,366 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "app": "verenigingen",
+ "autoname": "naming_series:",
+ "creation": "2017-09-19 16:20:27.510196",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "donor_information_section",
+  "donor_name",
+  "column_break_5",
+  "donor_type",
+  "image",
+  "section_break_edwsh",
+  "contact_person",
+  "column_break_ag86z",
+  "phone",
+  "section_break_7uw0i",
+  "donor_email",
+  "column_break_gnl5u",
+  "contact_person_address",
+  "connections_section",
+  "member",
+  "column_break_connections",
+  "customer",
+  "donor_segmentation_section",
+  "donor_category",
+  "column_break_3lr0r",
+  "preferred_communication_method",
+  "donation_history_tab",
+  "donor_history",
+  "section_break_sscxg",
+  "pledge_history",
+  "notes_and_communications_section",
+  "notes",
+  "communication_history",
+  "donor_preferences_section",
+  "receive_newsletters",
+  "column_break_0tvem",
+  "event_invitations",
+  "column_break_crlqn",
+  "updates",
+  "section_break_xqosx",
+  "donor_relationships",
+  "additional_information_section",
+  "occupation",
+  "column_break_cxobe",
+  "social_media_profiles",
+  "section_break_ouhvw",
+  "other_attributes",
+  "address_contacts",
+  "address_html",
+  "column_break_9",
+  "contact_html"
+ ],
+ "fields": [
+  {
+   "fieldname": "donor_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Donor Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donor_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Donor Type",
+   "options": "\nIndividual\nOrganization",
+   "reqd": 1
+  },
+  {
+   "fieldname": "image",
+   "fieldtype": "Attach Image",
+   "hidden": 1,
+   "label": "Image",
+   "no_copy": 1,
+   "print_hide": 1
+  },
+  {
+   "depends_on": "eval:!doc.__islocal;",
+   "fieldname": "address_contacts",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Address and Contact",
+   "options": "fa fa-map-marker",
+   "print_hide": 1,
+   "report_hide": 1
+  },
+  {
+   "fieldname": "address_html",
+   "fieldtype": "HTML",
+   "hidden": 1,
+   "label": "Address HTML",
+   "print_hide": 1,
+   "report_hide": 1
+  },
+  {
+   "fieldname": "column_break_9",
+   "fieldtype": "Column Break",
+   "hidden": 1,
+   "print_hide": 1,
+   "report_hide": 1
+  },
+  {
+   "fieldname": "contact_html",
+   "fieldtype": "HTML",
+   "hidden": 1,
+   "label": "Contact HTML",
+   "print_hide": 1,
+   "report_hide": 1
+  },
+  {
+   "fieldname": "contact_person",
+   "fieldtype": "Data",
+   "label": "Contact Person",
+   "reqd": 0
+  },
+  {
+   "fieldname": "section_break_edwsh",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "donor_information_section",
+   "fieldtype": "Section Break",
+   "label": "DONOR INFORMATION"
+  },
+  {
+   "fieldname": "section_break_7uw0i",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "column_break_ag86z",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Phone",
+   "label": "Phone",
+   "reqd": 0
+  },
+  {
+   "fieldname": "column_break_gnl5u",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "contact_person_address",
+   "fieldtype": "Data",
+   "label": "Address",
+   "reqd": 0
+  },
+  {
+   "fieldname": "donor_segmentation_section",
+   "fieldtype": "Section Break",
+   "label": "Donor Segmentation"
+  },
+  {
+   "fieldname": "donor_category",
+   "fieldtype": "Select",
+   "label": "Donor Category",
+   "options": "\nMajor Donor\nRegular Donor\nCorporate Donor\nEvent Attendee",
+   "reqd": 0
+  },
+  {
+   "fieldname": "column_break_3lr0r",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "preferred_communication_method",
+   "fieldtype": "Select",
+   "label": "Preferred Communication Method",
+   "options": "\nEmail\nPhone\nMail\nSMS"
+  },
+  {
+   "fieldname": "donation_history_tab",
+   "fieldtype": "Tab Break",
+   "label": "Donation History"
+  },
+  {
+   "fieldname": "donor_history",
+   "fieldtype": "Table",
+   "label": "Historical Donations",
+   "options": "Donation History",
+   "description": "Automatically populated from donation records"
+  },
+  {
+   "fieldname": "section_break_sscxg",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "pledge_history",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Pledge History",
+   "options": "Pledge History"
+  },
+  {
+   "fieldname": "notes_and_communications_section",
+   "fieldtype": "Section Break",
+   "label": "Notes and Communications"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "communication_history",
+   "fieldtype": "Table",
+   "label": "Communication History",
+   "options": "Communication History"
+  },
+  {
+   "fieldname": "donor_preferences_section",
+   "fieldtype": "Section Break",
+   "label": "Donor Preferences"
+  },
+  {
+   "default": "0",
+   "fieldname": "receive_newsletters",
+   "fieldtype": "Check",
+   "label": "Receive Newsletters"
+  },
+  {
+   "fieldname": "column_break_0tvem",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "event_invitations",
+   "fieldtype": "Check",
+   "label": "Event Invitations"
+  },
+  {
+   "fieldname": "column_break_crlqn",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "updates",
+   "fieldtype": "Check",
+   "label": "Updates"
+  },
+  {
+   "fieldname": "section_break_xqosx",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "donor_relationships",
+   "fieldtype": "Table",
+   "label": "Donor Relationships",
+   "options": "Donor Relationships"
+  },
+  {
+   "fieldname": "additional_information_section",
+   "fieldtype": "Section Break",
+   "label": "Additional Information"
+  },
+  {
+   "fieldname": "occupation",
+   "fieldtype": "Data",
+   "label": "Occupation"
+  },
+  {
+   "fieldname": "column_break_cxobe",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "social_media_profiles",
+   "fieldtype": "Data",
+   "label": "Social Media Profiles"
+  },
+  {
+   "fieldname": "section_break_ouhvw",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "other_attributes",
+   "fieldtype": "Data",
+   "label": "Other Attributes"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "hidden": 1,
+   "label": "Naming Series",
+   "no_copy": 1,
+   "options": "DN-.YY.-",
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "donor_email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "reqd": 1
+  },
+  {
+   "fieldname": "connections_section",
+   "fieldtype": "Section Break",
+   "label": "Connections"
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "label": "Related Member",
+   "options": "Member"
+  },
+  {
+   "fieldname": "column_break_connections",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Related Customer",
+   "options": "Customer"
+  }
+ ],
+ "image_field": "image",
+ "links": [
+  {
+   "link_doctype": "Donation",
+   "link_fieldname": "donor"
+  },
+  {
+   "link_doctype": "Member",
+   "link_fieldname": "member_id"
+  }
+ ],
+ "modified": "2023-06-21 06:35:12.181793",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Donor",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "show_name_in_global_search": 1,
+ "show_preview_popup": 1,
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "donor_name",
+ "track_changes": 1
+}

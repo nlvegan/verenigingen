@@ -1,0 +1,211 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title or _("Chapters") }}{% endblock %}
+
+{% block head_include %}
+<link rel="stylesheet" href="/assets/verenigingen/css/chapter_list.css">
+<style>
+/* Custom styles for chapter list */
+.chapter-list-header {
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    border-radius: 12px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.my-chapters-section {
+    background: #f0fdf4;
+    border: 2px solid #bbf7d0;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.chapter-filter-tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    border-bottom: 2px solid #e5e7eb;
+}
+
+.filter-tab {
+    padding: 0.75rem 1.5rem;
+    border-bottom: 3px solid transparent;
+    color: #6b7280;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.filter-tab:hover {
+    color: #374151;
+}
+
+.filter-tab.active {
+    color: #059669;
+    border-bottom-color: #059669;
+}
+
+.chapter-stats-card {
+    background: white;
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.chapter-stats-number {
+    font-size: 2rem;
+    font-weight: bold;
+    color: #1f2937;
+}
+
+.chapter-stats-label {
+    color: #6b7280;
+    font-size: 0.875rem;
+    margin-top: 0.25rem;
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <!-- Page Header -->
+    <div class="chapter-list-header">
+        <h1 class="text-3xl font-bold text-gray-900 mb-2">{{ _("Chapters") }}</h1>
+        <p class="text-lg text-gray-600">{{ _("Find and join chapters in your area to connect with fellow members") }}</p>
+
+        {% if user != "Guest" %}
+        <!-- Statistics for logged-in users -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
+            <div class="chapter-stats-card">
+                <div class="chapter-stats-number">{{ result|length }}</div>
+                <div class="chapter-stats-label">{{ _("Total Chapters") }}</div>
+            </div>
+            <div class="chapter-stats-card">
+                <div class="chapter-stats-number">{{ user_chapters|length }}</div>
+                <div class="chapter-stats-label">{{ _("Your Chapters") }}</div>
+            </div>
+            <div class="chapter-stats-card">
+                <div class="chapter-stats-number">
+                    {% set total_members = result|map(attribute='members')|map('selectattr', 'enabled', 'equalto', 1)|map('list')|map('length')|sum %}
+                    {{ total_members }}
+                </div>
+                <div class="chapter-stats-label">{{ _("Total Members") }}</div>
+            </div>
+            <div class="chapter-stats-card">
+                <div class="chapter-stats-number">
+                    {% set available_chapters = result|rejectattr('name', 'in', user_chapters)|list|length %}
+                    {{ available_chapters }}
+                </div>
+                <div class="chapter-stats-label">{{ _("Available to Join") }}</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if user != "Guest" and user_chapters %}
+    <!-- My Chapters Section -->
+    <div class="my-chapters-section">
+        <h2 class="text-xl font-bold text-green-800 mb-3 flex items-center">
+            <i class="fa fa-check-circle mr-2"></i>
+            {{ _("Your Chapter Memberships") }}
+        </h2>
+        <div class="flex flex-wrap gap-3">
+            {% for chapter_name in user_chapters %}
+                <a href="/chapters/{{ chapter_name|lower|replace(' ', '-') }}"
+                   class="inline-flex items-center px-4 py-2 bg-white border border-green-300 rounded-full hover:bg-green-50 transition-colors">
+                    <i class="fa fa-building mr-2 text-green-600"></i>
+                    <span class="font-medium text-green-700">{{ chapter_name }}</span>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if user != "Guest" %}
+    <!-- Filter Tabs -->
+    <div class="chapter-filter-tabs" id="filterTabs">
+        <div class="filter-tab active" data-filter="all">
+            {{ _("All Chapters") }} ({{ result|length }})
+        </div>
+        <div class="filter-tab" data-filter="member">
+            {{ _("My Chapters") }} ({{ user_chapters|length }})
+        </div>
+        <div class="filter-tab" data-filter="available">
+            {{ _("Available to Join") }} ({{ result|rejectattr('name', 'in', user_chapters)|list|length }})
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Chapter List -->
+    <div class="chapter-list" id="chapterList">
+        {% if result %}
+            {% for doc in result %}
+                <div class="chapter-item" data-chapter-status="{% if doc.name in user_chapters %}member{% else %}available{% endif %}">
+                    {% include "verenigingen/verenigingen/doctype/chapter/templates/chapter_row.html" %}
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="text-center py-12">
+                <i class="fa fa-building text-6xl text-gray-300 mb-4"></i>
+                <h3 class="text-xl font-medium text-gray-600 mb-2">{{ _("No Chapters Found") }}</h3>
+                <p class="text-gray-500">{{ _("There are no chapters available at this time.") }}</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Filter functionality
+    const filterTabs = document.querySelectorAll('.filter-tab');
+    const chapterItems = document.querySelectorAll('.chapter-item');
+
+    filterTabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+            // Update active tab
+            filterTabs.forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+
+            // Filter chapters
+            const filter = this.dataset.filter;
+
+            chapterItems.forEach(item => {
+                if (filter === 'all') {
+                    item.style.display = 'block';
+                } else if (filter === 'member' && item.dataset.chapterStatus === 'member') {
+                    item.style.display = 'block';
+                } else if (filter === 'available' && item.dataset.chapterStatus === 'available') {
+                    item.style.display = 'block';
+                } else {
+                    item.style.display = 'none';
+                }
+            });
+
+            // Show message if no chapters in filtered view
+            const visibleItems = Array.from(chapterItems).filter(item => item.style.display !== 'none');
+            if (visibleItems.length === 0) {
+                const emptyMessage = document.createElement('div');
+                emptyMessage.className = 'text-center py-12';
+                emptyMessage.innerHTML = `
+                    <i class="fa fa-search text-6xl text-gray-300 mb-4"></i>
+                    <h3 class="text-xl font-medium text-gray-600 mb-2">${filter === 'member' ? 'No Chapter Memberships' : 'All Chapters Joined'}</h3>
+                    <p class="text-gray-500">${filter === 'member' ? 'You are not a member of any chapters yet.' : 'You are already a member of all available chapters.'}</p>
+                `;
+                document.getElementById('chapterList').appendChild(emptyMessage);
+            } else {
+                // Remove any empty messages
+                const emptyMessages = document.querySelectorAll('#chapterList > .text-center');
+                emptyMessages.forEach(msg => {
+                    if (!msg.closest('.chapter-item')) {
+                        msg.remove();
+                    }
+                });
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

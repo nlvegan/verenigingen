@@ -1,0 +1,95 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Complete Your Payment") }}{% endblock %}
+
+{% block page_content %}
+<div class="payment-retry-page">
+    <div class="container">
+        <h1>{{ _("Complete Your Membership Payment") }}</h1>
+
+        {% if not member or not invoice %}
+        <div class="alert alert-danger">
+            <p>{{ _("Invalid payment link. Please contact support.") }}</p>
+        </div>
+        {% else %}
+
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4>{{ _("Payment Details") }}</h4>
+                    </div>
+                    <div class="card-body">
+                        <table class="table">
+                            <tr>
+                                <td><strong>{{ _("Member") }}:</strong></td>
+                                <td>{{ member.full_name }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>{{ _("Membership Type") }}:</strong></td>
+                                <td>{{ member.selected_membership_type }}</td>
+                            </tr>
+                            <tr>
+                                <td><strong>{{ _("Amount Due") }}:</strong></td>
+                                <td class="text-primary">
+                                    <h4>{{ frappe.format_value(invoice.grand_total, {"fieldtype": "Currency"}) }}</h4>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <div class="payment-options mt-4">
+                            <h5>{{ _("Select Payment Method") }}</h5>
+
+                            {% for method in payment_methods %}
+                            <div class="payment-method-option">
+                                <button class="btn btn-outline-primary btn-block"
+                                        onclick="processPayment('{{ method.name }}')">
+                                    <i class="fa fa-credit-card"></i> {{ _("Pay with") }} {{ method.name }}
+                                </button>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>{{ _("Need Help?") }}</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>{{ _("If you're experiencing issues with payment, please contact our support team.") }}</p>
+                        <p>
+                            <i class="fa fa-envelope"></i> support@example.com<br>
+                            <i class="fa fa-phone"></i> +1 234 567 890
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.payment-retry-page {
+    padding: 40px 0;
+}
+
+.payment-method-option {
+    margin-bottom: 10px;
+}
+</style>
+
+<script>
+function processPayment(method) {
+    // This would integrate with your payment gateway
+    frappe.msgprint(__('Processing payment with ' + method + '...'));
+
+    // For now, simulate payment processing
+    window.location.href = '/payment/process/{{ member.name }}/{{ invoice.name }}/' + method;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,348 @@
+{
+ "actions": [],
+ "app": "verenigingen",
+ "autoname": "format:AMEND-{YYYY}-{#####}",
+ "creation": "2025-06-11 13:36:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "amendment_details_section",
+  "membership",
+  "member",
+  "member_name",
+  "column_break_1",
+  "amendment_type",
+  "status",
+  "requested_date",
+  "effective_date",
+  "current_details_section",
+  "current_amount",
+  "current_billing_interval",
+  "column_break_2",
+  "current_subscription",
+  "current_plan",
+  "requested_changes_section",
+  "requested_amount",
+  "new_billing_interval",
+  "column_break_3",
+  "reason",
+  "impact_preview",
+  "approval_section",
+  "requested_by",
+  "requested_by_member",
+  "approved_by",
+  "column_break_4",
+  "approved_date",
+  "rejection_reason",
+  "processing_section",
+  "applied_date",
+  "applied_by",
+  "column_break_5",
+  "new_subscription",
+  "old_subscription_cancelled",
+  "notes_section",
+  "internal_notes",
+  "processing_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "amendment_details_section",
+   "fieldtype": "Section Break",
+   "label": "Amendment Details"
+  },
+  {
+   "fieldname": "membership",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Membership",
+   "options": "Membership",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "membership.member",
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "label": "Member",
+   "options": "Member",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "member.full_name",
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Member Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Fee Change",
+   "fieldname": "amendment_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Amendment Type",
+   "options": "Fee Change\nBilling Interval Change\nPlan Change\nSuspension\nReactivation",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nPending Approval\nApproved\nRejected\nApplied\nCancelled",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "requested_date",
+   "fieldtype": "Date",
+   "label": "Requested Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "effective_date",
+   "fieldtype": "Date",
+   "label": "Effective Date",
+   "reqd": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "current_details_section",
+   "fieldtype": "Section Break",
+   "label": "Current Details"
+  },
+  {
+   "fieldname": "current_amount",
+   "fieldtype": "Currency",
+   "label": "Current Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_billing_interval",
+   "fieldtype": "Data",
+   "label": "Current Billing Interval",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "current_subscription",
+   "fieldtype": "Link",
+   "label": "Current Subscription",
+   "options": "Subscription",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_plan",
+   "fieldtype": "Data",
+   "label": "Current Plan",
+   "read_only": 1
+  },
+  {
+   "fieldname": "requested_changes_section",
+   "fieldtype": "Section Break",
+   "label": "Requested Changes"
+  },
+  {
+   "depends_on": "eval:doc.amendment_type == 'Fee Change'",
+   "fieldname": "requested_amount",
+   "fieldtype": "Currency",
+   "label": "Requested Amount"
+  },
+  {
+   "depends_on": "eval:doc.amendment_type == 'Billing Interval Change'",
+   "fieldname": "new_billing_interval",
+   "fieldtype": "Select",
+   "label": "New Billing Interval",
+   "options": "Monthly\nQuarterly\nAnnually"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Amendment",
+   "reqd": 1
+  },
+  {
+   "fieldname": "impact_preview",
+   "fieldtype": "HTML",
+   "label": "Impact Preview",
+   "options": "<div id=\"amendment-impact-preview\">Loading preview...</div>"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "approval_section",
+   "fieldtype": "Section Break",
+   "label": "Approval Details"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "requested_by_member",
+   "fieldtype": "Check",
+   "label": "Requested by Member",
+   "read_only": 1,
+   "description": "Indicates if this request was submitted by the member through the portal"
+  },
+  {
+   "depends_on": "eval:doc.status == 'Approved'",
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.status == 'Approved'",
+   "fieldname": "approved_date",
+   "fieldtype": "Datetime",
+   "label": "Approved Date",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.status == 'Rejected'",
+   "fieldname": "rejection_reason",
+   "fieldtype": "Small Text",
+   "label": "Rejection Reason"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.status == 'Applied'",
+   "fieldname": "processing_section",
+   "fieldtype": "Section Break",
+   "label": "Processing Details"
+  },
+  {
+   "fieldname": "applied_date",
+   "fieldtype": "Datetime",
+   "label": "Applied Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "applied_by",
+   "fieldtype": "Data",
+   "label": "Applied By",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "new_subscription",
+   "fieldtype": "Link",
+   "label": "New Subscription",
+   "options": "Subscription",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "old_subscription_cancelled",
+   "fieldtype": "Check",
+   "label": "Old Subscription Cancelled",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "internal_notes",
+   "fieldtype": "Text Editor",
+   "label": "Internal Notes"
+  },
+  {
+   "fieldname": "processing_notes",
+   "fieldtype": "Text Editor",
+   "label": "Processing Notes",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2025-06-11 13:36:00",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Contribution Amendment Request",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Staff"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Gray",
+   "title": "Draft"
+  },
+  {
+   "color": "Orange",
+   "title": "Pending Approval"
+  },
+  {
+   "color": "Green",
+   "title": "Approved"
+  },
+  {
+   "color": "Red",
+   "title": "Rejected"
+  },
+  {
+   "color": "Blue",
+   "title": "Applied"
+  },
+  {
+   "color": "Purple",
+   "title": "Cancelled"
+  }
+ ],
+ "title_field": "member_name",
+ "track_changes": 1
+}

@@ -1,0 +1,84 @@
+{
+ "app": "verenigingen",
+  "creation": "2025-05-05 12:00:00.000000",
+  "doctype": "DocType",
+  "module": "Verenigingen",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "volunteer",
+    "volunteer_name",
+    "email",
+    "chapter_role",
+    "column_break_4",
+    "from_date",
+    "to_date",
+    "is_active",
+    "notes"
+  ],
+  "fields": [
+    {
+      "fieldname": "volunteer",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Volunteer",
+      "options": "Volunteer",
+      "reqd": 1
+    },
+    {
+      "fetch_from": "volunteer.volunteer_name",
+      "fieldname": "volunteer_name",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Volunteer Name",
+      "read_only": 1
+    },
+    {
+      "fetch_from": "volunteer.email",
+      "fieldname": "email",
+      "fieldtype": "Data",
+      "label": "Email",
+      "read_only": 1
+    },
+    {
+      "fieldname": "chapter_role",
+      "fieldtype": "Link",
+      "in_list_view": 1,
+      "label": "Board Role",
+      "options": "Chapter Role",
+      "reqd": 1
+    },
+    {
+      "fieldname": "column_break_4",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "from_date",
+      "fieldtype": "Date",
+      "label": "From Date",
+      "reqd": 1
+    },
+    {
+      "fieldname": "to_date",
+      "fieldtype": "Date",
+      "label": "To Date"
+    },
+    {
+      "default": "1",
+      "fieldname": "is_active",
+      "fieldtype": "Check",
+      "in_list_view": 1,
+      "label": "Is Active"
+    },
+    {
+      "fieldname": "notes",
+      "fieldtype": "Small Text",
+      "label": "Notes"
+    }
+  ],
+  "istable": 1,
+  "name": "Chapter Board Member",
+  "permissions": [],
+  "sort_field": "modified",
+  "sort_order": "DESC"
+}

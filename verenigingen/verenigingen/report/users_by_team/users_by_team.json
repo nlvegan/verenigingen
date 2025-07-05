@@ -1,0 +1,92 @@
+{
+ "add_total_row": 0,
+ "columns": [],
+ "creation": "2025-05-03 12:00:00.000000",
+ "disable_prepared_report": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [
+  {
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "label": "Team",
+   "mandatory": 0,
+   "options": "Team",
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "mandatory": 0,
+   "options": "User",
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "team_role",
+   "fieldtype": "Link",
+   "label": "Team Role",
+   "mandatory": 0,
+   "options": "Team Role",
+   "wildcard_filter": 0
+  },
+  {
+   "default": "1",
+   "fieldname": "active_only",
+   "fieldtype": "Check",
+   "label": "Active Members Only",
+   "mandatory": 0,
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "department",
+   "fieldtype": "Link",
+   "label": "Department",
+   "mandatory": 0,
+   "options": "Department",
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "permissions_level",
+   "fieldtype": "Select",
+   "label": "Permission Level",
+   "mandatory": 0,
+   "options": "\nRead\nWrite\nAdmin",
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "from_date",
+   "fieldtype": "Date",
+   "label": "From Date",
+   "mandatory": 0,
+   "wildcard_filter": 0
+  },
+  {
+   "fieldname": "to_date",
+   "fieldtype": "Date",
+   "label": "To Date",
+   "mandatory": 0,
+   "wildcard_filter": 0
+  }
+ ],
+ "idx": 0,
+ "is_standard": "Yes",
+ "modified": "2025-05-03 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Users by Team",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "ref_doctype": "Team",
+ "report_name": "Users by Team",
+ "report_type": "Script Report",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Team_Lead"
+  }
+ ]
+}

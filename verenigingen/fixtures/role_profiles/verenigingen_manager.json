@@ -1,0 +1,40 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Manager",
+  "role_profile": "Verenigingen Manager",
+  "roles": [
+   {
+    "role": "Verenigingen Manager"
+   },
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Projects Manager"
+   },
+   {
+    "role": "Accounts Manager"
+   },
+   {
+    "role": "Sales Manager"
+   },
+   {
+    "role": "Expense Approver"
+   },
+   {
+    "role": "Website Manager"
+   },
+   {
+    "role": "Support Team"
+   }
+  ]
+ }
+]

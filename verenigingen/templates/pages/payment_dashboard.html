@@ -1,0 +1,882 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Payment Dashboard") }}{% endblock %}
+
+{% block page_content %}
+<div class="container mx-auto px-4 py-8">
+    {% if show_member_selection %}
+    <!-- Member Selection for Admins -->
+    <div class="max-w-2xl mx-auto">
+        <h1 class="text-3xl font-bold text-gray-800 mb-8">{{ _("Select Member") }}</h1>
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <p class="text-gray-600 mb-4">{{ _("Select a member to view their payment dashboard:") }}</p>
+            <div class="space-y-2">
+                {% for member in members %}
+                <a href="/payment-dashboard?member={{ member.name }}"
+                   class="block p-3 border rounded hover:bg-gray-50 transition-colors">
+                    <div class="font-semibold">{{ member.full_name }}</div>
+                    <div class="text-sm text-gray-600">{{ member.name }} - {{ member.email }}</div>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-800">{{ _("Payment Dashboard") }}</h1>
+            {% if viewing_as_admin %}
+            <p class="text-gray-600 mt-2">
+                {{ _("Viewing as administrator for") }}: <strong>{{ member_name }}</strong>
+                <a href="/payment-dashboard" class="ml-4 text-blue-600 hover:text-blue-800 text-sm">
+                    {{ _("Select another member") }}
+                </a>
+            </p>
+            {% endif %}
+        </div>
+        <a href="/member_portal" class="text-blue-600 hover:text-blue-800">
+            <i class="fas fa-arrow-left mr-2"></i>{{ _("Back to Portal") }}
+        </a>
+    </div>
+
+    <!-- Payment Status Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <!-- Active Mandate Card -->
+        <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-green-500">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-700">{{ _("SEPA Status") }}</h3>
+                <span id="mandate-status-icon" class="text-2xl">
+                    <i class="fas fa-check-circle text-green-500"></i>
+                </span>
+            </div>
+            <p class="text-gray-600 mb-2">{{ _("Payment Method") }}</p>
+            <p class="text-xl font-bold text-gray-800" id="active-payment-method">
+                {{ _("Loading...") }}
+            </p>
+            <button onclick="window.location.href='/bank_details'"
+                    class="mt-4 text-blue-600 hover:text-blue-800 text-sm font-medium">
+                {{ _("Update Bank Details") }} →
+            </button>
+        </div>
+
+        <!-- Next Payment Card -->
+        <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-blue-500">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-700">{{ _("Next Payment") }}</h3>
+                <span class="text-2xl">
+                    <i class="fas fa-calendar-alt text-blue-500"></i>
+                </span>
+            </div>
+            <p class="text-gray-600 mb-2">{{ _("Scheduled for") }}</p>
+            <p class="text-xl font-bold text-gray-800" id="next-payment-date">
+                {{ _("Loading...") }}
+            </p>
+            <p class="text-sm text-gray-600 mt-2">
+                {{ _("Amount") }}: <span class="font-semibold" id="next-payment-amount">€0.00</span>
+            </p>
+        </div>
+
+        <!-- Payment History Card -->
+        <div class="bg-white rounded-lg shadow-md p-6 border-l-4 border-purple-500">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-semibold text-gray-700">{{ _("Total Paid") }}</h3>
+                <span class="text-2xl">
+                    <i class="fas fa-euro-sign text-purple-500"></i>
+                </span>
+            </div>
+            <p class="text-gray-600 mb-2">{{ _("This Year") }}</p>
+            <p class="text-xl font-bold text-gray-800" id="total-paid-year">
+                {{ _("Loading...") }}
+            </p>
+            <p class="text-sm text-gray-600 mt-2">
+                <span id="payment-count">0</span> {{ _("payments") }}
+            </p>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="bg-white rounded-lg shadow-md">
+        <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+                <button onclick="switchTab('overview')"
+                        class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-blue-500 text-blue-600"
+                        data-tab="overview">
+                    {{ _("Overview") }}
+                </button>
+                <button onclick="switchTab('history')"
+                        class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        data-tab="history">
+                    {{ _("Payment History") }}
+                </button>
+                <button onclick="switchTab('mandates')"
+                        class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        data-tab="mandates">
+                    {{ _("SEPA Mandates") }}
+                </button>
+                <button onclick="switchTab('schedule')"
+                        class="tab-button py-4 px-1 border-b-2 font-medium text-sm border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                        data-tab="schedule">
+                    {{ _("Payment Schedule") }}
+                </button>
+            </nav>
+        </div>
+
+        <!-- Tab Content -->
+        <div class="p-6">
+            <!-- Overview Tab -->
+            <div id="overview-tab" class="tab-content">
+                <h3 class="text-lg font-semibold mb-4">{{ _("Payment Overview") }}</h3>
+
+                <!-- Quick Actions -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div class="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                         onclick="window.location.href='/bank_details'">
+                        <div class="flex items-center">
+                            <div class="bg-blue-100 rounded-lg p-3 mr-4">
+                                <i class="fas fa-university text-blue-600"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold">{{ _("Update Bank Account") }}</h4>
+                                <p class="text-sm text-gray-600">{{ _("Change your IBAN or bank details") }}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border rounded-lg p-4 hover:shadow-md transition-shadow cursor-pointer"
+                         onclick="downloadMandateDocument()">
+                        <div class="flex items-center">
+                            <div class="bg-green-100 rounded-lg p-3 mr-4">
+                                <i class="fas fa-download text-green-600"></i>
+                            </div>
+                            <div>
+                                <h4 class="font-semibold">{{ _("Download SEPA Mandate") }}</h4>
+                                <p class="text-sm text-gray-600">{{ _("Get a copy of your signed mandate") }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Payment Method Details -->
+                <div class="bg-gray-50 rounded-lg p-6" id="payment-method-details">
+                    <h4 class="font-semibold mb-3">{{ _("Active Payment Method") }}</h4>
+                    <div id="payment-method-info">
+                        <div class="animate-pulse">
+                            <div class="h-4 bg-gray-300 rounded w-3/4 mb-2"></div>
+                            <div class="h-4 bg-gray-300 rounded w-1/2"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Messages -->
+                <div id="status-messages" class="mt-6"></div>
+            </div>
+
+            <!-- Payment History Tab -->
+            <div id="history-tab" class="tab-content hidden">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">{{ _("Payment History") }}</h3>
+                    <button onclick="exportPaymentHistory()"
+                            class="text-sm bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-md">
+                        <i class="fas fa-download mr-2"></i>{{ _("Export CSV") }}
+                    </button>
+                </div>
+
+                <!-- Filters -->
+                <div class="flex gap-4 mb-6">
+                    <select id="history-filter-year" class="form-select rounded-md border-gray-300" onchange="filterPaymentHistory()">
+                        <option value="">{{ _("All Years") }}</option>
+                    </select>
+                    <select id="history-filter-status" class="form-select rounded-md border-gray-300" onchange="filterPaymentHistory()">
+                        <option value="">{{ _("All Statuses") }}</option>
+                        <option value="Paid">{{ _("Paid") }}</option>
+                        <option value="Failed">{{ _("Failed") }}</option>
+                        <option value="Pending">{{ _("Pending") }}</option>
+                    </select>
+                </div>
+
+                <!-- Payment History Table -->
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    {{ _("Date") }}
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    {{ _("Description") }}
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    {{ _("Amount") }}
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    {{ _("Status") }}
+                                </th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    {{ _("Actions") }}
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody id="payment-history-tbody" class="bg-white divide-y divide-gray-200">
+                            <!-- Payment rows will be inserted here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="mt-4 flex justify-between items-center">
+                    <p class="text-sm text-gray-700">
+                        {{ _("Showing") }} <span id="showing-start">0</span>-<span id="showing-end">0</span>
+                        {{ _("of") }} <span id="total-payments">0</span> {{ _("payments") }}
+                    </p>
+                    <div class="flex gap-2">
+                        <button onclick="previousPage()" id="prev-btn"
+                                class="px-3 py-1 text-sm bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50">
+                            {{ _("Previous") }}
+                        </button>
+                        <button onclick="nextPage()" id="next-btn"
+                                class="px-3 py-1 text-sm bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-50">
+                            {{ _("Next") }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SEPA Mandates Tab -->
+            <div id="mandates-tab" class="tab-content hidden">
+                <h3 class="text-lg font-semibold mb-4">{{ _("SEPA Direct Debit Mandates") }}</h3>
+
+                <!-- Mandate Timeline -->
+                <div id="mandate-timeline" class="mb-6">
+                    <!-- Timeline will be rendered here -->
+                </div>
+
+                <!-- Active Mandate -->
+                <div id="active-mandate-section" class="mb-6">
+                    <h4 class="font-medium text-gray-700 mb-3">{{ _("Active Mandate") }}</h4>
+                    <div id="active-mandate-card" class="border rounded-lg p-4">
+                        <!-- Mandate details will be rendered here -->
+                    </div>
+                </div>
+
+                <!-- Mandate History -->
+                <div id="mandate-history-section">
+                    <h4 class="font-medium text-gray-700 mb-3">{{ _("Mandate History") }}</h4>
+                    <div id="mandate-history-list">
+                        <!-- Historical mandates will be rendered here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payment Schedule Tab -->
+            <div id="schedule-tab" class="tab-content hidden">
+                <h3 class="text-lg font-semibold mb-4">{{ _("Upcoming Payments") }}</h3>
+
+                <!-- Calendar View Toggle -->
+                <div class="mb-4">
+                    <div class="inline-flex rounded-md shadow-sm" role="group">
+                        <button onclick="setScheduleView('list')" id="list-view-btn"
+                                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-l-lg hover:bg-blue-700">
+                            <i class="fas fa-list mr-2"></i>{{ _("List") }}
+                        </button>
+                        <button onclick="setScheduleView('calendar')" id="calendar-view-btn"
+                                class="px-4 py-2 text-sm font-medium text-gray-900 bg-white rounded-r-lg border border-gray-200 hover:bg-gray-100">
+                            <i class="fas fa-calendar mr-2"></i>{{ _("Calendar") }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Schedule Content -->
+                <div id="schedule-content">
+                    <!-- List View -->
+                    <div id="schedule-list-view">
+                        <div class="space-y-4" id="upcoming-payments-list">
+                            <!-- Upcoming payments will be rendered here -->
+                        </div>
+                    </div>
+
+                    <!-- Calendar View -->
+                    <div id="schedule-calendar-view" class="hidden">
+                        <div id="payment-calendar">
+                            <!-- Calendar will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Modals -->
+<!-- Retry Payment Modal -->
+<div id="retry-payment-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3">
+            <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">{{ _("Retry Payment") }}</h3>
+            <p class="text-sm text-gray-500 mb-4">
+                {{ _("This payment failed on") }} <span id="retry-failed-date"></span>.
+            </p>
+            <p class="text-sm text-gray-500 mb-4">
+                {{ _("Would you like to retry this payment?") }}
+            </p>
+            <div class="mt-4 flex justify-end gap-3">
+                <button onclick="closeRetryModal()"
+                        class="px-4 py-2 bg-gray-300 text-gray-800 rounded-md hover:bg-gray-400">
+                    {{ _("Cancel") }}
+                </button>
+                <button onclick="confirmRetryPayment()"
+                        class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+                    {{ _("Retry Payment") }}
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Page state
+let currentTab = 'overview';
+let paymentHistory = [];
+let currentPage = 1;
+let itemsPerPage = 10;
+let scheduleView = 'list';
+let memberParam = null;
+
+// Initialize page
+document.addEventListener('DOMContentLoaded', function() {
+    // Get member from context or use current user
+    memberParam = '{{ member }}';
+
+    // Only load data if we have a member (not in selection mode)
+    if (memberParam) {
+        loadDashboardData(memberParam);
+        loadPaymentMethod(memberParam);
+        loadPaymentHistory(memberParam);
+        loadMandates(memberParam);
+        loadPaymentSchedule(memberParam);
+    }
+});
+
+// Tab switching
+function switchTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('border-blue-500', 'text-blue-600');
+        btn.classList.add('border-transparent', 'text-gray-500');
+    });
+
+    document.querySelector(`[data-tab="${tabName}"]`).classList.remove('border-transparent', 'text-gray-500');
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('border-blue-500', 'text-blue-600');
+
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.add('hidden');
+    });
+
+    document.getElementById(`${tabName}-tab`).classList.remove('hidden');
+    currentTab = tabName;
+}
+
+// Load dashboard data
+async function loadDashboardData(member) {
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.api.payment_dashboard.get_dashboard_data',
+            args: {
+                member: member
+            }
+        });
+
+        const data = response.message;
+
+        // Update status cards
+        document.getElementById('next-payment-date').textContent =
+            data.next_payment ? formatDate(data.next_payment.date) : '{{ _("No upcoming payments") }}';
+        document.getElementById('next-payment-amount').textContent =
+            data.next_payment ? `€${data.next_payment.amount.toFixed(2)}` : '€0.00';
+
+        document.getElementById('total-paid-year').textContent = `€${data.total_paid_year.toFixed(2)}`;
+        document.getElementById('payment-count').textContent = data.payment_count;
+
+        // Update status messages
+        if (data.has_failed_payments) {
+            showStatusMessage('warning',
+                '{{ _("You have failed payments. Please check your payment history.") }}');
+        }
+
+        if (data.mandate_expiring_soon) {
+            showStatusMessage('info',
+                '{{ _("Your SEPA mandate is expiring soon. Please update your bank details.") }}');
+        }
+
+    } catch (error) {
+        console.error('Error loading dashboard data:', error);
+        showStatusMessage('error', '{{ _("Failed to load dashboard data") }}');
+    }
+}
+
+// Load payment method
+async function loadPaymentMethod(member) {
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.api.payment_dashboard.get_payment_method',
+            args: {
+                member: member
+            }
+        });
+
+        const data = response.message;
+
+        if (data.has_active_mandate) {
+            document.getElementById('active-payment-method').textContent = 'SEPA Direct Debit';
+            document.getElementById('mandate-status-icon').innerHTML =
+                '<i class="fas fa-check-circle text-green-500"></i>';
+
+            // Update payment method details
+            const detailsHtml = `
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p class="text-sm text-gray-600">{{ _("Account Holder") }}</p>
+                        <p class="font-medium">${data.mandate.account_holder || '{{ _("Not specified") }}'}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-600">{{ _("IBAN") }}</p>
+                        <p class="font-medium font-mono">${formatIBAN(data.mandate.iban)}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-600">{{ _("Mandate Reference") }}</p>
+                        <p class="font-medium">${data.mandate.mandate_id}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-600">{{ _("Valid Since") }}</p>
+                        <p class="font-medium">${formatDate(data.mandate.sign_date)}</p>
+                    </div>
+                </div>
+            `;
+            document.getElementById('payment-method-info').innerHTML = detailsHtml;
+
+        } else {
+            document.getElementById('active-payment-method').textContent = '{{ _("No active payment method") }}';
+            document.getElementById('mandate-status-icon').innerHTML =
+                '<i class="fas fa-exclamation-circle text-yellow-500"></i>';
+
+            document.getElementById('payment-method-info').innerHTML = `
+                <div class="text-center py-4">
+                    <p class="text-gray-600 mb-4">{{ _("No active SEPA mandate found") }}</p>
+                    <button onclick="window.location.href='/bank_details'"
+                            class="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700">
+                        {{ _("Set Up Direct Debit") }}
+                    </button>
+                </div>
+            `;
+        }
+
+    } catch (error) {
+        console.error('Error loading payment method:', error);
+    }
+}
+
+// Load payment history
+async function loadPaymentHistory(member) {
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.api.payment_dashboard.get_payment_history',
+            args: {
+                member: member
+            }
+        });
+
+        paymentHistory = response.message;
+
+        // Populate year filter
+        const years = [...new Set(paymentHistory.map(p => new Date(p.date).getFullYear()))];
+        const yearSelect = document.getElementById('history-filter-year');
+        years.forEach(year => {
+            const option = document.createElement('option');
+            option.value = year;
+            option.textContent = year;
+            yearSelect.appendChild(option);
+        });
+
+        renderPaymentHistory();
+
+    } catch (error) {
+        console.error('Error loading payment history:', error);
+    }
+}
+
+// Render payment history table
+function renderPaymentHistory() {
+    const tbody = document.getElementById('payment-history-tbody');
+    const filtered = filterPayments();
+    const start = (currentPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    const pageData = filtered.slice(start, end);
+
+    tbody.innerHTML = '';
+
+    if (pageData.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" class="px-6 py-4 text-center text-gray-500">
+                    {{ _("No payments found") }}
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    pageData.forEach(payment => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                ${formatDate(payment.date)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                ${payment.description}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                €${payment.amount.toFixed(2)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                ${getStatusBadge(payment.status)}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                ${getPaymentActions(payment)}
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+
+    // Update pagination
+    document.getElementById('showing-start').textContent = start + 1;
+    document.getElementById('showing-end').textContent = Math.min(end, filtered.length);
+    document.getElementById('total-payments').textContent = filtered.length;
+
+    document.getElementById('prev-btn').disabled = currentPage === 1;
+    document.getElementById('next-btn').disabled = end >= filtered.length;
+}
+
+// Helper functions
+function formatDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('nl-NL', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+}
+
+function formatIBAN(iban) {
+    if (!iban) return '';
+    return iban.replace(/(.{4})/g, '$1 ').trim();
+}
+
+function getStatusBadge(status) {
+    const badges = {
+        'Paid': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800">{{ _("Paid") }}</span>',
+        'Failed': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">{{ _("Failed") }}</span>',
+        'Pending': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800">{{ _("Pending") }}</span>',
+        'Scheduled': '<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">{{ _("Scheduled") }}</span>'
+    };
+    return badges[status] || status;
+}
+
+function getPaymentActions(payment) {
+    if (payment.status === 'Paid') {
+        return `<a href="#" onclick="downloadReceipt('${payment.id}')" class="text-blue-600 hover:text-blue-900">{{ _("Receipt") }}</a>`;
+    } else if (payment.status === 'Failed') {
+        return `<a href="#" onclick="showRetryModal('${payment.id}')" class="text-blue-600 hover:text-blue-900">{{ _("Retry") }}</a>`;
+    }
+    return '';
+}
+
+function filterPayments() {
+    const year = document.getElementById('history-filter-year').value;
+    const status = document.getElementById('history-filter-status').value;
+
+    return paymentHistory.filter(payment => {
+        const paymentYear = new Date(payment.date).getFullYear().toString();
+        const yearMatch = !year || paymentYear === year;
+        const statusMatch = !status || payment.status === status;
+        return yearMatch && statusMatch;
+    });
+}
+
+function filterPaymentHistory() {
+    currentPage = 1;
+    renderPaymentHistory();
+}
+
+function previousPage() {
+    if (currentPage > 1) {
+        currentPage--;
+        renderPaymentHistory();
+    }
+}
+
+function nextPage() {
+    const filtered = filterPayments();
+    const maxPage = Math.ceil(filtered.length / itemsPerPage);
+    if (currentPage < maxPage) {
+        currentPage++;
+        renderPaymentHistory();
+    }
+}
+
+function showStatusMessage(type, message) {
+    const container = document.getElementById('status-messages');
+    const alertClass = {
+        'success': 'bg-green-100 border-green-400 text-green-700',
+        'warning': 'bg-yellow-100 border-yellow-400 text-yellow-700',
+        'error': 'bg-red-100 border-red-400 text-red-700',
+        'info': 'bg-blue-100 border-blue-400 text-blue-700'
+    }[type];
+
+    const alert = document.createElement('div');
+    alert.className = `border px-4 py-3 rounded relative mb-4 ${alertClass}`;
+    alert.innerHTML = `
+        <span class="block sm:inline">${message}</span>
+        <span class="absolute top-0 bottom-0 right-0 px-4 py-3 cursor-pointer" onclick="this.parentElement.remove()">
+            <i class="fas fa-times"></i>
+        </span>
+    `;
+    container.appendChild(alert);
+}
+
+// Schedule view functions
+function setScheduleView(view) {
+    scheduleView = view;
+
+    if (view === 'list') {
+        document.getElementById('list-view-btn').classList.add('bg-blue-600', 'text-white');
+        document.getElementById('list-view-btn').classList.remove('bg-white', 'text-gray-900');
+        document.getElementById('calendar-view-btn').classList.remove('bg-blue-600', 'text-white');
+        document.getElementById('calendar-view-btn').classList.add('bg-white', 'text-gray-900');
+
+        document.getElementById('schedule-list-view').classList.remove('hidden');
+        document.getElementById('schedule-calendar-view').classList.add('hidden');
+    } else {
+        document.getElementById('calendar-view-btn').classList.add('bg-blue-600', 'text-white');
+        document.getElementById('calendar-view-btn').classList.remove('bg-white', 'text-gray-900');
+        document.getElementById('list-view-btn').classList.remove('bg-blue-600', 'text-white');
+        document.getElementById('list-view-btn').classList.add('bg-white', 'text-gray-900');
+
+        document.getElementById('schedule-calendar-view').classList.remove('hidden');
+        document.getElementById('schedule-list-view').classList.add('hidden');
+
+        renderCalendar();
+    }
+}
+
+// Placeholder functions for features to be implemented
+async function loadMandates(member) {
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.api.payment_dashboard.get_mandate_history',
+            args: { member: member }
+        });
+
+        const mandates = response.message;
+        if (mandates && mandates.length > 0) {
+            renderMandateTimeline(mandates);
+        }
+    } catch (error) {
+        console.error('Error loading mandates:', error);
+    }
+}
+
+async function loadPaymentSchedule(member) {
+    try {
+        const response = await frappe.call({
+            method: 'verenigingen.api.payment_dashboard.get_payment_schedule',
+            args: { member: member }
+        });
+
+        const schedule = response.message;
+        if (schedule && schedule.length > 0) {
+            renderPaymentSchedule(schedule);
+        }
+    } catch (error) {
+        console.error('Error loading schedule:', error);
+    }
+}
+
+function renderMandateTimeline(mandates) {
+    // Find active mandate
+    const activeMandates = mandates.filter(m => m.is_active);
+    const historicalMandates = mandates.filter(m => !m.is_active);
+
+    // Render active mandate
+    if (activeMandates.length > 0) {
+        const mandate = activeMandates[0];
+        document.getElementById('active-mandate-card').innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <p class="text-sm text-gray-600">{{ _("Mandate Reference") }}</p>
+                    <p class="font-medium">${mandate.mandate_id}</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-600">{{ _("IBAN") }}</p>
+                    <p class="font-medium font-mono">${mandate.iban_formatted}</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-600">{{ _("Bank") }}</p>
+                    <p class="font-medium">${mandate.bank_name}</p>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-600">{{ _("Valid Since") }}</p>
+                    <p class="font-medium">${formatDate(mandate.sign_date)}</p>
+                </div>
+            </div>
+        `;
+    }
+
+    // Render historical mandates
+    if (historicalMandates.length > 0) {
+        let historyHtml = '<div class="space-y-3">';
+        historicalMandates.forEach(mandate => {
+            historyHtml += `
+                <div class="border rounded-lg p-3 bg-gray-50">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="font-medium">${mandate.mandate_id}</p>
+                            <p class="text-sm text-gray-600">${mandate.iban_formatted}</p>
+                            <p class="text-sm text-gray-500">
+                                ${formatDate(mandate.sign_date)} -
+                                ${mandate.cancelled_date ? formatDate(mandate.cancelled_date) : '{{ _("Expired") }}'}
+                            </p>
+                        </div>
+                        <span class="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded">
+                            ${mandate.status}
+                        </span>
+                    </div>
+                </div>
+            `;
+        });
+        historyHtml += '</div>';
+        document.getElementById('mandate-history-list').innerHTML = historyHtml;
+    }
+}
+
+function renderPaymentSchedule(schedule) {
+    let scheduleHtml = '';
+    schedule.forEach(payment => {
+        scheduleHtml += `
+            <div class="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <p class="font-medium">${payment.description}</p>
+                        <p class="text-sm text-gray-600">${formatDate(payment.date)}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="font-semibold">€${payment.amount.toFixed(2)}</p>
+                        <p class="text-sm">${getStatusBadge(payment.status)}</p>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    document.getElementById('upcoming-payments-list').innerHTML = scheduleHtml;
+}
+
+function downloadMandateDocument() {
+    frappe.msgprint('{{ _("Downloading SEPA mandate document...") }}');
+}
+
+function downloadReceipt(paymentId) {
+    frappe.call({
+        method: 'verenigingen.api.payment_dashboard.download_payment_receipt',
+        args: { payment_id: paymentId },
+        callback: function(r) {
+            if (!r.exc) {
+                frappe.msgprint('{{ _("Receipt downloaded successfully") }}');
+            }
+        }
+    });
+}
+
+function showRetryModal(paymentId) {
+    document.getElementById('retry-payment-modal').classList.remove('hidden');
+    document.getElementById('retry-failed-date').textContent = formatDate(new Date());
+    window.currentRetryPaymentId = paymentId;
+}
+
+function closeRetryModal() {
+    document.getElementById('retry-payment-modal').classList.add('hidden');
+    window.currentRetryPaymentId = null;
+}
+
+function confirmRetryPayment() {
+    if (window.currentRetryPaymentId) {
+        frappe.call({
+            method: 'verenigingen.api.payment_dashboard.retry_failed_payment',
+            args: { invoice_id: window.currentRetryPaymentId },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    frappe.msgprint(r.message.message);
+                    closeRetryModal();
+                    loadPaymentHistory(memberParam);
+                }
+            }
+        });
+    }
+}
+
+function exportPaymentHistory() {
+    const year = document.getElementById('history-filter-year').value;
+    frappe.call({
+        method: 'verenigingen.api.payment_dashboard.export_payment_history_csv',
+        args: { year: year },
+        callback: function(r) {
+            if (!r.exc) {
+                frappe.msgprint('{{ _("Payment history exported successfully") }}');
+            }
+        }
+    });
+}
+
+function renderCalendar() {
+    // Placeholder for calendar implementation
+    document.getElementById('payment-calendar').innerHTML = `
+        <div class="text-center py-8 text-gray-500">
+            <i class="fas fa-calendar-alt text-4xl mb-4"></i>
+            <p>{{ _("Calendar view coming soon") }}</p>
+        </div>
+    `;
+}
+</script>
+
+<style>
+/* Custom styles for payment dashboard */
+.tab-button {
+    transition: all 0.2s ease;
+}
+
+.form-select {
+    @apply block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm;
+}
+
+/* Smooth transitions */
+.tab-content {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* Status badge animations */
+.status-badge {
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.8; }
+    100% { opacity: 1; }
+}
+</style>
+{% endblock %}

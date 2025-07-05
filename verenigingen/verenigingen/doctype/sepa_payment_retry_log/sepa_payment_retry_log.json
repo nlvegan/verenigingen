@@ -1,0 +1,49 @@
+{
+ "actions": [],
+ "creation": "2025-01-01 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "attempt_date",
+  "reason_code",
+  "reason_message",
+  "scheduled_retry"
+ ],
+ "fields": [
+  {
+   "fieldname": "attempt_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Attempt Date"
+  },
+  {
+   "fieldname": "reason_code",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Reason Code"
+  },
+  {
+   "fieldname": "reason_message",
+   "fieldtype": "Text",
+   "label": "Reason Message"
+  },
+  {
+   "fieldname": "scheduled_retry",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Scheduled Retry"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-01-01 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "SEPA Payment Retry Log",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}

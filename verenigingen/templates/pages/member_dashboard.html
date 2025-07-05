@@ -1,0 +1,311 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Member Dashboard") }}{% endblock %}
+
+{% block page_content %}
+<div class="member-dashboard">
+    <div class="container">
+        <div class="page-header">
+            <h1>{{ _("Welcome") }}, {{ member.first_name }}!</h1>
+        </div>
+
+        <div class="row">
+            <!-- Member Info Card -->
+            <div class="col-md-4 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>{{ _("Member Information") }}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="member-info">
+                            {% if member.image %}
+                            <img src="{{ member.image }}" class="member-avatar mb-3">
+                            {% else %}
+                            <div class="member-avatar-placeholder mb-3">
+                                <i class="fa fa-user"></i>
+                            </div>
+                            {% endif %}
+
+                            <h6>{{ member.full_name }}</h6>
+                            <p class="text-muted mb-1">{{ _("Member ID") }}: {{ member.member_id }}</p>
+                            <p class="text-muted mb-1">{{ _("Since") }}: {{ frappe.format_date(member.member_since) }}</p>
+                            {% if member.application_id %}
+                            <p class="text-muted mb-1">{{ _("Application ID") }}: {{ member.application_id }}</p>
+                            {% endif %}
+                            {% if member_chapters %}
+                            <p class="mb-1">
+                                <strong>{{ _("Chapter(s)") }}:</strong>
+                                {% for chapter in member_chapters %}
+                                    <a href="/{{ frappe.db.get_value('Chapter', chapter, 'route') }}">
+                                        {{ chapter }}
+                                    </a>{% if not loop.last %}, {% endif %}
+                                {% endfor %}
+                            </p>
+                            {% endif %}
+
+                            <div class="mt-3">
+                                <a href="/member_portal" class="btn btn-sm btn-primary btn-block">
+                                    {{ _("Edit Profile") }}
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Membership Status Card -->
+            <div class="col-md-4 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>{{ _("Membership Status") }}</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if membership %}
+                        <div class="membership-status">
+                            <div class="status-indicator status-{{ membership.status.lower() }}">
+                                <i class="fa fa-circle"></i> {{ membership.status }}
+                            </div>
+
+                            <table class="table table-sm mt-3">
+                                <tr>
+                                    <td>{{ _("Type") }}:</td>
+                                    <td><strong>{{ membership.membership_type }}</strong></td>
+                                </tr>
+                                <tr>
+                                    <td>{{ _("Valid Until") }}:</td>
+                                    <td>{{ frappe.format_date(membership.renewal_date) }}</td>
+                                </tr>
+                                <tr>
+                                    <td>{{ _("Auto Renew") }}:</td>
+                                    <td>
+                                        {% if membership.auto_renew %}
+                                        <span class="text-success">{{ _("Yes") }}</span>
+                                        {% else %}
+                                        <span class="text-danger">{{ _("No") }}</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            </table>
+
+                            {% if membership.status == "Active" and membership.renewal_date %}
+                            {% set days_until_renewal = frappe.utils.date_diff(membership.renewal_date, frappe.utils.today()) %}
+                            {% if days_until_renewal <= 30 and days_until_renewal > 0 %}
+                            <div class="alert alert-warning mt-3">
+                                <small>{{ _("Your membership expires in {0} days", [days_until_renewal]) }}</small>
+                            </div>
+                            {% endif %}
+                            {% endif %}
+
+                            <div class="mt-3">
+                                <a href="/membership_fee_adjustment" class="btn btn-sm btn-outline-primary btn-block">
+                                    {{ _("Adjust Membership Fee") }}
+                                </a>
+                            </div>
+                        </div>
+                        {% else %}
+                        <p class="text-muted">{{ _("No active membership found") }}</p>
+                        <a href="/apply-for-membership" class="btn btn-primary btn-block">
+                            {{ _("Apply for Membership") }}
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions Card -->
+            <div class="col-md-4 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>{{ _("Quick Actions") }}</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- Featured Portal Link -->
+                        {% for link in portal_links %}
+                        {% if link.featured %}
+                        <div class="featured-portal-link mb-3">
+                            <a href="{{ link.route }}" class="btn btn-primary btn-lg btn-block">
+                                <i class="fa fa-th-large"></i> {{ link.title }}
+                                <small class="d-block">{{ _("Access all member services") }}</small>
+                            </a>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+
+                        <div class="list-group">
+                            <a href="/events" class="list-group-item list-group-item-action">
+                                <i class="fa fa-calendar"></i> {{ _("Upcoming Events") }}
+                            </a>
+                            <a href="/bank_details" class="list-group-item list-group-item-action">
+                                <i class="fa fa-file-text"></i> {{ _("Payment Details") }}
+                            </a>
+                            {% if member.interested_in_volunteering %}
+                            <a href="/volunteer/opportunities" class="list-group-item list-group-item-action">
+                                <i class="fa fa-heart"></i> {{ _("Volunteer Opportunities") }}
+                            </a>
+                            {% endif %}
+                            {% if volunteer %}
+                            <a href="/volunteer/dashboard" class="list-group-item list-group-item-action">
+                                <i class="fa fa-tachometer-alt"></i> {{ _("Volunteer Dashboard") }}
+                            </a>
+                            <a href="/volunteer/expenses" class="list-group-item list-group-item-action">
+                                <i class="fa fa-receipt"></i> {{ _("Submit Expenses") }}
+                            </a>
+                            {% endif %}
+                            <a href="/member-directory" class="list-group-item list-group-item-action">
+                                <i class="fa fa-users"></i> {{ _("Member Directory") }}
+                            </a>
+                            <a href="/resources" class="list-group-item list-group-item-action">
+                                <i class="fa fa-book"></i> {{ _("Member Resources") }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Additional Dashboard Sections -->
+        <div class="row">
+            <!-- Recent Activity -->
+            <div class="col-md-8 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>{{ _("Recent Activity") }}</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if recent_activity %}
+                        <div class="activity-list">
+                            {% for activity in recent_activity %}
+                            <div class="activity-item">
+                                <div class="activity-icon">
+                                    <i class="fa {{ activity.icon }}"></i>
+                                </div>
+                                <div class="activity-content">
+                                    <p>{{ activity.description }}</p>
+                                    <small class="text-muted">{{ frappe.utils.format_datetime(activity.date) }}</small>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-muted">{{ _("No recent activity") }}</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Volunteer Status (if applicable) -->
+            {% if volunteer %}
+            <div class="col-md-4 mb-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>{{ _("Volunteer Status") }}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="volunteer-status">
+                            <p><strong>{{ _("Status") }}:</strong> {{ volunteer.status }}</p>
+                            <p><strong>{{ _("Hours This Year") }}:</strong> {{ volunteer_hours or 0 }}</p>
+
+                            {% if volunteer.interests %}
+                            <p><strong>{{ _("Interests") }}:</strong></p>
+                            <ul class="list-unstyled">
+                                {% for interest in volunteer.interests %}
+                                <li><small>• {{ interest.interest_area }}</small></li>
+                                {% endfor %}
+                            </ul>
+                            {% endif %}
+
+                            <a href="/volunteer/profile" class="btn btn-sm btn-outline-primary btn-block">
+                                {{ _("View Volunteer Profile") }}
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+.member-dashboard {
+    padding: 40px 0;
+}
+
+.member-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.member-avatar-placeholder {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: #f0f0f0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    color: #999;
+}
+
+.status-indicator {
+    font-size: 1.1em;
+    font-weight: bold;
+}
+
+.status-indicator.status-active {
+    color: #28a745;
+}
+
+.status-indicator.status-pending {
+    color: #ffc107;
+}
+
+.status-indicator.status-expired {
+    color: #dc3545;
+}
+
+.activity-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.activity-item {
+    display: flex;
+    padding: 10px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.activity-item:last-child {
+    border-bottom: none;
+}
+
+.activity-icon {
+    width: 40px;
+    text-align: center;
+    color: #666;
+}
+
+.activity-content {
+    flex: 1;
+}
+
+.activity-content p {
+    margin-bottom: 0;
+}
+
+.featured-portal-link a {
+    background: linear-gradient(135deg, #cf3131, #b82828);
+    border: none;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.featured-portal-link a:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.15);
+}
+</style>
+{% endblock %}

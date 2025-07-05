@@ -1,0 +1,356 @@
+{% extends "templates/web.html" %}
+
+{% block title %}E-Boekhouden Item Mapping Tool{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <h1>E-Boekhouden Item Mapping Tool</h1>
+
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="alert alert-info">
+                <h5>About Item Mapping</h5>
+                <p>This tool helps you map E-boekhouden accounts (grootboekrekeningen) to ERPNext items. This ensures that invoices imported from E-boekhouden use meaningful item names instead of generic codes.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <button id="load-unmapped" class="btn btn-primary">
+                <i class="fa fa-download"></i> Load Unmapped Accounts
+            </button>
+            <button id="create-defaults" class="btn btn-secondary ml-2">
+                <i class="fa fa-magic"></i> Create Default Mappings
+            </button>
+        </div>
+        <div class="col-md-6 text-right">
+            <button id="save-all" class="btn btn-success" style="display: none;">
+                <i class="fa fa-save"></i> Save All Mappings
+            </button>
+        </div>
+    </div>
+
+    <!-- Progress -->
+    <div id="progress-section" style="display: none;">
+        <div class="progress mb-4">
+            <div id="progress-bar" class="progress-bar" role="progressbar" style="width: 0%"></div>
+        </div>
+    </div>
+
+    <!-- Unmapped Accounts Table -->
+    <div id="unmapped-section" style="display: none;">
+        <h3>Unmapped Accounts</h3>
+        <p class="text-muted">These E-boekhouden accounts don't have item mappings yet. You can create mappings or use the suggested items.</p>
+
+        <div class="table-responsive">
+            <table id="unmapped-table" class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Account Code</th>
+                        <th>Account Name</th>
+                        <th>Type</th>
+                        <th>Suggested Item</th>
+                        <th>Select Item</th>
+                        <th>Transaction Type</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Content will be populated by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Existing Mappings -->
+    <div class="mt-5">
+        <h3>Existing Mappings</h3>
+        <button id="load-existing" class="btn btn-outline-primary mb-3">
+            <i class="fa fa-refresh"></i> Load Existing Mappings
+        </button>
+        <div id="existing-mappings-section">
+            <!-- Will be populated by JavaScript -->
+        </div>
+    </div>
+</div>
+
+<style>
+.mapping-row {
+    transition: background-color 0.3s;
+}
+.mapping-row.pending {
+    background-color: #fff3cd;
+}
+.item-select {
+    width: 100%;
+}
+</style>
+
+<script>
+frappe.ready(function() {
+    const defaultCompany = '{{ default_company }}';
+    const availableItems = {{ items | tojson }};
+    let pendingMappings = {};
+
+    // Load unmapped accounts
+    $('#load-unmapped').click(function() {
+        const btn = $(this);
+        btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Loading...');
+
+        frappe.call({
+            method: 'verenigingen.api.eboekhouden_item_mapping_tool.get_unmapped_accounts',
+            args: {
+                company: defaultCompany
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    displayUnmappedAccounts(r.message.accounts);
+                    $('#unmapped-section').show();
+                    if (r.message.accounts.length > 0) {
+                        $('#save-all').show();
+                    }
+                } else {
+                    frappe.msgprint({
+                        title: 'Error',
+                        message: r.message ? r.message.error : 'Failed to load accounts',
+                        indicator: 'red'
+                    });
+                }
+                btn.prop('disabled', false).html('<i class="fa fa-download"></i> Load Unmapped Accounts');
+            }
+        });
+    });
+
+    // Create default mappings
+    $('#create-defaults').click(function() {
+        frappe.confirm(
+            'This will create default item mappings based on account name patterns. Continue?',
+            function() {
+                frappe.call({
+                    method: 'verenigingen.verenigingen.doctype.e_boekhouden_item_mapping.e_boekhouden_item_mapping.create_default_mappings',
+                    args: {
+                        company: defaultCompany
+                    },
+                    callback: function(r) {
+                        if (r.message && r.message.success) {
+                            frappe.show_alert({
+                                message: `Created ${r.message.created} default mappings`,
+                                indicator: 'green'
+                            });
+                            // Reload unmapped accounts
+                            $('#load-unmapped').click();
+                            loadExistingMappings();
+                        }
+                    }
+                });
+            }
+        );
+    });
+
+    function displayUnmappedAccounts(accounts) {
+        const tbody = $('#unmapped-table tbody');
+        tbody.empty();
+
+        accounts.forEach(function(account) {
+            const row = $('<tr class="mapping-row">');
+            row.data('account', account);
+
+            row.append(`<td><strong>${account.account_code}</strong></td>`);
+            row.append(`<td>${account.account_name}</td>`);
+            row.append(`<td><span class="badge badge-${account.root_type === 'Income' ? 'success' : 'warning'}">${account.root_type}</span></td>`);
+
+            // Suggested item
+            row.append(`<td>${account.suggested_item || '<em class="text-muted">None</em>'}</td>`);
+
+            // Item selector
+            const selectTd = $('<td>');
+            const select = $('<select class="form-control form-control-sm item-select">');
+            select.append('<option value="">-- Select Item --</option>');
+
+            if (account.suggested_item) {
+                select.append(`<option value="[CREATE]${account.suggested_item}">[Create New] ${account.suggested_item}</option>`);
+            }
+
+            availableItems.forEach(function(item) {
+                select.append(`<option value="${item.name}">${item.item_name || item.name}</option>`);
+            });
+
+            // Set suggested item if it exists
+            if (account.suggested_item && availableItems.some(item => item.name === account.suggested_item)) {
+                select.val(account.suggested_item);
+            }
+
+            select.on('change', function() {
+                const value = $(this).val();
+                if (value) {
+                    row.addClass('pending');
+                    pendingMappings[account.account_code] = {
+                        account_code: account.account_code,
+                        account_name: account.account_name,
+                        item_code: value,
+                        transaction_type: row.find('.type-select').val()
+                    };
+                } else {
+                    row.removeClass('pending');
+                    delete pendingMappings[account.account_code];
+                }
+            });
+
+            selectTd.append(select);
+            row.append(selectTd);
+
+            // Transaction type selector
+            const typeTd = $('<td>');
+            const typeSelect = $('<select class="form-control form-control-sm type-select">');
+            typeSelect.append('<option value="Both">Both</option>');
+            typeSelect.append('<option value="Sales">Sales Only</option>');
+            typeSelect.append('<option value="Purchase">Purchase Only</option>');
+
+            // Set default based on root type
+            if (account.root_type === 'Income') {
+                typeSelect.val('Sales');
+            } else if (account.root_type === 'Expense') {
+                typeSelect.val('Purchase');
+            }
+
+            typeSelect.on('change', function() {
+                if (pendingMappings[account.account_code]) {
+                    pendingMappings[account.account_code].transaction_type = $(this).val();
+                }
+            });
+
+            typeTd.append(typeSelect);
+            row.append(typeTd);
+
+            tbody.append(row);
+        });
+    }
+
+    // Save all mappings
+    $('#save-all').click(function() {
+        const mappingsToCreate = Object.values(pendingMappings);
+
+        if (mappingsToCreate.length === 0) {
+            frappe.msgprint('No mappings to save');
+            return;
+        }
+
+        $('#progress-section').show();
+        const progressBar = $('#progress-bar');
+        let completed = 0;
+
+        frappe.show_alert({
+            message: `Creating ${mappingsToCreate.length} mappings...`,
+            indicator: 'blue'
+        });
+
+        // Process mappings
+        mappingsToCreate.forEach(function(mapping, index) {
+            frappe.call({
+                method: 'verenigingen.api.eboekhouden_item_mapping_tool.create_mapping',
+                args: {
+                    company: defaultCompany,
+                    account_code: mapping.account_code,
+                    account_name: mapping.account_name,
+                    item_code: mapping.item_code,
+                    transaction_type: mapping.transaction_type
+                },
+                callback: function(r) {
+                    completed++;
+                    const progress = (completed / mappingsToCreate.length) * 100;
+                    progressBar.css('width', progress + '%');
+
+                    if (completed === mappingsToCreate.length) {
+                        frappe.show_alert({
+                            message: 'All mappings created successfully!',
+                            indicator: 'green'
+                        });
+                        pendingMappings = {};
+                        $('#save-all').hide();
+                        $('#progress-section').hide();
+                        // Reload
+                        $('#load-unmapped').click();
+                        loadExistingMappings();
+                    }
+                }
+            });
+        });
+    });
+
+    // Load existing mappings
+    function loadExistingMappings() {
+        frappe.call({
+            method: 'frappe.client.get_list',
+            args: {
+                doctype: 'E-Boekhouden Item Mapping',
+                filters: { company: defaultCompany },
+                fields: ['name', 'account_code', 'account_name', 'item_code', 'transaction_type', 'is_active'],
+                order_by: 'account_code',
+                limit_page_length: 100
+            },
+            callback: function(r) {
+                if (r.message) {
+                    displayExistingMappings(r.message);
+                }
+            }
+        });
+    }
+
+    function displayExistingMappings(mappings) {
+        const container = $('#existing-mappings-section');
+
+        if (!mappings.length) {
+            container.html('<p class="text-muted">No mappings found.</p>');
+            return;
+        }
+
+        const table = $(`
+            <div class="table-responsive">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Account Code</th>
+                            <th>Account Name</th>
+                            <th>Item</th>
+                            <th>Type</th>
+                            <th>Active</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        `);
+
+        const tbody = table.find('tbody');
+        mappings.forEach(function(mapping) {
+            const row = $('<tr>');
+            row.append(`<td><strong>${mapping.account_code}</strong></td>`);
+            row.append(`<td>${mapping.account_name}</td>`);
+            row.append(`<td>${mapping.item_code}</td>`);
+            row.append(`<td>${mapping.transaction_type}</td>`);
+            row.append(`<td>${mapping.is_active ? '<i class="fa fa-check text-success"></i>' : '<i class="fa fa-times text-danger"></i>'}</td>`);
+            row.append(`
+                <td>
+                    <a href="/app/e-boekhouden-item-mapping/${mapping.name}"
+                       class="btn btn-sm btn-outline-primary">
+                        <i class="fa fa-edit"></i>
+                    </a>
+                </td>
+            `);
+            tbody.append(row);
+        });
+
+        container.html(table);
+    }
+
+    $('#load-existing').click(function() {
+        loadExistingMappings();
+    });
+
+    // Load existing mappings on page load
+    loadExistingMappings();
+});
+</script>
+{% endblock %}

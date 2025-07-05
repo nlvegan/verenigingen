@@ -1,0 +1,467 @@
+import random
+from datetime import datetime
+
+import frappe
+from frappe.utils import add_days, add_months, add_years, today
+
+
+class MembershipTestUtilities:
+    """Utilities for creating proper membership types and related data for testing"""
+
+    @staticmethod
+    def create_membership_type_with_subscription(
+        name,
+        period="Monthly",
+        amount=100.0,
+        create_subscription_plan=True,
+        create_item=True,
+        allow_auto_renewal=True,
+        require_approval=False,
+        enforce_minimum_period=True,
+    ):
+        """
+        Create a properly configured membership type with linked subscription plan
+
+        Args:
+            name: Base name for the membership type
+            period: One of Daily, Monthly, Quarterly, Biannual, Annual, Lifetime, Custom
+            amount: Membership fee amount
+            create_subscription_plan: Whether to create linked subscription plan
+            create_item: Whether to create linked item
+            allow_auto_renewal: Whether to allow auto-renewal
+            require_approval: Whether new memberships require approval
+            enforce_minimum_period: Whether to enforce 1-year minimum period for this type
+
+        Returns:
+            dict: Created membership type, subscription plan, and item (if created)
+        """
+        # Generate unique names
+        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        unique_name = f"{name} {timestamp}"
+
+        # Create membership type
+        membership_type = frappe.get_doc(
+            {
+                "doctype": "Membership Type",
+                "membership_type_name": unique_name,
+                "description": f"Test membership type - {name} ({period})",
+                "is_active": 1,
+                "subscription_period": period,
+                "amount": amount,
+                "currency": "EUR",
+                "allow_auto_renewal": allow_auto_renewal,
+                "require_approval": require_approval,
+                "default_for_new_members": 0,
+                "enforce_minimum_period": enforce_minimum_period,
+            }
+        )
+
+        # Handle custom period
+        if period == "Custom":
+            membership_type.subscription_period_in_months = random.choice([2, 4, 18, 24])
+
+        membership_type.insert(ignore_permissions=True)
+
+        result = {"membership_type": membership_type}
+
+        # Create item if requested
+        if create_item:
+            item = MembershipTestUtilities._create_membership_item(membership_type)
+            result["item"] = item
+
+        # Create subscription plan if requested
+        if create_subscription_plan:
+            subscription_plan = MembershipTestUtilities._create_subscription_plan(
+                membership_type, item.name if create_item else None
+            )
+
+            # Link subscription plan back to membership type
+            membership_type.subscription_plan = subscription_plan.name
+            membership_type.save(ignore_permissions=True)
+
+            result["subscription_plan"] = subscription_plan
+
+        return result
+
+    @staticmethod
+    def _create_membership_item(membership_type):
+        """Create an item for the membership type"""
+        # Check if Membership item group exists
+        if not frappe.db.exists("Item Group", "Membership"):
+            item_group = frappe.get_doc(
+                {
+                    "doctype": "Item Group",
+                    "item_group_name": "Membership",
+                    "parent_item_group": "All Item Groups",
+                }
+            )
+            item_group.insert(ignore_permissions=True)
+
+        item = frappe.get_doc(
+            {
+                "doctype": "Item",
+                "item_code": f"MEM-{membership_type.membership_type_name}".upper().replace(" ", "-")[:140],
+                "item_name": f"{membership_type.membership_type_name} Membership",
+                "item_group": "Membership",
+                "is_stock_item": 0,
+                "include_item_in_manufacturing": 0,
+                "is_sales_item": 1,
+                "is_purchase_item": 0,
+                "is_gift_item": 0,
+                "has_variants": 0,
+                "stock_uom": "Nos",
+                "is_subscription_item": 1,
+            }
+        )
+
+        # Add item defaults
+        company = frappe.defaults.get_global_default("company")
+        if company:
+            item.append("item_defaults", {"company": company, "default_warehouse": None})
+
+        item.insert(ignore_permissions=True)
+        return item
+
+    @staticmethod
+    def _create_subscription_plan(membership_type, item_name=None):
+        """Create a subscription plan matching the membership type"""
+        # Map membership periods to ERPNext intervals
+        interval_map = {
+            "Daily": ("Day", 1),
+            "Monthly": ("Month", 1),
+            "Quarterly": ("Month", 3),
+            "Biannual": ("Month", 6),
+            "Annual": ("Year", 1),
+            "Lifetime": ("Year", 50),  # Approximate lifetime as 50 years
+            "Custom": ("Month", membership_type.subscription_period_in_months or 1),
+        }
+
+        interval, count = interval_map.get(membership_type.subscription_period, ("Month", 1))
+
+        # Create subscription plan
+        plan = frappe.get_doc(
+            {
+                "doctype": "Subscription Plan",
+                "plan_name": membership_type.membership_type_name,
+                "item": item_name or membership_type.membership_type_name,
+                "price_determination": "Fixed Rate",
+                "cost": membership_type.amount,
+                "billing_interval": interval,
+                "billing_interval_count": count,
+                "currency": membership_type.currency or "EUR",
+            }
+        )
+
+        plan.insert(ignore_permissions=True)
+        return plan
+
+    @staticmethod
+    def create_standard_membership_types():
+        """Create a standard set of membership types for testing"""
+        standard_types = [
+            {
+                "name": "Daily Test",
+                "period": "Daily",
+                "amount": 5.0,
+                "description": "Daily membership for short-term testing",
+            },
+            {
+                "name": "Monthly Basic",
+                "period": "Monthly",
+                "amount": 25.0,
+                "description": "Basic monthly membership",
+            },
+            {
+                "name": "Monthly Premium",
+                "period": "Monthly",
+                "amount": 50.0,
+                "description": "Premium monthly membership with benefits",
+            },
+            {
+                "name": "Quarterly Standard",
+                "period": "Quarterly",
+                "amount": 70.0,
+                "description": "Standard quarterly membership",
+            },
+            {
+                "name": "Annual Regular",
+                "period": "Annual",
+                "amount": 250.0,
+                "description": "Regular annual membership",
+            },
+            {
+                "name": "Annual Student",
+                "period": "Annual",
+                "amount": 100.0,
+                "description": "Discounted annual student membership",
+            },
+            {
+                "name": "Lifetime Honorary",
+                "period": "Lifetime",
+                "amount": 0.0,
+                "description": "Honorary lifetime membership",
+                "require_approval": True,
+                "allow_auto_renewal": False,
+            },
+        ]
+
+        created_types = []
+        for config in standard_types:
+            result = MembershipTestUtilities.create_membership_type_with_subscription(
+                name=config["name"],
+                period=config["period"],
+                amount=config["amount"],
+                require_approval=config.get("require_approval", False),
+                allow_auto_renewal=config.get("allow_auto_renewal", True),
+            )
+            created_types.append(result)
+
+        return created_types
+
+    @staticmethod
+    def create_membership_with_subscription(
+        member, membership_type, start_date=None, submit=True, custom_amount=None
+    ):
+        """
+        Create a membership following the actual system logic
+
+        Args:
+            member: Member document or member name
+            membership_type: MembershipType document or name
+            start_date: Start date for the membership (defaults to today)
+            submit: Whether to submit the membership (triggers subscription creation)
+            custom_amount: Optional custom membership amount
+
+        Returns:
+            dict: Created membership and subscription (if created)
+        """
+        if isinstance(member, str):
+            member = frappe.get_doc("Member", member)
+        if isinstance(membership_type, str):
+            membership_type = frappe.get_doc("Membership Type", membership_type)
+
+        if not start_date:
+            start_date = today()
+
+        # Build membership data
+        membership_data = {
+            "doctype": "Membership",
+            "member": member.name,
+            "membership_type": membership_type.name,
+            "start_date": start_date,
+            "auto_renew": 1 if membership_type.allow_auto_renewal else 0,
+        }
+
+        # Add custom amount if provided
+        if custom_amount is not None:
+            membership_data.update(
+                {
+                    "uses_custom_amount": 1,
+                    "custom_amount": custom_amount,
+                    "amount_reason": "Test custom amount",
+                }
+            )
+
+        # Create membership
+        membership = frappe.get_doc(membership_data)
+        membership.insert(ignore_permissions=True)
+
+        result = {"membership": membership}
+
+        # Submit the membership to trigger automatic subscription creation
+        # NOTE: The system may enforce a minimum 1-year membership period
+        # depending on the "enforce_minimum_membership_period" setting in Verenigingen Settings
+        # When enabled, renewal_date will always be at least 1 year from start_date
+        if submit:
+            try:
+                membership.submit()
+                frappe.db.commit()
+
+                # Reload to get the auto-created subscription
+                membership.reload()
+                if membership.subscription:
+                    subscription = frappe.get_doc("Subscription", membership.subscription)
+                    result["subscription"] = subscription
+            except Exception as e:
+                # Handle validation errors (e.g., minimum period constraint)
+                frappe.log_error(f"Error submitting membership: {str(e)}")
+                result["error"] = str(e)
+
+        return result
+
+    @staticmethod
+    def _calculate_end_date(start_date, period, custom_months=None):
+        """Calculate membership end date based on period"""
+        if period == "Daily":
+            return add_days(start_date, 1)
+        elif period == "Monthly":
+            return add_months(start_date, 1)
+        elif period == "Quarterly":
+            return add_months(start_date, 3)
+        elif period == "Biannual":
+            return add_months(start_date, 6)
+        elif period == "Annual":
+            return add_years(start_date, 1)
+        elif period == "Lifetime":
+            return add_years(start_date, 50)
+        elif period == "Custom" and custom_months:
+            return add_months(start_date, custom_months)
+        else:
+            return add_years(start_date, 1)  # Default to annual
+
+    @staticmethod
+    def create_membership_via_application(member, membership_type, approver_email=None, custom_amount=None):
+        """
+        Create a membership through the application approval process
+
+        This mimics the real-world flow where:
+        1. Member applies (already has application_status = "Pending")
+        2. Application is approved
+        3. Membership is created with proper invoice and subscription
+
+        Args:
+            member: Member document with application_status = "Pending"
+            membership_type: MembershipType to assign
+            approver_email: Email of approver (defaults to Administrator)
+            custom_amount: Optional custom membership amount
+
+        Returns:
+            dict: Created membership, invoice, and subscription
+        """
+        from verenigingen.verenigingen.doctype.membership_application_review import (
+            membership_application_review,
+        )
+
+        if not approver_email:
+            approver_email = "Administrator"
+
+        # Temporarily set the session user to the approver
+        original_user = frappe.session.user
+        frappe.set_user(approver_email)
+
+        try:
+            # Call the approval function
+            result = membership_application_review.approve_membership_application(
+                member_id=member.name,
+                membership_type=membership_type.name
+                if isinstance(membership_type, frappe.model.document.Document)
+                else membership_type,
+                custom_amount=custom_amount,
+            )
+
+            # Get the created membership
+            membership = frappe.get_doc(
+                "Membership",
+                {
+                    "member": member.name,
+                    "membership_type": membership_type.name
+                    if isinstance(membership_type, frappe.model.document.Document)
+                    else membership_type,
+                },
+            )
+
+            response = {"membership": membership, "approval_result": result}
+
+            # Get linked invoice if created
+            if membership.subscription:
+                subscription = frappe.get_doc("Subscription", membership.subscription)
+                response["subscription"] = subscription
+
+                # Get latest invoice
+                invoices = frappe.get_all(
+                    "Sales Invoice",
+                    filters={"subscription": subscription.name},
+                    order_by="creation desc",
+                    limit=1,
+                )
+                if invoices:
+                    response["invoice"] = frappe.get_doc("Sales Invoice", invoices[0].name)
+
+            return response
+
+        finally:
+            # Restore original user
+            frappe.set_user(original_user)
+
+    @staticmethod
+    def cleanup_test_membership_types(prefix="Test"):
+        """Clean up test membership types and related data"""
+        # Find all test membership types
+        test_types = frappe.get_all(
+            "Membership Type",
+            filters={"membership_type_name": ["like", f"{prefix}%"]},
+            fields=["name", "subscription_plan"],
+        )
+
+        for mt in test_types:
+            # Delete linked subscription plans
+            if mt.subscription_plan:
+                frappe.delete_doc(
+                    "Subscription Plan", mt.subscription_plan, ignore_permissions=True, force=True
+                )
+
+            # Delete linked items
+            items = frappe.get_all("Item", filters={"item_name": ["like", f"{mt.name}%"]}, fields=["name"])
+            for item in items:
+                frappe.delete_doc("Item", item.name, ignore_permissions=True, force=True)
+
+            # Delete membership type
+            frappe.delete_doc("Membership Type", mt.name, ignore_permissions=True, force=True)
+
+        frappe.db.commit()
+        return len(test_types)
+
+    @staticmethod
+    def with_minimum_period_disabled(membership_type_names=None):
+        """
+        Context manager to temporarily disable minimum membership period enforcement for specific membership types
+
+        Args:
+            membership_type_names: List of membership type names to disable enforcement for,
+                                 or None to disable for all membership types
+
+        Usage:
+            with MembershipTestUtilities.with_minimum_period_disabled(["Test Monthly", "Test Daily"]):
+                # Create memberships with actual periods (daily, monthly, etc.)
+                membership = create_membership_with_subscription(...)
+        """
+
+        class MinimumPeriodDisabler:
+            def __init__(self, membership_type_names):
+                self.membership_type_names = membership_type_names
+                self.original_values = {}
+
+            def __enter__(self):
+                # Get membership types to modify
+                if self.membership_type_names:
+                    membership_types = self.membership_type_names
+                else:
+                    # Get all membership types
+                    membership_types = frappe.get_all("Membership Type", pluck="name")
+
+                # Store original values and disable enforcement
+                for mt_name in membership_types:
+                    try:
+                        mt = frappe.get_doc("Membership Type", mt_name)
+                        self.original_values[mt_name] = mt.get("enforce_minimum_period", True)
+                        mt.db_set("enforce_minimum_period", 0, update_modified=False)
+                    except Exception:
+                        # Skip if membership type doesn't exist
+                        pass
+
+                frappe.db.commit()
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                # Restore original values
+                for mt_name, original_value in self.original_values.items():
+                    try:
+                        mt = frappe.get_doc("Membership Type", mt_name)
+                        mt.db_set("enforce_minimum_period", original_value, update_modified=False)
+                    except Exception:
+                        # Skip if membership type doesn't exist
+                        pass
+
+                frappe.db.commit()
+
+        return MinimumPeriodDisabler(membership_type_names)

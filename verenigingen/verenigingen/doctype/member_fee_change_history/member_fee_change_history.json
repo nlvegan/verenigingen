@@ -1,0 +1,74 @@
+{
+ "app": "verenigingen",
+ "creation": "2025-06-06 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "change_date",
+  "old_amount",
+  "new_amount",
+  "column_break_2",
+  "reason",
+  "changed_by",
+  "subscription_action"
+ ],
+ "fields": [
+  {
+   "fieldname": "change_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Change Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "old_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Previous Amount"
+  },
+  {
+   "fieldname": "new_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "New Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Reason for Change",
+   "reqd": 1
+  },
+  {
+   "fieldname": "changed_by",
+   "fieldtype": "Link",
+   "label": "Changed By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "subscription_action",
+   "fieldtype": "Data",
+   "label": "Subscription Action",
+   "read_only": 1,
+   "description": "Details about related subscription changes"
+  }
+ ],
+ "istable": 1,
+ "modified": "2025-06-06 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Member Fee Change History",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

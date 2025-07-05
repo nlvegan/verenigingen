@@ -1,0 +1,61 @@
+module.exports = {
+  env: {
+    browser: true,
+    es2022: true,
+    node: true,
+    jquery: true,
+  },
+  extends: [
+    'eslint:recommended',
+    'plugin:vue/vue3-recommended',
+  ],
+  parserOptions: {
+    ecmaVersion: 2022,
+    sourceType: 'module',
+  },
+  plugins: ['vue'],
+  globals: {
+    frappe: 'readonly',
+    __: 'readonly',
+    $: 'readonly',
+    moment: 'readonly',
+    locals: 'readonly',
+    cint: 'readonly',
+    cstr: 'readonly',
+    cur_frm: 'readonly',
+    Cypress: 'readonly',
+    cy: 'readonly',
+    it: 'readonly',
+    describe: 'readonly',
+    before: 'readonly',
+    beforeEach: 'readonly',
+    after: 'readonly',
+    afterEach: 'readonly',
+    expect: 'readonly',
+  },
+  rules: {
+    'indent': ['error', 'tab', { 'SwitchCase': 1 }],
+    'quotes': ['error', 'single'],
+    'semi': ['error', 'always'],
+    'no-unused-vars': ['error', { 'args': 'none', 'varsIgnorePattern': '^_' }],
+    'no-console': ['warn', { allow: ['warn', 'error'] }],
+    'no-debugger': 'error',
+    'vue/no-v-html': 'off',
+    'vue/no-mutating-props': 'off',
+    'vue/multi-word-component-names': 'off',
+    'vue/html-indent': ['error', 'tab'],
+    'vue/max-attributes-per-line': ['error', {
+      'singleline': 3,
+      'multiline': 1,
+    }],
+  },
+  overrides: [
+    {
+      files: ['*.spec.js', '*.test.js', 'cypress/**/*.js'],
+      env: {
+        jest: true,
+        mocha: true,
+      },
+    },
+  ],
+};

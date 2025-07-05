@@ -1,0 +1,237 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "",
+ "creation": "2025-01-01 00:00:00.000000",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "description",
+  "section_break_4",
+  "logo",
+  "section_break_5",
+  "primary_color",
+  "primary_hover_color",
+  "column_break_8",
+  "secondary_color",
+  "secondary_hover_color",
+  "column_break_11",
+  "accent_color",
+  "accent_hover_color",
+  "section_break_14",
+  "success_color",
+  "warning_color",
+  "column_break_17",
+  "error_color",
+  "info_color",
+  "section_break_20",
+  "text_primary_color",
+  "text_secondary_color",
+  "column_break_23",
+  "background_primary_color",
+  "background_secondary_color"
+ ],
+ "fields": [
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "section_break_4",
+   "fieldtype": "Section Break",
+   "label": "Logo & Branding"
+  },
+  {
+   "description": "Upload organization logo (recommended: PNG or SVG, max 2MB)",
+   "fieldname": "logo",
+   "fieldtype": "Attach Image",
+   "label": "Organization Logo"
+  },
+  {
+   "fieldname": "section_break_5",
+   "fieldtype": "Section Break",
+   "label": "Brand Colors"
+  },
+  {
+   "default": "#cf3131",
+   "description": "Main brand color used for buttons, headers, and key interface elements",
+   "fieldname": "primary_color",
+   "fieldtype": "Color",
+   "in_list_view": 1,
+   "label": "Primary Color",
+   "reqd": 1
+  },
+  {
+   "default": "#b82828",
+   "description": "Darker shade of primary color used in gradients, shadows, and interactive states",
+   "fieldname": "primary_hover_color",
+   "fieldtype": "Color",
+   "label": "Primary Dark Shade",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_8",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "#01796f",
+   "description": "Supporting brand color used for secondary buttons and complementary elements",
+   "fieldname": "secondary_color",
+   "fieldtype": "Color",
+   "label": "Secondary Color",
+   "reqd": 1
+  },
+  {
+   "default": "#015a52",
+   "description": "Darker shade of secondary color used in gradients, shadows, and interactive states",
+   "fieldname": "secondary_hover_color",
+   "fieldtype": "Color",
+   "label": "Secondary Dark Shade",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_11",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "#663399",
+   "description": "Accent color used for highlights, special features, and decorative elements",
+   "fieldname": "accent_color",
+   "fieldtype": "Color",
+   "label": "Accent Color",
+   "reqd": 1
+  },
+  {
+   "default": "#4d2673",
+   "description": "Darker shade of accent color used in gradients, shadows, and interactive states",
+   "fieldname": "accent_hover_color",
+   "fieldtype": "Color",
+   "label": "Accent Dark Shade",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_14",
+   "fieldtype": "Section Break",
+   "label": "Status Colors"
+  },
+  {
+   "default": "#28a745",
+   "description": "Success/positive actions color",
+   "fieldname": "success_color",
+   "fieldtype": "Color",
+   "label": "Success Color",
+   "reqd": 1
+  },
+  {
+   "default": "#ffc107",
+   "description": "Warning/caution color",
+   "fieldname": "warning_color",
+   "fieldtype": "Color",
+   "label": "Warning Color",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_17",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "#dc3545",
+   "description": "Error/danger color",
+   "fieldname": "error_color",
+   "fieldtype": "Color",
+   "label": "Error Color",
+   "reqd": 1
+  },
+  {
+   "default": "#17a2b8",
+   "description": "Information/neutral color",
+   "fieldname": "info_color",
+   "fieldtype": "Color",
+   "label": "Info Color",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_20",
+   "fieldtype": "Section Break",
+   "label": "Text & Background Colors"
+  },
+  {
+   "default": "#333333",
+   "description": "Primary text color",
+   "fieldname": "text_primary_color",
+   "fieldtype": "Color",
+   "label": "Primary Text Color",
+   "reqd": 1
+  },
+  {
+   "default": "#666666",
+   "description": "Secondary/muted text color",
+   "fieldname": "text_secondary_color",
+   "fieldtype": "Color",
+   "label": "Secondary Text Color",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_23",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "#ffffff",
+   "description": "Primary background color",
+   "fieldname": "background_primary_color",
+   "fieldtype": "Color",
+   "label": "Primary Background Color",
+   "reqd": 1
+  },
+  {
+   "default": "#f8f9fa",
+   "description": "Secondary background color",
+   "fieldname": "background_secondary_color",
+   "fieldtype": "Color",
+   "label": "Secondary Background Color",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2025-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Brand Settings",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

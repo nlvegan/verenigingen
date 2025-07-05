@@ -1,0 +1,495 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Membership Application") }}{% endblock %}
+
+{% block page_content %}
+<div class="membership-application-form">
+    <h1>{{ _("Become a Member") }}</h1>
+    <p class="lead">{{ _("Join our association and become part of our community!") }}</p>
+
+    <form id="membership-application-form">
+        <!-- Personal Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>{{ _("Personal Information") }}</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label for="first_name" class="required">{{ _("Preferred Name") }}</label>
+                        <input type="text" class="form-control" id="first_name" name="first_name" required>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="middle_name">{{ _("Name Particles") }}</label>
+                        <input type="text" class="form-control" id="middle_name" name="middle_name" placeholder="{{ _('van, de, von, etc.') }}">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="last_name" class="required">{{ _("Last Name") }}</label>
+                        <input type="text" class="form-control" id="last_name" name="last_name" required>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="email" class="required">{{ _("Email") }}</label>
+                        <input type="email" class="form-control" id="email" name="email" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="contact_number">{{ _("Contact Number") }}</label>
+                        <input type="tel" class="form-control" id="contact_number" name="contact_number">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="birth_date" class="required">{{ _("Birth Date") }}</label>
+                        <input type="date" class="form-control" id="birth_date" name="birth_date" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="pronouns">{{ _("Pronouns") }}</label>
+                        <select class="form-control" id="pronouns" name="pronouns">
+                            <option value="">{{ _("Select...") }}</option>
+                            <option value="She/her">She/her</option>
+                            <option value="He/him">He/him</option>
+                            <option value="They/them">They/them</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Address Information -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>{{ _("Address Information") }}</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label for="address_line1" class="required">{{ _("Address Line 1") }}</label>
+                        <input type="text" class="form-control" id="address_line1" name="address_line1" required>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label for="address_line2">{{ _("Address Line 2") }}</label>
+                        <input type="text" class="form-control" id="address_line2" name="address_line2">
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <label for="city" class="required">{{ _("City") }}</label>
+                        <input type="text" class="form-control" id="city" name="city" required>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="state">{{ _("State/Province") }}</label>
+                        <input type="text" class="form-control" id="state" name="state">
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <label for="postal_code" class="required">{{ _("Postal Code") }}</label>
+                        <input type="text" class="form-control" id="postal_code" name="postal_code" required>
+                        <small class="form-text text-muted">{{ _("We'll use this to suggest your local chapter") }}</small>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label for="country" class="required">{{ _("Country") }}</label>
+                        <select class="form-control" id="country" name="country" required>
+                            <option value="">{{ _("Select Country...") }}</option>
+                            {% for country in countries %}
+                            <option value="{{ country.name }}">{{ country.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="is_primary_address" name="is_primary_address" checked>
+                            <label class="form-check-label" for="is_primary_address">
+                                {{ _("Use this as my primary/shipping address") }}
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Membership Type -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>{{ _("Membership Type") }}</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label for="membership_type" class="required">{{ _("Select Membership Type") }}</label>
+                        <select class="form-control" id="membership_type" name="membership_type" required>
+                            <option value="">{{ _("Select...") }}</option>
+                            {% for type in membership_types %}
+                            <option value="{{ type.name }}" data-fee="{{ type.membership_fee }}">
+                                {{ type.name }} - {{ frappe.format_value(type.membership_fee, {"fieldtype": "Currency"}) }}/year
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div id="membership-description" class="mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment Method -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>{{ _("Payment Information") }}</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label for="payment_method" class="required">{{ _("Preferred Payment Method") }}</label>
+                        <select class="form-control" id="payment_method" name="payment_method" required>
+                            <option value="">{{ _("Select...") }}</option>
+                            <option value="Bank Transfer">{{ _("Bank Transfer") }}</option>
+                            <option value="SEPA Direct Debit">{{ _("SEPA Direct Debit (SEPA)") }}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- SEPA Direct Debit Fields -->
+                <div id="direct-debit-fields" style="display: none;">
+                    <div class="alert alert-info">
+                        {{ _("By providing your bank details, you authorize us to collect membership fees via SEPA Direct Debit.") }}
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="iban">{{ _("IBAN") }}</label>
+                            <input type="text" class="form-control" id="iban" name="iban" maxlength="34">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <label for="bank_account_name">{{ _("Account Holder Name") }}</label>
+                            <input type="text" class="form-control" id="bank_account_name" name="bank_account_name">
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Motivation -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>{{ _("About You") }}</h4>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <label for="motivation">{{ _("Why do you want to join our association?") }}</label>
+                        <textarea class="form-control" id="motivation" name="motivation" rows="4"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Financial Details -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>{{ _("Additional Financial Information") }}</h4>
+                <small class="text-muted">{{ _("Optional information to help us process your membership") }}</small>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="employer">{{ _("Employer") }}</label>
+                        <input type="text" class="form-control" id="employer" name="employer">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="occupation">{{ _("Occupation/Job Title") }}</label>
+                        <input type="text" class="form-control" id="occupation" name="occupation">
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label for="annual_income">{{ _("Annual Income Range") }}</label>
+                        <select class="form-control" id="annual_income" name="annual_income">
+                            <option value="">{{ _("Prefer not to say") }}</option>
+                            <option value="Under €25,000">{{ _("Under €25,000") }}</option>
+                            <option value="€25,000 - €40,000">{{ _("€25,000 - €40,000") }}</option>
+                            <option value="€40,000 - €60,000">{{ _("€40,000 - €60,000") }}</option>
+                            <option value="€60,000 - €80,000">{{ _("€60,000 - €80,000") }}</option>
+                            <option value="€80,000 - €100,000">{{ _("€80,000 - €100,000") }}</option>
+                            <option value="Over €100,000">{{ _("Over €100,000") }}</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label for="tax_residence">{{ _("Tax Residence Country") }}</label>
+                        <select class="form-control" id="tax_residence" name="tax_residence">
+                            <option value="">{{ _("Select Country...") }}</option>
+                            {% for country in countries %}
+                            <option value="{{ country.name }}">{{ country.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Income Calculator -->
+                <div id="income-calculator-section" style="display: none;">
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <div class="card bg-light">
+                                <div class="card-header">
+                                    <h5 class="mb-0">{{ _("Contribution Calculator") }}</h5>
+                                    <small class="text-muted">{{ calculator_description or _("Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.") }}</small>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="monthly_income">{{ _("Monthly Net Income (€)") }}</label>
+                                            <input type="number" class="form-control" id="monthly_income" name="monthly_income"
+                                                   placeholder="3500" min="0" step="0.01">
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="payment_interval">{{ _("Payment Interval") }}</label>
+                                            <select class="form-control" id="payment_interval" name="payment_interval">
+                                                <option value="monthly">{{ _("Monthly") }}</option>
+                                                <option value="quarterly">{{ _("Quarterly") }}</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-12">
+                                            <div id="calculator-result" class="alert alert-info" style="display: none;">
+                                                <strong>{{ _("Suggested Contribution:") }}</strong>
+                                                <span id="suggested-amount"></span>
+                                                <span id="payment-frequency"></span>
+                                                <br>
+                                                <small class="text-muted">
+                                                    {{ _("Based on") }} <span id="income-percentage">0.5%</span> {{ _("of your monthly income") }}
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="student_status" name="student_status">
+                            <label class="form-check-label" for="student_status">
+                                {{ _("I am currently a student (may qualify for reduced membership fees)") }}
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-12 mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="donation_interest" name="donation_interest">
+                            <label class="form-check-label" for="donation_interest">
+                                {{ _("I am interested in making additional donations to support the association") }}
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="alert alert-info">
+                    <small>
+                        {{ _("This information is optional and will be kept strictly confidential. It helps us understand our membership base and may qualify you for special membership rates or programs.") }}
+                    </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Terms and Conditions -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" id="terms" name="terms" required>
+                    <label class="form-check-label" for="terms">
+                        {{ _("I agree to the") }} <a href="/terms" target="_blank">{{ _("Terms and Conditions") }}</a>
+                        {{ _("and") }} <a href="/privacy" target="_blank">{{ _("Privacy Policy") }}</a>
+                    </label>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="newsletter" name="newsletter">
+                    <label class="form-check-label" for="newsletter">
+                        {{ _("I would like to receive newsletters and updates") }}
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="text-center">
+            <button type="submit" class="btn btn-primary btn-lg" id="submit-application">
+                {{ _("Submit Application") }}
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+.membership-application-form {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.required::after {
+    content: " *";
+    color: red;
+}
+
+.card {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 2px solid #dee2e6;
+}
+</style>
+
+<script>
+$(document).ready(function() {
+    // Initialize calculator visibility and settings
+    var calculatorSettings = {
+        enabled: {{ enable_income_calculator|default(false)|lower }},
+        percentage: {{ income_percentage_rate|default(0.5) }},
+        description: "{{ calculator_description|default('Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.')|e }}"
+    };
+
+    // Show income calculator if enabled
+    if (calculatorSettings.enabled) {
+        $('#income-calculator-section').show();
+        $('#income-percentage').text(calculatorSettings.percentage + '%');
+    }
+
+    // Income calculator functionality
+    function calculateContribution() {
+        var monthlyIncome = parseFloat($('#monthly_income').val()) || 0;
+        var paymentInterval = $('#payment_interval').val();
+
+        if (monthlyIncome <= 0) {
+            $('#calculator-result').hide();
+            return;
+        }
+
+        // Calculate 0.5% (or configured percentage) of monthly income
+        var monthlyContribution = monthlyIncome * (calculatorSettings.percentage / 100);
+        var displayAmount, displayFrequency;
+
+        if (paymentInterval === 'quarterly') {
+            displayAmount = monthlyContribution * 3; // 3 months worth
+            displayFrequency = '{{ _("per quarter") }}';
+        } else {
+            displayAmount = monthlyContribution;
+            displayFrequency = '{{ _("per month") }}';
+        }
+
+        // Format currency
+        var formattedAmount = '€' + displayAmount.toFixed(2);
+
+        // Update display
+        $('#suggested-amount').text(formattedAmount);
+        $('#payment-frequency').text(' ' + displayFrequency);
+        $('#calculator-result').show();
+    }
+
+    // Bind calculator events
+    $('#monthly_income, #payment_interval').on('input change', calculateContribution);
+
+    // Show/hide payment method specific fields
+    $('#payment_method').change(function() {
+        var paymentMethod = $(this).val();
+
+        // Hide all payment method specific fields first
+        $('#direct-debit-fields').hide();
+
+        // Remove all payment method field requirements
+        $('#iban').prop('required', false);
+
+        // Show relevant fields based on selection
+        if (paymentMethod === 'SEPA Direct Debit') {
+            $('#direct-debit-fields').show();
+            $('#iban').prop('required', true);
+        }
+    });
+
+    // Show membership type description
+    $('#membership_type').change(function() {
+        var selected = $(this).find('option:selected');
+        var fee = selected.data('fee');
+        if (fee) {
+            $('#membership-description').html(
+                '<div class="alert alert-info">Annual fee: ' +
+                frappe.format(fee, {fieldtype: 'Currency'}) +
+                '</div>'
+            );
+        }
+    });
+
+    // Handle form submission
+    $('#membership-application-form').submit(function(e) {
+        e.preventDefault();
+
+        var $btn = $('#submit-application');
+        $btn.prop('disabled', true).html('{{ _("Processing...") }}');
+
+        // Collect form data
+        var formData = {};
+        $(this).serializeArray().forEach(function(item) {
+            formData[item.name] = item.value;
+        });
+
+        // Add checkbox values
+        formData.terms = $('#terms').is(':checked');
+        formData.newsletter = $('#newsletter').is(':checked');
+
+        // Validate terms acceptance
+        if (!formData.terms) {
+            frappe.msgprint('{{ _("Please accept the terms and conditions") }}');
+            $btn.prop('disabled', false).html('{{ _("Submit Application") }}');
+            return;
+        }
+
+        // Submit to server
+        frappe.call({
+            method: 'verenigingen.verenigingen.web_form.membership_application.submit_membership_application',
+            args: {
+                data: formData
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    // Show success message
+                    $('.membership-application-form').html(
+                        '<div class="alert alert-success">' +
+                        '<h4>{{ _("Application Submitted Successfully!") }}</h4>' +
+                        '<p>' + r.message.message + '</p>' +
+                        '<p><a href="/" class="btn btn-primary">{{ _("Return to Home") }}</a></p>' +
+                        '</div>'
+                    );
+
+                    // Scroll to top
+                    window.scrollTo(0, 0);
+                } else {
+                    frappe.msgprint(r.message || '{{ _("An error occurred. Please try again.") }}');
+                    $btn.prop('disabled', false).html('{{ _("Submit Application") }}');
+                }
+            },
+            error: function(r) {
+                frappe.msgprint('{{ _("An error occurred. Please try again.") }}');
+                $btn.prop('disabled', false).html('{{ _("Submit Application") }}');
+            }
+        });
+    });
+});
+</script>
+{% endblock %}

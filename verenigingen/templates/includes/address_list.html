@@ -1,0 +1,32 @@
+<!-- address_list.html -->
+{% if addr_list %}
+<div class="address-list">
+    {% for addr in addr_list %}
+    <div class="address-box">
+        <p class="h6">{{ addr.address_type }}</p>
+        <address>
+            {% if addr.address_line1 %}{{ addr.address_line1 }}<br>{% endif %}
+            {% if addr.address_line2 %}{{ addr.address_line2 }}<br>{% endif %}
+            {% if addr.city %}{{ addr.city }}{% endif %}
+            {% if addr.state and addr.city %}, {% endif %}
+            {% if addr.state %}{{ addr.state }}{% endif %}
+            {% if addr.pincode %} - {{ addr.pincode }}{% endif %}
+            <br>
+            {% if addr.country %}{{ addr.country }}<br>{% endif %}
+            {% if addr.phone %}Phone: {{ addr.phone }}<br>{% endif %}
+            {% if addr.fax %}Fax: {{ addr.fax }}<br>{% endif %}
+            {% if addr.email_id %}Email: {{ addr.email_id }}<br>{% endif %}
+        </address>
+        <p>
+            <a href="/app/address/{{ addr.name }}" class="btn btn-sm btn-default">
+                {{ __("Edit") }}
+            </a>
+        </p>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="address-empty text-muted">
+    {{ __("No address added yet.") }}
+</div>
+{% endif %}

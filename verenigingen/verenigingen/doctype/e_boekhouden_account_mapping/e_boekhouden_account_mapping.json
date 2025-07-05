@@ -1,0 +1,182 @@
+{
+    "actions": [],
+    "allow_rename": 1,
+    "creation": "2025-01-28",
+    "doctype": "DocType",
+    "editable_grid": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "account_information_section",
+        "account_code",
+        "account_name",
+        "column_break_1",
+        "document_type",
+        "transaction_category",
+        "mapping_rules_section",
+        "is_active",
+        "priority",
+        "column_break_2",
+        "account_range_start",
+        "account_range_end",
+        "description_patterns_section",
+        "description_patterns",
+        "statistics_section",
+        "usage_count",
+        "column_break_3",
+        "last_used",
+        "sample_descriptions"
+    ],
+    "fields": [
+        {
+            "fieldname": "account_information_section",
+            "fieldtype": "Section Break",
+            "label": "Account Information"
+        },
+        {
+            "fieldname": "account_code",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Account Code",
+            "reqd": 0,
+            "description": "E-Boekhouden account code (with your extra digit)"
+        },
+        {
+            "fieldname": "account_name",
+            "fieldtype": "Data",
+            "label": "Account Name",
+            "description": "Descriptive name for this account"
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "document_type",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Target Document Type",
+            "options": "Sales Invoice\nPurchase Invoice\nExpense Claim\nJournal Entry",
+            "reqd": 1,
+            "default": "Purchase Invoice"
+        },
+        {
+            "fieldname": "transaction_category",
+            "fieldtype": "Select",
+            "label": "Transaction Category",
+            "options": "\nMembership Income\nDonations\nEvent Income\nOther Income\nOffice Expenses\nProgram Expenses\nVolunteer Expenses\nMarketing & Communications\nProfessional Services\nBank Charges\nTax Payments\nGeneral Expenses\nOther",
+            "description": "Category for better organization"
+        },
+        {
+            "fieldname": "mapping_rules_section",
+            "fieldtype": "Section Break",
+            "label": "Mapping Rules"
+        },
+        {
+            "fieldname": "is_active",
+            "fieldtype": "Check",
+            "label": "Is Active",
+            "default": 1
+        },
+        {
+            "fieldname": "priority",
+            "fieldtype": "Int",
+            "label": "Priority",
+            "default": 0,
+            "description": "Higher priority mappings are checked first"
+        },
+        {
+            "fieldname": "column_break_2",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "account_range_start",
+            "fieldtype": "Data",
+            "label": "Account Range Start",
+            "description": "Start of account code range (optional)"
+        },
+        {
+            "fieldname": "account_range_end",
+            "fieldtype": "Data",
+            "label": "Account Range End",
+            "description": "End of account code range (optional)"
+        },
+        {
+            "fieldname": "description_patterns_section",
+            "fieldtype": "Section Break",
+            "label": "Description Patterns"
+        },
+        {
+            "fieldname": "description_patterns",
+            "fieldtype": "Small Text",
+            "label": "Description Keywords",
+            "description": "Keywords to match in transaction descriptions (one per line)"
+        },
+        {
+            "fieldname": "statistics_section",
+            "fieldtype": "Section Break",
+            "label": "Usage Statistics",
+            "collapsible": 1
+        },
+        {
+            "fieldname": "usage_count",
+            "fieldtype": "Int",
+            "label": "Usage Count",
+            "read_only": 1,
+            "default": 0
+        },
+        {
+            "fieldname": "column_break_3",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "last_used",
+            "fieldtype": "Datetime",
+            "label": "Last Used",
+            "read_only": 1
+        },
+        {
+            "fieldname": "sample_descriptions",
+            "fieldtype": "Small Text",
+            "label": "Sample Descriptions",
+            "read_only": 1,
+            "description": "Examples of matched descriptions"
+        }
+    ],
+    "index_web_pages_for_search": 1,
+    "links": [],
+    "modified": "2025-01-28",
+    "modified_by": "Administrator",
+    "module": "Verenigingen",
+    "name": "E-Boekhouden Account Mapping",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "export": 1,
+            "print": 1,
+            "read": 1,
+            "report": 1,
+            "role": "Verenigingen Administrator",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "sort_field": "priority",
+    "sort_order": "DESC",
+    "title_field": "account_name",
+    "track_changes": 1
+}

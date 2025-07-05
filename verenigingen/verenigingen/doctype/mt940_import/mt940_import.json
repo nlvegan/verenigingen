@@ -1,0 +1,196 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-06-23 07:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "bank_account",
+  "mt940_file",
+  "column_break_4",
+  "company",
+  "import_status",
+  "section_break_7",
+  "import_summary",
+  "transactions_created",
+  "transactions_skipped",
+  "error_log",
+  "section_break_dates",
+  "statement_from_date",
+  "statement_to_date",
+  "column_break_dates",
+  "import_date",
+  "descriptive_name"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "MT940-IMPORT-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bank_account",
+   "fieldtype": "Link",
+   "label": "Bank Account",
+   "options": "Bank Account",
+   "reqd": 1
+  },
+  {
+   "fieldname": "mt940_file",
+   "fieldtype": "Attach",
+   "label": "MT940 File",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "import_status",
+   "fieldtype": "Select",
+   "label": "Import Status",
+   "options": "\nPending\nIn Progress\nCompleted\nFailed",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_7",
+   "fieldtype": "Section Break",
+   "label": "Import Results"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "import_summary",
+   "fieldtype": "Text",
+   "label": "Import Summary",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "transactions_created",
+   "fieldtype": "Int",
+   "label": "Transactions Created",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "transactions_skipped",
+   "fieldtype": "Int",
+   "label": "Transactions Skipped",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "error_log",
+   "fieldtype": "Long Text",
+   "label": "Error Log",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_dates",
+   "fieldtype": "Section Break",
+   "label": "Statement Period"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "statement_from_date",
+   "fieldtype": "Date",
+   "label": "Statement From Date",
+   "description": "Earliest transaction date in the MT940 file",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "statement_to_date",
+   "fieldtype": "Date",
+   "label": "Statement To Date",
+   "description": "Latest transaction date in the MT940 file",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Today",
+   "fieldname": "import_date",
+   "fieldtype": "Date",
+   "label": "Import Date",
+   "reqd": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "descriptive_name",
+   "fieldtype": "Data",
+   "label": "Descriptive Name",
+   "description": "Auto-generated descriptive name based on date range",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-06-23 07:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "MT940 Import",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "descriptive_name",
+ "track_changes": 1
+}

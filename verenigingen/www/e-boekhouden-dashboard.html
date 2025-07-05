@@ -1,0 +1,469 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block head_include %}
+<style>
+	.dashboard-container {
+		max-width: 1200px;
+		margin: 0 auto;
+		padding: 20px;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+	}
+
+	.dashboard-header {
+		text-align: center;
+		margin-bottom: 40px;
+		padding: 20px;
+		background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+		color: white;
+		border-radius: 12px;
+	}
+
+	.dashboard-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 25px;
+		margin-bottom: 40px;
+	}
+
+	.dashboard-card {
+		background: white;
+		border-radius: 12px;
+		padding: 25px;
+		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		border: 1px solid #e1e5e9;
+		transition: transform 0.2s ease, box-shadow 0.2s ease;
+	}
+
+	.dashboard-card:hover {
+		transform: translateY(-2px);
+		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+	}
+
+	.card-header {
+		display: flex;
+		align-items: center;
+		margin-bottom: 20px;
+	}
+
+	.card-icon {
+		font-size: 2em;
+		margin-right: 15px;
+	}
+
+	.card-title {
+		font-size: 1.2em;
+		font-weight: 600;
+		color: #2c3e50;
+		margin: 0;
+	}
+
+	.card-metric {
+		font-size: 2.5em;
+		font-weight: bold;
+		margin: 10px 0;
+		color: #3498db;
+	}
+
+	.card-description {
+		color: #7f8c8d;
+		font-size: 0.9em;
+	}
+
+	.status-indicator {
+		display: inline-flex;
+		align-items: center;
+		padding: 6px 12px;
+		border-radius: 20px;
+		font-size: 0.85em;
+		font-weight: 500;
+		margin: 5px 0;
+	}
+
+	.status-connected {
+		background-color: #d4edda;
+		color: #155724;
+	}
+
+	.status-disconnected {
+		background-color: #f8d7da;
+		color: #721c24;
+	}
+
+	.status-good {
+		background-color: #d1ecf1;
+		color: #0c5460;
+	}
+
+	.status-warning {
+		background-color: #fff3cd;
+		color: #856404;
+	}
+
+	.status-error {
+		background-color: #f8d7da;
+		color: #721c24;
+	}
+
+	.progress-bar {
+		background-color: #e9ecef;
+		border-radius: 10px;
+		overflow: hidden;
+		height: 10px;
+		margin: 10px 0;
+	}
+
+	.progress-fill {
+		height: 100%;
+		background: linear-gradient(90deg, #56ab2f 0%, #a8e6cf 100%);
+		border-radius: 10px;
+		transition: width 0.3s ease;
+	}
+
+	.action-buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 15px;
+		margin-top: 20px;
+	}
+
+	.btn-action {
+		display: inline-flex;
+		align-items: center;
+		padding: 12px 20px;
+		background-color: #3498db;
+		color: white;
+		text-decoration: none;
+		border-radius: 8px;
+		font-weight: 500;
+		transition: all 0.2s ease;
+		border: none;
+		cursor: pointer;
+	}
+
+	.btn-action:hover {
+		background-color: #2980b9;
+		transform: translateY(-1px);
+		color: white;
+		text-decoration: none;
+	}
+
+	.btn-success { background-color: #27ae60; }
+	.btn-success:hover { background-color: #229954; }
+	.btn-warning { background-color: #f39c12; }
+	.btn-warning:hover { background-color: #e67e22; }
+	.btn-danger { background-color: #e74c3c; }
+	.btn-danger:hover { background-color: #c0392b; }
+
+	.recent-migrations {
+		background: white;
+		border-radius: 12px;
+		padding: 25px;
+		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+		border: 1px solid #e1e5e9;
+	}
+
+	.migration-table {
+		width: 100%;
+		border-collapse: collapse;
+		margin-top: 15px;
+	}
+
+	.migration-table th,
+	.migration-table td {
+		padding: 15px 10px;
+		text-align: left;
+		border-bottom: 1px solid #eee;
+	}
+
+	.migration-table th {
+		background-color: #f8f9fa;
+		font-weight: 600;
+		color: #495057;
+	}
+
+	.migration-table tr:hover {
+		background-color: #f8f9fa;
+	}
+
+	.migration-link {
+		color: #3498db;
+		text-decoration: none;
+		font-weight: 500;
+	}
+
+	.migration-link:hover {
+		color: #2980b9;
+		text-decoration: underline;
+	}
+
+	.status-completed { color: #27ae60; font-weight: bold; }
+	.status-failed { color: #e74c3c; font-weight: bold; }
+	.status-in-progress { color: #3498db; font-weight: bold; }
+	.status-draft { color: #95a5a6; font-weight: bold; }
+
+	.refresh-button {
+		position: fixed;
+		bottom: 30px;
+		right: 30px;
+		background-color: #3498db;
+		color: white;
+		border: none;
+		border-radius: 50%;
+		width: 60px;
+		height: 60px;
+		font-size: 1.5em;
+		cursor: pointer;
+		box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+		transition: all 0.2s ease;
+	}
+
+	.refresh-button:hover {
+		background-color: #2980b9;
+		transform: scale(1.1);
+	}
+
+	.health-issues {
+		list-style: none;
+		padding: 0;
+		margin: 10px 0;
+	}
+
+	.health-issues li {
+		padding: 5px 0;
+		border-bottom: 1px solid #eee;
+	}
+
+	.health-issues li:last-child {
+		border-bottom: none;
+	}
+
+	@media (max-width: 768px) {
+		.dashboard-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.action-buttons {
+			flex-direction: column;
+		}
+
+		.migration-table {
+			font-size: 0.9em;
+		}
+
+		.refresh-button {
+			bottom: 20px;
+			right: 20px;
+		}
+	}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="dashboard-container">
+	{% if error %}
+		<div class="alert alert-danger">
+			<strong>Error:</strong> {{ error }}
+		</div>
+	{% else %}
+		<!-- Dashboard Header -->
+		<div class="dashboard-header">
+			<h1>🚀 E-Boekhouden Migration Dashboard</h1>
+			<p>Monitor your data migration progress and system status</p>
+		</div>
+
+		<!-- Connection Status & Quick Stats -->
+		<div class="dashboard-grid">
+			<!-- Connection Status -->
+			<div class="dashboard-card">
+				<div class="card-header">
+					<span class="card-icon">🔌</span>
+					<h3 class="card-title">API Connection</h3>
+				</div>
+				{% if connection_status == "Connected" %}
+					<div class="status-indicator status-connected">✅ Connected</div>
+				{% else %}
+					<div class="status-indicator status-disconnected">❌ Disconnected</div>
+					{% if connection_error %}
+						<div class="card-description">{{ connection_error }}</div>
+					{% endif %}
+				{% endif %}
+			</div>
+
+			<!-- Migration Stats -->
+			<div class="dashboard-card">
+				<div class="card-header">
+					<span class="card-icon">📊</span>
+					<h3 class="card-title">Migration Statistics</h3>
+				</div>
+				<div class="card-metric">{{ migration_stats.total or 0 }}</div>
+				<div class="card-description">
+					Total: {{ migration_stats.total or 0 }} |
+					Completed: {{ migration_stats.completed or 0 }} |
+					Failed: {{ migration_stats.failed or 0 }}
+				</div>
+			</div>
+
+			<!-- Available Data -->
+			<div class="dashboard-card">
+				<div class="card-header">
+					<span class="card-icon">💾</span>
+					<h3 class="card-title">Available Data</h3>
+				</div>
+				<div class="card-metric">
+					{{ (available_data.accounts or 0) + (available_data.cost_centers or 0) + (available_data.customers or 0) + (available_data.suppliers or 0) }}
+				</div>
+				<div class="card-description">
+					Accounts: {{ available_data.accounts or 0 }} |
+					Customers: {{ available_data.customers or 0 }} |
+					Suppliers: {{ available_data.suppliers or 0 }}
+				</div>
+			</div>
+
+			<!-- System Health -->
+			<div class="dashboard-card">
+				<div class="card-header">
+					<span class="card-icon">🏥</span>
+					<h3 class="card-title">System Health</h3>
+				</div>
+				{% if system_health.status == "good" %}
+					<div class="status-indicator status-good">✅ All Good</div>
+				{% elif system_health.status == "warning" %}
+					<div class="status-indicator status-warning">⚠️ Warning</div>
+				{% else %}
+					<div class="status-indicator status-error">❌ Issues</div>
+				{% endif %}
+
+				{% if system_health.issues %}
+					<ul class="health-issues">
+						{% for issue in system_health.issues %}
+							<li>{{ issue }}</li>
+						{% endfor %}
+					</ul>
+				{% endif %}
+			</div>
+		</div>
+
+		<!-- Action Buttons -->
+		<div class="dashboard-card">
+			<div class="card-header">
+				<span class="card-icon">⚡</span>
+				<h3 class="card-title">Quick Actions</h3>
+			</div>
+			<div class="action-buttons">
+				<a href="/app/e-boekhouden-migration/new-e-boekhouden-migration-1" class="btn-action btn-success">
+					🚀 New Migration
+				</a>
+				<a href="/app/e-boekhouden-migration" class="btn-action">
+					📋 View All Migrations
+				</a>
+				<a href="/app/e-boekhouden-settings" class="btn-action btn-warning">
+					⚙️ Settings
+				</a>
+				<button onclick="testConnection()" class="btn-action">
+					🔍 Test Connection
+				</button>
+			</div>
+		</div>
+
+		<!-- Recent Migrations -->
+		{% if recent_migrations %}
+		<div class="recent-migrations">
+			<div class="card-header">
+				<span class="card-icon">📝</span>
+				<h3 class="card-title">Recent Migrations</h3>
+			</div>
+
+			<table class="migration-table">
+				<thead>
+					<tr>
+						<th>Migration Name</th>
+						<th>Status</th>
+						<th>Progress</th>
+						<th>Started</th>
+					</tr>
+				</thead>
+				<tbody>
+					{% for migration in recent_migrations %}
+					<tr>
+						<td>
+							<a href="/app/e-boekhouden-migration/{{ migration.name }}" class="migration-link">
+								{{ migration.migration_name }}
+							</a>
+						</td>
+						<td>
+							<span class="status-{{ migration.migration_status.lower().replace(' ', '-') }}">
+								{{ migration.migration_status }}
+							</span>
+						</td>
+						<td>
+							<div class="progress-bar">
+								<div class="progress-fill" style="width: {{ migration.progress_percentage or 0 }}%"></div>
+							</div>
+							{{ migration.progress_percentage or 0 }}%
+						</td>
+						<td>{{ frappe.utils.format_datetime(migration.start_time) if migration.start_time else "-" }}</td>
+					</tr>
+					{% endfor %}
+				</tbody>
+			</table>
+		</div>
+		{% endif %}
+	{% endif %}
+</div>
+
+<!-- Refresh Button -->
+<button class="refresh-button" onclick="refreshDashboard()" title="Refresh Dashboard">
+	🔄
+</button>
+
+<script>
+function refreshDashboard() {
+	location.reload();
+}
+
+function testConnection() {
+	frappe.call({
+		method: 'verenigingen.utils.eboekhouden_api.test_api_connection',
+		callback: function(r) {
+			if (r.message && r.message.success) {
+				frappe.show_alert({
+					message: 'Connection test successful!',
+					indicator: 'green'
+				});
+			} else {
+				frappe.show_alert({
+					message: 'Connection test failed: ' + (r.message ? r.message.error : 'Unknown error'),
+					indicator: 'red'
+				});
+			}
+		}
+	});
+}
+
+// Auto-refresh every 30 seconds if there are active migrations
+{% if migration_stats.in_progress > 0 %}
+setTimeout(function() {
+	refreshDashboard();
+}, 30000);
+{% endif %}
+
+// Show loading state for buttons
+document.addEventListener('DOMContentLoaded', function() {
+	const buttons = document.querySelectorAll('.btn-action');
+	buttons.forEach(button => {
+		button.addEventListener('click', function() {
+			if (this.tagName === 'BUTTON') {
+				this.style.opacity = '0.7';
+				this.style.pointerEvents = 'none';
+				setTimeout(() => {
+					this.style.opacity = '1';
+					this.style.pointerEvents = 'auto';
+				}, 2000);
+			}
+		});
+	});
+});
+</script>
+{% endblock %}

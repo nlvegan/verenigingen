@@ -1,0 +1,679 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Import MT940 Bank Statement") }}{% endblock %}
+
+{% block page_content %}
+<div class="container mt940-import-page">
+    <div class="row">
+        <div class="col-md-8 col-md-offset-2">
+            <div class="page-header">
+                <h1>{{ _("Import MT940 Bank Statement") }}</h1>
+                <p class="text-muted">{{ _("Upload MT940 bank statement files to import transactions into ERPNext") }}</p>
+            </div>
+
+            <div class="panel panel-default">
+                <div class="panel-body">
+                    <form id="mt940-import-form" enctype="multipart/form-data">
+
+                        <!-- Bank Account Selection -->
+                        <div class="form-group" id="bank-account-group">
+                            <label for="bank_account">{{ _("Bank Account") }}</label>
+                            <select class="form-control" id="bank_account" name="bank_account" required>
+                                <option value="">{{ _("Select Bank Account") }}</option>
+                                {% for account in bank_accounts %}
+                                <option value="{{ account.name }}"
+                                        data-bank="{{ account.bank }}"
+                                        data-iban="{{ account.iban or '' }}"
+                                        data-account-no="{{ account.bank_account_no or '' }}">
+                                    {{ account.account_name }}
+                                    {% if account.bank %}({{ account.bank }}){% endif %}
+                                    {% if account.iban %}- {{ account.iban }}{% endif %}
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <!-- File Upload -->
+                        <div class="form-group">
+                            <label for="mt940_file">{{ _("MT940 File") }}</label>
+                            <input type="file" class="form-control" id="mt940_file" name="mt940_file"
+                                   accept=".mt940,.txt,.sta,.940" required>
+                            <small class="help-text text-muted">
+                                {{ _("Select your MT940 bank statement file (.mt940, .txt, .sta, or .940 format)") }}
+                            </small>
+                        </div>
+
+                        <!-- Submit Button -->
+                        <div class="form-group">
+                            <button type="submit" class="btn btn-primary" id="import-btn">
+                                <i class="fa fa-upload"></i> {{ _("Import Transactions") }}
+                            </button>
+                            <button type="button" class="btn btn-info" id="debug-btn">
+                                <i class="fa fa-bug"></i> {{ _("Debug File") }}
+                            </button>
+                            <button type="button" class="btn btn-warning" id="debug-improved-btn">
+                                <i class="fa fa-cogs"></i> {{ _("Debug Improved") }}
+                            </button>
+                            <button type="button" class="btn btn-success" id="test-extraction-btn">
+                                <i class="fa fa-check"></i> {{ _("Test Extraction") }}
+                            </button>
+                            <button type="button" class="btn btn-danger" id="debug-detailed-btn">
+                                <i class="fa fa-wrench"></i> {{ _("Debug Import") }}
+                            </button>
+                            <button type="button" class="btn btn-default" onclick="window.history.back()">
+                                {{ _("Cancel") }}
+                            </button>
+                        </div>
+
+                    </form>
+
+                    <!-- Progress Indicator -->
+                    <div id="progress-section" style="display: none;">
+                        <div class="progress">
+                            <div class="progress-bar progress-bar-striped active" role="progressbar" style="width: 100%">
+                                {{ _("Processing MT940 file...") }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Results Section -->
+                    <div id="results-section" style="display: none;">
+                        <div class="alert" id="results-alert">
+                            <div id="results-content"></div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Help Section -->
+            <div class="panel panel-info">
+                <div class="panel-heading">
+                    <h4>{{ _("What is MT940?") }}</h4>
+                </div>
+                <div class="panel-body">
+                    <p>{{ _("MT940 is a standard format for electronic bank statements used by banks worldwide. It contains:") }}</p>
+                    <ul>
+                        <li>{{ _("Transaction details (date, amount, description)") }}</li>
+                        <li>{{ _("Account information (IBAN, account number)") }}</li>
+                        <li>{{ _("Balance information (opening and closing balances)") }}</li>
+                        <li>{{ _("Reference numbers and additional transaction data") }}</li>
+                    </ul>
+                    <p><strong>{{ _("Note:") }}</strong> {{ _("This import creates Bank Transaction records. You'll need to reconcile them with your accounting entries separately.") }}</p>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<style>
+.mt940-import-page {
+    margin-top: 30px;
+    margin-bottom: 50px;
+}
+
+.page-header {
+    border-bottom: 1px solid #eee;
+    padding-bottom: 20px;
+    margin-bottom: 30px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.help-text {
+    margin-top: 5px;
+    display: block;
+}
+
+#results-section .alert {
+    margin-top: 20px;
+}
+
+.transaction-summary {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 15px;
+    margin: 10px 0;
+}
+
+.transaction-summary h5 {
+    margin-top: 0;
+    color: #495057;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const bankAccountSelect = document.getElementById('bank_account');
+    const form = document.getElementById('mt940-import-form');
+    const importBtn = document.getElementById('import-btn');
+    const debugBtn = document.getElementById('debug-btn');
+    const debugImprovedBtn = document.getElementById('debug-improved-btn');
+    const testExtractionBtn = document.getElementById('test-extraction-btn');
+    const debugDetailedBtn = document.getElementById('debug-detailed-btn');
+    const progressSection = document.getElementById('progress-section');
+    const resultsSection = document.getElementById('results-section');
+    const resultsAlert = document.getElementById('results-alert');
+    const resultsContent = document.getElementById('results-content');
+
+    // Bank account is always required now
+
+    // Form submission
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        const fileInput = document.getElementById('mt940_file');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            frappe.msgprint('Please select an MT940 file');
+            return;
+        }
+
+        // Show progress
+        importBtn.disabled = true;
+        progressSection.style.display = 'block';
+        resultsSection.style.display = 'none';
+
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const fileContent = btoa(e.target.result);
+
+            // Prepare API call - always use manual mode
+            const apiMethod = 'verenigingen.api.member_management.import_mt940_improved';
+            const apiArgs = {
+                bank_account: bankAccountSelect.value,
+                file_content: fileContent,
+                company: '{{ company }}'
+            };
+
+            // Call import API
+            frappe.call({
+                method: apiMethod,
+                args: apiArgs,
+                callback: function(r) {
+                    importBtn.disabled = false;
+                    progressSection.style.display = 'none';
+
+                    if (r.message) {
+                        showResults(r.message);
+                    } else {
+                        showError('No response from server');
+                    }
+                },
+                error: function(err) {
+                    importBtn.disabled = false;
+                    progressSection.style.display = 'none';
+                    showError('Import failed: ' + (err.message || 'Unknown error'));
+                }
+            });
+        };
+
+        reader.readAsBinaryString(file);
+    });
+
+    // Debug button functionality
+    debugBtn.addEventListener('click', function() {
+        const fileInput = document.getElementById('mt940_file');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            frappe.msgprint('Please select an MT940 file');
+            return;
+        }
+
+        // Show progress
+        debugBtn.disabled = true;
+        progressSection.style.display = 'block';
+        resultsSection.style.display = 'none';
+
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const fileContent = btoa(e.target.result);
+
+            // Call debug API
+            frappe.call({
+                method: 'verenigingen.api.member_management.debug_mt940_import',
+                args: {
+                    file_content: fileContent,
+                    bank_account: bankAccountSelect.value || null
+                },
+                callback: function(r) {
+                    debugBtn.disabled = false;
+                    progressSection.style.display = 'none';
+
+                    if (r.message) {
+                        showDebugResults(r.message);
+                    } else {
+                        showError('No debug response from server');
+                    }
+                },
+                error: function(err) {
+                    debugBtn.disabled = false;
+                    progressSection.style.display = 'none';
+                    showError('Debug failed: ' + (err.message || 'Unknown error'));
+                }
+            });
+        };
+
+        reader.readAsBinaryString(file);
+    });
+
+    // Debug Improved button functionality
+    debugImprovedBtn.addEventListener('click', function() {
+        const fileInput = document.getElementById('mt940_file');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            frappe.msgprint('Please select an MT940 file');
+            return;
+        }
+
+        // Show progress
+        debugImprovedBtn.disabled = true;
+        progressSection.style.display = 'block';
+        resultsSection.style.display = 'none';
+
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const fileContent = btoa(e.target.result);
+
+            // Call improved debug API
+            frappe.call({
+                method: 'verenigingen.api.member_management.debug_mt940_import_improved',
+                args: {
+                    file_content: fileContent,
+                    bank_account: bankAccountSelect.value || null
+                },
+                callback: function(r) {
+                    debugImprovedBtn.disabled = false;
+                    progressSection.style.display = 'none';
+
+                    if (r.message) {
+                        showDebugResults(r.message);
+                    } else {
+                        showError('No debug response from server');
+                    }
+                },
+                error: function(err) {
+                    debugImprovedBtn.disabled = false;
+                    progressSection.style.display = 'none';
+                    showError('Debug failed: ' + (err.message || 'Unknown error'));
+                }
+            });
+        };
+
+        reader.readAsBinaryString(file);
+    });
+
+    // Test Extraction button functionality
+    testExtractionBtn.addEventListener('click', function() {
+        const fileInput = document.getElementById('mt940_file');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            frappe.msgprint('Please select an MT940 file');
+            return;
+        }
+
+        // Show progress
+        testExtractionBtn.disabled = true;
+        progressSection.style.display = 'block';
+        resultsSection.style.display = 'none';
+
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const fileContent = btoa(e.target.result);
+
+            // Call test extraction API
+            frappe.call({
+                method: 'verenigingen.api.member_management.test_mt940_extraction',
+                args: {
+                    file_content: fileContent,
+                    bank_account: bankAccountSelect.value || null
+                },
+                callback: function(r) {
+                    testExtractionBtn.disabled = false;
+                    progressSection.style.display = 'none';
+
+                    if (r.message) {
+                        showExtractionTestResults(r.message);
+                    } else {
+                        showError('No response from server');
+                    }
+                },
+                error: function(err) {
+                    testExtractionBtn.disabled = false;
+                    progressSection.style.display = 'none';
+                    showError('Test failed: ' + (err.message || 'Unknown error'));
+                }
+            });
+        };
+
+        reader.readAsBinaryString(file);
+    });
+
+    // Debug Detailed button functionality
+    debugDetailedBtn.addEventListener('click', function() {
+        const fileInput = document.getElementById('mt940_file');
+        const file = fileInput.files[0];
+
+        if (!file) {
+            frappe.msgprint('Please select an MT940 file');
+            return;
+        }
+
+        // Show progress
+        debugDetailedBtn.disabled = true;
+        progressSection.style.display = 'block';
+        resultsSection.style.display = 'none';
+
+        // Read file as base64
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const fileContent = btoa(e.target.result);
+
+            // Call detailed debug API
+            frappe.call({
+                method: 'verenigingen.api.member_management.debug_mt940_import_detailed',
+                args: {
+                    file_content: fileContent,
+                    bank_account: bankAccountSelect.value || null
+                },
+                callback: function(r) {
+                    debugDetailedBtn.disabled = false;
+                    progressSection.style.display = 'none';
+
+                    if (r.message) {
+                        showDetailedDebugResults(r.message);
+                    } else {
+                        showError('No response from server');
+                    }
+                },
+                error: function(err) {
+                    debugDetailedBtn.disabled = false;
+                    progressSection.style.display = 'none';
+                    showError('Debug failed: ' + (err.message || 'Unknown error'));
+                }
+            });
+        };
+
+        reader.readAsBinaryString(file);
+    });
+
+    function showResults(result) {
+        resultsSection.style.display = 'block';
+
+        if (result.success) {
+            resultsAlert.className = 'alert alert-success';
+            resultsContent.innerHTML = formatSuccessResults(result);
+        } else {
+            resultsAlert.className = 'alert alert-danger';
+            resultsContent.innerHTML = formatErrorResults(result);
+        }
+    }
+
+    function showError(message) {
+        resultsSection.style.display = 'block';
+        resultsAlert.className = 'alert alert-danger';
+        resultsContent.innerHTML = '<strong>Error:</strong> ' + message;
+    }
+
+    function formatSuccessResults(result) {
+        let html = '<h4><i class="fa fa-check-circle"></i> Import Successful!</h4>';
+
+        if (result.bank_account) {
+            html += '<p><strong>Bank Account:</strong> ' + result.bank_account + '</p>';
+        }
+
+        if (result.transactions_created) {
+            html += '<p><strong>Transactions Created:</strong> ' + result.transactions_created + '</p>';
+        }
+
+        if (result.transactions_updated) {
+            html += '<p><strong>Transactions Updated:</strong> ' + result.transactions_updated + '</p>';
+        }
+
+        if (result.transactions_skipped) {
+            html += '<p><strong>Transactions Skipped:</strong> ' + result.transactions_skipped + '</p>';
+        }
+
+        if (result.statement_info) {
+            html += '<div class="transaction-summary">';
+            html += '<h5>Statement Information</h5>';
+            if (result.statement_info.account_iban) {
+                html += '<p><strong>Account IBAN:</strong> ' + result.statement_info.account_iban + '</p>';
+            }
+            if (result.statement_info.opening_balance) {
+                html += '<p><strong>Opening Balance:</strong> ' + result.statement_info.opening_balance + '</p>';
+            }
+            if (result.statement_info.closing_balance) {
+                html += '<p><strong>Closing Balance:</strong> ' + result.statement_info.closing_balance + '</p>';
+            }
+            if (result.statement_info.statement_date) {
+                html += '<p><strong>Statement Date:</strong> ' + result.statement_info.statement_date + '</p>';
+            }
+            html += '</div>';
+        }
+
+        html += '<p class="text-muted"><strong>Next Step:</strong> Review and reconcile the imported transactions in the Bank Transaction list.</p>';
+        html += '<a href="/app/bank-transaction" class="btn btn-default">View Bank Transactions</a>';
+
+        return html;
+    }
+
+    function formatErrorResults(result) {
+        let html = '<h4><i class="fa fa-exclamation-circle"></i> Import Failed</h4>';
+        html += '<p><strong>Error:</strong> ' + (result.message || 'Unknown error occurred') + '</p>';
+
+        if (result.extracted_iban) {
+            html += '<p><strong>Extracted IBAN:</strong> ' + result.extracted_iban + '</p>';
+            html += '<p class="text-info">You may need to create a Bank Account record with this IBAN, or use manual mode to select an existing account.</p>';
+        }
+
+        return html;
+    }
+
+    function showDebugResults(debug) {
+        resultsSection.style.display = 'block';
+        resultsAlert.className = 'alert alert-info';
+
+        let html = '<h4><i class="fa fa-bug"></i> Debug Information</h4>';
+
+        if (debug.error) {
+            html += '<div class="alert alert-danger"><strong>Error:</strong> ' + debug.error + '</div>';
+            if (debug.traceback) {
+                html += '<pre style="font-size: 11px; max-height: 200px; overflow-y: auto;">' + debug.traceback + '</pre>';
+            }
+        } else {
+            html += '<div class="row">';
+            html += '<div class="col-md-6">';
+            html += '<h5>File Processing</h5>';
+            html += '<p><strong>Step:</strong> ' + debug.step + '</p>';
+            html += '<p><strong>Content Length:</strong> ' + debug.content_length + ' characters</p>';
+
+            if (debug.statements_found !== undefined) {
+                html += '<p><strong>Statements Found:</strong> ' + debug.statements_found + '</p>';
+            }
+
+            if (debug.parse_error) {
+                html += '<div class="alert alert-warning"><strong>Parse Error:</strong> ' + debug.parse_error + '</div>';
+            }
+
+            html += '</div>';
+            html += '<div class="col-md-6">';
+
+            if (debug.first_statement) {
+                html += '<h5>First Statement</h5>';
+                html += '<p><strong>Has Data:</strong> ' + debug.first_statement.has_data + '</p>';
+                html += '<p><strong>Has Transactions:</strong> ' + debug.first_statement.has_transactions + '</p>';
+                html += '<p><strong>Transaction Count:</strong> ' + debug.first_statement.transaction_count + '</p>';
+                if (debug.first_statement.data_keys && debug.first_statement.data_keys.length > 0) {
+                    html += '<p><strong>Data Keys:</strong> ' + debug.first_statement.data_keys.join(', ') + '</p>';
+                }
+            }
+
+            if (debug.first_transaction) {
+                html += '<h5>First Transaction</h5>';
+
+                // Show detailed inspection data (from improved debug)
+                html += '<h6>Object Inspection:</h6>';
+                html += '<ul>';
+                html += '<li><strong>Has Date Attribute:</strong> ' + (debug.first_transaction.has_date_attr || 'Unknown') + '</li>';
+                html += '<li><strong>Date Attribute Value:</strong> ' + (debug.first_transaction.date_value || debug.first_transaction.raw_date || 'None') + '</li>';
+                html += '<li><strong>Data Date Value:</strong> ' + (debug.first_transaction.data_date || 'None') + '</li>';
+                html += '<li><strong>Has Amount Attribute:</strong> ' + (debug.first_transaction.has_amount_attr || 'Unknown') + '</li>';
+                html += '<li><strong>Amount Attribute Value:</strong> ' + (debug.first_transaction.amount_value || debug.first_transaction.raw_amount || 'None') + '</li>';
+                html += '<li><strong>Amount Type:</strong> ' + (debug.first_transaction.amount_type || 'Unknown') + '</li>';
+                html += '<li><strong>Data Amount Value:</strong> ' + (debug.first_transaction.data_amount || 'None') + '</li>';
+                html += '</ul>';
+
+                html += '<p><strong>Has Data:</strong> ' + debug.first_transaction.has_data + '</p>';
+                if (debug.first_transaction.data_keys && debug.first_transaction.data_keys.length > 0) {
+                    html += '<p><strong>Data Keys:</strong> ' + debug.first_transaction.data_keys.join(', ') + '</p>';
+                }
+
+                // Show extracted data if available (from improved debug)
+                if (debug.first_transaction.extracted_data) {
+                    html += '<h6>Extracted Data:</h6>';
+                    const extracted = debug.first_transaction.extracted_data;
+                    if (extracted) {
+                        html += '<ul>';
+                        html += '<li><strong>Date:</strong> ' + (extracted.date || 'Not extracted') + '</li>';
+                        html += '<li><strong>Amount:</strong> ' + (extracted.amount !== null ? extracted.amount : 'Not extracted') + '</li>';
+                        html += '<li><strong>Currency:</strong> ' + (extracted.currency || 'Not extracted') + '</li>';
+                        html += '<li><strong>Description:</strong> ' + (extracted.description || 'Not extracted') + '</li>';
+                        html += '<li><strong>Reference:</strong> ' + (extracted.reference || 'Not extracted') + '</li>';
+                        html += '</ul>';
+                    } else {
+                        html += '<p class="text-danger">Failed to extract transaction data</p>';
+                    }
+                }
+            }
+
+            html += '</div>';
+            html += '</div>';
+
+            if (debug.content_preview) {
+                html += '<h5>File Content Preview</h5>';
+                html += '<pre style="font-size: 11px; max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 4px;">' + debug.content_preview + '</pre>';
+            }
+        }
+
+        resultsContent.innerHTML = html;
+    }
+
+    function showExtractionTestResults(result) {
+        resultsSection.style.display = 'block';
+
+        if (result.success) {
+            resultsAlert.className = 'alert alert-success';
+            let html = '<h4><i class="fa fa-check-circle"></i> Extraction Test Results</h4>';
+
+            html += '<div class="row">';
+            html += '<div class="col-md-6">';
+            html += '<h5>Raw Data</h5>';
+            html += '<ul>';
+            html += '<li><strong>Date:</strong> ' + (result.raw_data.date || 'None') + '</li>';
+            html += '<li><strong>Amount:</strong> ' + (result.raw_data.amount || 'None') + '</li>';
+            html += '<li><strong>Currency:</strong> ' + (result.raw_data.currency || 'None') + '</li>';
+            html += '</ul>';
+            html += '</div>';
+
+            html += '<div class="col-md-6">';
+            html += '<h5>Extracted Data</h5>';
+            if (result.extracted) {
+                html += '<ul>';
+                html += '<li><strong>Date:</strong> ' + (result.extracted.date || 'Failed to extract') + '</li>';
+                html += '<li><strong>Amount:</strong> ' + (result.extracted.amount !== null ? result.extracted.amount : 'Failed to extract') + '</li>';
+                html += '<li><strong>Currency:</strong> ' + (result.extracted.currency || 'Failed to extract') + '</li>';
+                html += '<li><strong>Description:</strong> ' + (result.extracted.description || 'None') + '</li>';
+                html += '</ul>';
+
+                if (result.extracted.date && result.extracted.amount !== null) {
+                    html += '<div class="alert alert-success"><strong>✓ Extraction Successful!</strong> Ready for import.</div>';
+                } else {
+                    html += '<div class="alert alert-warning"><strong>⚠ Extraction Issues</strong> Some data could not be extracted.</div>';
+                }
+            } else {
+                if (result.extraction_error) {
+                    html += '<div class="alert alert-danger"><strong>✗ Extraction Failed</strong><br>' + result.extraction_error + '</div>';
+                } else {
+                    html += '<div class="alert alert-danger"><strong>✗ Extraction Failed</strong> Could not extract transaction data.</div>';
+                }
+            }
+            html += '</div>';
+            html += '</div>';
+
+            resultsContent.innerHTML = html;
+        } else {
+            resultsAlert.className = 'alert alert-danger';
+            resultsContent.innerHTML = '<h4><i class="fa fa-exclamation-circle"></i> Test Failed</h4><p>' + (result.error || 'Unknown error') + '</p>';
+        }
+    }
+
+    function showDetailedDebugResults(result) {
+        resultsSection.style.display = 'block';
+        resultsAlert.className = 'alert alert-info';
+
+        let html = '<h4><i class="fa fa-wrench"></i> Detailed Import Debug</h4>';
+
+        if (result.error) {
+            html += '<div class="alert alert-danger"><strong>Error:</strong> ' + result.error + '</div>';
+        } else {
+            html += '<ul>';
+            html += '<li><strong>Step:</strong> ' + result.step + '</li>';
+            html += '<li><strong>Content Length:</strong> ' + result.content_length + ' characters</li>';
+
+            if (result.extracted_iban) {
+                html += '<li><strong>Extracted IBAN:</strong> ' + result.extracted_iban + '</li>';
+            }
+
+            if (result.found_bank_account) {
+                html += '<li><strong>Found Bank Account:</strong> ' + result.found_bank_account + '</li>';
+            }
+
+            html += '<li><strong>Final Bank Account:</strong> ' + (result.final_bank_account || 'None') + '</li>';
+            html += '<li><strong>Final Company:</strong> ' + (result.final_company || 'None') + '</li>';
+
+            if (result.statements_found) {
+                html += '<li><strong>Statements Found:</strong> ' + result.statements_found + '</li>';
+            }
+
+            if (result.extraction_result) {
+                html += '<li><strong>Extraction Result:</strong> ✓ Success</li>';
+                html += '<li><strong>Extracted Date:</strong> ' + (result.extraction_result.date || 'None') + '</li>';
+                html += '<li><strong>Extracted Amount:</strong> ' + (result.extraction_result.amount || 'None') + '</li>';
+            } else {
+                html += '<li><strong>Extraction Result:</strong> ✗ Failed</li>';
+            }
+
+            if (result.creation_result) {
+                html += '<li><strong>Transaction Creation:</strong> ' + result.creation_result + '</li>';
+
+                if (result.creation_result === 'created') {
+                    html += '<div class="alert alert-success"><strong>✓ Success!</strong> Transaction was created successfully.</div>';
+                } else if (result.creation_result === 'exists') {
+                    html += '<div class="alert alert-warning"><strong>Already Exists</strong> Transaction already in database.</div>';
+                } else {
+                    html += '<div class="alert alert-danger"><strong>Creation Failed:</strong> ' + result.creation_result + '</div>';
+                }
+            }
+
+            html += '</ul>';
+        }
+
+        resultsContent.innerHTML = html;
+    }
+});
+</script>
+
+{% endblock %}

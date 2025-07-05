@@ -1,0 +1,25 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Chapter Board",
+  "role_profile": "Verenigingen Chapter Board",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Chapter Board Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Employee Self Service"
+   },
+   {
+    "role": "Projects User"
+   }
+  ]
+ }
+]

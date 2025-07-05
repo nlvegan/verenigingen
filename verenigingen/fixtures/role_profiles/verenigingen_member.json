@@ -1,0 +1,16 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Member",
+  "role_profile": "Verenigingen Member",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Employee"
+   }
+  ]
+ }
+]

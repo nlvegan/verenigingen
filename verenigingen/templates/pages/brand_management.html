@@ -1,0 +1,550 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Brand Management") }}{% endblock %}
+
+{% block head_include %}
+<style>
+.brand-management-page {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 2rem;
+}
+
+.page-header {
+    text-align: center;
+    margin-bottom: 3rem;
+    padding: 2rem;
+    background: linear-gradient(135deg, var(--brand-accent, #663399), var(--brand-primary, #cf3131));
+    color: white;
+    border-radius: 12px;
+}
+
+.page-header h1 {
+    margin: 0 0 0.5rem 0;
+    font-size: 2.5rem;
+    font-weight: 300;
+}
+
+.page-header p {
+    margin: 0;
+    opacity: 0.9;
+    font-size: 1.1rem;
+}
+
+.current-preview {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 2rem;
+    margin-bottom: 2rem;
+}
+
+.color-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.color-preview {
+    text-align: center;
+    padding: 1rem;
+    border-radius: 8px;
+    border: 1px solid #eee;
+}
+
+.color-swatch {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    margin: 0 auto 0.75rem auto;
+    border: 3px solid white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.color-label {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 0.25rem;
+}
+
+.color-value {
+    font-size: 0.875rem;
+    color: #666;
+    font-family: monospace;
+    text-transform: uppercase;
+}
+
+.settings-list {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+
+.settings-header {
+    background: #f8f9fa;
+    padding: 1.5rem;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.settings-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid #eee;
+    transition: background-color 0.2s ease;
+}
+
+.settings-item:hover {
+    background-color: #f8f9fa;
+}
+
+.settings-item:last-child {
+    border-bottom: none;
+}
+
+.settings-info h4 {
+    margin: 0 0 0.5rem 0;
+    color: #333;
+    display: flex;
+    align-items: center;
+}
+
+.settings-info p {
+    margin: 0;
+    color: #666;
+    font-size: 0.875rem;
+}
+
+.active-badge {
+    background: var(--brand-success, #28a745);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 0.75rem;
+}
+
+.mini-logo-preview {
+    margin: 0.5rem 0;
+    padding: 0.5rem;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #e5e7eb;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    max-width: 120px;
+}
+
+.mini-logo {
+    max-height: 30px;
+    max-width: 100px;
+    object-fit: contain;
+}
+
+.color-mini-preview {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+}
+
+.color-mini {
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 1px solid rgba(0,0,0,0.1);
+}
+
+.settings-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.btn {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.btn-primary {
+    background-color: var(--brand-primary, #cf3131);
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: var(--brand-primary-hover, #b82828);
+    color: white;
+    text-decoration: none;
+}
+
+.btn-secondary {
+    background-color: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #545b62;
+    color: white;
+    text-decoration: none;
+}
+
+.btn-success {
+    background-color: var(--brand-success, #28a745);
+    color: white;
+}
+
+.btn-success:hover {
+    background-color: #218838;
+    color: white;
+    text-decoration: none;
+}
+
+.btn-outline {
+    background-color: transparent;
+    border: 1px solid var(--brand-primary, #cf3131);
+    color: var(--brand-primary, #cf3131);
+}
+
+.btn-outline:hover {
+    background-color: var(--brand-primary, #cf3131);
+    color: white;
+    text-decoration: none;
+}
+
+.alert {
+    padding: 1rem;
+    border-radius: 6px;
+    margin-bottom: 1.5rem;
+}
+
+.alert-info {
+    background-color: #d1ecf1;
+    border: 1px solid #bee5eb;
+    color: #0c5460;
+}
+
+.empty-state {
+    text-align: center;
+    padding: 3rem;
+    color: #666;
+}
+
+.empty-state .icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+    color: #ccc;
+}
+
+/* Logo preview styles */
+.logo-preview {
+    margin-bottom: 2rem;
+    padding: 1.5rem;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+}
+
+.logo-preview-title {
+    margin: 0 0 1rem 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.logo-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 1rem;
+    background: white;
+    border-radius: 6px;
+    border: 1px solid #d1d5db;
+}
+
+.current-logo {
+    max-height: 80px;
+    max-width: 200px;
+    object-fit: contain;
+}
+
+.color-section-title {
+    margin: 1.5rem 0 1rem 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+@media (max-width: 768px) {
+    .brand-management-page {
+        padding: 1rem;
+    }
+
+    .page-header {
+        padding: 1.5rem;
+    }
+
+    .page-header h1 {
+        font-size: 2rem;
+    }
+
+    .color-preview-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .settings-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .settings-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="brand-management-page">
+    <div class="page-header">
+        <h1>🎨 {{ _("Brand Management") }}</h1>
+        <p>{{ _("Customize your organization's colors and theming") }}</p>
+    </div>
+
+    <div class="alert alert-info">
+        <strong>{{ _("How it works:") }}</strong> {{ _("Brand colors are applied globally across all portal pages. Changes take effect immediately after saving. Only one brand setting can be active at a time.") }}
+    </div>
+
+    <!-- Current Active Preview -->
+    <div class="current-preview">
+        <h3>{{ _("Current Active Brand Settings") }}</h3>
+
+        {% if active_settings.logo %}
+        <div class="logo-preview">
+            <h4 class="logo-preview-title">{{ _("Current Logo") }}</h4>
+            <div class="logo-container">
+                <img src="{{ active_settings.logo }}" alt="{{ _('Organization Logo') }}" class="current-logo">
+            </div>
+        </div>
+        {% endif %}
+
+        <h4 class="color-section-title">{{ _("Brand Colors") }}</h4>
+        <div class="color-preview-grid">
+            <div class="color-preview">
+                <div class="color-swatch" style="background-color: {{ active_settings.primary_color }}"></div>
+                <div class="color-label">{{ _("Primary") }}</div>
+                <div class="color-value">{{ active_settings.primary_color }}</div>
+            </div>
+            <div class="color-preview">
+                <div class="color-swatch" style="background-color: {{ active_settings.secondary_color }}"></div>
+                <div class="color-label">{{ _("Secondary") }}</div>
+                <div class="color-value">{{ active_settings.secondary_color }}</div>
+            </div>
+            <div class="color-preview">
+                <div class="color-swatch" style="background-color: {{ active_settings.accent_color }}"></div>
+                <div class="color-label">{{ _("Accent") }}</div>
+                <div class="color-value">{{ active_settings.accent_color }}</div>
+            </div>
+            <div class="color-preview">
+                <div class="color-swatch" style="background-color: {{ active_settings.success_color }}"></div>
+                <div class="color-label">{{ _("Success") }}</div>
+                <div class="color-value">{{ active_settings.success_color }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Brand Settings Actions -->
+    <div class="settings-list">
+        <div class="settings-header">
+            <h3>{{ _("Manage Brand Settings") }}</h3>
+            <a href="/app/brand-settings" class="btn btn-primary">
+                <i class="fa fa-cog"></i> {{ _("Open Settings") }}
+            </a>
+        </div>
+
+        <div class="settings-item">
+            <div class="settings-info">
+                <h4>
+                    {{ _("Brand Settings") }}
+                    <span class="active-badge">{{ _("Active") }}</span>
+                </h4>
+                <p>{{ _("Configure your organization's brand colors, logo, and visual identity") }}</p>
+                {% if active_settings.description %}
+                <p><em>{{ active_settings.description }}</em></p>
+                {% endif %}
+
+                <div class="color-mini-preview">
+                    <div class="color-mini" style="background-color: {{ active_settings.primary_color }}" title="{{ _('Primary') }}: {{ active_settings.primary_color }}"></div>
+                    <div class="color-mini" style="background-color: {{ active_settings.secondary_color }}" title="{{ _('Secondary') }}: {{ active_settings.secondary_color }}"></div>
+                    <div class="color-mini" style="background-color: {{ active_settings.accent_color }}" title="{{ _('Accent') }}: {{ active_settings.accent_color }}"></div>
+                </div>
+            </div>
+
+            <div class="settings-actions">
+                <a href="/app/brand-settings" class="btn btn-outline">
+                    <i class="fa fa-edit"></i> {{ _("Edit Settings") }}
+                </a>
+                <button class="btn btn-secondary" onclick="regenerateBrandCSS()">
+                    <i class="fa fa-refresh"></i> {{ _("Refresh CSS") }}
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Owl Theme Integration -->
+    <div class="owl-theme-integration">
+        <div class="settings-header">
+            <h3>
+                <i class="fa fa-desktop"></i> {{ _("Owl Theme Integration") }}
+            </h3>
+            {% if owl_theme_status.installed and active_settings %}
+            <button class="btn btn-secondary" onclick="syncToOwlTheme()">
+                <i class="fa fa-sync"></i> {{ _("Sync to Owl Theme") }}
+            </button>
+            {% endif %}
+        </div>
+
+        <div class="integration-status">
+            {% if owl_theme_status.installed %}
+                <div class="alert alert-success">
+                    <i class="fa fa-check-circle"></i>
+                    <strong>{{ _("Owl Theme Detected") }}</strong>
+                    <p>{{ _("Your brand settings will automatically sync to Owl Theme Settings to customize the Frappe desk appearance.") }}</p>
+
+                    {% if owl_theme_status.active_brand_settings %}
+                        <p><strong>{{ _("Active Brand Settings:") }}</strong> {{ owl_theme_status.active_brand_settings.settings_name }}</p>
+                    {% endif %}
+
+                    <div class="integration-details" style="margin-top: 1rem; padding: 1rem; background: rgba(255,255,255,0.3); border-radius: 6px;">
+                        <h4 style="margin: 0 0 0.5rem 0;">{{ _("What gets synced:") }}</h4>
+                        <ul style="margin: 0; padding-left: 1.5rem;">
+                            <li>{{ _("Primary colors → Button and navbar colors") }}</li>
+                            <li>{{ _("Secondary colors → Sidebar and background colors") }}</li>
+                            <li>{{ _("Logo → App logo in Frappe desk") }}</li>
+                            <li>{{ _("Text colors → Interface text styling") }}</li>
+                            <li>{{ _("Background colors → Workspace and form backgrounds") }}</li>
+                        </ul>
+                    </div>
+                </div>
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fa fa-info-circle"></i>
+                    <strong>{{ _("Owl Theme Not Detected") }}</strong>
+                    <p>{{ _("To customize the Frappe desk appearance with your brand colors, install the Owl Theme app:") }}</p>
+                    <ol style="margin: 0.5rem 0; padding-left: 1.5rem;">
+                        <li>{{ _("Install Owl Theme app from the Frappe marketplace") }}</li>
+                        <li>{{ _("Once installed, your brand settings will automatically sync") }}</li>
+                        <li>{{ _("Refresh this page to see the integration status") }}</li>
+                    </ol>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+.owl-theme-integration {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    padding: 2rem;
+    margin-top: 2rem;
+}
+
+.alert-success {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.integration-status {
+    margin-top: 1rem;
+}
+
+.integration-details ul {
+    list-style-type: disc;
+}
+
+.integration-details li {
+    margin-bottom: 0.25rem;
+}
+</style>
+
+<script>
+function regenerateBrandCSS() {
+    frappe.call({
+        method: 'verenigingen.utils.brand_css_generator.regenerate_brand_css',
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                frappe.show_alert({
+                    message: '{{ _("Brand CSS refreshed successfully!") }}',
+                    indicator: 'green'
+                });
+            } else {
+                frappe.show_alert({
+                    message: r.message ? r.message.message : '{{ _("Error refreshing CSS") }}',
+                    indicator: 'red'
+                });
+            }
+        },
+        error: function() {
+            frappe.show_alert({
+                message: '{{ _("Error refreshing brand CSS") }}',
+                indicator: 'red'
+            });
+        }
+    });
+}
+
+function syncToOwlTheme() {
+    frappe.call({
+        method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.sync_brand_settings_to_owl_theme',
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                frappe.show_alert({
+                    message: r.message.message,
+                    indicator: 'green'
+                });
+            } else {
+                frappe.show_alert({
+                    message: r.message ? r.message.message : 'Error syncing to Owl Theme',
+                    indicator: 'red'
+                });
+            }
+        },
+        error: function() {
+            frappe.show_alert({
+                message: '{{ _("Error syncing to Owl Theme") }}',
+                indicator: 'red'
+            });
+        }
+    });
+}
+
+// Show success message if just created/updated
+if (window.location.search.includes('success')) {
+    setTimeout(() => {
+        frappe.show_alert({
+            message: '{{ _("Brand settings updated successfully!") }}',
+            indicator: 'green'
+        });
+    }, 500);
+}
+</script>
+{% endblock %}

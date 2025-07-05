@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #f8f9fa; padding: 20px; border-radius: 8px 8px 0 0; }
+        .content { background-color: #ffffff; padding: 30px; border: 1px solid #e9ecef; }
+        .footer { background-color: #f8f9fa; padding: 20px; text-align: center; font-size: 12px; color: #6c757d; border-radius: 0 0 8px 8px; }
+        .alert-box { background-color: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0; }
+        .payment-details { background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .payment-details td { padding: 8px 0; }
+        .button { display: inline-block; padding: 12px 24px; background-color: #dc3545; color: white; text-decoration: none; border-radius: 4px; margin: 20px 0; }
+        .button-secondary { background-color: #6c757d; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2 style="margin: 0; color: #0066cc;">{{ company_name }}</h2>
+        </div>
+
+        <div class="content">
+            <h3>Dear {{ member_name }},</h3>
+
+            <div class="alert-box">
+                <strong>Action Required:</strong> We have been unable to process your payment after multiple attempts.
+            </div>
+
+            <p>Despite our attempts to collect payment, we have been unsuccessful. Your immediate attention is required to resolve this matter.</p>
+
+            <div class="payment-details">
+                <h4 style="margin-top: 0;">Outstanding Payment Details:</h4>
+                <table style="width: 100%;">
+                    <tr>
+                        <td><strong>Invoice Number:</strong></td>
+                        <td>{{ invoice_number }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Amount Due:</strong></td>
+                        <td style="color: #dc3545; font-weight: bold;">{{ amount }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Failed Attempts:</strong></td>
+                        <td>{{ retry_count }}</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Last Failure Reason:</strong></td>
+                        <td>{{ failure_reason }}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <p><strong>What happens next?</strong></p>
+            <ul>
+                <li>Automatic payment collection has been suspended for this invoice</li>
+                <li>Your account may be subject to late fees if not resolved promptly</li>
+                <li>Membership services may be affected if payment is not received</li>
+            </ul>
+
+            <p><strong>How to resolve this:</strong></p>
+            <ol>
+                <li>Make a manual payment through your payment dashboard</li>
+                <li>Update your bank details if they have changed</li>
+                <li>Contact us to discuss alternative payment arrangements</li>
+            </ol>
+
+            <center>
+                <a href="{{ payment_link }}" class="button">Pay Now</a>
+                <br>
+                <a href="{{ website_url }}/bank_details" class="button button-secondary">Update Bank Details</a>
+            </center>
+
+            <p>Please resolve this matter as soon as possible to avoid any disruption to your membership. If you're experiencing financial difficulties, please contact us to discuss payment options.</p>
+
+            <p>Best regards,<br>
+            {{ company_name }} Membership Team</p>
+        </div>
+
+        <div class="footer">
+            <p>This is an automated message from {{ company_name }}.<br>
+            Please do not reply to this email. For support, visit your member portal.<br>
+            © {{ current_year }} {{ company_name }}. All rights reserved.<br>
+            <a href="{{ unsubscribe_link }}" style="color: #6c757d;">Manage email preferences</a></p>
+        </div>
+    </div>
+</body>
+</html>

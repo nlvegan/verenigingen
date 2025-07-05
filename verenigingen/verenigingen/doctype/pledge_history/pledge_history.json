@@ -1,0 +1,48 @@
+{
+ "actions": [],
+
+ "app": "verenigingen","allow_rename": 1,
+ "creation": "2023-06-15 11:11:01.159402",
+ "default_view": "List",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "pledge_date",
+  "pledge_amount",
+  "pledge_status"
+ ],
+ "fields": [
+  {
+   "fieldname": "pledge_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Pledge Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "pledge_amount",
+   "fieldtype": "Currency",
+   "label": "Pledge Amount",
+   "options": "Company:company:default_currency"
+  },
+  {
+   "fieldname": "pledge_status",
+   "fieldtype": "Select",
+   "label": "Pledge Status",
+   "options": "\nOpen\nFulfilled\nPartially Fulfilled\nOverdue\nCancelled\nPending\nWritten Off"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2023-06-15 11:21:32.901536",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Pledge History",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
