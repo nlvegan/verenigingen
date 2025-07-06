@@ -110,7 +110,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
 
             if other_members:
                 # Create HTML content for display
-                html_content = f'<div class="address-members-display"><h6>Other Members at This Address ({len(other_members)} found):</h6>'
+                html_content = f'<div class="address-members-display"><h6>Other Members at This Address ({len(other_members)} found): </h6>'
 
                 for other in other_members:
                     html_content += """
@@ -577,9 +577,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         self.set_payment_reference()
         self.validate_bank_details()
         self.sync_payment_amount()
-        # Import and call member ID validation
-        from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
-
+        # Call member ID validation
         validate_member_id_change(self)
         self.handle_fee_override_changes()
         self.sync_status_fields()
@@ -1133,38 +1131,75 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         if not self.primary_address:
             return []
 
-        # Get the address details
-        address_doc = frappe.get_doc("Address", self.primary_address)
-        if not address_doc.address_line1 or not address_doc.pincode:
+        try:
+            # Get the primary address details
+            address_doc = frappe.get_doc("Address", self.primary_address)
+
+            # Find other addresses with the same physical location components
+            # Normalize address line for comparison (convert to lowercase, remove extra spaces)
+            normalized_address_line = (
+                address_doc.address_line1.lower().strip() if address_doc.address_line1 else ""
+            )
+            normalized_city = address_doc.city.lower().strip() if address_doc.city else ""
+
+            # Find matching addresses by physical components
+            matching_addresses = frappe.get_all(
+                "Address",
+                filters=[
+                    ["address_line1", "!=", ""],  # Must have address line
+                    ["address_line1", "is", "set"],
+                ],
+                fields=["name", "address_line1", "city", "pincode"],
+            )
+
+            # Filter addresses that match our physical location
+            same_location_addresses = []
+            for addr in matching_addresses:
+                addr_line_normalized = addr.address_line1.lower().strip() if addr.address_line1 else ""
+                addr_city_normalized = addr.city.lower().strip() if addr.city else ""
+
+                # Match if address line and city are the same (case-insensitive)
+                if (
+                    addr_line_normalized == normalized_address_line
+                    and addr_city_normalized == normalized_city
+                    and addr.name != self.primary_address
+                ):  # Exclude current member's address
+                    same_location_addresses.append(addr.name)
+
+            if not same_location_addresses:
+                return []
+
+            # Find members using any of the matching addresses
+            other_members = frappe.get_all(
+                "Member",
+                filters={
+                    "primary_address": ["in", same_location_addresses],
+                    "name": ["!=", self.name],  # Exclude current member
+                    "status": ["in", ["Active", "Pending", "Suspended"]],  # Only include active statuses
+                },
+                fields=["name", "full_name", "email", "status", "member_since", "birth_date"],
+                order_by="full_name asc",
+            )
+
+            # Enrich the data with additional info
+            enriched_members = []
+            for member in other_members:
+                member_data = {
+                    "name": member.name,
+                    "full_name": member.full_name,
+                    "email": member.email,
+                    "status": member.status,
+                    "member_since": member.member_since,
+                    "relationship": self._guess_relationship(member),
+                    "age_group": self._get_age_group(member.birth_date) if member.birth_date else None,
+                }
+                enriched_members.append(member_data)
+
+            return enriched_members
+
+        except Exception as e:
+            frappe.log_error(f"Error getting other members at address for {self.name}: {str(e)}")
             return []
-
-        # Sanitize the address for comparison
-        from verenigingen.utils.address_helpers import sanitize_address
-
-        clean_address = sanitize_address(address_doc.address_line1)
-
-        # Get all members with primary address
-        others = frappe.get_all(
-            "Member",
-            filters={"primary_address": ["is", "set"], "name": ["!=", self.name]},
-            fields=["name", "full_name", "primary_address", "status"],
-        )
-
-        # Filter by matching address
-        matching_members = []
-        for other in others:
-            if other.primary_address:
-                try:
-                    other_address = frappe.get_doc("Address", other.primary_address)
-                    if other_address.pincode == address_doc.pincode and other_address.address_line1:
-                        other_clean = sanitize_address(other_address.address_line1)
-                        if other_clean == clean_address:
-                            matching_members.append(other)
-                except Exception:
-                    # Skip if address doesn't exist
-                    pass
-
-        return matching_members
 
     def calculate_cumulative_membership_duration(self):
         """Calculate total membership duration in years"""
@@ -2587,12 +2622,12 @@ def create_donor_from_member(member_name):
             # Build HTML content
             html_parts = []
             html_parts.append('<div class="volunteer-details">')
-            html_parts.append(f"<p><strong>Volunteer ID:</strong> {volunteer}</p>")
-            html_parts.append(f"<p><strong>Volunteer Name:</strong> {volunteer_doc.volunteer_name}</p>")
+            html_parts.append(f"<p><strong>Volunteer ID: </strong> {volunteer}</p>")
+            html_parts.append(f"<p><strong>Volunteer Name: </strong> {volunteer_doc.volunteer_name}</p>")
 
             if volunteer_doc.start_date:
                 html_parts.append(
-                    f"<p><strong>Start Date:</strong> {frappe.utils.format_date(volunteer_doc.start_date)}</p>"
+                    f"<p><strong>Start Date: </strong> {frappe.utils.format_date(volunteer_doc.start_date)}</p>"
                 )
 
             if volunteer_doc.status:
@@ -2600,7 +2635,7 @@ def create_donor_from_member(member_name):
                     volunteer_doc.status, "secondary"
                 )
                 html_parts.append(
-                    f'<p><strong>Status:</strong> <span class="badge badge-{status_color}">{volunteer_doc.status}</span></p>'
+                    f'<p><strong>Status: </strong> <span class="badge badge-{status_color}">{volunteer_doc.status}</span></p>'
                 )
 
             # Add link to volunteer record
@@ -2682,3 +2717,71 @@ def create_donor_from_member(member_name):
                 return {"has_subscription": False}
         except Exception:
             return {"has_subscription": False}
+
+
+# Global functions that were missing from current version
+
+
+@frappe.whitelist()
+def get_member_current_chapters(member_name):
+    """Get current chapters for a member - safe for client calls"""
+    if not member_name:
+        return []
+
+    try:
+        # Check if user has permission to access this member
+        member_doc = frappe.get_doc("Member", member_name)
+        return member_doc.get_current_chapters()
+
+    except frappe.PermissionError:
+        # If no permission to member, return empty list
+        return []
+    except Exception as e:
+        frappe.log_error(f"Error getting member chapters: {str(e)}", "Member Chapters API")
+        return []
+
+
+@frappe.whitelist()
+def get_member_chapter_names(member_name):
+    """Get simple list of chapter names for a member"""
+    if not member_name:
+        return []
+
+    try:
+        chapters = get_member_current_chapters(member_name)
+        return [chapter.get("chapter_name", chapter.get("name", "")) for chapter in chapters]
+    except Exception as e:
+        frappe.log_error(f"Error getting member chapter names: {str(e)}", "Member Chapter Names API")
+        return []
+
+
+@frappe.whitelist()
+def get_member_chapter_display_html(member_name):
+    """Get HTML display of member's chapters"""
+    if not member_name:
+        return "<div class='text-muted'>No member specified</div>"
+
+    try:
+        chapters = get_member_current_chapters(member_name)
+        if not chapters:
+            return "<div class='text-muted'>No active chapters</div>"
+
+        html = "<div class='chapter-list'>"
+        for chapter in chapters:
+            chapter_name = chapter.get("chapter_name", chapter.get("name", "Unknown"))
+            status = chapter.get("status", "Unknown")
+
+            status_class = "success" if status == "Active" else "secondary"
+            html += f"""
+            <div class="chapter-item">
+                <span class="badge badge-{status_class}">{chapter_name}</span>
+                <small class="text-muted ml-2">{status}</small>
+            </div>
+            """
+
+        html += "</div>"
+        return html
+
+    except Exception as e:
+        frappe.log_error(f"Error generating chapter display HTML: {str(e)}", "Member Chapter Display")
+        return f"<div class='text-danger'>Error loading chapters: {str(e)}</div>"
