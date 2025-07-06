@@ -403,7 +403,7 @@ class VolunteerIntegrationManager(BaseManager):
 
                 # Check if volunteer exists
                 if not frappe.db.exists("Volunteer", board_member.volunteer):
-                    issues.append(f"Volunteer {board_member.volunteer} not found in system")
+                    issues.append(f"Volunteer {board_member.volunteer} not found in system")  # noqa: E713
                     continue
 
                 # Check assignment history consistency

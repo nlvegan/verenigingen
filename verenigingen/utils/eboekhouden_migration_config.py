@@ -5,6 +5,8 @@ This module provides configuration for proper payment migration
 based on the actual chart of accounts structure.
 """
 
+import json
+
 import frappe
 
 # Bank and cash account configurations for Nederlandse Vereniging voor Veganisme
@@ -87,11 +89,15 @@ def validate_migration_setup():
     # Check if payment accounts exist in ERPNext
     for account_code, info in PAYMENT_ACCOUNT_CONFIG["bank_accounts"].items():
         if not frappe.db.exists("Account", {"account_number": account_code}):
-            warnings.append(f"Bank account {account_code} ({info['name']}) not found in Chart of Accounts")
+            warnings.append(
+                f"Bank account {account_code} ({info['name']}) not found in Chart of Accounts"  # noqa: E713
+            )
 
     for account_code, info in PAYMENT_ACCOUNT_CONFIG["cash_accounts"].items():
         if not frappe.db.exists("Account", {"account_number": account_code}):
-            warnings.append(f"Cash account {account_code} ({info['name']}) not found in Chart of Accounts")
+            warnings.append(
+                f"Cash account {account_code} ({info['name']}) not found in Chart of Accounts"  # noqa: E713
+            )
 
     # Check modes of payment
     required_modes = ["Bank Transfer", "PayPal", "Cash", "SEPA Direct Debit"]
@@ -206,7 +212,3 @@ def test_payment_identification(limit=10):
 
         frappe.log_error(traceback.format_exc(), "Payment identification test error")
         return {"success": False, "error": str(e)}
-
-
-# Import json at module level
-import json

@@ -142,7 +142,7 @@ def create_test_pending_members():
             "success": True,
             "message": f"✅ Successfully created {len(created_members)} test members with Pending status!",
             "created": len(created_members),
-            "errors": len(errors),
+            "error_count": len(errors),
             "created_members": created_members,
             "errors": errors,
         }

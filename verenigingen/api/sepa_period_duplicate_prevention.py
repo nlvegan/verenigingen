@@ -253,7 +253,7 @@ def prevent_sepa_batch_period_duplicates(batch_name: str) -> Dict:
             "batch": batch_name,
             "has_conflicts": has_conflicts,
             "total_items": len(batch.invoices),
-            "validated_items": len(validated_items),
+            "validated_items_count": len(validated_items),
             "conflict_items": len(conflicts),
             "conflicts": conflicts,
             "validated_items": validated_items[:10],  # Limit for display

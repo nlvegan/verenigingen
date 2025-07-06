@@ -20,7 +20,9 @@ class EBoekhoudenItemMapping(Document):
             if account:
                 self.account_name = account.account_name
             else:
-                frappe.throw(f"Account with code {self.account_code} not found in company {self.company}")
+                frappe.throw(
+                    f"Account with code {self.account_code} not found in company {self.company}"  # noqa: E713
+                )
 
         # Ensure item exists
         if self.item_code and not frappe.db.exists("Item", self.item_code):

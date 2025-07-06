@@ -201,7 +201,8 @@ class ExpenseNotificationManager:
                 "dashboard_url": f"{self.base_url}/app/expense-approval-dashboard",
                 "company": self.company,
                 "base_url": self.base_url,
-                "support_email": frappe.db.get_single_value("Verenigingen Settings", "contact_email") or "info@verenigingen.nl",
+                "support_email": frappe.db.get_single_value("Verenigingen Settings", "contact_email")
+                or "info@verenigingen.nl",
             },
         )
 

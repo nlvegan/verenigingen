@@ -114,10 +114,10 @@ def calculate_iban_checksum(country_code, bank_code, account_number):
     """
     # Create IBAN without checksum (use 00 as placeholder)
     temp_iban = country_code + "00" + bank_code + account_number
-    
+
     # Move first 4 characters to end
     rearranged = temp_iban[4:] + temp_iban[:4]
-    
+
     # Convert letters to numbers
     numeric_iban = ""
     for char in rearranged:
@@ -125,11 +125,11 @@ def calculate_iban_checksum(country_code, bank_code, account_number):
             numeric_iban += char
         else:
             numeric_iban += str(ord(char) - ord("A") + 10)
-    
+
     # Calculate checksum
     remainder = int(numeric_iban) % 97
     checksum = 98 - remainder
-    
+
     return f"{checksum:02d}"
 
 
@@ -137,30 +137,30 @@ def calculate_iban_checksum(country_code, bank_code, account_number):
 def generate_test_iban(bank_code="TEST", account_number=None):
     """
     Generate a valid test IBAN with proper MOD-97 checksum
-    
+
     Args:
         bank_code: Mock bank code (TEST, MOCK, or DEMO)
         account_number: Optional account number (10 digits), auto-generated if None
-        
+
     Returns:
         Valid test IBAN string
     """
     if bank_code not in ["TEST", "MOCK", "DEMO"]:
         bank_code = "TEST"
-    
+
     if not account_number:
         # Generate a simple 10-digit account number
         account_number = "0123456789"
-    
+
     # Ensure account number is 10 digits
     account_number = account_number.zfill(10)[:10]
-    
+
     # Calculate correct checksum
     checksum = calculate_iban_checksum("NL", bank_code, account_number)
-    
+
     # Construct final IBAN
     iban = f"NL{checksum}{bank_code}{account_number}"
-    
+
     return iban
 
 
@@ -221,7 +221,7 @@ def get_bank_from_iban(iban):
             "NNBA": "Nationale-Nederlanden Bank",
             # Mock banks for testing purposes
             "TEST": "Test Bank (Mock)",
-            "MOCK": "Mock Bank for Testing", 
+            "MOCK": "Mock Bank for Testing",
             "DEMO": "Demo Bank for Testing",
         }
         # Get BIC code mapping
@@ -247,7 +247,7 @@ def get_bank_from_iban(iban):
             "RBRB": "RBRBNL21",
             # Mock banks for testing purposes
             "TEST": "TESTNL2A",
-            "MOCK": "MOCKNL2A", 
+            "MOCK": "MOCKNL2A",
             "DEMO": "DEMONL2A",
         }
         # Return None if bank is not recognized
@@ -309,7 +309,7 @@ def derive_bic_from_iban(iban):
             "RBRB": "RBRBNL21",
             # Mock banks for testing purposes
             "TEST": "TESTNL2A",
-            "MOCK": "MOCKNL2A", 
+            "MOCK": "MOCKNL2A",
             "DEMO": "DEMONL2A",
         }
         return nl_bic_codes.get(bank_code)

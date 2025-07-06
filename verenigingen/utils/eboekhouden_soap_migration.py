@@ -116,13 +116,13 @@ def migrate_using_soap(migration_doc, settings, use_account_mappings=True):
                 {
                     "message": f"Retrieved {len(all_mutations)} mutations (range: {min_mutation} to {max_mutation})"
                 },
-                user=frappe.session.user,
+                user=frappe.session.user,  # noqa: E225
             )
         else:
             frappe.publish_realtime(
                 "migration_progress",
                 {"message": f"Retrieved {len(all_mutations)} mutations"},
-                user=frappe.session.user,
+                user=frappe.session.user,  # noqa: E225
             )
 
         # Log what we actually got
@@ -140,13 +140,13 @@ def migrate_using_soap(migration_doc, settings, use_account_mappings=True):
                 {
                     "message": f"Fetched {len(all_mutations)} mutations (range: {min_mutation} to {max_mutation})"
                 },
-                user=frappe.session.user,
+                user=frappe.session.user,  # noqa: E225
             )
         else:
             frappe.publish_realtime(
                 "migration_progress",
                 {"message": f"Fetched {len(all_mutations)} mutations"},
-                user=frappe.session.user,
+                user=frappe.session.user,  # noqa: E225
             )
 
         # Load relations data for enhanced customer/supplier names

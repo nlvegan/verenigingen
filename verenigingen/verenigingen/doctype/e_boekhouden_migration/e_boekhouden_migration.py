@@ -2117,7 +2117,7 @@ class EBoekhoudenMigration(Document):
                 "Account", {"account_number": account_code}, ["name", "account_type"], as_dict=True
             )
             if not account_details:
-                self.log_error(f"Account {account_code} not found in ERPNext")
+                self.log_error(f"Account {account_code} not found in ERPNext")  # noqa: E713
                 return False
 
             account = account_details.name

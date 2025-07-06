@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
+from verenigingen.utils.iban_validator import derive_bic_from_iban
+
 
 class PaymentRetryManager:
     """Manages automated retry logic for failed SEPA payments"""
@@ -312,7 +314,3 @@ def check_payment_retry_status(invoice):
         "status": retry_doc.status,
         "max_retries_reached": retry_doc.retry_count >= 3,
     }
-
-
-# Import BIC derivation function
-from verenigingen.utils.iban_validator import derive_bic_from_iban

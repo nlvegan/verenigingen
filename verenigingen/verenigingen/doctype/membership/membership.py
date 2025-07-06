@@ -998,7 +998,7 @@ def fix_subscription_amounts():
     fixed_count = 0
 
     for result in check_results:
-        if result.get("matches") == False:  # Amount mismatch
+        if result.get("matches") is False:  # Amount mismatch
             try:
                 membership = frappe.get_doc("Membership", result["membership"])
                 membership.update_subscription_amount()

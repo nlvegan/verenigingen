@@ -988,7 +988,7 @@ class Volunteer(Document):
                             f"Skipping employee creation for volunteer {self.name} - member application still pending approval"
                         )
                         return
-                
+
                 frappe.logger().info(f"Auto-creating employee record for new volunteer: {self.name}")
                 employee_id = self.create_minimal_employee()
                 if employee_id:
