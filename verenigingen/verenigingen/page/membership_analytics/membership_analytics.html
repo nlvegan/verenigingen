@@ -1,0 +1,390 @@
+<div class="membership-analytics-page">
+    <div class="page-head">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-8">
+                    <h1 class="page-title">{{ __("Membership Analytics Dashboard") }}</h1>
+                </div>
+                <div class="col-md-4 text-right">
+                    <button class="btn btn-primary btn-sm" id="btn-add-goal">
+                        <i class="fa fa-plus"></i> {{ __("Add Goal") }}
+                    </button>
+                    <button class="btn btn-default btn-sm" id="btn-refresh">
+                        <i class="fa fa-refresh"></i> {{ __("Refresh") }}
+                    </button>
+                    <div class="btn-group" role="group">
+                        <button type="button" class="btn btn-default btn-sm dropdown-toggle" data-toggle="dropdown">
+                            <i class="fa fa-download"></i> {{ __("Export") }}
+                        </button>
+                        <ul class="dropdown-menu">
+                            <li><a href="#" id="btn-export-excel">{{ __("Excel") }}</a></li>
+                            <li><a href="#" id="btn-export-pdf">{{ __("PDF") }}</a></li>
+                            <li><a href="#" id="btn-export-csv">{{ __("CSV") }}</a></li>
+                        </ul>
+                    </div>
+                    <button class="btn btn-default btn-sm" id="btn-create-snapshot">
+                        <i class="fa fa-camera"></i> {{ __("Snapshot") }}
+                    </button>
+                    <button class="btn btn-info btn-sm" id="btn-predictive">
+                        <i class="fa fa-line-chart"></i> {{ __("Predictive Analytics") }}
+                    </button>
+                    <button class="btn btn-warning btn-sm" id="btn-alert-rules">
+                        <i class="fa fa-bell"></i> {{ __("Alert Rules") }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="page-content">
+        <div class="container">
+            <!-- Filters Section -->
+            <div class="row filter-section">
+                <div class="col-md-3">
+                    <label>{{ __("Year") }}</label>
+                    <select class="form-control" id="filter-year">
+                        <!-- Will be populated dynamically -->
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>{{ __("Period") }}</label>
+                    <select class="form-control" id="filter-period">
+                        <option value="year">{{ __("Year") }}</option>
+                        <option value="quarter">{{ __("Quarter") }}</option>
+                        <option value="month">{{ __("Month") }}</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>&nbsp;</label>
+                    <div>
+                        <input type="checkbox" id="compare-previous">
+                        <label for="compare-previous" style="font-weight: normal;">
+                            {{ __("Compare to Previous Period") }}
+                        </label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label>&nbsp;</label>
+                    <div>
+                        <button class="btn btn-default btn-sm" id="btn-toggle-filters">
+                            <i class="fa fa-filter"></i> {{ __("Advanced Filters") }}
+                        </button>
+                        <button class="btn btn-link btn-sm" id="btn-reset-filters" style="display: none;">
+                            {{ __("Reset") }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Advanced Filters (Initially Hidden) -->
+            <div class="row filter-section" id="advanced-filters" style="display: none; margin-top: -10px;">
+                <div class="col-md-2">
+                    <label>{{ __("Chapter") }}</label>
+                    <select class="form-control" id="filter-chapter">
+                        <option value="">{{ __("All Chapters") }}</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label>{{ __("Region") }}</label>
+                    <select class="form-control" id="filter-region">
+                        <option value="">{{ __("All Regions") }}</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>{{ __("Membership Type") }}</label>
+                    <select class="form-control" id="filter-membership-type">
+                        <option value="">{{ __("All Types") }}</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label>{{ __("Age Group") }}</label>
+                    <select class="form-control" id="filter-age-group">
+                        <option value="">{{ __("All Ages") }}</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label>{{ __("Payment Method") }}</label>
+                    <select class="form-control" id="filter-payment-method">
+                        <option value="">{{ __("All Methods") }}</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="row summary-cards">
+                <div class="col-md-3">
+                    <div class="card summary-card">
+                        <div class="card-body">
+                            <h6 class="text-muted">{{ __("TOTAL MEMBERS") }}</h6>
+                            <h2 class="mb-0" id="total-members">-</h2>
+                            <small class="text-muted" id="total-members-change"></small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card summary-card">
+                        <div class="card-body">
+                            <h6 class="text-muted">{{ __("NET GROWTH") }}</h6>
+                            <h2 class="mb-0" id="net-growth">-</h2>
+                            <small class="text-success" id="net-growth-change"></small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card summary-card">
+                        <div class="card-body">
+                            <h6 class="text-muted">{{ __("GROWTH RATE") }}</h6>
+                            <h2 class="mb-0" id="growth-rate">-</h2>
+                            <small class="text-muted">{{ __("YoY") }}</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card summary-card">
+                        <div class="card-body">
+                            <h6 class="text-muted">{{ __("PROJECTED REVENUE") }}</h6>
+                            <h2 class="mb-0" id="projected-revenue">-</h2>
+                            <small class="text-muted">{{ __("Next Year") }}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Row -->
+            <div class="row charts-row">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("Member Growth Trend") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="growth-trend-chart" style="height: 300px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("Revenue by Membership Type") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="revenue-chart" style="height: 300px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Goals and Breakdown Row -->
+            <div class="row mt-4">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("Goals vs Actual") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="goals-progress"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("Membership Type Breakdown") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="membership-breakdown"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Insights Section -->
+            <div class="row mt-4">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("Key Insights") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="insights-list"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Segmentation Section -->
+            <div class="row mt-4">
+                <div class="col-md-12">
+                    <h4>{{ __("Member Segmentation") }}</h4>
+                </div>
+            </div>
+            <div class="row mt-2">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("By Chapter") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="chapter-segmentation-chart" style="height: 250px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("By Region") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="region-segmentation-chart" style="height: 250px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="row mt-3">
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("By Age Group") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="age-segmentation-chart" style="height: 250px;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("By Payment Method") }}</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="payment-method-chart" style="height: 250px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cohort Analysis Section -->
+            <div class="row mt-4">
+                <div class="col-md-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>{{ __("Cohort Retention Analysis") }}</h5>
+                            <small class="text-muted">{{ __("Shows member retention rates by cohort over time") }}</small>
+                        </div>
+                        <div class="card-body">
+                            <div id="cohort-heatmap" style="overflow-x: auto;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Last Updated -->
+            <div class="row mt-4">
+                <div class="col-md-12 text-center text-muted">
+                    <small>{{ __("Last updated") }}: <span id="last-updated">-</span></small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.membership-analytics-page {
+    background-color: #f5f7fa;
+    min-height: 100vh;
+}
+
+.filter-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.summary-cards {
+    margin-bottom: 20px;
+}
+
+.summary-card {
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    transition: transform 0.2s;
+}
+
+.summary-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.card {
+    border: none;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    border-radius: 8px 8px 0 0;
+}
+
+.progress {
+    height: 20px;
+    margin-bottom: 10px;
+}
+
+.insight-item {
+    padding: 10px;
+    margin-bottom: 10px;
+    border-left: 4px solid;
+    background-color: #f8f9fa;
+}
+
+.insight-success {
+    border-color: #28a745;
+}
+
+.insight-warning {
+    border-color: #ffc107;
+}
+
+.insight-danger {
+    border-color: #dc3545;
+}
+
+.cohort-table {
+    font-size: 12px;
+}
+
+.cohort-table th {
+    background-color: #f8f9fa;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.cohort-table td {
+    text-align: center;
+    min-width: 60px;
+}
+
+#advanced-filters {
+    background-color: #f8f9fa;
+    border-top: 1px solid #dee2e6;
+    padding-top: 15px;
+}
+
+#btn-reset-filters {
+    padding: 0 10px;
+}
+
+.dropdown-menu > li > a {
+    cursor: pointer;
+}
+
+.mt-2 { margin-top: 0.5rem; }
+.mt-3 { margin-top: 1rem; }
+.mt-4 { margin-top: 1.5rem; }
+</style>

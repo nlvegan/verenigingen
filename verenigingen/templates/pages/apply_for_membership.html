@@ -47,7 +47,7 @@
                         <h3>{{ _("Personal Information") }}</h3>
                     </div>
                     <div class="form-body">
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-6" id="name-fields-grid">
                             <div class="input-group">
                                 <label for="first_name" class="input-label required">{{ _("Preferred Name") }}</label>
                                 <input type="text" class="form-input" id="first_name" name="first_name" required
@@ -59,6 +59,13 @@
                                 <label for="middle_name" class="input-label">{{ _("Middle Name") }}</label>
                                 <input type="text" class="form-input" id="middle_name" name="middle_name"
                                        placeholder="{{ _('Optional') }}">
+                            </div>
+
+                            <div class="input-group" id="tussenvoegsel-field" style="display: none;">
+                                <label for="tussenvoegsel" class="input-label">{{ _("Tussenvoegsel") }}</label>
+                                <input type="text" class="form-input" id="tussenvoegsel" name="tussenvoegsel"
+                                       placeholder="{{ _('van, de, van der, etc.') }}">
+                                <small class="text-gray-500 text-sm">{{ _("Dutch name particles") }}</small>
                             </div>
 
                             <div class="input-group">
@@ -507,6 +514,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Make app globally available for debugging
         window.membershipApp = app;
+
+        // Check if this is a Dutch installation and show/hide tussenvoegsel field
+        frappe.call({
+            method: 'verenigingen.utils.dutch_name_utils.is_dutch_installation',
+            callback: function(r) {
+                if (r.message) {
+                    // This is a Dutch installation, show the tussenvoegsel field
+                    document.getElementById('tussenvoegsel-field').style.display = 'block';
+                    // Adjust grid to accommodate 4 columns on medium screens
+                    document.getElementById('name-fields-grid').className = 'grid grid-cols-1 md:grid-cols-4 gap-6';
+                } else {
+                    // Not a Dutch installation, keep the field hidden and use 3 columns
+                    document.getElementById('tussenvoegsel-field').style.display = 'none';
+                    document.getElementById('name-fields-grid').className = 'grid grid-cols-1 md:grid-cols-3 gap-6';
+                }
+            }
+        });
 
     } catch (error) {
         console.error('Error initializing membership application:', error);

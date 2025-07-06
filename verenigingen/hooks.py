@@ -16,6 +16,10 @@ required_apps = ["erpnext", "payments", "hrms", "alyf-de/banking"]
 # Includes in <head>
 # ------------------
 on_app_init = ["verenigingen.setup.doctype_overrides.setup_subscription_override"]
+
+# Boot session - runs when user session starts
+boot_session = "verenigingen.boot.boot_session"
+
 app_include_css = [
     "/assets/verenigingen/css/verenigingen_custom.css",
     "/assets/verenigingen/css/volunteer_portal.css",
@@ -62,7 +66,10 @@ doc_events = {
         "on_update": "verenigingen.verenigingen.doctype.member.member_utils.sync_member_counter_with_settings",
     },
     "Payment Entry": {
-        "on_submit": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
+        "on_submit": [
+            "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
+            "verenigingen.utils.payment_notifications.on_payment_submit",
+        ],
         "on_cancel": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
         "on_trash": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
     },
@@ -90,14 +97,18 @@ doc_events = {
     },
     # Donation history tracking
     "Donation": {
-        "after_insert": "verenigingen.utils.donation_history_manager.on_donation_insert",
-        "on_update": "verenigingen.utils.donation_history_manager.on_donation_update",
+        "after_insert": [
+            "verenigingen.utils.donation_history_manager.on_donation_insert",
+            "verenigingen.verenigingen.doctype.donation.donation.update_campaign_progress",
+        ],
+        "on_update": [
+            "verenigingen.utils.donation_history_manager.on_donation_update",
+            "verenigingen.verenigingen.doctype.donation.donation.update_campaign_progress",
+        ],
         "on_submit": "verenigingen.utils.donation_history_manager.on_donation_submit",
         "on_cancel": "verenigingen.utils.donation_history_manager.on_donation_cancel",
         "on_trash": "verenigingen.utils.donation_history_manager.on_donation_delete",
     },
-    # Payment notifications
-    "Payment Entry": {"on_submit": "verenigingen.utils.payment_notifications.on_payment_submit"},
     # Volunteer expense approver sync (native ERPNext system)
     "Volunteer": {"on_update": "verenigingen.utils.native_expense_helpers.update_employee_approver"},
     # Brand Settings - regenerate CSS when colors change (Single doctype)
@@ -121,6 +132,8 @@ scheduler_events = {
         "verenigingen.api.membership_application_review.send_overdue_notifications",
         # Amendment system processing
         "verenigingen.verenigingen.doctype.membership_amendment_request.membership_amendment_request.process_pending_amendments",
+        # Analytics and goals updates
+        "verenigingen.verenigingen.doctype.membership_goal.membership_goal.update_all_goals",
         # Termination system maintenance
         "verenigingen.utils.termination_utils.process_overdue_termination_requests",
         "verenigingen.utils.termination_utils.audit_termination_compliance",
@@ -140,6 +153,12 @@ scheduler_events = {
         "verenigingen.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Native expense approver sync
         "verenigingen.utils.native_expense_helpers.refresh_all_expense_approvers",
+        # Create daily analytics snapshots
+        "verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_scheduled_snapshots",
+    ],
+    "hourly": [
+        # Check analytics alert rules
+        "verenigingen.verenigingen.doctype.analytics_alert_rule.analytics_alert_rule.check_all_active_alerts",
     ],
     "weekly": [
         # Termination reports and reviews

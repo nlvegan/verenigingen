@@ -15,15 +15,20 @@
             </div>
             <div class="card-body">
                 <div class="row">
-                    <div class="col-md-4 mb-3">
+                    <div class="col-md-3 mb-3">
                         <label for="first_name" class="required">{{ _("Preferred Name") }}</label>
                         <input type="text" class="form-control" id="first_name" name="first_name" required>
                     </div>
-                    <div class="col-md-4 mb-3">
-                        <label for="middle_name">{{ _("Name Particles") }}</label>
-                        <input type="text" class="form-control" id="middle_name" name="middle_name" placeholder="{{ _('van, de, von, etc.') }}">
+                    <div class="col-md-3 mb-3">
+                        <label for="middle_name">{{ _("Middle Names") }}</label>
+                        <input type="text" class="form-control" id="middle_name" name="middle_name">
                     </div>
-                    <div class="col-md-4 mb-3">
+                    <div class="col-md-3 mb-3" id="tussenvoegsel-field" style="display: none;">
+                        <label for="tussenvoegsel">{{ _("Tussenvoegsel") }}</label>
+                        <input type="text" class="form-control" id="tussenvoegsel" name="tussenvoegsel" placeholder="{{ _('van, de, van der, etc.') }}">
+                        <small class="form-text text-muted">{{ _("Dutch name particles") }}</small>
+                    </div>
+                    <div class="col-md-3 mb-3">
                         <label for="last_name" class="required">{{ _("Last Name") }}</label>
                         <input type="text" class="form-control" id="last_name" name="last_name" required>
                     </div>

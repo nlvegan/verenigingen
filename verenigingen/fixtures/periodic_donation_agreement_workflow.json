@@ -1,0 +1,128 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Workflow",
+  "document_type": "Periodic Donation Agreement",
+  "is_active": 1,
+  "name": "Periodic Donation Agreement Workflow",
+  "override_status": 1,
+  "send_email_alert": 1,
+  "states": [
+   {
+    "allow_edit": "Verenigingen Administrator",
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": null,
+    "next_action_email_template": null,
+    "state": "Draft",
+    "style": "",
+    "update_field": "status",
+    "update_value": "Draft"
+   },
+   {
+    "allow_edit": "Verenigingen Administrator",
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "Agreement submitted and pending verification",
+    "next_action_email_template": null,
+    "state": "Pending Verification",
+    "style": "Warning",
+    "update_field": "status",
+    "update_value": "Pending Verification"
+   },
+   {
+    "allow_edit": "Verenigingen Administrator",
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "Agreement is active",
+    "next_action_email_template": null,
+    "state": "Active",
+    "style": "Success",
+    "update_field": "status",
+    "update_value": "Active"
+   },
+   {
+    "allow_edit": "System Manager",
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "Agreement period has been completed",
+    "next_action_email_template": null,
+    "state": "Completed",
+    "style": "Success",
+    "update_field": "status",
+    "update_value": "Completed"
+   },
+   {
+    "allow_edit": "System Manager",
+    "doc_status": "0",
+    "is_optional_state": 0,
+    "message": "Agreement has been cancelled",
+    "next_action_email_template": null,
+    "state": "Cancelled",
+    "style": "Danger",
+    "update_field": "status",
+    "update_value": "Cancelled"
+   }
+  ],
+  "transitions": [
+   {
+    "action": "Submit for Verification",
+    "allow_self_approval": 1,
+    "allowed": "Verenigingen Administrator",
+    "condition": "doc.donor and doc.annual_amount > 0",
+    "next_state": "Pending Verification",
+    "state": "Draft"
+   },
+   {
+    "action": "Verify and Activate",
+    "allow_self_approval": 0,
+    "allowed": "Verenigingen Administrator",
+    "condition": "doc.identification_verified or doc.donor_signature_received",
+    "next_state": "Active",
+    "state": "Pending Verification"
+   },
+   {
+    "action": "Return to Draft",
+    "allow_self_approval": 1,
+    "allowed": "Verenigingen Administrator",
+    "condition": "",
+    "next_state": "Draft",
+    "state": "Pending Verification"
+   },
+   {
+    "action": "Complete Agreement",
+    "allow_self_approval": 1,
+    "allowed": "System Manager",
+    "condition": "frappe.utils.date_diff(doc.end_date, frappe.utils.today()) <= 0",
+    "next_state": "Completed",
+    "state": "Active"
+   },
+   {
+    "action": "Cancel Agreement",
+    "allow_self_approval": 0,
+    "allowed": "Verenigingen Administrator",
+    "condition": "doc.cancellation_reason",
+    "next_state": "Cancelled",
+    "state": "Active"
+   },
+   {
+    "action": "Cancel Agreement",
+    "allow_self_approval": 0,
+    "allowed": "System Manager",
+    "condition": "doc.cancellation_reason",
+    "next_state": "Cancelled",
+    "state": "Draft"
+   },
+   {
+    "action": "Cancel Agreement",
+    "allow_self_approval": 0,
+    "allowed": "System Manager",
+    "condition": "doc.cancellation_reason",
+    "next_state": "Cancelled",
+    "state": "Pending Verification"
+   }
+  ],
+  "workflow_name": "Periodic Donation Agreement Workflow",
+  "workflow_state_field": "workflow_state"
+ }
+]

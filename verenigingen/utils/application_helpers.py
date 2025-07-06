@@ -207,6 +207,7 @@ def create_member_from_application(data, application_id, address=None):
     # Sanitize names before creating member record
     first_name = data.get("first_name", "")
     middle_name = data.get("middle_name", "")
+    tussenvoegsel = data.get("tussenvoegsel", "")
     last_name = data.get("last_name", "")
 
     # Validate and sanitize names
@@ -220,6 +221,11 @@ def create_member_from_application(data, application_id, address=None):
         if validation_result.get("valid") and validation_result.get("sanitized"):
             middle_name = validation_result["sanitized"]
 
+    if tussenvoegsel:
+        validation_result = validate_name(tussenvoegsel, "Tussenvoegsel")
+        if validation_result.get("valid") and validation_result.get("sanitized"):
+            tussenvoegsel = validation_result["sanitized"]
+
     if last_name:
         validation_result = validate_name(last_name, "Last Name")
         if validation_result.get("valid") and validation_result.get("sanitized"):
@@ -230,6 +236,7 @@ def create_member_from_application(data, application_id, address=None):
             "doctype": "Member",
             "first_name": first_name,
             "middle_name": middle_name,
+            "tussenvoegsel": tussenvoegsel,
             "last_name": last_name,
             "email": data.get("email"),
             "contact_number": data.get("contact_number", ""),

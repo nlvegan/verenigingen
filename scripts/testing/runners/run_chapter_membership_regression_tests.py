@@ -26,6 +26,12 @@ def run_chapter_membership_regression_tests():
     frappe.init(site="dev.veganisme.net")
     frappe.connect()
     frappe.set_user("Administrator")
+    
+    # Enable test mode and email mocking
+    frappe.flags.in_test = True
+    from verenigingen.tests.test_config import setup_global_test_config, enable_test_email_mocking
+    setup_global_test_config()
+    enable_test_email_mocking()
 
     try:
         # Import test modules

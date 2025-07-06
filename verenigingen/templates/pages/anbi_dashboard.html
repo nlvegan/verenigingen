@@ -1,0 +1,358 @@
+{% extends "templates/web.html" %}
+
+{% block title %}
+{{ _("ANBI Dashboard") }}
+{% endblock %}
+
+{% block page_content %}
+<div class="anbi-dashboard">
+    {% if anbi_disabled %}
+    <div class="alert alert-warning">
+        <h4>{{ _("ANBI Functionality Disabled") }}</h4>
+        <p>{{ _("ANBI functionality is currently disabled. Please enable it in Verenigingen Settings to access this dashboard.") }}</p>
+        <a href="/app/verenigingen-settings" class="btn btn-primary">{{ _("Go to Settings") }}</a>
+    </div>
+    {% else %}
+
+    <!-- Header Section -->
+    <div class="page-header mb-4">
+        <h1>{{ _("ANBI Dashboard") }}</h1>
+        <p class="text-muted">{{ _("Overview of tax-deductible donations and periodic agreements") }}</p>
+        {% if not organization_has_anbi_status %}
+        <div class="alert alert-info">
+            <i class="fa fa-info-circle"></i> {{ _("Your organization does not have ANBI status. Donations are tracked but not eligible for tax benefits.") }}
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Key Metrics -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <h6 class="text-muted">{{ _("Total Donations This Year") }}</h6>
+                    <h3 class="mb-0">€{{ "{:,.2f}".format(total_donations_amount) }}</h3>
+                    <small class="text-muted">{{ total_donations_count }} {{ _("donations") }}</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <h6 class="text-muted">{{ _("Active ANBI Agreements") }}</h6>
+                    <h3 class="mb-0">{{ active_anbi_agreements }}</h3>
+                    <small class="text-success">€{{ "{:,.2f}".format(total_annual_commitment) }} {{ _("annual") }}</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <h6 class="text-muted">{{ _("Unique Donors") }}</h6>
+                    <h3 class="mb-0">{{ unique_donors }}</h3>
+                    <small class="text-muted">{{ consent_percentage }}% {{ _("with consent") }}</small>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card metric-card">
+                <div class="card-body">
+                    <h6 class="text-muted">{{ _("Reportable to Belastingdienst") }}</h6>
+                    <h3 class="mb-0">{{ reportable_donations_count }}</h3>
+                    <small class="text-muted">€{{ "{:,.2f}".format(reportable_donations_amount) }}</small>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">{{ _("Monthly Donation Trend") }}</h5>
+                </div>
+                <div class="card-body">
+                    <div id="donation-trend-chart" style="height: 300px;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">{{ _("Agreement Types") }}</h5>
+                </div>
+                <div class="card-body">
+                    <div id="agreement-distribution-chart" style="height: 300px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agreement Overview -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">{{ _("Agreement Statistics") }}</h5>
+                    <a href="/app/query-report/ANBI%20Periodic%20Agreements" class="btn btn-sm btn-outline-primary">
+                        {{ _("View All") }}
+                    </a>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-4">
+                            <h4 class="mb-1">{{ active_anbi_agreements }}</h4>
+                            <small class="text-success">{{ _("ANBI (5+ years)") }}</small>
+                        </div>
+                        <div class="col-4">
+                            <h4 class="mb-1">{{ active_pledge_agreements }}</h4>
+                            <small class="text-info">{{ _("Pledges (1-4 years)") }}</small>
+                        </div>
+                        <div class="col-4">
+                            <h4 class="mb-1 text-warning">{{ expiring_soon_count }}</h4>
+                            <small class="text-muted">{{ _("Expiring Soon") }}</small>
+                        </div>
+                    </div>
+                    <hr>
+                    <div class="row">
+                        <div class="col-6">
+                            <small class="text-muted">{{ _("Individual Donors") }}</small>
+                            <h5>{{ individual_donors }}</h5>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">{{ _("Organization Donors") }}</small>
+                            <h5>{{ organization_donors }}</h5>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">{{ _("Expiring Agreements") }}</h5>
+                    <span class="badge bg-warning">{{ _("Next 90 days") }}</span>
+                </div>
+                <div class="card-body">
+                    {% if expiring_agreements %}
+                    <div class="table-responsive">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr>
+                                    <th>{{ _("Agreement") }}</th>
+                                    <th>{{ _("Donor") }}</th>
+                                    <th>{{ _("Expires") }}</th>
+                                    <th>{{ _("Days") }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for agreement in expiring_agreements[:5] %}
+                                <tr>
+                                    <td>
+                                        <a href="/app/periodic-donation-agreement/{{ agreement.name }}">
+                                            {{ agreement.agreement_number }}
+                                        </a>
+                                        {% if agreement.anbi_eligible %}
+                                        <span class="badge bg-success ms-1">ANBI</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ agreement.donor_name }}</td>
+                                    <td>{{ frappe.utils.formatdate(agreement.end_date) }}</td>
+                                    <td>
+                                        <span class="badge bg-{{ 'danger' if agreement.days_remaining <= 30 else 'warning' }}">
+                                            {{ agreement.days_remaining }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <p class="text-muted text-center my-3">{{ _("No agreements expiring in the next 90 days") }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Donations -->
+    <div class="card mb-4">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0">{{ _("Recent Donations") }}</h5>
+            <a href="/app/query-report/ANBI%20Donation%20Summary" class="btn btn-sm btn-outline-primary">
+                {{ _("View Report") }}
+            </a>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>{{ _("Date") }}</th>
+                            <th>{{ _("Donor") }}</th>
+                            <th>{{ _("Amount") }}</th>
+                            <th>{{ _("Agreement") }}</th>
+                            <th>{{ _("Type") }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for donation in recent_donations %}
+                        <tr>
+                            <td>{{ frappe.utils.formatdate(donation.date) }}</td>
+                            <td>
+                                <a href="/app/donor/{{ donation.donor }}">
+                                    {{ donation.donor_name }}
+                                </a>
+                            </td>
+                            <td>€{{ "{:,.2f}".format(donation.amount) }}</td>
+                            <td>
+                                {% if donation.periodic_donation_agreement %}
+                                <a href="/app/periodic-donation-agreement/{{ donation.periodic_donation_agreement }}">
+                                    {{ donation.agreement_number }}
+                                </a>
+                                {% else %}
+                                <span class="text-muted">{{ _("One-time") }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if donation.anbi_eligible %}
+                                <span class="badge bg-success">{{ _("ANBI") }}</span>
+                                {% elif donation.periodic_donation_agreement %}
+                                <span class="badge bg-info">{{ _("Pledge") }}</span>
+                                {% else %}
+                                <span class="badge bg-secondary">{{ _("Regular") }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">{{ _("Quick Actions") }}</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-3">
+                    <a href="/app/periodic-donation-agreement/new" class="btn btn-primary w-100 mb-2">
+                        <i class="fa fa-plus"></i> {{ _("New Agreement") }}
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <a href="/app/query-report/ANBI%20Donation%20Summary" class="btn btn-outline-primary w-100 mb-2">
+                        <i class="fa fa-file-text"></i> {{ _("ANBI Report") }}
+                    </a>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-outline-primary w-100 mb-2" onclick="exportBelastingdienstReport()">
+                        <i class="fa fa-download"></i> {{ _("Export for Tax Authority") }}
+                    </button>
+                </div>
+                <div class="col-md-3">
+                    <button class="btn btn-outline-primary w-100 mb-2" onclick="sendConsentRequests()">
+                        <i class="fa fa-envelope"></i> {{ _("Request Consent") }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {% endif %}
+</div>
+
+<style>
+.metric-card {
+    border-left: 4px solid var(--primary);
+    transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.metric-card h3 {
+    color: var(--primary);
+}
+
+.table-responsive {
+    max-height: 300px;
+    overflow-y: auto;
+}
+</style>
+
+<script>
+frappe.ready(function() {
+    // Render charts
+    if ({{ donation_trend_chart | tojson }}) {
+        new frappe.Chart("#donation-trend-chart", {
+            data: {{ donation_trend_chart | tojson }},
+            type: 'line',
+            height: 300,
+            colors: ['#7575ff'],
+            lineOptions: {
+                regionFill: 1
+            },
+            axisOptions: {
+                xAxisMode: 'tick'
+            },
+            tooltipOptions: {
+                formatTooltipY: d => '€' + d.toLocaleString('nl-NL', {minimumFractionDigits: 2})
+            }
+        });
+    }
+
+    if ({{ agreement_distribution | tojson }}) {
+        new frappe.Chart("#agreement-distribution-chart", {
+            data: {{ agreement_distribution | tojson }},
+            type: 'donut',
+            height: 300,
+            colors: ['#28a745', '#17a2b8']
+        });
+    }
+});
+
+function exportBelastingdienstReport() {
+    frappe.call({
+        method: "verenigingen.api.anbi_operations.export_belastingdienst_report",
+        args: {
+            filters: {
+                from_date: new Date().getFullYear() + '-01-01',
+                to_date: new Date().getFullYear() + '-12-31',
+                only_reportable: true
+            }
+        },
+        callback: function(r) {
+            if (r.message && r.message.file_url) {
+                window.open(r.message.file_url);
+            }
+        }
+    });
+}
+
+function sendConsentRequests() {
+    frappe.confirm(
+        __("Send ANBI consent request emails to all donors without consent?"),
+        function() {
+            frappe.call({
+                method: "verenigingen.api.anbi_operations.send_consent_requests",
+                args: {},
+                callback: function(r) {
+                    if (r.message) {
+                        frappe.msgprint(__("{0} consent request emails sent", [r.message.sent_count]));
+                    }
+                }
+            });
+        }
+    );
+}
+</script>
+{% endblock %}

@@ -9,3 +9,5 @@ verenigingen.patches.migrate_contribution_amendment_request
 verenigingen.patches.migrate_contribution_amendment_request_v2
 verenigingen.patches.v1_0.cleanup_workspaces
 verenigingen.patches.fix_onboarding_visibility
+verenigingen.patches.add_national_board_member_role
+verenigingen.patches.v1_0.add_membership_analytics

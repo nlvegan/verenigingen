@@ -28,6 +28,13 @@ Verenigingen is a Frappe app that provides functionality for managing associatio
 - **Termination System**: Governance-compliant termination with appeals process
 - **Postal Code Matching**: Intelligent chapter assignment based on location
 - **Regional Coordination**: Multi-level regional management structure
+- **Membership Analytics**: Comprehensive business intelligence dashboard with:
+  - Real-time metrics and KPI tracking
+  - Advanced segmentation and filtering
+  - Predictive analytics with ML-based forecasting
+  - Automated alerts and monitoring
+  - Cohort retention analysis
+  - Export capabilities for reporting
 
 ## Technical Details
 

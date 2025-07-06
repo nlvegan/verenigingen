@@ -122,7 +122,6 @@ class PaymentMethodUpdater:
         if self.include_comments:
             return False
 
-        line_lower = line.lower()
         for pattern in self.comment_exclusion_patterns:
             if re.search(pattern, line, re.IGNORECASE):
                 return True
@@ -225,7 +224,6 @@ class PaymentMethodUpdater:
         try:
             # First try to parse as JSON for structured updates
             data = json.loads(content)
-            original_json = json.dumps(data, sort_keys=True)
 
             # Convert to string for replacement
             json_str = json.dumps(data, indent=2)

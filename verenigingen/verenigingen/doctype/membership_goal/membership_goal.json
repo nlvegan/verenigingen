@@ -1,0 +1,223 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:GOAL-{goal_year}-{####}",
+ "creation": "2025-01-06 10:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Other",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "goal_details_section",
+  "goal_name",
+  "goal_year",
+  "goal_type",
+  "column_break_4",
+  "target_value",
+  "current_value",
+  "achievement_percentage",
+  "scope_section",
+  "membership_type",
+  "chapter",
+  "column_break_scope",
+  "applies_to_all_chapters",
+  "applies_to_all_types",
+  "tracking_section",
+  "start_date",
+  "end_date",
+  "column_break_tracking",
+  "status",
+  "last_updated",
+  "notes_section",
+  "description",
+  "achievement_notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "goal_details_section",
+   "fieldtype": "Section Break",
+   "label": "Goal Details"
+  },
+  {
+   "fieldname": "goal_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Goal Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "goal_year",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Goal Year",
+   "reqd": 1
+  },
+  {
+   "fieldname": "goal_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Goal Type",
+   "options": "Member Count Growth\nRevenue Growth\nRetention Rate\nNew Member Acquisition\nChurn Reduction\nChapter Expansion",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Target value (number or percentage based on goal type)",
+   "fieldname": "target_value",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Target Value",
+   "precision": "2",
+   "reqd": 1
+  },
+  {
+   "description": "Current achieved value (auto-calculated)",
+   "fieldname": "current_value",
+   "fieldtype": "Float",
+   "label": "Current Value",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "description": "Percentage of goal achieved",
+   "fieldname": "achievement_percentage",
+   "fieldtype": "Percent",
+   "in_list_view": 1,
+   "label": "Achievement %",
+   "read_only": 1
+  },
+  {
+   "fieldname": "scope_section",
+   "fieldtype": "Section Break",
+   "label": "Scope"
+  },
+  {
+   "depends_on": "eval:!doc.applies_to_all_types",
+   "fieldname": "membership_type",
+   "fieldtype": "Link",
+   "label": "Membership Type",
+   "options": "Membership Type"
+  },
+  {
+   "depends_on": "eval:!doc.applies_to_all_chapters",
+   "fieldname": "chapter",
+   "fieldtype": "Link",
+   "label": "Chapter",
+   "options": "Chapter"
+  },
+  {
+   "fieldname": "column_break_scope",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "applies_to_all_chapters",
+   "fieldtype": "Check",
+   "label": "Applies to All Chapters"
+  },
+  {
+   "default": "1",
+   "fieldname": "applies_to_all_types",
+   "fieldtype": "Check",
+   "label": "Applies to All Membership Types"
+  },
+  {
+   "fieldname": "tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Tracking"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_tracking",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Active\nAchieved\nMissed\nIn Progress\nDraft",
+   "reqd": 1
+  },
+  {
+   "fieldname": "last_updated",
+   "fieldtype": "Datetime",
+   "label": "Last Updated",
+   "read_only": 1
+  },
+  {
+   "fieldname": "notes_section",
+   "fieldtype": "Section Break",
+   "label": "Notes"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "achievement_notes",
+   "fieldtype": "Text",
+   "label": "Achievement Notes"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-01-06 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Membership Goal",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "National Board Member",
+   "share": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

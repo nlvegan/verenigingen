@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"NFcjh9I8BH\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Members/Memberships</b></span>\",\"col\":12}},{\"id\":\"oIk2CrSoAH\",\"type\":\"card\",\"data\":{\"card_name\":\"Memberships\",\"col\":4}},{\"id\":\"ZvroSYo9F3\",\"type\":\"card\",\"data\":{\"card_name\":\"Donations\",\"col\":4}},{\"id\":\"zGoLYG0xRM\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Volunteering</b></span>\",\"col\":12}},{\"id\":\"2vHgUjgQcL\",\"type\":\"card\",\"data\":{\"card_name\":\"Volunteers\",\"col\":4}},{\"id\":\"zGoLYG0xRM2\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS2\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Chapters/Teams</b></span>\",\"col\":12}},{\"id\":\"S8Mi0T41U7\",\"type\":\"card\",\"data\":{\"card_name\":\"Chapters\",\"col\":4}},{\"id\":\"XXEhdaTHF_\",\"type\":\"card\",\"data\":{\"card_name\":\"Teams and Commissions\",\"col\":4}},{\"id\":\"zGoLYG0xRM3\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS3\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Financial</b></span>\",\"col\":12}},{\"id\":\"PaymentCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Processing\",\"col\":4}},{\"id\":\"lYnozqzRgf\",\"type\":\"card\",\"data\":{\"card_name\":\"Banking\",\"col\":4}},{\"id\":\"VN3xecH16c\",\"type\":\"card\",\"data\":{\"card_name\":\"Accounting (Misc.)\",\"col\":4}},{\"id\":\"zGoLYG0xRM4\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS4\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports</b></span>\",\"col\":12}},{\"id\":\"ReportsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports\",\"col\":8}},{\"id\":\"zGoLYG0xRM5\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"SettingsHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Settings</b></span>\",\"col\":12}}]",
+ "content": "[{\"id\":\"NFcjh9I8BH\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Members/Memberships</b></span>\",\"col\":12}},{\"id\":\"oIk2CrSoAH\",\"type\":\"card\",\"data\":{\"card_name\":\"Memberships\",\"col\":4}},{\"id\":\"ZvroSYo9F3\",\"type\":\"card\",\"data\":{\"card_name\":\"Donations\",\"col\":4}},{\"id\":\"ANBICard\",\"type\":\"card\",\"data\":{\"card_name\":\"ANBI Tax Benefits\",\"col\":4}},{\"id\":\"zGoLYG0xRM\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Volunteering</b></span>\",\"col\":12}},{\"id\":\"2vHgUjgQcL\",\"type\":\"card\",\"data\":{\"card_name\":\"Volunteers\",\"col\":4}},{\"id\":\"zGoLYG0xRM2\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS2\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Chapters/Teams</b></span>\",\"col\":12}},{\"id\":\"S8Mi0T41U7\",\"type\":\"card\",\"data\":{\"card_name\":\"Chapters\",\"col\":4}},{\"id\":\"XXEhdaTHF_\",\"type\":\"card\",\"data\":{\"card_name\":\"Teams and Commissions\",\"col\":4}},{\"id\":\"zGoLYG0xRM3\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS3\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Financial</b></span>\",\"col\":12}},{\"id\":\"PaymentCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Payment Processing\",\"col\":4}},{\"id\":\"lYnozqzRgf\",\"type\":\"card\",\"data\":{\"card_name\":\"Banking\",\"col\":4}},{\"id\":\"VN3xecH16c\",\"type\":\"card\",\"data\":{\"card_name\":\"Accounting (Misc.)\",\"col\":4}},{\"id\":\"zGoLYG0xRM4\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"jMy1CTqEJS4\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Reports</b></span>\",\"col\":12}},{\"id\":\"ReportsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Reports\",\"col\":8}},{\"id\":\"zGoLYG0xRM5\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"SettingsHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>Settings</b></span>\",\"col\":12}},{\"id\":\"SettingsCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Settings\",\"col\":4}}]",
  "creation": "2025-06-14 18:47:02.994675",
  "custom_blocks": [],
  "docstatus": 0,
@@ -362,7 +362,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Donations",
-   "link_count": 3,
+   "link_count": 5,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -394,6 +394,85 @@
    "link_count": 0,
    "link_to": "Donation Type",
    "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Donation Campaign",
+   "link_count": 0,
+   "link_to": "Donation Campaign",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Donate Online",
+   "link_count": 0,
+   "link_to": "/donate",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "ANBI Tax Benefits",
+   "link_count": 5,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Periodic Donation Agreement",
+   "link_count": 0,
+   "link_to": "Periodic Donation Agreement",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "ANBI Dashboard",
+   "link_count": 0,
+   "link_to": "/anbi_dashboard",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "ANBI Donation Summary",
+   "link_count": 0,
+   "link_to": "ANBI Donation Summary",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "ANBI Periodic Agreements",
+   "link_count": 0,
+   "link_to": "ANBI Periodic Agreements",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Create Agreement",
+   "link_count": 0,
+   "link_to": "/periodic-donation-agreement-form",
+   "link_type": "Page",
    "onboard": 0,
    "type": "Link"
   },
@@ -483,6 +562,35 @@
    "link_count": 0,
    "link_to": "Users by Team",
    "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Analytics & Insights",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Membership Analytics Dashboard",
+   "link_count": 0,
+   "link_to": "membership-analytics",
+   "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Membership Goals",
+   "link_count": 0,
+   "link_to": "Membership Goal",
+   "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
   },
@@ -629,6 +737,35 @@
    "label": "Expense Claims (ERPNext)",
    "link_count": 0,
    "link_to": "Expense Claim",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Settings",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Verenigingen Settings",
+   "link_count": 0,
+   "link_to": "Verenigingen Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Brand Settings",
+   "link_count": 0,
+   "link_to": "Brand Settings",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"

@@ -1,0 +1,336 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "format:PDA-{YYYY}-{#####}",
+ "creation": "2025-01-06 13:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_information_section",
+  "agreement_number",
+  "donor",
+  "donor_name",
+  "column_break_basic",
+  "agreement_type",
+  "commitment_type",
+  "agreement_date",
+  "status",
+  "agreement_details_section",
+  "start_date",
+  "end_date",
+  "agreement_duration_years",
+  "anbi_eligible",
+  "annual_amount",
+  "column_break_details",
+  "payment_frequency",
+  "payment_amount",
+  "payment_method",
+  "sepa_mandate",
+  "agreement_document_section",
+  "agreement_document",
+  "column_break_document",
+  "signed_date",
+  "donor_signature_received",
+  "donation_tracking_section",
+  "total_donated",
+  "last_donation_date",
+  "column_break_tracking",
+  "donations_count",
+  "next_expected_donation",
+  "donations_table",
+  "donations",
+  "cancellation_section",
+  "cancellation_date",
+  "cancellation_reason",
+  "column_break_cancellation",
+  "cancellation_processed_by",
+  "cancellation_confirmation_sent"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_information_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Information"
+  },
+  {
+   "fieldname": "agreement_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Agreement Number",
+   "read_only": 1,
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "donor",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Donor",
+   "options": "Donor",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "donor.donor_name",
+   "fieldname": "donor_name",
+   "fieldtype": "Data",
+   "label": "Donor Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "agreement_type",
+   "fieldtype": "Select",
+   "label": "Agreement Type",
+   "options": "Notarial\nPrivate Written",
+   "reqd": 1
+  },
+  {
+   "fieldname": "commitment_type",
+   "fieldtype": "Data",
+   "label": "Commitment Type",
+   "read_only": 1,
+   "description": "Automatically set based on duration: 'ANBI Periodic Donation Agreement' (5+ years) or 'Donation Pledge' (1-4 years)"
+  },
+  {
+   "default": "Today",
+   "fieldname": "agreement_date",
+   "fieldtype": "Date",
+   "label": "Agreement Date",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nActive\nCompleted\nCancelled",
+   "reqd": 1
+  },
+  {
+   "fieldname": "agreement_details_section",
+   "fieldtype": "Section Break",
+   "label": "Agreement Details"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date",
+   "read_only": 1,
+   "description": "Auto-calculated based on duration"
+  },
+  {
+   "fieldname": "agreement_duration_years",
+   "fieldtype": "Select",
+   "label": "Agreement Duration",
+   "options": "1 Year (Pledge - No ANBI benefits)\n2 Years (Pledge - No ANBI benefits)\n3 Years (Pledge - No ANBI benefits)\n4 Years (Pledge - No ANBI benefits)\n5 Years (ANBI Minimum)\n6 Years (ANBI)\n7 Years (ANBI)\n8 Years (ANBI)\n9 Years (ANBI)\n10 Years (ANBI)",
+   "default": "5 Years (ANBI Minimum)",
+   "description": "Duration of the commitment. Minimum 5 years required for ANBI periodic donation tax benefits. Shorter durations are pledges without special tax benefits."
+  },
+  {
+   "default": "1",
+   "fieldname": "anbi_eligible",
+   "fieldtype": "Check",
+   "label": "ANBI Tax Benefits Applicable",
+   "description": "Check if this agreement qualifies for ANBI periodic donation tax benefits. Automatically set based on duration and organization ANBI status."
+  },
+  {
+   "fieldname": "annual_amount",
+   "fieldtype": "Currency",
+   "label": "Annual Amount",
+   "non_negative": 1,
+   "precision": "2",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_details",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_frequency",
+   "fieldtype": "Select",
+   "label": "Payment Frequency",
+   "options": "Monthly\nQuarterly\nAnnually",
+   "reqd": 1
+  },
+  {
+   "fieldname": "payment_amount",
+   "fieldtype": "Currency",
+   "label": "Payment Amount per Period",
+   "non_negative": 1,
+   "precision": "2",
+   "read_only": 1,
+   "description": "Auto-calculated based on annual amount and frequency"
+  },
+  {
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "label": "Payment Method",
+   "options": "SEPA Direct Debit\nBank Transfer\nOther",
+   "reqd": 1
+  },
+  {
+   "depends_on": "eval:doc.payment_method=='SEPA Direct Debit'",
+   "fieldname": "sepa_mandate",
+   "fieldtype": "Link",
+   "label": "SEPA Mandate",
+   "options": "SEPA Mandate"
+  },
+  {
+   "fieldname": "agreement_document_section",
+   "fieldtype": "Section Break",
+   "label": "Agreement Document"
+  },
+  {
+   "fieldname": "agreement_document",
+   "fieldtype": "Attach",
+   "label": "Agreement Document",
+   "description": "Upload signed agreement document (PDF)"
+  },
+  {
+   "fieldname": "column_break_document",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "signed_date",
+   "fieldtype": "Date",
+   "label": "Signed Date"
+  },
+  {
+   "default": "0",
+   "fieldname": "donor_signature_received",
+   "fieldtype": "Check",
+   "label": "Donor Signature Received"
+  },
+  {
+   "fieldname": "donation_tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Donation Tracking"
+  },
+  {
+   "fieldname": "total_donated",
+   "fieldtype": "Currency",
+   "label": "Total Donated",
+   "non_negative": 1,
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_donation_date",
+   "fieldtype": "Date",
+   "label": "Last Donation Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_tracking",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donations_count",
+   "fieldtype": "Int",
+   "label": "Number of Donations",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "next_expected_donation",
+   "fieldtype": "Date",
+   "label": "Next Expected Donation",
+   "read_only": 1
+  },
+  {
+   "fieldname": "donations_table",
+   "fieldtype": "Section Break",
+   "label": "Linked Donations"
+  },
+  {
+   "fieldname": "donations",
+   "fieldtype": "Table",
+   "label": "Donations",
+   "options": "Periodic Donation Agreement Item"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "cancellation_section",
+   "fieldtype": "Section Break",
+   "label": "Cancellation Details"
+  },
+  {
+   "fieldname": "cancellation_date",
+   "fieldtype": "Date",
+   "label": "Cancellation Date"
+  },
+  {
+   "fieldname": "cancellation_reason",
+   "fieldtype": "Small Text",
+   "label": "Cancellation Reason"
+  },
+  {
+   "fieldname": "column_break_cancellation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cancellation_processed_by",
+   "fieldtype": "Link",
+   "label": "Processed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "cancellation_confirmation_sent",
+   "fieldtype": "Check",
+   "label": "Cancellation Confirmation Sent"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "Donation",
+   "link_fieldname": "periodic_donation_agreement"
+  }
+ ],
+ "modified": "2025-01-06 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Periodic Donation Agreement",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "write": 1
+  }
+ ],
+ "quick_entry": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

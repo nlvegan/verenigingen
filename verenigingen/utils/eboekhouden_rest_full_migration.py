@@ -556,6 +556,20 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                     pi.bill_no = mutation.get("invoiceNumber", f"EBH-{mutation_id}")
                     pi.bill_date = mutation.get("date")
 
+                    # Set proper title and naming based on eBoekhouden data
+                    invoice_number = mutation.get("invoiceNumber")
+                    if invoice_number:
+                        pi.title = f"eBoekhouden {invoice_number}"
+                        # Store eBoekhouden invoice number in custom field if it exists
+                        if hasattr(pi, "eboekhouden_invoice_number"):
+                            pi.eboekhouden_invoice_number = invoice_number
+                    else:
+                        pi.title = f"eBoekhouden Purchase {mutation_id}"
+
+                    # Store eBoekhouden mutation ID for reference
+                    if hasattr(pi, "eboekhouden_mutation_id"):
+                        pi.eboekhouden_mutation_id = mutation_id
+
                     # Try to find supplier from relation_id
                     relation_id = mutation.get("relationId")
                     supplier = _get_or_create_supplier(relation_id, debug_info)
@@ -663,6 +677,20 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                     si = frappe.new_doc("Sales Invoice")
                     si.company = company
                     si.posting_date = mutation.get("date")
+
+                    # Set proper title and naming based on eBoekhouden data
+                    invoice_number = mutation.get("invoiceNumber")
+                    if invoice_number:
+                        si.title = f"eBoekhouden {invoice_number}"
+                        # Store eBoekhouden invoice number in custom field if it exists
+                        if hasattr(si, "eboekhouden_invoice_number"):
+                            si.eboekhouden_invoice_number = invoice_number
+                    else:
+                        si.title = f"eBoekhouden Import {mutation_id}"
+
+                    # Store eBoekhouden mutation ID for reference
+                    if hasattr(si, "eboekhouden_mutation_id"):
+                        si.eboekhouden_mutation_id = mutation_id
 
                     # Try to find customer from relation_id
                     relation_id = mutation.get("relationId")
@@ -774,8 +802,20 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                         je.user_remark = f"E-Boekhouden REST Import - Payment Mutation {mutation_id} (Type {mutation_type})"
                         je.voucher_type = "Journal Entry"
 
-                        # Add invoice reference if available
+                        # Set proper title based on eBoekhouden data
                         invoice_number = mutation.get("invoiceNumber")
+                        if invoice_number:
+                            je.title = f"eBoekhouden Payment {invoice_number}"
+                        else:
+                            je.title = f"eBoekhouden Payment {mutation_id}"
+
+                        # Store eBoekhouden references in custom fields if they exist
+                        if hasattr(je, "eboekhouden_mutation_id"):
+                            je.eboekhouden_mutation_id = mutation_id
+                        if hasattr(je, "eboekhouden_invoice_number") and invoice_number:
+                            je.eboekhouden_invoice_number = invoice_number
+
+                        # Add invoice reference if available
                         if invoice_number:
                             je.user_remark += f" - Invoice: {invoice_number}"
                             # Try to find matching invoice for reconciliation
@@ -846,7 +886,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                     row_amount if row_amount > 0 else 0, 2
                                 ),
                                 "credit_in_account_currency": frappe.utils.flt(
-                                    abs(row_amount) if row_amount < 0 else 0, 2
+                                    -row_amount if row_amount < 0 else 0, 2
                                 ),
                                 "cost_center": cost_center,
                                 "user_remark": row_description,
@@ -919,6 +959,19 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                         pe.reference_no = mutation.get("invoiceNumber", f"EBH-{mutation_id}")
                         pe.reference_date = mutation.get("date")
 
+                        # Set proper title based on eBoekhouden data
+                        invoice_number = mutation.get("invoiceNumber")
+                        if invoice_number:
+                            pe.title = f"eBoekhouden Payment {invoice_number}"
+                        else:
+                            pe.title = f"eBoekhouden Payment {mutation_id}"
+
+                        # Store eBoekhouden references in custom fields if they exist
+                        if hasattr(pe, "eboekhouden_mutation_id"):
+                            pe.eboekhouden_mutation_id = mutation_id
+                        if hasattr(pe, "eboekhouden_invoice_number") and invoice_number:
+                            pe.eboekhouden_invoice_number = invoice_number
+
                         relation_id = mutation.get("relationId")
 
                         if mutation_type == 3:  # Customer Payment
@@ -967,8 +1020,23 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                     )
                     je.voucher_type = "Journal Entry"
 
-                    # Add invoice reference if available
+                    # Set proper title based on eBoekhouden data
                     invoice_number = mutation.get("invoiceNumber")
+                    if invoice_number:
+                        je.title = f"eBoekhouden {invoice_number}"
+                    else:
+                        # Give more descriptive names based on mutation type
+                        type_names = {5: "Money Received", 6: "Money Sent", 7: "Memoriaal"}
+                        type_name = type_names.get(mutation_type, "Import")
+                        je.title = f"eBoekhouden {type_name} {mutation_id}"
+
+                    # Store eBoekhouden references in custom fields if they exist
+                    if hasattr(je, "eboekhouden_mutation_id"):
+                        je.eboekhouden_mutation_id = mutation_id
+                    if hasattr(je, "eboekhouden_invoice_number") and invoice_number:
+                        je.eboekhouden_invoice_number = invoice_number
+
+                    # Add invoice reference if available
                     if invoice_number:
                         je.user_remark += f" - Invoice: {invoice_number}"
                         # Try to find matching invoice for reconciliation
@@ -1040,7 +1108,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                     row_amount if row_amount > 0 else 0, 2
                                 ),
                                 "credit_in_account_currency": frappe.utils.flt(
-                                    abs(row_amount) if row_amount < 0 else 0, 2
+                                    -row_amount if row_amount < 0 else 0, 2
                                 ),
                                 "cost_center": cost_center,
                                 "user_remark": row_description,
@@ -1201,24 +1269,69 @@ def _get_or_create_supplier(relation_id, debug_info):
     """Get or create supplier for mutation"""
     supplier = None
 
-    # Skip relation_id lookup for now since custom field may not exist
-    # if relation_id:
-    #     # Look for existing supplier with this relation_id
-    #     supplier = frappe.db.get_value("Supplier",
-    #         {"custom_eboekhouden_relation_id": relation_id}, "name")
+    # Try to find existing supplier with this relation_id
+    if relation_id:
+        # First, try to find existing supplier with this relation_id
+        supplier = frappe.db.get_value("Supplier", {"custom_eboekhouden_relation_id": relation_id}, "name")
+
+        if supplier:
+            debug_info.append(f"Found existing supplier for relation {relation_id}: {supplier}")
+            return supplier
+
+        # If not found, try to fetch supplier data from eBoekhouden API
+        try:
+            from .eboekhouden_api import EBoekhoudenAPI
+
+            api = EBoekhoudenAPI()
+
+            # Make API call to get specific relation
+            result = api.make_request(f"v1/relations/{relation_id}")
+
+            if result and result.get("success") and result.get("status_code") == 200:
+                relation_data = json.loads(result.get("data", "{}"))
+
+                # Extract supplier name from API response
+                supplier_name = None
+                if relation_data.get("companyName"):
+                    supplier_name = relation_data.get("companyName")
+                elif relation_data.get("contactName"):
+                    supplier_name = relation_data.get("contactName")
+                elif relation_data.get("name"):
+                    supplier_name = relation_data.get("name")
+
+                if supplier_name:
+                    # Create supplier with proper name
+                    supplier_doc = frappe.new_doc("Supplier")
+                    supplier_doc.supplier_name = supplier_name[:140]  # Limit length
+                    supplier_doc.supplier_group = "All Supplier Groups"
+
+                    # Store eBoekhouden relation ID for future reference
+                    if hasattr(supplier_doc, "custom_eboekhouden_relation_id"):
+                        supplier_doc.custom_eboekhouden_relation_id = relation_id
+
+                    # Add additional details if available
+                    if relation_data.get("email"):
+                        supplier_doc.email_id = relation_data.get("email")
+
+                    supplier_doc.save(ignore_permissions=True)
+                    supplier = supplier_doc.name
+                    debug_info.append(f"Created supplier from eBoekhouden API: {supplier_name}")
+                    return supplier
+
+        except Exception as e:
+            debug_info.append(f"Failed to fetch relation {relation_id} from API: {str(e)}")
+
+    # Fallback: Create/use default supplier
+    supplier = frappe.db.get_value("Supplier", {"supplier_name": "E-Boekhouden Import"}, "name")
 
     if not supplier:
-        # Create default supplier or use existing default
-        supplier = frappe.db.get_value("Supplier", {"supplier_name": "E-Boekhouden Import"}, "name")
-
-        if not supplier:
-            # Create default supplier
-            supplier_doc = frappe.new_doc("Supplier")
-            supplier_doc.supplier_name = "E-Boekhouden Import"
-            supplier_doc.supplier_group = "All Supplier Groups"
-            supplier_doc.save()
-            supplier = supplier_doc.name
-            debug_info.append(f"Created default supplier: {supplier}")
+        # Create default supplier
+        supplier_doc = frappe.new_doc("Supplier")
+        supplier_doc.supplier_name = "E-Boekhouden Import"
+        supplier_doc.supplier_group = "All Supplier Groups"
+        supplier_doc.save(ignore_permissions=True)
+        supplier = supplier_doc.name
+        debug_info.append(f"Created default supplier: {supplier}")
 
     return supplier
 
@@ -1227,24 +1340,69 @@ def _get_or_create_customer(relation_id, debug_info):
     """Get or create customer for mutation"""
     customer = None
 
-    # Skip relation_id lookup for now since custom field may not exist
-    # if relation_id:
-    #     # Look for existing customer with this relation_id
-    #     customer = frappe.db.get_value("Customer",
-    #         {"custom_eboekhouden_relation_id": relation_id}, "name")
+    # Try to find existing customer with this relation_id
+    if relation_id:
+        # First, try to find existing customer with this relation_id
+        customer = frappe.db.get_value("Customer", {"custom_eboekhouden_relation_id": relation_id}, "name")
+
+        if customer:
+            debug_info.append(f"Found existing customer for relation {relation_id}: {customer}")
+            return customer
+
+        # If not found, try to fetch customer data from eBoekhouden API
+        try:
+            from .eboekhouden_api import EBoekhoudenAPI
+
+            api = EBoekhoudenAPI()
+
+            # Make API call to get specific relation
+            result = api.make_request(f"v1/relations/{relation_id}")
+
+            if result and result.get("success") and result.get("status_code") == 200:
+                relation_data = json.loads(result.get("data", "{}"))
+
+                # Extract customer name from API response
+                customer_name = None
+                if relation_data.get("companyName"):
+                    customer_name = relation_data.get("companyName")
+                elif relation_data.get("contactName"):
+                    customer_name = relation_data.get("contactName")
+                elif relation_data.get("name"):
+                    customer_name = relation_data.get("name")
+
+                if customer_name:
+                    # Create customer with proper name
+                    customer_doc = frappe.new_doc("Customer")
+                    customer_doc.customer_name = customer_name[:140]  # Limit length
+                    customer_doc.customer_group = "All Customer Groups"
+
+                    # Store eBoekhouden relation ID for future reference
+                    if hasattr(customer_doc, "custom_eboekhouden_relation_id"):
+                        customer_doc.custom_eboekhouden_relation_id = relation_id
+
+                    # Add additional details if available
+                    if relation_data.get("email"):
+                        customer_doc.email_id = relation_data.get("email")
+
+                    customer_doc.save(ignore_permissions=True)
+                    customer = customer_doc.name
+                    debug_info.append(f"Created customer from eBoekhouden API: {customer_name}")
+                    return customer
+
+        except Exception as e:
+            debug_info.append(f"Failed to fetch relation {relation_id} from API: {str(e)}")
+
+    # Fallback: Create/use default customer
+    customer = frappe.db.get_value("Customer", {"customer_name": "E-Boekhouden Import"}, "name")
 
     if not customer:
-        # Create default customer or use existing default
-        customer = frappe.db.get_value("Customer", {"customer_name": "E-Boekhouden Import"}, "name")
-
-        if not customer:
-            # Create default customer
-            customer_doc = frappe.new_doc("Customer")
-            customer_doc.customer_name = "E-Boekhouden Import"
-            customer_doc.customer_group = "All Customer Groups"
-            customer_doc.save()
-            customer = customer_doc.name
-            debug_info.append(f"Created default customer: {customer}")
+        # Create default customer
+        customer_doc = frappe.new_doc("Customer")
+        customer_doc.customer_name = "E-Boekhouden Import"
+        customer_doc.customer_group = "All Customer Groups"
+        customer_doc.save(ignore_permissions=True)
+        customer = customer_doc.name
+        debug_info.append(f"Created default customer: {customer}")
 
     return customer
 

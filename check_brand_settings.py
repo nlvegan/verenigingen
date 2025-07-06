@@ -5,11 +5,11 @@ Check current brand settings and colors
 
 import sys
 
+import frappe
+
 sys.path.insert(0, "/home/frappe/frappe-bench")
 sys.path.insert(0, "/home/frappe/frappe-bench/apps/frappe")
 sys.path.insert(0, "/home/frappe/frappe-bench/sites")
-
-import frappe
 
 
 def check_brand_settings():

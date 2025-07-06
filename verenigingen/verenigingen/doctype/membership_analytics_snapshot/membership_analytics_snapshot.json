@@ -1,0 +1,232 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:SNAP-{snapshot_date}-{####}",
+ "creation": "2025-01-06 11:00:00.000000",
+ "doctype": "DocType",
+ "document_type": "Other",
+ "engine": "InnoDB",
+ "field_order": [
+  "snapshot_details_section",
+  "snapshot_date",
+  "snapshot_type",
+  "period",
+  "column_break_1",
+  "total_members",
+  "active_members",
+  "new_members",
+  "lost_members",
+  "metrics_section",
+  "net_growth",
+  "growth_rate",
+  "churn_rate",
+  "retention_rate",
+  "column_break_2",
+  "total_revenue",
+  "average_member_value",
+  "projected_annual_revenue",
+  "segmentation_section",
+  "by_chapter",
+  "by_region",
+  "by_membership_type",
+  "by_payment_method",
+  "by_age_group",
+  "by_join_year",
+  "cohort_data_section",
+  "cohort_data"
+ ],
+ "fields": [
+  {
+   "fieldname": "snapshot_details_section",
+   "fieldtype": "Section Break",
+   "label": "Snapshot Details"
+  },
+  {
+   "fieldname": "snapshot_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Snapshot Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "snapshot_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Snapshot Type",
+   "options": "Daily\nWeekly\nMonthly\nQuarterly\nYearly",
+   "reqd": 1
+  },
+  {
+   "fieldname": "period",
+   "fieldtype": "Data",
+   "label": "Period",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_members",
+   "fieldtype": "Int",
+   "label": "Total Members",
+   "read_only": 1
+  },
+  {
+   "fieldname": "active_members",
+   "fieldtype": "Int",
+   "label": "Active Members",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_members",
+   "fieldtype": "Int",
+   "label": "New Members",
+   "read_only": 1
+  },
+  {
+   "fieldname": "lost_members",
+   "fieldtype": "Int",
+   "label": "Lost Members",
+   "read_only": 1
+  },
+  {
+   "fieldname": "metrics_section",
+   "fieldtype": "Section Break",
+   "label": "Key Metrics"
+  },
+  {
+   "fieldname": "net_growth",
+   "fieldtype": "Int",
+   "label": "Net Growth",
+   "read_only": 1
+  },
+  {
+   "fieldname": "growth_rate",
+   "fieldtype": "Percent",
+   "label": "Growth Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "churn_rate",
+   "fieldtype": "Percent",
+   "label": "Churn Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "retention_rate",
+   "fieldtype": "Percent",
+   "label": "Retention Rate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_revenue",
+   "fieldtype": "Currency",
+   "label": "Total Revenue",
+   "read_only": 1
+  },
+  {
+   "fieldname": "average_member_value",
+   "fieldtype": "Currency",
+   "label": "Average Member Value",
+   "read_only": 1
+  },
+  {
+   "fieldname": "projected_annual_revenue",
+   "fieldtype": "Currency",
+   "label": "Projected Annual Revenue",
+   "read_only": 1
+  },
+  {
+   "fieldname": "segmentation_section",
+   "fieldtype": "Section Break",
+   "label": "Segmentation Data"
+  },
+  {
+   "fieldname": "by_chapter",
+   "fieldtype": "JSON",
+   "label": "By Chapter",
+   "read_only": 1
+  },
+  {
+   "fieldname": "by_region",
+   "fieldtype": "JSON",
+   "label": "By Region",
+   "read_only": 1
+  },
+  {
+   "fieldname": "by_membership_type",
+   "fieldtype": "JSON",
+   "label": "By Membership Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "by_payment_method",
+   "fieldtype": "JSON",
+   "label": "By Payment Method",
+   "read_only": 1
+  },
+  {
+   "fieldname": "by_age_group",
+   "fieldtype": "JSON",
+   "label": "By Age Group",
+   "read_only": 1
+  },
+  {
+   "fieldname": "by_join_year",
+   "fieldtype": "JSON",
+   "label": "By Join Year",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cohort_data_section",
+   "fieldtype": "Section Break",
+   "label": "Cohort Data"
+  },
+  {
+   "fieldname": "cohort_data",
+   "fieldtype": "JSON",
+   "label": "Cohort Analysis Data",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2025-01-06 11:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Membership Analytics Snapshot",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1
+  }
+ ],
+ "sort_field": "snapshot_date",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

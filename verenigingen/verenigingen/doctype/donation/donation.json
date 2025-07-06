@@ -51,6 +51,7 @@
   "recurring_frequency",
   "next_collection_date",
   "anbi_section",
+  "periodic_donation_agreement",
   "anbi_agreement_number",
   "column_break_anbi",
   "anbi_agreement_date",
@@ -58,7 +59,7 @@
   "purpose_section",
   "donation_purpose_type",
   "column_break_purpose",
-  "campaign_reference",
+  "donation_campaign",
   "chapter_reference",
   "specific_goal_description",
   "accounting_section",
@@ -307,6 +308,13 @@
    "label": "ANBI Tax Deduction"
   },
   {
+   "fieldname": "periodic_donation_agreement",
+   "fieldtype": "Link",
+   "label": "Periodic Donation Agreement",
+   "options": "Periodic Donation Agreement",
+   "description": "Link to 5-year periodic donation agreement for full tax deductibility"
+  },
+  {
    "fieldname": "anbi_agreement_number",
    "fieldtype": "Data",
    "label": "ANBI Agreement Number",
@@ -345,11 +353,12 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "campaign_reference",
-   "fieldtype": "Data",
-   "label": "Campaign Reference",
+   "fieldname": "donation_campaign",
+   "fieldtype": "Link",
+   "label": "Donation Campaign",
+   "options": "Donation Campaign",
    "depends_on": "eval:doc.donation_purpose_type == 'Campaign'",
-   "description": "Reference to specific fundraising campaign"
+   "description": "Link to specific fundraising campaign"
   },
   {
    "fieldname": "chapter_reference",

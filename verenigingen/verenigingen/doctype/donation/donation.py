@@ -32,6 +32,9 @@ class Donation(Document):
         # Validate ANBI agreement requirements
         self.validate_anbi_agreement()
 
+        # Validate periodic donation agreement
+        self.validate_periodic_donation_agreement()
+
         # Validate donation purpose fields
         self.validate_donation_purpose()
 
@@ -89,6 +92,34 @@ class Donation(Document):
         min_amount = flt(getattr(settings, "anbi_minimum_reportable_amount", 500))
         if self.amount and flt(self.amount) >= min_amount and anbi_number:
             self.belastingdienst_reportable = 1
+
+    def validate_periodic_donation_agreement(self):
+        """Validate periodic donation agreement link"""
+        if hasattr(self, "periodic_donation_agreement") and self.periodic_donation_agreement:
+            # Check if agreement exists and is active
+            agreement = frappe.get_doc("Periodic Donation Agreement", self.periodic_donation_agreement)
+
+            # Verify donor matches
+            if agreement.donor != self.donor:
+                frappe.throw(_("Donation donor does not match agreement donor"))
+
+            # Check agreement status
+            if agreement.status not in ["Active", "Completed"]:
+                frappe.throw(_("Cannot link donation to {0} agreement").format(agreement.status))
+
+            # Auto-populate ANBI fields if not set
+            if not self.anbi_agreement_number and agreement.agreement_number:
+                self.anbi_agreement_number = agreement.agreement_number
+
+            if not self.anbi_agreement_date and agreement.agreement_date:
+                self.anbi_agreement_date = agreement.agreement_date
+
+            # Mark as reportable for periodic donations
+            self.belastingdienst_reportable = 1
+
+            # Set donation status as recurring if not already set
+            if not self.donation_status or self.donation_status == "One-time":
+                self.donation_status = "Recurring"
 
     def generate_anbi_report_data(self):
         """Generate data for ANBI reporting to Belastingdienst"""
@@ -795,3 +826,13 @@ def create_donation_allocation_report(chapter=None, from_date=None, to_date=None
     }
 
     return report
+
+
+def update_campaign_progress(doc, method):
+    """Update campaign progress when donation is created/updated"""
+    if doc.donation_campaign and doc.paid:
+        from verenigingen.verenigingen.doctype.donation_campaign.donation_campaign import (
+            update_campaign_progress,
+        )
+
+        update_campaign_progress(doc.donation_campaign)

@@ -50,13 +50,19 @@ class VolunteerPortalTestRunner:
 
         # Initialize Frappe if not already done
         if not hasattr(frappe, "db") or not frappe.db:
-            frappe.init(site="test_site")
+            frappe.init(site="dev.veganisme.net")
             frappe.connect()
 
         # Set test user
         frappe.set_user("Administrator")
+        
+        # Enable test mode and email mocking
+        frappe.flags.in_test = True
+        from verenigingen.tests.test_config import setup_global_test_config, enable_test_email_mocking
+        setup_global_test_config()
+        enable_test_email_mocking()
 
-        print("Test environment ready.")
+        print("Test environment ready with email mocking enabled.")
 
     def run_test_suite(self, suite_name, verbose=False):
         """Run a specific test suite"""

@@ -54,9 +54,11 @@
   "donation_debit_account",
   "donation_payment_account",
   "anbi_donation_settings_section",
-  "default_donor_type",
+  "enable_anbi_functionality",
+  "organization_has_anbi_status",
   "anbi_minimum_reportable_amount",
   "column_break_anbi_donation",
+  "default_donor_type",
   "campaign_donation_account",
   "restricted_donation_account",
   "billing_cycle",
@@ -388,18 +390,26 @@
   {
    "fieldname": "anbi_donation_settings_section",
    "fieldtype": "Section Break",
-   "label": "ANBI & Earmarked Donation Settings"
+   "label": "ANBI (Tax-Deductible Donations) Settings"
   },
   {
-   "default": "Individual",
-   "description": "Default donor type for new donors created through donation forms",
-   "fieldname": "default_donor_type",
-   "fieldtype": "Select",
-   "label": "Default Donor Type",
-   "options": "\nIndividual\nOrganization"
+   "default": "1",
+   "description": "Enable ANBI (Algemeen Nut Beogende Instelling) functionality for tax-deductible donations and periodic donation agreements",
+   "fieldname": "enable_anbi_functionality",
+   "fieldtype": "Check",
+   "label": "Enable ANBI Functionality"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.enable_anbi_functionality",
+   "description": "Check if your organization has ANBI status from the Belastingdienst",
+   "fieldname": "organization_has_anbi_status",
+   "fieldtype": "Check",
+   "label": "Organization has ANBI Status"
   },
   {
    "default": "500",
+   "depends_on": "eval:doc.enable_anbi_functionality",
    "description": "Minimum donation amount to automatically mark as reportable to Belastingdienst",
    "fieldname": "anbi_minimum_reportable_amount",
    "fieldtype": "Currency",
@@ -410,17 +420,33 @@
    "fieldtype": "Column Break"
   },
   {
-   "description": "Account for donations earmarked for specific campaigns",
+   "description": "Account for general unrestricted donations (can be used for any purpose)",
+   "fieldname": "unrestricted_donation_account",
+   "fieldtype": "Link",
+   "label": "Unrestricted Donation Account",
+   "options": "Account"
+  },
+  {
+   "default": "Individual",
+   "depends_on": "eval:doc.enable_anbi_functionality",
+   "description": "Default donor type for new donors created through donation forms",
+   "fieldname": "default_donor_type",
+   "fieldtype": "Select",
+   "label": "Default Donor Type",
+   "options": "\nIndividual\nOrganization"
+  },
+  {
+   "description": "Account for donations restricted to specific campaigns (temporarily restricted funds)",
    "fieldname": "campaign_donation_account",
    "fieldtype": "Link",
    "label": "Campaign Donation Account",
    "options": "Account"
   },
   {
-   "description": "Account for donations earmarked for specific goals (restricted funds)",
+   "description": "Account for other donor-restricted purposes (e.g., 'youth programs only', 'building fund')",
    "fieldname": "restricted_donation_account",
    "fieldtype": "Link",
-   "label": "Restricted Donation Account",
+   "label": "Other Restricted Donation Account",
    "options": "Account"
   },
   {
@@ -463,7 +489,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-06-29 10:00:00.000000",
+ "modified": "2025-07-06 14:30:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Settings",

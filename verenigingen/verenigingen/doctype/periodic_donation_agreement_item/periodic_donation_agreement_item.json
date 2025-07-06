@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "creation": "2025-01-06 14:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "donation",
+  "date",
+  "amount",
+  "status",
+  "receipt_sent"
+ ],
+ "fields": [
+  {
+   "fieldname": "donation",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Donation",
+   "options": "Donation",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "donation.date",
+   "fieldname": "date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Date",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "donation.amount",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Amount",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Unpaid\nPaid\nFailed\nRefunded",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "receipt_sent",
+   "fieldtype": "Check",
+   "label": "Receipt Sent"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-01-06 14:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Periodic Donation Agreement Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -364,7 +364,6 @@
    "description": "Dutch name particles/prefixes (van, de, van der, etc.)",
    "fieldname": "tussenvoegsel",
    "fieldtype": "Data",
-   "hidden": 1,
    "label": "Tussenvoegsel"
   },
   {

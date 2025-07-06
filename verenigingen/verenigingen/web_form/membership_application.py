@@ -92,6 +92,7 @@ def submit_membership_application(data):
                 "doctype": "Member",
                 "first_name": data.get("first_name"),
                 "middle_name": data.get("middle_name", ""),
+                "tussenvoegsel": data.get("tussenvoegsel", ""),
                 "last_name": data.get("last_name"),
                 "email": data.get("email"),
                 "phone": data.get("phone", ""),

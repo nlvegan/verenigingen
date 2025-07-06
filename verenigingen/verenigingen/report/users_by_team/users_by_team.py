@@ -35,13 +35,13 @@ def get_columns():
         {"label": _("User"), "fieldname": "user", "fieldtype": "Link", "options": "User", "width": 140},
         {"label": _("User Name"), "fieldname": "user_full_name", "fieldtype": "Data", "width": 180},
         {
-            "label": _("Role"),
+            "label": _("Role Type"),
             "fieldname": "team_role",
-            "fieldtype": "Link",
-            "options": "Team Role",
+            "fieldtype": "Select",
+            "options": "Team Leader\nTeam Member",
             "width": 120,
         },
-        {"label": _("Permission Level"), "fieldname": "permissions_level", "fieldtype": "Data", "width": 120},
+        {"label": _("Role Description"), "fieldname": "role_description", "fieldtype": "Data", "width": 150},
         {"label": _("From Date"), "fieldname": "from_date", "fieldtype": "Date", "width": 100},
         {"label": _("To Date"), "fieldname": "to_date", "fieldtype": "Date", "width": 100},
         {"label": _("Active"), "fieldname": "is_active", "fieldtype": "Check", "width": 70},
@@ -63,7 +63,7 @@ def get_data(filters):
     values = {}
 
     if filters.get("active_only"):
-        conditions.append("tmr.is_active = 1")
+        conditions.append("tm.is_active = 1")
 
     # Additional filters can be added here
     if filters.get("team"):
@@ -71,18 +71,18 @@ def get_data(filters):
         values["team"] = filters.get("team")
 
     if filters.get("user"):
-        conditions.append("tmr.user = %(user)s")
+        conditions.append("v.member IN (SELECT name FROM `tabMember` WHERE user = %(user)s)")
         values["user"] = filters.get("user")
 
     if filters.get("team_role"):
-        conditions.append("tmr.team_role = %(team_role)s")
+        conditions.append("tm.role_type = %(team_role)s")
         values["team_role"] = filters.get("team_role")
 
     conditions_str = " AND " + " AND ".join(conditions) if conditions else ""
 
     try:
         # Verify tables exist before running query
-        tables = ["tabTeam", "tabTeam Member Role", "tabTeam Role"]
+        tables = ["tabTeam", "tabTeam Member", "tabVolunteer"]
         for table in tables:
             if not frappe.db.table_exists(table.replace("tab", "")):
                 frappe.log_error(f"Table {table} does not exist", "Users by Team Report Error")
@@ -93,26 +93,26 @@ def get_data(filters):
         SELECT
             t.name as team,
             t.team_lead as team_lead,
-            tmr.user as user,
-            u.full_name as user_full_name,
-            tmr.team_role as team_role,
-            tr.permissions_level as permissions_level,
-            tmr.from_date as from_date,
-            tmr.to_date as to_date,
-            tmr.is_active as is_active
+            m.user as user,
+            CONCAT(m.first_name, ' ', IFNULL(m.tussenvoegsel, ''), ' ', m.last_name) as user_full_name,
+            tm.role_type as team_role,
+            tm.role as role_description,
+            tm.from_date as from_date,
+            tm.to_date as to_date,
+            tm.is_active as is_active
         FROM
-            `tabTeam Member Role` tmr
+            `tabTeam Member` tm
         JOIN
-            `tabTeam` t ON tmr.parent = t.name
+            `tabTeam` t ON tm.parent = t.name
         LEFT JOIN
-            `tabUser` u ON tmr.user = u.name
+            `tabVolunteer` v ON tm.volunteer = v.name
         LEFT JOIN
-            `tabTeam Role` tr ON tmr.team_role = tr.name
+            `tabMember` m ON v.member = m.name
         WHERE
-            tmr.parenttype = 'Team'
+            tm.parenttype = 'Team'
             {conditions}
         ORDER BY
-            t.name, tmr.user
+            t.name, user_full_name
         """.format(
             conditions=conditions_str
         )

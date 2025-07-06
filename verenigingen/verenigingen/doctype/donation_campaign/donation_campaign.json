@@ -1,0 +1,330 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:campaign_name",
+ "creation": "2025-01-07 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "basic_information_section",
+  "campaign_name",
+  "campaign_type",
+  "description",
+  "column_break_basic",
+  "status",
+  "start_date",
+  "end_date",
+  "campaign_owner",
+  "goal_settings_section",
+  "monetary_goal",
+  "donor_goal",
+  "column_break_goals",
+  "minimum_donation_amount",
+  "suggested_donation_amounts",
+  "progress_tracking_section",
+  "total_raised",
+  "total_donors",
+  "total_donations",
+  "column_break_progress",
+  "monetary_progress",
+  "donor_progress",
+  "average_donation_amount",
+  "campaign_details_section",
+  "long_description",
+  "campaign_story",
+  "impact_statement",
+  "column_break_details",
+  "campaign_image",
+  "campaign_video_url",
+  "thank_you_message",
+  "visibility_settings_section",
+  "is_public",
+  "show_on_website",
+  "show_progress_bar",
+  "column_break_visibility",
+  "allow_anonymous_donations",
+  "show_donor_list",
+  "show_recent_donations"
+ ],
+ "fields": [
+  {
+   "fieldname": "basic_information_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Information"
+  },
+  {
+   "fieldname": "campaign_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Campaign Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "campaign_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Campaign Type",
+   "options": "Annual Giving\nCapital Campaign\nEmergency Relief\nProject Funding\nEndowment\nEvent\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Short Description",
+   "max_height": "100px"
+  },
+  {
+   "fieldname": "column_break_basic",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nActive\nPaused\nCompleted\nCancelled",
+   "reqd": 1
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "End Date"
+  },
+  {
+   "fieldname": "campaign_owner",
+   "fieldtype": "Link",
+   "label": "Campaign Owner",
+   "options": "User"
+  },
+  {
+   "fieldname": "goal_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Goals"
+  },
+  {
+   "fieldname": "monetary_goal",
+   "fieldtype": "Currency",
+   "label": "Monetary Goal",
+   "non_negative": 1,
+   "precision": "2"
+  },
+  {
+   "fieldname": "donor_goal",
+   "fieldtype": "Int",
+   "label": "Number of Donors Goal",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "column_break_goals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "minimum_donation_amount",
+   "fieldtype": "Currency",
+   "label": "Minimum Donation Amount",
+   "non_negative": 1,
+   "precision": "2"
+  },
+  {
+   "description": "Comma-separated suggested amounts (e.g., 25,50,100,250)",
+   "fieldname": "suggested_donation_amounts",
+   "fieldtype": "Data",
+   "label": "Suggested Donation Amounts"
+  },
+  {
+   "fieldname": "progress_tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Progress"
+  },
+  {
+   "fieldname": "total_raised",
+   "fieldtype": "Currency",
+   "label": "Total Raised",
+   "non_negative": 1,
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_donors",
+   "fieldtype": "Int",
+   "label": "Total Donors",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_donations",
+   "fieldtype": "Int",
+   "label": "Total Donations",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_progress",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "monetary_progress",
+   "fieldtype": "Percent",
+   "label": "Monetary Progress",
+   "read_only": 1
+  },
+  {
+   "fieldname": "donor_progress",
+   "fieldtype": "Percent",
+   "label": "Donor Progress",
+   "read_only": 1
+  },
+  {
+   "fieldname": "average_donation_amount",
+   "fieldtype": "Currency",
+   "label": "Average Donation",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "campaign_details_section",
+   "fieldtype": "Section Break",
+   "label": "Campaign Details"
+  },
+  {
+   "fieldname": "long_description",
+   "fieldtype": "Text Editor",
+   "label": "Full Description"
+  },
+  {
+   "fieldname": "campaign_story",
+   "fieldtype": "Text Editor",
+   "label": "Campaign Story"
+  },
+  {
+   "fieldname": "impact_statement",
+   "fieldtype": "Text Editor",
+   "label": "Impact Statement"
+  },
+  {
+   "fieldname": "column_break_details",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "campaign_image",
+   "fieldtype": "Attach Image",
+   "label": "Campaign Image"
+  },
+  {
+   "fieldname": "campaign_video_url",
+   "fieldtype": "Data",
+   "label": "Campaign Video URL"
+  },
+  {
+   "fieldname": "thank_you_message",
+   "fieldtype": "Text Editor",
+   "label": "Thank You Message"
+  },
+  {
+   "fieldname": "visibility_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Visibility Settings"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_public",
+   "fieldtype": "Check",
+   "label": "Is Public"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.is_public",
+   "fieldname": "show_on_website",
+   "fieldtype": "Check",
+   "label": "Show on Website"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.is_public",
+   "fieldname": "show_progress_bar",
+   "fieldtype": "Check",
+   "label": "Show Progress Bar"
+  },
+  {
+   "fieldname": "column_break_visibility",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_anonymous_donations",
+   "fieldtype": "Check",
+   "label": "Allow Anonymous Donations"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.is_public",
+   "fieldname": "show_donor_list",
+   "fieldtype": "Check",
+   "label": "Show Donor List"
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.is_public",
+   "fieldname": "show_recent_donations",
+   "fieldtype": "Check",
+   "label": "Show Recent Donations"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "link_doctype": "Donation",
+   "link_fieldname": "donation_campaign"
+  }
+ ],
+ "modified": "2025-01-07 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Donation Campaign",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "role": "All",
+   "if_owner": 1
+  }
+ ],
+ "quick_entry": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

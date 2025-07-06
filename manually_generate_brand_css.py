@@ -6,11 +6,11 @@ Manually generate brand CSS to test the system
 import os
 import sys
 
+import frappe
+
 sys.path.insert(0, "/home/frappe/frappe-bench")
 sys.path.insert(0, "/home/frappe/frappe-bench/apps/frappe")
 sys.path.insert(0, "/home/frappe/frappe-bench/sites")
-
-import frappe
 
 
 def manually_generate_css():
