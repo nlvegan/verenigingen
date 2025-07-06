@@ -2740,6 +2740,82 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=False):
 
 
 @frappe.whitelist()
+def nuclear_cleanup_all_imported_data():
+    """
+    Nuclear option: Direct SQL cleanup of all e-Boekhouden imported data
+    """
+    
+    # Get default company
+    company = frappe.defaults.get_user_default("Company")
+    if not company:
+        company = frappe.get_all("Company", limit=1, pluck="name")[0]
+    
+    results = {}
+    
+    try:
+        # Disable foreign key checks
+        frappe.db.sql("SET FOREIGN_KEY_CHECKS = 0")
+        
+        # Get all e-Boekhouden journal entries
+        journal_entries = frappe.db.sql("""
+            SELECT name FROM `tabJournal Entry` 
+            WHERE company = %s 
+            AND (user_remark LIKE '%%E-Boekhouden REST Import%%' 
+                 OR user_remark LIKE '%%Migrated from e-Boekhouden%%')
+        """, company, as_dict=True)
+        
+        # Delete all linked records in batches
+        batch_size = 100
+        deleted_count = 0
+        
+        for i in range(0, len(journal_entries), batch_size):
+            batch = journal_entries[i:i+batch_size]
+            je_names = [je.name for je in batch]
+            
+            if not je_names:
+                continue
+            
+            # Create placeholders for SQL IN clause
+            placeholders = ','.join(['%s'] * len(je_names))
+            
+            # Delete all linked records for this batch
+            frappe.db.sql(f"DELETE FROM `tabRepost Accounting Ledger Items` WHERE voucher_no IN ({placeholders})", je_names)
+            frappe.db.sql(f"DELETE FROM `tabRepost Payment Ledger Items` WHERE voucher_no IN ({placeholders})", je_names)
+            frappe.db.sql(f"DELETE FROM `tabPayment Ledger Entry` WHERE voucher_no IN ({placeholders})", je_names)
+            frappe.db.sql(f"DELETE FROM `tabGL Entry` WHERE voucher_no IN ({placeholders})", je_names)
+            frappe.db.sql(f"DELETE FROM `tabJournal Entry Account` WHERE parent IN ({placeholders})", je_names)
+            frappe.db.sql(f"DELETE FROM `tabJournal Entry` WHERE name IN ({placeholders})", je_names)
+            
+            deleted_count += len(batch)
+        
+        results["journal_entries_deleted"] = deleted_count
+        
+        # Clean up orphaned GL Entries
+        gl_result = frappe.db.sql("""
+            DELETE FROM `tabGL Entry` 
+            WHERE company = %s 
+            AND (remarks LIKE '%%e-Boekhouden%%' 
+                 OR remarks LIKE '%%eBoekhouden%%' 
+                 OR remarks LIKE '%%E-Boekhouden REST Import%%')
+        """, company)
+        
+        results["gl_entries_deleted"] = gl_result
+        
+        # Commit changes
+        frappe.db.commit()
+        
+    except Exception as e:
+        frappe.db.rollback()
+        results["error"] = str(e)
+        
+    finally:
+        # Re-enable foreign key checks
+        frappe.db.sql("SET FOREIGN_KEY_CHECKS = 1")
+    
+    return {"success": True, "results": results}
+
+
+@frappe.whitelist()
 def debug_cleanup_all_imported_data(company=None):
     """Debug function to completely clean up all imported data for fresh migration"""
     try:
@@ -2758,33 +2834,76 @@ def debug_cleanup_all_imported_data(company=None):
         try:
             journal_entries = frappe.get_all(
                 "Journal Entry",
-                filters={"company": company, "user_remark": ["like", "%Migrated from e-Boekhouden%"]},
+                filters=[
+                    ["company", "=", company],
+                    ["user_remark", "like", "%Migrated from e-Boekhouden%"]
+                ],
                 fields=["name", "docstatus"],
             )
+            
+            # Also get journal entries with the new REST import pattern
+            journal_entries_rest = frappe.get_all(
+                "Journal Entry",
+                filters=[
+                    ["company", "=", company],
+                    ["user_remark", "like", "%E-Boekhouden REST Import%"]
+                ],
+                fields=["name", "docstatus"],
+            )
+            
+            # Combine both lists and remove duplicates
+            all_journal_entries = journal_entries + journal_entries_rest
+            seen_names = set()
+            journal_entries = []
+            for je in all_journal_entries:
+                if je.name not in seen_names:
+                    journal_entries.append(je)
+                    seen_names.add(je.name)
 
-            for je in journal_entries:
-                try:
-                    je_doc = frappe.get_doc("Journal Entry", je.name)
-
-                    # Cancel if submitted
-                    if je_doc.docstatus == 1:
-                        # Set ignore_linked_doctypes to handle GL Entries
-                        je_doc.ignore_linked_doctypes = (
-                            "GL Entry",
-                            "Stock Ledger Entry",
-                            "Payment Ledger Entry",
-                            "Repost Payment Ledger",
-                            "Repost Payment Ledger Items",
-                            "Repost Accounting Ledger",
-                            "Repost Accounting Ledger Items",
-                        )
-                        je_doc.cancel()
-
-                    # Delete after cancellation
-                    frappe.delete_doc("Journal Entry", je.name)
-                    journal_entries_deleted += 1
-                except Exception as e:
-                    frappe.log_error(f"Failed to delete Journal Entry {je.name}: {str(e)}")
+            # Disable foreign key checks for aggressive deletion
+            try:
+                frappe.db.sql("SET FOREIGN_KEY_CHECKS = 0")
+                
+                for je in journal_entries:
+                    try:
+                        # Skip frappe.get_doc and go directly to SQL deletion
+                        je_name = je.name
+                        
+                        # Delete all linked entries using direct SQL
+                        try:
+                            frappe.db.sql("DELETE FROM `tabRepost Accounting Ledger Items` WHERE voucher_no = %s", je_name)
+                            frappe.db.sql("DELETE FROM `tabRepost Accounting Ledger` WHERE voucher_no = %s", je_name)
+                            frappe.db.sql("DELETE FROM `tabRepost Payment Ledger Items` WHERE voucher_no = %s", je_name)
+                            frappe.db.sql("DELETE FROM `tabRepost Payment Ledger` WHERE voucher_no = %s", je_name)
+                            frappe.db.sql("DELETE FROM `tabPayment Ledger Entry` WHERE voucher_no = %s", je_name)
+                            frappe.db.sql("DELETE FROM `tabGL Entry` WHERE voucher_no = %s", je_name)
+                            
+                            # Delete Journal Entry Account child records
+                            frappe.db.sql("DELETE FROM `tabJournal Entry Account` WHERE parent = %s", je_name)
+                            
+                            # Finally delete the Journal Entry itself
+                            frappe.db.sql("DELETE FROM `tabJournal Entry` WHERE name = %s", je_name)
+                            
+                            journal_entries_deleted += 1
+                        except Exception as sql_e:
+                            frappe.log_error(f"Failed to delete Journal Entry {je_name} via SQL: {str(sql_e)}")
+                            
+                            # Fallback: try the old method
+                            try:
+                                je_doc = frappe.get_doc("Journal Entry", je_name)
+                                if je_doc.docstatus == 1:
+                                    je_doc.cancel()
+                                frappe.delete_doc("Journal Entry", je_name)
+                                journal_entries_deleted += 1
+                            except Exception as fallback_e:
+                                frappe.log_error(f"Fallback deletion also failed for {je_name}: {str(fallback_e)}")
+                                
+                    except Exception as e:
+                        frappe.log_error(f"Failed to delete Journal Entry {je.name}: {str(e)}")
+                        
+            finally:
+                # Always re-enable foreign key checks
+                frappe.db.sql("SET FOREIGN_KEY_CHECKS = 1")
         except Exception as e:
             frappe.log_error(f"Error cleaning journal entries: {str(e)}")
 
@@ -3261,9 +3380,29 @@ def debug_cleanup_all_imported_data(company=None):
         gl_entries_deleted = 0
         try:
             # Only clean up orphaned GL Entries that might be left behind
-            gl_entries = frappe.db.get_all(
+            # Get entries with old SOAP import pattern
+            gl_entries_old = frappe.db.get_all(
                 "GL Entry", filters={"company": company, "remarks": ["like", "%e-Boekhouden%"]}
             )
+            
+            # Get entries with new REST import pattern
+            gl_entries_new = frappe.db.get_all(
+                "GL Entry", filters={"company": company, "remarks": ["like", "%eBoekhouden%"]}
+            )
+            
+            # Get entries with REST import journal entry pattern
+            gl_entries_rest = frappe.db.get_all(
+                "GL Entry", filters={"company": company, "remarks": ["like", "%E-Boekhouden REST Import%"]}
+            )
+            
+            # Combine all lists and remove duplicates
+            all_gl_entries = gl_entries_old + gl_entries_new + gl_entries_rest
+            seen_names = set()
+            gl_entries = []
+            for gl in all_gl_entries:
+                if gl.name not in seen_names:
+                    gl_entries.append(gl)
+                    seen_names.add(gl.name)
 
             for gl in gl_entries:
                 try:
