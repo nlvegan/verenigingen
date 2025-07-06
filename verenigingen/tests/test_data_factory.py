@@ -266,6 +266,20 @@ class TestDataFactory:
         print(f"✅ Created {len(mandates)} SEPA mandates")
         return mandates
 
+    def generate_test_iban(self, bank_code=None):
+        """Generate a valid test IBAN using mock banks"""
+        from verenigingen.utils.iban_validator import generate_test_iban
+        
+        if not bank_code:
+            # Randomly choose from available mock banks
+            bank_code = random.choice(["TEST", "MOCK", "DEMO"])
+        
+        # Generate unique account number for this test run
+        account_suffix = random.randint(1000, 9999)
+        account_number = f"000{account_suffix:04d}789"[:10]
+        
+        return generate_test_iban(bank_code, account_number)
+
     def create_test_expenses(self, volunteers, expense_count_per_volunteer=5):
         """Create volunteer expenses"""
         expenses = []

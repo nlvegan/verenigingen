@@ -980,6 +980,15 @@ class Volunteer(Document):
         try:
             # Only create employee if volunteer has email and no existing employee
             if self.email and not self.employee_id:
+                # Check if this volunteer is linked to a member with pending application
+                if self.member:
+                    member = frappe.get_doc("Member", self.member)
+                    if member.application_status == "Pending":
+                        frappe.logger().info(
+                            f"Skipping employee creation for volunteer {self.name} - member application still pending approval"
+                        )
+                        return
+                
                 frappe.logger().info(f"Auto-creating employee record for new volunteer: {self.name}")
                 employee_id = self.create_minimal_employee()
                 if employee_id:

@@ -657,4 +657,3 @@ def generate_seasonal_insights(seasonal_indices):
         insights.append(f"Low season in {calendar.month_name[min_month[0]]} requires retention focus")
 
     return insights
-

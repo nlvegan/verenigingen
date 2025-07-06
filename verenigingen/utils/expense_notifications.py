@@ -187,14 +187,21 @@ class ExpenseNotificationManager:
         message = self._render_template(
             "expense_approval_request",
             {
+                "doc": expense_doc,  # Templates expect 'doc'
                 "expense": expense_doc,
                 "expense_details": expense_details,
                 "approver_name": approver_name,
                 "required_level": required_level.title(),
+                "volunteer_name": expense_details["volunteer_name"],
+                "formatted_amount": expense_details["formatted_amount"],
+                "formatted_date": expense_details["formatted_date"],
+                "category_name": expense_details["category_name"],
+                "organization_name": expense_details["organization_name"],
                 "approval_url": f"{self.base_url}/app/volunteer-expense/{expense_doc.name}",
                 "dashboard_url": f"{self.base_url}/app/expense-approval-dashboard",
                 "company": self.company,
                 "base_url": self.base_url,
+                "support_email": frappe.db.get_single_value("Verenigingen Settings", "contact_email") or "info@verenigingen.nl",
             },
         )
 

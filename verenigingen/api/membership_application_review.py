@@ -82,6 +82,17 @@ def approve_membership_application(member_name, membership_type=None, chapter=No
 
     member.save()
 
+    # Create employee record for volunteers whose applications are now approved
+    if member.interested_in_volunteering:
+        volunteer_record = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
+        if volunteer_record:
+            try:
+                volunteer = frappe.get_doc("Volunteer", volunteer_record)
+                volunteer.create_employee_if_needed()
+                frappe.logger().info(f"Created employee record for approved volunteer: {volunteer.name}")
+            except Exception as e:
+                frappe.logger().error(f"Failed to create employee for volunteer {volunteer_record}: {str(e)}")
+
     # Create initial IBAN history if member has IBAN
     if hasattr(member, "iban") and member.iban:
         try:
@@ -399,6 +410,8 @@ def send_approval_notification(member, invoice, membership_type):
             "payment_url": payment_url,
             "payment_amount": invoice.grand_total,
             "company": frappe.defaults.get_global_default("company"),
+            "support_email": frappe.db.get_single_value("Verenigingen Settings", "contact_email") or "info@verenigingen.nl",
+            "base_url": frappe.utils.get_url(),
         }
 
         # Use Email Template if available
@@ -483,6 +496,8 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
         "member_name": member.full_name,
         "first_name": member.first_name,
         "application_id": getattr(member, "application_id", member.name),
+        "support_email": frappe.db.get_single_value("Verenigingen Settings", "contact_email") or "info@verenigingen.nl",
+        "base_url": frappe.utils.get_url(),
     }
 
     # Use specified email template if provided and exists
