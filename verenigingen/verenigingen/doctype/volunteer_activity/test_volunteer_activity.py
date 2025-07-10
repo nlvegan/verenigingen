@@ -5,7 +5,7 @@
 import frappe
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.verenigingen.tests.test_base import VereningingenTestCase
+from verenigingen.tests.test_base import VereningingenTestCase
 
 
 class TestVolunteerActivity(VereningingenTestCase):

@@ -12,9 +12,9 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.verenigingen.api import membership_application
-from verenigingen.verenigingen.tests.utils.assertions import AssertionHelpers
-from verenigingen.verenigingen.tests.utils.base import VereningingenUnitTestCase
-from verenigingen.verenigingen.tests.utils.factories import TestDataBuilder
+from verenigingen.tests.utils.assertions import AssertionHelpers
+from verenigingen.tests.utils.base import VereningingenUnitTestCase
+from verenigingen.tests.utils.factories import TestDataBuilder
 
 
 class TestMembershipApplicationAPI(VereningingenUnitTestCase):

@@ -1,0 +1,383 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 8f5da2e5c4f34850a75421e7e7e7e7e7
+      name: Frappe Applications
+  templates:
+    - uuid: a19c3d5b6e9b4f5e85f7b8c9d0e1f2g3
+      template: Template Frappe Cloud Monitoring
+      name: Template Frappe Cloud Monitoring
+      description: Monitor Frappe/ERPNext applications including Verenigingen - Zabbix 7.0
+      vendor:
+        name: Verenigingen
+        version: '7.0'
+      templates:
+        - name: Template Frappe Cloud Monitoring
+      groups:
+        - name: Frappe Applications
+      items:
+        # Health Check with Zabbix 7.0 preprocessing
+        - uuid: 1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p
+          name: Frappe Health Status
+          type: HTTP_AGENT
+          key: frappe.health.status
+          delay: 1m
+          history: 7d
+          trends: '0'
+          value_type: TEXT
+          url: '{$FRAPPE_URL}/health'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.status
+              error_handler: CUSTOM_VALUE
+              error_handler_params: unhealthy
+          triggers:
+            - uuid: 2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.status)<>"healthy"'
+              name: 'Frappe application is unhealthy'
+              priority: HIGH
+              manual_close: 'YES'
+              tags:
+                - tag: scope
+                  value: availability
+
+        # Member Metrics with JavaScript preprocessing
+        - uuid: 3a4b5c6d7e8f9g0h1i2j3k4l5m6n7o8p
+          name: Active Members Count
+          type: HTTP_AGENT
+          key: frappe.members.active
+          delay: 5m
+          history: 30d
+          trends: 365d
+          value_type: UNSIGNED
+          units: members
+          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics.active_members
+            - type: DISCARD_UNCHANGED_HEARTBEAT
+              parameters:
+                - 30m
+          tags:
+            - tag: component
+              value: members
+
+        # Financial Metrics
+        - uuid: 4a5b6c7d8e9f0g1h2i3j4k5l6m7n8o9p
+          name: Daily Donations Total
+          type: HTTP_AGENT
+          key: frappe.donations.daily
+          delay: 5m
+          history: 90d
+          trends: 365d
+          value_type: FLOAT
+          units: EUR
+          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics.daily_donations
+            - type: MULTIPLIER
+              parameters:
+                - '1'
+          tags:
+            - tag: component
+              value: financial
+
+        # Performance Metrics with Zabbix 7.0 features
+        - uuid: 5a6b7c8d9e0f1g2h3i4j5k6l7m8n9o0p
+          name: Error Rate
+          type: HTTP_AGENT
+          key: frappe.error.rate
+          delay: 1m
+          history: 7d
+          trends: 30d
+          value_type: FLOAT
+          units: '%'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics.error_rate
+            - type: THROTTLE_TIMED_VALUE
+              parameters:
+                - 50m
+          triggers:
+            - uuid: 6a7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>5'
+              name: 'High error rate on Frappe application'
+              event_name: 'Error rate: {ITEM.VALUE}%'
+              priority: WARNING
+              dependencies:
+                - name: 'Frappe application is unhealthy'
+                  expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.status)<>"healthy"'
+              tags:
+                - tag: scope
+                  value: performance
+            - uuid: 7a8b9c0d1e2f3g4h5i6j7k8l9m0n1o2p
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>10'
+              name: 'Critical error rate on Frappe application'
+              event_name: 'Critical error rate: {ITEM.VALUE}%'
+              priority: HIGH
+              tags:
+                - tag: scope
+                  value: performance
+
+        # Response Time with anomaly detection
+        - uuid: 8a9b0c1d2e3f4g5h6i7j8k9l0m1n2o3p
+          name: Average Response Time
+          type: HTTP_AGENT
+          key: frappe.response.time
+          delay: 1m
+          history: 7d
+          trends: 30d
+          value_type: UNSIGNED
+          units: ms
+          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics.response_time
+          triggers:
+            - uuid: 9a0b1c2d3e4f5g6h7i8j9k0l1m2n3o4p
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.response.time)>2000'
+              name: 'Slow response time on Frappe application'
+              event_name: 'Response time: {ITEM.VALUE}ms'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: performance
+            # Anomaly detection trigger (Zabbix 7.0 feature)
+            - uuid: 9b0c1d2e3f4g5h6i7j8k9l0m1n2o4p5q
+              expression: 'trendstl(/Template Frappe Cloud Monitoring/frappe.response.time,1h:now/h,1w,1d,2,"mad")<>0'
+              name: 'Response time anomaly detected'
+              priority: INFO
+              tags:
+                - tag: scope
+                  value: anomaly
+
+        # System Health Score
+        - uuid: 0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p
+          name: System Health Score
+          type: HTTP_AGENT
+          key: frappe.health.score
+          delay: 5m
+          history: 7d
+          trends: 30d
+          value_type: UNSIGNED
+          units: '%'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics.system_health
+            - type: IN_RANGE
+              parameters:
+                - '0'
+                - '100'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          triggers:
+            - uuid: 1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.score)<50'
+              name: 'Low system health score'
+              event_name: 'Health score: {ITEM.VALUE}%'
+              priority: HIGH
+              tags:
+                - tag: scope
+                  value: availability
+
+        # Business Metrics
+        - uuid: 2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q
+          name: Pending Volunteer Expenses
+          type: HTTP_AGENT
+          key: frappe.expenses.pending
+          delay: 5m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics.pending_expenses
+          tags:
+            - tag: component
+              value: volunteer
+
+        # Calculated item for member growth (Zabbix 7.0)
+        - uuid: 3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r
+          name: Member Growth Rate (24h)
+          type: CALCULATED
+          key: frappe.members.growth_rate
+          delay: 5m
+          history: 30d
+          trends: 365d
+          value_type: FLOAT
+          units: '%'
+          params: '(last(//frappe.members.active)-last(//frappe.members.active,#1:now-1d))/last(//frappe.members.active,#1:now-1d)*100'
+          tags:
+            - tag: component
+              value: members
+
+      discovery_rules:
+        # DocType Discovery with Zabbix 7.0 LLD
+        - uuid: 3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q
+          name: Frappe DocType Discovery
+          type: HTTP_AGENT
+          key: frappe.doctype.discovery
+          delay: 1h
+          url: '{$FRAPPE_URL}/api/method/frappe.client.get_list'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          query_fields:
+            - name: doctype
+              value: DocType
+            - name: filters
+              value: '[["module","=","Verenigingen"]]'
+            - name: fields
+              value: '["name","module"]'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  var data = JSON.parse(value);
+                  var result = [];
+                  data.forEach(function(doc) {
+                    result.push({
+                      "{#DOCTYPE}": doc.name,
+                      "{#MODULE}": doc.module
+                    });
+                  });
+                  return JSON.stringify(result);
+          lld_macro_paths:
+            - lld_macro: '{#DOCTYPE}'
+              path: $.name
+            - lld_macro: '{#MODULE}'
+              path: $.module
+          item_prototypes:
+            - uuid: 4b5c6d7e8f9g0h1i2j3k4l5m6n7o8p9q
+              name: 'Document count for {#DOCTYPE}'
+              type: HTTP_AGENT
+              key: 'frappe.doctype.count[{#DOCTYPE}]'
+              delay: 10m
+              history: 30d
+              trends: 365d
+              value_type: UNSIGNED
+              url: '{$FRAPPE_URL}/api/method/frappe.client.get_count'
+              headers:
+                - name: Authorization
+                  value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+              query_fields:
+                - name: doctype
+                  value: '{#DOCTYPE}'
+              preprocessing:
+                - type: JSONPATH
+                  parameters:
+                    - $.message
+              tags:
+                - tag: doctype
+                  value: '{#DOCTYPE}'
+                - tag: module
+                  value: '{#MODULE}'
+
+      dashboards:
+        # Zabbix 7.0 Dashboard
+        - uuid: 5c6d7e8f9g0h1i2j3k4l5m6n7o8p9q0r
+          name: Frappe Application Dashboard
+          pages:
+            - name: Overview
+              widgets:
+                - type: item
+                  name: Health Status
+                  width: 6
+                  height: 3
+                  fields:
+                    - type: INTEGER
+                      name: itemid
+                      value: 1  # Reference to health status item
+                - type: graph_classic
+                  name: Performance Metrics
+                  width: 12
+                  height: 5
+                  fields:
+                    - type: GRAPH
+                      name: graphid
+                      value: 1  # Reference to performance graph
+                - type: svggraph
+                  name: Member Growth
+                  width: 12
+                  height: 5
+                  fields:
+                    - type: INTEGER
+                      name: itemid
+                      value: 3  # Reference to member count item
+
+      tags:
+        - tag: class
+          value: application
+        - tag: target
+          value: frappe
+
+      macros:
+        - macro: '{$FRAPPE_URL}'
+          value: 'https://your-site.frappe.cloud'
+          description: 'Frappe site URL'
+        - macro: '{$FRAPPE_API_KEY}'
+          value: ''
+          description: 'Frappe API key'
+          type: SECRET_TEXT
+        - macro: '{$FRAPPE_API_SECRET}'
+          value: ''
+          description: 'Frappe API secret'
+          type: SECRET_TEXT
+        - macro: '{$ERROR_RATE_WARN}'
+          value: '5'
+          description: 'Warning threshold for error rate (%)'
+        - macro: '{$ERROR_RATE_HIGH}'
+          value: '10'
+          description: 'High threshold for error rate (%)'
+        - macro: '{$RESPONSE_TIME_WARN}'
+          value: '2000'
+          description: 'Warning threshold for response time (ms)'
+
+      valuemaps:
+        - uuid: 6d7e8f9g0h1i2j3k4l5m6n7o8p9q0r1s
+          name: 'Frappe Health Status'
+          mappings:
+            - type: EQUALS
+              value: healthy
+              newvalue: Healthy
+            - type: EQUALS
+              value: unhealthy
+              newvalue: Unhealthy
+            - type: DEFAULT
+              newvalue: Unknown

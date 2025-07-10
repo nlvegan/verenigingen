@@ -3,7 +3,7 @@ import unittest
 
 import frappe
 
-from verenigingen.verenigingen.tests.test_base import VereningingenTestCase
+from verenigingen.tests.test_base import VereningingenTestCase
 
 
 class TestChapterMatching(VereningingenTestCase):

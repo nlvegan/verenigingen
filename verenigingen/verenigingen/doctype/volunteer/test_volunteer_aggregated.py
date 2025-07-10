@@ -6,7 +6,7 @@ import random
 import frappe
 from frappe.utils import today
 
-from verenigingen.verenigingen.tests.test_base import VereningingenTestCase
+from verenigingen.tests.test_base import VereningingenTestCase
 
 
 class TestVolunteerAggregatedAssignments(VereningingenTestCase):

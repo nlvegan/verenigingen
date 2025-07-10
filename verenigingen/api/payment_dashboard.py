@@ -4,7 +4,14 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
+from verenigingen.utils.batch_processor import BatchProcessor
+from verenigingen.utils.error_handling import cache_with_ttl, handle_api_errors, validate_request
+from verenigingen.utils.performance_monitoring import monitor_performance
 
+
+@cache_with_ttl(ttl=300)
+@handle_api_errors
+@monitor_performance
 @frappe.whitelist()
 def get_dashboard_data(member=None):
     """Get payment dashboard summary data"""
@@ -114,8 +121,10 @@ def get_payment_method(member=None):
     return {"has_active_mandate": False}
 
 
+@cache_with_ttl(ttl=600)
+@handle_api_errors
 @frappe.whitelist()
-def get_payment_history(member=None, year=None, status=None):
+def get_payment_history(member=None, year=None, status=None, **kwargs):
     """Get payment history for member"""
     # Get actual member ID
     member = get_member_from_user(member)
@@ -147,6 +156,8 @@ def get_payment_history(member=None, year=None, status=None):
             "mode_of_payment",
         ],
         order_by="posting_date desc",
+        limit=limit,
+        start=offset,
     )
 
     # Get sales invoices with membership info through subscription
@@ -160,6 +171,12 @@ def get_payment_history(member=None, year=None, status=None):
 
     invoices = frappe.db.sql(
         """
+
+    # Pagination support
+    limit = int(kwargs.get('limit', 100))
+    offset = int(kwargs.get('offset', 0))
+    if limit > 1000:
+        limit = 1000  # Max limit for performance
         SELECT
             si.name,
             si.posting_date as date,
@@ -268,6 +285,8 @@ def get_mandate_history(member=None):
     return mandates
 
 
+@cache_with_ttl(ttl=3600)
+@handle_api_errors
 @frappe.whitelist()
 def get_payment_schedule(member=None):
     """Get upcoming payment schedule"""

@@ -3,6 +3,10 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.utils.error_handling import cache_with_ttl, handle_api_errors, validate_request
+from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.performance_monitoring import monitor_performance
+
 
 @frappe.whitelist()
 def suspend_member(member_name, suspension_reason, suspend_user=True, suspend_teams=True):
@@ -134,78 +138,86 @@ def _can_suspend_member_fallback(member_name):
     return False
 
 
+@cache_with_ttl(ttl=300)
+@handle_api_errors
+@monitor_performance
 @frappe.whitelist()
 def get_suspension_preview(member_name):
     """
-    Preview what would be affected by suspension
+    Preview what would be affected by suspension with caching
     """
-    try:
-        member = frappe.get_doc("Member", member_name)
+    if not member_name:
+        raise ValueError("member_name is required")
 
-        # Get user account info
-        user_email = frappe.db.get_value("Member", member_name, "user")
-        has_user_account = bool(user_email and frappe.db.exists("User", user_email))
+    member = frappe.get_doc("Member", member_name)
 
-        # Get team memberships
-        active_teams = 0
-        team_details = []
-        if user_email:
-            teams = frappe.get_all(
-                "Team Member", filters={"user": user_email, "docstatus": 1}, fields=["parent", "role"]
-            )
-            active_teams = len(teams)
-            team_details = [{"team": t.parent, "role": t.role} for t in teams]
+    # Get user account info
+    user_email = frappe.db.get_value("Member", member_name, "user")
+    has_user_account = bool(user_email and frappe.db.exists("User", user_email))
 
-        # Get active memberships
-        active_memberships = frappe.get_all(
-            "Membership",
-            filters={"member": member_name, "status": "Active", "docstatus": 1},
-            fields=["name", "membership_type"],
+    # Get team memberships
+    active_teams = 0
+    team_details = []
+    if user_email:
+        teams = frappe.get_all(
+            "Team Member", filters={"user": user_email, "docstatus": 1}, fields=["parent", "role"]
         )
+        active_teams = len(teams)
+        team_details = [{"team": t.parent, "role": t.role} for t in teams]
 
-        return {
-            "member_status": member.status,
-            "has_user_account": has_user_account,
-            "active_teams": active_teams,
-            "team_details": team_details,
-            "active_memberships": len(active_memberships),
-            "membership_details": active_memberships,
-            "can_suspend": member.status != "Suspended",
-            "is_currently_suspended": member.status == "Suspended",
-        }
+    # Get active memberships
+    active_memberships = frappe.get_all(
+        "Membership",
+        filters={"member": member_name, "status": "Active", "docstatus": 1},
+        fields=["name", "membership_type"],
+    )
 
-    except Exception as e:
-        frappe.logger().error(f"Failed to get suspension preview for {member_name}: {str(e)}")
-        return {"error": str(e), "can_suspend": False}
+    return {
+        "member_status": member.status,
+        "has_user_account": has_user_account,
+        "active_teams": active_teams,
+        "team_details": team_details,
+        "active_memberships": len(active_memberships),
+        "membership_details": active_memberships,
+        "can_suspend": member.status != "Suspended",
+        "is_currently_suspended": member.status == "Suspended",
+    }
 
 
+@handle_api_errors
+@validate_request
+@monitor_performance
 @frappe.whitelist()
 def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, suspend_teams=True):
     """
-    Suspend multiple members at once
+    Suspend multiple members at once using optimized batch processing
     """
     if isinstance(member_list, str):
         import json
 
         member_list = json.loads(member_list)
 
-    results = {"success": 0, "failed": 0, "details": []}
+    # Validate inputs
+    if not member_list:
+        raise ValueError("member_list cannot be empty")
+    if not suspension_reason:
+        raise ValueError("suspension_reason is required")
 
-    for member_name in member_list:
+    # Use BatchProcessor for optimized processing
+    batch_processor = BatchProcessor(batch_size=50, parallel_workers=2)
+
+    def process_member_suspension(member_name):
+        """Process single member suspension with error handling"""
         try:
             # Check permissions for each member
             from verenigingen.permissions import can_terminate_member
 
             if not can_terminate_member(member_name):
-                results["failed"] += 1
-                results["details"].append(
-                    {
-                        "member": member_name,
-                        "status": "failed",
-                        "error": "No permission to suspend this member",
-                    }
-                )
-                continue
+                return {
+                    "member": member_name,
+                    "status": "failed",
+                    "error": "No permission to suspend this member",
+                }
 
             # Suspend the member
             from verenigingen.utils.termination_integration import suspend_member_safe
@@ -218,27 +230,38 @@ def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, susp
             )
 
             if suspend_result.get("success"):
-                results["success"] += 1
-                results["details"].append(
-                    {
-                        "member": member_name,
-                        "status": "success",
-                        "actions": suspend_result.get("actions_taken", []),
-                    }
-                )
+                return {
+                    "member": member_name,
+                    "status": "success",
+                    "actions": suspend_result.get("actions_taken", []),
+                }
             else:
-                results["failed"] += 1
-                results["details"].append(
-                    {
-                        "member": member_name,
-                        "status": "failed",
-                        "error": suspend_result.get("error", "Unknown error"),
-                    }
-                )
+                return {
+                    "member": member_name,
+                    "status": "failed",
+                    "error": suspend_result.get("error", "Unknown error"),
+                }
 
         except Exception as e:
-            results["failed"] += 1
-            results["details"].append({"member": member_name, "status": "failed", "error": str(e)})
+            return {"member": member_name, "status": "failed", "error": str(e)}
+
+    # Process in batches
+    batch_results = batch_processor.process_in_batches(
+        member_list, process_member_suspension, context={"suspension_reason": suspension_reason}
+    )
+
+    # Aggregate results
+    results = {
+        "success": batch_results["successful"],
+        "failed": batch_results["failed"],
+        "details": [],
+        "batch_stats": batch_results["batch_stats"],
+    }
+
+    # Extract details from batch results
+    for batch_stat in batch_results["batch_stats"]:
+        if "results" in batch_stat:
+            results["details"].extend(batch_stat["results"])
 
     # Show summary message
     if results["success"] > 0:
@@ -250,6 +273,77 @@ def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, susp
         )
     else:
         frappe.msgprint(_("Bulk suspension failed: No members were suspended"), indicator="red")
+
+    return results
+
+
+@cache_with_ttl(ttl=600)
+@handle_api_errors
+@validate_request
+@monitor_performance
+@frappe.whitelist()
+def get_suspension_list(limit=100, offset=0, status=None, chapter=None):
+    """
+    Get list of suspended members with pagination and filtering
+    """
+    # Validate and sanitize pagination parameters
+    limit = int(limit) if limit else 100
+    offset = int(offset) if offset else 0
+
+    if limit > 1000:
+        limit = 1000  # Max limit for performance
+    if offset < 0:
+        offset = 0
+
+    # Build filters
+    filters = {"status": "Suspended"}
+    if chapter:
+        filters["current_chapter_display"] = chapter
+
+    # Get suspended members with optimized query
+    fields = [
+        "name",
+        "full_name",
+        "email",
+        "status",
+        "current_chapter_display",
+        "suspension_date",
+        "suspension_reason",
+        "creation",
+    ]
+
+    members = frappe.get_all(
+        "Member",
+        filters=filters,
+        fields=fields,
+        limit=limit,
+        start=offset,
+        order_by="suspension_date desc, creation desc",
+    )
+
+    # Get total count for pagination
+    total_count = frappe.db.count("Member", filters)
+
+    # Enhance data with additional information
+    for member in members:
+        # Add team count
+        if member.get("email"):
+            user_exists = frappe.db.exists("User", member["email"])
+            if user_exists:
+                team_count = frappe.db.count("Team Member", {"user": member["email"], "docstatus": 1})
+                member["active_team_count"] = team_count
+            else:
+                member["active_team_count"] = 0
+        else:
+            member["active_team_count"] = 0
+
+    return {
+        "data": members,
+        "total": total_count,
+        "limit": limit,
+        "offset": offset,
+        "has_more": (offset + limit) < total_count,
+    }
 
 
 @frappe.whitelist()

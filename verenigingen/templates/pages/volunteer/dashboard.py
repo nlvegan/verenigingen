@@ -2,6 +2,10 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, today
 
+from verenigingen.utils.error_handling import cache_with_ttl, handle_api_errors
+from verenigingen.utils.performance_monitoring import monitor_performance
+from verenigingen.utils.performance_utils import QueryOptimizer
+
 
 def get_context(context):
     """Get context for volunteer dashboard page"""
@@ -42,22 +46,24 @@ def get_context(context):
     return context
 
 
+@cache_with_ttl(ttl=300)
+@monitor_performance
 def get_user_volunteer_record():
-    """Get volunteer record for current user"""
+    """Get volunteer record for current user with caching"""
     user_email = frappe.session.user
 
     # First try to find by linked member
     member = frappe.db.get_value("Member", {"email": user_email}, "name")
     if member:
         volunteer = frappe.db.get_value(
-            "Volunteer", {"member": member}, ["name", "volunteer_name"], as_dict=True
+            "Volunteer", {"member": member}, ["name", "volunteer_name", "member"], as_dict=True
         )
         if volunteer:
             return volunteer
 
     # Try to find volunteer directly by email
     volunteer = frappe.db.get_value(
-        "Volunteer", {"email": user_email}, ["name", "volunteer_name"], as_dict=True
+        "Volunteer", {"email": user_email}, ["name", "volunteer_name", "member"], as_dict=True
     )
     if volunteer:
         return volunteer
@@ -110,42 +116,59 @@ def get_volunteer_profile(volunteer_name):
     return profile
 
 
+@cache_with_ttl(ttl=600)
+@monitor_performance
 def get_volunteer_organizations(volunteer_name):
-    """Get chapters and teams the volunteer belongs to"""
+    """Get chapters and teams the volunteer belongs to with optimized queries"""
     organizations = {"chapters": [], "teams": []}
 
-    # Get chapters through member relationship
+    # Get volunteer member info in one query
     volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
     if hasattr(volunteer_doc, "member") and volunteer_doc.member:
-        chapter_members = frappe.get_all(
-            "Chapter Member",
-            filters={"member": volunteer_doc.member, "enabled": 1},
-            fields=["parent", "chapter_join_date"],
+        # Use single JOIN query for chapters
+        chapter_data = frappe.db.sql(
+            """
+            SELECT c.name, c.chapter_name, cm.chapter_join_date
+            FROM `tabChapter Member` cm
+            JOIN `tabChapter` c ON cm.parent = c.name
+            WHERE cm.member = %s AND cm.enabled = 1
+            ORDER BY cm.chapter_join_date DESC
+        """,
+            [volunteer_doc.member],
+            as_dict=True,
         )
 
-        for cm in chapter_members:
-            chapter_info = frappe.db.get_value("Chapter", cm.parent, ["name"], as_dict=True)
-            if chapter_info:
-                # Add chapter_name field with same value as name for consistency
-                chapter_info["chapter_name"] = chapter_info["name"]
-                chapter_info["join_date"] = cm.chapter_join_date
-                organizations["chapters"].append(chapter_info)
+        for chapter in chapter_data:
+            organizations["chapters"].append(
+                {
+                    "name": chapter.name,
+                    "chapter_name": chapter.chapter_name or chapter.name,
+                    "join_date": chapter.chapter_join_date,
+                }
+            )
 
-    # Get teams where volunteer is active
-    team_members = frappe.get_all(
-        "Team Member",
-        filters={"volunteer": volunteer_name, "status": "Active"},
-        fields=["parent", "role_type", "from_date"],
+    # Use single JOIN query for teams
+    team_data = frappe.db.sql(
+        """
+        SELECT t.name, t.team_name, tm.role_type, tm.from_date
+        FROM `tabTeam Member` tm
+        JOIN `tabTeam` t ON tm.parent = t.name
+        WHERE tm.volunteer = %s AND tm.status = 'Active'
+        ORDER BY tm.from_date DESC
+    """,
+        [volunteer_name],
+        as_dict=True,
     )
 
-    for tm in team_members:
-        team_info = frappe.db.get_value("Team", tm.parent, ["name"], as_dict=True)
-        if team_info:
-            # Add team_name field with same value as name for consistency
-            team_info["team_name"] = team_info["name"]
-            team_info["role"] = tm.role_type
-            team_info["joined_date"] = tm.from_date
-            organizations["teams"].append(team_info)
+    for team in team_data:
+        organizations["teams"].append(
+            {
+                "name": team.name,
+                "team_name": team.team_name or team.name,
+                "role": team.role_type,
+                "joined_date": team.from_date,
+            }
+        )
 
     return organizations
 
@@ -202,35 +225,45 @@ def get_recent_activities(volunteer_name):
     return activities[:8]  # Return most recent 8 activities
 
 
+@cache_with_ttl(ttl=300)
+@monitor_performance
 def get_expense_summary(volunteer_name):
-    """Get expense summary for the volunteer"""
+    """Get expense summary for the volunteer with optimized aggregation"""
     from_date = add_months(today(), -12)
+    recent_date = add_months(today(), -1)
 
-    expenses = frappe.get_all(
-        "Volunteer Expense",
-        filters={"volunteer": volunteer_name, "expense_date": [">=", from_date], "docstatus": ["!=", 2]},
-        fields=["amount", "status", "expense_date"],
+    # Use SQL aggregation for better performance
+    summary_data = frappe.db.sql(
+        """
+        SELECT
+            SUM(CASE WHEN status IN ('Submitted', 'Approved') THEN amount ELSE 0 END) as total_submitted,
+            SUM(CASE WHEN status = 'Approved' THEN amount ELSE 0 END) as total_approved,
+            COUNT(CASE WHEN status = 'Submitted' THEN 1 END) as pending_count,
+            COUNT(CASE WHEN expense_date >= %s THEN 1 END) as recent_count
+        FROM `tabVolunteer Expense`
+        WHERE volunteer = %s
+        AND expense_date >= %s
+        AND docstatus != 2
+    """,
+        [recent_date, volunteer_name, from_date],
+        as_dict=True,
     )
 
-    summary = {"total_submitted": 0, "total_approved": 0, "pending_count": 0, "recent_count": 0}
+    if summary_data:
+        summary = summary_data[0]
+        summary["pending_amount"] = flt(summary["total_approved"]) - flt(summary["total_submitted"])
+        # Convert decimals to float for JSON serialization
+        for key in ["total_submitted", "total_approved"]:
+            summary[key] = flt(summary[key])
+        return summary
 
-    for expense in expenses:
-        if expense.status in ["Submitted", "Approved"]:
-            summary["total_submitted"] += flt(expense.amount)
-        if expense.status == "Approved":
-            summary["total_approved"] += flt(expense.amount)
-        if expense.status == "Submitted":
-            summary["pending_count"] += 1
-
-        # Count expenses from last 30 days
-        from frappe.utils import add_days, getdate
-
-        if getdate(expense.expense_date) >= getdate(add_days(today(), -30)):
-            summary["recent_count"] += 1
-
-    summary["pending_amount"] = summary["total_submitted"] - summary["total_approved"]
-
-    return summary
+    return {
+        "total_submitted": 0,
+        "total_approved": 0,
+        "pending_count": 0,
+        "recent_count": 0,
+        "pending_amount": 0,
+    }
 
 
 def get_upcoming_activities(volunteer_name):

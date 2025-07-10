@@ -15,12 +15,16 @@ from verenigingen.api.sepa_duplicate_prevention import (
     release_processing_lock,
     validate_batch_mandates,
 )
+from verenigingen.utils.error_handling import cache_with_ttl, handle_api_errors, validate_request
+from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.performance_monitoring import monitor_performance
 
 # ========================
 # PHASE 1: CONSERVATIVE APPROACH
 # ========================
 
 
+@handle_api_errors
 @frappe.whitelist()
 def identify_sepa_transactions():
     """Find bank transactions that might be from SEPA batches"""
@@ -666,6 +670,9 @@ def find_original_sepa_batch_for_return(return_transaction):
 # ========================
 
 
+@cache_with_ttl(ttl=300)
+@handle_api_errors
+@monitor_performance
 @frappe.whitelist()
 def get_sepa_reconciliation_dashboard():
     """Get dashboard data for SEPA reconciliation status"""

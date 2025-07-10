@@ -11,7 +11,7 @@ Provides pre-configured test personas for various testing scenarios
 import frappe
 from frappe.utils import add_days, today
 
-from verenigingen.verenigingen.tests.utils.factories import TestDataBuilder
+from verenigingen.tests.utils.factories import TestDataBuilder
 
 
 class TestPersonas:

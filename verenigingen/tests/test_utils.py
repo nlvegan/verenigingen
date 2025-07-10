@@ -6,6 +6,12 @@ Provides common test helpers including email mocking
 import frappe
 from unittest.mock import Mock, patch
 from contextlib import contextmanager
+from frappe.tests.utils import FrappeTestCase
+
+
+class BaseTestCase(FrappeTestCase):
+    """Base test case for Verenigingen tests"""
+    pass
 
 
 class MockEmailQueue:

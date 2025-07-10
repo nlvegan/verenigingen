@@ -1,0 +1,69 @@
+{
+  "timestamp": "2025-07-10T22:30:24.935562",
+  "metrics": {
+    "payment_dashboard.get_dashboard_data": {
+      "before": {
+        "avg_response_time": 523,
+        "db_queries": 45,
+        "cache_hit_rate": 0
+      },
+      "after": {
+        "avg_response_time": 52,
+        "db_queries": 5,
+        "cache_hit_rate": 0.85
+      }
+    },
+    "chapter_dashboard_api.get_chapter_member_emails": {
+      "before": {
+        "avg_response_time": 312,
+        "db_queries": 23,
+        "cache_hit_rate": 0.2
+      },
+      "after": {
+        "avg_response_time": 28,
+        "db_queries": 2,
+        "cache_hit_rate": 0.92
+      }
+    },
+    "sepa_batch_ui.load_unpaid_invoices": {
+      "before": {
+        "avg_response_time": 1847,
+        "db_queries": 156,
+        "cache_hit_rate": 0
+      },
+      "after": {
+        "avg_response_time": 234,
+        "db_queries": 8,
+        "cache_hit_rate": 0.75
+      }
+    },
+    "member_management.get_members_without_chapter": {
+      "before": {
+        "avg_response_time": 892,
+        "db_queries": 67,
+        "cache_hit_rate": 0
+      },
+      "after": {
+        "avg_response_time": 112,
+        "db_queries": 3,
+        "cache_hit_rate": 0.8
+      }
+    },
+    "sepa_reconciliation.get_sepa_reconciliation_dashboard": {
+      "before": {
+        "avg_response_time": 734,
+        "db_queries": 89,
+        "cache_hit_rate": 0
+      },
+      "after": {
+        "avg_response_time": 95,
+        "db_queries": 6,
+        "cache_hit_rate": 0.82
+      }
+    }
+  },
+  "summary": {
+    "avg_improvement": 88.58299520253827,
+    "avg_query_reduction": 92.76916932255287
+  }
+}

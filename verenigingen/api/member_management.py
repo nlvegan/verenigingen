@@ -6,10 +6,15 @@ import frappe
 from verenigingen.utils.error_handling import (
     PermissionError,
     ValidationError,
+    cache_with_ttl,
     handle_api_error,
+    handle_api_errors,
     log_error,
+    validate_request,
     validate_required_fields,
 )
+from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.performance_monitoring import monitor_performance
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
 
 
@@ -120,8 +125,10 @@ def can_assign_member_to_chapter(member_name, chapter_name):
     return False
 
 
+@cache_with_ttl(ttl=600)
+@handle_api_errors
 @frappe.whitelist()
-def get_members_without_chapter():
+def get_members_without_chapter(**kwargs):
     """Get list of members without chapter assignment"""
     try:
         # Check permissions
@@ -140,11 +147,19 @@ def get_members_without_chapter():
         if excluded_members:
             member_filters["name"] = ["not in", excluded_members]
 
+        # Pagination support
+        limit = int(kwargs.get("limit", 100))
+        offset = int(kwargs.get("offset", 0))
+        if limit > 1000:
+            limit = 1000  # Max limit for performance
+
         members = frappe.get_all(
             "Member",
             filters=member_filters,
             fields=["name", "full_name", "email", "status", "creation"],
             order_by="creation desc",
+            limit=limit,
+            start=offset,
         )
 
         return {"success": True, "members": members, "count": len(members)}
@@ -343,6 +358,8 @@ def test_simple_field_population(member_id):
         return {"success": False, "error": str(e)}
 
 
+@cache_with_ttl(ttl=1800)
+@handle_api_errors
 @frappe.whitelist()
 def get_address_members_html_api(member_id):
     """Dedicated API method to get address members HTML - completely separate from document methods"""

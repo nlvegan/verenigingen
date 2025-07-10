@@ -18,39 +18,53 @@ class TestMemberStatusTransitions(unittest.TestCase):
         cls.test_records = []
 
         # Create test chapter
-        cls.chapter = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "chapter_name": "Member Status Test Chapter",
-                "short_name": "MSTC",
-                "country": "Netherlands",
-            }
-        )
-        cls.chapter.insert(ignore_permissions=True)
-        cls.test_records.append(cls.chapter)
+        if not frappe.db.exists("Chapter", "Member Status Test Chapter"):
+            cls.chapter = frappe.get_doc(
+                {
+                    "doctype": "Chapter",
+                    "name": "Member Status Test Chapter",
+                    "chapter_name": "Member Status Test Chapter",
+                    "short_name": "MSTC",
+                    "country": "Netherlands",
+                }
+            )
+            cls.chapter.insert(ignore_permissions=True)
+            cls.test_records.append(cls.chapter)
+        else:
+            cls.chapter = frappe.get_doc("Chapter", "Member Status Test Chapter")
 
         # Create membership types
-        cls.regular_type = frappe.get_doc(
-            {
-                "doctype": "Membership Type",
-                "membership_type": "Regular Member",
-                "annual_fee": 100.00,
-                "currency": "EUR",
-            }
-        )
-        cls.regular_type.insert(ignore_permissions=True)
-        cls.test_records.append(cls.regular_type)
+        if not frappe.db.exists("Membership Type", "Regular Member"):
+            cls.regular_type = frappe.get_doc(
+                {
+                    "doctype": "Membership Type",
+                    "membership_type_name": "Regular Member",
+                    "amount": 100.00,
+                    "currency": "EUR",
+                    "subscription_period": "Annual",
+                    "is_active": 1,
+                }
+            )
+            cls.regular_type.insert(ignore_permissions=True)
+            cls.test_records.append(cls.regular_type)
+        else:
+            cls.regular_type = frappe.get_doc("Membership Type", "Regular Member")
 
-        cls.student_type = frappe.get_doc(
-            {
-                "doctype": "Membership Type",
-                "membership_type": "Student Member",
-                "annual_fee": 50.00,
-                "currency": "EUR",
-            }
-        )
-        cls.student_type.insert(ignore_permissions=True)
-        cls.test_records.append(cls.student_type)
+        if not frappe.db.exists("Membership Type", "Student Member"):
+            cls.student_type = frappe.get_doc(
+                {
+                    "doctype": "Membership Type",
+                    "membership_type_name": "Student Member",
+                    "amount": 50.00,
+                    "currency": "EUR",
+                    "subscription_period": "Annual",
+                    "is_active": 1,
+                }
+            )
+            cls.student_type.insert(ignore_permissions=True)
+            cls.test_records.append(cls.student_type)
+        else:
+            cls.student_type = frappe.get_doc("Membership Type", "Student Member")
 
     @classmethod
     def tearDownClass(cls):
@@ -104,7 +118,8 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "member": member.name,
                 "membership_type": self.regular_type.name,
                 "status": "Active",
-                "annual_fee": 100.00,
+                "start_date": frappe.utils.nowdate(),
+                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365),
             }
         )
         membership.insert()
@@ -173,7 +188,8 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "member": member.name,
                 "membership_type": self.regular_type.name,
                 "status": "Active",
-                "annual_fee": 100.00,
+                "start_date": frappe.utils.nowdate(),
+                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365),
             }
         )
         membership.insert()

@@ -12,10 +12,15 @@ from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.error_handling import (
     PermissionError,
     ValidationError,
+    cache_with_ttl,
     handle_api_error,
+    handle_api_errors,
     log_error,
+    validate_request,
     validate_required_fields,
 )
+from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.performance_monitoring import monitor_performance
 from verenigingen.utils.performance_utils import QueryOptimizer, cached, performance_monitor
 
 
@@ -23,6 +28,8 @@ from verenigingen.utils.performance_utils import QueryOptimizer, cached, perform
 @handle_api_error
 @performance_monitor(threshold_ms=500)
 @cached(ttl=300)  # Cache for 5 minutes
+@cache_with_ttl(ttl=1800)
+@handle_api_errors
 def get_chapter_member_emails(chapter_name):
     """Get email addresses of all active chapter members"""
 

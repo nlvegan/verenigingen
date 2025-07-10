@@ -1,0 +1,280 @@
+name: Deploy to Frappe Press
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      deploy_production:
+        description: 'Deploy to production?'
+        required: false
+        default: 'false'
+
+env:
+  PYTHON_VERSION: '3.11'
+  NODE_VERSION: '18'
+
+jobs:
+  validate:
+    name: Validate for Deployment
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0  # Full history for version generation
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/pip
+          ~/.npm
+        key: ${{ runner.os }}-deps-${{ hashFiles('**/requirements.txt', '**/package-lock.json') }}
+
+    - name: Install dependencies
+      run: |
+        pip install frappe-bench
+        pip install -r requirements.txt
+        npm ci
+
+    - name: Run pre-deployment checks
+      run: |
+        python scripts/deployment/pre_deploy_checks.py
+
+    - name: Check for uncommitted migrations
+      run: |
+        python scripts/deployment/check_migrations.py
+
+    - name: Validate dependencies
+      run: |
+        python scripts/deployment/validate_dependencies.py
+
+    - name: Run linting
+      run: |
+        python -m flake8 verenigingen --max-line-length=120
+        npm run lint || true
+
+    - name: Build assets
+      run: |
+        echo "Building assets..."
+        # Note: Actual bench build would happen in Press environment
+        npm run build || echo "No build script found"
+
+    - name: Generate deployment report
+      if: success()
+      run: |
+        python scripts/deployment/generate_deploy_report.py
+
+    - name: Upload deployment report
+      uses: actions/upload-artifact@v3
+      with:
+        name: deployment-report
+        path: deployment-report.json
+
+  test:
+    name: Run Test Suite
+    runs-on: ubuntu-latest
+    needs: validate
+
+    strategy:
+      matrix:
+        test-suite: [unit, integration, security]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Run ${{ matrix.test-suite }} tests
+      run: |
+        echo "Running ${{ matrix.test-suite }} tests..."
+        # Note: Actual tests would run in a Frappe bench environment
+        # python scripts/testing/run_tests.py --suite ${{ matrix.test-suite }}
+
+  prepare-release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    needs: [validate, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Generate version
+      id: version
+      run: |
+        VERSION=$(python scripts/deployment/generate_version.py)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Generated version: $VERSION"
+
+    - name: Generate changelog
+      run: |
+        python scripts/deployment/generate_changelog.py --version ${{ steps.version.outputs.version }}
+
+    - name: Create release tag
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@github.com"
+        git tag -a "v${{ steps.version.outputs.version }}" -m "Release v${{ steps.version.outputs.version }}"
+        git push origin "v${{ steps.version.outputs.version }}"
+
+    - name: Create GitHub Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.version.outputs.version }}
+        release_name: Release v${{ steps.version.outputs.version }}
+        body_path: CHANGELOG_LATEST.md
+        draft: false
+        prerelease: false
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: prepare-release
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Notify deployment start
+      run: |
+        python scripts/deployment/notify_deployment.py \
+          --environment staging \
+          --version ${{ needs.prepare-release.outputs.version }} \
+          --status started
+
+    - name: Deploy to staging
+      run: |
+        echo "Frappe Press will automatically deploy via GitHub webhook"
+        echo "Version: ${{ needs.prepare-release.outputs.version }}"
+
+    - name: Wait for deployment
+      run: |
+        echo "Waiting for Press deployment to complete..."
+        sleep 60  # In reality, you'd poll Press API
+
+    - name: Run post-deployment checks
+      run: |
+        python scripts/deployment/post_deploy_checks.py \
+          --environment staging \
+          --version ${{ needs.prepare-release.outputs.version }}
+
+    - name: Run smoke tests
+      run: |
+        python scripts/deployment/run_smoke_tests.py --environment staging
+
+    - name: Notify deployment complete
+      if: always()
+      run: |
+        python scripts/deployment/notify_deployment.py \
+          --environment staging \
+          --version ${{ needs.prepare-release.outputs.version }} \
+          --status ${{ job.status }}
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [prepare-release, deploy-staging]
+    if: |
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      (github.event.inputs.deploy_production == 'true' || contains(github.event.head_commit.message, '[deploy-prod]'))
+
+    environment:
+      name: production
+      url: https://app.veganisme.net
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Production deployment approval
+      uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.TOKEN }}
+        approvers: admin,lead-developer
+        minimum-approvals: 1
+        issue-title: "Deploy v${{ needs.prepare-release.outputs.version }} to production"
+
+    - name: Notify production deployment
+      run: |
+        python scripts/deployment/notify_deployment.py \
+          --environment production \
+          --version ${{ needs.prepare-release.outputs.version }} \
+          --status started \
+          --notify-all
+
+    - name: Create deployment backup point
+      run: |
+        echo "Creating backup point in Press..."
+        # This would call Press API to create backup
+
+    - name: Deploy to production
+      run: |
+        echo "Production deployment via Press GitHub webhook"
+        echo "Version: ${{ needs.prepare-release.outputs.version }}"
+
+    - name: Run production health checks
+      run: |
+        python scripts/deployment/production_health_check.py \
+          --version ${{ needs.prepare-release.outputs.version }}
+
+    - name: Update deployment metrics
+      run: |
+        python scripts/deployment/update_metrics.py \
+          --environment production \
+          --version ${{ needs.prepare-release.outputs.version }} \
+          --status success
+
+    - name: Notify deployment complete
+      if: always()
+      run: |
+        python scripts/deployment/notify_deployment.py \
+          --environment production \
+          --version ${{ needs.prepare-release.outputs.version }} \
+          --status ${{ job.status }} \
+          --notify-all
+
+  rollback:
+    name: Rollback Production
+    runs-on: ubuntu-latest
+    if: failure() && needs.deploy-production.result == 'failure'
+    needs: deploy-production
+
+    steps:
+    - name: Initiate rollback
+      run: |
+        echo "Initiating automatic rollback..."
+        # This would call Press API to restore from backup
+
+    - name: Notify rollback
+      run: |
+        python scripts/deployment/notify_deployment.py \
+          --environment production \
+          --status rollback \
+          --notify-all

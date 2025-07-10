@@ -1,0 +1,35 @@
+[run]
+source = verenigingen
+omit =
+    */tests/*
+    */test_*
+    */migrations/*
+    */__pycache__/*
+    */node_modules/*
+    */assets/*
+    */patches/*
+    */config/*
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstract
+
+precision = 2
+show_missing = True
+skip_covered = False
+
+[html]
+directory = coverage_html_report
+title = Verenigingen Test Coverage Report
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json

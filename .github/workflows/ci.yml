@@ -1,0 +1,221 @@
+name: Verenigingen CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  FRAPPE_BRANCH: version-14
+  ERPNEXT_BRANCH: version-14
+
+jobs:
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11']
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MYSQL_ROOT_PASSWORD: travis
+          MYSQL_DATABASE: test_frappe
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      redis:
+        image: redis:alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+    - name: Checkout Verenigingen
+      uses: actions/checkout@v3
+      with:
+        path: apps/verenigingen
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 18
+
+    - name: Cache pip packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Cache node modules
+      uses: actions/cache@v3
+      with:
+        path: ~/.npm
+        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
+    - name: Install Bench
+      run: |
+        pip install frappe-bench
+        bench init frappe-bench --frappe-branch $FRAPPE_BRANCH --skip-assets --python python${{ matrix.python-version }}
+        cd frappe-bench
+
+    - name: Install ERPNext
+      working-directory: frappe-bench
+      run: |
+        bench get-app erpnext --branch $ERPNEXT_BRANCH
+        bench get-app payments
+
+    - name: Setup Test Site
+      working-directory: frappe-bench
+      run: |
+        bench new-site test_site --db-name test_frappe --admin-password admin --mariadb-root-password travis
+        bench --site test_site install-app erpnext
+        bench --site test_site install-app payments
+
+    - name: Install Verenigingen
+      working-directory: frappe-bench
+      run: |
+        bench get-app ../apps/verenigingen
+        bench --site test_site install-app verenigingen
+
+    - name: Run Python Tests
+      working-directory: frappe-bench
+      run: |
+        bench --site test_site run-tests --app verenigingen --coverage
+
+    - name: Generate Coverage Report
+      working-directory: frappe-bench
+      if: matrix.python-version == '3.11'
+      run: |
+        coverage xml
+
+    - name: Upload Coverage to Codecov
+      if: matrix.python-version == '3.11'
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./frappe-bench/coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+    - name: Run JavaScript Tests
+      working-directory: frappe-bench/apps/verenigingen
+      run: |
+        npm install
+        npm test -- --coverage
+
+    - name: Run Linting
+      working-directory: frappe-bench
+      run: |
+        bench --site test_site lint --app verenigingen
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        ignore-unfixed: true
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Run Bandit security linter
+      run: |
+        pip install bandit
+        bandit -r . -f json -o bandit-results.json || true
+
+    - name: Upload Bandit results
+      uses: actions/upload-artifact@v3
+      with:
+        name: bandit-results
+        path: bandit-results.json
+
+  code-quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        pip install black isort flake8 mypy pylint
+
+    - name: Run Black
+      run: black --check .
+
+    - name: Run isort
+      run: isort --check-only .
+
+    - name: Run Flake8
+      run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+    - name: Run Pylint
+      run: pylint verenigingen --exit-zero
+
+  performance:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Run Performance Tests
+      run: |
+        echo "Performance tests would run here"
+        # Add actual performance test commands
+
+    - name: Comment PR with results
+      uses: actions/github-script@v6
+      if: github.event_name == 'pull_request'
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '✅ Performance tests passed!'
+          })

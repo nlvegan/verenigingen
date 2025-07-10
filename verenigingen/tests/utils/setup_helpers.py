@@ -25,10 +25,12 @@ class TestEnvironmentSetup:
             region = frappe.get_doc(
                 {
                     "doctype": "Region",
+                    "name": "Test Region",  # Set the name explicitly
                     "region_name": "Test Region",
                     "region_code": "TR",
                     "country": "Netherlands",
                     "is_active": 1,
+                    "postal_code_patterns": "1000-9999",  # Cover all test postal codes
                 }
             )
             region.insert(ignore_permissions=True)
@@ -40,14 +42,19 @@ class TestEnvironmentSetup:
                 {
                     "doctype": "Chapter",
                     "name": "Test Amsterdam Chapter",
+                    "chapter_name": "Test Amsterdam Chapter",  # Add chapter_name field
+                    "short_name": "TAC",  # Add short_name field
                     "region": test_region,
                     "postal_codes": "1000-1099",
                     "introduction": "Test chapter for Amsterdam area",
                     "published": 1,
+                    "country": "Netherlands",  # Add country field
                 }
             )
             amsterdam.insert(ignore_permissions=True)
             chapters.append(amsterdam)
+        else:
+            chapters.append(frappe.get_doc("Chapter", "Test Amsterdam Chapter"))
 
         # Rotterdam Chapter
         if not frappe.db.exists("Chapter", "Test Rotterdam Chapter"):
@@ -55,14 +62,19 @@ class TestEnvironmentSetup:
                 {
                     "doctype": "Chapter",
                     "name": "Test Rotterdam Chapter",
+                    "chapter_name": "Test Rotterdam Chapter",  # Add chapter_name field
+                    "short_name": "TRC",  # Add short_name field
                     "region": test_region,
                     "postal_codes": "3000-3099",
                     "introduction": "Test chapter for Rotterdam area",
                     "published": 1,
+                    "country": "Netherlands",  # Add country field
                 }
             )
             rotterdam.insert(ignore_permissions=True)
             chapters.append(rotterdam)
+        else:
+            chapters.append(frappe.get_doc("Chapter", "Test Rotterdam Chapter"))
 
         return chapters
 

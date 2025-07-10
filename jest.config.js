@@ -1,39 +1,38 @@
 module.exports = {
   testEnvironment: 'jsdom',
-  moduleFileExtensions: ['js', 'json'],
-  transform: {
-    '^.+\\.js$': 'babel-jest',
-  },
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/verenigingen/$1',
-    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
-  },
+  roots: ['<rootDir>/verenigingen'],
   testMatch: [
-    '**/tests/unit/**/*.spec.js',
-    '**/tests/unit/**/*.test.js',
-    '**/tests/integration/**/*.js',
-  ],
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    'tests/unit/member-form.spec.js',
-    'tests/unit/chapter-form.spec.js',
-    'tests/unit/membership-form.spec.js',
-    'tests/unit/volunteer-form.spec.js',
-    'tests/integration/test_doctype_js_integration.js'
+    '**/tests/frontend/**/*.spec.js',
+    '**/tests/frontend/**/*.test.js'
   ],
   collectCoverageFrom: [
-    'verenigingen/**/*.js',
-    '!verenigingen/public/dist/**',
+    'verenigingen/public/js/**/*.js',
+    'verenigingen/templates/**/*.js',
     '!**/node_modules/**',
-    '!**/tests/**',
+    '!**/vendor/**',
+    '!**/tests/**'
   ],
-  coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
-  globals: {
-    frappe: {},
+  coverageThreshold: {
+    global: {
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70
+    }
   },
-  transformIgnorePatterns: [
-    'node_modules/(?!(.*\\.mjs$))'
-  ],
+  moduleNameMapper: {
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+  },
+  setupFilesAfterEnv: ['<rootDir>/tests/frontend/setup.js'],
+  transform: {
+    '^.+\\.jsx?$': 'babel-jest',
+  },
+  coverageReporters: ['text', 'lcov', 'html', 'json'],
+  reporters: [
+    'default',
+    ['jest-junit', {
+      outputDirectory: './test-results',
+      outputName: 'jest-junit.xml',
+    }]
+  ]
 };

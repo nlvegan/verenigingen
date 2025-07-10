@@ -7,9 +7,9 @@ from frappe import _
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, flt, today
 
+from verenigingen.tests.patch_test_runner import patch_test_runner
 from verenigingen.tests.test_patches import apply_test_patches, remove_test_patches
-from verenigingen.verenigingen.tests.patch_test_runner import patch_test_runner
-from verenigingen.verenigingen.tests.test_setup import setup_test_environment
+from verenigingen.tests.test_setup import setup_test_environment
 
 
 class TestDirectDebitBatch(FrappeTestCase):

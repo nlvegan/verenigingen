@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<zabbix_export>
+    <version>6.0</version>
+    <date>2024-01-15T10:00:00Z</date>
+    <groups>
+        <group>
+            <uuid>8f5da2e5c4f34850a75421e7e7e7e7e7</uuid>
+            <name>Frappe Applications</name>
+        </group>
+    </groups>
+    <templates>
+        <template>
+            <uuid>a19c3d5b6e9b4f5e85f7b8c9d0e1f2g3</uuid>
+            <template>Template Frappe Cloud Monitoring</template>
+            <name>Template Frappe Cloud Monitoring</name>
+            <description>Monitor Frappe/ERPNext applications including Verenigingen</description>
+            <groups>
+                <group>
+                    <name>Frappe Applications</name>
+                </group>
+            </groups>
+            <items>
+                <!-- Health Check -->
+                <item>
+                    <uuid>1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p</uuid>
+                    <name>Frappe Health Status</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.health.status</key>
+                    <delay>1m</delay>
+                    <url>{$FRAPPE_URL}/health</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.status</params>
+                        </step>
+                    </preprocessing>
+                    <triggers>
+                        <trigger>
+                            <uuid>2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.health.status)&lt;&gt;"healthy"</expression>
+                            <name>Frappe application is unhealthy</name>
+                            <priority>HIGH</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <!-- Member Metrics -->
+                <item>
+                    <uuid>3a4b5c6d7e8f9g0h1i2j3k4l5m6n7o8p</uuid>
+                    <name>Active Members Count</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.members.active</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics.active_members</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                </item>
+
+                <!-- Financial Metrics -->
+                <item>
+                    <uuid>4a5b6c7d8e9f0g1h2i3j4k5l6m7n8o9p</uuid>
+                    <name>Daily Donations Total</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.donations.daily</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics.daily_donations</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>FLOAT</value_type>
+                    <units>EUR</units>
+                </item>
+
+                <!-- Performance Metrics -->
+                <item>
+                    <uuid>5a6b7c8d9e0f1g2h3i4j5k6l7m8n9o0p</uuid>
+                    <name>Error Rate</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.error.rate</key>
+                    <delay>1m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics.error_rate</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>FLOAT</value_type>
+                    <units>%</units>
+                    <triggers>
+                        <trigger>
+                            <uuid>6a7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.error.rate)&gt;5</expression>
+                            <name>High error rate on Frappe application</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                        <trigger>
+                            <uuid>7a8b9c0d1e2f3g4h5i6j7k8l9m0n1o2p</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.error.rate)&gt;10</expression>
+                            <name>Critical error rate on Frappe application</name>
+                            <priority>HIGH</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>8a9b0c1d2e3f4g5h6i7j8k9l0m1n2o3p</uuid>
+                    <name>Average Response Time</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.response.time</key>
+                    <delay>1m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics.response_time</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <units>ms</units>
+                    <triggers>
+                        <trigger>
+                            <uuid>9a0b1c2d3e4f5g6h7i8j9k0l1m2n3o4p</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.response.time)&gt;2000</expression>
+                            <name>Slow response time on Frappe application</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <!-- System Health -->
+                <item>
+                    <uuid>0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p</uuid>
+                    <name>System Health Score</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.health.score</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics.system_health</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <units>%</units>
+                    <triggers>
+                        <trigger>
+                            <uuid>1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.health.score)&lt;50</expression>
+                            <name>Low system health score</name>
+                            <priority>HIGH</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <!-- Queue Monitoring -->
+                <item>
+                    <uuid>2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q</uuid>
+                    <name>Pending Expenses</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.expenses.pending</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics.pending_expenses</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                </item>
+            </items>
+            <discovery_rules>
+                <discovery_rule>
+                    <uuid>3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p8q</uuid>
+                    <name>Frappe DocType Discovery</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.doctype.discovery</key>
+                    <delay>1h</delay>
+                    <url>{$FRAPPE_URL}/api/method/frappe.client.get_list</url>
+                    <query_fields>
+                        <query_field>
+                            <name>doctype</name>
+                            <value>DocType</value>
+                        </query_field>
+                        <query_field>
+                            <name>filters</name>
+                            <value>[["module","=","Verenigingen"]]</value>
+                        </query_field>
+                    </query_fields>
+                    <item_prototypes>
+                        <item_prototype>
+                            <uuid>4b5c6d7e8f9g0h1i2j3k4l5m6n7o8p9q</uuid>
+                            <name>Document count for {#DOCTYPE}</name>
+                            <type>HTTP_AGENT</type>
+                            <key>frappe.doctype.count[{#DOCTYPE}]</key>
+                            <delay>10m</delay>
+                            <url>{$FRAPPE_URL}/api/method/frappe.client.get_count</url>
+                            <query_fields>
+                                <query_field>
+                                    <name>doctype</name>
+                                    <value>{#DOCTYPE}</value>
+                                </query_field>
+                            </query_fields>
+                            <value_type>UNSIGNED</value_type>
+                        </item_prototype>
+                    </item_prototypes>
+                </discovery_rule>
+            </discovery_rules>
+            <macros>
+                <macro>
+                    <macro>{$FRAPPE_URL}</macro>
+                    <value>https://your-site.frappe.cloud</value>
+                    <description>Frappe site URL</description>
+                </macro>
+                <macro>
+                    <macro>{$FRAPPE_API_KEY}</macro>
+                    <value></value>
+                    <description>Frappe API key for authentication</description>
+                </macro>
+            </macros>
+        </template>
+    </templates>
+    <graphs>
+        <graph>
+            <uuid>5b6c7d8e9f0g1h2i3j4k5l6m7n8o9p0q</uuid>
+            <name>Frappe Performance</name>
+            <graph_items>
+                <graph_item>
+                    <color>00AA00</color>
+                    <item>
+                        <host>Template Frappe Cloud Monitoring</host>
+                        <key>frappe.response.time</key>
+                    </item>
+                </graph_item>
+                <graph_item>
+                    <color>AA0000</color>
+                    <item>
+                        <host>Template Frappe Cloud Monitoring</host>
+                        <key>frappe.error.rate</key>
+                    </item>
+                    <yaxisside>RIGHT</yaxisside>
+                </graph_item>
+            </graph_items>
+        </graph>
+        <graph>
+            <uuid>6b7c8d9e0f1g2h3i4j5k6l7m8n9o0p1q</uuid>
+            <name>Frappe Business Metrics</name>
+            <graph_items>
+                <graph_item>
+                    <color>0000AA</color>
+                    <item>
+                        <host>Template Frappe Cloud Monitoring</host>
+                        <key>frappe.members.active</key>
+                    </item>
+                </graph_item>
+                <graph_item>
+                    <color>00AA00</color>
+                    <item>
+                        <host>Template Frappe Cloud Monitoring</host>
+                        <key>frappe.donations.daily</key>
+                    </item>
+                    <yaxisside>RIGHT</yaxisside>
+                </graph_item>
+            </graph_items>
+        </graph>
+    </graphs>
+</zabbix_export>

@@ -15,7 +15,7 @@ from verenigingen.utils.dd_security_enhancements import (
     DDSecurityAuditLogger,
     MemberIdentityValidator,
 )
-from verenigingen.verenigingen.tests.test_setup import setup_test_environment
+from verenigingen.tests.test_setup import setup_test_environment
 
 
 class TestDDMemberIdentityEdgeCases(FrappeTestCase):
