@@ -86,7 +86,7 @@ def verify_migration_ready():
     checks.append(
         {
             "check": "Fiscal Years 2019-2024",
-            "status": "✓ Pass" if fy_count == 6 else f"✗ Fail: Only {fy_count}/6 years exist",
+            "status": "✓ Pass" if fy_count == 6 else "✗ Fail: Only {fy_count}/6 years exist",
             "required": True,
         }
     )
@@ -98,7 +98,7 @@ def verify_migration_ready():
     checks.append(
         {
             "check": "Company default expense account",
-            "status": f"✓ Pass: {exp_account}" if exp_exists else f"✗ Fail: {exp_account} doesn't exist",
+            "status": "✓ Pass: {exp_account}" if exp_exists else "✗ Fail: {exp_account} doesn't exist",
             "required": True,
         }
     )
@@ -118,7 +118,7 @@ def verify_migration_ready():
     checks.append(
         {
             "check": "Active cost center",
-            "status": f"✓ Pass: {cost_center}" if cost_center else "✗ Fail: No cost center found",
+            "status": "✓ Pass: {cost_center}" if cost_center else "✗ Fail: No cost center found",
             "required": True,
         }
     )
@@ -128,9 +128,7 @@ def verify_migration_ready():
     checks.append(
         {
             "check": "Smart mapper items",
-            "status": f"✓ Pass: {eb_items} items created"
-            if eb_items > 0
-            else "⚠ Warning: No EB- items found",
+            "status": "✓ Pass: {eb_items} items created" if eb_items > 0 else "⚠ Warning: No EB- items found",
             "required": False,
         }
     )

@@ -128,7 +128,7 @@ class ChapterMembershipManager:
             if result.get("success"):
                 ChapterMembershipManager._update_member_tracking_fields(
                     member_id=member_id,
-                    reason=f"Left chapter: {leave_reason or 'No reason provided'}",
+                    reason="Left chapter: {leave_reason or 'No reason provided'}",
                     assigned_by=user_email or frappe.session.user,
                 )
 
@@ -172,7 +172,7 @@ class ChapterMembershipManager:
             # Use the chapter's member manager which handles history tracking
             result = chapter_doc.member_manager.add_member(
                 member_id=member_id,
-                introduction=reason or f"Assigned to {chapter_name} by administrator",
+                introduction=reason or "Assigned to {chapter_name} by administrator",
                 notify=True,
             )
 
@@ -180,7 +180,7 @@ class ChapterMembershipManager:
             if result.get("success"):
                 ChapterMembershipManager._update_member_tracking_fields(
                     member_id=member_id,
-                    reason=reason or f"Assigned to {chapter_name}",
+                    reason=reason or "Assigned to {chapter_name}",
                     assigned_by=assigned_by or frappe.session.user,
                 )
 
@@ -212,26 +212,26 @@ class ChapterMembershipManager:
             leave_result = ChapterMembershipManager.leave_chapter(
                 member_id=member_id,
                 chapter_name=from_chapter,
-                leave_reason=reason or f"Transferred to {to_chapter}",
+                leave_reason=reason or "Transferred to {to_chapter}",
                 permanent=False,
             )
 
             if not leave_result.get("success"):
                 return {
                     "success": False,
-                    "error": f"Failed to leave {from_chapter}: {leave_result.get('error')}",
+                    "error": "Failed to leave {from_chapter}: {leave_result.get('error')}",
                 }
 
             # Then, join the new chapter
             join_result = ChapterMembershipManager.assign_member_to_chapter(
                 member_id=member_id,
                 chapter_name=to_chapter,
-                reason=reason or f"Transferred from {from_chapter}",
+                reason=reason or "Transferred from {from_chapter}",
                 assigned_by=assigned_by,
             )
 
             if not join_result.get("success"):
-                return {"success": False, "error": f"Failed to join {to_chapter}: {join_result.get('error')}"}
+                return {"success": False, "error": "Failed to join {to_chapter}: {join_result.get('error')}"}
 
             # Log the transfer
             frappe.get_doc(

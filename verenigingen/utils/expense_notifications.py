@@ -46,7 +46,7 @@ class ExpenseNotificationManager:
 
         expense_details = self._get_expense_details(expense_doc)
 
-        subject = f"✅ Expense Approved - {expense_doc.name}"
+        subject = "✅ Expense Approved - {expense_doc.name}"
 
         message = self._render_template(
             "expense_approved",
@@ -64,7 +64,7 @@ class ExpenseNotificationManager:
             recipients=[volunteer_email],
             subject=subject,
             message=message,
-            header=f"Expense Approved - {self.company}",
+            header="Expense Approved - {self.company}",
         )
 
     def send_rejection_notification(self, expense_doc, reason):
@@ -75,7 +75,7 @@ class ExpenseNotificationManager:
 
         expense_details = self._get_expense_details(expense_doc)
 
-        subject = f"❌ Expense Rejected - {expense_doc.name}"
+        subject = "❌ Expense Rejected - {expense_doc.name}"
 
         message = self._render_template(
             "expense_rejected",
@@ -94,7 +94,7 @@ class ExpenseNotificationManager:
             recipients=[volunteer_email],
             subject=subject,
             message=message,
-            header=f"Expense Rejected - {self.company}",
+            header="Expense Rejected - {self.company}",
         )
 
     def send_escalation_notification(self, expense_doc, escalation_reason):
@@ -122,7 +122,7 @@ class ExpenseNotificationManager:
 
         expense_details = self._get_expense_details(expense_doc)
 
-        subject = f"⬆️ Expense Escalated - {expense_doc.name}"
+        subject = "⬆️ Expense Escalated - {expense_doc.name}"
 
         message = self._render_template(
             "expense_escalated",
@@ -139,7 +139,7 @@ class ExpenseNotificationManager:
             recipients=approver_emails,
             subject=subject,
             message=message,
-            header=f"Expense Escalation - {self.company}",
+            header="Expense Escalation - {self.company}",
         )
 
     def send_overdue_reminder(self, days_overdue=7):
@@ -147,7 +147,7 @@ class ExpenseNotificationManager:
         from verenigingen.utils.expense_permissions import ExpensePermissionManager
 
         # Get overdue expenses
-        cutoff_date = add_days(today(), -days_overdue)
+        # cutoff_date = add_days(today(), -days_overdue)
         overdue_expenses = frappe.get_all(
             "Volunteer Expense",
             filters={"status": "Submitted", "expense_date": ["<=", cutoff_date], "docstatus": 1},
@@ -182,7 +182,7 @@ class ExpenseNotificationManager:
         self, expense_doc, expense_details, approver_email, approver_name, required_level
     ):
         """Send individual approval request email"""
-        subject = f"💰 Expense Approval Required - {expense_doc.name}"
+        subject = "💰 Expense Approval Required - {expense_doc.name}"
 
         message = self._render_template(
             "expense_approval_request",
@@ -197,8 +197,8 @@ class ExpenseNotificationManager:
                 "formatted_date": expense_details["formatted_date"],
                 "category_name": expense_details["category_name"],
                 "organization_name": expense_details["organization_name"],
-                "approval_url": f"{self.base_url}/app/volunteer-expense/{expense_doc.name}",
-                "dashboard_url": f"{self.base_url}/app/expense-approval-dashboard",
+                "approval_url": "{self.base_url}/app/volunteer-expense/{expense_doc.name}",
+                "dashboard_url": "{self.base_url}/app/expense-approval-dashboard",
                 "company": self.company,
                 "base_url": self.base_url,
                 "support_email": frappe.db.get_single_value("Verenigingen Settings", "contact_email")
@@ -210,12 +210,12 @@ class ExpenseNotificationManager:
             recipients=[approver_email],
             subject=subject,
             message=message,
-            header=f"Expense Approval - {self.company}",
+            header="Expense Approval - {self.company}",
         )
 
     def _send_overdue_reminder_email(self, approver_email, approver_name, expenses, days_overdue):
         """Send overdue reminder email"""
-        subject = f"⏰ Overdue Expense Approvals ({len(expenses)} pending)"
+        subject = "⏰ Overdue Expense Approvals ({len(expenses)} pending)"
 
         message = self._render_template(
             "expense_overdue_reminder",
@@ -224,7 +224,7 @@ class ExpenseNotificationManager:
                 "expenses": expenses,
                 "days_overdue": days_overdue,
                 "total_amount": sum(flt(exp.amount) for exp in expenses),
-                "dashboard_url": f"{self.base_url}/app/expense-approval-dashboard",
+                "dashboard_url": "{self.base_url}/app/expense-approval-dashboard",
                 "company": self.company,
                 "base_url": self.base_url,
             },
@@ -234,7 +234,7 @@ class ExpenseNotificationManager:
             recipients=[approver_email],
             subject=subject,
             message=message,
-            header=f"Overdue Approvals - {self.company}",
+            header="Overdue Approvals - {self.company}",
         )
 
     def _get_expense_details(self, expense_doc):
@@ -252,7 +252,7 @@ class ExpenseNotificationManager:
             "volunteer_name": volunteer_name,
             "category_name": category_name,
             "organization_name": organization_name,
-            "formatted_amount": f"{expense_doc.currency} {flt(expense_doc.amount):,.2f}",
+            "formatted_amount": "{expense_doc.currency} {flt(expense_doc.amount):,.2f}",
             "formatted_date": frappe.utils.formatdate(expense_doc.expense_date),
             "days_since_submission": (getdate(today()) - getdate(expense_doc.expense_date)).days,
         }
@@ -309,7 +309,7 @@ class ExpenseNotificationManager:
 
         # Simple template rendering (replace variables)
         for key, value in context.items():
-            placeholder = f"{{{{{key}}}}}"
+            placeholder = "{{{{{key}}}}}"
             template = template.replace(placeholder, str(value))
 
         return template

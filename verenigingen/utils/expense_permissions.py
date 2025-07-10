@@ -178,7 +178,7 @@ def get_expense_permission_query_conditions(user=None):
         return "1=0"  # No access if no volunteer record
 
     # User can see their own expenses
-    conditions = [f"`tabVolunteer Expense`.volunteer = '{volunteer}'"]
+    conditions = ["`tabVolunteer Expense`.volunteer = f'{volunteer}'"]
 
     # Get chapters where user is board member
     from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
@@ -203,7 +203,7 @@ def get_expense_permission_query_conditions(user=None):
 
         if team_conditions:
             conditions.append(
-                f"(`tabVolunteer Expense`.organization_type = 'Team' AND ({' OR '.join(team_conditions)}))"
+                "(`tabVolunteer Expense`.organization_type = 'Team' AND ({' OR '.join(team_conditions)}))"
             )
 
     # Get teams where user is leader
@@ -217,10 +217,10 @@ def get_expense_permission_query_conditions(user=None):
         team_names = [tm.parent for tm in team_memberships]
         team_conditions = "', '".join(team_names)
         conditions.append(
-            f"(`tabVolunteer Expense`.organization_type = 'Team' AND `tabVolunteer Expense`.team IN ('{team_conditions}'))"
+            "(`tabVolunteer Expense`.organization_type = 'Team' AND `tabVolunteer Expense`.team IN (f'{team_conditions}'))"
         )
 
     if conditions:
-        return f"({' OR '.join(conditions)})"
+        return "({' OR '.join(conditions)})"
     else:
         return "1=0"  # No access if no permissions found

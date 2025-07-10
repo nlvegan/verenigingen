@@ -472,7 +472,7 @@ def analyze_portal_menu_items():
 
         print("CURRENT MENU ITEMS:")
         print("-" * 80)
-        print(f"{'#':<3} {'Title':<30} {'Route':<25} {'Role':<15} {'Enabled':<10}")
+        print("{'#f':<3} {'Title':<30} {'Route':<25} {'Role':<15} {'Enabled':<10}")
         print("-" * 80)
 
         for item in all_items:

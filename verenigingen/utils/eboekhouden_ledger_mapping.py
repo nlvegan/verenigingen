@@ -41,7 +41,7 @@ def fetch_and_create_ledger_mapping():
             if response.status_code != 200:
                 return {
                     "success": False,
-                    "error": f"API returned status {response.status_code}: {response.text}",
+                    "error": "API returned status {response.status_code}: {response.text}",
                 }
 
             data = response.json()
@@ -107,7 +107,7 @@ def fetch_and_create_ledger_mapping():
             "updated": updated,
             "errors": errors,
             "total_ledgers": len(ledgers),
-            "message": f"Created {created} and updated {updated} ledger mappings",
+            "message": "Created {created} and updated {updated} ledger mappings",
         }
 
     except Exception as e:
@@ -246,7 +246,7 @@ def quick_create_mapping_from_logs():
         return {
             "success": True,
             "created": created,
-            "message": f"Created {created} temporary mappings. Run fetch_and_create_ledger_mapping to get actual codes.",
+            "message": "Created {created} temporary mappings. Run fetch_and_create_ledger_mapping to get actual codes.",
         }
 
     except Exception as e:

@@ -34,7 +34,7 @@ def map_payment_method(payment_method):
 
 def generate_application_id():
     """Generate unique application ID"""
-    return f"APP-{frappe.utils.nowdate().replace('-', '')}-{int(time.time() % 10000):04d}"
+    return "APP-{frappe.utils.nowdate().replace('-', '')}-{int(time.time() % 10000):04d}"
 
 
 def parse_application_data(data_input):
@@ -181,7 +181,7 @@ def create_address_from_application(data):
     address = frappe.get_doc(
         {
             "doctype": "Address",
-            "address_title": f"{first_name} {last_name}",
+            "address_title": "{first_name} {last_name}",
             "address_type": "Personal",
             "address_line1": data.get("address_line1"),
             "address_line2": data.get("address_line2", ""),
@@ -283,7 +283,7 @@ def create_member_from_application(data, application_id, address=None):
                     frappe.logger().info(f"Converted membership_amount to: {membership_amount}")
                 except (ValueError, TypeError) as e:
                     frappe.logger().error(
-                        f"Error converting membership_amount '{data.get('membership_amount')}' to float: {str(e)}"
+                        f"Error converting membership_amount f'{data.get('membership_amount')}' to float: {str(e)}"
                     )
                     membership_amount = 0
 
@@ -335,7 +335,7 @@ def create_member_from_application(data, application_id, address=None):
                 if existing_notes:
                     existing_notes += "\n\n"
 
-                member.notes = existing_notes + f"Custom Amount Data: {json.dumps(custom_amount_data)}"
+                member.notes = existing_notes + "Custom Amount Data: {json.dumps(custom_amount_data)}"
         except Exception as e:
             # Log the error for debugging but don't fail the submission
             frappe.log_error(f"Error storing custom amount data: {str(e)}", "Custom Amount Storage Error")
@@ -350,6 +350,8 @@ def create_member_from_application(data, application_id, address=None):
 
             # Get chapter display name if possible
             try:
+                # chapter_doc = frappe.get_doc("Chapter", selected_chapter)
+                # chapter_display = f"{chapter_doc.chapter_name} ({selected_chapter})"
                 chapter_doc = frappe.get_doc("Chapter", selected_chapter)
                 chapter_display = f"{chapter_doc.chapter_name} ({selected_chapter})"
             except Exception:
@@ -387,7 +389,7 @@ def create_volunteer_record(member):
             )
         else:
             # Standard name formatting for non-Dutch installations
-            volunteer_name = f"{member.first_name} {member.last_name}".strip()
+            volunteer_name = "{member.first_name} {member.last_name}".strip()
 
         if not volunteer_name:
             volunteer_name = member.email  # Fallback to email if no name available
@@ -509,7 +511,7 @@ def get_membership_type_details(membership_type):
                 {
                     "amount": base_amount * multiplier,
                     "label": label,
-                    "description": f"Support our mission with {int((multiplier - 1) * 100)}% extra",
+                    "description": "Support our mission with {int((multiplier - 1) * 100)}% extra",
                 }
             )
 
@@ -618,11 +620,11 @@ def suggest_membership_amounts(membership_type_name):
 def save_draft_application(data):
     """Save application as draft"""
     try:
-        draft_id = f"DRAFT-{int(time.time())}"
+        draft_id = "DRAFT-{int(time.time())}"
 
         # Store in cache for 24 hours
         frappe.cache().set_value(
-            f"application_draft:{draft_id}", json.dumps(data), expires_in_sec=86400  # 24 hours
+            "application_draft:{draft_id}", json.dumps(data), expires_in_sec=86400  # 24 hours
         )
 
         return {"success": True, "draft_id": draft_id, "message": _("Draft saved successfully")}
@@ -634,7 +636,7 @@ def save_draft_application(data):
 def load_draft_application(draft_id):
     """Load application draft"""
     try:
-        draft_data = frappe.cache().get_value(f"application_draft:{draft_id}")
+        draft_data = frappe.cache().get_value("application_draft:{draft_id}")
 
         if not draft_data:
             return {"success": False, "message": _("Draft not found or expired")}
@@ -707,7 +709,7 @@ def create_pending_chapter_membership(member, chapter_name):
         existing = frappe.db.exists("Chapter Member", {"member": member.name, "parent": chapter_name})
         if existing:
             frappe.log_error(
-                f"Chapter Member record already exists for {member.name} in {chapter_name}",
+                "Chapter Member record already exists for {member.name} in {chapter_name}",
                 "Chapter Membership Creation",
             )
             return existing
@@ -733,7 +735,7 @@ def create_pending_chapter_membership(member, chapter_name):
             assignment_type="Member",
             start_date=today(),
             status="Pending",
-            reason=f"Applied for membership in {chapter_name} chapter",
+            reason="Applied for membership in {chapter_name} chapter",
         )
 
         frappe.logger().info(f"Created pending Chapter Member record for {member.name} in {chapter_name}")
@@ -771,7 +773,7 @@ def activate_pending_chapter_membership(member, chapter_name):
         if not pending_member:
             # No pending record found, create a new active one
             frappe.logger().info(
-                f"No pending Chapter Member found for {member.name} in {chapter_name}, creating new active record"
+                "No pending Chapter Member found for {member.name} in {chapter_name}, creating new active record"
             )
             return create_active_chapter_membership(member, chapter_name)
 
@@ -790,7 +792,7 @@ def activate_pending_chapter_membership(member, chapter_name):
             chapter_name=chapter_name,
             assignment_type="Member",
             new_status="Active",
-            reason=f"Membership application approved for {chapter_name} chapter",
+            reason="Membership application approved for {chapter_name} chapter",
         )
 
         frappe.logger().info(f"Activated Chapter Member record for {member.name} in {chapter_name}")
@@ -827,7 +829,7 @@ def create_active_chapter_membership(member, chapter_name):
                         cm.chapter_join_date = today()
                         chapter_doc.save()
                         frappe.logger().info(
-                            f"Updated existing Chapter Member record to Active for {member.name} in {chapter_name}"
+                            "Updated existing Chapter Member record to Active for {member.name} in {chapter_name}"
                         )
                     return cm
 
@@ -849,7 +851,7 @@ def create_active_chapter_membership(member, chapter_name):
             assignment_type="Member",
             start_date=today(),
             status="Active",
-            reason=f"Direct activation for {chapter_name} chapter",
+            reason="Direct activation for {chapter_name} chapter",
         )
 
         frappe.logger().info(f"Created active Chapter Member record for {member.name} in {chapter_name}")
@@ -903,7 +905,7 @@ def remove_pending_chapter_membership(member, chapter_name=None):
             # Save the chapter document
             chapter_doc.save()
             frappe.logger().info(
-                f"Removed {len(members_to_remove)} pending Chapter Member record(s) for {member.name} from {chapter_name}"
+                "Removed {len(members_to_remove)} pending Chapter Member record(s) for {member.name} from {chapter_name}"
             )
             return True
         else:

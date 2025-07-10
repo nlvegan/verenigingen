@@ -22,8 +22,19 @@
   "migrate_suppliers",
   "migrate_transactions",
   "migrate_stock_transactions",
+  "column_break_mapping",
+  "use_account_mappings",
+  "setup_mappings_btn",
   "dry_run",
   "clear_existing_accounts",
+  "enhanced_migration_section",
+  "use_enhanced_migration",
+  "skip_existing",
+  "batch_size",
+  "column_break_enhanced",
+  "use_date_chunking",
+  "enable_audit_trail",
+  "enable_rollback",
   "progress_section",
   "progress_percentage",
   "current_operation",
@@ -152,6 +163,58 @@
    "fieldtype": "Check",
    "label": "Clear Existing Accounts Before Import",
    "description": "⚠️ WARNING: This will delete all existing imported accounts and related transactions. Use only for fresh imports."
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "enhanced_migration_section",
+   "fieldtype": "Section Break",
+   "label": "Enhanced Migration Options"
+  },
+  {
+   "default": 1,
+   "fieldname": "use_enhanced_migration",
+   "fieldtype": "Check",
+   "label": "Use Enhanced Migration",
+   "description": "Enable all migration improvements including error recovery, performance optimization, and audit trail"
+  },
+  {
+   "default": 1,
+   "fieldname": "skip_existing",
+   "fieldtype": "Check",
+   "label": "Skip Existing Records",
+   "description": "Skip records that already exist (detected by duplicate detection)"
+  },
+  {
+   "default": 100,
+   "fieldname": "batch_size",
+   "fieldtype": "Int",
+   "label": "Batch Size",
+   "description": "Number of records to process in each batch"
+  },
+  {
+   "fieldname": "column_break_enhanced",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": 1,
+   "fieldname": "use_date_chunking",
+   "fieldtype": "Check",
+   "label": "Use Date Range Chunking",
+   "description": "Automatically split large date ranges to respect API limits"
+  },
+  {
+   "default": 1,
+   "fieldname": "enable_audit_trail",
+   "fieldtype": "Check",
+   "label": "Enable Audit Trail",
+   "description": "Create comprehensive audit log of all migration operations"
+  },
+  {
+   "default": 1,
+   "fieldname": "enable_rollback",
+   "fieldtype": "Check",
+   "label": "Enable Transaction Rollback",
+   "description": "Allow rollback of failed operations (requires more processing time)"
   },
   {
    "fieldname": "progress_section",

@@ -1,5 +1,21 @@
 """
 E-Boekhouden SOAP-based migration
+
+⚠️ DEPRECATED - DO NOT USE THIS MODULE ⚠️
+========================================
+This SOAP-based migration is DEPRECATED and should NOT be used.
+The SOAP API is limited to only 500 most recent transactions!
+
+✅ USE eboekhouden_rest_full_migration.py INSTEAD ✅
+The REST API migration provides:
+- Access to complete transaction history
+- No 500 transaction limit
+- Better performance
+- More reliable data import
+
+This file is maintained only for backward compatibility.
+========================================
+
 Uses the SOAP API to get complete mutation data including descriptions and transaction types
 """
 
@@ -398,7 +414,7 @@ def process_sales_invoices(mutations, company, cost_center, migration_doc, relat
                 if hasattr(migration_doc, "relations_data")
                 else None
             )
-            customer = get_or_create_customer(customer_code, description, relation_data)
+            customer = get_or_create_customer(customer_code, description, relation_data, mut.get("MutatieNr"))
 
             # Create sales invoice
             si = frappe.new_doc("Sales Invoice")
@@ -701,12 +717,12 @@ def parse_date(date_str):
         return date_str  # Already in correct format
 
 
-def get_or_create_customer(code, description="", relation_data=None):
+def get_or_create_customer(code, description="", relation_data=None, mutation_nr=None):
     """Get or create customer based on code, description, and relation data"""
     if not code:
         # Try to extract from description
         if description and description.strip():
-            return create_customer_from_description(description)
+            return create_customer_from_description(description, mutation_nr)
         return "E-Boekhouden Import Customer"
 
     # Check if customer exists with this code
@@ -715,7 +731,7 @@ def get_or_create_customer(code, description="", relation_data=None):
         return customer
 
     # Create meaningful customer name
-    customer_name = get_meaningful_customer_name(code, description, relation_data)
+    customer_name = get_meaningful_customer_name(code, description, relation_data, mutation_nr)
 
     # Create new customer
     customer = frappe.new_doc("Customer")
@@ -734,49 +750,104 @@ def get_or_create_customer(code, description="", relation_data=None):
     return customer.name
 
 
-def get_meaningful_customer_name(code, description, relation_data):
+def get_meaningful_customer_name(code, description, relation_data, mutation_nr=None):
     """Create a meaningful customer name from available data"""
+    # Maximum length for customer name in ERPNext (reserve space for mutation reference if needed)
+    MAX_CUSTOMER_NAME_LENGTH = 140
+    MUTATION_REF_SPACE = 15  # Space for " (EBH-123456)"
+
+    def truncate_name(name, include_mutation_ref=False):
+        """Truncate name to max length with ellipsis if needed"""
+        max_length = MAX_CUSTOMER_NAME_LENGTH
+        if include_mutation_ref and mutation_nr:
+            max_length -= MUTATION_REF_SPACE
+
+        if len(name) <= max_length:
+            result = name
+        else:
+            result = name[: max_length - 3] + "..."
+
+        # Add mutation reference if provided
+        if include_mutation_ref and mutation_nr:
+            result += f" (EBH-{mutation_nr})"
+
+        return result
+
     # Try to get actual customer name from relation data
     if relation_data:
-        # Check for company name
-        if relation_data.get("Bedrij") and relation_data["Bedrijf"].strip():
-            return relation_data["Bedrijf"].strip()
+        # Check for company name (fix typo: "Bedrij" -> "Bedrijf")
+        if relation_data.get("Bedrijf") and relation_data["Bedrijf"].strip():
+            return truncate_name(relation_data["Bedrijf"].strip(), include_mutation_ref=True)
 
         # Check for contact name
         if relation_data.get("Contactpersoon") and relation_data["Contactpersoon"].strip():
-            return relation_data["Contactpersoon"].strip()
+            return truncate_name(relation_data["Contactpersoon"].strip(), include_mutation_ref=True)
 
         # Check for name field
         if relation_data.get("Naam") and relation_data["Naam"].strip():
-            return relation_data["Naam"].strip()
+            return truncate_name(relation_data["Naam"].strip(), include_mutation_ref=True)
 
     # Fall back to description if meaningful
     if description and description.strip() and description.strip() != code:
+        # First try to extract name from SEPA description
+        extracted_name = extract_name_from_sepa_description(description.strip())
+        if extracted_name:
+            return truncate_name(extracted_name, include_mutation_ref=True)
+
+        # Otherwise use cleaned description
         clean_desc = description.strip()
         # Avoid generic descriptions
         if not any(word in clean_desc.lower() for word in ["customer", "klant", "debtor", "debiteur"]):
-            return clean_desc
+            return truncate_name(clean_desc, include_mutation_ref=True)
 
     # Last resort: use code with prefix
-    return f"Customer {code}"
+    return truncate_name("Customer {code}", include_mutation_ref=True)
 
 
-def create_customer_from_description(description):
+def create_customer_from_description(description, mutation_nr=None):
     """Create customer from description when no code is available"""
-    clean_desc = description.strip()
+    MAX_CUSTOMER_NAME_LENGTH = 140
+    MUTATION_REF_SPACE = 15  # Space for " (EBH-123456)"
+    full_description = description.strip()
+
+    # Try to extract a meaningful name from SEPA description
+    extracted_name = extract_name_from_sepa_description(full_description)
+
+    if extracted_name:
+        customer_name = extracted_name
+    else:
+        # Fallback to truncated description
+        customer_name = full_description
+
+    # Ensure name fits within limit, reserving space for mutation reference
+    max_length = MAX_CUSTOMER_NAME_LENGTH
+    if mutation_nr:
+        max_length -= MUTATION_REF_SPACE
+
+    if len(customer_name) > max_length:
+        customer_name = customer_name[: max_length - 3] + "..."
+
+    # Add mutation reference if provided
+    if mutation_nr:
+        customer_name += f" (EBH-{mutation_nr})"
 
     # Check if this customer already exists
-    existing = frappe.db.get_value("Customer", {"customer_name": clean_desc}, "name")
+    existing = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
     if existing:
         return existing
 
     # Create new customer
     customer = frappe.new_doc("Customer")
-    customer.customer_name = clean_desc
+    customer.customer_name = customer_name
     customer.customer_group = (
         frappe.db.get_value("Customer Group", {"is_group": 0}, "name") or "All Customer Groups"
     )
     customer.territory = get_proper_territory()
+
+    # Store the full SEPA description in customer_details field
+    if len(full_description) > MAX_CUSTOMER_NAME_LENGTH:
+        customer.customer_details = "SEPA Payment Description:\n{full_description}"
+
     customer.insert(ignore_permissions=True)
 
     return customer.name
@@ -819,12 +890,12 @@ def get_proper_territory(relation_data=None):
     return territories[0].name if territories else "All Territories"
 
 
-def get_or_create_supplier(code, description="", relation_data=None):
+def get_or_create_supplier(code, description="", relation_data=None, mutation_nr=None):
     """Get or create supplier based on code, description, and relation data"""
     if not code:
         # Try to extract from description
         if description and description.strip():
-            return create_supplier_from_description(description)
+            return create_supplier_from_description(description, mutation_nr)
         return "E-Boekhouden Import Supplier"
 
     # First check if supplier exists with code as the name (for backward compatibility)
@@ -837,7 +908,7 @@ def get_or_create_supplier(code, description="", relation_data=None):
         return supplier
 
     # Create meaningful supplier name
-    supplier_name = get_meaningful_supplier_name(code, description, relation_data)
+    supplier_name = get_meaningful_supplier_name(code, description, relation_data, mutation_nr)
 
     # Create new supplier
     supplier = frappe.new_doc("Supplier")
@@ -861,50 +932,292 @@ def ensure_supplier_compatibility(supplier_name, code):
     return supplier_name
 
 
-def get_meaningful_supplier_name(code, description, relation_data):
+def get_meaningful_supplier_name(code, description, relation_data, mutation_nr=None):
     """Create a meaningful supplier name from available data"""
+    # Maximum length for supplier name in ERPNext (reserve space for mutation reference if needed)
+    MAX_SUPPLIER_NAME_LENGTH = 140
+    MUTATION_REF_SPACE = 15  # Space for " (EBH-123456)"
+
+    def truncate_name(name, include_mutation_ref=False):
+        """Truncate name to max length with ellipsis if needed"""
+        max_length = MAX_SUPPLIER_NAME_LENGTH
+        if include_mutation_ref and mutation_nr:
+            max_length -= MUTATION_REF_SPACE
+
+        if len(name) <= max_length:
+            result = name
+        else:
+            result = name[: max_length - 3] + "..."
+
+        # Add mutation reference if provided
+        if include_mutation_ref and mutation_nr:
+            result += f" (EBH-{mutation_nr})"
+
+        return result
+
     # Try to get actual supplier name from relation data
     if relation_data:
-        # Check for company name
-        if relation_data.get("Bedrij") and relation_data["Bedrijf"].strip():
-            return relation_data["Bedrijf"].strip()
+        # Check for company name (fix typo: "Bedrij" -> "Bedrijf")
+        if relation_data.get("Bedrijf") and relation_data["Bedrijf"].strip():
+            return truncate_name(relation_data["Bedrijf"].strip(), include_mutation_ref=True)
 
         # Check for contact name
         if relation_data.get("Contactpersoon") and relation_data["Contactpersoon"].strip():
-            return relation_data["Contactpersoon"].strip()
+            return truncate_name(relation_data["Contactpersoon"].strip(), include_mutation_ref=True)
 
         # Check for name field
         if relation_data.get("Naam") and relation_data["Naam"].strip():
-            return relation_data["Naam"].strip()
+            return truncate_name(relation_data["Naam"].strip(), include_mutation_ref=True)
 
     # Fall back to description if meaningful
     if description and description.strip() and description.strip() != code:
+        # First try to extract name from SEPA description
+        extracted_name = extract_name_from_sepa_description(description.strip())
+        if extracted_name:
+            return truncate_name(extracted_name, include_mutation_ref=True)
+
+        # Otherwise use cleaned description
         clean_desc = description.strip()
         # Avoid generic descriptions
         if not any(
             word in clean_desc.lower() for word in ["supplier", "leverancier", "creditor", "crediteur"]
         ):
-            return clean_desc
+            return truncate_name(clean_desc, include_mutation_ref=True)
 
     # Last resort: use code with prefix
-    return f"Supplier {code}"
+    return truncate_name("Supplier {code}", include_mutation_ref=True)
 
 
-def create_supplier_from_description(description):
+def extract_name_from_sepa_description(description):
+    """Extract meaningful name from SEPA payment description
+
+    Uses the same logic as the MT940 import and payment naming utilities
+    to extract counterparty names from SEPA descriptions.
+
+    SEPA descriptions often follow patterns like:
+    - IBAN BIC Beneficiary Name REFERENCE Invoice# etc.
+    - NL10ABNA0432630856 ABNANL2A Filmtheater de Uitkijk ER EF 20250605224311TRIONL2UXXXE000040836 Factuurnummer 250304
+    """
+    import re
+
+    # First try specific Dutch bank payment patterns
+    # Look for company names that come after BIC codes and before transaction references
+    dutch_bank_pattern = r"[A-Z]{2}\d{2}[A-Z0-9]{4,30}\s+[A-Z]{6}[A-Z0-9]{2,5}\s+([A-Za-z][A-Za-z\s&\.\-]{3,40}?)\s+(?:ER\s+EF|[A-Z]{2}\s+[A-Z]{2}|\d{14})"
+    match = re.search(dutch_bank_pattern, description)
+    if match:
+        extracted_name = match.group(1).strip()
+        # Clean up any trailing single letters or short codes
+        extracted_name = re.sub(r"\s+[A-Z]\s*$", "", extracted_name).strip()
+        if len(extracted_name) > 3:
+            return extracted_name
+
+    # Try the enhanced payment naming logic from eboekhouden_payment_naming
+    # Look for patterns like "Payment from ABC Company" or "Betaling van XYZ"
+    patterns = [
+        r"(?:van|from|to|naar)\s+([A-Za-z][A-Za-z\s&\.\-]{2,30})",
+        r"([A-Za-z][A-Za-z\s&\.\-]{3,30})\s+(?:payment|betaling|invoice|factuur)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, description, re.IGNORECASE)
+        if match:
+            extracted_name = match.group(1).strip()
+            # Avoid generic terms
+            if not any(
+                word in extracted_name.lower()
+                for word in ["payment", "betaling", "invoice", "factuur", "customer", "supplier"]
+            ):
+                return extracted_name
+
+    # SEPA field extraction logic similar to MT940 import
+    # Common SEPA/payment reference patterns to remove
+    iban_pattern = r"^[A-Z]{2}\d{2}[A-Z0-9]{4,30}\s+"
+    bic_pattern = r"^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?\s+"
+
+    # SEPA reference patterns based on MT940 SEPA fields
+    sepa_reference_patterns = [
+        r"\s+ER\s+EF\s+\d{14}[A-Z0-9]+.*$",  # ER EF timestamps (must come before general patterns)
+        r"\s+\d{2}-\d{2}-\d{2,4}.*$",  # Date patterns like "24-06-21" or "24-06-2021"
+        r"\s+\d{4}-\d{2}-\d{2}.*$",  # Date patterns like "2021-06-24"
+        r"\s+\d{2}/\d{2}/\d{2,4}.*$",  # Date patterns like "24/06/21"
+        r"\s+\d{1,2}:\d{2}.*$",  # Time patterns like "14:38"
+        r"\s+\d{10,20}.*$",  # Long transaction numbers
+        r"\s+[Oo]rdernummer.*$",  # Order numbers
+        r"\s+[Tt]ransactienummer.*$",  # Transaction numbers
+        r"\s+[Jj]e order.*$",  # "Je order nr"
+        r"\s+EREF\s+[A-Z0-9\-]+",  # End-to-end reference
+        r"\s+MREF\s+[A-Z0-9\-]+",  # Mandate reference
+        r"\s+CRED\s+[A-Z0-9\-]+",  # Creditor reference
+        r"\s+SVWZ\s+.*$",  # Payment purpose
+        r"\s+Factuurnummer\s+\d+.*$",  # Invoice numbers
+        r"\s+Invoice\s*#?\s*\d+.*$",
+        r"\s+Ref\s*[:=]\s*.*$",
+        r"\s+Reference\s*[:=]\s*.*$",
+        r"\s+Kenmerk\s*[:=]\s*.*$",
+    ]
+
+    # Start with the full description
+    name = description.strip()
+
+    # Remove IBAN if at the beginning
+    name = re.sub(iban_pattern, "", name)
+
+    # Remove BIC code if at the beginning after IBAN
+    name = re.sub(bic_pattern, "", name)
+
+    # Check if this might be an ABWA (counterparty) field
+    # In SEPA, this comes after IBAN/BIC and before references
+
+    # Extract the name part (usually comes after IBAN/BIC and before references)
+    # Look for common reference starters
+    for pattern in sepa_reference_patterns:
+        match = re.search(pattern, name, re.IGNORECASE)
+        if match:
+            name = name[: match.start()].strip()
+            break
+
+    # Clean up any remaining reference-like patterns
+    # Remove long alphanumeric sequences that look like references
+    name = re.sub(r"\s+[A-Z0-9]{20,}", "", name)
+
+    # Handle "via" patterns (like "Tupak via ICEPAY") - keep the company name with payment provider
+    via_match = re.match(
+        r"^([A-Za-z][A-Za-z\s&\.\-]{2,30})\s+via\s+([A-Za-z][A-Za-z\s&\.\-]{2,20})", name, re.IGNORECASE
+    )
+    if via_match:
+        company_name = via_match.group(1).strip()
+        payment_provider = via_match.group(2).strip()
+        # Include payment provider if it's meaningful (not just a code)
+        if len(payment_provider) > 2 and payment_provider.isalpha():
+            name = f"{company_name} via {payment_provider}"
+        else:
+            name = company_name
+
+    # If we still have a very long name, it might contain additional info
+    # Try to extract just the company/person name part
+    elif len(name) > 50:
+        # Common separators in payment descriptions
+        for separator in [" - ", " / ", " | ", "  "]:
+            if separator in name:
+                parts = name.split(separator)
+                # Take the first meaningful part
+                name = parts[0].strip()
+                break
+
+    # Final cleanup - remove common redundant phrases (from payment naming)
+    cleanup_patterns = [
+        r"^(Payment|Betaling|Invoice|Factuur)\s+(from|van|to|naar)\s+",
+        r"\s+\(.*\)$",  # Remove trailing parentheses
+        r"^Mutatie\s+\d+:\s*",  # Remove mutation number prefix
+    ]
+
+    for pattern in cleanup_patterns:
+        name = re.sub(pattern, "", name, flags=re.IGNORECASE).strip()
+
+    # Final cleanup
+    name = " ".join(name.split())  # Normalize whitespace
+
+    # If we couldn't extract anything meaningful, return None
+    if not name or len(name) < 3:
+        return None
+
+    return name
+
+
+@frappe.whitelist()
+def test_supplier_name_fixes():
+    """Test the supplier name extraction fixes"""
+    # Test case from the actual error log
+    problematic_description = "NL10ABNA0432630856 ABNANL2A Filmtheater de Uitkijk ER EF 20250605224311TRIONL2UXXXE000040836 Factuurnummer 250304, excuus voor trage betaling."
+
+    # Test SEPA extraction
+    extracted_name = extract_name_from_sepa_description(problematic_description)
+
+    # Test supplier name creation with mutation reference
+    supplier_name = get_meaningful_supplier_name("1248", problematic_description, None, "7430")
+
+    return {
+        "success": True,
+        "original_description": problematic_description,
+        "original_length": len(problematic_description),
+        "extracted_company_name": extracted_name,
+        "final_supplier_name": supplier_name,
+        "final_length": len(supplier_name) if supplier_name else 0,
+        "within_limit": len(supplier_name) <= 140 if supplier_name else False,
+    }
+
+
+@frappe.whitelist()
+def test_sepa_name_extraction(description=None):
+    """Test function for SEPA name extraction"""
+    test_cases = [
+        "Tupak via ICEPAY 24-06-21 14:38 0030007305208628 Ordernummer tupam50995 Transactienummer 0030007305208628 24-06-21 14:38 Je order nr 5099",
+        "NL10ABNA0432630856 ABNANL2A Filmtheater de Uitkijk ER EF 20250605224311TRIONL2UXXXE000040836 Factuurnummer 250304",
+        "McDonald's Nederland 15-03-21 12:45 Order 123456789",
+        "Albert Heijn via iDEAL 01-01-21 Transaction 987654321",
+    ]
+
+    if description:
+        test_cases = [description]
+
+    results = []
+    for desc in test_cases:
+        extracted = extract_name_from_sepa_description(desc)
+        results.append(
+            {
+                "original": desc,
+                "extracted": extracted,
+                "length_original": len(desc),
+                "length_extracted": len(extracted) if extracted else 0,
+            }
+        )
+
+    return {"success": True, "test_results": results}
+
+
+def create_supplier_from_description(description, mutation_nr=None):
     """Create supplier from description when no code is available"""
-    clean_desc = description.strip()
+    MAX_SUPPLIER_NAME_LENGTH = 140
+    MUTATION_REF_SPACE = 15  # Space for " (EBH-123456)"
+    full_description = description.strip()
+
+    # Try to extract a meaningful name from SEPA description
+    extracted_name = extract_name_from_sepa_description(full_description)
+
+    if extracted_name:
+        supplier_name = extracted_name
+    else:
+        # Fallback to truncated description
+        supplier_name = full_description
+
+    # Ensure name fits within limit, reserving space for mutation reference
+    max_length = MAX_SUPPLIER_NAME_LENGTH
+    if mutation_nr:
+        max_length -= MUTATION_REF_SPACE
+
+    if len(supplier_name) > max_length:
+        supplier_name = supplier_name[: max_length - 3] + "..."
+
+    # Add mutation reference if provided
+    if mutation_nr:
+        supplier_name += f" (EBH-{mutation_nr})"
 
     # Check if this supplier already exists
-    existing = frappe.db.get_value("Supplier", {"supplier_name": clean_desc}, "name")
+    existing = frappe.db.get_value("Supplier", {"supplier_name": supplier_name}, "name")
     if existing:
         return existing
 
     # Create new supplier
     supplier = frappe.new_doc("Supplier")
-    supplier.supplier_name = clean_desc
+    supplier.supplier_name = supplier_name
     supplier.supplier_group = (
         frappe.db.get_value("Supplier Group", {"is_group": 0}, "name") or "All Supplier Groups"
     )
+
+    # Store the full SEPA description in supplier_details field
+    if len(full_description) > MAX_SUPPLIER_NAME_LENGTH:
+        supplier.supplier_details = "SEPA Payment Description:\n{full_description}"
+
     supplier.insert(ignore_permissions=True)
 
     return supplier.name
@@ -919,22 +1232,77 @@ def get_or_create_item(code, company=None, transaction_type="Both", description=
 
 
 def get_account_by_code(code, company):
-    """Get account by E-Boekhouden code"""
+    """Get account by E-Boekhouden code with improved matching"""
     if not code:
-        # Return default income account
-        return frappe.db.get_value(
-            "Account", {"company": company, "account_type": "Income Account", "is_group": 0}, "name"
-        )
+        # Return None instead of a default - let caller decide default
+        return None
 
-    account = frappe.db.get_value("Account", {"company": company, "account_number": code}, "name")
+    # Create a cache key
+    cache_key = f"eboekhouden_account_{company}_{code}"
+    cached_account = frappe.cache().get_value(cache_key)
+    if cached_account:
+        return cached_account
 
+    # Strategy 1: Exact match by account_number
+    account = frappe.db.get_value(
+        "Account", {"account_number": code, "company": company, "disabled": 0}, "name"
+    )
     if account:
+        frappe.cache().set_value(cache_key, account, expires_in_sec=3600)
         return account
 
-    # Return default
-    return frappe.db.get_value(
-        "Account", {"company": company, "account_type": "Income Account", "is_group": 0}, "name"
+    # Strategy 2: Match by standardized account number format
+    # E.g., "10000" might be stored as "1000" or "10000 - Cash"
+    normalized_code = code.lstrip("0")  # Remove leading zeros
+    if normalized_code != code:
+        account = frappe.db.get_value(
+            "Account", {"account_number": normalized_code, "company": company, "disabled": 0}, "name"
+        )
+        if account:
+            frappe.cache().set_value(cache_key, account, expires_in_sec=3600)
+            return account
+
+    # Strategy 3: Intelligent name matching
+    # Look for account where code appears at the beginning of the name
+    account = frappe.db.sql(
+        """
+        SELECT name
+        FROM `tabAccount`
+        WHERE company = %s
+        AND disabled = 0
+        AND (
+            account_name LIKE %s  -- Starts with code
+            OR account_name LIKE %s  -- Code after space
+        )
+        ORDER BY
+            CASE
+                WHEN account_number = %s THEN 1
+                WHEN account_name LIKE %s THEN 2
+                ELSE 3
+            END,
+            LENGTH(account_name)  -- Prefer shorter names (less likely to be wrong)
+        LIMIT 1
+    """,
+        (
+            company,
+            "{code} -%",  # e.g., "10000 - Cash"
+            "% {code} -%",  # e.g., "NL 10000 - Cash"
+            code,
+            "{code}%",
+        ),
+        as_dict=True,
     )
+
+    if account:
+        frappe.cache().set_value(cache_key, account[0].name, expires_in_sec=3600)
+        return account[0].name
+
+    # Log unmapped account for manual review
+    frappe.logger().warning(
+        "Could not find account mapping for eBoekhouden code '{code}' in company '{company}'"
+    )
+
+    return None
 
 
 def get_bank_account(code, company):
@@ -1017,7 +1385,7 @@ def create_payment_journal_entry(mut, company, cost_center, party_type, migratio
 
         mutation_type = mut.get("Soort", "Payment")
         je.title = get_journal_entry_title(mut, mutation_type)
-        je = enhance_journal_entry_fields(je, mut, f"{party_type} Payment - Invoice Not Found")
+        je = enhance_journal_entry_fields(je, mut, "{party_type} Payment - Invoice Not Found")
 
         # Get amount
         total_amount = 0
@@ -1055,6 +1423,7 @@ def create_payment_journal_entry(mut, company, cost_center, party_type, migratio
                         migration_doc._relations_data.get(str(mut.get("RelatieCode")))
                         if hasattr(migration_doc, "_relations_data")
                         else None,
+                        mut.get("MutatieNr"),
                     ),
                 },
             )
@@ -1074,6 +1443,7 @@ def create_payment_journal_entry(mut, company, cost_center, party_type, migratio
                         migration_doc._relations_data.get(str(mut.get("RelatieCode")))
                         if hasattr(migration_doc, "_relations_data")
                         else None,
+                        mut.get("MutatieNr"),
                     ),
                 },
             )
@@ -1253,7 +1623,7 @@ def fix_account_type(account_code, company, target_type):
         # Try by name pattern
         account = frappe.db.get_value(
             "Account",
-            {"name": ["like", f"{account_code}%"], "company": company},
+            {"name": ["like", "{account_code}%"], "company": company},
             ["name", "account_type"],
             as_dict=True,
         )
@@ -1290,7 +1660,7 @@ def process_purchase_invoices(mutations, company, cost_center, migration_doc, re
 
             # Get or create supplier with relation data for meaningful names
             relation_data = relation_data_map.get(supplier_code) if supplier_code else None
-            supplier = get_or_create_supplier(supplier_code, description, relation_data)
+            supplier = get_or_create_supplier(supplier_code, description, relation_data, mut.get("MutatieNr"))
 
             # Create purchase invoice
             pi = frappe.new_doc("Purchase Invoice")
@@ -1452,7 +1822,7 @@ def process_supplier_payments(mutations, company, cost_center, migration_doc, re
                 if supplier_code:
                     relation_data = relation_data_map.get(supplier_code) if relation_data_map else None
                     new_supplier = get_or_create_supplier(
-                        supplier_code, mut.get("Omschrijving", ""), relation_data
+                        supplier_code, mut.get("Omschrijving", ""), relation_data, mut.get("MutatieNr")
                     )
                     # Update the invoice's supplier if needed
                     if new_supplier and new_supplier != pi.supplier:
@@ -1461,10 +1831,10 @@ def process_supplier_payments(mutations, company, cost_center, migration_doc, re
                 else:
                     # Cannot create payment without valid supplier
                     errors.append(
-                        f"Payment for Invoice {mut.get('Factuurnummer')}: Supplier '{pi.supplier}' not found and no relation code available"
+                        "Payment for Invoice {mut.get('Factuurnummer')}: Supplier '{pi.supplier}' not found and no relation code available"
                     )
                     migration_doc.log_error(
-                        f"Supplier '{pi.supplier}' not found for invoice {invoice_no}",
+                        "Supplier '{pi.supplier}' not found for invoice {invoice_no}",
                         "supplier_payment",
                         mut,
                     )
@@ -1564,7 +1934,7 @@ def process_supplier_payments(mutations, company, cost_center, migration_doc, re
                     f"Payment for Invoice {mut.get('Factuurnummer')}: Database integrity error - {str(ie)}"
                 )
                 migration_doc.log_error(
-                    f"Failed to create supplier payment for invoice {invoice_no}: {str(ie)}",
+                    "Failed to create supplier payment for invoice {invoice_no}: {str(ie)}",
                     "supplier_payment",
                     mut,
                 )
@@ -1796,7 +2166,7 @@ def process_beginbalans_entries(mutations, company, cost_center, migration_doc):
                     "account": account,
                     "debit_in_account_currency": debit_amount,
                     "credit_in_account_currency": credit_amount,
-                    "user_remark": description or f"Opening balance for {account_code}",
+                    "user_remark": description or "Opening balance for {account_code}",
                     "cost_center": cost_center,
                 },
             )
@@ -1924,10 +2294,12 @@ def get_last_processed_mutation_number(company):
 def resume_migration(migration_doc_name=None):
     """Resume migration from where it left of"""
     if migration_doc_name:
-        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_doc_name)
+        # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_doc_name)
+        pass
     else:
         # Get the latest migration doc
-        migration_doc = frappe.get_last_doc("E-Boekhouden Migration")
+        # migration_doc = frappe.get_last_doc("E-Boekhouden Migration")
+        pass
 
     settings = frappe.get_single("E-Boekhouden Settings")
     company = settings.default_company

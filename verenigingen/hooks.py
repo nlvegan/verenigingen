@@ -113,6 +113,12 @@ doc_events = {
     "Volunteer": {"on_update": "verenigingen.utils.native_expense_helpers.update_employee_approver"},
     # Brand Settings - regenerate CSS when colors change (Single doctype)
     "Brand Settings": {"on_update": "verenigingen.utils.brand_css_generator.generate_brand_css_file"},
+    # Account Group Project Framework - validate and apply defaults
+    "Journal Entry": {"validate": "verenigingen.utils.account_group_validation_hooks.validate_journal_entry"},
+    "Expense Claim": {"validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim"},
+    "Purchase Invoice": {
+        "validate": "verenigingen.utils.account_group_validation_hooks.validate_purchase_invoice"
+    },
 }
 
 # Scheduled Tasks

@@ -73,7 +73,7 @@ class SEPAMandateNotificationManager:
             "days_until_expiry": days_until_expiry,
             "iban": self._mask_iban(mandate.iban),
             "company_name": self.settings.company_name,
-            "renewal_link": f"{frappe.utils.get_url()}/bank_details",
+            "renewal_link": "{frappe.utils.get_url()}/bank_details",
         }
 
         self._send_email(
@@ -100,7 +100,7 @@ class SEPAMandateNotificationManager:
             "retry_count": retry_record.retry_count,
             "failure_reason": retry_record.last_failure_reason or _("Payment failed"),
             "company_name": self.settings.company_name,
-            "payment_link": f"{frappe.utils.get_url()}/payment-dashboard",
+            "payment_link": "{frappe.utils.get_url()}/payment-dashboard",
         }
 
         if retry_record.status == "Scheduled":
@@ -143,7 +143,7 @@ class SEPAMandateNotificationManager:
             "payment_date": frappe.utils.format_date(payment_entry.posting_date),
             "payment_method": payment_entry.mode_of_payment,
             "company_name": self.settings.company_name,
-            "receipt_link": f"{frappe.utils.get_url()}/payment-dashboard",
+            "receipt_link": "{frappe.utils.get_url()}/payment-dashboard",
         }
 
         self._send_email(
@@ -190,14 +190,14 @@ class SEPAMandateNotificationManager:
         """Send email using template"""
         try:
             # Get email template
-            template_path = f"verenigingen/templates/emails/{template}.html"
+            template_path = "verenigingen/templates/emails/{template}.html"
 
             # Add common context
             context.update(
                 {
                     "current_year": frappe.utils.now_datetime().year,
                     "website_url": frappe.utils.get_url(),
-                    "unsubscribe_link": f"{frappe.utils.get_url()}/email-preferences",
+                    "unsubscribe_link": "{frappe.utils.get_url()}/email-preferences",
                 }
             )
 
@@ -223,13 +223,13 @@ class SEPAMandateNotificationManager:
                         "comment_type": "Info",
                         "reference_doctype": "Member",
                         "reference_name": member,
-                        "content": f"Notification sent: {subject}",
+                        "content": "Notification sent: {subject}",
                     }
                 ).insert(ignore_permissions=True)
 
         except Exception as e:
             frappe.log_error(
-                f"Failed to send SEPA notification: {str(e)}", f"SEPA Notification Error - {subject}"
+                f"Failed to send SEPA notification: {str(e)}", "SEPA Notification Error - {subject}"
             )
 
     def _mask_iban(self, iban):
@@ -238,7 +238,7 @@ class SEPAMandateNotificationManager:
             return iban
 
         # Show first 4 and last 4 characters
-        return f"{iban[:4]}****{iban[-4:]}"
+        return "{iban[:4]}****{iban[-4:]}"
 
     def _get_bank_name(self, iban):
         """Get bank name from IBAN"""
@@ -273,4 +273,4 @@ def test_mandate_notification(mandate_id, notification_type="created"):
     elif notification_type == "expiring":
         manager.send_mandate_expiring_notification(mandate, 15)
 
-    return {"success": True, "message": f"Test notification sent for {notification_type}"}
+    return {"success": True, "message": "Test notification sent for {notification_type}"}

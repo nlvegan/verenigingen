@@ -5,17 +5,38 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.api_validators import APIValidator, rate_limit, require_roles, validate_api_input
+from verenigingen.utils.config_manager import ConfigManager
+
+# Import enhanced utilities
+from verenigingen.utils.error_handling import (
+    PermissionError,
+    ValidationError,
+    handle_api_error,
+    log_error,
+    validate_required_fields,
+)
+from verenigingen.utils.performance_utils import QueryOptimizer, cached, performance_monitor
+
 
 @frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=500)
+@cached(ttl=300)  # Cache for 5 minutes
 def get_chapter_member_emails(chapter_name):
     """Get email addresses of all active chapter members"""
+
+    # Validate inputs
+    validate_required_fields({"chapter_name": chapter_name}, ["chapter_name"])
+
+    chapter_name = APIValidator.sanitize_text(chapter_name, max_length=100)
 
     # Verify user has access to this chapter
     from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters
 
     user_chapters = get_user_board_chapters()
     if not any(ch["chapter_name"] == chapter_name for ch in user_chapters):
-        frappe.throw(_("You don't have access to this chapter"))
+        raise PermissionError("You don't have access to this chapter")
 
     # Get active member emails
     emails = frappe.db.sql(
@@ -38,15 +59,23 @@ def get_chapter_member_emails(chapter_name):
 
 
 @frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=2000)
 def quick_approve_member(member_name, chapter_name=None):
     """Quick approve a member application from dashboard"""
+
+    # Validate inputs
+    validate_required_fields({"member_name": member_name}, ["member_name"])
+
+    member_name = APIValidator.sanitize_text(member_name, max_length=100)
+    chapter_name = APIValidator.sanitize_text(chapter_name, max_length=100) if chapter_name else None
 
     # Verify permissions
     from verenigingen.templates.pages.chapter_dashboard import get_user_board_chapters, get_user_board_role
 
     user_chapters = get_user_board_chapters()
     if not user_chapters:
-        frappe.throw(_("You must be a board member to approve applications"))
+        raise PermissionError("You must be a board member to approve applications")
 
     # Get member's chapter if not specified
     if not chapter_name:

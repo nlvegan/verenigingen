@@ -24,20 +24,45 @@ PAYMENT_ACCOUNT_CONFIG = {
 }
 
 
-def is_payment_account(account_code):
+def is_payment_account(account_code, company=None):
     """Check if an account code represents a payment account"""
     if not account_code:
         return False
 
-    # Check if it's in our configured payment accounts
+    # First check database mappings if company is provided
+    if company:
+        mapping = frappe.db.exists(
+            "EBoekhouden Payment Mapping",
+            {"company": company, "eboekhouden_account_code": account_code, "active": 1},
+        )
+        if mapping:
+            return True
+
+    # Fallback to hardcoded config
     return (
         account_code in PAYMENT_ACCOUNT_CONFIG["bank_accounts"]
         or account_code in PAYMENT_ACCOUNT_CONFIG["cash_accounts"]
     )
 
 
-def get_payment_account_info(account_code):
+def get_payment_account_info(account_code, company=None):
     """Get payment account configuration"""
+    # First check database mappings if company is provided
+    if company:
+        from verenigingen.verenigingen.doctype.eboekhouden_payment_mapping.eboekhouden_payment_mapping import (
+            get_payment_account_mapping,
+        )
+
+        mapping = get_payment_account_mapping(company, account_code)
+        if mapping:
+            return {
+                "name": mapping.get("account_name"),
+                "type": mapping.get("account_type"),
+                "mode_of_payment": mapping.get("mode_of_payment"),
+                "erpnext_account": mapping.get("erpnext_account"),
+            }
+
+    # Fallback to hardcoded config
     if account_code in PAYMENT_ACCOUNT_CONFIG["bank_accounts"]:
         return PAYMENT_ACCOUNT_CONFIG["bank_accounts"][account_code]
     elif account_code in PAYMENT_ACCOUNT_CONFIG["cash_accounts"]:
@@ -68,7 +93,7 @@ def setup_payment_modes():
 
     frappe.db.commit()
 
-    return {"success": True, "created": created, "message": f"Created {len(created)} modes of payment"}
+    return {"success": True, "created": created, "message": "Created {len(created)} modes of payment"}
 
 
 @frappe.whitelist()
@@ -103,7 +128,7 @@ def validate_migration_setup():
     required_modes = ["Bank Transfer", "PayPal", "Cash", "SEPA Direct Debit"]
     for mode in required_modes:
         if not frappe.db.exists("Mode of Payment", mode):
-            warnings.append(f"Mode of Payment '{mode}' not found")
+            warnings.append("Mode of Payment f'{mode}' not found")
 
     # Check if there are customers and suppliers
     customer_count = frappe.db.count("Customer")

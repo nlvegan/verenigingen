@@ -68,7 +68,7 @@ def update_existing_inkoop_items():
             "updated": updated_count,
             "found": len(items_to_update),
             "errors": errors,
-            "message": f"Updated {updated_count} items to 'Cost of Goods Sold Items' group",
+            "message": "Updated {updated_count} items to 'Cost of Goods Sold Items' group",
         }
 
     except Exception as e:
@@ -100,7 +100,7 @@ def check_inkoop_accounts():
             "success": True,
             "accounts": accounts,
             "count": len(accounts),
-            "message": f"Found {len(accounts)} accounts with inkoop/materiaal keywords",
+            "message": "Found {len(accounts)} accounts with inkoop/materiaal keywords",
         }
 
     except Exception as e:

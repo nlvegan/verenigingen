@@ -15,8 +15,8 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Links",
-   "link_count": 2,
+   "label": "Migration & Settings",
+   "link_count": 3,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -24,7 +24,7 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Migrations",
+   "label": "E-Boekhouden Migration",
    "link_count": 0,
    "link_to": "E-Boekhouden Migration",
    "link_type": "DocType",
@@ -34,9 +34,107 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Settings",
+   "label": "E-Boekhouden Settings",
    "link_count": 0,
    "link_to": "E-Boekhouden Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "E-Boekhouden Dashboard",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Dashboard",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Mapping & Configuration",
+   "link_count": 5,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Account Mapping",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Account Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Ledger Mapping",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Ledger Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Item Mapping",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Item Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Payment Mapping",
+   "link_count": 0,
+   "link_to": "Eboekhouden Payment Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Account Group Project Mapping",
+   "link_count": 0,
+   "link_to": "Account Group Project Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Monitoring & Logs",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Import Log",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Import Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "REST Mutation Cache",
+   "link_count": 0,
+   "link_to": "Eboekhouden Rest Mutation Cache",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"

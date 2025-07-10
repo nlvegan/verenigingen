@@ -85,13 +85,13 @@ def check_company_stock_settings():
         for key, account in list(settings.items()):
             if account and frappe.db.exists("Account", account):
                 acc_doc = frappe.get_doc("Account", account)
-                account_details[f"{key}_details"] = {
+                account_details["{key}_details"] = {
                     "account_name": acc_doc.account_name,
                     "account_type": acc_doc.account_type,
                     "exists": True,
                 }
             elif account:
-                account_details[f"{key}_details"] = {"exists": False, "value": account}
+                account_details["{key}_details"] = {"exists": False, "value": account}
 
         # Merge the details back
         settings.update(account_details)

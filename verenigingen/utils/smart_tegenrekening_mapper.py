@@ -47,7 +47,7 @@ class SmartTegenrekeningMapper:
 
     def _get_smart_item(self, account_code):
         """Get pre-created smart item for account code"""
-        item_code = f"EB-{account_code}"
+        item_code = "EB-{account_code}"
 
         item_data = frappe.db.get_value("Item", item_code, ["name", "item_name", "item_group"], as_dict=True)
 
@@ -55,9 +55,12 @@ class SmartTegenrekeningMapper:
             # Get account from E-Boekhouden mapping
             account = self._get_account_by_code(account_code)
 
+            # Use descriptive name from account instead of internal item code
+            descriptive_name = self._get_descriptive_name_from_account(account_code, account)
+
             return {
                 "item_code": item_data.name,
-                "item_name": item_data.item_name,
+                "item_name": descriptive_name or item_data.item_name,
                 "account": account,
                 "item_group": item_data.item_group,
                 "source": "smart_mapping",
@@ -82,8 +85,11 @@ class SmartTegenrekeningMapper:
             return None
 
         # Generate item name and properties
-        item_code = f"EB-{account_code}"
-        item_name = self._generate_item_name(account_details.account_name, account_code)
+        item_code = "EB-{account_code}"
+        # Use descriptive name from account instead of technical item name
+        item_name = self._get_descriptive_name_from_account(
+            account_code, erpnext_account
+        ) or self._generate_item_name(account_details.account_name, account_code)
 
         # Determine item properties
         # Always enable both sales and purchase for flexibility
@@ -184,7 +190,7 @@ class SmartTegenrekeningMapper:
         if not account:
             # Log missing account code for debugging
             frappe.log_error(
-                f"Account code {account_code} not found in company {self.company}",  # noqa: E713
+                "Account code {account_code} not found in company {self.company}",  # noqa: E713
                 "Tegenrekening Mapping",
             )
 
@@ -195,14 +201,30 @@ class SmartTegenrekeningMapper:
         """Generate meaningful item name from account name"""
         # Clean up account name
         item_name = account_name
-        item_name = item_name.replace(f" - {self.company}", "")
-        item_name = item_name.replace(f"{account_code} - ", "")
+        item_name = item_name.replace(" - {self.company}", "")
+        item_name = item_name.replace("{account_code} - ", "")
 
         # Limit length
         if len(item_name) > 60:
             item_name = item_name[:57] + "..."
 
         return item_name
+
+    def _get_descriptive_name_from_account(self, account_code, erpnext_account):
+        """Get descriptive name from ERPNext account name"""
+        if not erpnext_account:
+            return None
+
+        # Extract the descriptive part from account name
+        # Format: "42308 - Bijeenkomsten: deelnemersbijdragen - NVV"
+        # We want: "Bijeenkomsten: deelnemersbijdragen"
+        parts = erpnext_account.split(" - ")
+        if len(parts) >= 2:
+            # Remove the account code prefix and company suffix
+            descriptive_part = " - ".join(parts[1:-1]) if len(parts) > 2 else parts[1]
+            return descriptive_part.strip()
+
+        return None
 
     def _get_fallback_item(self, transaction_type, description):
         """Get fallback generic item"""
@@ -359,7 +381,7 @@ def test_tegenrekening_mapping():
             ("42200", "Campaign advertising", "purchase", 250.0),
             ("83250", "Event ticket sales", "sales", 25.0),
             ("44007", "Insurance payment", "purchase", 150.0),
-            ("99999", "Unknown account", "purchase", 100.0),  # Should create dynamic or fallback
+            ("Verrekeningen", "Unknown account", "purchase", 100.0),  # Should create dynamic or fallback
         ]
 
         for account_code, description, transaction_type, amount in test_cases:

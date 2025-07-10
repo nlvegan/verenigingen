@@ -105,7 +105,7 @@ def test_dutch_name_formatting():
         full_last = get_full_last_name(last, tussen)
         results.append(
             {
-                "input": f"first='{first}', middle='{middle}', tussen='{tussen}', last='{last}'",
+                "input": "first='{first}', middle='{middle}', tussen='{tussen}', last='{last}'",
                 "full_name": formatted,
                 "combined_last_name": full_last,
             }

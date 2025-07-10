@@ -123,7 +123,7 @@ class AssignmentHistoryManager:
                 target_assignment.status = "Completed"
 
                 frappe.log_error(
-                    f"Updated specific assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    "Updated specific assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                     "Assignment History Manager",
                 )
             else:
@@ -145,7 +145,7 @@ class AssignmentHistoryManager:
                     fallback_assignment.status = "Completed"
 
                     frappe.log_error(
-                        f"Updated fallback assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                        "Updated fallback assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                         "Assignment History Manager",
                     )
                 else:
@@ -164,7 +164,7 @@ class AssignmentHistoryManager:
                     )
 
                     frappe.log_error(
-                        f"Created new completed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                        "Created new completed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                         "Assignment History Manager",
                     )
 
@@ -258,13 +258,13 @@ class AssignmentHistoryManager:
                 volunteer.save(ignore_permissions=True)
 
                 frappe.log_error(
-                    f"Removed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    "Removed assignment history for volunteer {volunteer_id}: {assignment_type} - {role}",
                     "Assignment History Manager",
                 )
                 return True
             else:
                 frappe.log_error(
-                    f"Assignment to remove not found for volunteer {volunteer_id}: {assignment_type} - {role}",
+                    "Assignment to remove not found for volunteer {volunteer_id}: {assignment_type} - {role}",
                     "Assignment History Manager",
                 )
                 return False

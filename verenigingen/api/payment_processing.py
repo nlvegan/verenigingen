@@ -8,8 +8,23 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 
+from verenigingen.utils.api_validators import APIValidator, rate_limit, require_roles, validate_api_input
+from verenigingen.utils.config_manager import ConfigManager
+from verenigingen.utils.error_handling import (
+    PermissionError,
+    ValidationError,
+    handle_api_error,
+    log_error,
+    validate_required_fields,
+)
+from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
+
 
 @frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=2000)
+@require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Manager"])
+@rate_limit(max_requests=10, window_minutes=60)
 def send_overdue_payment_reminders(
     reminder_type="Friendly Reminder",
     include_payment_link=True,
@@ -19,11 +34,20 @@ def send_overdue_payment_reminders(
 ):
     """Send payment reminders to members with overdue payments"""
 
+    # Validate inputs
+    validate_required_fields({"reminder_type": reminder_type}, ["reminder_type"])
+
+    reminder_type = APIValidator.sanitize_text(reminder_type, max_length=50)
+    custom_message = APIValidator.sanitize_text(custom_message, max_length=1000) if custom_message else None
+
     # Get overdue payments based on filters
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
     if isinstance(filters, str):
-        filters = json.loads(filters)
+        try:
+            filters = json.loads(filters)
+        except json.JSONDecodeError:
+            raise ValidationError("Invalid JSON format in filters")
 
     overdue_data = get_data(filters)
 
@@ -31,43 +55,62 @@ def send_overdue_payment_reminders(
         return {"success": False, "message": _("No overdue payments found"), "count": 0}
 
     sent_count = 0
+    batch_size = ConfigManager.get("email_batch_size", 50)
 
-    for payment_info in overdue_data:
-        try:
-            # Send reminder to member
-            send_payment_reminder_email(
-                member_name=payment_info.get("member_name"),
-                reminder_type=reminder_type,
-                include_payment_link=include_payment_link,
-                custom_message=custom_message,
-                payment_info=payment_info,
-            )
+    # Process in batches to avoid overwhelming the email system
+    for i in range(0, len(overdue_data), batch_size):
+        batch = overdue_data[i : i + batch_size]
 
-            # Optionally send to chapter board
-            if send_to_chapters and payment_info.get("chapter"):
-                send_chapter_notification(
-                    chapter=payment_info.get("chapter"),
+        for payment_info in batch:
+            try:
+                # Send reminder to member
+                send_payment_reminder_email(
                     member_name=payment_info.get("member_name"),
+                    reminder_type=reminder_type,
+                    include_payment_link=include_payment_link,
+                    custom_message=custom_message,
                     payment_info=payment_info,
                 )
 
-            sent_count += 1
+                # Optionally send to chapter board
+                if send_to_chapters and payment_info.get("chapter"):
+                    send_chapter_notification(
+                        chapter=payment_info.get("chapter"),
+                        member_name=payment_info.get("member_name"),
+                        payment_info=payment_info,
+                    )
 
-        except Exception as e:
-            frappe.logger().error(f"Failed to send reminder to {payment_info.get('member_name')}: {str(e)}")
-            continue
+                sent_count += 1
+
+            except Exception as e:
+                log_error(
+                    f"Failed to send reminder to {payment_info.get('member_name')}: {str(e)}",
+                    "Payment Reminder Error",
+                )
+                continue
 
     return {"success": True, "message": _("Payment reminders sent successfully"), "count": sent_count}
 
 
 @frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=5000)
+@require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Manager"])
+@rate_limit(max_requests=5, window_minutes=60)
 def export_overdue_payments(filters=None, format="CSV"):
     """Export overdue payments data for external processing"""
 
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
     if isinstance(filters, str):
-        filters = json.loads(filters)
+        try:
+            filters = json.loads(filters)
+        except json.JSONDecodeError:
+            raise ValidationError("Invalid JSON format in filters")
+
+    # Validate format parameter
+    if format not in ["CSV", "XLSX"]:
+        raise ValidationError("Invalid export format. Supported formats: CSV, XLSX")
 
     data = get_data(filters)
 
@@ -129,18 +172,39 @@ def export_overdue_payments(filters=None, format="CSV"):
         }
 
     except Exception as e:
-        frappe.logger().error(f"Export failed: {str(e)}")
+        log_error(f"Export failed: {str(e)}", "Payment Export Error")
         return {"success": False, "message": _("Export failed: {0}").format(str(e))}
 
 
 @frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=10000)
+@require_roles(["System Manager", "Verenigingen Administrator"])
+@rate_limit(max_requests=3, window_minutes=60)
 def execute_bulk_payment_action(action, apply_to="All Visible Records", filters=None):
     """Execute bulk actions on overdue payments"""
+
+    # Validate inputs
+    validate_required_fields({"action": action, "apply_to": apply_to}, ["action", "apply_to"])
+
+    valid_actions = [
+        "Send Payment Reminders",
+        "Suspend Memberships",
+        "Create Payment Plan",
+        "Mark for Collection Agency",
+        "Apply Late Fees",
+    ]
+
+    if action not in valid_actions:
+        raise ValidationError(f"Invalid action. Valid actions: {', '.join(valid_actions)}")
 
     from verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments import get_data
 
     if isinstance(filters, str):
-        filters = json.loads(filters)
+        try:
+            filters = json.loads(filters)
+        except json.JSONDecodeError:
+            raise ValidationError("Invalid JSON format in filters")
 
     # Modify filters based on apply_to selection
     if apply_to == "Critical Only (>60 days)":
@@ -179,7 +243,10 @@ def execute_bulk_payment_action(action, apply_to="All Visible Records", filters=
             processed_count += 1
 
         except Exception as e:
-            frappe.logger().error(f"Bulk action failed for {payment_info.get('member_name')}: {str(e)}")
+            log_error(
+                f"Bulk action failed for {payment_info.get('member_name')}: {str(e)}",
+                "Bulk Payment Action Error",
+            )
             continue
 
     return {"success": True, "message": _("Bulk action completed"), "count": processed_count}

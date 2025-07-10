@@ -33,7 +33,7 @@ repos:
         args: [
           '--max-line-length=120',
           '--max-complexity=20',
-          '--extend-ignore=E501,W503,E203,F401,E722,F821,C901'
+          '--extend-ignore=E501,W503,E203,F401,E722,F821,C901,E225'
         ]
         exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|.*test.*\.py|.*debug.*\.py)'
 

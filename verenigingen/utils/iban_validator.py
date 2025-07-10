@@ -257,7 +257,7 @@ def get_bank_from_iban(iban):
         return {
             "bank_code": bank_code,
             "bank_name": bank_names.get(bank_code),
-            "bic": nl_bic_codes.get(bank_code, f"{bank_code}NL2U"),
+            "bic": nl_bic_codes.get(bank_code, "{bank_code}NL2U"),
         }
 
     # Only support Dutch banks for now

@@ -36,7 +36,7 @@ def validate_termination_readiness(member_name):
         readiness["impact"]["active_memberships"] = active_memberships
 
         if active_memberships > 1:
-            readiness["warnings"].append(f"Member has {active_memberships} active memberships")
+            readiness["warnings"].append("Member has {active_memberships} active memberships")
 
         # Check SEPA mandates
         active_mandates = frappe.db.count(
@@ -67,7 +67,7 @@ def validate_termination_readiness(member_name):
         readiness["impact"]["board_positions"] = board_positions
 
         if board_positions > 0:
-            readiness["warnings"].append(f"Member holds {board_positions} board position(s)")
+            readiness["warnings"].append("Member holds {board_positions} board position(s)")
 
         # Check outstanding invoices and subscriptions
         if member.customer:
@@ -92,7 +92,7 @@ def validate_termination_readiness(member_name):
             readiness["impact"]["active_subscriptions"] = active_subscriptions
 
             if outstanding_invoices > 5:
-                readiness["warnings"].append(f"Member has {outstanding_invoices} outstanding invoices")
+                readiness["warnings"].append("Member has {outstanding_invoices} outstanding invoices")
 
         # Check for existing termination requests
         existing_requests = frappe.db.count(
@@ -111,7 +111,7 @@ def validate_termination_readiness(member_name):
         readiness["impact"]["volunteer_records"] = volunteer_records
 
         if volunteer_records > 0:
-            readiness["warnings"].append(f"Member has {volunteer_records} active volunteer record(s)")
+            readiness["warnings"].append("Member has {volunteer_records} active volunteer record(s)")
 
             # Check pending volunteer expenses
             pending_expenses = frappe.db.sql(
@@ -128,7 +128,7 @@ def validate_termination_readiness(member_name):
 
             readiness["impact"]["pending_volunteer_expenses"] = pending_expenses
             if pending_expenses > 0:
-                readiness["warnings"].append(f"Member has {pending_expenses} pending volunteer expense(s)")
+                readiness["warnings"].append("Member has {pending_expenses} pending volunteer expense(s)")
 
         # Check employee records and user account
         user_email = frappe.db.get_value("Member", member_name, "user")
@@ -172,7 +172,7 @@ def validate_termination_readiness(member_name):
         readiness["impact"]["employee_records"] = employee_records
 
         if employee_records > 0:
-            readiness["warnings"].append(f"Member has {employee_records} active employee record(s)")
+            readiness["warnings"].append("Member has {employee_records} active employee record(s)")
 
         return readiness
 
@@ -302,12 +302,12 @@ def process_overdue_termination_requests():
                     # Send email
                     frappe.sendmail(
                         recipients=admin_emails,
-                        subject=f"Overdue Termination Requests - {len(overdue_requests)} items",
+                        subject="Overdue Termination Requests - {len(overdue_requests)} items",
                         message=email_content,
                     )
 
                     frappe.logger().info(
-                        f"Sent overdue termination notification to {len(admin_emails)} administrators"
+                        "Sent overdue termination notification to {len(admin_emails)} administrators"
                     )
 
         return {"processed": len(overdue_requests)}
@@ -388,7 +388,7 @@ def generate_weekly_termination_report():
                 """
 
                 for status, count in report_data["by_status"].items():
-                    report_content += f"<li>{status}: {count}</li>"
+                    report_content += "<li>{status}: {count}</li>"
 
                 report_content += """
                 </ul>
@@ -398,14 +398,14 @@ def generate_weekly_termination_report():
                 """
 
                 for req_type, count in report_data["by_type"].items():
-                    report_content += f"<li>{req_type}: {count}</li>"
+                    report_content += "<li>{req_type}: {count}</li>"
 
                 report_content += "</ul>"
 
                 # Send email
                 frappe.sendmail(
                     recipients=admin_emails,
-                    subject=f"Weekly Termination Report - {report_data['total_requests']} requests",
+                    subject="Weekly Termination Report - {report_data['total_requests']} requests",
                     message=report_content,
                 )
 
@@ -479,7 +479,7 @@ def audit_termination_compliance():
         if orphaned_requests:
             for request in orphaned_requests:
                 audit_results["data_integrity_issues"].append(
-                    f"Termination request {request.name} references non-existent member {request.member_name}"
+                    "Termination request {request.name} references non-existent member {request.member_name}"
                 )
 
         # Check for stale requests (approved but not executed after 30 days)
@@ -499,7 +499,7 @@ def audit_termination_compliance():
         if stale_requests:
             for request in stale_requests:
                 audit_results["compliance_issues"].append(
-                    f"Request {request.name} has been approved but not executed for over 30 days"
+                    "Request {request.name} has been approved but not executed for over 30 days"
                 )
 
         # Check for members with multiple active termination requests
@@ -517,7 +517,7 @@ def audit_termination_compliance():
         if duplicate_requests:
             for dup in duplicate_requests:
                 audit_results["compliance_issues"].append(
-                    f"Member {dup.member_name} has {dup.count} active termination requests"
+                    "Member {dup.member_name} has {dup.count} active termination requests"
                 )
 
         # Log significant issues
@@ -551,13 +551,13 @@ def audit_termination_compliance():
                         if audit_results["compliance_issues"]:
                             email_content += "<h4>Compliance Issues</h4><ul>"
                             for issue in audit_results["compliance_issues"][:10]:  # Limit to first 10
-                                email_content += f"<li>{issue}</li>"
+                                email_content += "<li>{issue}</li>"
                             email_content += "</ul>"
 
                         if audit_results["data_integrity_issues"]:
                             email_content += "<h4>Data Integrity Issues</h4><ul>"
                             for issue in audit_results["data_integrity_issues"][:10]:  # Limit to first 10
-                                email_content += f"<li>{issue}</li>"
+                                email_content += "<li>{issue}</li>"
                             email_content += "</ul>"
 
                         frappe.sendmail(

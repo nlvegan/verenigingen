@@ -49,7 +49,6 @@ function add_migration_guide(frm) {
 				<strong>Step 1: Setup Chart of Accounts</strong>
 				<ul style="margin: 5px 0;">
 					<li>Import your complete Chart of Accounts from E-Boekhouden</li>
-					<li>Import all Customers and Suppliers</li>
 					<li>Import Cost Centers if configured</li>
 					<li>Review and adjust account mappings before finalizing</li>
 				</ul>
@@ -58,10 +57,11 @@ function add_migration_guide(frm) {
 			<div style="margin-bottom: 15px;">
 				<strong>Step 2: Import Transactions</strong>
 				<ul style="margin: 5px 0;">
-					<li><strong>All Transactions (REST API):</strong> Import complete history (requires REST API token)</li>
-					<li><strong>Recent Transactions (SOAP API):</strong> Import last 500 transactions only</li>
+					<li><strong>All Transactions:</strong> Import complete history via REST API</li>
+					<li><strong>Recent Transactions:</strong> Import last 90 days via REST API</li>
 					<li>Any new customers/suppliers found will be imported automatically</li>
 					<li>Duplicate transactions are automatically skipped</li>
+					<li>REST API token required for both options</li>
 				</ul>
 			</div>
 
@@ -70,17 +70,9 @@ function add_migration_guide(frm) {
 				<ul style="margin: 5px 0; padding-left: 20px;">
 					<li>Complete Step 1 first - you need accounts before importing transactions</li>
 					<li>You can run transaction imports multiple times - duplicates are prevented</li>
-					<li>Use "Analyze Data" to preview what will be imported</li>
 				</ul>
 			</div>
 
-			<div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-radius: 3px; border-left: 4px solid #ffc107;">
-				<strong>⚠️ API Limitations:</strong>
-				<ul style="margin: 5px 0; padding-left: 20px;">
-					<li><strong>SOAP API:</strong> Limited to most recent 500 transactions</li>
-					<li><strong>REST API:</strong> Can access all historical data but requires API token configuration</li>
-				</ul>
-			</div>
 		</div>
 	`;
 
@@ -273,17 +265,19 @@ function setup_action_buttons(frm) {
 				handle_import_transactions(frm);
 			}).addClass('btn-primary');
 
-			// Helper buttons in dropdown
-			frm.add_custom_button(__('Analyze Data'), function() {
-				analyze_eboekhouden_data(frm);
-			}, __('Tools'));
+			// Opening Balance Import
+			frm.add_custom_button(__('Import Opening Balances'), function() {
+				handle_import_opening_balances(frm);
+			}).addClass('btn-secondary');
 
+			// Helper buttons in dropdown
 			frm.add_custom_button(__('Test Connection'), function() {
 				test_api_connection();
 			}, __('Tools'));
 
-			frm.add_custom_button(__('Statistics'), function() {
-				show_migration_statistics();
+			// Single mutation import for debugging
+			frm.add_custom_button(__('Import Single Mutation'), function() {
+				handle_import_single_mutation(frm);
 			}, __('Tools'));
 		} else {
 			// Refresh button for in-progress
@@ -1211,8 +1205,8 @@ function show_transaction_import_dialog(frm) {
 				label: 'Import Method',
 				fieldname: 'import_method',
 				fieldtype: 'Select',
-				options: 'Recent 500 (SOAP API)\nAll Transactions (REST API)',
-				default: 'Recent 500 (SOAP API)',
+				options: 'Recent Transactions (Last 90 days)\nAll Transactions (Complete history)',
+				default: 'Recent Transactions (Last 90 days)',
 				description: 'Choose how many transactions to import',
 				onchange: function() {
 					const method = dialog.get_value('import_method');
@@ -1260,14 +1254,9 @@ function show_transaction_import_dialog(frm) {
 		primary_action(values) {
 			dialog.hide();
 
-			// Check for REST API
-			if (values.import_method.includes('REST')) {
-				// Use REST API import
-				import_transactions_rest(frm, values);
-			} else {
-				// Use standard SOAP import
-				import_transactions_soap(frm, values);
-			}
+			// Always use REST API now - determine type based on method
+			const import_type = values.import_method.includes('Recent') ? 'recent' : 'all';
+			import_transactions_rest(frm, values, import_type);
 		}
 	});
 
@@ -1317,7 +1306,7 @@ function import_transactions_soap(frm, options) {
 	});
 }
 
-function import_transactions_rest(frm, options) {
+function import_transactions_rest(frm, options, import_type = 'all') {
 	// First check if REST API is configured
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.check_rest_api_status',
@@ -1388,7 +1377,7 @@ function import_transactions_rest(frm, options) {
 					method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.start_transaction_import',
 					args: {
 						migration_name: frm.doc.name,
-						import_type: 'all'
+						import_type: import_type
 					},
 					callback: function(r) {
 						if (r.message && r.message.success) {
@@ -1468,6 +1457,149 @@ function show_account_mapping_dialog(frm, mappings) {
 	});
 
 	dialog.show();
+}
+
+function handle_import_opening_balances(frm) {
+	// Validate company
+	if (!frm.doc.company) {
+		frappe.msgprint({
+			title: __('Company Required'),
+			message: __('Please select a company before importing opening balances.'),
+			indicator: 'orange'
+		});
+		return;
+	}
+
+	// Check if CoA exists
+	frappe.call({
+		method: 'frappe.client.get_count',
+		args: {
+			doctype: 'Account',
+			filters: {
+				company: frm.doc.company,
+				eboekhouden_grootboek_nummer: ['!=', '']
+			}
+		},
+		callback: function(r) {
+			if (r.message === 0) {
+				frappe.msgprint({
+					title: __('Setup Required'),
+					message: __('Please run "Setup Chart of Accounts" first. No E-Boekhouden accounts found.'),
+					indicator: 'orange'
+				});
+				return;
+			}
+
+			// Show opening balance import dialog
+			show_opening_balance_import_dialog(frm);
+		}
+	});
+}
+
+function show_opening_balance_import_dialog(frm) {
+	let dialog = new frappe.ui.Dialog({
+		title: 'Import Opening Balances',
+		fields: [
+			{
+				fieldname: 'info_section',
+				fieldtype: 'HTML',
+				options: `<div class="alert alert-info">
+					<strong>This will import opening balances from E-Boekhouden:</strong>
+					<ul>
+						<li><strong>Receivables/Payables:</strong> Uses ERPNext's Opening Invoice Creation Tool</li>
+						<li><strong>Other Accounts:</strong> Creates Journal Entries for bank, assets, equity accounts</li>
+						<li>Automatically detects and prevents duplicate imports</li>
+						<li>Uses proper ERPNext naming conventions (OPB-YYYY-00001)</li>
+					</ul>
+					<p class="mt-2"><strong>Note:</strong> This is a one-time import. Duplicate opening balances are automatically prevented.</p>
+				</div>`
+			},
+			{
+				label: 'Preview Only',
+				fieldname: 'dry_run',
+				fieldtype: 'Check',
+				default: 0,
+				description: 'Check to see what would be imported without making changes'
+			}
+		],
+		primary_action_label: 'Import Opening Balances',
+		primary_action(values) {
+			dialog.hide();
+			start_opening_balance_import(frm, values);
+		}
+	});
+
+	dialog.show();
+}
+
+function start_opening_balance_import(frm, options) {
+	// Configure for opening balance import only
+	frm.set_value('migrate_accounts', 0);
+	frm.set_value('migrate_cost_centers', 0);
+	frm.set_value('migrate_customers', 0);
+	frm.set_value('migrate_suppliers', 0);
+	frm.set_value('migrate_transactions', 0);
+	frm.set_value('dry_run', options.dry_run ? 1 : 0);
+
+	// Save document first
+	frm.save().then(() => {
+		frappe.call({
+			method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.import_opening_balances_only',
+			args: {
+				migration_name: frm.doc.name
+			},
+			callback: function(r) {
+				if (r.message && r.message.success) {
+					const result = r.message.result;
+
+					// Show results
+					let message = options.dry_run ?
+						'<strong>Opening Balance Preview:</strong><br><br>' :
+						'<strong>Opening Balance Import Completed!</strong><br><br>';
+
+					message += `<strong>Summary:</strong><br>`;
+					message += `• Total imported: ${result.imported}<br>`;
+
+					if (result.debug_info && result.debug_info.length > 0) {
+						message += `<br><strong>Details:</strong><br>`;
+						result.debug_info.forEach(info => {
+							message += `• ${info}<br>`;
+						});
+					}
+
+					if (result.errors && result.errors.length > 0) {
+						message += `<br><strong>Errors:</strong><br>`;
+						result.errors.forEach(error => {
+							message += `• ${error}<br>`;
+						});
+					}
+
+					frappe.msgprint({
+						title: options.dry_run ? __('Opening Balance Preview') : __('Opening Balance Import Complete'),
+						message: message,
+						indicator: result.errors && result.errors.length > 0 ? 'orange' : 'green',
+						wide: true
+					});
+
+					if (!options.dry_run) {
+						setTimeout(() => frm.reload_doc(), 1000);
+					}
+				} else {
+					frappe.msgprint({
+						title: __('Import Failed'),
+						message: r.message ? r.message.error : 'Unknown error',
+						indicator: 'red'
+					});
+				}
+			}
+		});
+	}).catch(err => {
+		frappe.msgprint({
+			title: __('Save Failed'),
+			message: __('Failed to save migration document: ') + err.message,
+			indicator: 'red'
+		});
+	});
 }
 
 function add_tools_dropdown(frm) {
@@ -1585,4 +1717,94 @@ function add_tools_dropdown(frm) {
 			);
 		});
 	}, 500); // Small delay to ensure toolbar is loaded
+}
+
+function handle_import_single_mutation(frm) {
+	// Show dialog to enter mutation ID
+	const dialog = new frappe.ui.Dialog({
+		title: __('Import Single Mutation'),
+		fields: [
+			{
+				fieldtype: 'Data',
+				fieldname: 'mutation_id',
+				label: __('Mutation ID'),
+				reqd: 1,
+				description: __('Enter the eBoekhouden mutation ID to import (e.g., 6316)')
+			},
+			{
+				fieldtype: 'Check',
+				fieldname: 'overwrite_existing',
+				label: __('Overwrite if exists'),
+				default: 1,
+				description: __('Delete existing journal entry if it already exists')
+			}
+		],
+		primary_action: function(values) {
+			dialog.hide();
+
+			frappe.show_alert({
+				message: __('Importing mutation {0}...', [values.mutation_id]),
+				indicator: 'blue'
+			});
+
+			frappe.call({
+				method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.import_single_mutation',
+				args: {
+					migration_name: frm.doc.name,
+					mutation_id: values.mutation_id,
+					overwrite_existing: values.overwrite_existing
+				},
+				callback: function(r) {
+					if (r.message && r.message.success) {
+						frappe.show_alert({
+							message: __('Successfully imported mutation {0}', [values.mutation_id]),
+							indicator: 'green'
+						});
+
+						// Show results
+						const result = r.message;
+						let message = `<strong>Import Results:</strong><br>`;
+						message += `Mutation ID: ${result.mutation_id}<br>`;
+						message += `Document Type: ${result.document_type}<br>`;
+						message += `Document Name: ${result.document_name}<br>`;
+
+						if (result.debug_info && result.debug_info.length > 0) {
+							message += `<br><strong>Debug Info:</strong><br>`;
+							result.debug_info.forEach(info => {
+								message += `• ${info}<br>`;
+							});
+						}
+
+						frappe.msgprint({
+							title: __('Import Complete'),
+							message: message,
+							indicator: 'green'
+						});
+					} else {
+						frappe.show_alert({
+							message: __('Failed to import mutation {0}', [values.mutation_id]),
+							indicator: 'red'
+						});
+
+						if (r.message && r.message.error) {
+							frappe.msgprint({
+								title: __('Import Error'),
+								message: r.message.error,
+								indicator: 'red'
+							});
+						}
+					}
+				},
+				error: function(r) {
+					frappe.show_alert({
+						message: __('Error importing mutation {0}', [values.mutation_id]),
+						indicator: 'red'
+					});
+				}
+			});
+		},
+		primary_action_label: __('Import Mutation')
+	});
+
+	dialog.show();
 }

@@ -1,48 +1,58 @@
 """
-Member management API endpoints
+Member management API endpoints with optimized performance and error handling
 """
 import frappe
 
+from verenigingen.utils.error_handling import (
+    PermissionError,
+    ValidationError,
+    handle_api_error,
+    log_error,
+    validate_required_fields,
+)
+from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
+
 
 @frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=500)
 def assign_member_to_chapter(member_name, chapter_name):
     """Assign a member to a specific chapter using centralized manager"""
-    try:
-        # Validate inputs
-        if not member_name or not chapter_name:
-            return {"success": False, "error": "Member name and chapter name are required"}
+    # Validate inputs using standardized validation
+    validate_required_fields(
+        {"member_name": member_name, "chapter_name": chapter_name}, ["member_name", "chapter_name"]
+    )
 
-        # Check permissions
-        if not can_assign_member_to_chapter(member_name, chapter_name):
-            return {"success": False, "error": "You don't have permission to assign members to this chapter"}
+    # Check permissions
+    if not can_assign_member_to_chapter(member_name, chapter_name):
+        raise PermissionError("You don't have permission to assign members to this chapter")
 
-        # Use centralized chapter membership manager for proper history tracking
-        from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
+    # Use centralized chapter membership manager for proper history tracking
+    from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
 
-        result = ChapterMembershipManager.assign_member_to_chapter(
-            member_id=member_name,
-            chapter_name=chapter_name,
-            reason="Assigned via admin interface",
-            assigned_by=frappe.session.user,
-        )
+    result = ChapterMembershipManager.assign_member_to_chapter(
+        member_id=member_name,
+        chapter_name=chapter_name,
+        reason="Assigned via admin interface",
+        assigned_by=frappe.session.user,
+    )
 
-        # Adapt result format for backward compatibility
-        if result.get("success"):
-            return {
-                "success": True,
-                "message": f"Member {member_name} has been assigned to {chapter_name}",
-                "new_chapter": chapter_name,
-            }
-        else:
-            return result
-
-    except Exception as e:
-        frappe.log_error(f"Error assigning member to chapter: {str(e)}", "Member Assignment Error")
-        return {"success": False, "error": f"Failed to assign member to chapter: {str(e)}"}
+    # Adapt result format for backward compatibility
+    if result.get("success"):
+        return {
+            "success": True,
+            "message": f"Member {member_name} has been assigned to {chapter_name}",
+            "new_chapter": chapter_name,
+        }
+    else:
+        # Convert any error result to ValidationError
+        error_msg = result.get("error", "Unknown error occurred")
+        raise ValidationError(error_msg)
 
 
+@performance_monitor(threshold_ms=200)
 def can_assign_member_to_chapter(member_name, chapter_name):
-    """Check if current user can assign a member to a specific chapter"""
+    """Check if current user can assign a member to a specific chapter - optimized version"""
     user = frappe.session.user
 
     # System managers and Association/Membership managers can assign anyone
@@ -55,51 +65,57 @@ def can_assign_member_to_chapter(member_name, chapter_name):
     if not user_member:
         return False
 
-    # Check if user has admin/membership permissions in the target chapter
+    # Optimized permission check using single query with JOINs
     try:
-        volunteer_records = frappe.get_all("Volunteer", filters={"member": user_member}, fields=["name"])
+        # Single query to check all board positions and roles
+        board_permissions = frappe.db.sql(
+            """
+            SELECT cr.permissions_level
+            FROM `tabChapter Board Member` cbm
+            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+            JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
+            WHERE v.member = %s
+            AND cbm.parent = %s
+            AND cbm.is_active = 1
+            AND cr.permissions_level IN ('Admin', 'Membership')
+        """,
+            [user_member, chapter_name],
+            as_dict=True,
+        )
 
-        for volunteer_record in volunteer_records:
-            board_positions = frappe.get_all(
-                "Chapter Board Member",
-                filters={"parent": chapter_name, "volunteer": volunteer_record.name, "is_active": 1},
-                fields=["chapter_role"],
+        if board_permissions:
+            return True
+
+        # Check national board access with optimized query
+        settings = frappe.get_single("Verenigingen Settings")
+        if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
+            national_permissions = frappe.db.sql(
+                """
+                SELECT cr.permissions_level
+                FROM `tabChapter Board Member` cbm
+                JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+                JOIN `tabChapter Role` cr ON cbm.chapter_role = cr.name
+                WHERE v.member = %s
+                AND cbm.parent = %s
+                AND cbm.is_active = 1
+                AND cr.permissions_level IN ('Admin', 'Membership')
+            """,
+                [user_member, settings.national_board_chapter],
+                as_dict=True,
             )
 
-            for position in board_positions:
-                try:
-                    role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                    if role_doc.permissions_level in ["Admin", "Membership"]:
-                        return True
-                except Exception:
-                    continue
+            if national_permissions:
+                return True
 
-        # Check if user has national board access
-        try:
-            settings = frappe.get_single("Verenigingen Settings")
-            if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
-                national_board_positions = frappe.get_all(
-                    "Chapter Board Member",
-                    filters={
-                        "parent": settings.national_board_chapter,
-                        "volunteer": [v.name for v in volunteer_records],
-                        "is_active": 1,
-                    },
-                    fields=["chapter_role"],
-                )
+        return False
 
-                for position in national_board_positions:
-                    try:
-                        role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
-                        if role_doc.permissions_level in ["Admin", "Membership"]:
-                            return True
-                    except Exception:
-                        continue
-        except Exception:
-            pass
-
-    except Exception:
-        pass
+    except Exception as e:
+        log_error(
+            e,
+            context={"user": user, "member_name": member_name, "chapter_name": chapter_name},
+            module="verenigingen.api.member_management",
+        )
+        return False
 
     return False
 

@@ -56,7 +56,37 @@ def create_eboekhouden_tracking_fields():
                 "insert_after": "naming_series",
                 "unique": 1,
                 "allow_on_submit": 1,
-            }
+            },
+            {
+                "fieldname": "eboekhouden_relation_code",
+                "label": "E-Boekhouden Relation Code",
+                "fieldtype": "Data",
+                "insert_after": "eboekhouden_mutation_nr",
+                "allow_on_submit": 1,
+            },
+            {
+                "fieldname": "eboekhouden_invoice_number",
+                "label": "E-Boekhouden Invoice Number",
+                "fieldtype": "Data",
+                "insert_after": "eboekhouden_relation_code",
+                "allow_on_submit": 1,
+            },
+            {
+                "fieldname": "eboekhouden_main_ledger_id",
+                "label": "E-Boekhouden Main Ledger ID",
+                "fieldtype": "Data",
+                "insert_after": "eboekhouden_invoice_number",
+                "allow_on_submit": 1,
+            },
+            {
+                "fieldname": "eboekhouden_mutation_type",
+                "label": "E-Boekhouden Mutation Type",
+                "fieldtype": "Select",
+                "options": "0\n1\n2\n3\n4\n5\n6\n7",
+                "insert_after": "eboekhouden_main_ledger_id",
+                "allow_on_submit": 1,
+                "description": "0=Opening, 1=PurchInv, 2=SalesInv, 3=CustPayment, 4=SuppPayment, 5=MoneyReceived, 6=MoneySent, 7=Memorial",
+            },
         ],
         "Payment Entry": [
             {
@@ -66,7 +96,16 @@ def create_eboekhouden_tracking_fields():
                 "insert_after": "naming_series",
                 "unique": 1,
                 "allow_on_submit": 1,
-            }
+            },
+            {
+                "fieldname": "eboekhouden_mutation_type",
+                "label": "E-Boekhouden Mutation Type",
+                "fieldtype": "Select",
+                "options": "0\n1\n2\n3\n4\n5\n6\n7",
+                "insert_after": "eboekhouden_mutation_nr",
+                "allow_on_submit": 1,
+                "description": "0=Opening, 1=PurchInv, 2=SalesInv, 3=CustPayment, 4=SuppPayment, 5=MoneyReceived, 6=MoneySent, 7=Memorial",
+            },
         ],
     }
 

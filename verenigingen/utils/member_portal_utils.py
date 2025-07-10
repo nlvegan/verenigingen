@@ -21,7 +21,7 @@ def set_member_home_page(user_email=None, home_page="/member_portal"):
     try:
         # Check if user exists
         if not frappe.db.exists("User", user_email):
-            return {"success": False, "message": f"User {user_email} not found"}
+            return {"success": False, "message": "User {user_email} not found"}
 
         # Update user's home page
         user_doc = frappe.get_doc("User", user_email)
@@ -30,7 +30,7 @@ def set_member_home_page(user_email=None, home_page="/member_portal"):
 
         frappe.logger().info(f"Set home page for {user_email} to {home_page}")
 
-        return {"success": True, "message": f"Home page set to {home_page}", "home_page": home_page}
+        return {"success": True, "message": "Home page set to {home_page}", "home_page": home_page}
 
     except Exception as e:
         frappe.logger().error(f"Error setting home page for {user_email}: {str(e)}")

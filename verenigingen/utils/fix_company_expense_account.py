@@ -49,13 +49,13 @@ def fix_company_default_expense_account():
                 result["new_default_expense_account"] = expense_account
                 result[
                     "message"
-                ] = f"Updated default expense account from '{current_account}' to '{expense_account}'"
+                ] = "Updated default expense account from '{current_account}' to '{expense_account}'"
             else:
                 result["action"] = "no_expense_account_found"
                 result["message"] = "Could not find any expense account to set as default"
         else:
             result["action"] = "no_change_needed"
-            result["message"] = f"Current default expense account '{current_account}' exists"
+            result["message"] = "Current default expense account '{current_account}' exists"
 
         # Skip COGS account check as field doesn't exist in this version
 

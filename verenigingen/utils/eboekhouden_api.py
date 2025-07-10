@@ -28,7 +28,7 @@ class EBoekhoudenAPI:
     def get_session_token(self):
         """Get session token using API token"""
         try:
-            session_url = f"{self.base_url}/v1/session"
+            session_url = "{self.base_url}/v1/session"
             session_data = {"accessToken": self.api_token, "source": self.source}
 
             response = requests.post(session_url, json=session_data, timeout=30)
@@ -58,7 +58,7 @@ class EBoekhoudenAPI:
                 "Accept": "application/json",
             }
 
-            url = f"{self.base_url}/{endpoint}"
+            url = "{self.base_url}/{endpoint}"
 
             if method.upper() == "GET":
                 response = requests.get(url, headers=headers, params=params, timeout=120)
@@ -70,7 +70,7 @@ class EBoekhoudenAPI:
             else:
                 return {
                     "success": False,
-                    "error": f"HTTP {response.status_code}: {response.text[:500]}",
+                    "error": "HTTP {response.status_code}: {response.text[:500]}",
                     "status_code": response.status_code,
                 }
 
@@ -292,15 +292,15 @@ class EBoekhoudenAPI:
 
     def get_invoice_documents(self, invoice_id, params=None):
         """Get documents for a specific invoice"""
-        return self.make_request(f"v1/invoice/{invoice_id}/document", params=params)
+        return self.make_request("v1/invoice/{invoice_id}/document", params=params)
 
     def download_document(self, document_id):
         """Download a specific document"""
-        return self.make_request(f"v1/document/{document_id}/download")
+        return self.make_request("v1/document/{document_id}/download")
 
     def get_invoice_detail(self, invoice_id):
         """Get detailed invoice information including attachments"""
-        return self.make_request(f"v1/invoice/{invoice_id}")
+        return self.make_request("v1/invoice/{invoice_id}")
 
 
 class EBoekhoudenXMLParser:
@@ -489,14 +489,14 @@ def test_session_token_only():
     try:
         settings = frappe.get_single("E-Boekhouden Settings")
 
-        session_url = f"{settings.api_url}/v1/session"
+        session_url = "{settings.api_url}/v1/session"
         session_data = {
             "accessToken": settings.get_password("api_token"),
             "source": settings.source_application or "ERPNext",
         }
 
         frappe.log_error(f"Testing session token with URL: {session_url}")
-        frappe.log_error(f"Session data: {{'accessToken': '***', 'source': '{session_data['source']}'}}")
+        frappe.log_error("Session data: {{'accessToken': '***', 'source': '{session_data['source']}'}}")
 
         response = requests.post(session_url, json=session_data, timeout=30)
 
@@ -570,7 +570,7 @@ def test_raw_request():
         settings = frappe.get_single("E-Boekhouden Settings")
 
         # Get session token
-        session_url = f"{settings.api_url}/v1/session"
+        session_url = "{settings.api_url}/v1/session"
         session_data = {
             "accessToken": settings.get_password("api_token"),
             "source": settings.source_application or "ERPNext",
@@ -581,7 +581,7 @@ def test_raw_request():
         if session_response.status_code != 200:
             return {
                 "success": False,
-                "error": f"Session token failed: {session_response.status_code} - {session_response.text}",
+                "error": "Session token failed: {session_response.status_code} - {session_response.text}",
             }
 
         token = session_response.json().get("token")
@@ -591,10 +591,10 @@ def test_raw_request():
 
         # Test different base URLs
         test_urls = [
-            f"{settings.api_url}/",
-            f"{settings.api_url}/v1/",
-            f"{settings.api_url}/api/",
-            f"{settings.api_url}/swagger.json",
+            "{settings.api_url}/",
+            "{settings.api_url}/v1/",
+            "{settings.api_url}/api/",
+            "{settings.api_url}/swagger.json",
         ]
 
         results = {}
@@ -728,7 +728,7 @@ def test_chart_of_accounts_migration():
     try:
         # Create a temporary migration document for testing
         migration = frappe.new_doc("E-Boekhouden Migration")
-        migration.migration_name = f"Test Migration {frappe.utils.now()}"
+        migration.migration_name = "Test Migration {frappe.utils.now()}"
         migration.migrate_accounts = 1
         migration.migrate_cost_centers = 0
         migration.migrate_customers = 0
@@ -767,7 +767,7 @@ def test_cost_center_migration():
     try:
         # Create a temporary migration document for testing
         migration = frappe.new_doc("E-Boekhouden Migration")
-        migration.migration_name = f"Test Cost Center Migration {frappe.utils.now()}"
+        migration.migration_name = "Test Cost Center Migration {frappe.utils.now()}"
         migration.migrate_accounts = 0
         migration.migrate_cost_centers = 1
         migration.migrate_customers = 0
@@ -829,7 +829,7 @@ def preview_customers():
 
                 return {
                     "success": True,
-                    "message": f"Found {len(customers)} customers",
+                    "message": "Found {len(customers)} customers",
                     "customers": simplified_customers,
                     "total_count": len(customers),
                 }
@@ -840,6 +840,207 @@ def preview_customers():
 
     except Exception as e:
         frappe.log_error(f"Error previewing Customers: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_rest_relations_raw():
+    """Get raw REST API relations response to analyze all available fields"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api = EBoekhoudenAPI(settings)
+
+        # Get raw relations data (all relations, not filtered)
+        result = api.get_relations({"limit": 10})
+
+        if result["success"]:
+            # Parse JSON response
+            data = json.loads(result["data"])
+            relations = data.get("items", [])
+
+            # Analyze the structure of the first few relations
+            analysis = {
+                "success": True,
+                "total_count": len(relations),
+                "raw_response_sample": result["data"][:1500],  # First 1500 chars of raw JSON
+                "first_relation_all_fields": relations[0] if relations else None,
+                "all_field_names": list(relations[0].keys()) if relations else [],
+                "field_analysis": {},
+            }
+
+            # Analyze each field across all relations
+            if relations:
+                for field_name in relations[0].keys():
+                    values = [rel.get(field_name) for rel in relations[:10]]
+                    non_empty_values = [v for v in values if v not in [None, "", 0]]
+
+                    analysis["field_analysis"][field_name] = {
+                        "sample_values": values,
+                        "non_empty_count": len(non_empty_values),
+                        "non_empty_values": non_empty_values[:5],  # First 5 non-empty
+                        "has_meaningful_data": len(non_empty_values) > 0,
+                    }
+
+            return analysis
+        else:
+            return {"success": False, "error": result["error"]}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_rest_vs_soap_same_relations():
+    """Compare the same relations between REST and SOAP APIs"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+
+        # Get SOAP relations
+        from verenigingen.utils.eboekhouden_soap_api import EBoekhoudenSOAPAPI
+
+        soap_api = EBoekhoudenSOAPAPI(settings)
+        soap_result = soap_api.get_relaties()
+
+        # Get REST relations
+        rest_api = EBoekhoudenAPI(settings)
+        rest_result = rest_api.get_relations({"limit": 20})
+
+        comparison = {
+            "soap_status": soap_result["success"],
+            "rest_status": rest_result["success"],
+        }
+
+        if soap_result["success"] and rest_result["success"]:
+            soap_relations = soap_result.get("relations", [])
+
+            rest_data = json.loads(rest_result["data"])
+            rest_relations = rest_data.get("items", [])
+
+            # Find matching relations by ID
+            matches = []
+            for soap_rel in soap_relations[:5]:  # First 5 SOAP relations
+                soap_id = soap_rel.get("ID")
+                if soap_id:
+                    # Find matching REST relation
+                    rest_match = next((r for r in rest_relations if str(r.get("id")) == str(soap_id)), None)
+
+                    if rest_match:
+                        matches.append(
+                            {
+                                "id": soap_id,
+                                "soap_data": {
+                                    "bedrijf": soap_rel.get("Bedrijf", ""),
+                                    "contactpersoon": soap_rel.get("Contactpersoon", ""),
+                                    "email": soap_rel.get("Email", ""),
+                                    "bp_type": soap_rel.get("BP", ""),
+                                    "all_fields": list(soap_rel.keys()),
+                                },
+                                "rest_data": {
+                                    "name": rest_match.get("name", ""),
+                                    "companyName": rest_match.get("companyName", ""),
+                                    "contactName": rest_match.get("contactName", ""),
+                                    "email": rest_match.get("email", ""),
+                                    "type": rest_match.get("type", ""),
+                                    "all_fields": list(rest_match.keys()),
+                                },
+                            }
+                        )
+
+            comparison["matches"] = matches
+            comparison["soap_total"] = len(soap_relations)
+            comparison["rest_total"] = len(rest_relations)
+
+        elif soap_result["success"]:
+            comparison["soap_sample"] = soap_result.get("relations", [])[:3]
+            comparison["rest_error"] = rest_result.get("error")
+
+        elif rest_result["success"]:
+            rest_data = json.loads(rest_result["data"])
+            comparison["rest_sample"] = rest_data.get("items", [])[:3]
+            comparison["soap_error"] = soap_result.get("error")
+
+        else:
+            comparison["soap_error"] = soap_result.get("error")
+            comparison["rest_error"] = rest_result.get("error")
+
+        return comparison
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def test_individual_relation_endpoint():
+    """Test /v1/relation/{id} endpoint to see if it returns more detailed data"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api = EBoekhoudenAPI(settings)
+
+        # First get some relation IDs from the list endpoint
+        list_result = api.get_relations({"limit": 5})
+        if not list_result["success"]:
+            return {"success": False, "error": "Failed to get relation list: {list_result['error']}"}
+
+        list_data = json.loads(list_result["data"])
+        relations = list_data.get("items", [])
+
+        if not relations:
+            return {"success": False, "error": "No relations found in list"}
+
+        # Test individual relation endpoints
+        individual_results = []
+
+        for relation in relations[:3]:  # Test first 3 relations
+            relation_id = relation.get("id")
+            if relation_id:
+                # Try to get individual relation data
+                individual_result = api.make_request(f"v1/relation/{relation_id}")
+
+                individual_data = {
+                    "id": relation_id,
+                    "list_data": relation,  # Data from list endpoint
+                    "individual_success": individual_result["success"],
+                }
+
+                if individual_result["success"]:
+                    try:
+                        individual_json = json.loads(individual_result["data"])
+                        individual_data["individual_data"] = individual_json
+                        individual_data["individual_fields"] = (
+                            list(individual_json.keys()) if isinstance(individual_json, dict) else "not_dict"
+                        )
+
+                        # Compare field counts
+                        list_fields = len(relation.keys())
+                        individual_fields = (
+                            len(individual_json.keys()) if isinstance(individual_json, dict) else 0
+                        )
+                        individual_data["field_comparison"] = {
+                            "list_fields": list_fields,
+                            "individual_fields": individual_fields,
+                            "individual_has_more": individual_fields > list_fields,
+                        }
+
+                    except json.JSONDecodeError as e:
+                        individual_data["individual_data"] = individual_result["data"][:500]  # Raw response
+                        individual_data["parse_error"] = str(e)
+                else:
+                    individual_data["individual_error"] = individual_result.get("error")
+                    individual_data["individual_status_code"] = individual_result.get("status_code")
+
+                individual_results.append(individual_data)
+
+        return {
+            "success": True,
+            "message": "Tested {len(individual_results)} individual relation endpoints",
+            "results": individual_results,
+            "summary": {
+                "list_endpoint_fields": list(relations[0].keys()) if relations else [],
+                "individual_endpoints_tested": len(individual_results),
+            },
+        }
+
+    except Exception as e:
         return {"success": False, "error": str(e)}
 
 
@@ -873,7 +1074,7 @@ def preview_suppliers():
 
                 return {
                     "success": True,
-                    "message": f"Found {len(suppliers)} suppliers",
+                    "message": "Found {len(suppliers)} suppliers",
                     "suppliers": simplified_suppliers,
                     "total_count": len(suppliers),
                 }
@@ -893,7 +1094,7 @@ def test_customer_migration():
     try:
         # Create a temporary migration document for testing
         migration = frappe.new_doc("E-Boekhouden Migration")
-        migration.migration_name = f"Test Customer Migration {frappe.utils.now()}"
+        migration.migration_name = "Test Customer Migration {frappe.utils.now()}"
         migration.migrate_accounts = 0
         migration.migrate_cost_centers = 0
         migration.migrate_customers = 1
@@ -932,7 +1133,7 @@ def test_supplier_migration():
     try:
         # Create a temporary migration document for testing
         migration = frappe.new_doc("E-Boekhouden Migration")
-        migration.migration_name = f"Test Supplier Migration {frappe.utils.now()}"
+        migration.migration_name = "Test Supplier Migration {frappe.utils.now()}"
         migration.migrate_accounts = 0
         migration.migrate_cost_centers = 0
         migration.migrate_customers = 0
@@ -1021,7 +1222,7 @@ def create_test_migration():
 
         return {
             "success": True,
-            "message": f"Created test migration: {migration.name}",
+            "message": "Created test migration: {migration.name}",
             "migration_name": migration.name,
         }
 
@@ -1239,18 +1440,18 @@ def fix_account_types():
         # Fix Receivable accounts
         for account in receivable_accounts:
             frappe.db.set_value("Account", account.name, "account_type", "Current Asset")
-            fixed_accounts.append(f"{account.name} (Receivable → Current Asset)")
+            fixed_accounts.append("{account.name} (Receivable → Current Asset)")
 
         # Fix Payable accounts
         for account in payable_accounts:
             frappe.db.set_value("Account", account.name, "account_type", "Current Liability")
-            fixed_accounts.append(f"{account.name} (Payable → Current Liability)")
+            fixed_accounts.append("{account.name} (Payable → Current Liability)")
 
         frappe.db.commit()
 
         return {
             "success": True,
-            "message": f"Fixed {len(fixed_accounts)} accounts",
+            "message": "Fixed {len(fixed_accounts)} accounts",
             "fixed_accounts": fixed_accounts,
         }
 
@@ -1345,7 +1546,7 @@ def test_document_retrieval():
         return {
             "success": True,
             "results": results,
-            "summary": f"Tested {len(results['document_endpoints'])} document-related endpoints",
+            "summary": "Tested {len(results['document_endpoints'])} document-related endpoints",
         }
 
     except Exception as e:
@@ -1621,7 +1822,7 @@ def explore_invoice_fields():
                 import json
 
                 data = json.loads(result["data"])
-                results[f"test_{i}"] = {
+                results["test_{i}"] = {
                     "params": params,
                     "success": True,
                     "items_count": len(data.get("items", [])),
@@ -1631,7 +1832,7 @@ def explore_invoice_fields():
                 # If we found items, analyze the first one in detail
                 if data.get("items"):
                     first_item = data["items"][0]
-                    results[f"test_{i}"]["first_item_analysis"] = {
+                    results["test_{i}"]["first_item_analysis"] = {
                         "all_keys": list(first_item.keys()),
                         "file_related_keys": [
                             k
@@ -1655,7 +1856,7 @@ def explore_invoice_fields():
                     # Stop after finding the first successful result with data
                     break
             else:
-                results[f"test_{i}"] = {
+                results["test_{i}"] = {
                     "params": params,
                     "success": False,
                     "error": result.get("error"),
@@ -1666,3 +1867,606 @@ def explore_invoice_fields():
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_mutation_1319():
+    """Debug mutation 1319 to understand memorial booking credit invoice issue"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api = EBoekhoudenAPI(settings)
+
+        # Get mutation 1319 specifically
+        result = api.make_request("v1/mutation/1319")
+
+        if result["success"]:
+            mutation_data = json.loads(result["data"])
+
+            analysis = {
+                "success": True,
+                "mutation_id": 1319,
+                "raw_data": mutation_data,
+                "analysis": {
+                    "mutation_type": mutation_data.get("type"),
+                    "date": mutation_data.get("date"),
+                    "description": mutation_data.get("description"),
+                    "amount": mutation_data.get("amount"),
+                    "debit": mutation_data.get("debit"),
+                    "credit": mutation_data.get("credit"),
+                    "invoice_number": mutation_data.get("invoiceNumber"),
+                    "relation_id": mutation_data.get("relationId"),
+                    "ledger_id": mutation_data.get("ledgerId"),
+                    "is_memorial": mutation_data.get("type") == "Memorial",
+                    "has_relation": bool(mutation_data.get("relationId")),
+                    "has_invoice_number": bool(mutation_data.get("invoiceNumber")),
+                    "amount_negative": (mutation_data.get("amount", 0) < 0),
+                },
+            }
+
+            # Check if this looks like a credit invoice
+            if analysis["analysis"]["is_memorial"] and analysis["analysis"]["has_relation"]:
+                analysis["credit_invoice_indicators"] = {
+                    "is_memorial_with_relation": True,
+                    "has_invoice_number": analysis["analysis"]["has_invoice_number"],
+                    "negative_amount": analysis["analysis"]["amount_negative"],
+                    "recommendation": "Could be treated as credit invoice/note",
+                }
+
+            return analysis
+        else:
+            return {"success": False, "error": result["error"]}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def check_equity_import_status():
+    """Check if equity mutations are actually being imported correctly"""
+    try:
+        # Check if these specific mutations were imported
+        equity_mutations = [6738, 6352, 4595, 3698]
+        results = {"success": True, "mutations_checked": len(equity_mutations), "import_status": []}
+
+        for mutation_id in equity_mutations:
+            # Check if Journal Entry exists for this mutation
+            existing_je = frappe.db.get_value(
+                "Journal Entry",
+                {"eboekhouden_mutation_nr": str(mutation_id)},
+                ["name", "posting_date", "title", "total_debit", "total_credit"],
+            )
+
+            status = {
+                "mutation_id": mutation_id,
+                "imported": bool(existing_je),
+            }
+
+            if existing_je:
+                status.update(
+                    {
+                        "document_name": existing_je[0],
+                        "posting_date": existing_je[1],
+                        "title": existing_je[2],
+                        "total_debit": existing_je[3],
+                        "total_credit": existing_je[4],
+                    }
+                )
+
+                # Get the actual journal entry lines
+                je_accounts = frappe.db.get_all(
+                    "Journal Entry Account",
+                    filters={"parent": existing_je[0]},
+                    fields=[
+                        "account",
+                        "debit_in_account_currency",
+                        "credit_in_account_currency",
+                        "user_remark",
+                    ],
+                )
+                status["journal_lines"] = je_accounts
+            else:
+                status["reason_not_imported"] = "Not found in Journal Entry table"
+
+                # Check if it was skipped or failed
+                # Look for it in error logs or cache
+                cached_mutation = frappe.db.get_value(
+                    "EBoekhouden REST Mutation Cache",
+                    {"mutation_id": str(mutation_id)},
+                    ["name", "mutation_type", "mutation_date"],
+                )
+
+                if cached_mutation:
+                    status["cached"] = True
+                    status["cache_info"] = {
+                        "name": cached_mutation[0],
+                        "type": cached_mutation[1],
+                        "date": cached_mutation[2],
+                    }
+                else:
+                    status["cached"] = False
+
+            results["import_status"].append(status)
+
+        return results
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def analyze_equity_mutations():
+    """Analyze equity account mutations 6738, 6352, 4595, 3698 and others"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api = EBoekhoudenAPI(settings)
+
+        # Test equity mutations
+        test_mutations = [6738, 6352, 4595, 3698]
+        results = {
+            "success": True,
+            "mutations_tested": len(test_mutations),
+            "results": [],
+            "equity_analysis": {"patterns": {}, "account_types": {}, "import_issues": []},
+        }
+
+        for mutation_id in test_mutations:
+            # Get mutation data
+            result = api.make_request("v1/mutation/{mutation_id}")
+
+            if result["success"]:
+                mutation_data = json.loads(result["data"])
+
+                # Analyze the mutation
+                mutation_type = mutation_data.get("type")
+                invoice_number = mutation_data.get("invoiceNumber")
+                relation_id = mutation_data.get("relationId")
+                rows = mutation_data.get("rows", [])
+                description = mutation_data.get("description", "")
+
+                # Calculate total amount
+                amount = 0
+                if rows:
+                    for row in rows:
+                        amount += float(row.get("amount", 0))
+
+                analysis = {
+                    "mutation_id": mutation_id,
+                    "mutation_type": mutation_type,
+                    "invoice_number": invoice_number,
+                    "relation_id": relation_id,
+                    "description": description,
+                    "calculated_amount": amount,
+                    "row_count": len(rows),
+                    "raw_data": mutation_data,
+                    "account_analysis": [],
+                }
+
+                # Analyze each row's account type
+                for i, row in enumerate(rows):
+                    row_ledger_id = row.get("ledgerId")
+                    row_amount = float(row.get("amount", 0))
+                    row_description = row.get("description", "")
+
+                    row_analysis = {
+                        "row_index": i,
+                        "ledger_id": row_ledger_id,
+                        "amount": row_amount,
+                        "description": row_description,
+                    }
+
+                    if row_ledger_id:
+                        # Check if mapping exists
+                        mapping_result = frappe.db.sql(
+                            """SELECT erpnext_account
+                               FROM `tabE-Boekhouden Ledger Mapping`
+                               WHERE ledger_id = %s
+                               LIMIT 1""",
+                            row_ledger_id,
+                        )
+
+                        if mapping_result:
+                            erpnext_account = mapping_result[0][0]
+                            account_type = frappe.db.get_value("Account", erpnext_account, "account_type")
+                            account_name = frappe.db.get_value("Account", erpnext_account, "account_name")
+
+                            row_analysis.update(
+                                {
+                                    "erpnext_account": erpnext_account,
+                                    "account_type": account_type,
+                                    "account_name": account_name,
+                                    "mapping_exists": True,
+                                }
+                            )
+
+                            # Track account types
+                            if account_type not in results["equity_analysis"]["account_types"]:
+                                results["equity_analysis"]["account_types"][account_type] = 0
+                            results["equity_analysis"]["account_types"][account_type] += 1
+                        else:
+                            row_analysis.update(
+                                {
+                                    "erpnext_account": None,
+                                    "account_type": None,
+                                    "account_name": None,
+                                    "mapping_exists": False,
+                                }
+                            )
+                            results["equity_analysis"]["import_issues"].append(
+                                "Mutation {mutation_id} row {i}: Missing ledger mapping for {row_ledger_id}"
+                            )
+
+                    analysis["account_analysis"].append(row_analysis)
+
+                # Determine current import behavior
+                if mutation_type == 7:
+                    if invoice_number and relation_id:
+                        # Check if it would be detected as credit invoice
+                        credit_invoice_detected = False
+                        if rows and len(rows) > 0:
+                            main_row = rows[0]
+                            main_ledger_id = main_row.get("ledgerId")
+                            if main_ledger_id:
+                                mapping_result = frappe.db.sql(
+                                    """SELECT erpnext_account
+                                       FROM `tabE-Boekhouden Ledger Mapping`
+                                       WHERE ledger_id = %s
+                                       LIMIT 1""",
+                                    main_ledger_id,
+                                )
+                                if mapping_result:
+                                    main_account = mapping_result[0][0]
+                                    main_account_type = frappe.db.get_value(
+                                        "Account", main_account, "account_type"
+                                    )
+                                    if main_account_type in ["Receivable", "Payable"]:
+                                        credit_invoice_detected = True
+
+                        analysis["current_import_behavior"] = (
+                            "Sales/Purchase Credit Note" if credit_invoice_detected else "Journal Entry"
+                        )
+                    else:
+                        analysis["current_import_behavior"] = "Journal Entry"
+                else:
+                    type_mapping = {
+                        1: "Purchase Invoice",
+                        2: "Sales Invoice",
+                        3: "Payment Entry (Customer)",
+                        4: "Payment Entry (Supplier)",
+                        5: "Journal Entry (Money Received)",
+                        6: "Journal Entry (Money Sent)",
+                        0: "Opening Balance",
+                    }
+                    analysis["current_import_behavior"] = type_mapping.get(mutation_type, "Journal Entry")
+
+                # Check if this involves equity accounts
+                has_equity_account = False
+                for row_analysis in analysis["account_analysis"]:
+                    if row_analysis.get("account_type") == "Equity":
+                        has_equity_account = True
+                        break
+
+                analysis["involves_equity"] = has_equity_account
+
+                if has_equity_account:
+                    analysis[
+                        "equity_issue"
+                    ] = "Equity transactions may need special handling for proper financial reporting"
+
+                results["results"].append(analysis)
+            else:
+                results["results"].append(
+                    {"mutation_id": mutation_id, "error": result["error"], "success": False}
+                )
+
+        # Generate summary patterns
+        equity_mutations = [r for r in results["results"] if r.get("involves_equity")]
+        results["equity_analysis"]["patterns"] = {
+            "total_equity_mutations": len(equity_mutations),
+            "common_descriptions": list(
+                set([r.get("description", "") for r in equity_mutations if r.get("description")])
+            ),
+            "mutation_types": list(set([r.get("mutation_type") for r in equity_mutations])),
+            "has_invoice_numbers": len([r for r in equity_mutations if r.get("invoice_number")]),
+            "has_relations": len([r for r in equity_mutations if r.get("relation_id")]),
+        }
+
+        return results
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def test_enhanced_memorial_logic():
+    """Test the enhanced logic for Type 7 memorial bookings with mutations 1314, 1315, 1319"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api = EBoekhoudenAPI(settings)
+
+        # Test multiple mutations
+        test_mutations = [1314, 1315, 1319]
+        results = {"success": True, "mutations_tested": len(test_mutations), "results": []}
+
+        for mutation_id in test_mutations:
+            # Get mutation data
+            result = api.make_request("v1/mutation/{mutation_id}")
+
+            if result["success"]:
+                mutation_data = json.loads(result["data"])
+
+                # Simulate the enhanced logic
+                mutation_type = mutation_data.get("type")
+                invoice_number = mutation_data.get("invoiceNumber")
+                relation_id = mutation_data.get("relationId")
+                rows = mutation_data.get("rows", [])
+
+                analysis = {
+                    "mutation_id": mutation_id,
+                    "mutation_type": mutation_type,
+                    "invoice_number": invoice_number,
+                    "relation_id": relation_id,
+                    "raw_data": mutation_data,
+                    "enhanced_logic_test": {},
+                }
+
+                # Test the enhanced logic conditions
+                if mutation_type == 7 and invoice_number and relation_id:
+                    analysis["enhanced_logic_test"]["meets_basic_criteria"] = True
+
+                    # Check amount
+                    amount = 0
+                    if rows:
+                        for row in rows:
+                            amount += float(row.get("amount", 0))
+
+                    analysis["enhanced_logic_test"]["calculated_amount"] = amount
+                    analysis["enhanced_logic_test"]["has_non_zero_amount"] = amount != 0
+
+                    # Check account type
+                    credit_invoice_detected = False
+                    main_account_type = None
+                    main_account = None
+
+                    if rows and len(rows) > 0:
+                        main_row = rows[0]
+                        main_ledger_id = main_row.get("ledgerId")
+
+                        if main_ledger_id:
+                            mapping_result = frappe.db.sql(
+                                """SELECT erpnext_account
+                                   FROM `tabE-Boekhouden Ledger Mapping`
+                                   WHERE ledger_id = %s
+                                   LIMIT 1""",
+                                main_ledger_id,
+                            )
+
+                            if mapping_result:
+                                main_account = mapping_result[0][0]
+                                main_account_type = frappe.db.get_value(
+                                    "Account", main_account, "account_type"
+                                )
+
+                                if main_account_type in ["Receivable", "Payable"]:
+                                    credit_invoice_detected = True
+
+                    analysis["enhanced_logic_test"]["main_ledger_id"] = (
+                        main_row.get("ledgerId") if rows else None
+                    )
+                    analysis["enhanced_logic_test"]["main_account"] = main_account
+                    analysis["enhanced_logic_test"]["main_account_type"] = main_account_type
+                    analysis["enhanced_logic_test"]["credit_invoice_detected"] = credit_invoice_detected
+
+                    if credit_invoice_detected:
+                        analysis["enhanced_logic_test"]["would_convert_to"] = (
+                            "Sales Credit Note"
+                            if main_account_type == "Receivable"
+                            else "Purchase Debit Note"
+                        )
+                        analysis["enhanced_logic_test"][
+                            "recommendation"
+                        ] = "This Type 7 memorial booking should be imported as a {analysis['enhanced_logic_test']['would_convert_to']} instead of a Journal Entry"
+                    else:
+                        analysis["enhanced_logic_test"]["would_convert_to"] = "Journal Entry (no change)"
+                        analysis["enhanced_logic_test"][
+                            "recommendation"
+                        ] = "This Type 7 memorial booking would remain as a Journal Entry"
+                else:
+                    analysis["enhanced_logic_test"]["meets_basic_criteria"] = False
+                    analysis["enhanced_logic_test"][
+                        "recommendation"
+                    ] = "Does not meet criteria for credit invoice conversion"
+
+                results["results"].append(analysis)
+            else:
+                results["results"].append(
+                    {"mutation_id": mutation_id, "error": result["error"], "success": False}
+                )
+
+        return results
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def analyze_memorial_bookings():
+    """Analyze all memorial bookings to understand patterns"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api = EBoekhoudenAPI(settings)
+
+        # Get all mutations and filter for memorial types
+        result = api.get_mutations({"limit": 1000})
+
+        if result["success"]:
+            data = json.loads(result["data"])
+            mutations = data.get("items", [])
+
+            memorial_bookings = [m for m in mutations if m.get("type") == "Memorial"]
+
+            analysis = {
+                "success": True,
+                "total_mutations": len(mutations),
+                "total_memorial_bookings": len(memorial_bookings),
+                "memorial_analysis": [],
+            }
+
+            # Analyze each memorial booking
+            for memorial in memorial_bookings[:20]:  # First 20 for analysis
+                memorial_analysis = {
+                    "id": memorial.get("id"),
+                    "date": memorial.get("date"),
+                    "description": memorial.get("description"),
+                    "amount": memorial.get("amount"),
+                    "relation_id": memorial.get("relationId"),
+                    "invoice_number": memorial.get("invoiceNumber"),
+                    "ledger_id": memorial.get("ledgerId"),
+                    "has_relation": bool(memorial.get("relationId")),
+                    "has_invoice_number": bool(memorial.get("invoiceNumber")),
+                    "negative_amount": (memorial.get("amount", 0) < 0),
+                    "credit_invoice_candidate": False,
+                }
+
+                # Determine if this could be a credit invoice
+                if memorial_analysis["has_relation"] and (
+                    memorial_analysis["negative_amount"] or memorial_analysis["has_invoice_number"]
+                ):
+                    memorial_analysis["credit_invoice_candidate"] = True
+
+                analysis["memorial_analysis"].append(memorial_analysis)
+
+            # Summary statistics
+            credit_candidates = [m for m in analysis["memorial_analysis"] if m["credit_invoice_candidate"]]
+            analysis["summary"] = {
+                "credit_invoice_candidates": len(credit_candidates),
+                "percentage_of_memorials": (len(credit_candidates) / len(memorial_bookings) * 100)
+                if memorial_bookings
+                else 0,
+                "patterns": {
+                    "with_relations": len([m for m in analysis["memorial_analysis"] if m["has_relation"]]),
+                    "with_invoice_numbers": len(
+                        [m for m in analysis["memorial_analysis"] if m["has_invoice_number"]]
+                    ),
+                    "negative_amounts": len(
+                        [m for m in analysis["memorial_analysis"] if m["negative_amount"]]
+                    ),
+                },
+            }
+
+            return analysis
+        else:
+            return {"success": False, "error": result["error"]}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def compare_api_relation_data():
+    """Compare SOAP vs REST API for relation data quality"""
+    results = {
+        "rest_api": {"status": "unknown", "relations": [], "error": None},
+        "soap_api": {"status": "unknown", "relations": [], "error": None},
+    }
+
+    # Test REST API
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        rest_api = EBoekhoudenAPI(settings)
+
+        # Get a sample of customers
+        rest_result = rest_api.get_customers({"limit": 10})
+        if rest_result["success"]:
+            data = json.loads(rest_result["data"])
+            customers = data.get("items", [])
+
+            results["rest_api"]["status"] = "success"
+            results["rest_api"]["total_count"] = len(customers)
+            results["rest_api"]["relations"] = customers[:3]  # First 3 for comparison
+
+            # Analyze data quality
+            meaningful_names = 0
+            for customer in customers:
+                name = customer.get("name", "").strip()
+                company = customer.get("companyName", "").strip()
+                contact = customer.get("contactName", "").strip()
+                if name or company or contact:
+                    meaningful_names += 1
+
+            results["rest_api"]["meaningful_names"] = meaningful_names
+            results["rest_api"]["meaningful_percentage"] = (
+                (meaningful_names / len(customers) * 100) if customers else 0
+            )
+        else:
+            results["rest_api"]["status"] = "failed"
+            results["rest_api"]["error"] = rest_result.get("error")
+
+    except Exception as e:
+        results["rest_api"]["status"] = "error"
+        results["rest_api"]["error"] = str(e)
+
+    # Test SOAP API
+    try:
+        from verenigingen.utils.eboekhouden_soap_api import EBoekhoudenSOAPAPI
+
+        soap_api = EBoekhoudenSOAPAPI(settings)
+
+        # Try to get relations via SOAP
+        soap_result = soap_api.get_relaties()
+        if soap_result["success"]:
+            relations = soap_result.get("relations", [])
+
+            results["soap_api"]["status"] = "success"
+            results["soap_api"]["total_count"] = len(relations)
+            results["soap_api"]["relations"] = relations[:3]  # First 3 for comparison
+
+            # Analyze data quality - SOAP uses different field names
+            meaningful_names = 0
+            for relation in relations:
+                # Common SOAP fields: Bedrijf, Contactpersoon, etc.
+                company = relation.get("Bedrijf", "").strip()
+                contact = relation.get("Contactpersoon", "").strip()
+                name = relation.get("Naam", "").strip()
+                if name or company or contact:
+                    meaningful_names += 1
+
+            results["soap_api"]["meaningful_names"] = meaningful_names
+            results["soap_api"]["meaningful_percentage"] = (
+                (meaningful_names / len(relations) * 100) if relations else 0
+            )
+        else:
+            results["soap_api"]["status"] = "failed"
+            results["soap_api"]["error"] = soap_result.get("error")
+
+    except Exception as e:
+        results["soap_api"]["status"] = "error"
+        results["soap_api"]["error"] = str(e)
+
+    # Generate comparison summary
+    summary = {
+        "rest_api_working": results["rest_api"]["status"] == "success",
+        "soap_api_working": results["soap_api"]["status"] == "success",
+        "recommendation": "Unknown",
+    }
+
+    if results["rest_api"]["status"] == "success" and results["soap_api"]["status"] == "success":
+        rest_percentage = results["rest_api"]["meaningful_percentage"]
+        soap_percentage = results["soap_api"]["meaningful_percentage"]
+
+        if soap_percentage > rest_percentage + 10:  # 10% threshold
+            summary["recommendation"] = "SOAP API has significantly better data quality"
+        elif rest_percentage > soap_percentage + 10:
+            summary["recommendation"] = "REST API has significantly better data quality"
+        else:
+            summary[
+                "recommendation"
+            ] = "Both APIs have similar data quality, prefer REST API (not deprecated)"
+    elif results["soap_api"]["status"] == "success":
+        summary["recommendation"] = "Only SOAP API works, but it's deprecated"
+    elif results["rest_api"]["status"] == "success":
+        summary["recommendation"] = "Only REST API works (preferred)"
+    else:
+        summary["recommendation"] = "Neither API is working properly"
+
+    results["summary"] = summary
+    return results

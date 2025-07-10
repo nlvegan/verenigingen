@@ -7,6 +7,7 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
+from verenigingen.utils.api_validators import APIValidator, rate_limit, require_roles, validate_api_input
 from verenigingen.utils.application_helpers import check_application_status as check_application_status_util
 from verenigingen.utils.application_helpers import (
     create_address_from_application,
@@ -52,6 +53,11 @@ from verenigingen.utils.application_validators import validate_name as validate_
 from verenigingen.utils.application_validators import validate_phone_number as validate_phone_number_util
 from verenigingen.utils.application_validators import validate_postal_code as validate_postal_code_util
 from verenigingen.utils.application_validators import validate_required_fields
+from verenigingen.utils.config_manager import ConfigManager
+
+# Import enhanced utilities
+from verenigingen.utils.error_handling import PermissionError, ValidationError, handle_api_error, log_error
+from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
 
 # Utility functions
 
@@ -76,18 +82,7 @@ def check_rate_limit(endpoint, limit_per_hour=60):
         return True
 
 
-def handle_api_error(error, context="API"):
-    """Standardized API error handling"""
-    error_msg = str(error)
-    frappe.log_error(f"Error in {context}: {error_msg}", f"{context} Error")
-
-    return {
-        "success": False,
-        "error": error_msg,
-        "type": "server_error",
-        "timestamp": frappe.utils.now(),
-        "context": context,
-    }
+# Removed - using centralized error handling from utils.error_handling
 
 
 # API Endpoints
@@ -166,21 +161,18 @@ def get_application_form_data():
 
 
 @frappe.whitelist(allow_guest=True)
+@performance_monitor(threshold_ms=200)
+@rate_limit(max_requests=30, window_minutes=60)
 def validate_email(email):
     """Validate email format and check if it already exists"""
+
+    if not email:
+        return {"valid": False, "message": "Email is required", "type": "required"}
+
+    # Use enhanced API validator
     try:
-        # Rate limiting for validation endpoints
-        if not check_rate_limit("validate_email", 30):
-            return {
-                "valid": False,
-                "message": "Too many validation requests. Please try again later.",
-                "type": "rate_limit",
-            }
-
-        if not email:
-            return {"valid": False, "message": "Email is required", "type": "required"}
-
-        result = validate_email_util(email)
+        validated_email = APIValidator.validate_email(email)
+        result = validate_email_util(validated_email)
 
         # Ensure consistent response format
         if not isinstance(result, dict):
@@ -188,8 +180,11 @@ def validate_email(email):
 
         return result
 
+    except ValidationError as e:
+        return {"valid": False, "message": str(e), "type": "validation_error"}
     except Exception as e:
-        return handle_api_error(e, "Email Validation")
+        log_error(f"Email validation error: {str(e)}", "Email Validation Error")
+        return {"valid": False, "message": "Validation service error", "type": "server_error"}
 
 
 @frappe.whitelist(allow_guest=True)
@@ -274,6 +269,9 @@ def check_application_eligibility_endpoint(data):
 
 
 @frappe.whitelist(allow_guest=True)
+@handle_api_error
+@performance_monitor(threshold_ms=3000)
+@rate_limit(max_requests=10, window_minutes=60)
 def submit_application(**kwargs):
     """Process membership application submission - Main entry point"""
     try:
@@ -462,8 +460,17 @@ def submit_application(**kwargs):
 
 
 @frappe.whitelist()
+@handle_api_error
+@performance_monitor(threshold_ms=2000)
+@require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Manager"])
 def approve_membership_application(member_name, notes=None):
     """Approve a membership application"""
+
+    # Validate inputs
+    validate_required_fields({"member_name": member_name}, ["member_name"])
+
+    notes = APIValidator.sanitize_text(notes, max_length=1000) if notes else None
+
     try:
         member = frappe.get_doc("Member", member_name)
 

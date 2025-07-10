@@ -65,7 +65,7 @@ class StockTransactionMigrator:
 
             print(f"Starting stock transaction migration from {date_from} to {date_to}")
             print(
-                f"Found {len(stock_accounts)} stock accounts: {', '.join([acc['account_number'] for acc in stock_accounts])}"
+                "Found {len(stock_accounts)} stock accounts: {', '.join([acc['account_number'] for acc in stock_accounts])}"
             )
 
             # Process month by month to avoid large data sets
@@ -99,7 +99,7 @@ class StockTransactionMigrator:
 
                     if stock_transactions:
                         print(
-                            f"Found {len(stock_transactions)} stock transactions in {current_date.strftime('%Y-%m')}"
+                            "Found {len(stock_transactions)} stock transactions in {current_date.strftime('%Y-%m')}"
                         )
 
                         # Process stock transactions
@@ -126,13 +126,13 @@ class StockTransactionMigrator:
             summary_parts = []
             dry_run_mode = getattr(self.migration_doc, "dry_run", True)  # Default to dry run
             if dry_run_mode:
-                summary_parts.append(f"Dry Run: Found {total_processed} stock transactions to migrate")
+                summary_parts.append("Dry Run: Found {total_processed} stock transactions to migrate")
             else:
-                summary_parts.append(f"Created {self.stock_transactions_created} stock entries")
+                summary_parts.append("Created {self.stock_transactions_created} stock entries")
                 if self.stock_transactions_failed > 0:
-                    summary_parts.append(f"Failed: {self.stock_transactions_failed}")
+                    summary_parts.append("Failed: {self.stock_transactions_failed}")
                 if self.stock_transactions_skipped > 0:
-                    summary_parts.append(f"Skipped: {self.stock_transactions_skipped}")
+                    summary_parts.append("Skipped: {self.stock_transactions_skipped}")
 
             return " | ".join(summary_parts)
 
@@ -282,7 +282,7 @@ class StockTransactionMigrator:
 
             log_error_safely(
                 message=f"Error processing stock transaction for {account_code}:\n{str(e)}",
-                title=f"Stock Transaction: {account_code}",
+                title="Stock Transaction: {account_code}",
             )
             return False
 
@@ -319,7 +319,7 @@ class StockTransactionMigrator:
                     "posting_date": posting_date,
                     "posting_time": "12:00:00",
                     "purpose": purpose,
-                    "remarks": f"Migrated from e-Boekhouden: Ledger {ledger_id} | Account: {account_code} - {account_name}",
+                    "remarks": "Migrated from e-Boekhouden: Ledger {ledger_id} | Account: {account_code} - {account_name}",
                     "items": [],
                 }
             )
@@ -385,7 +385,7 @@ class StockTransactionMigrator:
                 log_error_safely(
                     message=f"Stock entry requires whole number quantity, but got {qty_change}. "
                     "This is because E-Boekhouden stores monetary values, not physical quantities.\n"
-                    f"Account: {account_code} - {account_name}",
+                    "Account: {account_code} - {account_name}",
                     title="Stock Entry: Fractional Quantity",
                 )
             else:
@@ -482,7 +482,7 @@ class StockTransactionMigrator:
 
     def get_or_create_migration_item(self, account_code, account_name):
         """Get or create an item for stock transactions"""
-        item_code = f"MIGR-{account_code}"
+        item_code = "MIGR-{account_code}"
 
         if frappe.db.exists("Item", item_code):
             return item_code
@@ -492,12 +492,12 @@ class StockTransactionMigrator:
                 {
                     "doctype": "Item",
                     "item_code": item_code,
-                    "item_name": f"Migration Item - {account_name}",
+                    "item_name": "Migration Item - {account_name}",
                     "item_group": self.get_or_create_migration_item_group(),
                     "stock_uom": "Nos",
                     "is_stock_item": 1,
                     "include_item_in_manufacturing": 0,
-                    "description": f"Migration item for e-Boekhouden account {account_code} - {account_name}",
+                    "description": "Migration item for e-Boekhouden account {account_code} - {account_name}",
                     "valuation_method": "FIFO",
                 }
             )

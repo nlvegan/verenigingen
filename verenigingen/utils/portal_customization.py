@@ -106,7 +106,7 @@ def setup_member_portal_menu():
 
         return {
             "success": True,
-            "message": f"Portal menu updated: {disabled_count} ERP items disabled, {enabled_count} association items verified, {added_count} custom items added",
+            "message": "Portal menu updated: {disabled_count} ERP items disabled, {enabled_count} association items verified, {added_count} custom items added",
             "disabled_count": disabled_count,
             "enabled_count": enabled_count,
             "added_count": added_count,
@@ -180,7 +180,7 @@ def reset_portal_menu_to_member_only():
 
         return {
             "success": True,
-            "message": f"Portal menu reset to member-only view: {enabled_count} items enabled, {added_count} items added",
+            "message": "Portal menu reset to member-only view: {enabled_count} items enabled, {added_count} items added",
             "enabled_count": enabled_count,
             "added_count": added_count,
         }

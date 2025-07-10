@@ -42,7 +42,7 @@ class MemberIdentityValidator:
                 fields=["name", "first_name", "last_name", "email", "iban", "birth_date", "address_line1"],
             )
 
-            new_full_name = f"{member_data.get('first_name', '')} {member_data.get('last_name', '')}".strip()
+            new_full_name = "{member_data.get('first_name', '')} {member_data.get('last_name', '')}".strip()
             new_email = member_data.get("email", "").lower()
             new_iban = self._normalize_iban(member_data.get("iban", ""))
 
@@ -50,7 +50,7 @@ class MemberIdentityValidator:
                 if member.name == member_data.get("name"):
                     continue  # Skip self if updating existing member
 
-                existing_full_name = f"{member.first_name or ''} {member.last_name or ''}".strip()
+                existing_full_name = "{member.first_name or ''} {member.last_name or ''}".strip()
 
                 # Name similarity check
                 name_similarity = self._calculate_name_similarity(new_full_name, existing_full_name)
@@ -246,14 +246,14 @@ class MemberIdentityValidator:
         reasons = []
 
         if name_sim > 0.8:
-            reasons.append(f"Very similar names ({name_sim:.1%} similarity)")
+            reasons.append("Very similar names ({name_sim:.1%} similarity)")
         elif name_sim > 0.6:
-            reasons.append(f"Similar names ({name_sim:.1%} similarity)")
+            reasons.append("Similar names ({name_sim:.1%} similarity)")
 
         if email_sim > 0.8:
-            reasons.append(f"Very similar emails ({email_sim:.1%} similarity)")
+            reasons.append("Very similar emails ({email_sim:.1%} similarity)")
         elif email_sim > 0.6:
-            reasons.append(f"Similar emails ({email_sim:.1%} similarity)")
+            reasons.append("Similar emails ({email_sim:.1%} similarity)")
 
         if iban_match:
             reasons.append("Identical IBAN (same bank account)")
@@ -308,12 +308,12 @@ class MemberIdentityValidator:
         # Check for unusual amount patterns
         if total_amount > 1000:  # Large total amount
             analysis["risk_level"] += 0.3
-            analysis["issues"].append(f"Large total amount: {total_amount}")
+            analysis["issues"].append("Large total amount: {total_amount}")
 
         # Check for too many payments
         if len(payments) > 3:
             analysis["risk_level"] += 0.4
-            analysis["issues"].append(f"Many payments from same account: {len(payments)}")
+            analysis["issues"].append("Many payments from same account: {len(payments)}")
 
         return analysis
 
@@ -331,11 +331,11 @@ class MemberIdentityValidator:
 
         if amount > 500:  # Unusually high membership fee
             analysis["anomaly"] = True
-            analysis["reasons"].append(f"Unusually high amount: {amount}")
+            analysis["reasons"].append("Unusually high amount: {amount}")
 
         if amount < 10:  # Unusually low membership fee
             analysis["anomaly"] = True
-            analysis["reasons"].append(f"Unusually low amount: {amount}")
+            analysis["reasons"].append("Unusually low amount: {amount}")
 
         return analysis
 
@@ -479,7 +479,7 @@ class DDConflictResolutionManager:
             summary_parts.append(f"🚨 {high_risk} high-risk duplicate(s) detected")
 
         if potential > 0:
-            summary_parts.append(f"⚠️ {potential} potential duplicate(s) found")
+            summary_parts.append("⚠️ {potential} potential duplicate(s) found")
 
         if not summary_parts:
             summary_parts.append("✅ No significant conflicts detected")
@@ -561,7 +561,7 @@ def validate_bank_account_sharing(iban, member_id=None):
         logger.log_security_event(
             "bank_account_validation",
             "info" if results.get("valid") else "warning",
-            f"Bank account sharing validation for IBAN: {iban[:8]}***",
+            "Bank account sharing validation for IBAN: {iban[:8]}***",
             {"validation_results": results},
         )
 
@@ -590,7 +590,7 @@ def analyze_batch_anomalies(batch_data):
         logger.log_security_event(
             "batch_anomaly_analysis",
             "info",
-            f"Anomaly analysis performed for batch with {len(batch_data)} payments",
+            "Anomaly analysis performed for batch with {len(batch_data)} payments",
             {"analysis_results": results},
         )
 

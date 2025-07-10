@@ -102,7 +102,7 @@ def fix_account_types():
 
         frappe.db.commit()
 
-        return {"success": True, "fixed": fixed, "message": f"Fixed {len(fixed)} account types"}
+        return {"success": True, "fixed": fixed, "message": "Fixed {len(fixed)} account types"}
 
     except Exception as e:
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}

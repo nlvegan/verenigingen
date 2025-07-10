@@ -41,7 +41,7 @@ def send_donation_confirmation(donation_id):
         )
 
         # Log email sent
-        donation.add_comment("Email", f"Confirmation email sent to {donor_email}")
+        donation.add_comment("Email", "Confirmation email sent to {donor_email}")
 
         return True
 
@@ -90,7 +90,7 @@ def send_payment_confirmation(donation_id):
         if donation.belastingdienst_reportable and donation.anbi_agreement_number:
             send_anbi_receipt(donation_id)
 
-        donation.add_comment("Email", f"Payment confirmation sent to {donor_email}")
+        donation.add_comment("Email", "Payment confirmation sent to {donor_email}")
 
         return True
 
@@ -124,7 +124,7 @@ def send_anbi_receipt(donation_id):
                 "anbi_date": format_date(donation.anbi_agreement_date),
                 "tax_year": donation.date.year,
                 "is_tax_deductible": True,
-                "receipt_number": f"ANBI-{donation.name}-{donation.date.year}",
+                "receipt_number": "ANBI-{donation.name}-{donation.date.year}",
             }
         )
 
@@ -145,7 +145,7 @@ def send_anbi_receipt(donation_id):
             send_priority=1,
         )
 
-        donation.add_comment("Email", f"ANBI receipt sent to {donor_email}")
+        donation.add_comment("Email", "ANBI receipt sent to {donor_email}")
 
         return True
 
@@ -168,9 +168,9 @@ def get_email_context(donation, donor):
             chapter_name = frappe.db.get_value("Chapter", donation.chapter_reference, "chapter_name")
             earmarking = f"Chapter: {chapter_name}"
         elif donation.donation_purpose_type == "Campaign" and donation.campaign_reference:
-            earmarking = f"Campaign: {donation.campaign_reference}"
+            earmarking = "Campaign: {donation.campaign_reference}"
         elif donation.donation_purpose_type == "Specific Goal" and donation.specific_goal_description:
-            earmarking = f"Specific Goal: {donation.specific_goal_description[:50]}"
+            earmarking = "Specific Goal: {donation.specific_goal_description[:50]}"
 
     return {
         # Donation details

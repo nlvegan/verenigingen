@@ -44,11 +44,11 @@ def get_or_create_item_improved(account_code, company, transaction_type="Both", 
     else:
         # Fallback to old behavior but with better prefix
         if transaction_type == "Sales":
-            item_name = f"Income {account_code}"
+            item_name = "Income {account_code}"
         elif transaction_type == "Purchase":
-            item_name = f"Expense {account_code}"
+            item_name = "Expense {account_code}"
         else:
-            item_name = f"Service {account_code}"
+            item_name = "Service {account_code}"
 
     # Check if item already exists
     if frappe.db.exists("Item", item_name):
@@ -76,7 +76,7 @@ def get_or_create_item_improved(account_code, company, transaction_type="Both", 
 
         # Add description if available
         if description:
-            item.description = f"Auto-created from E-boekhouden account {account_code}"
+            item.description = "Auto-created from E-boekhouden account {account_code}"
             if account_info and account_info.account_name:
                 item.description += f" ({account_info.account_name})"
 

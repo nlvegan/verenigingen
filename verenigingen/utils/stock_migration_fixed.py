@@ -100,15 +100,15 @@ class StockMigrationFixed:
 
             # Create summary message
             message_parts = [
-                f"Found {len(stock_mutations)} stock-related transactions in E-Boekhouden.",
+                "Found {len(stock_mutations)} stock-related transactions in E-Boekhouden.",
                 "",
                 "Stock Account Summary:",
             ]
 
             for acc_summary in summary["account_summaries"]:
                 message_parts.append(
-                    f"- {acc_summary['code']} {acc_summary['name']}: "
-                    f"€{acc_summary['total_amount']:.2f} ({acc_summary['transaction_count']} transactions)"
+                    "- {acc_summary['code']} {acc_summary['name']}: "
+                    "€{acc_summary['total_amount']:.2f} ({acc_summary['transaction_count']} transactions)"
                 )
 
             message_parts.extend(

@@ -93,13 +93,13 @@ def suggest_account_type_from_dutch(name, group_code=None):
     for pattern, account_type in DUTCH_ACCOUNT_PATTERNS.items():
         if pattern in name_lower:
             confidence = "high" if len(pattern.split()) > 1 else "medium"
-            return account_type, confidence, f"Name contains '{pattern}'"
+            return account_type, confidence, "Name contains '{pattern}'"
 
     # Check group code patterns if no name match
     if group_code and len(group_code) >= 2:
         prefix = group_code[:2]
         if prefix in GROUP_CODE_PATTERNS:
-            return GROUP_CODE_PATTERNS[prefix], "medium", f"Group code starts with {prefix}"
+            return GROUP_CODE_PATTERNS[prefix], "medium", "Group code starts with {prefix}"
 
     # Special cases for combined patterns
     if "te vorderen" in name_lower and "btw" in name_lower:

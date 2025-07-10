@@ -19,7 +19,7 @@ def migrate_cost_centers_with_hierarchy(settings):
         result = api.get_cost_centers()
 
         if not result["success"]:
-            return {"success": False, "error": f"Failed to fetch Cost Centers: {result['error']}"}
+            return {"success": False, "error": "Failed to fetch Cost Centers: {result['error']}"}
 
         # Parse JSON response
         data = json.loads(result["data"])
@@ -104,11 +104,11 @@ def migrate_cost_centers_with_hierarchy(settings):
                     if cc_id:
                         id_to_name_map[cc_id] = result["name"]
                 else:
-                    cc_info = f"Code: {cc_data.get('code', 'N/A')}, Name: {cc_data.get('name', 'N/A')}, ID: {cc_data.get('id', 'N/A')}"
+                    cc_info = "Code: {cc_data.get('code', 'N/Af')}, Name: {cc_data.get('name', 'N/A')}, ID: {cc_data.get('id', 'N/A')}"
                     errors.append(f"{cc_info}: {result.get('error', 'Unknown error')}")
 
             except Exception as e:
-                cc_info = f"Code: {cc_data.get('code', 'N/A')}, Name: {cc_data.get('name', 'N/A')}, ID: {cc_data.get('id', 'N/A')}"
+                cc_info = "Code: {cc_data.get('code', 'N/Af')}, Name: {cc_data.get('name', 'N/A')}, ID: {cc_data.get('id', 'N/A')}"
                 errors.append(f"{cc_info}: {str(e)}")
 
         frappe.db.commit()
@@ -119,7 +119,7 @@ def migrate_cost_centers_with_hierarchy(settings):
             "skipped": skipped_count,
             "errors": errors,
             "total": len(cost_centers_data),
-            "message": f"Created {created_count} cost centers, skipped {skipped_count}",
+            "message": "Created {created_count} cost centers, skipped {skipped_count}",
         }
 
     except Exception as e:
@@ -320,7 +320,7 @@ def fix_cost_center_groups(company):
         return {
             "success": True,
             "fixed": fixed_count,
-            "message": f"Fixed {fixed_count} cost centers to be groups",
+            "message": "Fixed {fixed_count} cost centers to be groups",
         }
 
     except Exception as e:
@@ -364,7 +364,7 @@ def cleanup_cost_centers(company):
             "success": True,
             "fixed": fixed_count,
             "errors": errors,
-            "message": f"Fixed {fixed_count} orphaned cost centers",
+            "message": "Fixed {fixed_count} orphaned cost centers",
         }
 
     except Exception as e:

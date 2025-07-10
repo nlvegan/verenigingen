@@ -672,7 +672,7 @@ class MembershipAnalytics {
         frappe.dom.freeze('Preparing export...');
 
         frappe.call({
-            method: 'vereiningen.verenigingen.page.membership_analytics.membership_analytics.export_dashboard_data',
+            method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.export_dashboard_data',
             args: {
                 year: this.filters.year,
                 period: this.filters.period,
@@ -707,7 +707,7 @@ class MembershipAnalytics {
             __('Create a snapshot of current analytics data?'),
             () => {
                 frappe.call({
-                    method: 'vereiningen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_snapshot',
+                    method: 'verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_snapshot',
                     args: {
                         snapshot_type: 'Manual',
                         specific_date: frappe.datetime.nowdate()

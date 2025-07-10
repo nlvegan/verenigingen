@@ -65,9 +65,32 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                 # Try to extract party info from description
                 # For SEPA transfers, the description often contains the party name
                 if description and len(description) > 10:
-                    # Create customer based on description
-                    customer_name = description[:50] + "..." if len(description) > 50 else description
-                    customer_name = f"Unmatched Payment - {customer_name}"
+                    # Import the SEPA extraction function
+                    from .eboekhouden_soap_migration import extract_name_from_sepa_description
+
+                    # Try to extract meaningful name from SEPA description
+                    extracted_name = extract_name_from_sepa_description(description)
+
+                    MAX_CUSTOMER_NAME_LENGTH = 140
+                    prefix = "Unmatched Payment - "
+
+                    if extracted_name:
+                        # Use the extracted name
+                        base_name = extracted_name
+                    else:
+                        # Fallback to truncated description
+                        max_desc_length = MAX_CUSTOMER_NAME_LENGTH - len(prefix) - 3
+                        base_name = (
+                            description[:max_desc_length] + "..."
+                            if len(description) > max_desc_length
+                            else description
+                        )
+
+                    customer_name = "{prefix}{base_name}"
+
+                    # Final truncation check
+                    if len(customer_name) > MAX_CUSTOMER_NAME_LENGTH:
+                        customer_name = customer_name[: MAX_CUSTOMER_NAME_LENGTH - 3] + "..."
 
                     # Check if this customer already exists
                     existing = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
@@ -84,6 +107,11 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                         customer.territory = (
                             frappe.db.get_value("Territory", {"is_group": 0}, "name") or "All Territories"
                         )
+
+                        # Store full SEPA description if it was truncated
+                        if len(description) > 50:
+                            customer.customer_details = "SEPA Payment Description:\n{description}"
+
                         customer.insert(ignore_permissions=True)
                         pe.party = customer.name
                 else:
@@ -103,13 +131,37 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                 # Ensure supplier exists before creating payment
                 supplier = get_or_create_supplier(relation_code, description, relation_data=None)
                 if not supplier:
-                    return {"success": False, "error": f"Could not create supplier for code {relation_code}"}
+                    return {"success": False, "error": "Could not create supplier for code {relation_code}"}
                 pe.party = supplier
             else:
                 # Try to extract party info from description
                 if description and len(description) > 10:
-                    supplier_name = description[:50] + "..." if len(description) > 50 else description
-                    supplier_name = f"Unmatched Payment - {supplier_name}"
+                    # Import the SEPA extraction function
+                    from .eboekhouden_soap_migration import extract_name_from_sepa_description
+
+                    # Try to extract meaningful name from SEPA description
+                    extracted_name = extract_name_from_sepa_description(description)
+
+                    MAX_SUPPLIER_NAME_LENGTH = 140
+                    prefix = "Unmatched Payment - "
+
+                    if extracted_name:
+                        # Use the extracted name
+                        # base_name = extracted_name
+                        supplier_name = f"{prefix}{extracted_name}"
+                    else:
+                        # Fallback to truncated description
+                        max_desc_length = MAX_SUPPLIER_NAME_LENGTH - len(prefix) - 3
+                        base_name = (
+                            description[:max_desc_length] + "..."
+                            if len(description) > max_desc_length
+                            else description
+                        )
+                        supplier_name = f"{prefix}{base_name}"
+
+                    # Final truncation check
+                    if len(supplier_name) > MAX_SUPPLIER_NAME_LENGTH:
+                        supplier_name = supplier_name[: MAX_SUPPLIER_NAME_LENGTH - 3] + "..."
 
                     # Check if this supplier already exists
                     existing = frappe.db.get_value("Supplier", {"supplier_name": supplier_name}, "name")
@@ -123,6 +175,11 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                             frappe.db.get_value("Supplier Group", {"is_group": 0}, "name")
                             or "All Supplier Groups"
                         )
+
+                        # Store full SEPA description if it was truncated
+                        if len(description) > 50:
+                            supplier.supplier_details = f"SEPA Payment Description:\n{description}"
+
                         supplier.insert(ignore_permissions=True)
                         pe.party = supplier.name
                 else:
@@ -161,6 +218,14 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
         # Set reference information
         pe.reference_no = mutation.get("MutatieNr")
         pe.reference_date = pe.posting_date
+
+        # Import naming functions and set enhanced title
+        from .eboekhouden_payment_naming import enhance_payment_entry_fields, get_payment_entry_title
+
+        pe.title = get_payment_entry_title(mutation, pe.party, pe.payment_type)
+
+        # Enhance payment entry fields (this handles remarks with all details)
+        enhance_payment_entry_fields(pe, mutation)
 
         # Add unreconciled invoice information to remarks
         invoice_no = mutation.get("Factuurnummer")
@@ -230,12 +295,14 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
             frappe.db.rollback()
             return {"success": True, "payment_entry": None, "already_exists": True}
         else:
-            frappe.log_error(
-                f"Failed to create unreconciled payment: {str(ie)}", "E-Boekhouden Unreconciled Payment"
-            )
-            return {"success": False, "error": str(ie)}
+            # Truncate error message for title (max 140 chars)
+            error_msg = str(ie)
+            title = f"Failed to create unreconciled payment: {error_msg}"[:140]
+            frappe.log_error(error_msg, title)
+            return {"success": False, "error": error_msg}
     except Exception as e:
-        frappe.log_error(
-            f"Failed to create unreconciled payment: {str(e)}", "E-Boekhouden Unreconciled Payment"
-        )
-        return {"success": False, "error": str(e)}
+        # Truncate error message for title (max 140 chars)
+        error_msg = str(e)
+        title = f"Failed to create unreconciled payment: {error_msg}"[:140]
+        frappe.log_error(error_msg, title)
+        return {"success": False, "error": error_msg}

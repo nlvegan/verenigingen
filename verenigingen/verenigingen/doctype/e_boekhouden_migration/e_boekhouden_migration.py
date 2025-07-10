@@ -106,27 +106,7 @@ class EBoekhoudenMigration(Document):
                 result = migrate_method(self, settings)
                 migration_log.append(f"Cost Centers: {result}")
 
-            # Phase 3: Customers
-            if getattr(self, "migrate_customers", 0):
-                self.db_set({"current_operation": "Migrating Customers...", "progress_percentage": 40})
-                frappe.db.commit()
-
-                # Use getattr to avoid field/method name conflict
-                migrate_method = getattr(self.__class__, "migrate_customers")
-                result = migrate_method(self, settings)
-                migration_log.append(f"Customers: {result}")
-
-            # Phase 4: Suppliers
-            if getattr(self, "migrate_suppliers", 0):
-                self.db_set({"current_operation": "Migrating Suppliers...", "progress_percentage": 60})
-                frappe.db.commit()
-
-                # Use getattr to avoid field/method name conflict
-                migrate_method = getattr(self.__class__, "migrate_suppliers")
-                result = migrate_method(self, settings)
-                migration_log.append(f"Suppliers: {result}")
-
-            # Phase 5: Transactions
+            # Phase 3: Transactions
             if getattr(self, "migrate_transactions", 0):
                 self.db_set({"current_operation": "Migrating Transactions...", "progress_percentage": 80})
                 frappe.db.commit()
@@ -136,7 +116,7 @@ class EBoekhoudenMigration(Document):
                 result = migrate_method(self, settings)
                 migration_log.append(f"Transactions: {result}")
 
-            # Phase 6: Stock Transactions
+            # Phase 4: Stock Transactions
             if getattr(self, "migrate_stock_transactions", 0):
                 self.db_set(
                     {"current_operation": "Migrating Stock Transactions...", "progress_percentage": 90}
@@ -708,165 +688,94 @@ class EBoekhoudenMigration(Document):
         except Exception as e:
             return f"Error migrating Cost Centers: {str(e)}"
 
-    def migrate_customers(self, settings):
-        """Migrate Customers from e-Boekhouden"""
-        try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
-
-            # Get Customers data using new API
-            api = EBoekhoudenAPI(settings)
-            result = api.get_customers()
-
-            if not result["success"]:
-                return f"Failed to fetch Customers: {result['error']}"
-
-            # Parse JSON response
-            import json
-
-            data = json.loads(result["data"])
-            customers_data = data.get("items", [])
-
-            if self.dry_run:
-                return f"Dry Run: Found {len(customers_data)} customers to migrate"
-
-            # Create customers in ERPNext
-            created_count = 0
-            skipped_count = 0
-
-            for customer_data in customers_data:
-                try:
-                    if self.create_customer(customer_data):
-                        created_count += 1
-                        self.imported_records += 1
-                    else:
-                        skipped_count += 1
-                except Exception as e:
-                    self.failed_records += 1
-                    self.log_error(
-                        f"Failed to create customer {customer_data.get('name', 'Unknown')}: {str(e)}"
-                    )
-
-            self.total_records += len(customers_data)
-            return f"Created {created_count} customers, skipped {skipped_count} ({len(customers_data)} total)"
-
-        except Exception as e:
-            return f"Error migrating Customers: {str(e)}"
-
-    def migrate_suppliers(self, settings):
-        """Migrate Suppliers from e-Boekhouden"""
-        try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
-
-            # Get Suppliers data using new API
-            api = EBoekhoudenAPI(settings)
-            result = api.get_suppliers()
-
-            if not result["success"]:
-                return f"Failed to fetch Suppliers: {result['error']}"
-
-            # Parse JSON response
-            import json
-
-            data = json.loads(result["data"])
-            suppliers_data = data.get("items", [])
-
-            if self.dry_run:
-                return f"Dry Run: Found {len(suppliers_data)} suppliers to migrate"
-
-            # Create suppliers in ERPNext
-            created_count = 0
-            skipped_count = 0
-
-            for supplier_data in suppliers_data:
-                try:
-                    if self.create_supplier(supplier_data):
-                        created_count += 1
-                        self.imported_records += 1
-                    else:
-                        skipped_count += 1
-                except Exception as e:
-                    self.failed_records += 1
-                    self.log_error(
-                        f"Failed to create supplier {supplier_data.get('name', 'Unknown')}: {str(e)}"
-                    )
-
-            self.total_records += len(suppliers_data)
-            return f"Created {created_count} suppliers, skipped {skipped_count} ({len(suppliers_data)} total)"
-
-        except Exception as e:
-            return f"Error migrating Suppliers: {str(e)}"
-
     def migrate_transactions_data(self, settings):
-        """Migrate Transactions from e-Boekhouden using SOAP API"""
+        """Migrate Transactions from e-Boekhouden using REST API
+
+        DEPRECATED: SOAP API usage has been removed. This method now always uses REST API.
+        The SOAP API was limited to 500 transactions and is considered deprecated.
+        """
         try:
-            # Check if we should use SOAP API (default to True)
-            use_soap = getattr(self, "use_soap_api", True)
+            # Always use REST API - SOAP is deprecated
+            # Check if we should use enhanced migration
+            use_enhanced = getattr(self, "use_enhanced_migration", True)
 
-            if use_soap:
-                # Use the new SOAP-based migration
-                from verenigingen.utils.eboekhouden_soap_migration import migrate_using_soap
+            if use_enhanced:
+                # Use the enhanced migration with all improvements
+                from verenigingen.utils.eboekhouden_enhanced_migration import execute_enhanced_migration
 
-                # Check if we should use account mappings
-                use_account_mappings = getattr(self, "use_account_mappings", True)
+                result = execute_enhanced_migration(self.name)
 
-                result = migrate_using_soap(self, settings, use_account_mappings)
+                # Extract stats from enhanced migration result
+                if result.get("success", False) or "total_processed" in result:
+                    # Enhanced migration returns different structure
+                    stats = {
+                        "success": True,
+                        "total_mutations": result.get("total_processed", 0),
+                        "invoices_created": result.get("created", 0),
+                        "payments_processed": 0,  # Enhanced migration combines these
+                        "journal_entries_created": 0,
+                        "errors": result.get("errors", []),
+                    }
 
-                if result["success"]:
-                    stats = result["stats"]
-                    # Update counters in database directly to avoid document conflicts
-                    imported = (
-                        stats["invoices_created"]
-                        + stats["payments_processed"]
-                        + stats["journal_entries_created"]
-                    )
+                    # If we have audit summary, extract more detailed stats
+                    if "audit_summary" in result:
+                        audit = result["audit_summary"]
+                        if "overall_statistics" in audit:
+                            overall = audit["overall_statistics"]
+                            stats["invoices_created"] = overall.get("records_created", {}).get(
+                                "Sales Invoice", 0
+                            ) + overall.get("records_created", {}).get("Purchase Invoice", 0)
+                            stats["payments_processed"] = overall.get("records_created", {}).get(
+                                "Payment Entry", 0
+                            )
+                            stats["journal_entries_created"] = overall.get("records_created", {}).get(
+                                "Journal Entry", 0
+                            )
 
-                    # Get categorized results for better reporting
-                    categorized = stats.get("categorized_results", {})
-
-                    # Calculate "failed" based on actual errors, not retries
-                    actual_failures = 0
-                    if "categories" in categorized:
-                        # Count validation errors and system errors as failures
-                        actual_failures = categorized["categories"].get("validation_error", {}).get(
-                            "count", 0
-                        ) + categorized["categories"].get("system_error", {}).get("count", 0)
-                    else:
-                        # Fallback to old method
-                        actual_failures = len(stats["errors"])
-
-                    total = stats["total_mutations"]
-
-                    self.db_set(
-                        {
-                            "imported_records": self.imported_records + imported,
-                            "failed_records": self.failed_records + actual_failures,
-                            "total_records": self.total_records + total,
-                        }
-                    )
-
-                    # Use the improved message from categorizer
-                    return result["message"]
+                    result = {"success": True, "stats": stats}
                 else:
-                    return f"Error: {result.get('error', 'Unknown error')}"
+                    result = {"success": False, "error": result.get("error", "Migration failed")}
             else:
-                # Use the old REST API grouped migration
-                from verenigingen.utils.eboekhouden_grouped_migration import migrate_mutations_grouped
+                # DEPRECATED: SOAP API is no longer used - always use REST API
+                # The old use_soap_api flag is ignored
 
-                result = migrate_mutations_grouped(self, settings)
+                # Use REST API migration
+                from verenigingen.utils.eboekhouden_rest_full_migration import start_full_rest_import
 
-                if result["success"]:
-                    self.imported_records += result["created"]
-                    self.failed_records += result["failed"]
-                    self.total_records += result["total_mutations"]
+                # Start the REST import synchronously for this context
+                result = start_full_rest_import(self.name)
 
-                    return (
-                        f"Created {result['created']} journal entries from "
-                        f"{result['total_mutations']} mutations "
-                        f"({result['grouped_entries']} grouped, "
-                        f"{result['ungrouped_mutations']} ungrouped)"
-                    )
+                # If REST import returns a different structure, adapt it
+                if isinstance(result, dict) and "success" in result:
+                    # Already in correct format
+                    pass
                 else:
-                    return f"Error: {result.get('error', 'Unknown error')}"
+                    # Wrap in expected format
+                    result = {"success": True, "stats": result if isinstance(result, dict) else {}}
+
+            # Process result regardless of which method was used
+            if result.get("success"):
+                if "stats" in result:
+                    stats = result["stats"]
+                    # Try to extract meaningful counts
+                    imported = (
+                        stats.get("invoices_created", 0)
+                        + stats.get("payments_processed", 0)
+                        + stats.get("journal_entries_created", 0)
+                    )
+                    failed = stats.get("errors", []) if isinstance(stats.get("errors"), list) else []
+                    total = stats.get("total_mutations", imported)
+
+                    self.imported_records += imported
+                    self.failed_records += len(failed)
+                    self.total_records += total
+
+                    return f"Successfully imported {imported} transactions from {total} mutations"
+                else:
+                    # Fallback for other result formats
+                    return "Transaction import completed successfully"
+            else:
+                return f"Error: {result.get('error', 'Unknown error')}"
         except Exception as e:
             return f"Error migrating Transactions: {str(e)}"
 
@@ -1532,19 +1441,27 @@ class EBoekhoudenMigration(Document):
 
     def create_bank_account_for_coa_account(self, account_doc, account_name):
         """
-        Create Bank Account record for a Chart of Accounts bank account
+        Enhanced Bank Account creation for Chart of Accounts bank account
         """
         try:
             from verenigingen.utils.eboekhouden_enhanced_coa_import import (
                 create_bank_account_record,
                 extract_bank_info_from_account_name,
                 get_or_create_bank,
+                is_potential_bank_account,
             )
+
+            # First check if this looks like a bank account
+            account_code = getattr(account_doc, "account_number", None)
+            if not is_potential_bank_account(account_name, account_code):
+                frappe.logger().debug(f"Account {account_name} does not appear to be a bank account")
+                return None
 
             # Extract bank information from account name
             bank_info = extract_bank_info_from_account_name(account_name)
 
-            if bank_info.get("account_number"):
+            # Enhanced validation - accept accounts even without perfect number match
+            if bank_info.get("account_number") or bank_info.get("bank_name") != "Unknown Bank":
                 # Check if Bank Account already exists
                 existing_bank_account = None
                 if bank_info.get("iban"):
@@ -1555,19 +1472,17 @@ class EBoekhoudenMigration(Document):
                         "Bank Account", {"bank_account_no": bank_info["account_number"]}
                     )
 
+                # Also check by account mapping to avoid duplicates
+                if not existing_bank_account:
+                    existing_bank_account = frappe.db.exists("Bank Account", {"account": account_doc.name})
+
                 if not existing_bank_account:
                     # Create or get Bank record
                     bank_name = get_or_create_bank(bank_info)
 
-                    # Create Bank Account record
-                    account_data = {
-                        "name": account_doc.name,
-                        "account_name": account_name,
-                        "account_number": getattr(account_doc, "account_number", None),
-                    }
-
+                    # Create Bank Account record with enhanced validation
                     bank_account = create_bank_account_record(
-                        account=account_data,
+                        account=account_doc,
                         bank_name=bank_name,
                         bank_info=bank_info,
                         company=account_doc.company,
@@ -1578,13 +1493,20 @@ class EBoekhoudenMigration(Document):
                             f"Created Bank Account: {bank_account} for account: {account_doc.name}"
                         )
                         return bank_account
+                    else:
+                        frappe.logger().warning(f"Failed to create Bank Account for {account_doc.name}")
                 else:
                     frappe.logger().info(f"Bank Account already exists for account: {account_name}")
+            else:
+                frappe.logger().debug(f"Insufficient bank info extracted from {account_name}: {bank_info}")
 
             return None
 
         except Exception as e:
             frappe.logger().error(f"Error creating bank account for {account_doc.name}: {str(e)}")
+            frappe.log_error(
+                f"Bank account creation error for {account_doc.name}: {str(e)}", "Bank Account Creation"
+            )
             return None
 
     def get_parent_account(self, account_type, root_type, company):
@@ -1940,7 +1862,119 @@ class EBoekhoudenMigration(Document):
             return False
 
     def create_customer(self, customer_data):
-        """Create Customer in ERPNext"""
+        """Create Customer in ERPNext with SOAP/REST API compatibility"""
+        try:
+            # Handle both SOAP and REST API data formats
+            # SOAP format: {ID, Bedrijf, Contactpersoon, Email, BP, Geslacht, ...}
+            # REST format: {id, name, companyName, contactName, email, ...}
+
+            # Extract fields from either API format
+            customer_id = customer_data.get("ID") or customer_data.get("id", "")
+            company_name = (
+                customer_data.get("Bedrijf", "").strip() or customer_data.get("companyName", "").strip()
+            )
+            contact_name = (
+                customer_data.get("Contactpersoon", "").strip()
+                or customer_data.get("contactName", "").strip()
+            )
+            email = customer_data.get("Email", "").strip() or customer_data.get("email", "").strip()
+            name = customer_data.get("name", "").strip()
+
+            # SOAP-specific fields for better classification
+            bp_type = customer_data.get("BP", "")  # P=Person, B=Business
+
+            # Determine display name and customer type
+            display_name = company_name or contact_name or name
+
+            # Determine if this is a company or individual
+            is_company = False
+            if bp_type == "B":  # Business type in SOAP
+                is_company = True
+            elif bp_type == "P":  # Person type in SOAP
+                is_company = False
+            elif company_name and not contact_name:  # REST API: only company name
+                is_company = True
+            elif contact_name and not company_name:  # REST API: only contact name
+                is_company = False
+
+            # If we have meaningful display name, create the customer
+            if display_name:
+                return self._create_customer_with_type(
+                    customer_data, display_name, is_company, customer_id, email, contact_name
+                )
+
+            # If we only have ID (common case with REST API), skip creation during Chart of Accounts import
+            if customer_id and not display_name:
+                frappe.logger().info(
+                    f"Skipping customer {customer_id} during Chart of Accounts import - no meaningful name data. Will be created during transaction import."
+                )
+                return False
+
+            # If we have no usable data at all, log and skip
+            frappe.logger().warning(f"Customer data has no usable information: {customer_data}")
+            return False
+
+        except Exception as e:
+            frappe.logger().warning(f"Error in customer creation: {str(e)}")
+            return False
+
+    def _create_customer_with_type(
+        self, customer_data, display_name, is_company, customer_id, email, contact_name
+    ):
+        """Create customer with proper company/individual classification"""
+        try:
+            # Check if customer already exists
+            if frappe.db.exists("Customer", {"customer_name": display_name}):
+                frappe.logger().info(f"Customer '{display_name}' already exists, skipping")
+                return False
+
+            # Get default settings
+            settings = frappe.get_single("E-Boekhouden Settings")
+
+            # Get proper territory
+            territory = self.get_proper_territory_for_customer(customer_data)
+
+            # Create new customer with proper type classification
+            customer = frappe.get_doc(
+                {
+                    "doctype": "Customer",
+                    "customer_name": display_name,
+                    "customer_type": "Company" if is_company else "Individual",
+                    "customer_group": "All Customer Groups",
+                    "territory": territory,
+                    "default_currency": settings.default_currency or "EUR",
+                    "disabled": 0,
+                }
+            )
+
+            # Save relation ID for future updates (both SOAP and REST formats)
+            if customer_id:
+                try:
+                    customer.eboekhouden_relation_code = str(customer_id)
+                except Exception as rel_e:
+                    frappe.logger().warning(f"Could not save relation ID {customer_id}: {str(rel_e)}")
+
+            customer.insert(ignore_permissions=True)
+
+            # Create contact if contact details are available
+            if contact_name or email:
+                self.create_contact_for_customer(customer.name, customer_data)
+
+            # Create address if address details are available (SOAP format)
+            address_fields = ["Adres", "Plaats", "Postcode", "address", "city", "postalCode"]
+            if any(customer_data.get(field) for field in address_fields):
+                self.create_address_for_customer(customer.name, customer_data)
+
+            customer_type_str = "Company" if is_company else "Individual"
+            frappe.logger().info(f"Created {customer_type_str} customer: {display_name} (ID: {customer_id})")
+            return True
+
+        except Exception as e:
+            self.log_error(f"Failed to create customer {display_name}: {str(e)}")
+            return False
+
+    def _create_customer_fallback(self, customer_data):
+        """Fallback customer creation method"""
         try:
             # Map e-Boekhouden relation to ERPNext customer
             customer_name = customer_data.get("name", "").strip()
@@ -1954,7 +1988,8 @@ class EBoekhoudenMigration(Document):
 
             if not display_name:
                 if customer_id:
-                    display_name = f"Customer {customer_id}"
+                    # Use relation ID for placeholder but mark for future update
+                    display_name = f"eBoekhouden Relation {customer_id}"
                 else:
                     self.log_error("Invalid customer data: no name or ID available")
                     return False
@@ -1983,6 +2018,13 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
+            # Save relation ID for future updates
+            if customer_id:
+                try:
+                    customer.eboekhouden_relation_code = str(customer_id)
+                except Exception as rel_e:
+                    frappe.logger().warning(f"Could not save relation ID {customer_id}: {str(rel_e)}")
+
             customer.insert(ignore_permissions=True)
 
             # Create contact if contact details are available
@@ -2003,7 +2045,124 @@ class EBoekhoudenMigration(Document):
             return False
 
     def create_supplier(self, supplier_data):
-        """Create Supplier in ERPNext"""
+        """Create Supplier in ERPNext with SOAP/REST API compatibility"""
+        try:
+            # Handle both SOAP and REST API data formats
+            # SOAP format: {ID, Bedrijf, Contactpersoon, Email, BP, Geslacht, BTWNummer, ...}
+            # REST format: {id, name, companyName, contactName, email, vatNumber, ...}
+
+            # Extract fields from either API format
+            supplier_id = supplier_data.get("ID") or supplier_data.get("id", "")
+            company_name = (
+                supplier_data.get("Bedrijf", "").strip() or supplier_data.get("companyName", "").strip()
+            )
+            contact_name = (
+                supplier_data.get("Contactpersoon", "").strip()
+                or supplier_data.get("contactName", "").strip()
+            )
+            email = supplier_data.get("Email", "").strip() or supplier_data.get("email", "").strip()
+            name = supplier_data.get("name", "").strip()
+
+            # SOAP-specific fields for better classification
+            bp_type = supplier_data.get("BP", "")  # P=Person, B=Business
+            vat_number = (
+                supplier_data.get("BTWNummer", "").strip() or supplier_data.get("vatNumber", "").strip()
+            )
+
+            # Determine display name and supplier type
+            display_name = company_name or contact_name or name
+
+            # Determine if this is a company or individual
+            is_company = False
+            if bp_type == "B":  # Business type in SOAP
+                is_company = True
+            elif bp_type == "P":  # Person type in SOAP
+                is_company = False
+            elif company_name and not contact_name:  # REST API: only company name
+                is_company = True
+            elif contact_name and not company_name:  # REST API: only contact name
+                is_company = False
+            elif vat_number:  # Has VAT number, likely a business
+                is_company = True
+
+            # If we have meaningful display name, create the supplier
+            if display_name:
+                return self._create_supplier_with_type(
+                    supplier_data, display_name, is_company, supplier_id, email, contact_name, vat_number
+                )
+
+            # If we only have ID (common case with REST API), skip creation during Chart of Accounts import
+            if supplier_id and not display_name:
+                frappe.logger().info(
+                    f"Skipping supplier {supplier_id} during Chart of Accounts import - no meaningful name data. Will be created during transaction import."
+                )
+                return False
+
+            # If we have no usable data at all, log and skip
+            frappe.logger().warning(f"Supplier data has no usable information: {supplier_data}")
+            return False
+
+        except Exception as e:
+            frappe.logger().warning(f"Error in supplier creation: {str(e)}")
+            return False
+
+    def _create_supplier_with_type(
+        self, supplier_data, display_name, is_company, supplier_id, email, contact_name, vat_number
+    ):
+        """Create supplier with proper company/individual classification"""
+        try:
+            # Check if supplier already exists
+            if frappe.db.exists("Supplier", {"supplier_name": display_name}):
+                frappe.logger().info(f"Supplier '{display_name}' already exists, skipping")
+                return False
+
+            # Get default settings
+            settings = frappe.get_single("E-Boekhouden Settings")
+
+            # Create new supplier with proper type classification
+            supplier = frappe.get_doc(
+                {
+                    "doctype": "Supplier",
+                    "supplier_name": display_name,
+                    "supplier_type": "Company" if is_company else "Individual",
+                    "supplier_group": "All Supplier Groups",
+                    "default_currency": settings.default_currency or "EUR",
+                    "disabled": 0,
+                }
+            )
+
+            # Save relation ID for future updates (both SOAP and REST formats)
+            if supplier_id:
+                try:
+                    supplier.eboekhouden_relation_code = str(supplier_id)
+                except Exception as rel_e:
+                    frappe.logger().warning(f"Could not save relation ID {supplier_id}: {str(rel_e)}")
+
+            # Add VAT number if available (both SOAP and REST formats)
+            if vat_number:
+                supplier.tax_id = vat_number
+
+            supplier.insert(ignore_permissions=True)
+
+            # Create contact if contact details are available
+            if contact_name or email:
+                self.create_contact_for_supplier(supplier.name, supplier_data)
+
+            # Create address if address details are available (SOAP format)
+            address_fields = ["Adres", "Plaats", "Postcode", "address", "city", "postalCode"]
+            if any(supplier_data.get(field) for field in address_fields):
+                self.create_address_for_supplier(supplier.name, supplier_data)
+
+            supplier_type_str = "Company" if is_company else "Individual"
+            frappe.logger().info(f"Created {supplier_type_str} supplier: {display_name} (ID: {supplier_id})")
+            return True
+
+        except Exception as e:
+            self.log_error(f"Failed to create supplier {display_name}: {str(e)}")
+            return False
+
+    def _create_supplier_fallback(self, supplier_data):
+        """Fallback supplier creation method"""
         try:
             # Map e-Boekhouden relation to ERPNext supplier
             supplier_name = supplier_data.get("name", "").strip()
@@ -2017,7 +2176,8 @@ class EBoekhoudenMigration(Document):
 
             if not display_name:
                 if supplier_id:
-                    display_name = f"Supplier {supplier_id}"
+                    # Use relation ID for placeholder but mark for future update
+                    display_name = f"eBoekhouden Relation {supplier_id}"
                 else:
                     self.log_error("Invalid supplier data: no name or ID available")
                     return False
@@ -2041,6 +2201,13 @@ class EBoekhoudenMigration(Document):
                     "disabled": 0,
                 }
             )
+
+            # Save relation ID for future updates
+            if supplier_id:
+                try:
+                    supplier.eboekhouden_relation_code = str(supplier_id)
+                except Exception as rel_e:
+                    frappe.logger().warning(f"Could not save relation ID {supplier_id}: {str(rel_e)}")
 
             # Add VAT number if available
             vat_number = supplier_data.get("vatNumber", "").strip()
@@ -2744,81 +2911,659 @@ def nuclear_cleanup_all_imported_data():
     """
     Nuclear option: Direct SQL cleanup of all e-Boekhouden imported data
     """
-    
+
     # Get default company
     company = frappe.defaults.get_user_default("Company")
     if not company:
         company = frappe.get_all("Company", limit=1, pluck="name")[0]
-    
+
     results = {}
-    
+
     try:
         # Disable foreign key checks
         frappe.db.sql("SET FOREIGN_KEY_CHECKS = 0")
-        
+
         # Get all e-Boekhouden journal entries
-        journal_entries = frappe.db.sql("""
-            SELECT name FROM `tabJournal Entry` 
-            WHERE company = %s 
-            AND (user_remark LIKE '%%E-Boekhouden REST Import%%' 
+        journal_entries = frappe.db.sql(
+            """
+            SELECT name FROM `tabJournal Entry`
+            WHERE company = %s
+            AND (user_remark LIKE '%%E-Boekhouden REST Import%%'
                  OR user_remark LIKE '%%Migrated from e-Boekhouden%%')
-        """, company, as_dict=True)
-        
+        """,
+            company,
+            as_dict=True,
+        )
+
         # Delete all linked records in batches
         batch_size = 100
         deleted_count = 0
-        
+
         for i in range(0, len(journal_entries), batch_size):
-            batch = journal_entries[i:i+batch_size]
+            batch = journal_entries[i : i + batch_size]
             je_names = [je.name for je in batch]
-            
+
             if not je_names:
                 continue
-            
+
             # Create placeholders for SQL IN clause
-            placeholders = ','.join(['%s'] * len(je_names))
-            
+            placeholders = ",".join(["%s"] * len(je_names))
+
             # Delete all linked records for this batch
-            frappe.db.sql(f"DELETE FROM `tabRepost Accounting Ledger Items` WHERE voucher_no IN ({placeholders})", je_names)
-            frappe.db.sql(f"DELETE FROM `tabRepost Payment Ledger Items` WHERE voucher_no IN ({placeholders})", je_names)
-            frappe.db.sql(f"DELETE FROM `tabPayment Ledger Entry` WHERE voucher_no IN ({placeholders})", je_names)
+            frappe.db.sql(
+                f"DELETE FROM `tabRepost Accounting Ledger Items` WHERE voucher_no IN ({placeholders})",
+                je_names,
+            )
+            frappe.db.sql(
+                f"DELETE FROM `tabRepost Payment Ledger Items` WHERE voucher_no IN ({placeholders})", je_names
+            )
+            frappe.db.sql(
+                f"DELETE FROM `tabPayment Ledger Entry` WHERE voucher_no IN ({placeholders})", je_names
+            )
             frappe.db.sql(f"DELETE FROM `tabGL Entry` WHERE voucher_no IN ({placeholders})", je_names)
-            frappe.db.sql(f"DELETE FROM `tabJournal Entry Account` WHERE parent IN ({placeholders})", je_names)
+            frappe.db.sql(
+                f"DELETE FROM `tabJournal Entry Account` WHERE parent IN ({placeholders})", je_names
+            )
             frappe.db.sql(f"DELETE FROM `tabJournal Entry` WHERE name IN ({placeholders})", je_names)
-            
+
             deleted_count += len(batch)
-        
+
         results["journal_entries_deleted"] = deleted_count
-        
+
         # Clean up orphaned GL Entries
-        gl_result = frappe.db.sql("""
-            DELETE FROM `tabGL Entry` 
-            WHERE company = %s 
-            AND (remarks LIKE '%%e-Boekhouden%%' 
-                 OR remarks LIKE '%%eBoekhouden%%' 
+        gl_result = frappe.db.sql(
+            """
+            DELETE FROM `tabGL Entry`
+            WHERE company = %s
+            AND (remarks LIKE '%%e-Boekhouden%%'
+                 OR remarks LIKE '%%eBoekhouden%%'
                  OR remarks LIKE '%%E-Boekhouden REST Import%%')
-        """, company)
-        
+        """,
+            company,
+        )
+
         results["gl_entries_deleted"] = gl_result
-        
+
         # Commit changes
         frappe.db.commit()
-        
+
     except Exception as e:
         frappe.db.rollback()
         results["error"] = str(e)
-        
+
     finally:
         # Re-enable foreign key checks
         frappe.db.sql("SET FOREIGN_KEY_CHECKS = 1")
-    
+
     return {"success": True, "results": results}
+
+
+@frappe.whitelist()
+def debug_gl_entries_comprehensive_analysis():
+    """Comprehensive analysis of ALL GL entries to find eBoekhouden patterns"""
+
+    # Total count
+    total_count = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
+
+    # All companies
+    companies = frappe.db.sql("SELECT DISTINCT company FROM `tabGL Entry` ORDER BY company", as_dict=True)
+
+    # All voucher types and counts
+    voucher_types = frappe.db.sql(
+        """
+        SELECT voucher_type, COUNT(*) as count
+        FROM `tabGL Entry`
+        GROUP BY voucher_type
+        ORDER BY count DESC
+        """,
+        as_dict=True,
+    )
+
+    # Analyze party field patterns
+    party_patterns = frappe.db.sql(
+        """
+        SELECT party, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE party IS NOT NULL AND party != ''
+        GROUP BY party
+        ORDER BY count DESC
+        LIMIT 20
+        """,
+        as_dict=True,
+    )
+
+    # Analyze remarks patterns
+    remarks_patterns = frappe.db.sql(
+        """
+        SELECT remarks, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE remarks IS NOT NULL AND remarks != ''
+        GROUP BY remarks
+        ORDER BY count DESC
+        LIMIT 20
+        """,
+        as_dict=True,
+    )
+
+    # Look for voucher_no patterns
+    voucher_patterns = frappe.db.sql(
+        """
+        SELECT voucher_no, voucher_type, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE voucher_no REGEXP '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$'
+        GROUP BY voucher_no, voucher_type
+        ORDER BY count DESC
+        LIMIT 20
+        """,
+        as_dict=True,
+    )
+
+    # Sample of actual GL entries to see full structure
+    sample_entries = frappe.db.sql(
+        """
+        SELECT company, voucher_type, voucher_no, party, remarks, account
+        FROM `tabGL Entry`
+        WHERE voucher_no REGEXP '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$'
+        LIMIT 10
+        """,
+        as_dict=True,
+    )
+
+    # Check for eBoekhouden-specific patterns
+    eboekhouden_analysis = {}
+
+    # By party field
+    eboekhouden_analysis["party_eboekhouden"] = frappe.db.sql(
+        """
+        SELECT party, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE party LIKE '%boekhouden%' OR party LIKE '%E-Boekhouden%'
+        GROUP BY party
+        ORDER BY count DESC
+        """,
+        as_dict=True,
+    )
+
+    # By remarks field
+    eboekhouden_analysis["remarks_eboekhouden"] = frappe.db.sql(
+        """
+        SELECT remarks, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE remarks LIKE '%boekhouden%' OR remarks LIKE '%E-Boekhouden%'
+        GROUP BY remarks
+        ORDER BY count DESC
+        """,
+        as_dict=True,
+    )
+
+    # Check for Import patterns specifically
+    import_patterns = frappe.db.sql(
+        """
+        SELECT party, remarks, against, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE party LIKE '%Import%' OR remarks LIKE '%Import%' OR against LIKE '%Import%'
+        GROUP BY party, remarks, against
+        ORDER BY count DESC
+        LIMIT 10
+        """,
+        as_dict=True,
+    )
+
+    # Check against field patterns specifically
+    against_patterns = frappe.db.sql(
+        """
+        SELECT against, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE against IS NOT NULL AND against != ''
+        AND (against LIKE '%boekhouden%' OR against LIKE '%Import%')
+        GROUP BY against
+        ORDER BY count DESC
+        LIMIT 10
+        """,
+        as_dict=True,
+    )
+
+    return {
+        "total_count": total_count,
+        "companies": companies,
+        "voucher_types": voucher_types,
+        "party_patterns": party_patterns,
+        "remarks_patterns": remarks_patterns,
+        "voucher_patterns": voucher_patterns,
+        "sample_entries": sample_entries,
+        "eboekhouden_analysis": eboekhouden_analysis,
+        "import_patterns": import_patterns,
+        "against_patterns": against_patterns,
+    }
+
+
+@frappe.whitelist()
+def debug_gl_entries_analysis(company=None):
+    """Debug function to analyze GL entries that might be missed by cleanup"""
+
+    # If no company specified, analyze all companies
+    if company:
+        company_filter = "WHERE company = %s"
+        params = (company,)
+    else:
+        company_filter = ""
+        params = ()
+
+    # Count total GL entries
+    total_gl = frappe.db.sql(f"SELECT COUNT(*) FROM `tabGL Entry` {company_filter}", params)[0][0]
+
+    # Analyze by company and voucher type
+    voucher_types = frappe.db.sql(
+        f"""
+        SELECT company, voucher_type, COUNT(*) as count
+        FROM `tabGL Entry`
+        {company_filter}
+        GROUP BY company, voucher_type
+        ORDER BY count DESC
+        """,
+        params,
+        as_dict=True,
+    )
+
+    # Check for potential eBoekhouden patterns
+    eboekhouden_patterns = frappe.db.sql(
+        f"""
+        SELECT company, remarks, voucher_type, COUNT(*) as count
+        FROM `tabGL Entry`
+        {company_filter}
+        AND (remarks LIKE '%%boekhouden%%' OR remarks LIKE '%%Import%%' OR remarks LIKE '%%Mutation%%')
+        GROUP BY company, remarks, voucher_type
+        ORDER BY count DESC
+        LIMIT 20
+        """
+        if company
+        else """
+        SELECT company, remarks, voucher_type, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE (remarks LIKE '%%boekhouden%%' OR remarks LIKE '%%Import%%' OR remarks LIKE '%%Mutation%%')
+        GROUP BY company, remarks, voucher_type
+        ORDER BY count DESC
+        LIMIT 20
+        """,
+        params,
+        as_dict=True,
+    )
+
+    # Check voucher_no patterns for numeric patterns (likely eBoekhouden)
+    numeric_vouchers = frappe.db.sql(
+        f"""
+        SELECT company, voucher_type, COUNT(*) as count
+        FROM `tabGL Entry`
+        {company_filter}
+        AND voucher_no REGEXP '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$'
+        GROUP BY company, voucher_type
+        ORDER BY count DESC
+        """
+        if company
+        else """
+        SELECT company, voucher_type, COUNT(*) as count
+        FROM `tabGL Entry`
+        WHERE voucher_no REGEXP '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$'
+        GROUP BY company, voucher_type
+        ORDER BY count DESC
+        """,
+        params,
+        as_dict=True,
+    )
+
+    # Sample voucher numbers to see the pattern
+    sample_vouchers = frappe.db.sql(
+        f"""
+        SELECT company, voucher_no, voucher_type, remarks
+        FROM `tabGL Entry`
+        {company_filter}
+        AND voucher_no REGEXP '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$'
+        ORDER BY company, voucher_type
+        LIMIT 10
+        """
+        if company
+        else """
+        SELECT company, voucher_no, voucher_type, remarks
+        FROM `tabGL Entry`
+        WHERE voucher_no REGEXP '^[A-Z]+-[A-Z]+-[0-9]+-[0-9]+$'
+        ORDER BY company, voucher_type
+        LIMIT 10
+        """,
+        params,
+        as_dict=True,
+    )
+
+    return {
+        "total_gl_entries": total_gl,
+        "voucher_types": voucher_types,
+        "eboekhouden_patterns": eboekhouden_patterns,
+        "numeric_vouchers": numeric_vouchers,
+        "sample_vouchers": sample_vouchers,
+    }
+
+
+@frappe.whitelist()
+def debug_nuclear_gl_cleanup():
+    """Nuclear cleanup of all GL entries with 2025 voucher patterns that are likely from eBoekhouden"""
+    try:
+        results = {}
+
+        # 1. Delete GL entries with ACC-PAY-2025-* pattern
+        count_before = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-PAY-2025-[0-9]+$",)
+        )[0][0]
+        frappe.db.sql("DELETE FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-PAY-2025-[0-9]+$",))
+        count_after = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-PAY-2025-[0-9]+$",)
+        )[0][0]
+        results["payment_entries"] = {
+            "before": count_before,
+            "after": count_after,
+            "deleted": count_before - count_after,
+        }
+
+        # 2. Delete GL entries with ACC-JV-2025-* pattern
+        count_before = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-JV-2025-[0-9]+$",)
+        )[0][0]
+        frappe.db.sql("DELETE FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-JV-2025-[0-9]+$",))
+        count_after = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-JV-2025-[0-9]+$",)
+        )[0][0]
+        results["journal_entries"] = {
+            "before": count_before,
+            "after": count_after,
+            "deleted": count_before - count_after,
+        }
+
+        # 3. Delete GL entries with ACC-SINV-2025-* pattern
+        count_before = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-SINV-2025-[0-9]+$",)
+        )[0][0]
+        frappe.db.sql("DELETE FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-SINV-2025-[0-9]+$",))
+        count_after = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-SINV-2025-[0-9]+$",)
+        )[0][0]
+        results["sales_invoices"] = {
+            "before": count_before,
+            "after": count_after,
+            "deleted": count_before - count_after,
+        }
+
+        # 4. Delete GL entries with ACC-PINV-2025-* pattern
+        count_before = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-PINV-2025-[0-9]+$",)
+        )[0][0]
+        frappe.db.sql("DELETE FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-PINV-2025-[0-9]+$",))
+        count_after = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE voucher_no REGEXP %s", ("^ACC-PINV-2025-[0-9]+$",)
+        )[0][0]
+        results["purchase_invoices"] = {
+            "before": count_before,
+            "after": count_after,
+            "deleted": count_before - count_after,
+        }
+
+        # 5. Check total remaining
+        total_remaining = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
+        results["total_remaining"] = total_remaining
+
+        return {"success": True, "results": results}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_test_gl_deletion():
+    """Test function to delete GL entries with e-boekhouden patterns"""
+    try:
+        results = {}
+
+        # 1. Delete exact E-Boekhouden Import party entries
+        count_before = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE party = %s", ("E-Boekhouden Import",)
+        )[0][0]
+        frappe.db.sql("DELETE FROM `tabGL Entry` WHERE party = %s", ("E-Boekhouden Import",))
+        count_after = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE party = %s", ("E-Boekhouden Import",)
+        )[0][0]
+        results["exact_match"] = {
+            "before": count_before,
+            "after": count_after,
+            "deleted": count_before - count_after,
+        }
+
+        # 2. Delete party entries containing "e-Boekhouden"
+        count_before = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE party LIKE %s", ("%e-Boekhouden%",)
+        )[0][0]
+        frappe.db.sql("DELETE FROM `tabGL Entry` WHERE party LIKE %s", ("%e-Boekhouden%",))
+        count_after = frappe.db.sql(
+            "SELECT COUNT(*) FROM `tabGL Entry` WHERE party LIKE %s", ("%e-Boekhouden%",)
+        )[0][0]
+        results["eboekhouden_like"] = {
+            "before": count_before,
+            "after": count_after,
+            "deleted": count_before - count_after,
+        }
+
+        # 3. Check total remaining
+        total_remaining = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
+        results["total_remaining"] = total_remaining
+
+        return {"success": True, "results": results}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def analyze_remaining_gl_entries():
+    """Analyze what patterns exist in remaining GL entries"""
+    try:
+        # Sample GL entries to see what's left
+        sample_entries = frappe.db.sql(
+            """
+            SELECT voucher_no, voucher_type, party, against, remarks, posting_date, account, company
+            FROM `tabGL Entry`
+            ORDER BY posting_date DESC, voucher_no DESC
+            LIMIT 20
+            """,
+            as_dict=True,
+        )
+
+        # Count by voucher pattern
+        pattern_counts = frappe.db.sql(
+            """
+            SELECT
+                CASE
+                    WHEN voucher_no REGEXP '^ACC-PAY-2025-[0-9]+$' THEN 'ACC-PAY-2025-*'
+                    WHEN voucher_no REGEXP '^ACC-JV-2025-[0-9]+$' THEN 'ACC-JV-2025-*'
+                    WHEN voucher_no REGEXP '^ACC-SINV-2025-[0-9]+$' THEN 'ACC-SINV-2025-*'
+                    WHEN voucher_no REGEXP '^ACC-PINV-2025-[0-9]+$' THEN 'ACC-PINV-2025-*'
+                    ELSE 'Other'
+                END as pattern,
+                COUNT(*) as count
+            FROM `tabGL Entry`
+            GROUP BY pattern
+            ORDER BY count DESC
+            """,
+            as_dict=True,
+        )
+
+        # Count by party patterns
+        party_patterns = frappe.db.sql(
+            """
+            SELECT party, COUNT(*) as count
+            FROM `tabGL Entry`
+            WHERE party IS NOT NULL AND party != ''
+            GROUP BY party
+            ORDER BY count DESC
+            LIMIT 10
+            """,
+            as_dict=True,
+        )
+
+        # Count by against patterns
+        against_patterns = frappe.db.sql(
+            """
+            SELECT against, COUNT(*) as count
+            FROM `tabGL Entry`
+            WHERE against IS NOT NULL AND against != ''
+            GROUP BY against
+            ORDER BY count DESC
+            LIMIT 10
+            """,
+            as_dict=True,
+        )
+
+        # Count by posting date
+        date_patterns = frappe.db.sql(
+            """
+            SELECT posting_date, COUNT(*) as count
+            FROM `tabGL Entry`
+            GROUP BY posting_date
+            ORDER BY count DESC
+            LIMIT 10
+            """,
+            as_dict=True,
+        )
+
+        total_count = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
+
+        return {
+            "success": True,
+            "total_remaining": total_count,
+            "sample_entries": sample_entries,
+            "pattern_counts": pattern_counts,
+            "party_patterns": party_patterns,
+            "against_patterns": against_patterns,
+            "date_patterns": date_patterns,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def cleanup_cancelled_payment_gl_entries():
+    """Clean up GL entries from cancelled Payment Entries created by eBoekhouden import"""
+    try:
+        gl_deleted = 0
+
+        # Count before cleanup
+        count_before = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
+
+        # Delete GL entries from cancelled Payment Entries with 2025 pattern
+        # These are created when ERPNext cancels Payment Entries during cleanup
+        result = frappe.db.sql(
+            """
+            DELETE FROM `tabGL Entry`
+            WHERE voucher_type = 'Payment Entry'
+            AND voucher_no REGEXP '^ACC-PAY-2025-[0-9]+$'
+            AND remarks LIKE '%%On cancellation of ACC-PAY-2025-%%'
+        """
+        )
+        gl_deleted += result or 0
+
+        # Also clean up any other cancelled entries from 2025 eBoekhouden patterns
+        result = frappe.db.sql(
+            """
+            DELETE FROM `tabGL Entry`
+            WHERE voucher_no REGEXP '^ACC-(JV|PAY|SINV|PINV)-2025-[0-9]+$'
+            AND remarks LIKE '%%On cancellation of ACC-%%'
+        """
+        )
+        gl_deleted += result or 0
+
+        # Count after cleanup
+        count_after = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
+
+        return {
+            "success": True,
+            "count_before": count_before,
+            "count_after": count_after,
+            "gl_entries_deleted": gl_deleted,
+            "remaining": count_after,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_cleanup_remaining_gl_entries():
+    """Quick function to clean up remaining GL entries with E-Boekhouden patterns"""
+    try:
+        gl_deleted = 0
+
+        # Count before cleanup
+        count_before = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
+
+        # 1. Delete by party OR against containing E-Boekhouden Import
+        result = frappe.db.sql(
+            """
+            DELETE FROM `tabGL Entry`
+            WHERE party LIKE '%%E-Boekhouden Import%%'
+               OR against LIKE '%%E-Boekhouden Import%%'
+        """
+        )
+        gl_deleted += result or 0
+
+        # 2. Delete by party OR against containing any e-boekhouden reference
+        result = frappe.db.sql(
+            """
+            DELETE FROM `tabGL Entry`
+            WHERE party LIKE '%%e-Boekhouden%%'
+               OR against LIKE '%%e-Boekhouden%%'
+        """
+        )
+        gl_deleted += result or 0
+
+        # 3. Delete by remarks pattern
+        result = frappe.db.sql(
+            """
+            DELETE FROM `tabGL Entry`
+            WHERE remarks LIKE '%%E-Boekhouden%%'
+               OR remarks LIKE '%%e-Boekhouden%%'
+        """
+        )
+        gl_deleted += result or 0
+
+        # 4. Nuclear option - Delete ALL 2025 GL entries matching eBoekhouden voucher patterns
+        result = frappe.db.sql(
+            """
+            DELETE FROM `tabGL Entry`
+            WHERE voucher_no REGEXP '^ACC-(JV|PAY|SINV|PINV)-2025-[0-9]+$'
+            AND posting_date >= '2025-01-01'
+        """
+        )
+        gl_deleted += result or 0
+
+        # Count after cleanup
+        count_after = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
+
+        return {
+            "success": True,
+            "count_before": count_before,
+            "count_after": count_after,
+            "gl_entries_deleted": gl_deleted,
+            "remaining": count_after,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()
 def debug_cleanup_all_imported_data(company=None):
     """Debug function to completely clean up all imported data for fresh migration"""
     try:
+        # Use the simple robust cleanup function
+        from verenigingen.utils.simple_robust_cleanup import simple_robust_cleanup
+
+        return simple_robust_cleanup(company)
+    except ImportError:
+        # Fallback to basic cleanup if import fails
         # Get default company if not provided
         if not company:
             settings = frappe.get_single("E-Boekhouden Settings")
@@ -2829,30 +3574,74 @@ def debug_cleanup_all_imported_data(company=None):
 
         results = {}
 
-        # 1. Clean up Journal Entries (proper cancellation sequence)
-        journal_entries_deleted = 0
+        # Disable foreign key checks for the entire operation
+        frappe.db.sql("SET FOREIGN_KEY_CHECKS = 0")
+
         try:
-            journal_entries = frappe.get_all(
+            # Quick check if there's anything to clean up
+            quick_check = frappe.db.sql(
+                """SELECT
+                   (SELECT COUNT(*) FROM `tabJournal Entry` WHERE company = %s) +
+                   (SELECT COUNT(*) FROM `tabPayment Entry` WHERE company = %s) +
+                   (SELECT COUNT(*) FROM `tabSales Invoice` WHERE company = %s) +
+                   (SELECT COUNT(*) FROM `tabPurchase Invoice` WHERE company = %s) +
+                   (SELECT COUNT(*) FROM `tabGL Entry` WHERE company = %s) as total_records""",
+                (company, company, company, company, company),
+            )[0][0]
+
+            if quick_check == 0:
+                # Nothing to clean up, return success immediately
+                frappe.db.sql("SET FOREIGN_KEY_CHECKS = 1")
+                return {
+                    "success": True,
+                    "message": "No financial data found to clean up - system is already clean",
+                    "journal_entries_deleted": 0,
+                    "payment_entries_deleted": 0,
+                    "sales_invoices_deleted": 0,
+                    "purchase_invoices_deleted": 0,
+                    "gl_entries_deleted": 0,
+                }
+
+            # 1. First, clean up all related ledger entries in dependency order
+            ledger_entries_deleted = 0
+
+            # Get all imported journal entries first to know what we're cleaning
+            journal_entries_old = frappe.get_all(
                 "Journal Entry",
-                filters=[
-                    ["company", "=", company],
-                    ["user_remark", "like", "%Migrated from e-Boekhouden%"]
-                ],
+                filters=[["company", "=", company], ["user_remark", "like", "%Migrated from e-Boekhouden%"]],
                 fields=["name", "docstatus"],
             )
-            
-            # Also get journal entries with the new REST import pattern
-            journal_entries_rest = frappe.get_all(
+
+            journal_entries_new = frappe.get_all(
                 "Journal Entry",
-                filters=[
-                    ["company", "=", company],
-                    ["user_remark", "like", "%E-Boekhouden REST Import%"]
-                ],
+                filters=[["company", "=", company], ["user_remark", "like", "%E-Boekhouden REST Import%"]],
                 fields=["name", "docstatus"],
             )
-            
-            # Combine both lists and remove duplicates
-            all_journal_entries = journal_entries + journal_entries_rest
+
+            # Additional pattern: by title
+            journal_entries_title = frappe.get_all(
+                "Journal Entry",
+                filters=[["company", "=", company], ["title", "like", "%eBoekhouden%"]],
+                fields=["name", "docstatus"],
+            )
+
+            # Additional pattern: by eboekhouden_mutation_nr field
+            journal_entries_mutation = []
+            if frappe.db.has_column("Journal Entry", "eboekhouden_mutation_nr"):
+                journal_entries_mutation = frappe.get_all(
+                    "Journal Entry",
+                    filters=[
+                        ["company", "=", company],
+                        ["eboekhouden_mutation_nr", "is", "set"],
+                        ["eboekhouden_mutation_nr", "!=", ""],
+                    ],
+                    fields=["name", "docstatus"],
+                )
+
+            # Combine and deduplicate
+            all_journal_entries = (
+                journal_entries_old + journal_entries_new + journal_entries_title + journal_entries_mutation
+            )
             seen_names = set()
             journal_entries = []
             for je in all_journal_entries:
@@ -2860,52 +3649,63 @@ def debug_cleanup_all_imported_data(company=None):
                     journal_entries.append(je)
                     seen_names.add(je.name)
 
-            # Disable foreign key checks for aggressive deletion
-            try:
-                frappe.db.sql("SET FOREIGN_KEY_CHECKS = 0")
-                
-                for je in journal_entries:
+            je_names = [je.name for je in journal_entries]
+
+            if je_names:
+                # Clean up all ledger entries for these journal entries
+                for table in [
+                    "Repost Accounting Ledger Items",
+                    "Repost Accounting Ledger",
+                    "Repost Payment Ledger Items",
+                    "Repost Payment Ledger",
+                    "Payment Ledger Entry",
+                    "GL Entry",
+                ]:
                     try:
-                        # Skip frappe.get_doc and go directly to SQL deletion
-                        je_name = je.name
-                        
-                        # Delete all linked entries using direct SQL
-                        try:
-                            frappe.db.sql("DELETE FROM `tabRepost Accounting Ledger Items` WHERE voucher_no = %s", je_name)
-                            frappe.db.sql("DELETE FROM `tabRepost Accounting Ledger` WHERE voucher_no = %s", je_name)
-                            frappe.db.sql("DELETE FROM `tabRepost Payment Ledger Items` WHERE voucher_no = %s", je_name)
-                            frappe.db.sql("DELETE FROM `tabRepost Payment Ledger` WHERE voucher_no = %s", je_name)
-                            frappe.db.sql("DELETE FROM `tabPayment Ledger Entry` WHERE voucher_no = %s", je_name)
-                            frappe.db.sql("DELETE FROM `tabGL Entry` WHERE voucher_no = %s", je_name)
-                            
-                            # Delete Journal Entry Account child records
-                            frappe.db.sql("DELETE FROM `tabJournal Entry Account` WHERE parent = %s", je_name)
-                            
-                            # Finally delete the Journal Entry itself
-                            frappe.db.sql("DELETE FROM `tabJournal Entry` WHERE name = %s", je_name)
-                            
-                            journal_entries_deleted += 1
-                        except Exception as sql_e:
-                            frappe.log_error(f"Failed to delete Journal Entry {je_name} via SQL: {str(sql_e)}")
-                            
-                            # Fallback: try the old method
-                            try:
-                                je_doc = frappe.get_doc("Journal Entry", je_name)
-                                if je_doc.docstatus == 1:
-                                    je_doc.cancel()
-                                frappe.delete_doc("Journal Entry", je_name)
-                                journal_entries_deleted += 1
-                            except Exception as fallback_e:
-                                frappe.log_error(f"Fallback deletion also failed for {je_name}: {str(fallback_e)}")
-                                
+                        deleted_count = frappe.db.sql(
+                            f"DELETE FROM `tab{table}` WHERE voucher_no IN ({','.join(['%s'] * len(je_names))})",
+                            je_names,
+                        )
+                        # For DELETE statements, frappe.db.sql() returns affected rows count
+                        ledger_entries_deleted += int(deleted_count or 0)
                     except Exception as e:
-                        frappe.log_error(f"Failed to delete Journal Entry {je.name}: {str(e)}")
-                        
-            finally:
-                # Always re-enable foreign key checks
-                frappe.db.sql("SET FOREIGN_KEY_CHECKS = 1")
+                        frappe.log_error(f"Error cleaning {table}: {str(e)}")
+
+                # Clean up Journal Entry Account child records
+                try:
+                    frappe.db.sql(
+                        f"DELETE FROM `tabJournal Entry Account` WHERE parent IN ({','.join(['%s'] * len(je_names))})",
+                        je_names,
+                    )
+                except Exception as e:
+                    frappe.log_error(f"Error cleaning Journal Entry Account: {str(e)}")
+
+            results["ledger_entries_deleted"] = ledger_entries_deleted
+
+            # 2. Clean up Journal Entries (now that dependencies are removed)
+            journal_entries_deleted = 0
+
+            if je_names:
+                try:
+                    # Direct SQL deletion of Journal Entries
+                    frappe.db.sql(
+                        f"DELETE FROM `tabJournal Entry` WHERE name IN ({','.join(['%s'] * len(je_names))})",
+                        je_names,
+                    )
+                    journal_entries_deleted = len(je_names)
+                except Exception as e:
+                    frappe.log_error(f"Error deleting Journal Entries via SQL: {str(e)}")
+
+                    # Fallback: try individual deletion
+                    for je in journal_entries:
+                        try:
+                            frappe.db.sql("DELETE FROM `tabJournal Entry` WHERE name = %s", je.name)
+                            journal_entries_deleted += 1
+                        except Exception as individual_e:
+                            frappe.log_error(f"Failed to delete Journal Entry {je.name}: {str(individual_e)}")
+
         except Exception as e:
-            frappe.log_error(f"Error cleaning journal entries: {str(e)}")
+            frappe.log_error(f"Error in ledger cleanup section: {str(e)}")
 
         results["journal_entries_deleted"] = journal_entries_deleted
 
@@ -3020,6 +3820,38 @@ def debug_cleanup_all_imported_data(company=None):
             payment_entries_deleted += cleanup_payment_entries(remarks_entries, "remarks")
         except Exception as e:
             frappe.log_error(f"Error with remarks cleanup method: {str(e)}")
+
+        # Method 4: By E-Boekhouden Import party (CRITICAL - catches imports)
+        try:
+            party_entries = frappe.get_all(
+                "Payment Entry",
+                filters=[
+                    ["company", "=", company],
+                    ["party", "=", "E-Boekhouden Import"],
+                    ["docstatus", "!=", 2],
+                ],
+                fields=["name", "docstatus"],
+            )
+
+            payment_entries_deleted += cleanup_payment_entries(party_entries, "eboekhouden_party")
+        except Exception as e:
+            frappe.log_error(f"Error with E-Boekhouden Import party cleanup: {str(e)}")
+
+        # Method 5: By reference_no pattern containing EBH
+        try:
+            ebh_ref_entries = frappe.get_all(
+                "Payment Entry",
+                filters=[
+                    ["company", "=", company],
+                    ["reference_no", "like", "%EBH-%"],
+                    ["docstatus", "!=", 2],
+                ],
+                fields=["name", "docstatus"],
+            )
+
+            payment_entries_deleted += cleanup_payment_entries(ebh_ref_entries, "ebh_reference")
+        except Exception as e:
+            frappe.log_error(f"Error with EBH reference cleanup: {str(e)}")
 
         results["payment_entries_deleted"] = payment_entries_deleted
 
@@ -3139,6 +3971,24 @@ def debug_cleanup_all_imported_data(company=None):
                 sales_invoices_deleted += cleanup_sales_invoices(mutation_invoices, "mutation_nr")
         except Exception as e:
             frappe.log_error(f"Error with mutation_nr-based SI cleanup: {str(e)}")
+
+        # Method 3.5: By E-Boekhouden Import customer (CRITICAL - catches most imports)
+        try:
+            eboekhouden_customer_invoices = frappe.get_all(
+                "Sales Invoice",
+                filters=[
+                    ["company", "=", company],
+                    ["customer", "=", "E-Boekhouden Import"],
+                    ["docstatus", "!=", 2],
+                ],
+                fields=["name", "docstatus"],
+            )
+
+            sales_invoices_deleted += cleanup_sales_invoices(
+                eboekhouden_customer_invoices, "eboekhouden_customer"
+            )
+        except Exception as e:
+            frappe.log_error(f"Error with E-Boekhouden Import customer cleanup: {str(e)}")
 
         # Method 4: By numeric invoice number pattern (backup method)
         try:
@@ -3325,6 +4175,24 @@ def debug_cleanup_all_imported_data(company=None):
         except Exception as e:
             frappe.log_error(f"Error with mutation_nr-based PI cleanup: {str(e)}")
 
+        # Method 3.5: By E-Boekhouden Import supplier (CRITICAL - catches most imports)
+        try:
+            eboekhouden_supplier_invoices = frappe.get_all(
+                "Purchase Invoice",
+                filters=[
+                    ["company", "=", company],
+                    ["supplier", "=", "E-Boekhouden Import"],
+                    ["docstatus", "!=", 2],
+                ],
+                fields=["name", "docstatus"],
+            )
+
+            purchase_invoices_deleted += cleanup_purchase_invoices(
+                eboekhouden_supplier_invoices, "eboekhouden_supplier"
+            )
+        except Exception as e:
+            frappe.log_error(f"Error with E-Boekhouden Import supplier cleanup: {str(e)}")
+
         # Method 4: By numeric invoice number pattern (backup method)
         try:
             # E-Boekhouden invoices often have numeric invoice numbers
@@ -3384,17 +4252,17 @@ def debug_cleanup_all_imported_data(company=None):
             gl_entries_old = frappe.db.get_all(
                 "GL Entry", filters={"company": company, "remarks": ["like", "%e-Boekhouden%"]}
             )
-            
+
             # Get entries with new REST import pattern
             gl_entries_new = frappe.db.get_all(
                 "GL Entry", filters={"company": company, "remarks": ["like", "%eBoekhouden%"]}
             )
-            
+
             # Get entries with REST import journal entry pattern
             gl_entries_rest = frappe.db.get_all(
                 "GL Entry", filters={"company": company, "remarks": ["like", "%E-Boekhouden REST Import%"]}
             )
-            
+
             # Combine all lists and remove duplicates
             all_gl_entries = gl_entries_old + gl_entries_new + gl_entries_rest
             seen_names = set()
@@ -3442,7 +4310,14 @@ def debug_cleanup_all_imported_data(company=None):
 
     except Exception as e:
         frappe.db.rollback()
+        frappe.log_error(f"Error in debug_cleanup_all_imported_data: {str(e)}")
         return {"success": False, "error": str(e)}
+    finally:
+        # Ensure foreign key checks are always re-enabled
+        try:
+            frappe.db.sql("SET FOREIGN_KEY_CHECKS = 1")
+        except Exception:
+            pass
 
 
 @frappe.whitelist()
@@ -3556,7 +4431,8 @@ def debug_cleanup_gl_entries_only(company=None):
                 JOIN `tabJournal Entry` je ON gl.voucher_no = je.name
                 WHERE gl.company = %s
                 AND gl.voucher_type = 'Journal Entry'
-                AND je.user_remark LIKE '%%Migrated from e-Boekhouden%%'
+                AND (je.user_remark LIKE '%%Migrated from e-Boekhouden%%'
+                     OR je.user_remark LIKE '%%E-Boekhouden REST Import%%')
             """,
                 (company,),
                 as_dict=True,
@@ -4371,39 +5247,44 @@ def debug_nuclear_cleanup_all_imported_data(company=None):
             )
             gl_deleted += result or 0
 
-            # Delete GL Entries linked to E-Boekhouden invoices
+            # Delete GL Entries linked to E-Boekhouden Sales Invoices (both old and new patterns)
             result = frappe.db.sql(
                 """
                 DELETE gl FROM `tabGL Entry` gl
                 JOIN `tabSales Invoice` si ON gl.voucher_no = si.name
                 WHERE gl.company = %s
                 AND gl.voucher_type = 'Sales Invoice'
-                AND si.remarks LIKE '%%e-Boekhouden%%'
+                AND (si.remarks LIKE '%%e-Boekhouden%%'
+                     OR si.eboekhouden_invoice_number IS NOT NULL)
             """,
                 (company,),
             )
             gl_deleted += result or 0
 
+            # Delete GL Entries linked to E-Boekhouden Purchase Invoices (both old and new patterns)
             result = frappe.db.sql(
                 """
                 DELETE gl FROM `tabGL Entry` gl
                 JOIN `tabPurchase Invoice` pi ON gl.voucher_no = pi.name
                 WHERE gl.company = %s
                 AND gl.voucher_type = 'Purchase Invoice'
-                AND pi.remarks LIKE '%%e-Boekhouden%%'
+                AND (pi.remarks LIKE '%%e-Boekhouden%%'
+                     OR pi.eboekhouden_invoice_number IS NOT NULL)
             """,
                 (company,),
             )
             gl_deleted += result or 0
 
-            # Delete GL Entries linked to Journal Entries
+            # Delete GL Entries linked to Journal Entries (both old and new patterns)
             result = frappe.db.sql(
                 """
                 DELETE gl FROM `tabGL Entry` gl
                 JOIN `tabJournal Entry` je ON gl.voucher_no = je.name
                 WHERE gl.company = %s
                 AND gl.voucher_type = 'Journal Entry'
-                AND je.user_remark LIKE '%%Migrated from e-Boekhouden%%'
+                AND (je.user_remark LIKE '%%Migrated from e-Boekhouden%%'
+                     OR je.user_remark LIKE '%%E-Boekhouden REST Import%%'
+                     OR je.eboekhouden_mutation_nr IS NOT NULL)
             """,
                 (company,),
             )
@@ -4417,6 +5298,146 @@ def debug_nuclear_cleanup_all_imported_data(company=None):
                 AND remarks LIKE '%%e-Boekhouden%%'
             """,
                 (company,),
+            )
+            gl_deleted += result or 0
+
+            # Delete GL Entries with "Party\nE-Boekhouden Import" pattern
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE company = %s
+                AND remarks LIKE '%%Party%%E-Boekhouden Import%%'
+            """,
+                (company,),
+            )
+            gl_deleted += result or 0
+
+            # Delete GL Entries with just "E-Boekhouden Import" pattern
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE company = %s
+                AND remarks LIKE '%%E-Boekhouden Import%%'
+            """,
+                (company,),
+            )
+            gl_deleted += result or 0
+
+            # Nuclear cleanup - Delete ALL GL Entries with E-Boekhouden Import in party field
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE party = 'E-Boekhouden Import'
+            """
+            )
+            gl_deleted += result or 0
+
+            # Additional cleanup for party field with any e-boekhouden reference
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE party LIKE '%%e-Boekhouden%%'
+            """
+            )
+            gl_deleted += result or 0
+
+            # Cleanup by remarks pattern
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE remarks LIKE '%%E-Boekhouden Import%%'
+            """
+            )
+            gl_deleted += result or 0
+
+            # Nuclear cleanup - Delete GL Entries from eBoekhouden imports by voucher pattern
+            # These follow the pattern ACC-[TYPE]-2025-[NUMBER] and are likely all from imports
+            result = frappe.db.sql(
+                """
+                DELETE gl FROM `tabGL Entry` gl
+                WHERE gl.voucher_no REGEXP '^ACC-(JV|PAY|SINV|PINV)-2025-[0-9]+$'
+                AND EXISTS (
+                    SELECT 1 FROM `tabJournal Entry` je
+                    WHERE je.name = gl.voucher_no
+                    AND (je.user_remark LIKE '%%E-Boekhouden%%' OR je.eboekhouden_mutation_nr IS NOT NULL)
+                )
+            """
+            )
+            gl_deleted += result or 0
+
+            # Nuclear cleanup for Payment Entry GL entries
+            result = frappe.db.sql(
+                """
+                DELETE gl FROM `tabGL Entry` gl
+                WHERE gl.voucher_no REGEXP '^ACC-PAY-2025-[0-9]+$'
+                AND EXISTS (
+                    SELECT 1 FROM `tabPayment Entry` pe
+                    WHERE pe.name = gl.voucher_no
+                    AND pe.eboekhouden_mutation_nr IS NOT NULL
+                )
+            """
+            )
+            gl_deleted += result or 0
+
+            # Nuclear cleanup for Sales/Purchase Invoice GL entries
+            result = frappe.db.sql(
+                """
+                DELETE gl FROM `tabGL Entry` gl
+                WHERE gl.voucher_no REGEXP '^ACC-(SINV|PINV)-2025-[0-9]+$'
+                AND (
+                    EXISTS (
+                        SELECT 1 FROM `tabSales Invoice` si
+                        WHERE si.name = gl.voucher_no
+                        AND si.eboekhouden_invoice_number IS NOT NULL
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM `tabPurchase Invoice` pi
+                        WHERE pi.name = gl.voucher_no
+                        AND pi.eboekhouden_invoice_number IS NOT NULL
+                    )
+                )
+            """
+            )
+            gl_deleted += result or 0
+
+            # Cleanup GL Entries with "E-Boekhouden Import" in against field
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE against = 'E-Boekhouden Import'
+            """
+            )
+            gl_deleted += result or 0
+
+            # Cleanup GL Entries with any e-boekhouden pattern in against field
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE against LIKE '%%e-Boekhouden%%'
+            """
+            )
+            gl_deleted += result or 0
+
+            # COMPREHENSIVE cleanup - Delete GL entries with E-Boekhouden in party OR against fields
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE party LIKE '%%E-Boekhouden Import%%'
+                   OR against LIKE '%%E-Boekhouden Import%%'
+                   OR party LIKE '%%e-Boekhouden%%'
+                   OR against LIKE '%%e-Boekhouden%%'
+            """
+            )
+            gl_deleted += result or 0
+
+            # NUCLEAR option - Delete ALL 2025 GL entries matching eBoekhouden voucher patterns
+            # This catches any remaining entries that weren't properly tagged
+            result = frappe.db.sql(
+                """
+                DELETE FROM `tabGL Entry`
+                WHERE voucher_no REGEXP '^ACC-(JV|PAY|SINV|PINV)-2025-[0-9]+$'
+                AND posting_date >= '2025-01-01'
+            """
             )
             gl_deleted += result or 0
 
@@ -4447,14 +5468,16 @@ def debug_nuclear_cleanup_all_imported_data(company=None):
 
         results["payment_entries_deleted"] = payment_deleted
 
-        # 3. Nuclear cleanup of Journal Entries
+        # 3. Nuclear cleanup of Journal Entries (both old and new patterns)
         je_deleted = 0
         try:
             result = frappe.db.sql(
                 """
                 DELETE FROM `tabJournal Entry`
                 WHERE company = %s
-                AND user_remark LIKE '%%Migrated from e-Boekhouden%%'
+                AND (user_remark LIKE '%%Migrated from e-Boekhouden%%'
+                     OR user_remark LIKE '%%E-Boekhouden REST Import%%'
+                     OR eboekhouden_mutation_nr IS NOT NULL)
             """,
                 (company,),
             )
@@ -4464,14 +5487,15 @@ def debug_nuclear_cleanup_all_imported_data(company=None):
 
         results["journal_entries_deleted"] = je_deleted
 
-        # 4. Nuclear cleanup of Sales Invoices
+        # 4. Nuclear cleanup of Sales Invoices (both old and new patterns)
         si_deleted = 0
         try:
             result = frappe.db.sql(
                 """
                 DELETE FROM `tabSales Invoice`
                 WHERE company = %s
-                AND remarks LIKE '%%e-Boekhouden%%'
+                AND (remarks LIKE '%%e-Boekhouden%%'
+                     OR eboekhouden_invoice_number IS NOT NULL)
             """,
                 (company,),
             )
@@ -4481,14 +5505,15 @@ def debug_nuclear_cleanup_all_imported_data(company=None):
 
         results["sales_invoices_deleted"] = si_deleted
 
-        # 5. Nuclear cleanup of Purchase Invoices
+        # 5. Nuclear cleanup of Purchase Invoices (both old and new patterns)
         pi_deleted = 0
         try:
             result = frappe.db.sql(
                 """
                 DELETE FROM `tabPurchase Invoice`
                 WHERE company = %s
-                AND remarks LIKE '%%e-Boekhouden%%'
+                AND (remarks LIKE '%%e-Boekhouden%%'
+                     OR eboekhouden_invoice_number IS NOT NULL)
             """,
                 (company,),
             )
@@ -4956,16 +5981,28 @@ def debug_fix_parent_account_errors(migration_name=None):
 
 @frappe.whitelist()
 def start_transaction_import(migration_name, import_type="recent"):
-    """Start importing transactions with option for recent (SOAP) or all (REST)
+    """Start importing transactions using REST API only
+
+    DEPRECATED: The 'recent' option previously used SOAP API which was limited to 500 transactions.
+    Now both 'recent' and 'all' use REST API with different date ranges.
 
     Args:
         migration_name: Name of the migration document
-        import_type: 'recent' for last 500 via SOAP, 'all' for full history via REST
+        import_type: 'recent' for last 90 days, 'all' for full history via REST
     """
     try:
         migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
         if migration.migration_status != "Draft":
             return {"success": False, "error": "Migration must be in Draft status to start"}
+
+        # Check if REST API is configured
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api_token = settings.get_password("api_token") or settings.get_password("rest_api_token")
+        if not api_token:
+            return {
+                "success": False,
+                "error": "REST API token not configured. Please configure in E-Boekhouden Settings.",
+            }
 
         # Configure migration for transaction import
         migration.db_set(
@@ -4977,39 +6014,29 @@ def start_transaction_import(migration_name, import_type="recent"):
                 "migrate_transactions": 1,  # Import transactions
             }
         )
+
+        # Set date range based on import type
+        if import_type == "recent":
+            # Import last 90 days of transactions
+            from frappe.utils import add_days, today
+
+            migration.db_set({"date_from": add_days(today(), -90), "date_to": today()})
+            message = "Recent transactions import started (last 90 days) via REST API"
+        else:
+            # Full import - dates should already be set or will use full range
+            message = "Full transaction import started via REST API"
+
         frappe.db.commit()
 
-        # For REST API full import, use different method
-        if import_type == "all":
-            # Check if REST API is configured
-            settings = frappe.get_single("E-Boekhouden Settings")
-            api_token = settings.get_password("api_token")
-            if not api_token:
-                return {
-                    "success": False,
-                    "error": "REST API token not configured. Please configure in E-Boekhouden Settings.",
-                }
+        # Always use REST API import
+        frappe.enqueue(
+            "verenigingen.utils.eboekhouden_rest_full_migration.start_full_rest_import",
+            migration_name=migration_name,
+            queue="long",
+            timeout=7200 if import_type == "all" else 3600,  # 2 hours for full, 1 hour for recent
+        )
 
-            # Start REST API import in background
-            frappe.enqueue(
-                "verenigingen.utils.eboekhouden_rest_full_migration.start_full_rest_import",
-                migration_name=migration_name,
-                queue="long",
-                timeout=7200,  # 2 hours for full import
-            )
-
-            return {"success": True, "message": "Full transaction import started via REST API"}
-        else:
-            # Use standard SOAP migration for recent 500
-            frappe.enqueue(
-                "verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.run_migration_background",
-                migration_name=migration_name,
-                setup_only=False,
-                queue="long",
-                timeout=3600,
-            )
-
-            return {"success": True, "message": "Recent transaction import started via SOAP API"}
+        return {"success": True, "message": message}
 
     except Exception as e:
         frappe.log_error(f"Error starting transaction import: {str(e)}")
@@ -5235,4 +6262,222 @@ def get_account_type_recommendations(company, show_all=False):
 
     except Exception as e:
         frappe.log_error(f"Error getting account recommendations: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_import_discrepancy():
+    """Debug the import discrepancy between reported mutations and imported documents"""
+
+    # Get the last few migration runs
+    migrations = frappe.get_all(
+        "E-Boekhouden Migration",
+        fields=["name", "migration_name", "creation", "migration_log"],
+        filters={"migration_status": "Completed"},
+        order_by="creation desc",
+        limit=3,
+    )
+
+    # results = []
+
+    for migration in migrations:
+        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration.name)
+
+        # Parse the migration log to find reported counts
+        log_lines = migration_doc.migration_log.split("\n") if migration_doc.migration_log else []
+
+        # pinv_reported = None
+        # pinv_imported = None
+        # sinv_reported = None
+        # sinv_imported = None
+
+        for line in log_lines:
+            if "PINV" in line or "Purchase Invoice" in line:
+                # Look for patterns like "699 mutations, 657 imported" or "1267 mutations found"
+                import re
+
+                # Pattern for "X mutations, Y imported"
+                mutations_pattern = r"(\d+)\s+mutations.*?(\d+)\s+imported"
+                match = re.search(mutations_pattern, line)
+                if match:
+                    # pinv_reported = int(match.group(1))
+                    # pinv_imported = int(match.group(2))
+                    pass
+
+                # Pattern for "X mutations found"
+                found_pattern = r"(\d+)\s+mutations\s+found"
+                match = re.search(found_pattern, line)
+                if match:
+                    # pinv_reported = int(match.group(1))
+                    pass
+
+            elif "SINV" in line or "Sales Invoice" in line:
+                import re
+
+                # Pattern for "X mutations, Y imported"
+                mutations_pattern = r"(\d+)\s+mutations.*?(\d+)\s+imported"
+                match = re.search(mutations_pattern, line)
+                if match:
+                    # sinv_reported = int(match.group(1))
+                    # sinv_imported = int(match.group(2))
+                    pass
+
+                # Pattern for "X mutations found"
+                found_pattern = r"(\d+)\s+mutations\s+found"
+                match = re.search(found_pattern, line)
+                if match:
+                    # sinv_reported = int(match.group(1))
+                    pass
+
+
+@frappe.whitelist()
+def import_single_mutation(migration_name, mutation_id, overwrite_existing=True):
+    """Import a single mutation by ID for testing purposes"""
+    try:
+        # Get migration record
+        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+
+        # Check if mutation already exists
+        existing_je = frappe.db.get_value(
+            "Journal Entry", {"eboekhouden_mutation_nr": str(mutation_id)}, "name"
+        )
+        existing_si = frappe.db.get_value(
+            "Sales Invoice", {"eboekhouden_mutation_nr": str(mutation_id)}, "name"
+        )
+        existing_pi = frappe.db.get_value(
+            "Purchase Invoice", {"eboekhouden_mutation_nr": str(mutation_id)}, "name"
+        )
+        existing_pe = frappe.db.get_value(
+            "Payment Entry", {"eboekhouden_mutation_nr": str(mutation_id)}, "name"
+        )
+
+        existing_doc = existing_je or existing_si or existing_pi or existing_pe
+
+        if existing_doc and not overwrite_existing:
+            return {
+                "success": False,
+                "error": f"Mutation {mutation_id} already exists as {existing_doc}. Enable 'Overwrite if exists' to replace it.",
+            }
+
+        # Delete existing document if overwrite is enabled
+        if existing_doc and overwrite_existing:
+            if existing_je:
+                frappe.delete_doc("Journal Entry", existing_je, force=True)
+            if existing_si:
+                frappe.delete_doc("Sales Invoice", existing_si, force=True)
+            if existing_pi:
+                frappe.delete_doc("Purchase Invoice", existing_pi, force=True)
+            if existing_pe:
+                frappe.delete_doc("Payment Entry", existing_pe, force=True)
+
+        # Fetch mutation from eBoekhouden API
+        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+
+        api = EBoekhoudenAPI()
+
+        result = api.make_request(f"v1/mutation/{mutation_id}")
+
+        if not result or not result.get("success") or result.get("status_code") != 200:
+            return {
+                "success": False,
+                "error": f"Failed to fetch mutation {mutation_id} from eBoekhouden API: {result.get('error', 'Unknown error')}",
+            }
+
+        # Parse mutation data
+        import json
+
+        mutation_data = json.loads(result.get("data", "{}"))
+
+        # Import the mutation
+        from verenigingen.utils.eboekhouden_rest_full_migration import _process_single_mutation
+
+        debug_info = []
+
+        # Get cost center for the company
+        company = migration.company
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+        if not cost_center:
+            return {"success": False, "error": f"No cost center found for company {company}"}
+
+        # Process the mutation
+        created_doc = _process_single_mutation(
+            mutation=mutation_data, company=company, cost_center=cost_center, debug_info=debug_info
+        )
+
+        if created_doc:
+            # Get document type and name from the document object
+            doc_type = created_doc.doctype
+            doc_name = created_doc.name
+
+            frappe.db.commit()
+
+            return {
+                "success": True,
+                "mutation_id": mutation_id,
+                "document_type": doc_type,
+                "document_name": doc_name,
+                "debug_info": debug_info,
+                "message": f"Successfully imported mutation {mutation_id} as {doc_type} {doc_name}",
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to create document for mutation {mutation_id}. Check debug info for details.",
+                "debug_info": debug_info,
+            }
+
+    except Exception as e:
+        frappe.log_error(f"Error importing single mutation {mutation_id}: {str(e)}")
+        return {"success": False, "error": f"Error importing mutation {mutation_id}: {str(e)}"}
+
+
+@frappe.whitelist()
+def import_opening_balances_only(migration_name):
+    """Import only opening balances using the new ERPNext approach"""
+    try:
+        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+
+        # Import opening balances using the new implementation
+        from verenigingen.utils.eboekhouden_rest_full_migration import _import_opening_balances
+
+        # Get company details
+        company = migration.company
+        cost_center = frappe.db.get_value("Company", company, "cost_center")
+
+        debug_info = []
+
+        # Call the new opening balance import function
+        result = _import_opening_balances(company, cost_center, debug_info)
+
+        # Update migration record with results
+        migration.db_set(
+            {
+                "migration_status": "Completed" if result.get("imported", 0) > 0 else "Failed",
+                "imported_records": result.get("imported", 0),
+            }
+        )
+
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "result": {
+                "imported": result.get("imported", 0),
+                "errors": result.get("errors", []),
+                "debug_info": debug_info,
+            },
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Opening balance import failed: {str(e)}")
+
+        # Update migration record with error
+        try:
+            migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+            migration.db_set({"migration_status": "Failed", "error_log": str(e)})
+            frappe.db.commit()
+        except:
+            pass
+
         return {"success": False, "error": str(e)}

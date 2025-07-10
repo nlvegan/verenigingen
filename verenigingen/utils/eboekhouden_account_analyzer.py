@@ -181,7 +181,7 @@ def generate_account_mapping_suggestions(analysis):
 
             # Add reasoning
             if account["matching_patterns"]:
-                suggestion["reasons"].append(f"Account name matches {category} patterns")
+                suggestion["reasons"].append("Account name matches {category} patterns")
 
             if account["suggested_doc_type"] == "Journal Entry":
                 suggestion["reasons"].append("Complex accounting entry requiring journal voucher")
@@ -270,7 +270,7 @@ def create_mapping_from_suggestion(suggestion):
     return {
         "success": True,
         "mapping": mapping.name,
-        "message": f"Created mapping for account {suggestion['account_code']}",
+        "message": "Created mapping for account {suggestion['account_code']}",
     }
 
 
@@ -322,7 +322,7 @@ def bulk_create_mappings(suggestions):
         "created": created,
         "skipped": skipped,
         "errors": errors,
-        "message": f"Created {created} mappings, skipped {skipped} existing",
+        "message": "Created {created} mappings, skipped {skipped} existing",
     }
 
 
@@ -366,4 +366,4 @@ def create_default_range_mappings():
             doc.insert(ignore_permissions=True)
             created += 1
 
-    return {"created": created, "message": f"Created {created} default range mappings"}
+    return {"created": created, "message": "Created {created} default range mappings"}

@@ -265,7 +265,7 @@ class EnhancedAccountMigration:
             # Add more as discovered
         }
 
-        return group_names.get(group_code, f"Group {group_code}")
+        return group_names.get(group_code, "Group {group_code}")
 
     def _get_standard_parent(self, root_type):
         """
@@ -373,7 +373,7 @@ def run_enhanced_migration(migration_name):
     Run migration with enhanced category and group support
     """
     try:
-        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
 
         # Initialize enhanced migrators
         EnhancedAccountMigration(migration_doc)

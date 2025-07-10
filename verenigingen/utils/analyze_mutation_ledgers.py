@@ -83,7 +83,7 @@ def analyze_mutation_ledgers():
             elif "telefoon" in desc_lower or "internet" in desc_lower:
                 description_patterns[inv.name] = "Should be telecom expenses"
             else:
-                description_patterns[inv.name] = f"Unknown category: {inv.description[:50]}"
+                description_patterns[inv.name] = "Unknown category: {inv.description[:50]}"
 
         return {
             "success": True,

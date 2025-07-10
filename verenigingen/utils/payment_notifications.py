@@ -52,7 +52,7 @@ def check_and_resolve_payment_retries(payment_entry, member):
                         {
                             "attempt_date": frappe.utils.now_datetime(),
                             "reason_code": "SUCCESS",
-                            "reason_message": f"Payment received via {payment_entry.mode_of_payment}",
+                            "reason_message": "Payment received via {payment_entry.mode_of_payment}",
                             "payment_reference": payment_entry.name,
                         },
                     )

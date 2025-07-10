@@ -100,7 +100,17 @@ def get_smart_account_type(account_data):
         return "Stock", "Asset"
 
     # Equity accounts
-    elif code.startswith("5") or category == "EIG":
+    elif code.startswith("5"):
+        # Check if it's incorrectly categorized as FIN in eBoekhouden
+        # Equity accounts should never be Bank type
+        if category == "FIN":
+            # Log this mapping issue for review
+            frappe.log_error(
+                "Account {code} - {description} has FIN category but code suggests Equity account",
+                "eBoekhouden Category Mismatch",
+            )
+        return "Equity", "Equity"
+    elif category == "EIG":
         return "Equity", "Equity"
 
     # Income accounts
@@ -122,11 +132,11 @@ def get_smart_account_type(account_data):
         category_mapping = {
             "DEB": ("Receivable", "Asset"),
             "CRED": ("Payable", "Liability"),
-            "FIN": ("Bank", "Asset"),
+            "FIN": ("Bank", "Asset"),  # Financial accounts - usually banks
             "KAS": ("Cash", "Asset"),
             "VW": ("Expense Account", "Expense"),  # Verbruiksrekeningen
             "BTW": ("Tax", "Liability"),
-            "EIG": ("Equity", "Equity"),
+            "EIG": ("Equity", "Equity"),  # Eigen vermogen
             "BAL": ("Current Asset", "Asset"),  # Balance sheet - needs context
         }
 
@@ -204,4 +214,4 @@ def test_account_type_detection(account_code=None):
                         "detected_root": root_type,
                     }
 
-        return {"success": False, "error": f"Account {account_code} not found"}
+        return {"success": False, "error": "Account {account_code} not found"}

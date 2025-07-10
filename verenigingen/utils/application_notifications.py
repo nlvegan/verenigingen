@@ -34,7 +34,7 @@ def send_application_confirmation_email(member, application_id):
 
         frappe.sendmail(
             recipients=[member.email],
-            subject=f"Membership Application Received - ID: {application_id}",
+            subject="Membership Application Received - ID: {application_id}",
             message=message,
             now=True,
             reference_doctype="Member",
@@ -85,7 +85,7 @@ def notify_reviewers_of_new_application(member, application_id):
 
         frappe.sendmail(
             recipients=reviewers,
-            subject=f"New Application: {application_id} - {member.full_name}",
+            subject="New Application: {application_id} - {member.full_name}",
             message=message,
             now=True,
         )
@@ -94,7 +94,7 @@ def notify_reviewers_of_new_application(member, application_id):
 def send_approval_email(member, invoice):
     """Send email when application is approved with payment instructions"""
     try:
-        # payment_url = frappe.utils.get_url() + f"/payment?invoice={invoice.name}"
+        # payment_url = frappe.utils.get_url() + "/payment?invoice={invoice.name}"
 
         message = """
         <h3>Your membership application has been approved!</h3>
@@ -339,7 +339,7 @@ def notify_admins_of_new_application(member, invoice=None):
 
         frappe.sendmail(
             recipients=[admin.email for admin in admins],
-            subject=f"New Application: {member.full_name}",
+            subject="New Application: {member.full_name}",
             message=message,
             now=True,
         )
@@ -381,7 +381,7 @@ def check_overdue_applications():
                     else:
                         # Fallback to simple message
                         # app_list = "\n".join(
-                        #     [f"- {app.full_name} (Applied: {app.application_date})" for app in overdue]
+                        #     ["- {app.full_name} (Applied: {app.application_date})" for app in overdue]
                         # )
                         message = """
                         <h3>Overdue Membership Applications</h3>

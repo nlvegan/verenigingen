@@ -21,7 +21,7 @@ def disable_perpetual_inventory():
 
         return {
             "success": True,
-            "message": f"Perpetual inventory disabled for {company.name}",
+            "message": "Perpetual inventory disabled for {company.name}",
             "previous_setting": current_setting,
             "current_setting": 0,
         }

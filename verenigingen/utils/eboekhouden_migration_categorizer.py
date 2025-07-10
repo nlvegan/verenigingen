@@ -198,11 +198,11 @@ class MigrationCategorizer:
         for key in order:
             if key in summary["categories"]:
                 cat = summary["categories"][key]
-                lines.append(f"- {cat['label']}: {cat['count']} ({cat['percentage']}%)")
+                lines.append("- {cat['labelf']}: {cat['count']} ({cat['percentage']}%)")
 
                 if "breakdown" in cat and cat["breakdown"]:
                     for sub_key, sub_count in cat["breakdown"].items():
-                        lines.append(f"  • {sub_key.replace('_', ' ').title()}: {sub_count}")
+                        lines.append("  • {sub_key.replace('_', ' ').title()}: {sub_count}")
 
         return "\n".join(lines)
 

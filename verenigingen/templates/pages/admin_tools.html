@@ -1,0 +1,286 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block page_content %}
+<div class="admin-tools-page">
+    <!-- System Health Overview -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-dashboard"></i> System Health Overview
+                    </h4>
+                </div>
+                <div class="card-body">
+                    {% if system_health %}
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="text-center">
+                                    <h5>Overall Status</h5>
+                                    {% if system_health.status == 'healthy' %}
+                                        <i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
+                                        <p class="text-success font-weight-bold">HEALTHY</p>
+                                    {% elif system_health.status == 'degraded' %}
+                                        <i class="fa fa-exclamation-triangle text-warning" style="font-size: 48px;"></i>
+                                        <p class="text-warning font-weight-bold">DEGRADED</p>
+                                    {% else %}
+                                        <i class="fa fa-times-circle text-danger" style="font-size: 48px;"></i>
+                                        <p class="text-danger font-weight-bold">CRITICAL</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="col-md-8">
+                                <h5>Health Checks</h5>
+                                <div class="row">
+                                    {% for check, result in system_health.checks.items() %}
+                                    <div class="col-md-6 mb-2">
+                                        <div class="d-flex align-items-center">
+                                            {% if result.status == 'ok' %}
+                                                <i class="fa fa-check-circle text-success mr-2"></i>
+                                            {% elif result.status == 'slow' %}
+                                                <i class="fa fa-exclamation-circle text-warning mr-2"></i>
+                                            {% else %}
+                                                <i class="fa fa-times-circle text-danger mr-2"></i>
+                                            {% endif %}
+                                            <span>{{ check.replace('_', ' ').title() }}</span>
+                                            {% if result.response_time_ms %}
+                                                <small class="ml-auto text-muted">{{ "%.2f"|format(result.response_time_ms) }}ms</small>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    {% else %}
+                        <div class="alert alert-warning">
+                            <i class="fa fa-exclamation-triangle"></i> Unable to load system health data
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Database Statistics -->
+    {% if db_stats and not db_stats.error %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-database"></i> Database Statistics
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-4">
+                            <h3 class="text-primary">{{ db_stats.total_tables }}</h3>
+                            <p class="text-muted">Total Tables</p>
+                        </div>
+                        <div class="col-md-4">
+                            <h3 class="text-primary">{{ "{:,}".format(db_stats.total_rows) }}</h3>
+                            <p class="text-muted">Total Rows</p>
+                        </div>
+                        <div class="col-md-4">
+                            <h3 class="text-primary">{{ "%.2f"|format(db_stats.total_size_mb) }} MB</h3>
+                            <p class="text-muted">Total Size</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Available Tools -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-secondary text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-wrench"></i> Available Admin Tools
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        {% for tool in available_tools %}
+                        <div class="col-md-6 mb-3">
+                            <div class="card tool-card h-100" data-method="{{ tool.method }}">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        <i class="fa {{ tool.icon }} text-{{ tool.color }}"></i>
+                                        {{ tool.title }}
+                                    </h5>
+                                    <p class="card-text">{{ tool.description }}</p>
+                                    {% if tool.warning %}
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <i class="fa fa-warning"></i> {{ tool.warning }}
+                                        </div>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
+                                            data-method="{{ tool.method }}"
+                                            data-title="{{ tool.title }}"
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
+                                        <i class="fa fa-play"></i> Execute
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Command Examples -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-dark text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-terminal"></i> Command Line Examples
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">These commands can be run from the terminal:</p>
+                    {% for example in command_examples %}
+                    <div class="mb-3">
+                        <strong>{{ example.description }}:</strong>
+                        <div class="bg-light p-2 rounded">
+                            <code>{{ example.command }}</code>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Modal -->
+    <div class="modal fade" id="resultsModal" tabindex="-1" role="dialog">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Tool Results</h5>
+                    <button type="button" class="close" data-dismiss="modal">
+                        <span>&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="tool-results"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.tool-card {
+    transition: transform 0.2s;
+    cursor: pointer;
+}
+
+.tool-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+.admin-tools-page .card-header {
+    border-radius: 0;
+}
+
+.admin-tools-page .card {
+    border-radius: 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.bg-light code {
+    color: #333;
+    background-color: transparent;
+}
+</style>
+
+<script>
+$(document).ready(function() {
+    // Execute tool button click handler
+    $('.execute-tool').on('click', function(e) {
+        e.preventDefault();
+
+        var method = $(this).data('method');
+        var title = $(this).data('title');
+        var warning = $(this).data('warning');
+        var $button = $(this);
+
+        // Check if this is a dangerous operation that requires confirmation
+        if (warning) {
+            if (!confirm('⚠️ WARNING: ' + warning + '\n\nAre you sure you want to proceed?')) {
+                return;
+            }
+        }
+
+        // Show loading state
+        $button.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Executing...');
+
+        // Execute the tool
+        frappe.call({
+            method: 'verenigingen.templates.pages.admin_tools.execute_admin_tool',
+            args: {
+                method: method
+            },
+            callback: function(r) {
+                $button.prop('disabled', false).html('<i class="fa fa-play"></i> Execute');
+
+                if (r.message && r.message.success) {
+                    // Show results in modal
+                    $('#resultsModal .modal-title').text(title + ' - Results');
+
+                    var resultHtml = '<div class="result-content">';
+                    resultHtml += '<p class="text-success"><i class="fa fa-check-circle"></i> Execution successful</p>';
+                    resultHtml += '<small class="text-muted">Timestamp: ' + r.message.timestamp + '</small>';
+                    resultHtml += '<hr>';
+
+                    if (typeof r.message.result === 'object') {
+                        resultHtml += '<pre class="bg-light p-3">' + JSON.stringify(r.message.result, null, 2) + '</pre>';
+                    } else {
+                        resultHtml += '<div>' + r.message.result + '</div>';
+                    }
+
+                    resultHtml += '</div>';
+
+                    $('#tool-results').html(resultHtml);
+                    $('#resultsModal').modal('show');
+                } else {
+                    frappe.msgprint({
+                        title: 'Error',
+                        indicator: 'red',
+                        message: r.message ? r.message.error : 'Failed to execute tool'
+                    });
+                }
+            },
+            error: function(r) {
+                $button.prop('disabled', false).html('<i class="fa fa-play"></i> Execute');
+                frappe.msgprint({
+                    title: 'Error',
+                    indicator: 'red',
+                    message: 'Failed to execute tool: ' + (r.message || 'Unknown error')
+                });
+            }
+        });
+    });
+
+    // Auto-refresh health status every 30 seconds
+    setInterval(function() {
+        if ($('.admin-tools-page').length) {
+            location.reload();
+        }
+    }, 30000);
+});
+</script>
+{% endblock %}

@@ -114,17 +114,17 @@ def validate_birth_date(birth_date):
 def validate_name(name, field_name="Name"):
     """Validate name fields"""
     if not name:
-        return {"valid": False, "message": _(f"{field_name} is required")}
+        return {"valid": False, "message": _("{field_name} is required")}
 
     # Sanitize the name by stripping whitespace and normalizing
     sanitized_name = name.strip()
 
     # Check length
     if len(sanitized_name) < 2:
-        return {"valid": False, "message": _(f"{field_name} must be at least 2 characters")}
+        return {"valid": False, "message": _("{field_name} must be at least 2 characters")}
 
     if len(sanitized_name) > 50:
-        return {"valid": False, "message": _(f"{field_name} must be less than 50 characters")}
+        return {"valid": False, "message": _("{field_name} must be less than 50 characters")}
 
     # Enhanced regex pattern to handle more special characters commonly found in names
     # Includes: letters (including accented), spaces, hyphens, apostrophes, periods, and common name characters
@@ -135,7 +135,7 @@ def validate_name(name, field_name="Name"):
         return {
             "valid": False,
             "message": _(
-                f"{field_name} contains invalid characters. Only letters, spaces, hyphens, apostrophes, and periods are allowed"
+                "{field_name} contains invalid characters. Only letters, spaces, hyphens, apostrophes, and periods are allowed"
             ),
         }
 
@@ -149,7 +149,7 @@ def validate_name(name, field_name="Name"):
 
     for pattern in dangerous_patterns:
         if re.search(pattern, sanitized_name, re.IGNORECASE):
-            return {"valid": False, "message": _(f"{field_name} contains invalid characters")}
+            return {"valid": False, "message": _("{field_name} contains invalid characters")}
 
     return {"valid": True, "message": _("Valid name"), "sanitized": sanitized_name}
 

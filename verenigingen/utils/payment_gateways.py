@@ -35,7 +35,7 @@ class BankTransferGateway(PaymentGateway):
         company = frappe.get_doc("Company", settings.donation_company)
 
         # Generate unique payment reference
-        payment_reference = f"DON-{donation.name}-{donation.creation.strftime('%Y%m%d')}"
+        payment_reference = "DON-{donation.name}-{donation.creation.strftime('%Y%m%d')}"
 
         # Update donation with payment reference
         donation.db_set("payment_id", payment_reference)
@@ -76,9 +76,9 @@ class MollieGateway(PaymentGateway):
         """Create Mollie payment"""
         # Placeholder for Mollie integration
         # payment_data = {
-        #     "amount": {"currency": "EUR", "value": f"{donation.amount:.2f}"},
-        #     "description": f"Donation {donation.name}",
-        #     "redirectUrl": f"{frappe.utils.get_url()}/donation-success?id={donation.name}",
+        #     "amount": {"currency": "EUR", "value": "{donation.amount:.2f}"},
+        #     "description": "Donation {donation.name}",
+        #     "redirectUrl": "{frappe.utils.get_url()}/donation-success?id={donation.name}",
         #     "webhookUrl": self.webhook_url,
         #     "metadata": {
         #         "donation_id": donation.name,
@@ -91,8 +91,8 @@ class MollieGateway(PaymentGateway):
 
         return {
             "status": "redirect_required",
-            "payment_url": f"https://mollie.com/checkout/{donation.name}",  # Placeholder
-            "payment_id": f"tr_{donation.name}",  # Placeholder
+            "payment_url": "https://mollie.com/checkout/{donation.name}",  # Placeholder
+            "payment_id": "tr_{donation.name}",  # Placeholder
             "expires_at": frappe.utils.add_to_date(frappe.utils.now(), hours=1),
         }
 
@@ -130,7 +130,7 @@ class MollieGateway(PaymentGateway):
 
     def _get_webhook_url(self):
         """Get webhook URL for Mollie"""
-        return f"{frappe.utils.get_url()}/api/method/verenigingen.utils.payment_gateways.mollie_webhook"
+        return "{frappe.utils.get_url()}/api/method/verenigingen.utils.payment_gateways.mollie_webhook"
 
 
 class SEPAGateway(PaymentGateway):
@@ -206,7 +206,7 @@ class SEPAGateway(PaymentGateway):
                     "account_holder_name": form_data.get("donor_name", donor.donor_name),
                     "mandate_type": "RCUR" if donation.donation_status == "Recurring" else "OOFF",
                     "status": "Active",
-                    "mandate_reference": f"MAND-{donation.name}",
+                    "mandate_reference": "MAND-{donation.name}",
                     "signature_date": getdate(),
                     "reference_doctype": "Donation",
                     "reference_name": donation.name,
@@ -234,7 +234,7 @@ class CashGateway(PaymentGateway):
 
         return {
             "status": "cash_pending",
-            "reference": f"CASH-{donation.name}",
+            "reference": "CASH-{donation.name}",
             "instructions": _("Please bring cash to our office or pay at events"),
             "contact_email": getattr(settings, "member_contact_email", ""),
             "office_hours": _("Monday-Friday 9:00-17:00"),
@@ -340,7 +340,7 @@ def manual_payment_confirmation(donation_id, payment_reference, notes=None):
         donation.payment_id = payment_reference
 
         if notes:
-            donation.add_comment("Comment", f"Manual payment confirmation: {notes}")
+            donation.add_comment("Comment", "Manual payment confirmation: {notes}")
 
         # Create payment entry if automation is enabled
         if hasattr(donation, "create_payment_entry"):

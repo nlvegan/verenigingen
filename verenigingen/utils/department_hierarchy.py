@@ -47,13 +47,13 @@ class DepartmentHierarchyManager:
 
         for chapter in chapters:
             # Main chapter department
-            chapter_dept = f"Chapter {chapter.name}"
+            chapter_dept = "Chapter {chapter.name}"
             self._ensure_department(chapter_dept, parent="Chapters")
 
             # Sub-departments
             self._ensure_department(f"{chapter_dept} Board", parent=chapter_dept)
             self._ensure_department(f"{chapter_dept} Teams", parent=chapter_dept)
-            self._ensure_department(f"{chapter_dept} Volunteers", parent=chapter_dept)
+            self._ensure_department("{chapter_dept} Volunteers", parent=chapter_dept)
 
     def _create_team_departments(self):
         """Create departments for teams"""
@@ -65,7 +65,7 @@ class DepartmentHierarchyManager:
         )
 
         for team in national_teams:
-            dept_name = f"{team.team_name} ({team.team_type or 'Team'})"
+            dept_name = "{team.team_name} ({team.team_type or 'Team'})"
             self._ensure_department(dept_name, parent="National Teams")
 
     def _ensure_department(self, dept_name, parent=None):
@@ -98,7 +98,7 @@ class DepartmentHierarchyManager:
 
         if board_positions:
             chapter = frappe.get_doc("Chapter", board_positions[0].parent)
-            return f"Chapter {chapter.chapter_name} Board"
+            return "Chapter {chapter.chapter_name} Board"
 
         # Priority 2: Team leadership positions
         team_leadership = frappe.db.sql(
@@ -120,9 +120,9 @@ class DepartmentHierarchyManager:
             team = team_leadership[0]
             if team.chapter:
                 chapter = frappe.get_doc("Chapter", team.chapter)
-                return f"Chapter {chapter.chapter_name} Teams"
+                return "Chapter {chapter.chapter_name} Teams"
             else:
-                return f"{team.team_name} ({team.team_type or 'Team'})"
+                return "{team.team_name} ({team.team_type or 'Team'})"
 
         # Priority 3: Regular team membership
         team_memberships = frappe.db.sql(
@@ -177,6 +177,7 @@ class DepartmentHierarchyManager:
         chapters = frappe.get_all("Chapter", filters={"status": "Active"})
 
         for chapter in chapters:
+            # chapter_doc = frappe.get_doc("Chapter", chapter.name)
             chapter_doc = frappe.get_doc("Chapter", chapter.name)
             approvers = self._get_financial_approvers(chapter.name)
 

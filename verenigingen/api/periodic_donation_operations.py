@@ -634,7 +634,9 @@ def export_agreements(filters):
         filters = json.loads(filters) if isinstance(filters, str) else filters
 
         # Get report data
-        from vereiningen.verenigingen.report.anbi_periodic_agreements.anbi_periodic_agreements import get_data
+        from verenigingen.verenigingen.report.anbi_periodic_agreements.anbi_periodic_agreements import (
+            get_data,
+        )
 
         data = get_data(filters)
 

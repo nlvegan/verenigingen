@@ -4,7 +4,7 @@
 frappe.ui.form.on('E-Boekhouden Settings', {
 	refresh: function(frm) {
 		// Add custom buttons for testing
-		frm.add_custom_button(__('Test Connection'), function() {
+		frm.add_custom_button(__('Test REST API Connection'), function() {
 			if (!frm.doc.api_token) {
 				frappe.msgprint(__('Please enter your API token first.'));
 				return;
@@ -88,125 +88,6 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 				});
 			});
 
-			frm.add_custom_button(__('Test Customers'), function() {
-				frappe.call({
-					method: 'verenigingen.utils.eboekhouden_api.preview_customers',
-					callback: function(r) {
-						if (r.message && r.message.success) {
-							let dialog = new frappe.ui.Dialog({
-								title: 'Customers Preview',
-								fields: [{
-									fieldtype: 'HTML',
-									options: `<div class="text-muted">
-										<h5>Found ${r.message.total_count} customers:</h5>
-										<pre style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 3px;">${JSON.stringify(r.message.customers, null, 2)}</pre>
-									</div>`
-								}],
-								primary_action_label: 'Close',
-								primary_action: function() { dialog.hide(); }
-							});
-							dialog.show();
-						} else {
-							frappe.msgprint({
-								title: 'Customers Test Failed',
-								message: r.message.error || 'Unknown error occurred',
-								indicator: 'red'
-							});
-						}
-					}
-				});
-			});
-
-			frm.add_custom_button(__('Test Suppliers'), function() {
-				frappe.call({
-					method: 'verenigingen.utils.eboekhouden_api.preview_suppliers',
-					callback: function(r) {
-						if (r.message && r.message.success) {
-							let dialog = new frappe.ui.Dialog({
-								title: 'Suppliers Preview',
-								fields: [{
-									fieldtype: 'HTML',
-									options: `<div class="text-muted">
-										<h5>Found ${r.message.total_count} suppliers:</h5>
-										<pre style="max-height: 400px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 3px;">${JSON.stringify(r.message.suppliers, null, 2)}</pre>
-									</div>`
-								}],
-								primary_action_label: 'Close',
-								primary_action: function() { dialog.hide(); }
-							});
-							dialog.show();
-						} else {
-							frappe.msgprint({
-								title: 'Suppliers Test Failed',
-								message: r.message.error || 'Unknown error occurred',
-								indicator: 'red'
-							});
-						}
-					}
-				});
-			});
-
-			frm.add_custom_button(__('Test Migrations'), function() {
-				// Create submenu for different migration tests
-				let migration_menu = [
-					{
-						label: __('Chart of Accounts'),
-						action: function() {
-							frappe.call({
-								method: 'verenigingen.utils.eboekhouden_api.test_chart_of_accounts_migration',
-								callback: function(r) {
-									frm.show_migration_test_results(r, 'Chart of Accounts');
-								}
-							});
-						}
-					},
-					{
-						label: __('Cost Centers'),
-						action: function() {
-							frappe.call({
-								method: 'verenigingen.utils.eboekhouden_api.test_cost_center_migration',
-								callback: function(r) {
-									frm.show_migration_test_results(r, 'Cost Centers');
-								}
-							});
-						}
-					},
-					{
-						label: __('Customers'),
-						action: function() {
-							frappe.call({
-								method: 'verenigingen.utils.eboekhouden_api.test_customer_migration',
-								callback: function(r) {
-									frm.show_migration_test_results(r, 'Customers');
-								}
-							});
-						}
-					},
-					{
-						label: __('Suppliers'),
-						action: function() {
-							frappe.call({
-								method: 'verenigingen.utils.eboekhouden_api.test_supplier_migration',
-								callback: function(r) {
-									frm.show_migration_test_results(r, 'Suppliers');
-								}
-							});
-						}
-					}
-				];
-
-				// Show menu
-				let d = new frappe.ui.Dialog({
-					title: 'Choose Migration Test',
-					fields: [{
-						fieldtype: 'HTML',
-						options: migration_menu.map(item =>
-							`<p><a href="#" onclick="cur_dialog.hide(); (${item.action.toString()})();">${item.label}</a></p>`
-						).join('')
-					}]
-				});
-				d.show();
-			});
 		}
 
 		// Helper function for showing migration test results

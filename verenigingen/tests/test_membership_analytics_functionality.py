@@ -306,7 +306,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
     
     def test_insights_generation(self):
         """Test generation of insights"""
-        from vereiningen.verenigingen.page.membership_analytics.membership_analytics import get_top_insights
+        from verenigingen.verenigingen.page.membership_analytics.membership_analytics import get_top_insights
         
         current_year = datetime.now().year
         insights = get_top_insights(current_year)
@@ -322,7 +322,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
     
     def test_segmentation_data(self):
         """Test segmentation calculations"""
-        from verenigingen.vereiningen.page.membership_analytics.membership_analytics import get_segmentation_data
+        from verenigingen.verenigingen.page.membership_analytics.membership_analytics import get_segmentation_data
         
         current_year = datetime.now().year
         segmentation = get_segmentation_data(current_year)
@@ -708,7 +708,7 @@ class TestPredictiveAnalytics(BaseTestCase):
     
     def test_growth_scenarios(self):
         """Test growth scenario calculations"""
-        from vereiningen.verenigingen.page.membership_analytics.predictive_analytics import calculate_growth_scenarios
+        from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import calculate_growth_scenarios
         
         scenarios = calculate_growth_scenarios()
         
@@ -751,7 +751,7 @@ class TestPredictiveAnalytics(BaseTestCase):
     
     def test_recommendations_generation(self):
         """Test recommendation generation"""
-        from vereiningen.verenigingen.page.membership_analytics.predictive_analytics import generate_recommendations
+        from verenigingen.verenigingen.page.membership_analytics.predictive_analytics import generate_recommendations
         
         recommendations = generate_recommendations()
         

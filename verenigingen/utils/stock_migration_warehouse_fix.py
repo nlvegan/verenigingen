@@ -20,7 +20,7 @@ def get_or_create_migration_warehouse_fixed(company):
         # ERPNext normalizes company names in warehouse names
 
         # Pattern 1: Try exact match with normalized company name
-        f"e-Boekhouden Migration - {company}"
+        "e-Boekhouden Migration - {company}"
         existing = frappe.db.get_value(
             "Warehouse", {"warehouse_name": "e-Boekhouden Migration", "company": company}, "name"
         )

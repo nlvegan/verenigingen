@@ -114,7 +114,115 @@ def create_missing_account_groups():
 
         frappe.db.commit()
 
-        return {"success": True, "created": created, "message": f"Created {len(created)} account groups"}
+        return {"success": True, "created": created, "message": "Created {len(created)} account groups"}
+
+    except Exception as e:
+        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
+
+
+@frappe.whitelist()
+def get_complete_account_structure():
+    """Get complete account structure for analysis"""
+
+    try:
+        # Get all account groups
+        account_groups = frappe.db.sql(
+            """
+            SELECT
+                name,
+                account_name,
+                account_number,
+                parent_account,
+                account_type,
+                is_group,
+                root_type
+            FROM tabAccount
+            WHERE company = 'Ned Ver Vegan'
+            AND is_group = 1
+            ORDER BY account_number, name
+        """,
+            as_dict=True,
+        )
+
+        # Get all leaf accounts (non-groups)
+        leaf_accounts = frappe.db.sql(
+            """
+            SELECT
+                name,
+                account_name,
+                account_number,
+                parent_account,
+                account_type,
+                is_group,
+                root_type
+            FROM tabAccount
+            WHERE company = 'Ned Ver Vegan'
+            AND is_group = 0
+            AND account_type IN ('Income', 'Expense')
+            ORDER BY account_number, name
+        """,
+            as_dict=True,
+        )
+
+        # Get root accounts
+        root_accounts = frappe.db.sql(
+            """
+            SELECT
+                name,
+                account_name,
+                account_number,
+                parent_account,
+                account_type,
+                is_group,
+                root_type
+            FROM tabAccount
+            WHERE company = 'Ned Ver Vegan'
+            AND parent_account IS NULL
+            ORDER BY account_number, name
+        """,
+            as_dict=True,
+        )
+
+        # Get cost centers
+        cost_centers = frappe.db.sql(
+            """
+            SELECT
+                name,
+                cost_center_name,
+                cost_center_number,
+                parent_cost_center,
+                is_group
+            FROM `tabCost Center`
+            WHERE company = 'Ned Ver Vegan'
+            ORDER BY cost_center_number, name
+        """,
+            as_dict=True,
+        )
+
+        # Get projects
+        projects = frappe.db.sql(
+            """
+            SELECT
+                name,
+                project_name,
+                status,
+                project_type,
+                company
+            FROM tabProject
+            WHERE company = 'Ned Ver Vegan'
+            ORDER BY name
+        """,
+            as_dict=True,
+        )
+
+        return {
+            "success": True,
+            "account_groups": account_groups,
+            "leaf_accounts": leaf_accounts,
+            "root_accounts": root_accounts,
+            "cost_centers": cost_centers,
+            "projects": projects,
+        }
 
     except Exception as e:
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
@@ -164,7 +272,7 @@ def fix_account_parents():
         return {
             "success": True,
             "fixed": fixed,
-            "message": f"Fixed {len(fixed)} account parent relationships",
+            "message": "Fixed {len(fixed)} account parent relationships",
         }
 
     except Exception as e:

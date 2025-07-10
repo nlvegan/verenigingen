@@ -49,7 +49,7 @@ def get_payment_entry_title(mutation, party_name, payment_type, relation_data=No
     for regel in mutation.get("MutatieRegels", []):
         amount += abs(float(regel.get("BedragInvoer", 0) or regel.get("BedragInclBTW", 0)))
     if amount:
-        parts.append(f"€{amount:,.2f}")
+        parts.append("€{amount:,.2f}")
 
     # Description (shortened and cleaned)
     description = get_meaningful_description(mutation)
@@ -173,7 +173,7 @@ def get_journal_entry_title(mutation, transaction_type):
     for regel in mutation.get("MutatieRegels", []):
         amount += abs(float(regel.get("BedragInclBTW", 0) or regel.get("BedragExclBTW", 0)))
     if amount:
-        parts.append(f"€{amount:,.2f}")
+        parts.append("€{amount:,.2f}")
 
     # Description (shortened)
     description = mutation.get("Omschrijving", "")
@@ -193,17 +193,17 @@ def enhance_payment_entry_fields(pe, mutation):
 
     # Original description
     if mutation.get("Omschrijving"):
-        remarks_parts.append(f"Description: {mutation.get('Omschrijving')}")
+        remarks_parts.append("Description: {mutation.get('Omschrijving')}")
 
     # E-Boekhouden references
     if mutation.get("MutatieNr"):
-        remarks_parts.append(f"Mutation Nr: {mutation.get('MutatieNr')}")
+        remarks_parts.append("Mutation Nr: {mutation.get('MutatieNr')}")
 
     if mutation.get("Factuurnummer"):
-        remarks_parts.append(f"Invoice Nr: {mutation.get('Factuurnummer')}")
+        remarks_parts.append("Invoice Nr: {mutation.get('Factuurnummer')}")
 
     if mutation.get("RelatieCode"):
-        remarks_parts.append(f"Relation Code: {mutation.get('RelatieCode')}")
+        remarks_parts.append("Relation Code: {mutation.get('RelatieCode')}")
 
     pe.remarks = "\n".join(remarks_parts)
 
@@ -233,14 +233,14 @@ def enhance_journal_entry_fields(je, mutation, transaction_category=None):
     # Add mutation details
     details = []
     if mutation.get("MutatieNr"):
-        details.append(f"Mut#{mutation.get('MutatieNr')}")
+        details.append("Mut#{mutation.get('MutatieNr')}")
     if mutation.get("Factuurnummer"):
-        details.append(f"Inv#{mutation.get('Factuurnummer')}")
+        details.append("Inv#{mutation.get('Factuurnummer')}")
     if mutation.get("RelatieCode"):
-        details.append(f"Rel#{mutation.get('RelatieCode')}")
+        details.append("Rel#{mutation.get('RelatieCode')}")
 
     if details:
-        remark_parts.append(f"({', '.join(details)})")
+        remark_parts.append("({', '.join(details)})")
 
     je.user_remark = " ".join(remark_parts)
 
@@ -284,7 +284,7 @@ def analyze_payment_classification():
 
     for pe in payment_entries:
         # Count by type
-        key = f"{pe.payment_type} - {pe.party_type}"
+        key = "{pe.payment_type} - {pe.party_type}"
         results["payment_entries"]["by_type"][key] = results["payment_entries"]["by_type"].get(key, 0) + 1
 
         # Sample titles

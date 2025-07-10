@@ -98,7 +98,7 @@ def fix_account_groups():
                         if not has_gl_entries:
                             # Safe to convert to group
                             frappe.db.set_value("Account", account_name, "is_group", 1)
-                            fixed_accounts.append(f"{account_code} - {account_name}")
+                            fixed_accounts.append("{account_code} - {account_name}")
                             frappe.logger().info(f"Converted account {account_code} to group")
                         else:
                             errors.append(f"{account_code} has GL entries, cannot convert to group")
@@ -120,7 +120,7 @@ def fix_account_groups():
 
                 if not has_gl_entries:
                     frappe.db.set_value("Account", acc.name, "is_group", 1)
-                    fixed_accounts.append(f"{acc.account_number or 'No number'} - {acc.name} (root account)")
+                    fixed_accounts.append("{acc.account_number or 'No number'} - {acc.name} (root account)")
                     frappe.logger().info(f"Converted root account {acc.name} to group")
                 else:
                     errors.append(f"Root account {acc.name} has GL entries, cannot convert to group")
@@ -135,7 +135,7 @@ def fix_account_groups():
             "fixed": len(fixed_accounts),
             "fixed_accounts": fixed_accounts[:10],  # Show first 10
             "errors": errors,
-            "message": f"Fixed {len(fixed_accounts)} accounts as groups",
+            "message": "Fixed {len(fixed_accounts)} accounts as groups",
         }
 
     except Exception as e:

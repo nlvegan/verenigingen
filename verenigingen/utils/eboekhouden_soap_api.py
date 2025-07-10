@@ -1,5 +1,26 @@
 """
 E-Boekhouden SOAP API Client
+
+⚠️ DEPRECATED - DO NOT USE FOR NEW DEVELOPMENT ⚠️
+=====================================
+This SOAP API integration is DEPRECATED and should NOT be used for any new development.
+The SOAP API has significant limitations:
+- Limited to only 500 most recent transactions
+- Slower performance compared to REST API
+- More complex XML handling
+- Legacy authentication method
+
+✅ USE THE REST API INSTEAD ✅
+The REST API (eboekhouden_api.py) provides:
+- Access to complete transaction history (no 500 limit)
+- Better performance and reliability
+- Modern JSON-based interface
+- Full feature parity with SOAP
+
+This file is maintained only for backward compatibility.
+All new features should use the REST API implementation.
+=====================================
+
 Provides access to the complete mutation data including descriptions and transaction types
 """
 
@@ -39,7 +60,10 @@ class EBoekhoudenSOAPAPI:
 
     def open_session(self):
         """Open a SOAP session"""
-        envelope = """<?xml version="1.0" encoding="utf-8"?>
+        # Add Source parameter as indicated in WSDL
+        source = getattr(self, "source", "ERPNext")
+
+        envelope = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -48,6 +72,7 @@ class EBoekhoudenSOAPAPI:
       <Username>{self.username}</Username>
       <SecurityCode1>{self.security_code_1}</SecurityCode1>
       <SecurityCode2>{self.security_code_2}</SecurityCode2>
+      <Source>{source}</Source>
     </OpenSession>
   </soap:Body>
 </soap:Envelope>"""
@@ -60,13 +85,35 @@ class EBoekhoudenSOAPAPI:
         try:
             response = requests.post(self.soap_url, data=envelope, headers=headers, timeout=30)
             if response.status_code == 200:
+                # Parse the full response to check for errors
                 root = ET.fromstring(response.text)
+
+                # Look for SessionID
+                session_id = None
+                error_msg = None
+
                 for elem in root.iter():
                     if "SessionID" in elem.tag and elem.text and elem.text.strip():
-                        self.session_id = elem.text.strip()
-                        return {"success": True, "session_id": self.session_id}
+                        session_id = elem.text.strip()
+                    elif "ErrorMsg" in elem.tag and elem.text:
+                        error_msg = elem.text.strip()
 
-            return {"success": False, "error": f"Failed to open session: {response.status_code}"}
+                if session_id:
+                    self.session_id = session_id
+                    return {"success": True, "session_id": self.session_id}
+                else:
+                    # Return detailed error info
+                    return {
+                        "success": False,
+                        "error": f"No SessionID in response. Error: {error_msg}",
+                        "response_text": response.text[:1000],
+                    }
+            else:
+                return {
+                    "success": False,
+                    "error": f"HTTP {response.status_code}",
+                    "response_text": response.text[:1000],
+                }
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -112,7 +159,7 @@ class EBoekhoudenSOAPAPI:
             if response.status_code == 200:
                 return self._parse_mutations_response(response.text)
             else:
-                return {"success": False, "error": f"Failed to get mutations: {response.status_code}"}
+                return {"success": False, "error": "Failed to get mutations: {response.status_code}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -210,7 +257,7 @@ class EBoekhoudenSOAPAPI:
             if response.status_code == 200:
                 return self._parse_grootboekrekeningen_response(response.text)
             else:
-                return {"success": False, "error": f"Failed: {response.status_code}"}
+                return {"success": False, "error": "Failed: {response.status_code}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -267,7 +314,7 @@ class EBoekhoudenSOAPAPI:
             if response.status_code == 200:
                 return self._parse_relaties_response(response.text)
             else:
-                return {"success": False, "error": f"Failed: {response.status_code}"}
+                return {"success": False, "error": "Failed: {response.status_code}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -363,7 +410,7 @@ class EBoekhoudenSOAPAPI:
                 else:
                     return {"success": False, "error": "No mutations found to determine highest number"}
             else:
-                return {"success": False, "error": f"Failed to get mutations: {response.status_code}"}
+                return {"success": False, "error": "Failed to get mutations: {response.status_code}"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -398,11 +445,91 @@ def test_connection():
         result = api.open_session()
 
         if result["success"]:
-            # Close session
-            api.close_session()
-            return {"success": True, "message": "Successfully connected to E-Boekhouden SOAP API"}
+            return {
+                "success": True,
+                "message": "Successfully connected to E-Boekhouden SOAP API",
+                "session_id": result["session_id"],
+            }
         else:
-            return {"success": False, "error": result.get("error", "Failed to connect")}
+            return {"success": False, "error": result.get("error", "Failed to connect"), "details": result}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_soap_relations():
+    """Debug SOAP relations response to understand data structure"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api = EBoekhoudenSOAPAPI(settings)
+
+        # Open session
+        session_result = api.open_session()
+        if not session_result["success"]:
+            return {"success": False, "error": "Session failed: {session_result}"}
+
+        # Get raw relations
+        envelope = """<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+               xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+  <soap:Body>
+    <GetRelaties xmlns="http://www.e-boekhouden.nl/soap">
+      <SecurityCode2>{api.security_code_2}</SecurityCode2>
+      <SessionID>{api.session_id}</SessionID>
+      <cFilter>
+        <Code></Code>
+        <ID>0</ID>
+      </cFilter>
+    </GetRelaties>
+  </soap:Body>
+</soap:Envelope>"""
+
+        headers = {
+            "Content-Type": "text/xml; charset=utf-8",
+            "SOAPAction": '"http://www.e-boekhouden.nl/soap/GetRelaties"',
+        }
+
+        response = requests.post(api.soap_url, data=envelope, headers=headers, timeout=30)
+
+        if response.status_code == 200:
+            # Return raw response for analysis
+            result = {
+                "success": True,
+                "raw_response": response.text[:2000],  # First 2000 chars
+                "response_length": len(response.text),
+                "session_id": api.session_id,
+            }
+
+            # Try to parse and see what we get
+            try:
+                root = ET.fromstring(response.text)
+                relation_elements = []
+
+                for elem in root.iter():
+                    if "cRelatie" in elem.tag or "Relatie" in elem.tag:
+                        relation_data = {}
+                        for child in elem:
+                            field_name = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                            if child.text:
+                                relation_data[field_name] = child.text
+                        if relation_data:
+                            relation_elements.append(relation_data)
+
+                result["parsed_relations"] = relation_elements[:5]  # First 5
+                result["total_parsed"] = len(relation_elements)
+
+            except Exception as parse_e:
+                result["parse_error"] = str(parse_e)
+
+            return result
+        else:
+            return {
+                "success": False,
+                "error": "HTTP {response.status_code}",
+                "response_text": response.text[:1000],
+            }
 
     except Exception as e:
         return {"success": False, "error": str(e)}

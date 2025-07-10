@@ -1,0 +1,26 @@
+{
+ "content": null,
+ "creation": "2025-07-07 18:25:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2025-07-07 18:25:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "system-health-dashboard",
+ "owner": "Administrator",
+ "page_name": "System Health Dashboard",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Verenigingen Administrator"
+  }
+ ],
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "System Health Dashboard"
+}

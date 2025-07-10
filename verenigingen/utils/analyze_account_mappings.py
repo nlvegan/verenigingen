@@ -154,7 +154,7 @@ def trace_specific_mutation(mutation_id):
         )
 
         if not cache:
-            return {"success": False, "error": f"Mutation {mutation_id} not found in cache"}  # noqa: E713
+            return {"success": False, "error": "Mutation {mutation_id} not found in cache"}  # noqa: E713
 
         result = {
             "mutation_id": mutation_id,

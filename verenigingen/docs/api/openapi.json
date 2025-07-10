@@ -1,0 +1,116 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Verenigingen API",
+    "description": "API for the Verenigingen Association Management System",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Verenigingen Support",
+      "email": "support@verenigingen.nl"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://dev.veganisme.net/api/method/verenigingen.api",
+      "description": "Production server"
+    }
+  ],
+  "paths": {},
+  "components": {
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "default": false
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message"
+          },
+          "type": {
+            "type": "string",
+            "description": "Error type",
+            "enum": [
+              "validation_error",
+              "permission_error",
+              "server_error"
+            ]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "default": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          }
+        }
+      },
+      "PaginatedResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "pagination": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "integer"
+              },
+              "page_size": {
+                "type": "integer"
+              },
+              "total_pages": {
+                "type": "integer"
+              },
+              "total_items": {
+                "type": "integer"
+              }
+            }
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "apiKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization"
+      },
+      "sessionAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "sid"
+      }
+    }
+  },
+  "security": [
+    {
+      "apiKey": []
+    },
+    {
+      "sessionAuth": []
+    }
+  ],
+  "tags": []
+}

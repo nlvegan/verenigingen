@@ -120,7 +120,7 @@ class SubscriptionHandler:
             # Handle missing attributes
             if "'Subscription' object has no attribute 'billing_interval'" in str(e):
                 frappe.log_error(
-                    f"Missing billing_interval for subscription {self.subscription.name}. Please set billing details.",
+                    "Missing billing_interval for subscription {self.subscription.name}. Please set billing details.",
                     "Subscription Attribute Error",
                 )
             raise
@@ -225,7 +225,7 @@ class SubscriptionHandler:
                     "item_code": plan_doc.item,
                     "qty": plan.qty,
                     "rate": plan_doc.cost,
-                    "description": f"{self.subscription.name}: {from_date} to {to_date}",
+                    "description": "{self.subscription.name}: {from_date} to {to_date}",
                 },
             )
 
@@ -313,7 +313,7 @@ def process_all_subscriptions():
                 "Subscription Processing Error",
             )
 
-    return f"Processed {count} subscriptions with custom handler"
+    return "Processed {count} subscriptions with custom handler"
 
 
 @frappe.whitelist()

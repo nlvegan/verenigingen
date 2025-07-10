@@ -1,0 +1,35 @@
+{
+  "info": {
+    "name": "Verenigingen API",
+    "description": "API collection for Verenigingen Association Management System",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_postman_id": "33aeb806",
+    "version": "1.0.0"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "Authorization"
+      },
+      {
+        "key": "value",
+        "value": "{{api_key}}"
+      }
+    ]
+  },
+  "item": [],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://dev.veganisme.net",
+      "type": "string"
+    },
+    {
+      "key": "api_key",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

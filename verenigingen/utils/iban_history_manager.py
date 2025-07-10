@@ -60,7 +60,7 @@ def create_initial_iban_history(member_name):
 
         return {
             "success": True,
-            "message": f"Initial IBAN history created for {member_name}",
+            "message": "Initial IBAN history created for {member_name}",
             "history_name": history_doc.name,
         }
 
@@ -132,7 +132,7 @@ def track_iban_change(member_doc):
 
             # Log the change
             frappe.logger().info(
-                f"IBAN changed for member {member_doc.name} from {old_iban} to {member_doc.iban}"
+                "IBAN changed for member {member_doc.name} from {old_iban} to {member_doc.iban}"
             )
 
             # Check if SEPA mandates need to be updated

@@ -3,10 +3,23 @@ name = "verenigingen"
 authors = [
     { name = "Foppe de Haan", email = "foppe@veganisme.org"}
 ]
-description = "App that adds functionality needed to use it for our association"
+description = "Comprehensive association management system for Dutch non-profit organizations with ERPNext integration, eBoekhouden accounting sync, SEPA direct debit, volunteer management, and ANBI compliance features."
 requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
+keywords = ["frappe", "erpnext", "association", "membership", "volunteer", "eboekhouden", "sepa", "dutch", "non-profit", "anbi"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+    "Topic :: Software Development :: Libraries :: Application Frameworks"
+]
 dependencies = [
     # "frappe~=15.0.0" # Installed and managed by bench.
     # Add any Python package dependencies here, e.g.:

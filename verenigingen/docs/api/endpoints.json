@@ -1,0 +1,1508 @@
+[
+  {
+    "file": "eboekhouden_account_manager.py",
+    "function": "get_eboekhouden_accounts_summary",
+    "description": "Get a summary of all E-Boekhouden accounts in the system.",
+    "path": "/api/method/verenigingen.api.eboekhouden_account_manager.get_eboekhouden_accounts_summary"
+  },
+  {
+    "file": "eboekhouden_account_manager.py",
+    "function": "cleanup_eboekhouden_accounts_with_confirmation",
+    "description": "Clean up E-Boekhouden accounts with confirmation step.",
+    "path": "/api/method/verenigingen.api.eboekhouden_account_manager.cleanup_eboekhouden_accounts_with_confirmation"
+  },
+  {
+    "file": "eboekhouden_account_manager.py",
+    "function": "get_account_cleanup_status",
+    "description": "Get the current status of E-Boekhouden accounts for a company.",
+    "path": "/api/method/verenigingen.api.eboekhouden_account_manager.get_account_cleanup_status"
+  },
+  {
+    "file": "get_user_chapters.py",
+    "function": "get_user_chapter_data",
+    "description": "Get current user's chapter memberships",
+    "path": "/api/method/verenigingen.api.get_user_chapters.get_user_chapter_data"
+  },
+  {
+    "file": "dd_batch_optimizer.py",
+    "function": "create_optimal_batches",
+    "description": "Create optimally-sized SEPA Direct Debit batches automatically",
+    "path": "/api/method/verenigingen.api.dd_batch_optimizer.create_optimal_batches"
+  },
+  {
+    "file": "dd_batch_optimizer.py",
+    "function": "get_batching_preview",
+    "description": "Preview what batches would be created without actually creating them",
+    "path": "/api/method/verenigingen.api.dd_batch_optimizer.get_batching_preview"
+  },
+  {
+    "file": "dd_batch_optimizer.py",
+    "function": "update_batch_optimization_config",
+    "description": "Update batch optimization configuration",
+    "path": "/api/method/verenigingen.api.dd_batch_optimizer.update_batch_optimization_config"
+  },
+  {
+    "file": "eboekhouden_mapping_setup.py",
+    "function": "setup_eboekhouden_mapping_fields",
+    "description": "Add custom fields needed for E-Boekhouden mapping functionality",
+    "path": "/api/method/verenigingen.api.eboekhouden_mapping_setup.setup_eboekhouden_mapping_fields"
+  },
+  {
+    "file": "eboekhouden_mapping_setup.py",
+    "function": "get_mapping_summary",
+    "description": "Get a summary of current mapping configuration",
+    "path": "/api/method/verenigingen.api.eboekhouden_mapping_setup.get_mapping_summary"
+  },
+  {
+    "file": "eboekhouden_mapping_setup.py",
+    "function": "test_mutation_mapping",
+    "description": "Test how a specific mutation would be mapped",
+    "path": "/api/method/verenigingen.api.eboekhouden_mapping_setup.test_mutation_mapping"
+  },
+  {
+    "file": "setup_eboekhouden_date_fields.py",
+    "function": "setup_date_range_fields",
+    "description": "Add custom fields to E-Boekhouden Settings to store date range",
+    "path": "/api/method/verenigingen.api.setup_eboekhouden_date_fields.setup_date_range_fields"
+  },
+  {
+    "file": "termination_api.py",
+    "function": "get_termination_preview",
+    "description": "Public API to get termination impact preview",
+    "path": "/api/method/verenigingen.api.termination_api.get_termination_preview"
+  },
+  {
+    "file": "termination_api.py",
+    "function": "get_impact_summary",
+    "description": "Public API to get termination impact summary",
+    "path": "/api/method/verenigingen.api.termination_api.get_impact_summary"
+  },
+  {
+    "file": "termination_api.py",
+    "function": "execute_safe_termination",
+    "description": "Execute termination using safe integration methods",
+    "path": "/api/method/verenigingen.api.termination_api.execute_safe_termination"
+  },
+  {
+    "file": "smart_mapping_deployment_guide.py",
+    "function": "smart_mapping_deployment_summary",
+    "description": "Final summary of smart tegenrekening mapping deployment",
+    "path": "/api/method/verenigingen.api.smart_mapping_deployment_guide.smart_mapping_deployment_summary"
+  },
+  {
+    "file": "smart_mapping_deployment_guide.py",
+    "function": "test_migration_readiness",
+    "description": "Test if the system is ready for migration with smart mapping",
+    "path": "/api/method/verenigingen.api.smart_mapping_deployment_guide.test_migration_readiness"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "approve_membership_application",
+    "description": "Approve a membership application and create invoice",
+    "path": "/api/method/verenigingen.api.membership_application_review.approve_membership_application"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "reject_membership_application",
+    "description": "Reject a membership application with enhanced template support",
+    "path": "/api/method/verenigingen.api.membership_application_review.reject_membership_application"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "get_user_chapter_access",
+    "description": "Get user's chapter access for filtering applications",
+    "path": "/api/method/verenigingen.api.membership_application_review.get_user_chapter_access"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "get_pending_applications",
+    "description": "Get list of pending membership applications",
+    "path": "/api/method/verenigingen.api.membership_application_review.get_pending_applications"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "get_pending_reviews_for_member",
+    "description": "Get pending membership application reviews for a specific member",
+    "path": "/api/method/verenigingen.api.membership_application_review.get_pending_reviews_for_member"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "debug_and_fix_member_approval",
+    "description": "Debug and fix member approval issues",
+    "path": "/api/method/verenigingen.api.membership_application_review.debug_and_fix_member_approval"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "test_member_approval",
+    "description": "Test member approval without actually approving",
+    "path": "/api/method/verenigingen.api.membership_application_review.test_member_approval"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "sync_member_statuses",
+    "description": "Sync member application and status fields to ensure consistency",
+    "path": "/api/method/verenigingen.api.membership_application_review.sync_member_statuses"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "fix_backend_member_statuses",
+    "description": "One-time fix for backend-created members showing as Pending",
+    "path": "/api/method/verenigingen.api.membership_application_review.fix_backend_member_statuses"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "get_application_stats",
+    "description": "Get statistics for membership applications",
+    "path": "/api/method/verenigingen.api.membership_application_review.get_application_stats"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "migrate_active_application_status",
+    "description": "Migrate members with 'Active' application_status to 'Approved'",
+    "path": "/api/method/verenigingen.api.membership_application_review.migrate_active_application_status"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "check_member_iban_data",
+    "description": "Check the current IBAN data for a member",
+    "path": "/api/method/verenigingen.api.membership_application_review.check_member_iban_data"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "debug_custom_amount_flow",
+    "description": "Debug the custom amount flow for a specific member",
+    "path": "/api/method/verenigingen.api.membership_application_review.debug_custom_amount_flow"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "debug_membership_subscription",
+    "description": "Debug a specific membership and its subscription",
+    "path": "/api/method/verenigingen.api.membership_application_review.debug_membership_subscription"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "debug_subscription_plan",
+    "description": "Debug a subscription plan",
+    "path": "/api/method/verenigingen.api.membership_application_review.debug_subscription_plan"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "test_fix_custom_amount_subscription",
+    "description": "Test fix for custom amount subscription issue",
+    "path": "/api/method/verenigingen.api.membership_application_review.test_fix_custom_amount_subscription"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "check_subscription_invoice",
+    "description": "Check subscription invoice details",
+    "path": "/api/method/verenigingen.api.membership_application_review.check_subscription_invoice"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "send_overdue_notifications",
+    "description": "Send notifications for overdue applications (> 2 weeks)",
+    "path": "/api/method/verenigingen.api.membership_application_review.send_overdue_notifications"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "create_default_email_templates",
+    "description": "Create default email templates for membership application management",
+    "path": "/api/method/verenigingen.api.membership_application_review.create_default_email_templates"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_chapter_member_emails",
+    "description": "Get email addresses of all active chapter members",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_chapter_member_emails"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "quick_approve_member",
+    "description": "Quick approve a member application from dashboard",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.quick_approve_member"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "test_mt940_naming_logic",
+    "description": "Test the enhanced MT940 Import descriptive naming functionality",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.test_mt940_naming_logic"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "debug_mt940_import",
+    "description": "Debug an MT940 Import record to understand issues",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.debug_mt940_import"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "debug_mt940_transaction_creation",
+    "description": "Debug why MT940 transactions aren't being created",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.debug_mt940_transaction_creation"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "reprocess_mt940_import",
+    "description": "Reprocess an existing MT940 import",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.reprocess_mt940_import"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "test_eboekhouden_framework",
+    "description": "Test the e-Boekhouden migration framework",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.test_eboekhouden_framework"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "test_eboekhouden_api_mock",
+    "description": "Test e-Boekhouden API utilities with mock data",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.test_eboekhouden_api_mock"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "test_eboekhouden_complete",
+    "description": "Complete end-to-end test of e-Boekhouden framework",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.test_eboekhouden_complete"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_dashboard_notifications",
+    "description": "Get notifications for dashboard (upcoming deadlines, overdue items, etc.)",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_dashboard_notifications"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_chapter_quick_stats",
+    "description": "Get quick statistics for a specific chapter",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_chapter_quick_stats"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "reject_member_application",
+    "description": "Reject a member application from dashboard",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.reject_member_application"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "send_chapter_announcement",
+    "description": "Send announcement to chapter members",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.send_chapter_announcement"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "debug_dashboard_access",
+    "description": "Debug dashboard access issues",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.debug_dashboard_access"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "test_url_access",
+    "description": "Test URL routing for pages",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.test_url_access"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_active_members_count",
+    "description": "Get count of active members for dashboard number card",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_active_members_count"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_pending_applications_count",
+    "description": "Get count of pending applications for dashboard number card",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_pending_applications_count"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_board_members_count",
+    "description": "Get count of active board members for dashboard number card",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_board_members_count"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_new_members_count",
+    "description": "Get count of new members this month for dashboard number card",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_new_members_count"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "create_chapter_dashboard",
+    "description": "Create proper Frappe dashboard for chapter management",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.create_chapter_dashboard"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "create_simple_dashboard",
+    "description": "Create a simple test dashboard",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.create_simple_dashboard"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "add_existing_cards_to_dashboard",
+    "description": "Add existing working number cards to the dashboard",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.add_existing_cards_to_dashboard"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "finalize_chapter_dashboard",
+    "description": "Complete the chapter dashboard setup",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.finalize_chapter_dashboard"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "add_chapter_specific_chart",
+    "description": "Add a chapter-specific chart to the dashboard",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.add_chapter_specific_chart"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_dashboard_completion_summary",
+    "description": "Get final summary of the completed dashboard",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_dashboard_completion_summary"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "fix_dashboard_chart_issue",
+    "description": "Fix the dashboard chart issue causing page navigation errors",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.fix_dashboard_chart_issue"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "fix_all_chart_issues",
+    "description": "Fix all chart navigation issues and add proper dashboard functionality",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.fix_all_chart_issues"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "fix_chart_currency_display",
+    "description": "Fix the euro symbol appearing in chart tooltips",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.fix_chart_currency_display"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "fix_chart_timeseries_display",
+    "description": "Fix charts showing flat lines by correcting timeseries configuration",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.fix_chart_timeseries_display"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "recreate_working_charts",
+    "description": "Completely recreate charts with minimal working configuration",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.recreate_working_charts"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "use_existing_working_charts",
+    "description": "Replace problematic charts with existing working ones",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.use_existing_working_charts"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "create_cards_only_dashboard",
+    "description": "Create dashboard with only Number Cards, no charts to avoid KeyError",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.create_cards_only_dashboard"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "create_proper_chapter_charts",
+    "description": "Create working chapter-specific charts using the proven pattern",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.create_proper_chapter_charts"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "create_minimal_working_charts",
+    "description": "Create the most minimal possible working charts",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.create_minimal_working_charts"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "debug_number_cards",
+    "description": "Debug the number card methods",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.debug_number_cards"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "create_working_basic_charts",
+    "description": "Create charts using basic data that every system has",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.create_working_basic_charts"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "fix_dashboard_with_working_chart",
+    "description": "Fix dashboard with a chart that actually works",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.fix_dashboard_with_working_chart"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "test_number_card_format",
+    "description": "Test if Number Cards expect a specific return format",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.test_number_card_format"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "create_chapter_member_charts",
+    "description": "Create working charts showing chapter and member data",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.create_chapter_member_charts"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "test_dashboard_access",
+    "description": "Test dashboard access for current user",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.test_dashboard_access"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "simple_test_count",
+    "description": "Simple test to see if we can get basic counts",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.simple_test_count"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "clean_dashboard_completely",
+    "description": "Clean up dashboard and recreate with working components",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.clean_dashboard_completely"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "fix_dashboard_simple",
+    "description": "Simple dashboard fix without deleting linked cards",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.fix_dashboard_simple"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "restore_all_member_cards",
+    "description": "Restore all the important member overview cards",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.restore_all_member_cards"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "add_working_chapter_charts",
+    "description": "Add working chapter-specific charts back to dashboard",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.add_working_chapter_charts"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_filed_expense_claims_count",
+    "description": "Get count of filed expense claims for dashboard number card",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_filed_expense_claims_count"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_approved_expense_claims_count",
+    "description": "Get count of approved expense claims for dashboard number card",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_approved_expense_claims_count"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "get_volunteer_expenses_count",
+    "description": "Get count of volunteer expenses for dashboard number card",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.get_volunteer_expenses_count"
+  },
+  {
+    "file": "chapter_dashboard_api.py",
+    "function": "test_enhanced_mt940_features",
+    "description": "Test the enhanced MT940 import features inspired by Banking app analysis.",
+    "path": "/api/method/verenigingen.api.chapter_dashboard_api.test_enhanced_mt940_features"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "test_connection",
+    "description": "Simple test method to verify the API is working",
+    "path": "/api/method/verenigingen.api.membership_application.test_connection"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "test_all_endpoints",
+    "description": "Test that all critical endpoints are accessible",
+    "path": "/api/method/verenigingen.api.membership_application.test_all_endpoints"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_application_form_data",
+    "description": "Get data needed for application form",
+    "path": "/api/method/verenigingen.api.membership_application.get_application_form_data"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_email",
+    "description": "Validate email format and check if it already exists",
+    "path": "/api/method/verenigingen.api.membership_application.validate_email"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_email_endpoint",
+    "description": "Validate email format and check if it already exists (legacy endpoint)",
+    "path": "/api/method/verenigingen.api.membership_application.validate_email_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_postal_code",
+    "description": "Validate postal code format and suggest chapters",
+    "path": "/api/method/verenigingen.api.membership_application.validate_postal_code"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_postal_code_endpoint",
+    "description": "Validate postal code format and suggest chapters (legacy endpoint)",
+    "path": "/api/method/verenigingen.api.membership_application.validate_postal_code_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_phone_number",
+    "description": "Validate phone number format",
+    "path": "/api/method/verenigingen.api.membership_application.validate_phone_number"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_phone_number_endpoint",
+    "description": "Validate phone number format (legacy endpoint)",
+    "path": "/api/method/verenigingen.api.membership_application.validate_phone_number_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_birth_date",
+    "description": "Validate birth date",
+    "path": "/api/method/verenigingen.api.membership_application.validate_birth_date"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_birth_date_endpoint",
+    "description": "Validate birth date (legacy endpoint)",
+    "path": "/api/method/verenigingen.api.membership_application.validate_birth_date_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_name",
+    "description": "Validate name fields",
+    "path": "/api/method/verenigingen.api.membership_application.validate_name"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_name_endpoint",
+    "description": "Validate name fields (legacy endpoint)",
+    "path": "/api/method/verenigingen.api.membership_application.validate_name_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "check_application_eligibility_endpoint",
+    "description": "Check if applicant is eligible for membership",
+    "path": "/api/method/verenigingen.api.membership_application.check_application_eligibility_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "submit_application",
+    "description": "Process membership application submission - Main entry point",
+    "path": "/api/method/verenigingen.api.membership_application.submit_application"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "approve_membership_application",
+    "description": "Approve a membership application",
+    "path": "/api/method/verenigingen.api.membership_application.approve_membership_application"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "reject_membership_application",
+    "description": "Reject a membership application",
+    "path": "/api/method/verenigingen.api.membership_application.reject_membership_application"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "process_application_payment_endpoint",
+    "description": "Process payment for approved application",
+    "path": "/api/method/verenigingen.api.membership_application.process_application_payment_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_membership_fee_info_endpoint",
+    "description": "Get membership fee information",
+    "path": "/api/method/verenigingen.api.membership_application.get_membership_fee_info_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_membership_type_details_endpoint",
+    "description": "Get detailed membership type information",
+    "path": "/api/method/verenigingen.api.membership_application.get_membership_type_details_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "suggest_membership_amounts_endpoint",
+    "description": "Suggest membership amounts based on type",
+    "path": "/api/method/verenigingen.api.membership_application.suggest_membership_amounts_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_membership_amount_selection_endpoint",
+    "description": "Validate membership amount selection",
+    "path": "/api/method/verenigingen.api.membership_application.validate_membership_amount_selection_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_custom_amount_endpoint",
+    "description": "Validate custom membership amount",
+    "path": "/api/method/verenigingen.api.membership_application.validate_custom_amount_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_payment_methods_endpoint",
+    "description": "Get available payment methods",
+    "path": "/api/method/verenigingen.api.membership_application.get_payment_methods_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "save_draft_application_endpoint",
+    "description": "Save application as draft",
+    "path": "/api/method/verenigingen.api.membership_application.save_draft_application_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "load_draft_application_endpoint",
+    "description": "Load application draft",
+    "path": "/api/method/verenigingen.api.membership_application.load_draft_application_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_member_field_info_endpoint",
+    "description": "Get information about member fields for form generation",
+    "path": "/api/method/verenigingen.api.membership_application.get_member_field_info_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "check_application_status_endpoint",
+    "description": "Check the status of an application by ID",
+    "path": "/api/method/verenigingen.api.membership_application.check_application_status_endpoint"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "test_submit",
+    "description": "Simple test submission function",
+    "path": "/api/method/verenigingen.api.membership_application.test_submit"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "debug_member_issue",
+    "description": "Debug the chapter membership issue for a specific member",
+    "path": "/api/method/verenigingen.api.membership_application.debug_member_issue"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "fix_specific_member",
+    "description": "Fix chapter membership for a specific member",
+    "path": "/api/method/verenigingen.api.membership_application.fix_specific_member"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "test_chapter_membership_workflow",
+    "description": "Test the complete chapter membership workflow",
+    "path": "/api/method/verenigingen.api.membership_application.test_chapter_membership_workflow"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "test_status_field_integration",
+    "description": "Test status field integration without complex chapter operations",
+    "path": "/api/method/verenigingen.api.membership_application.test_status_field_integration"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_custom_amount",
+    "description": "Legacy endpoint - validate custom membership amount",
+    "path": "/api/method/verenigingen.api.membership_application.validate_custom_amount"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "save_draft_application",
+    "description": "Legacy endpoint - save application as draft",
+    "path": "/api/method/verenigingen.api.membership_application.save_draft_application"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "load_draft_application",
+    "description": "Legacy endpoint - load application draft",
+    "path": "/api/method/verenigingen.api.membership_application.load_draft_application"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_membership_type_details",
+    "description": "Legacy endpoint - get detailed membership type information",
+    "path": "/api/method/verenigingen.api.membership_application.get_membership_type_details"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_membership_fee_info",
+    "description": "Legacy endpoint - get membership fee information",
+    "path": "/api/method/verenigingen.api.membership_application.get_membership_fee_info"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "suggest_membership_amounts",
+    "description": "Legacy endpoint - suggest membership amounts based on type",
+    "path": "/api/method/verenigingen.api.membership_application.suggest_membership_amounts"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_payment_methods",
+    "description": "Legacy endpoint - get available payment methods",
+    "path": "/api/method/verenigingen.api.membership_application.get_payment_methods"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "check_application_status",
+    "description": "Legacy endpoint - check the status of an application by ID",
+    "path": "/api/method/verenigingen.api.membership_application.check_application_status"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "submit_application_with_tracking",
+    "description": "Legacy endpoint - same as submit_application",
+    "path": "/api/method/verenigingen.api.membership_application.submit_application_with_tracking"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "check_application_eligibility",
+    "description": "Legacy endpoint - check if applicant is eligible for membership",
+    "path": "/api/method/verenigingen.api.membership_application.check_application_eligibility"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "get_application_form_data_legacy",
+    "description": "Legacy endpoint - use get_application_form_data instead",
+    "path": "/api/method/verenigingen.api.membership_application.get_application_form_data_legacy"
+  },
+  {
+    "file": "membership_application.py",
+    "function": "validate_address_endpoint",
+    "description": "Validate address data",
+    "path": "/api/method/verenigingen.api.membership_application.validate_address_endpoint"
+  },
+  {
+    "file": "chapter_join.py",
+    "function": "get_chapter_join_context",
+    "description": "Get context for chapter join page",
+    "path": "/api/method/verenigingen.api.chapter_join.get_chapter_join_context"
+  },
+  {
+    "file": "chapter_join.py",
+    "function": "join_chapter",
+    "description": "Handle chapter join request",
+    "path": "/api/method/verenigingen.api.chapter_join.join_chapter"
+  },
+  {
+    "file": "sepa_integration_setup.py",
+    "function": "complete_sepa_integration_setup",
+    "description": "Complete setup of SEPA integration including test data",
+    "path": "/api/method/verenigingen.api.sepa_integration_setup.complete_sepa_integration_setup"
+  },
+  {
+    "file": "sepa_integration_setup.py",
+    "function": "test_sepa_workflow_step_by_step",
+    "description": "Test SEPA workflow step by step with detailed logging",
+    "path": "/api/method/verenigingen.api.sepa_integration_setup.test_sepa_workflow_step_by_step"
+  },
+  {
+    "file": "sepa_integration_setup.py",
+    "function": "quick_sepa_demo",
+    "description": "Quick demo of SEPA reconciliation capabilities",
+    "path": "/api/method/verenigingen.api.sepa_integration_setup.quick_sepa_demo"
+  },
+  {
+    "file": "create_root_accounts.py",
+    "function": "create_root_accounts",
+    "description": "Create the basic root accounts for the company",
+    "path": "/api/method/verenigingen.api.create_root_accounts.create_root_accounts"
+  },
+  {
+    "file": "create_root_accounts.py",
+    "function": "create_standard_coa_groups",
+    "description": "Create standard account groups under root accounts",
+    "path": "/api/method/verenigingen.api.create_root_accounts.create_standard_coa_groups"
+  },
+  {
+    "file": "fix_sales_invoice_receivables.py",
+    "function": "fix_existing_sales_invoice_receivables",
+    "description": "Fix existing sales invoices that have wrong receivable account assignment",
+    "path": "/api/method/verenigingen.api.fix_sales_invoice_receivables.fix_existing_sales_invoice_receivables"
+  },
+  {
+    "file": "fix_sales_invoice_receivables.py",
+    "function": "get_receivable_account_mapping",
+    "description": "Get the correct receivable account for sales invoices",
+    "path": "/api/method/verenigingen.api.fix_sales_invoice_receivables.get_receivable_account_mapping"
+  },
+  {
+    "file": "fix_sales_invoice_receivables.py",
+    "function": "check_sales_invoice_receivables",
+    "description": "Check how many sales invoices are using the wrong receivable account",
+    "path": "/api/method/verenigingen.api.fix_sales_invoice_receivables.check_sales_invoice_receivables"
+  },
+  {
+    "file": "sepa_reconciliation.py",
+    "function": "identify_sepa_transactions",
+    "description": "Find bank transactions that might be from SEPA batches",
+    "path": "/api/method/verenigingen.api.sepa_reconciliation.identify_sepa_transactions"
+  },
+  {
+    "file": "sepa_reconciliation.py",
+    "function": "process_sepa_transaction_conservative",
+    "description": "Process SEPA transaction with conservative approach and duplicate prevention",
+    "path": "/api/method/verenigingen.api.sepa_reconciliation.process_sepa_transaction_conservative"
+  },
+  {
+    "file": "sepa_reconciliation.py",
+    "function": "process_sepa_return_file",
+    "description": "Process SEPA return file with failure details",
+    "path": "/api/method/verenigingen.api.sepa_reconciliation.process_sepa_return_file"
+  },
+  {
+    "file": "sepa_reconciliation.py",
+    "function": "correlate_return_transactions",
+    "description": "Look for return transactions and correlate with SEPA batches",
+    "path": "/api/method/verenigingen.api.sepa_reconciliation.correlate_return_transactions"
+  },
+  {
+    "file": "sepa_reconciliation.py",
+    "function": "get_sepa_reconciliation_dashboard",
+    "description": "Get dashboard data for SEPA reconciliation status",
+    "path": "/api/method/verenigingen.api.sepa_reconciliation.get_sepa_reconciliation_dashboard"
+  },
+  {
+    "file": "sepa_reconciliation.py",
+    "function": "manual_sepa_reconciliation",
+    "description": "Manually reconcile specific items from a SEPA batch",
+    "path": "/api/method/verenigingen.api.sepa_reconciliation.manual_sepa_reconciliation"
+  },
+  {
+    "file": "create_onboarding_steps.py",
+    "function": "create_test_data_onboarding_step",
+    "description": "Create an onboarding step for generating test data",
+    "path": "/api/method/verenigingen.api.create_onboarding_steps.create_test_data_onboarding_step"
+  },
+  {
+    "file": "create_onboarding_steps.py",
+    "function": "add_quick_start_card",
+    "description": "Add a quick start card to the Verenigingen workspace",
+    "path": "/api/method/verenigingen.api.create_onboarding_steps.add_quick_start_card"
+  },
+  {
+    "file": "sepa_mandate_fix.py",
+    "function": "create_missing_sepa_mandates",
+    "description": "Create SEPA mandates for members with SEPA Direct Debit payment method but no active mandate.",
+    "path": "/api/method/verenigingen.api.sepa_mandate_fix.create_missing_sepa_mandates"
+  },
+  {
+    "file": "sepa_mandate_fix.py",
+    "function": "fix_specific_member_sepa_mandate",
+    "description": "Create SEPA mandate for a specific member",
+    "path": "/api/method/verenigingen.api.sepa_mandate_fix.fix_specific_member_sepa_mandate"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "get_dashboard_data",
+    "description": "Get payment dashboard summary data",
+    "path": "/api/method/verenigingen.api.payment_dashboard.get_dashboard_data"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "get_payment_method",
+    "description": "Get active payment method details",
+    "path": "/api/method/verenigingen.api.payment_dashboard.get_payment_method"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "get_payment_history",
+    "description": "Get payment history for member",
+    "path": "/api/method/verenigingen.api.payment_dashboard.get_payment_history"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "get_mandate_history",
+    "description": "Get SEPA mandate history",
+    "path": "/api/method/verenigingen.api.payment_dashboard.get_mandate_history"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "get_payment_schedule",
+    "description": "Get upcoming payment schedule",
+    "path": "/api/method/verenigingen.api.payment_dashboard.get_payment_schedule"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "get_next_payment",
+    "description": "Get next scheduled payment",
+    "path": "/api/method/verenigingen.api.payment_dashboard.get_next_payment"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "retry_failed_payment",
+    "description": "Manually trigger payment retry",
+    "path": "/api/method/verenigingen.api.payment_dashboard.retry_failed_payment"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "download_payment_receipt",
+    "description": "Generate payment receipt PDF",
+    "path": "/api/method/verenigingen.api.payment_dashboard.download_payment_receipt"
+  },
+  {
+    "file": "payment_dashboard.py",
+    "function": "export_payment_history_csv",
+    "description": "Export payment history as CSV",
+    "path": "/api/method/verenigingen.api.payment_dashboard.export_payment_history_csv"
+  },
+  {
+    "file": "sepa_batch_ui.py",
+    "function": "load_unpaid_invoices",
+    "description": "Load unpaid invoices for batch processing",
+    "path": "/api/method/verenigingen.api.sepa_batch_ui.load_unpaid_invoices"
+  },
+  {
+    "file": "sepa_batch_ui.py",
+    "function": "get_invoice_mandate_info",
+    "description": "Get mandate information for an invoice",
+    "path": "/api/method/verenigingen.api.sepa_batch_ui.get_invoice_mandate_info"
+  },
+  {
+    "file": "sepa_batch_ui.py",
+    "function": "validate_invoice_mandate",
+    "description": "Validate mandate for a specific invoice",
+    "path": "/api/method/verenigingen.api.sepa_batch_ui.validate_invoice_mandate"
+  },
+  {
+    "file": "sepa_batch_ui.py",
+    "function": "get_batch_analytics",
+    "description": "Get detailed analytics for a batch",
+    "path": "/api/method/verenigingen.api.sepa_batch_ui.get_batch_analytics"
+  },
+  {
+    "file": "sepa_batch_ui.py",
+    "function": "preview_sepa_xml",
+    "description": "Preview SEPA XML content before generation",
+    "path": "/api/method/verenigingen.api.sepa_batch_ui.preview_sepa_xml"
+  },
+  {
+    "file": "member_management.py",
+    "function": "assign_member_to_chapter",
+    "description": "Assign a member to a specific chapter using centralized manager",
+    "path": "/api/method/verenigingen.api.member_management.assign_member_to_chapter"
+  },
+  {
+    "file": "member_management.py",
+    "function": "get_members_without_chapter",
+    "description": "Get list of members without chapter assignment",
+    "path": "/api/method/verenigingen.api.member_management.get_members_without_chapter"
+  },
+  {
+    "file": "member_management.py",
+    "function": "bulk_assign_members_to_chapters",
+    "description": "Bulk assign multiple members to chapters",
+    "path": "/api/method/verenigingen.api.member_management.bulk_assign_members_to_chapters"
+  },
+  {
+    "file": "member_management.py",
+    "function": "debug_address_members",
+    "description": "Debug method to test address members functionality",
+    "path": "/api/method/verenigingen.api.member_management.debug_address_members"
+  },
+  {
+    "file": "member_management.py",
+    "function": "manually_populate_address_members",
+    "description": "Manually populate the address members field to test UI",
+    "path": "/api/method/verenigingen.api.member_management.manually_populate_address_members"
+  },
+  {
+    "file": "member_management.py",
+    "function": "clear_address_members_field",
+    "description": "Clear the address members field to test automatic population",
+    "path": "/api/method/verenigingen.api.member_management.clear_address_members_field"
+  },
+  {
+    "file": "member_management.py",
+    "function": "test_simple_field_population",
+    "description": "Test setting a simple value to verify field visibility",
+    "path": "/api/method/verenigingen.api.member_management.test_simple_field_population"
+  },
+  {
+    "file": "member_management.py",
+    "function": "get_address_members_html_api",
+    "description": "Dedicated API method to get address members HTML - completely separate from document methods",
+    "path": "/api/method/verenigingen.api.member_management.get_address_members_html_api"
+  },
+  {
+    "file": "member_management.py",
+    "function": "get_mt940_import_url",
+    "description": "Get URL for MT940 import page",
+    "path": "/api/method/verenigingen.api.member_management.get_mt940_import_url"
+  },
+  {
+    "file": "member_management.py",
+    "function": "test_mt940_extraction",
+    "description": "Test the extraction function on first transaction",
+    "path": "/api/method/verenigingen.api.member_management.test_mt940_extraction"
+  },
+  {
+    "file": "member_management.py",
+    "function": "debug_mt940_import_improved",
+    "description": "Debug version of MT940 import with improved transaction parsing",
+    "path": "/api/method/verenigingen.api.member_management.debug_mt940_import_improved"
+  },
+  {
+    "file": "member_management.py",
+    "function": "debug_mt940_import",
+    "description": "Debug version of MT940 import to see what's happening",
+    "path": "/api/method/verenigingen.api.member_management.debug_mt940_import"
+  },
+  {
+    "file": "member_management.py",
+    "function": "debug_bank_account_search",
+    "description": "Debug bank account search by IBAN",
+    "path": "/api/method/verenigingen.api.member_management.debug_bank_account_search"
+  },
+  {
+    "file": "member_management.py",
+    "function": "debug_duplicate_detection",
+    "description": "Debug the duplicate detection logic specifically",
+    "path": "/api/method/verenigingen.api.member_management.debug_duplicate_detection"
+  },
+  {
+    "file": "member_management.py",
+    "function": "debug_mt940_import_detailed",
+    "description": "Debug version that shows exactly what's happening during import",
+    "path": "/api/method/verenigingen.api.member_management.debug_mt940_import_detailed"
+  },
+  {
+    "file": "member_management.py",
+    "function": "import_mt940_improved",
+    "description": "Improved MT940 import with better transaction handling",
+    "path": "/api/method/verenigingen.api.member_management.import_mt940_improved"
+  },
+  {
+    "file": "get_unreconciled_payments.py",
+    "function": "get_unreconciled_payments",
+    "description": "Get all unreconciled payment entries created during migration",
+    "path": "/api/method/verenigingen.api.get_unreconciled_payments.get_unreconciled_payments"
+  },
+  {
+    "file": "get_unreconciled_payments.py",
+    "function": "reconcile_payment_with_invoice",
+    "description": "Reconcile an unreconciled payment with an invoice",
+    "path": "/api/method/verenigingen.api.get_unreconciled_payments.reconcile_payment_with_invoice"
+  },
+  {
+    "file": "update_prepare_system_button.py",
+    "function": "should_remove_prepare_system_button",
+    "description": "Analysis of whether the 'Prepare System' button should be removed",
+    "path": "/api/method/verenigingen.api.update_prepare_system_button.should_remove_prepare_system_button"
+  },
+  {
+    "file": "update_prepare_system_button.py",
+    "function": "analyze_eboekhouden_data",
+    "description": "Analyze E-Boekhouden data without making any system changes",
+    "path": "/api/method/verenigingen.api.update_prepare_system_button.analyze_eboekhouden_data"
+  },
+  {
+    "file": "anbi_operations.py",
+    "function": "update_donor_tax_identifiers",
+    "description": "Update donor tax identifiers with proper security checks",
+    "path": "/api/method/verenigingen.api.anbi_operations.update_donor_tax_identifiers"
+  },
+  {
+    "file": "anbi_operations.py",
+    "function": "get_donor_anbi_data",
+    "description": "Get ANBI-related data for a donor (with decryption for authorized users)",
+    "path": "/api/method/verenigingen.api.anbi_operations.get_donor_anbi_data"
+  },
+  {
+    "file": "anbi_operations.py",
+    "function": "generate_anbi_report",
+    "description": "Generate ANBI report for Belastingdienst reporting",
+    "path": "/api/method/verenigingen.api.anbi_operations.generate_anbi_report"
+  },
+  {
+    "file": "anbi_operations.py",
+    "function": "update_anbi_consent",
+    "description": "Update ANBI consent for a donor",
+    "path": "/api/method/verenigingen.api.anbi_operations.update_anbi_consent"
+  },
+  {
+    "file": "anbi_operations.py",
+    "function": "validate_bsn",
+    "description": "Validate a BSN number using the eleven-proof algorithm",
+    "path": "/api/method/verenigingen.api.anbi_operations.validate_bsn"
+  },
+  {
+    "file": "anbi_operations.py",
+    "function": "get_anbi_statistics",
+    "description": "Get ANBI donation statistics",
+    "path": "/api/method/verenigingen.api.anbi_operations.get_anbi_statistics"
+  },
+  {
+    "file": "anbi_operations.py",
+    "function": "export_belastingdienst_report",
+    "description": "Export ANBI report for Belastingdienst in CSV format",
+    "path": "/api/method/verenigingen.api.anbi_operations.export_belastingdienst_report"
+  },
+  {
+    "file": "anbi_operations.py",
+    "function": "send_consent_requests",
+    "description": "Send ANBI consent request emails to donors without consent",
+    "path": "/api/method/verenigingen.api.anbi_operations.send_consent_requests"
+  },
+  {
+    "file": "dd_batch_workflow_controller.py",
+    "function": "validate_batch_for_approval",
+    "description": "Validate batch and determine appropriate approval path",
+    "path": "/api/method/verenigingen.api.dd_batch_workflow_controller.validate_batch_for_approval"
+  },
+  {
+    "file": "dd_batch_workflow_controller.py",
+    "function": "approve_batch",
+    "description": "Approve batch and move to next state",
+    "path": "/api/method/verenigingen.api.dd_batch_workflow_controller.approve_batch"
+  },
+  {
+    "file": "dd_batch_workflow_controller.py",
+    "function": "reject_batch",
+    "description": "Reject batch and provide reason",
+    "path": "/api/method/verenigingen.api.dd_batch_workflow_controller.reject_batch"
+  },
+  {
+    "file": "dd_batch_workflow_controller.py",
+    "function": "get_batch_approval_history",
+    "description": "Get approval history for a batch",
+    "path": "/api/method/verenigingen.api.dd_batch_workflow_controller.get_batch_approval_history"
+  },
+  {
+    "file": "dd_batch_workflow_controller.py",
+    "function": "trigger_sepa_generation",
+    "description": "Trigger SEPA file generation for approved batch",
+    "path": "/api/method/verenigingen.api.dd_batch_workflow_controller.trigger_sepa_generation"
+  },
+  {
+    "file": "dd_batch_workflow_controller.py",
+    "function": "get_batches_pending_approval",
+    "description": "Get all batches pending approval for current user",
+    "path": "/api/method/verenigingen.api.dd_batch_workflow_controller.get_batches_pending_approval"
+  },
+  {
+    "file": "email_template_manager.py",
+    "function": "create_comprehensive_email_templates",
+    "description": "Create all email templates used throughout the verenigingen app",
+    "path": "/api/method/verenigingen.api.email_template_manager.create_comprehensive_email_templates"
+  },
+  {
+    "file": "email_template_manager.py",
+    "function": "test_email_template",
+    "description": "Test email template rendering with sample context",
+    "path": "/api/method/verenigingen.api.email_template_manager.test_email_template"
+  },
+  {
+    "file": "email_template_manager.py",
+    "function": "list_all_email_templates",
+    "description": "List all email templates in the system",
+    "path": "/api/method/verenigingen.api.email_template_manager.list_all_email_templates"
+  },
+  {
+    "file": "populate_soap_credentials.py",
+    "function": "populate_soap_credentials",
+    "description": "Populate SOAP credentials from hardcoded values for existing installation",
+    "path": "/api/method/verenigingen.api.populate_soap_credentials.populate_soap_credentials"
+  },
+  {
+    "file": "populate_soap_credentials.py",
+    "function": "get_soap_credentials_status",
+    "description": "Check if SOAP credentials are configured",
+    "path": "/api/method/verenigingen.api.populate_soap_credentials.get_soap_credentials_status"
+  },
+  {
+    "file": "eboekhouden_item_mapping_tool.py",
+    "function": "get_unmapped_accounts",
+    "description": "Get E-boekhouden accounts that don't have item mappings yet",
+    "path": "/api/method/verenigingen.api.eboekhouden_item_mapping_tool.get_unmapped_accounts"
+  },
+  {
+    "file": "eboekhouden_item_mapping_tool.py",
+    "function": "create_mapping",
+    "description": "Create a new item mapping",
+    "path": "/api/method/verenigingen.api.eboekhouden_item_mapping_tool.create_mapping"
+  },
+  {
+    "file": "dd_batch_scheduler.py",
+    "function": "get_batch_creation_schedule",
+    "description": "Get the current schedule for automatic batch creation",
+    "path": "/api/method/verenigingen.api.dd_batch_scheduler.get_batch_creation_schedule"
+  },
+  {
+    "file": "dd_batch_scheduler.py",
+    "function": "toggle_auto_batch_creation",
+    "description": "Enable or disable automatic batch creation",
+    "path": "/api/method/verenigingen.api.dd_batch_scheduler.toggle_auto_batch_creation"
+  },
+  {
+    "file": "dd_batch_scheduler.py",
+    "function": "run_batch_creation_now",
+    "description": "Manually trigger batch creation (for testing/emergency use)",
+    "path": "/api/method/verenigingen.api.dd_batch_scheduler.run_batch_creation_now"
+  },
+  {
+    "file": "dd_batch_scheduler.py",
+    "function": "get_batch_optimization_stats",
+    "description": "Get statistics about batch optimization performance",
+    "path": "/api/method/verenigingen.api.dd_batch_scheduler.get_batch_optimization_stats"
+  },
+  {
+    "file": "generate_test_membership_types.py",
+    "function": "generate_test_membership_types",
+    "description": "Generate comprehensive test membership types for testing",
+    "path": "/api/method/verenigingen.api.generate_test_membership_types.generate_test_membership_types"
+  },
+  {
+    "file": "generate_test_membership_types.py",
+    "function": "cleanup_test_membership_types",
+    "description": "Remove all test membership types and their associated data",
+    "path": "/api/method/verenigingen.api.generate_test_membership_types.cleanup_test_membership_types"
+  },
+  {
+    "file": "generate_test_membership_types.py",
+    "function": "get_test_membership_types_status",
+    "description": "Get status of test membership types",
+    "path": "/api/method/verenigingen.api.generate_test_membership_types.get_test_membership_types_status"
+  },
+  {
+    "file": "fix_subscription.py",
+    "function": "fix_subscription_dates",
+    "description": "Fix subscription date update issues",
+    "path": "/api/method/verenigingen.api.fix_subscription.fix_subscription_dates"
+  },
+  {
+    "file": "fix_subscription.py",
+    "function": "fix_all_subscription_dates",
+    "description": "Fix all subscriptions with date issues",
+    "path": "/api/method/verenigingen.api.fix_subscription.fix_all_subscription_dates"
+  },
+  {
+    "file": "onboarding_info.py",
+    "function": "get_onboarding_info",
+    "description": "Get detailed onboarding information",
+    "path": "/api/method/verenigingen.api.onboarding_info.get_onboarding_info"
+  },
+  {
+    "file": "onboarding_info.py",
+    "function": "get_direct_onboarding_link",
+    "description": "Get the direct link to access Verenigingen onboarding",
+    "path": "/api/method/verenigingen.api.onboarding_info.get_direct_onboarding_link"
+  },
+  {
+    "file": "suspension_api.py",
+    "function": "suspend_member",
+    "description": "Suspend a member with specified options",
+    "path": "/api/method/verenigingen.api.suspension_api.suspend_member"
+  },
+  {
+    "file": "suspension_api.py",
+    "function": "unsuspend_member",
+    "description": "Unsuspend a member",
+    "path": "/api/method/verenigingen.api.suspension_api.unsuspend_member"
+  },
+  {
+    "file": "suspension_api.py",
+    "function": "get_suspension_status",
+    "description": "Get suspension status for a member",
+    "path": "/api/method/verenigingen.api.suspension_api.get_suspension_status"
+  },
+  {
+    "file": "suspension_api.py",
+    "function": "can_suspend_member",
+    "description": "Check if current user can suspend/unsuspend a member",
+    "path": "/api/method/verenigingen.api.suspension_api.can_suspend_member"
+  },
+  {
+    "file": "suspension_api.py",
+    "function": "get_suspension_preview",
+    "description": "Preview what would be affected by suspension",
+    "path": "/api/method/verenigingen.api.suspension_api.get_suspension_preview"
+  },
+  {
+    "file": "suspension_api.py",
+    "function": "bulk_suspend_members",
+    "description": "Suspend multiple members at once",
+    "path": "/api/method/verenigingen.api.suspension_api.bulk_suspend_members"
+  },
+  {
+    "file": "suspension_api.py",
+    "function": "test_bank_details_debug",
+    "description": "Test function to debug bank details issue",
+    "path": "/api/method/verenigingen.api.suspension_api.test_bank_details_debug"
+  },
+  {
+    "file": "save_soap_credentials.py",
+    "function": "save_soap_credentials",
+    "description": "Save SOAP credentials to E-Boekhouden Settings",
+    "path": "/api/method/verenigingen.api.save_soap_credentials.save_soap_credentials"
+  },
+  {
+    "file": "full_migration_summary.py",
+    "function": "full_migration_summary",
+    "description": "Summary of the completed full migration system",
+    "path": "/api/method/verenigingen.api.full_migration_summary.full_migration_summary"
+  },
+  {
+    "file": "full_migration_summary.py",
+    "function": "migration_deployment_checklist",
+    "description": "Pre-deployment checklist for production migration",
+    "path": "/api/method/verenigingen.api.full_migration_summary.migration_deployment_checklist"
+  },
+  {
+    "file": "analyze_tegenrekening_usage.py",
+    "function": "analyze_tegenrekening_patterns",
+    "description": "Analyze E-Boekhouden transaction data to discover tegenrekening usage patterns",
+    "path": "/api/method/verenigingen.api.analyze_tegenrekening_usage.analyze_tegenrekening_patterns"
+  },
+  {
+    "file": "analyze_tegenrekening_usage.py",
+    "function": "get_chart_of_accounts_mapping",
+    "description": "Get mapping between ledger IDs and account codes from E-Boekhouden Chart of Accounts",
+    "path": "/api/method/verenigingen.api.analyze_tegenrekening_usage.get_chart_of_accounts_mapping"
+  },
+  {
+    "file": "analyze_tegenrekening_usage.py",
+    "function": "generate_item_mapping_suggestions",
+    "description": "Generate intelligent item mapping suggestions based on account usage and descriptions",
+    "path": "/api/method/verenigingen.api.analyze_tegenrekening_usage.generate_item_mapping_suggestions"
+  },
+  {
+    "file": "payment_processing.py",
+    "function": "send_overdue_payment_reminders",
+    "description": "Send payment reminders to members with overdue payments",
+    "path": "/api/method/verenigingen.api.payment_processing.send_overdue_payment_reminders"
+  },
+  {
+    "file": "payment_processing.py",
+    "function": "export_overdue_payments",
+    "description": "Export overdue payments data for external processing",
+    "path": "/api/method/verenigingen.api.payment_processing.export_overdue_payments"
+  },
+  {
+    "file": "payment_processing.py",
+    "function": "execute_bulk_payment_action",
+    "description": "Execute bulk actions on overdue payments",
+    "path": "/api/method/verenigingen.api.payment_processing.execute_bulk_payment_action"
+  },
+  {
+    "file": "generate_test_members.py",
+    "function": "generate_test_members",
+    "description": "Generate test members from sample data",
+    "path": "/api/method/verenigingen.api.generate_test_members.generate_test_members"
+  },
+  {
+    "file": "generate_test_members.py",
+    "function": "cleanup_test_members",
+    "description": "Remove test members (those with @testvereniging.nl email addresses)",
+    "path": "/api/method/verenigingen.api.generate_test_members.cleanup_test_members"
+  },
+  {
+    "file": "generate_test_members.py",
+    "function": "get_test_members_status",
+    "description": "Get status of test members",
+    "path": "/api/method/verenigingen.api.generate_test_members.get_test_members_status"
+  },
+  {
+    "file": "create_smart_item_mapping.py",
+    "function": "create_smart_item_mapping_system",
+    "description": "Create a comprehensive item mapping system for E-Boekhouden accounts",
+    "path": "/api/method/verenigingen.api.create_smart_item_mapping.create_smart_item_mapping_system"
+  },
+  {
+    "file": "create_smart_item_mapping.py",
+    "function": "create_items_from_mappings",
+    "description": "Create actual ERPNext items based on the smart mappings",
+    "path": "/api/method/verenigingen.api.create_smart_item_mapping.create_items_from_mappings"
+  },
+  {
+    "file": "create_smart_item_mapping.py",
+    "function": "create_tegenrekening_mapping_helper",
+    "description": "Create a helper function for mapping tegenrekening codes to items during migration",
+    "path": "/api/method/verenigingen.api.create_smart_item_mapping.create_tegenrekening_mapping_helper"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "create_periodic_agreement",
+    "description": "Create a new periodic donation agreement",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.create_periodic_agreement"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "get_donor_agreements",
+    "description": "Get all periodic donation agreements for a donor",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.get_donor_agreements"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "link_donation_to_agreement",
+    "description": "Link an existing donation to a periodic agreement",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.link_donation_to_agreement"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "generate_periodic_donation_report",
+    "description": "Generate report of all periodic donation agreements",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.generate_periodic_donation_report"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "check_expiring_agreements",
+    "description": "Check for agreements expiring within specified days",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.check_expiring_agreements"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "create_donation_from_agreement",
+    "description": "Create a donation based on periodic agreement settings",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.create_donation_from_agreement"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "get_agreement_statistics",
+    "description": "Get overall statistics for periodic donation agreements",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.get_agreement_statistics"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "send_renewal_reminders",
+    "description": "Send renewal reminders for expiring agreements",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.send_renewal_reminders"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "generate_tax_receipts",
+    "description": "Generate tax receipts for periodic donations",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.generate_tax_receipts"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "export_agreements",
+    "description": "Export periodic agreements to CSV",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.export_agreements"
+  },
+  {
+    "file": "periodic_donation_operations.py",
+    "function": "test_periodic_donation_system",
+    "description": "Test that the periodic donation agreement system is working",
+    "path": "/api/method/verenigingen.api.periodic_donation_operations.test_periodic_donation_system"
+  },
+  {
+    "file": "generate_test_applications.py",
+    "function": "generate_test_members",
+    "description": "Generate test membership applications from sample data",
+    "path": "/api/method/verenigingen.api.generate_test_applications.generate_test_members"
+  },
+  {
+    "file": "generate_test_applications.py",
+    "function": "cleanup_test_applications",
+    "description": "Remove test applications (those with @email.nl addresses)",
+    "path": "/api/method/verenigingen.api.generate_test_applications.cleanup_test_applications"
+  },
+  {
+    "file": "generate_test_applications.py",
+    "function": "get_test_applications_status",
+    "description": "Get status of test applications",
+    "path": "/api/method/verenigingen.api.generate_test_applications.get_test_applications_status"
+  }
+]
