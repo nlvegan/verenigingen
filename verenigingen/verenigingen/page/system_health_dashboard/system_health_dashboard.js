@@ -104,7 +104,7 @@ class SystemHealthDashboard {
 							<div class="text-${check_color}">
 								<i class="fa fa-circle"></i> ${result.status.toUpperCase()}
 								${result.response_time_ms !== undefined ?
-									`<br><small>${result.response_time_ms.toFixed(2)}ms</small>` : ''}
+		`<br><small>${result.response_time_ms.toFixed(2)}ms</small>` : ''}
 							</div>
 						</div>
 					</div>

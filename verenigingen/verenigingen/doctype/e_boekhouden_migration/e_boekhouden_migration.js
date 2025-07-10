@@ -1557,18 +1557,18 @@ function start_opening_balance_import(frm, options) {
 						'<strong>Opening Balance Preview:</strong><br><br>' :
 						'<strong>Opening Balance Import Completed!</strong><br><br>';
 
-					message += `<strong>Summary:</strong><br>`;
+					message += '<strong>Summary:</strong><br>';
 					message += `• Total imported: ${result.imported}<br>`;
 
 					if (result.debug_info && result.debug_info.length > 0) {
-						message += `<br><strong>Details:</strong><br>`;
+						message += '<br><strong>Details:</strong><br>';
 						result.debug_info.forEach(info => {
 							message += `• ${info}<br>`;
 						});
 					}
 
 					if (result.errors && result.errors.length > 0) {
-						message += `<br><strong>Errors:</strong><br>`;
+						message += '<br><strong>Errors:</strong><br>';
 						result.errors.forEach(error => {
 							message += `• ${error}<br>`;
 						});
@@ -1606,23 +1606,23 @@ function add_tools_dropdown(frm) {
 	// Add debugging and REST API tools
 	setTimeout(() => {
 		// Debug Connection
-		frappe.ui.toolbar.add_dropdown_button(__("Tools"), __("Debug Connection"), function() {
+		frappe.ui.toolbar.add_dropdown_button(__('Tools'), __('Debug Connection'), function() {
 			frappe.call({
-				method: "verenigingen.api.test_eboekhouden_connection",
+				method: 'verenigingen.api.test_eboekhouden_connection',
 				freeze: true,
-				freeze_message: __("Testing connection..."),
+				freeze_message: __('Testing connection...'),
 				callback: function(r) {
 					if (r.message && r.message.success) {
 						frappe.msgprint({
-							title: __("Connection Test Successful"),
-							message: __("Successfully connected to E-Boekhouden API.<br><br>Details:<br>" + r.message.message),
-							indicator: "green"
+							title: __('Connection Test Successful'),
+							message: __('Successfully connected to E-Boekhouden API.<br><br>Details:<br>' + r.message.message),
+							indicator: 'green'
 						});
 					} else {
 						frappe.msgprint({
-							title: __("Connection Test Failed"),
-							message: __("Failed to connect: " + (r.message ? r.message.message : "Unknown error")),
-							indicator: "red"
+							title: __('Connection Test Failed'),
+							message: __('Failed to connect: ' + (r.message ? r.message.message : 'Unknown error')),
+							indicator: 'red'
 						});
 					}
 				}
@@ -1630,9 +1630,9 @@ function add_tools_dropdown(frm) {
 		});
 
 		// Add REST API migration button
-		frappe.ui.toolbar.add_dropdown_button(__("Tools"), __("Fetch ALL Mutations (REST API)"), function() {
+		frappe.ui.toolbar.add_dropdown_button(__('Tools'), __('Fetch ALL Mutations (REST API)'), function() {
 			frappe.confirm(
-				__("This will fetch ALL historical mutations using the REST API by iterating through mutation IDs. This may take several minutes. Continue?"),
+				__('This will fetch ALL historical mutations using the REST API by iterating through mutation IDs. This may take several minutes. Continue?'),
 				function() {
 					// Show a dialog with options
 					let d = new frappe.ui.Dialog({
@@ -1668,44 +1668,44 @@ function add_tools_dropdown(frm) {
 							let end_id = values.test_mode ? Math.min(values.start_id + 100, values.end_id) : values.end_id;
 
 							frappe.call({
-								method: "verenigingen.utils.test_rest_migration.test_rest_mutation_fetch",
+								method: 'verenigingen.utils.test_rest_migration.test_rest_mutation_fetch',
 								args: {
 									start_id: start_id,
 									end_id: end_id
 								},
 								freeze: true,
-								freeze_message: __("Fetching mutations from REST API..."),
+								freeze_message: __('Fetching mutations from REST API...'),
 								callback: function(r) {
 									if (r.message && !r.message.error) {
-										let msg = `<b>REST API Migration Results:</b><br><br>`;
+										let msg = '<b>REST API Migration Results:</b><br><br>';
 										msg += `Total Checked: ${r.message.summary.total_checked}<br>`;
 										msg += `Found: ${r.message.summary.total_found}<br>`;
 										msg += `Not Found: ${r.message.summary.total_not_found}<br>`;
 										msg += `Errors: ${r.message.summary.total_errors}<br><br>`;
 
-										msg += `<b>Type Distribution:</b><br>`;
+										msg += '<b>Type Distribution:</b><br>';
 										for (let [type, count] of Object.entries(r.message.summary.type_distribution)) {
 											msg += `${type}: ${count}<br>`;
 										}
 
 										if (r.message.sample_mutations && r.message.sample_mutations.length > 0) {
-											msg += `<br><b>Sample Mutations:</b><br>`;
+											msg += '<br><b>Sample Mutations:</b><br>';
 											r.message.sample_mutations.forEach(m => {
 												msg += `ID ${m.id}: ${m.date} - ${m.description}<br>`;
 											});
 										}
 
 										frappe.msgprint({
-											title: __("REST API Fetch Complete"),
+											title: __('REST API Fetch Complete'),
 											message: msg,
-											indicator: "green",
+											indicator: 'green',
 											wide: true
 										});
 									} else {
 										frappe.msgprint({
-											title: __("REST API Fetch Failed"),
-											message: r.message ? r.message.error : "Unknown error",
-											indicator: "red"
+											title: __('REST API Fetch Failed'),
+											message: r.message ? r.message.error : 'Unknown error',
+											indicator: 'red'
 										});
 									}
 								}
@@ -1763,13 +1763,13 @@ function handle_import_single_mutation(frm) {
 
 						// Show results
 						const result = r.message;
-						let message = `<strong>Import Results:</strong><br>`;
+						let message = '<strong>Import Results:</strong><br>';
 						message += `Mutation ID: ${result.mutation_id}<br>`;
 						message += `Document Type: ${result.document_type}<br>`;
 						message += `Document Name: ${result.document_name}<br>`;
 
 						if (result.debug_info && result.debug_info.length > 0) {
-							message += `<br><strong>Debug Info:</strong><br>`;
+							message += '<br><strong>Debug Info:</strong><br>';
 							result.debug_info.forEach(info => {
 								message += `• ${info}<br>`;
 							});

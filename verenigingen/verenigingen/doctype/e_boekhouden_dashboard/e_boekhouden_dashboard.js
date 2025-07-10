@@ -76,7 +76,7 @@ frappe.realtime.on('migration_progress_update', function(data) {
 
 // Custom CSS for better dashboard appearance
 $('<style>')
-	.prop("type", "text/css")
+	.prop('type', 'text/css')
 	.html(`
 		.form-page[data-doctype="E-Boekhouden Dashboard"] .form-sidebar {
 			display: none;
@@ -89,4 +89,4 @@ $('<style>')
 			border: none;
 		}
 	`)
-	.appendTo("head");
+	.appendTo('head');

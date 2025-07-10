@@ -1,359 +1,359 @@
 frappe.pages['membership-analytics'].on_page_load = function(wrapper) {
-    var page = frappe.ui.make_app_page({
-        parent: wrapper,
-        title: __('Membership Analytics Dashboard'),
-        single_column: true
-    });
+	var page = frappe.ui.make_app_page({
+		parent: wrapper,
+		title: __('Membership Analytics Dashboard'),
+		single_column: true
+	});
 
-    // Create the page
-    let membership_analytics = new MembershipAnalytics(page);
-    membership_analytics.make();
-}
+	// Create the page
+	let membership_analytics = new MembershipAnalytics(page);
+	membership_analytics.make();
+};
 
 class MembershipAnalytics {
-    constructor(page) {
-        this.page = page;
-        this.charts = {};
-        this.filters = {
-            year: new Date().getFullYear(),
-            period: 'year',
-            compare_previous: false,
-            chapter: null,
-            region: null,
-            membership_type: null,
-            age_group: null,
-            payment_method: null
-        };
-    }
+	constructor(page) {
+		this.page = page;
+		this.charts = {};
+		this.filters = {
+			year: new Date().getFullYear(),
+			period: 'year',
+			compare_previous: false,
+			chapter: null,
+			region: null,
+			membership_type: null,
+			age_group: null,
+			payment_method: null
+		};
+	}
 
-    make() {
-        // Add HTML content
-        $(this.page.main).html(frappe.render_template("membership_analytics", {}));
+	make() {
+		// Add HTML content
+		$(this.page.main).html(frappe.render_template('membership_analytics', {}));
 
-        // Initialize components
-        this.setup_filters();
-        this.setup_buttons();
-        this.refresh_dashboard();
+		// Initialize components
+		this.setup_filters();
+		this.setup_buttons();
+		this.refresh_dashboard();
 
-        // Auto-refresh every 5 minutes
-        setInterval(() => this.refresh_dashboard(), 5 * 60 * 1000);
-    }
+		// Auto-refresh every 5 minutes
+		setInterval(() => this.refresh_dashboard(), 5 * 60 * 1000);
+	}
 
-    setup_filters() {
-        // Populate year dropdown
-        const currentYear = new Date().getFullYear();
-        const yearSelect = $('#filter-year');
+	setup_filters() {
+		// Populate year dropdown
+		const currentYear = new Date().getFullYear();
+		const yearSelect = $('#filter-year');
 
-        for (let year = currentYear; year >= currentYear - 5; year--) {
-            yearSelect.append(`<option value="${year}">${year}</option>`);
-        }
+		for (let year = currentYear; year >= currentYear - 5; year--) {
+			yearSelect.append(`<option value="${year}">${year}</option>`);
+		}
 
-        // Set current year
-        yearSelect.val(currentYear);
+		// Set current year
+		yearSelect.val(currentYear);
 
-        // Load filter options
-        this.load_filter_options();
+		// Load filter options
+		this.load_filter_options();
 
-        // Bind filter changes
-        $('#filter-year, #filter-period').on('change', () => {
-            this.filters.year = $('#filter-year').val();
-            this.filters.period = $('#filter-period').val();
-            this.refresh_dashboard();
-        });
+		// Bind filter changes
+		$('#filter-year, #filter-period').on('change', () => {
+			this.filters.year = $('#filter-year').val();
+			this.filters.period = $('#filter-period').val();
+			this.refresh_dashboard();
+		});
 
-        $('#compare-previous').on('change', () => {
-            this.filters.compare_previous = $('#compare-previous').is(':checked');
-            this.refresh_dashboard();
-        });
+		$('#compare-previous').on('change', () => {
+			this.filters.compare_previous = $('#compare-previous').is(':checked');
+			this.refresh_dashboard();
+		});
 
-        // Advanced filters
-        $('#filter-chapter, #filter-region, #filter-membership-type, #filter-age-group, #filter-payment-method').on('change', () => {
-            this.filters.chapter = $('#filter-chapter').val() || null;
-            this.filters.region = $('#filter-region').val() || null;
-            this.filters.membership_type = $('#filter-membership-type').val() || null;
-            this.filters.age_group = $('#filter-age-group').val() || null;
-            this.filters.payment_method = $('#filter-payment-method').val() || null;
-            this.refresh_dashboard();
-        });
+		// Advanced filters
+		$('#filter-chapter, #filter-region, #filter-membership-type, #filter-age-group, #filter-payment-method').on('change', () => {
+			this.filters.chapter = $('#filter-chapter').val() || null;
+			this.filters.region = $('#filter-region').val() || null;
+			this.filters.membership_type = $('#filter-membership-type').val() || null;
+			this.filters.age_group = $('#filter-age-group').val() || null;
+			this.filters.payment_method = $('#filter-payment-method').val() || null;
+			this.refresh_dashboard();
+		});
 
-        // Reset filters button
-        $('#btn-reset-filters').on('click', () => {
-            $('#filter-chapter, #filter-region, #filter-membership-type, #filter-age-group, #filter-payment-method').val('').trigger('change');
-        });
-    }
+		// Reset filters button
+		$('#btn-reset-filters').on('click', () => {
+			$('#filter-chapter, #filter-region, #filter-membership-type, #filter-age-group, #filter-payment-method').val('').trigger('change');
+		});
+	}
 
-    load_filter_options() {
-        // Load chapters
-        frappe.call({
-            method: 'frappe.client.get_list',
-            args: {
-                doctype: 'Chapter',
-                fields: ['name', 'chapter_name'],
-                filters: { is_active: 1 },
-                limit_page_length: 0
-            },
-            callback: (r) => {
-                if (r.message) {
-                    const select = $('#filter-chapter');
-                    r.message.forEach(chapter => {
-                        select.append(`<option value="${chapter.name}">${chapter.chapter_name}</option>`);
-                    });
-                }
-            }
-        });
+	load_filter_options() {
+		// Load chapters
+		frappe.call({
+			method: 'frappe.client.get_list',
+			args: {
+				doctype: 'Chapter',
+				fields: ['name', 'chapter_name'],
+				filters: { is_active: 1 },
+				limit_page_length: 0
+			},
+			callback: (r) => {
+				if (r.message) {
+					const select = $('#filter-chapter');
+					r.message.forEach(chapter => {
+						select.append(`<option value="${chapter.name}">${chapter.chapter_name}</option>`);
+					});
+				}
+			}
+		});
 
-        // Load membership types
-        frappe.call({
-            method: 'frappe.client.get_list',
-            args: {
-                doctype: 'Membership Type',
-                fields: ['name'],
-                filters: { is_active: 1 },
-                limit_page_length: 0
-            },
-            callback: (r) => {
-                if (r.message) {
-                    const select = $('#filter-membership-type');
-                    r.message.forEach(type => {
-                        select.append(`<option value="${type.name}">${type.name}</option>`);
-                    });
-                }
-            }
-        });
+		// Load membership types
+		frappe.call({
+			method: 'frappe.client.get_list',
+			args: {
+				doctype: 'Membership Type',
+				fields: ['name'],
+				filters: { is_active: 1 },
+				limit_page_length: 0
+			},
+			callback: (r) => {
+				if (r.message) {
+					const select = $('#filter-membership-type');
+					r.message.forEach(type => {
+						select.append(`<option value="${type.name}">${type.name}</option>`);
+					});
+				}
+			}
+		});
 
-        // Regions are hardcoded based on postal codes
-        const regions = [
-            'Noord-Holland', 'Zuid-Holland', 'Utrecht', 'Gelderland',
-            'Noord-Brabant', 'Limburg', 'Zeeland', 'Overijssel', 'Groningen'
-        ];
-        const regionSelect = $('#filter-region');
-        regions.forEach(region => {
-            regionSelect.append(`<option value="${region}">${region}</option>`);
-        });
+		// Regions are hardcoded based on postal codes
+		const regions = [
+			'Noord-Holland', 'Zuid-Holland', 'Utrecht', 'Gelderland',
+			'Noord-Brabant', 'Limburg', 'Zeeland', 'Overijssel', 'Groningen'
+		];
+		const regionSelect = $('#filter-region');
+		regions.forEach(region => {
+			regionSelect.append(`<option value="${region}">${region}</option>`);
+		});
 
-        // Age groups are predefined
-        const ageGroups = ['Under 25', '25-34', '35-44', '45-54', '55-64', '65+'];
-        const ageSelect = $('#filter-age-group');
-        ageGroups.forEach(age => {
-            ageSelect.append(`<option value="${age}">${age}</option>`);
-        });
+		// Age groups are predefined
+		const ageGroups = ['Under 25', '25-34', '35-44', '45-54', '55-64', '65+'];
+		const ageSelect = $('#filter-age-group');
+		ageGroups.forEach(age => {
+			ageSelect.append(`<option value="${age}">${age}</option>`);
+		});
 
-        // Payment methods
-        const paymentMethods = ['Bank Transfer', 'Direct Debit', 'Credit Card', 'PayPal'];
-        const paymentSelect = $('#filter-payment-method');
-        paymentMethods.forEach(method => {
-            paymentSelect.append(`<option value="${method}">${method}</option>`);
-        });
-    }
+		// Payment methods
+		const paymentMethods = ['Bank Transfer', 'Direct Debit', 'Credit Card', 'PayPal'];
+		const paymentSelect = $('#filter-payment-method');
+		paymentMethods.forEach(method => {
+			paymentSelect.append(`<option value="${method}">${method}</option>`);
+		});
+	}
 
-    setup_buttons() {
-        // Refresh button
-        $('#btn-refresh').on('click', () => {
-            this.refresh_dashboard();
-        });
+	setup_buttons() {
+		// Refresh button
+		$('#btn-refresh').on('click', () => {
+			this.refresh_dashboard();
+		});
 
-        // Add Goal button
-        $('#btn-add-goal').on('click', () => {
-            this.show_goal_dialog();
-        });
+		// Add Goal button
+		$('#btn-add-goal').on('click', () => {
+			this.show_goal_dialog();
+		});
 
-        // Export buttons - use event delegation for dropdown items
-        $(document).on('click', '#btn-export-excel', (e) => {
-            e.preventDefault();
-            this.export_data('excel');
-        });
+		// Export buttons - use event delegation for dropdown items
+		$(document).on('click', '#btn-export-excel', (e) => {
+			e.preventDefault();
+			this.export_data('excel');
+		});
 
-        $(document).on('click', '#btn-export-pdf', (e) => {
-            e.preventDefault();
-            this.export_data('pdf');
-        });
+		$(document).on('click', '#btn-export-pdf', (e) => {
+			e.preventDefault();
+			this.export_data('pdf');
+		});
 
-        $(document).on('click', '#btn-export-csv', (e) => {
-            e.preventDefault();
-            this.export_data('csv');
-        });
+		$(document).on('click', '#btn-export-csv', (e) => {
+			e.preventDefault();
+			this.export_data('csv');
+		});
 
-        // Create Snapshot button
-        $('#btn-create-snapshot').on('click', () => {
-            this.create_snapshot();
-        });
+		// Create Snapshot button
+		$('#btn-create-snapshot').on('click', () => {
+			this.create_snapshot();
+		});
 
-        // Toggle advanced filters
-        $('#btn-toggle-filters').on('click', () => {
-            $('#advanced-filters').slideToggle(() => {
-                // Show/hide reset button based on filter visibility
-                if ($('#advanced-filters').is(':visible')) {
-                    $('#btn-reset-filters').show();
-                } else {
-                    $('#btn-reset-filters').hide();
-                }
-            });
-        });
+		// Toggle advanced filters
+		$('#btn-toggle-filters').on('click', () => {
+			$('#advanced-filters').slideToggle(() => {
+				// Show/hide reset button based on filter visibility
+				if ($('#advanced-filters').is(':visible')) {
+					$('#btn-reset-filters').show();
+				} else {
+					$('#btn-reset-filters').hide();
+				}
+			});
+		});
 
-        // Predictive Analytics button
-        $('#btn-predictive').on('click', () => {
-            this.show_predictive_analytics();
-        });
+		// Predictive Analytics button
+		$('#btn-predictive').on('click', () => {
+			this.show_predictive_analytics();
+		});
 
-        // Alert Rules button
-        $('#btn-alert-rules').on('click', () => {
-            frappe.set_route('List', 'Analytics Alert Rule');
-        });
-    }
+		// Alert Rules button
+		$('#btn-alert-rules').on('click', () => {
+			frappe.set_route('List', 'Analytics Alert Rule');
+		});
+	}
 
-    refresh_dashboard() {
-        // Show loading state
-        frappe.dom.freeze('Loading dashboard data...');
+	refresh_dashboard() {
+		// Show loading state
+		frappe.dom.freeze('Loading dashboard data...');
 
-        frappe.call({
-            method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.get_dashboard_data',
-            args: {
-                year: this.filters.year,
-                period: this.filters.period,
-                compare_previous: this.filters.compare_previous,
-                filters: this.filters
-            },
-            callback: (r) => {
-                frappe.dom.unfreeze();
-                if (r.message) {
-                    this.render_dashboard(r.message);
-                }
-            },
-            error: () => {
-                frappe.dom.unfreeze();
-                frappe.msgprint(__('Error loading dashboard data'));
-            }
-        });
-    }
+		frappe.call({
+			method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.get_dashboard_data',
+			args: {
+				year: this.filters.year,
+				period: this.filters.period,
+				compare_previous: this.filters.compare_previous,
+				filters: this.filters
+			},
+			callback: (r) => {
+				frappe.dom.unfreeze();
+				if (r.message) {
+					this.render_dashboard(r.message);
+				}
+			},
+			error: () => {
+				frappe.dom.unfreeze();
+				frappe.msgprint(__('Error loading dashboard data'));
+			}
+		});
+	}
 
-    render_dashboard(data) {
-        // Update summary cards
-        this.update_summary_cards(data.summary, data.previous_period);
+	render_dashboard(data) {
+		// Update summary cards
+		this.update_summary_cards(data.summary, data.previous_period);
 
-        // Update charts
-        this.render_growth_chart(data.growth_trend);
-        this.render_revenue_chart(data.revenue_projection);
+		// Update charts
+		this.render_growth_chart(data.growth_trend);
+		this.render_revenue_chart(data.revenue_projection);
 
-        // Update goals and breakdown
-        this.render_goals_progress(data.goals);
-        this.render_membership_breakdown(data.membership_breakdown);
+		// Update goals and breakdown
+		this.render_goals_progress(data.goals);
+		this.render_membership_breakdown(data.membership_breakdown);
 
-        // Update insights
-        this.render_insights(data.insights);
+		// Update insights
+		this.render_insights(data.insights);
 
-        // Render segmentation data
-        if (data.segmentation) {
-            this.render_segmentation(data.segmentation);
-        }
+		// Render segmentation data
+		if (data.segmentation) {
+			this.render_segmentation(data.segmentation);
+		}
 
-        // Render cohort analysis
-        if (data.cohort_analysis) {
-            this.render_cohort_analysis(data.cohort_analysis);
-        }
+		// Render cohort analysis
+		if (data.cohort_analysis) {
+			this.render_cohort_analysis(data.cohort_analysis);
+		}
 
-        // Update last updated time
-        $('#last-updated').text(frappe.datetime.str_to_user(data.last_updated));
-    }
+		// Update last updated time
+		$('#last-updated').text(frappe.datetime.str_to_user(data.last_updated));
+	}
 
-    update_summary_cards(summary, previous) {
-        // Total Members
-        $('#total-members').text(this.format_number(summary.total_members));
+	update_summary_cards(summary, previous) {
+		// Total Members
+		$('#total-members').text(this.format_number(summary.total_members));
 
-        // Net Growth
-        $('#net-growth').html(this.format_growth_number(summary.net_growth));
+		// Net Growth
+		$('#net-growth').html(this.format_growth_number(summary.net_growth));
 
-        // Growth Rate
-        $('#growth-rate').text(summary.growth_rate.toFixed(1) + '%');
+		// Growth Rate
+		$('#growth-rate').text(summary.growth_rate.toFixed(1) + '%');
 
-        // Projected Revenue
-        $('#projected-revenue').text(this.format_currency(summary.projected_revenue));
+		// Projected Revenue
+		$('#projected-revenue').text(this.format_currency(summary.projected_revenue));
 
-        // Show comparison if available
-        if (previous) {
-            const growth_change = summary.net_growth - previous.net_growth;
-            const growth_pct = previous.net_growth ?
-                ((growth_change / Math.abs(previous.net_growth)) * 100).toFixed(1) : 0;
+		// Show comparison if available
+		if (previous) {
+			const growth_change = summary.net_growth - previous.net_growth;
+			const growth_pct = previous.net_growth ?
+				((growth_change / Math.abs(previous.net_growth)) * 100).toFixed(1) : 0;
 
-            $('#net-growth-change').html(
-                `<i class="fa fa-${growth_change >= 0 ? 'arrow-up' : 'arrow-down'}"></i> ${growth_pct}%`
-            );
-        }
-    }
+			$('#net-growth-change').html(
+				`<i class="fa fa-${growth_change >= 0 ? 'arrow-up' : 'arrow-down'}"></i> ${growth_pct}%`
+			);
+		}
+	}
 
-    render_growth_chart(data) {
-        const chart_data = {
-            labels: data.map(d => d.period),
-            datasets: [{
-                name: __("New Members"),
-                values: data.map(d => d.new_members),
-                chartType: 'bar'
-            }, {
-                name: __("Lost Members"),
-                values: data.map(d => -d.lost_members),
-                chartType: 'bar'
-            }, {
-                name: __("Net Growth"),
-                values: data.map(d => d.net_growth),
-                chartType: 'line'
-            }]
-        };
+	render_growth_chart(data) {
+		const chart_data = {
+			labels: data.map(d => d.period),
+			datasets: [{
+				name: __('New Members'),
+				values: data.map(d => d.new_members),
+				chartType: 'bar'
+			}, {
+				name: __('Lost Members'),
+				values: data.map(d => -d.lost_members),
+				chartType: 'bar'
+			}, {
+				name: __('Net Growth'),
+				values: data.map(d => d.net_growth),
+				chartType: 'line'
+			}]
+		};
 
-        if (this.charts.growth) {
-            this.charts.growth.destroy();
-        }
+		if (this.charts.growth) {
+			this.charts.growth.destroy();
+		}
 
-        this.charts.growth = new frappe.Chart("#growth-trend-chart", {
-            data: chart_data,
-            type: 'axis-mixed',
-            height: 300,
-            colors: ['#5e64ff', '#ff4757', '#2ecc71'],
-            axisOptions: {
-                xAxisMode: 'tick',
-                xIsSeries: true
-            },
-            barOptions: {
-                stacked: false
-            }
-        });
-    }
+		this.charts.growth = new frappe.Chart('#growth-trend-chart', {
+			data: chart_data,
+			type: 'axis-mixed',
+			height: 300,
+			colors: ['#5e64ff', '#ff4757', '#2ecc71'],
+			axisOptions: {
+				xAxisMode: 'tick',
+				xIsSeries: true
+			},
+			barOptions: {
+				stacked: false
+			}
+		});
+	}
 
-    render_revenue_chart(data) {
-        const chart_data = {
-            labels: data.map(d => d.membership_type),
-            datasets: [{
-                name: __("Revenue"),
-                values: data.map(d => d.revenue)
-            }]
-        };
+	render_revenue_chart(data) {
+		const chart_data = {
+			labels: data.map(d => d.membership_type),
+			datasets: [{
+				name: __('Revenue'),
+				values: data.map(d => d.revenue)
+			}]
+		};
 
-        if (this.charts.revenue) {
-            this.charts.revenue.destroy();
-        }
+		if (this.charts.revenue) {
+			this.charts.revenue.destroy();
+		}
 
-        this.charts.revenue = new frappe.Chart("#revenue-chart", {
-            data: chart_data,
-            type: 'bar',
-            height: 300,
-            colors: ['#00d2d3'],
-            format_tooltip_y: d => this.format_currency(d)
-        });
-    }
+		this.charts.revenue = new frappe.Chart('#revenue-chart', {
+			data: chart_data,
+			type: 'bar',
+			height: 300,
+			colors: ['#00d2d3'],
+			format_tooltip_y: d => this.format_currency(d)
+		});
+	}
 
-    render_goals_progress(goals) {
-        const container = $('#goals-progress');
-        container.empty();
+	render_goals_progress(goals) {
+		const container = $('#goals-progress');
+		container.empty();
 
-        if (!goals || goals.length === 0) {
-            container.html('<p class="text-muted">' + __('No goals set for this period') + '</p>');
-            return;
-        }
+		if (!goals || goals.length === 0) {
+			container.html('<p class="text-muted">' + __('No goals set for this period') + '</p>');
+			return;
+		}
 
-        goals.forEach(goal => {
-            const progress_class = goal.achievement_percentage >= 100 ? 'progress-bar-success' :
-                                 goal.achievement_percentage >= 75 ? 'progress-bar-warning' :
-                                 'progress-bar-danger';
+		goals.forEach(goal => {
+			const progress_class = goal.achievement_percentage >= 100 ? 'progress-bar-success' :
+				goal.achievement_percentage >= 75 ? 'progress-bar-warning' :
+					'progress-bar-danger';
 
-            const goal_html = `
+			const goal_html = `
                 <div class="goal-item mb-3">
                     <div class="d-flex justify-content-between mb-1">
                         <strong>${goal.goal_name}</strong>
@@ -370,24 +370,24 @@ class MembershipAnalytics {
                     </small>
                 </div>
             `;
-            container.append(goal_html);
-        });
-    }
+			container.append(goal_html);
+		});
+	}
 
-    render_membership_breakdown(data) {
-        const container = $('#membership-breakdown');
-        container.empty();
+	render_membership_breakdown(data) {
+		const container = $('#membership-breakdown');
+		container.empty();
 
-        if (!data || data.length === 0) {
-            container.html('<p class="text-muted">' + __('No membership data available') + '</p>');
-            return;
-        }
+		if (!data || data.length === 0) {
+			container.html('<p class="text-muted">' + __('No membership data available') + '</p>');
+			return;
+		}
 
-        const total = data.reduce((sum, item) => sum + item.count, 0);
+		const total = data.reduce((sum, item) => sum + item.count, 0);
 
-        data.forEach(item => {
-            const percentage = ((item.count / total) * 100).toFixed(1);
-            const breakdown_html = `
+		data.forEach(item => {
+			const percentage = ((item.count / total) * 100).toFixed(1);
+			const breakdown_html = `
                 <div class="breakdown-item mb-3">
                     <div class="d-flex justify-content-between">
                         <strong>${item.membership_type}</strong>
@@ -399,379 +399,379 @@ class MembershipAnalytics {
                     <small class="text-muted">${this.format_currency(item.revenue)}</small>
                 </div>
             `;
-            container.append(breakdown_html);
-        });
-    }
+			container.append(breakdown_html);
+		});
+	}
 
-    render_insights(insights) {
-        const container = $('#insights-list');
-        container.empty();
+	render_insights(insights) {
+		const container = $('#insights-list');
+		container.empty();
 
-        if (!insights || insights.length === 0) {
-            container.html('<p class="text-muted">' + __('No insights available') + '</p>');
-            return;
-        }
+		if (!insights || insights.length === 0) {
+			container.html('<p class="text-muted">' + __('No insights available') + '</p>');
+			return;
+		}
 
-        insights.forEach(insight => {
-            const insight_html = `
+		insights.forEach(insight => {
+			const insight_html = `
                 <div class="insight-item insight-${insight.type}">
                     <i class="fa fa-${this.get_insight_icon(insight.type)}"></i>
                     ${insight.message}
                 </div>
             `;
-            container.append(insight_html);
-        });
-    }
+			container.append(insight_html);
+		});
+	}
 
-    show_goal_dialog() {
-        const d = new frappe.ui.Dialog({
-            title: __('Add Membership Goal'),
-            fields: [
-                {
-                    label: __('Goal Name'),
-                    fieldname: 'goal_name',
-                    fieldtype: 'Data',
-                    reqd: 1
-                },
-                {
-                    label: __('Goal Type'),
-                    fieldname: 'goal_type',
-                    fieldtype: 'Select',
-                    options: [
-                        'Member Count Growth',
-                        'Revenue Growth',
-                        'Retention Rate',
-                        'New Member Acquisition',
-                        'Churn Reduction',
-                        'Chapter Expansion'
-                    ],
-                    reqd: 1
-                },
-                {
-                    label: __('Target Value'),
-                    fieldname: 'target_value',
-                    fieldtype: 'Float',
-                    reqd: 1,
-                    description: __('Enter number or percentage based on goal type')
-                },
-                {
-                    label: __('Goal Year'),
-                    fieldname: 'goal_year',
-                    fieldtype: 'Int',
-                    default: new Date().getFullYear(),
-                    reqd: 1
-                },
-                {
-                    label: __('Start Date'),
-                    fieldname: 'start_date',
-                    fieldtype: 'Date',
-                    default: frappe.datetime.year_start(),
-                    reqd: 1
-                },
-                {
-                    label: __('End Date'),
-                    fieldname: 'end_date',
-                    fieldtype: 'Date',
-                    default: frappe.datetime.year_end(),
-                    reqd: 1
-                },
-                {
-                    label: __('Description'),
-                    fieldname: 'description',
-                    fieldtype: 'Text'
-                }
-            ],
-            primary_action_label: __('Create Goal'),
-            primary_action: (values) => {
-                frappe.call({
-                    method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.create_goal',
-                    args: {
-                        goal_data: values
-                    },
-                    callback: (r) => {
-                        if (r.message) {
-                            frappe.show_alert({
-                                message: __('Goal created successfully'),
-                                indicator: 'green'
-                            });
-                            d.hide();
-                            this.refresh_dashboard();
-                        }
-                    }
-                });
-            }
-        });
-        d.show();
-    }
+	show_goal_dialog() {
+		const d = new frappe.ui.Dialog({
+			title: __('Add Membership Goal'),
+			fields: [
+				{
+					label: __('Goal Name'),
+					fieldname: 'goal_name',
+					fieldtype: 'Data',
+					reqd: 1
+				},
+				{
+					label: __('Goal Type'),
+					fieldname: 'goal_type',
+					fieldtype: 'Select',
+					options: [
+						'Member Count Growth',
+						'Revenue Growth',
+						'Retention Rate',
+						'New Member Acquisition',
+						'Churn Reduction',
+						'Chapter Expansion'
+					],
+					reqd: 1
+				},
+				{
+					label: __('Target Value'),
+					fieldname: 'target_value',
+					fieldtype: 'Float',
+					reqd: 1,
+					description: __('Enter number or percentage based on goal type')
+				},
+				{
+					label: __('Goal Year'),
+					fieldname: 'goal_year',
+					fieldtype: 'Int',
+					default: new Date().getFullYear(),
+					reqd: 1
+				},
+				{
+					label: __('Start Date'),
+					fieldname: 'start_date',
+					fieldtype: 'Date',
+					default: frappe.datetime.year_start(),
+					reqd: 1
+				},
+				{
+					label: __('End Date'),
+					fieldname: 'end_date',
+					fieldtype: 'Date',
+					default: frappe.datetime.year_end(),
+					reqd: 1
+				},
+				{
+					label: __('Description'),
+					fieldname: 'description',
+					fieldtype: 'Text'
+				}
+			],
+			primary_action_label: __('Create Goal'),
+			primary_action: (values) => {
+				frappe.call({
+					method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.create_goal',
+					args: {
+						goal_data: values
+					},
+					callback: (r) => {
+						if (r.message) {
+							frappe.show_alert({
+								message: __('Goal created successfully'),
+								indicator: 'green'
+							});
+							d.hide();
+							this.refresh_dashboard();
+						}
+					}
+				});
+			}
+		});
+		d.show();
+	}
 
-    // Helper functions
-    format_number(num) {
-        return num.toLocaleString();
-    }
+	// Helper functions
+	format_number(num) {
+		return num.toLocaleString();
+	}
 
-    format_growth_number(num) {
-        const formatted = this.format_number(Math.abs(num));
-        if (num > 0) {
-            return `<span class="text-success">+${formatted}</span>`;
-        } else if (num < 0) {
-            return `<span class="text-danger">-${formatted}</span>`;
-        }
-        return formatted;
-    }
+	format_growth_number(num) {
+		const formatted = this.format_number(Math.abs(num));
+		if (num > 0) {
+			return `<span class="text-success">+${formatted}</span>`;
+		} else if (num < 0) {
+			return `<span class="text-danger">-${formatted}</span>`;
+		}
+		return formatted;
+	}
 
-    format_currency(amount) {
-        return format_currency(amount, frappe.defaults.get_default("currency") || "EUR");
-    }
+	format_currency(amount) {
+		return format_currency(amount, frappe.defaults.get_default('currency') || 'EUR');
+	}
 
-    format_goal_value(value, goal_type) {
-        if (goal_type.includes('Rate') || goal_type.includes('Percentage')) {
-            return value.toFixed(1) + '%';
-        } else if (goal_type.includes('Revenue')) {
-            return this.format_currency(value);
-        }
-        return this.format_number(value);
-    }
+	format_goal_value(value, goal_type) {
+		if (goal_type.includes('Rate') || goal_type.includes('Percentage')) {
+			return value.toFixed(1) + '%';
+		} else if (goal_type.includes('Revenue')) {
+			return this.format_currency(value);
+		}
+		return this.format_number(value);
+	}
 
-    get_insight_icon(type) {
-        const icons = {
-            'success': 'check-circle',
-            'warning': 'exclamation-triangle',
-            'danger': 'exclamation-circle',
-            'info': 'info-circle'
-        };
-        return icons[type] || 'info-circle';
-    }
+	get_insight_icon(type) {
+		const icons = {
+			'success': 'check-circle',
+			'warning': 'exclamation-triangle',
+			'danger': 'exclamation-circle',
+			'info': 'info-circle'
+		};
+		return icons[type] || 'info-circle';
+	}
 
-    render_segmentation(segmentation) {
-        // Render chapter segmentation
-        if (segmentation.by_chapter) {
-            this.render_segmentation_chart('chapter-segmentation-chart', segmentation.by_chapter, 'Chapter Distribution');
-        }
+	render_segmentation(segmentation) {
+		// Render chapter segmentation
+		if (segmentation.by_chapter) {
+			this.render_segmentation_chart('chapter-segmentation-chart', segmentation.by_chapter, 'Chapter Distribution');
+		}
 
-        // Render region segmentation
-        if (segmentation.by_region) {
-            this.render_segmentation_chart('region-segmentation-chart', segmentation.by_region, 'Regional Distribution');
-        }
+		// Render region segmentation
+		if (segmentation.by_region) {
+			this.render_segmentation_chart('region-segmentation-chart', segmentation.by_region, 'Regional Distribution');
+		}
 
-        // Render age segmentation
-        if (segmentation.by_age) {
-            this.render_segmentation_chart('age-segmentation-chart', segmentation.by_age, 'Age Distribution');
-        }
+		// Render age segmentation
+		if (segmentation.by_age) {
+			this.render_segmentation_chart('age-segmentation-chart', segmentation.by_age, 'Age Distribution');
+		}
 
-        // Render payment method segmentation
-        if (segmentation.by_payment_method) {
-            this.render_segmentation_chart('payment-method-chart', segmentation.by_payment_method, 'Payment Methods');
-        }
-    }
+		// Render payment method segmentation
+		if (segmentation.by_payment_method) {
+			this.render_segmentation_chart('payment-method-chart', segmentation.by_payment_method, 'Payment Methods');
+		}
+	}
 
-    render_segmentation_chart(elementId, data, title) {
-        const container = $(`#${elementId}`);
-        if (!container.length) return;
+	render_segmentation_chart(elementId, data, title) {
+		const container = $(`#${elementId}`);
+		if (!container.length) return;
 
-        // Sort by total members descending and take top 10
-        const sortedData = data.sort((a, b) => b.total_members - a.total_members).slice(0, 10);
+		// Sort by total members descending and take top 10
+		const sortedData = data.sort((a, b) => b.total_members - a.total_members).slice(0, 10);
 
-        const chartData = {
-            labels: sortedData.map(d => d.name),
-            datasets: [{
-                name: __("Total Members"),
-                values: sortedData.map(d => d.total_members)
-            }]
-        };
+		const chartData = {
+			labels: sortedData.map(d => d.name),
+			datasets: [{
+				name: __('Total Members'),
+				values: sortedData.map(d => d.total_members)
+			}]
+		};
 
-        // Destroy existing chart if any
-        if (this.charts[elementId]) {
-            this.charts[elementId].destroy();
-        }
+		// Destroy existing chart if any
+		if (this.charts[elementId]) {
+			this.charts[elementId].destroy();
+		}
 
-        this.charts[elementId] = new frappe.Chart(`#${elementId}`, {
-            data: chartData,
-            type: 'bar',
-            height: 250,
-            colors: ['#5e64ff'],
-            axisOptions: {
-                xAxisMode: 'tick',
-                xIsSeries: true
-            }
-        });
-    }
+		this.charts[elementId] = new frappe.Chart(`#${elementId}`, {
+			data: chartData,
+			type: 'bar',
+			height: 250,
+			colors: ['#5e64ff'],
+			axisOptions: {
+				xAxisMode: 'tick',
+				xIsSeries: true
+			}
+		});
+	}
 
-    render_cohort_analysis(cohortData) {
-        const container = $('#cohort-heatmap');
-        if (!container.length || !cohortData || cohortData.length === 0) return;
+	render_cohort_analysis(cohortData) {
+		const container = $('#cohort-heatmap');
+		if (!container.length || !cohortData || cohortData.length === 0) return;
 
-        // Create heatmap data
-        const heatmapData = {
-            labels: {
-                months: ['M0', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11'],
-                cohorts: cohortData.map(c => c.cohort)
-            },
-            datasets: []
-        };
+		// Create heatmap data
+		const heatmapData = {
+			labels: {
+				months: ['M0', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M8', 'M9', 'M10', 'M11'],
+				cohorts: cohortData.map(c => c.cohort)
+			},
+			datasets: []
+		};
 
-        // Build dataset for heatmap
-        cohortData.forEach((cohort, idx) => {
-            const values = [];
-            for (let i = 0; i < 12; i++) {
-                const retention = cohort.retention.find(r => r.month === i);
-                values.push(retention ? retention.rate : null);
-            }
-            heatmapData.datasets.push({
-                name: cohort.cohort,
-                values: values
-            });
-        });
+		// Build dataset for heatmap
+		cohortData.forEach((cohort, idx) => {
+			const values = [];
+			for (let i = 0; i < 12; i++) {
+				const retention = cohort.retention.find(r => r.month === i);
+				values.push(retention ? retention.rate : null);
+			}
+			heatmapData.datasets.push({
+				name: cohort.cohort,
+				values: values
+			});
+		});
 
-        // Render as a table for now (Frappe Charts doesn't have native heatmap)
-        this.render_cohort_table(cohortData);
-    }
+		// Render as a table for now (Frappe Charts doesn't have native heatmap)
+		this.render_cohort_table(cohortData);
+	}
 
-    render_cohort_table(cohortData) {
-        const container = $('#cohort-heatmap');
-        container.empty();
+	render_cohort_table(cohortData) {
+		const container = $('#cohort-heatmap');
+		container.empty();
 
-        let tableHtml = `
+		let tableHtml = `
             <table class="table table-bordered table-sm cohort-table">
                 <thead>
                     <tr>
                         <th>Cohort</th>
                         <th>Size</th>`;
 
-        // Add month headers
-        for (let i = 0; i < 12; i++) {
-            tableHtml += `<th>M${i}</th>`;
-        }
-        tableHtml += '</tr></thead><tbody>';
+		// Add month headers
+		for (let i = 0; i < 12; i++) {
+			tableHtml += `<th>M${i}</th>`;
+		}
+		tableHtml += '</tr></thead><tbody>';
 
-        // Add cohort rows
-        cohortData.forEach(cohort => {
-            tableHtml += `<tr>
+		// Add cohort rows
+		cohortData.forEach(cohort => {
+			tableHtml += `<tr>
                 <td><strong>${cohort.cohort}</strong></td>
                 <td>${cohort.initial}</td>`;
 
-            for (let i = 0; i < 12; i++) {
-                const retention = cohort.retention.find(r => r.month === i);
-                if (retention) {
-                    const rate = retention.rate;
-                    const colorClass = rate >= 80 ? 'bg-success' :
-                                     rate >= 60 ? 'bg-info' :
-                                     rate >= 40 ? 'bg-warning' : 'bg-danger';
-                    tableHtml += `<td class="${colorClass} text-white">${rate.toFixed(0)}%</td>`;
-                } else {
-                    tableHtml += '<td>-</td>';
-                }
-            }
-            tableHtml += '</tr>';
-        });
+			for (let i = 0; i < 12; i++) {
+				const retention = cohort.retention.find(r => r.month === i);
+				if (retention) {
+					const rate = retention.rate;
+					const colorClass = rate >= 80 ? 'bg-success' :
+						rate >= 60 ? 'bg-info' :
+							rate >= 40 ? 'bg-warning' : 'bg-danger';
+					tableHtml += `<td class="${colorClass} text-white">${rate.toFixed(0)}%</td>`;
+				} else {
+					tableHtml += '<td>-</td>';
+				}
+			}
+			tableHtml += '</tr>';
+		});
 
-        tableHtml += '</tbody></table>';
-        container.html(tableHtml);
-    }
+		tableHtml += '</tbody></table>';
+		container.html(tableHtml);
+	}
 
-    export_data(format) {
-        frappe.dom.freeze('Preparing export...');
+	export_data(format) {
+		frappe.dom.freeze('Preparing export...');
 
-        frappe.call({
-            method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.export_dashboard_data',
-            args: {
-                year: this.filters.year,
-                period: this.filters.period,
-                format: format
-            },
-            callback: (r) => {
-                frappe.dom.unfreeze();
-                if (format === 'excel') {
-                    // Handle binary download
-                    const blob = new Blob([r.message], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                    const url = window.URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `membership_analytics_${frappe.datetime.nowdate()}.xlsx`;
-                    document.body.appendChild(a);
-                    a.click();
-                    window.URL.revokeObjectURL(url);
-                    document.body.removeChild(a);
-                } else {
-                    frappe.msgprint(__('Export feature for {0} is under development', [format]));
-                }
-            },
-            error: () => {
-                frappe.dom.unfreeze();
-                frappe.msgprint(__('Error exporting data'));
-            }
-        });
-    }
+		frappe.call({
+			method: 'verenigingen.verenigingen.page.membership_analytics.membership_analytics.export_dashboard_data',
+			args: {
+				year: this.filters.year,
+				period: this.filters.period,
+				format: format
+			},
+			callback: (r) => {
+				frappe.dom.unfreeze();
+				if (format === 'excel') {
+					// Handle binary download
+					const blob = new Blob([r.message], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+					const url = window.URL.createObjectURL(blob);
+					const a = document.createElement('a');
+					a.href = url;
+					a.download = `membership_analytics_${frappe.datetime.nowdate()}.xlsx`;
+					document.body.appendChild(a);
+					a.click();
+					window.URL.revokeObjectURL(url);
+					document.body.removeChild(a);
+				} else {
+					frappe.msgprint(__('Export feature for {0} is under development', [format]));
+				}
+			},
+			error: () => {
+				frappe.dom.unfreeze();
+				frappe.msgprint(__('Error exporting data'));
+			}
+		});
+	}
 
-    create_snapshot() {
-        frappe.confirm(
-            __('Create a snapshot of current analytics data?'),
-            () => {
-                frappe.call({
-                    method: 'verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_snapshot',
-                    args: {
-                        snapshot_type: 'Manual',
-                        specific_date: frappe.datetime.nowdate()
-                    },
-                    callback: (r) => {
-                        if (r.message) {
-                            frappe.show_alert({
-                                message: __('Snapshot created successfully'),
-                                indicator: 'green'
-                            });
-                        }
-                    }
-                });
-            }
-        );
-    }
+	create_snapshot() {
+		frappe.confirm(
+			__('Create a snapshot of current analytics data?'),
+			() => {
+				frappe.call({
+					method: 'verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_snapshot',
+					args: {
+						snapshot_type: 'Manual',
+						specific_date: frappe.datetime.nowdate()
+					},
+					callback: (r) => {
+						if (r.message) {
+							frappe.show_alert({
+								message: __('Snapshot created successfully'),
+								indicator: 'green'
+							});
+						}
+					}
+				});
+			}
+		);
+	}
 
-    show_predictive_analytics() {
-        frappe.dom.freeze('Loading predictive analytics...');
+	show_predictive_analytics() {
+		frappe.dom.freeze('Loading predictive analytics...');
 
-        frappe.call({
-            method: 'verenigingen.verenigingen.page.membership_analytics.predictive_analytics.get_predictive_analytics',
-            args: {
-                months_ahead: 12
-            },
-            callback: (r) => {
-                frappe.dom.unfreeze();
-                if (r.message) {
-                    this.render_predictive_dialog(r.message);
-                }
-            },
-            error: () => {
-                frappe.dom.unfreeze();
-                frappe.msgprint(__('Error loading predictive analytics'));
-            }
-        });
-    }
+		frappe.call({
+			method: 'verenigingen.verenigingen.page.membership_analytics.predictive_analytics.get_predictive_analytics',
+			args: {
+				months_ahead: 12
+			},
+			callback: (r) => {
+				frappe.dom.unfreeze();
+				if (r.message) {
+					this.render_predictive_dialog(r.message);
+				}
+			},
+			error: () => {
+				frappe.dom.unfreeze();
+				frappe.msgprint(__('Error loading predictive analytics'));
+			}
+		});
+	}
 
-    render_predictive_dialog(data) {
-        const dialog = new frappe.ui.Dialog({
-            title: __('Predictive Analytics'),
-            size: 'extra-large',
-            fields: [{
-                fieldname: 'content',
-                fieldtype: 'HTML'
-            }],
-            primary_action_label: __('Close'),
-            primary_action: () => dialog.hide()
-        });
+	render_predictive_dialog(data) {
+		const dialog = new frappe.ui.Dialog({
+			title: __('Predictive Analytics'),
+			size: 'extra-large',
+			fields: [{
+				fieldname: 'content',
+				fieldtype: 'HTML'
+			}],
+			primary_action_label: __('Close'),
+			primary_action: () => dialog.hide()
+		});
 
-        const html = this.build_predictive_html(data);
-        dialog.fields_dict.content.$wrapper.html(html);
-        dialog.show();
+		const html = this.build_predictive_html(data);
+		dialog.fields_dict.content.$wrapper.html(html);
+		dialog.show();
 
-        // Render charts after dialog is shown
-        setTimeout(() => {
-            this.render_forecast_chart(data.member_growth_forecast);
-            this.render_revenue_forecast_chart(data.revenue_forecast);
-            this.render_scenarios_chart(data.growth_scenarios);
-        }, 100);
-    }
+		// Render charts after dialog is shown
+		setTimeout(() => {
+			this.render_forecast_chart(data.member_growth_forecast);
+			this.render_revenue_forecast_chart(data.revenue_forecast);
+			this.render_scenarios_chart(data.growth_scenarios);
+		}, 100);
+	}
 
-    build_predictive_html(data) {
-        return `
+	build_predictive_html(data) {
+		return `
             <div class="predictive-analytics-content">
                 <!-- Member Growth Forecast -->
                 <div class="section">
@@ -942,12 +942,12 @@ class MembershipAnalytics {
                 .priority-medium { background: #5bc0de; color: white; }
             </style>
         `;
-    }
+	}
 
-    build_scenarios_html(scenarios) {
-        let html = '';
-        for (const [key, scenario] of Object.entries(scenarios.scenarios)) {
-            html += `
+	build_scenarios_html(scenarios) {
+		let html = '';
+		for (const [key, scenario] of Object.entries(scenarios.scenarios)) {
+			html += `
                 <div class="scenario-card">
                     <h5>${scenario.name}</h5>
                     <p class="text-muted small">${scenario.description}</p>
@@ -958,18 +958,18 @@ class MembershipAnalytics {
                     </div>
                 </div>
             `;
-        }
-        return html;
-    }
+		}
+		return html;
+	}
 
-    build_risk_members_html(members) {
-        if (!members || members.length === 0) {
-            return '<p class="text-muted">' + __('No high-risk members identified') + '</p>';
-        }
+	build_risk_members_html(members) {
+		if (!members || members.length === 0) {
+			return '<p class="text-muted">' + __('No high-risk members identified') + '</p>';
+		}
 
-        let html = '<table class="table table-sm"><thead><tr><th>Member</th><th>Risk Score</th><th>Factors</th><th>Action</th></tr></thead><tbody>';
-        members.forEach(member => {
-            html += `
+		let html = '<table class="table table-sm"><thead><tr><th>Member</th><th>Risk Score</th><th>Factors</th><th>Action</th></tr></thead><tbody>';
+		members.forEach(member => {
+			html += `
                 <tr>
                     <td>${member.member_name}</td>
                     <td>${(member.risk_score * 100).toFixed(0)}%</td>
@@ -977,15 +977,15 @@ class MembershipAnalytics {
                     <td><small>${member.recommended_action}</small></td>
                 </tr>
             `;
-        });
-        html += '</tbody></table>';
-        return html;
-    }
+		});
+		html += '</tbody></table>';
+		return html;
+	}
 
-    build_recommendations_html(recommendations) {
-        let html = '';
-        recommendations.forEach(rec => {
-            html += `
+	build_recommendations_html(recommendations) {
+		let html = '';
+		recommendations.forEach(rec => {
+			html += `
                 <div class="recommendation-item">
                     <div class="d-flex justify-content-between align-items-start mb-2">
                         <h5>${rec.recommendation}</h5>
@@ -998,96 +998,96 @@ class MembershipAnalytics {
                     </ul>
                 </div>
             `;
-        });
-        return html;
-    }
+		});
+		return html;
+	}
 
-    render_forecast_chart(forecast) {
-        if (!forecast || !forecast.forecast) return;
+	render_forecast_chart(forecast) {
+		if (!forecast || !forecast.forecast) return;
 
-        const chartData = {
-            labels: [...forecast.historical_trend.months, ...forecast.forecast.months],
-            datasets: [{
-                name: __("Historical"),
-                values: [...forecast.historical_trend.values, ...Array(forecast.forecast.values.length).fill(null)]
-            }, {
-                name: __("Forecast"),
-                values: [...Array(forecast.historical_trend.values.length).fill(null), ...forecast.forecast.values]
-            }]
-        };
+		const chartData = {
+			labels: [...forecast.historical_trend.months, ...forecast.forecast.months],
+			datasets: [{
+				name: __('Historical'),
+				values: [...forecast.historical_trend.values, ...Array(forecast.forecast.values.length).fill(null)]
+			}, {
+				name: __('Forecast'),
+				values: [...Array(forecast.historical_trend.values.length).fill(null), ...forecast.forecast.values]
+			}]
+		};
 
-        new frappe.Chart("#member-forecast-chart", {
-            data: chartData,
-            type: 'line',
-            height: 300,
-            colors: ['#5e64ff', '#00d2d3'],
-            axisOptions: {
-                xAxisMode: 'tick',
-                xIsSeries: true
-            }
-        });
-    }
+		new frappe.Chart('#member-forecast-chart', {
+			data: chartData,
+			type: 'line',
+			height: 300,
+			colors: ['#5e64ff', '#00d2d3'],
+			axisOptions: {
+				xAxisMode: 'tick',
+				xIsSeries: true
+			}
+		});
+	}
 
-    render_revenue_forecast_chart(forecast) {
-        if (!forecast || !forecast.monthly_forecast) return;
+	render_revenue_forecast_chart(forecast) {
+		if (!forecast || !forecast.monthly_forecast) return;
 
-        const chartData = {
-            labels: forecast.monthly_forecast.map(d => d.month),
-            datasets: [{
-                name: __("Monthly Revenue"),
-                values: forecast.monthly_forecast.map(d => d.revenue)
-            }, {
-                name: __("Cumulative"),
-                values: forecast.cumulative_revenue
-            }]
-        };
+		const chartData = {
+			labels: forecast.monthly_forecast.map(d => d.month),
+			datasets: [{
+				name: __('Monthly Revenue'),
+				values: forecast.monthly_forecast.map(d => d.revenue)
+			}, {
+				name: __('Cumulative'),
+				values: forecast.cumulative_revenue
+			}]
+		};
 
-        new frappe.Chart("#revenue-forecast-chart", {
-            data: chartData,
-            type: 'line',
-            height: 300,
-            colors: ['#28a745', '#ffc107'],
-            axisOptions: {
-                xAxisMode: 'tick',
-                xIsSeries: true
-            },
-            format_tooltip_y: d => this.format_currency(d)
-        });
-    }
+		new frappe.Chart('#revenue-forecast-chart', {
+			data: chartData,
+			type: 'line',
+			height: 300,
+			colors: ['#28a745', '#ffc107'],
+			axisOptions: {
+				xAxisMode: 'tick',
+				xIsSeries: true
+			},
+			format_tooltip_y: d => this.format_currency(d)
+		});
+	}
 
-    render_scenarios_chart(scenarios) {
-        if (!scenarios || !scenarios.scenarios) return;
+	render_scenarios_chart(scenarios) {
+		if (!scenarios || !scenarios.scenarios) return;
 
-        const labels = [];
-        const year1_values = [];
-        const year3_values = [];
+		const labels = [];
+		const year1_values = [];
+		const year3_values = [];
 
-        for (const [key, scenario] of Object.entries(scenarios.scenarios)) {
-            labels.push(scenario.name);
-            year1_values.push(scenario.projections.year_1.members);
-            year3_values.push(scenario.projections.year_3.members);
-        }
+		for (const [key, scenario] of Object.entries(scenarios.scenarios)) {
+			labels.push(scenario.name);
+			year1_values.push(scenario.projections.year_1.members);
+			year3_values.push(scenario.projections.year_3.members);
+		}
 
-        const chartData = {
-            labels: labels,
-            datasets: [{
-                name: __("Year 1"),
-                values: year1_values
-            }, {
-                name: __("Year 3"),
-                values: year3_values
-            }]
-        };
+		const chartData = {
+			labels: labels,
+			datasets: [{
+				name: __('Year 1'),
+				values: year1_values
+			}, {
+				name: __('Year 3'),
+				values: year3_values
+			}]
+		};
 
-        new frappe.Chart("#scenarios-chart", {
-            data: chartData,
-            type: 'bar',
-            height: 300,
-            colors: ['#5e64ff', '#00d2d3'],
-            axisOptions: {
-                xAxisMode: 'tick',
-                xIsSeries: true
-            }
-        });
-    }
+		new frappe.Chart('#scenarios-chart', {
+			data: chartData,
+			type: 'bar',
+			height: 300,
+			colors: ['#5e64ff', '#00d2d3'],
+			axisOptions: {
+				xAxisMode: 'tick',
+				xIsSeries: true
+			}
+		});
+	}
 }

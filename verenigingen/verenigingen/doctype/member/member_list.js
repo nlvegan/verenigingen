@@ -3,172 +3,172 @@
 
 frappe.listview_settings['Member'] = {
 
-    // ==================== LIST VIEW CONFIGURATION ====================
+	// ==================== LIST VIEW CONFIGURATION ====================
 
-    // Add fields needed for new member tracking
-    add_fields: ["status", "chapter_assigned_date", "creation", "application_id", "application_status"],
+	// Add fields needed for new member tracking
+	add_fields: ['status', 'chapter_assigned_date', 'creation', 'application_id', 'application_status'],
 
-    // Auto refresh when data changes
-    refresh: function(listview) {
-        // Force refresh of list view data to show updated statuses
-        if (listview && listview.refresh) {
-            listview.refresh();
-        }
+	// Auto refresh when data changes
+	refresh: function(listview) {
+		// Force refresh of list view data to show updated statuses
+		if (listview && listview.refresh) {
+			listview.refresh();
+		}
 
-        // Add quick filter buttons for new members
-        add_new_member_filter_buttons(listview);
-    },
+		// Add quick filter buttons for new members
+		add_new_member_filter_buttons(listview);
+	},
 
-    // ==================== STATUS INDICATORS ====================
+	// ==================== STATUS INDICATORS ====================
 
-    get_indicator: function(doc) {
-        // Check if this is an application-created member
-        const is_application_member = !!doc.application_id;
+	get_indicator: function(doc) {
+		// Check if this is an application-created member
+		const is_application_member = !!doc.application_id;
 
-        // Check if member is new (created within last 30 days)
-        const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
-        const sevenDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -7);
-        const creationDate = doc.creation ? doc.creation.split(' ')[0] : null;
+		// Check if member is new (created within last 30 days)
+		const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
+		const sevenDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -7);
+		const creationDate = doc.creation ? doc.creation.split(' ')[0] : null;
 
-        // Check for recent chapter changes
-        let hasRecentChapterChange = false;
-        if (doc.chapter_assigned_date) {
-            const assignDate = doc.chapter_assigned_date.split(' ')[0];
-            hasRecentChapterChange = assignDate >= thirtyDaysAgo;
-        }
+		// Check for recent chapter changes
+		let hasRecentChapterChange = false;
+		if (doc.chapter_assigned_date) {
+			const assignDate = doc.chapter_assigned_date.split(' ')[0];
+			hasRecentChapterChange = assignDate >= thirtyDaysAgo;
+		}
 
-        // Priority indicators for new members and chapter changes
-        if (doc.status === 'Active') {
-            if (creationDate && creationDate >= sevenDaysAgo) {
-                return ['green', 'Very New Member (≤7 days)', "status,=,Active"];
-            } else if (creationDate && creationDate >= thirtyDaysAgo) {
-                return ['blue', 'New Member (≤30 days)', "status,=,Active"];
-            } else if (hasRecentChapterChange) {
-                return ['orange', 'Recent Chapter Change', "status,=,Active"];
-            }
-        }
+		// Priority indicators for new members and chapter changes
+		if (doc.status === 'Active') {
+			if (creationDate && creationDate >= sevenDaysAgo) {
+				return ['green', 'Very New Member (≤7 days)', 'status,=,Active'];
+			} else if (creationDate && creationDate >= thirtyDaysAgo) {
+				return ['blue', 'New Member (≤30 days)', 'status,=,Active'];
+			} else if (hasRecentChapterChange) {
+				return ['orange', 'Recent Chapter Change', 'status,=,Active'];
+			}
+		}
 
-        // Primary status based on member status field
-        const status_indicators = {
-            'Pending': ['yellow', is_application_member ? 'Pending Application' : 'Pending Member'],
-            'Active': ['green', 'Active Member'],
-            'Rejected': ['red', 'Application Rejected'],
-            'Expired': ['orange', 'Membership Expired'],
-            'Suspended': ['dark grey', 'Account Suspended'],
-            'Banned': ['black', 'Permanently Banned'],
-            'Deceased': ['purple', 'Deceased'],
-            'Terminated': ['red', 'Membership Terminated']
-        };
+		// Primary status based on member status field
+		const status_indicators = {
+			'Pending': ['yellow', is_application_member ? 'Pending Application' : 'Pending Member'],
+			'Active': ['green', 'Active Member'],
+			'Rejected': ['red', 'Application Rejected'],
+			'Expired': ['orange', 'Membership Expired'],
+			'Suspended': ['dark grey', 'Account Suspended'],
+			'Banned': ['black', 'Permanently Banned'],
+			'Deceased': ['purple', 'Deceased'],
+			'Terminated': ['red', 'Membership Terminated']
+		};
 
-        // Get indicator for main status
-        let indicator = status_indicators[doc.status] || ['grey', doc.status || 'Unknown'];
+		// Get indicator for main status
+		let indicator = status_indicators[doc.status] || ['grey', doc.status || 'Unknown'];
 
-        // Only override with application status for application-created members
-        if (is_application_member && doc.application_status && doc.application_status !== 'Active') {
-            const app_status_indicators = {
-                'Pending': ['yellow', 'Application Pending Review'],
-                'Under Review': ['blue', 'Under Review'],
-                'Approved': ['light-blue', 'Approved - Awaiting Payment'],
-                'Rejected': ['red', 'Application Rejected'],
-                'Payment Failed': ['orange', 'Payment Failed'],
-                'Payment Cancelled': ['grey', 'Payment Cancelled'],
-                'Payment Pending': ['orange', 'Payment Pending']
-            };
+		// Only override with application status for application-created members
+		if (is_application_member && doc.application_status && doc.application_status !== 'Active') {
+			const app_status_indicators = {
+				'Pending': ['yellow', 'Application Pending Review'],
+				'Under Review': ['blue', 'Under Review'],
+				'Approved': ['light-blue', 'Approved - Awaiting Payment'],
+				'Rejected': ['red', 'Application Rejected'],
+				'Payment Failed': ['orange', 'Payment Failed'],
+				'Payment Cancelled': ['grey', 'Payment Cancelled'],
+				'Payment Pending': ['orange', 'Payment Pending']
+			};
 
-            indicator = app_status_indicators[doc.application_status] || indicator;
-        }
+			indicator = app_status_indicators[doc.application_status] || indicator;
+		}
 
-        return indicator;
-    },
+		return indicator;
+	},
 
-    // ==================== CUSTOM FORMATTING ====================
+	// ==================== CUSTOM FORMATTING ====================
 
-    formatters: {
-        // Format application status with emoji indicators
-        application_status: function(value, field, doc) {
-            if (!value) return '';
+	formatters: {
+		// Format application status with emoji indicators
+		application_status: function(value, field, doc) {
+			if (!value) return '';
 
-            const status_emojis = {
-                'Pending': '⏳',
-                'Under Review': '👀',
-                'Approved': '✅',
-                'Active': '🟢',
-                'Rejected': '❌',
-                'Payment Failed': '💳',
-                'Payment Cancelled': '⚫',
-                'Payment Pending': '⏰'
-            };
+			const status_emojis = {
+				'Pending': '⏳',
+				'Under Review': '👀',
+				'Approved': '✅',
+				'Active': '🟢',
+				'Rejected': '❌',
+				'Payment Failed': '💳',
+				'Payment Cancelled': '⚫',
+				'Payment Pending': '⏰'
+			};
 
-            const emoji = status_emojis[value] || '';
-            return emoji ? `${emoji} ${value}` : value;
-        },
+			const emoji = status_emojis[value] || '';
+			return emoji ? `${emoji} ${value}` : value;
+		},
 
-        // Format main status with emoji indicators
-        status: function(value, field, doc) {
-            if (!value) return '';
+		// Format main status with emoji indicators
+		status: function(value, field, doc) {
+			if (!value) return '';
 
-            const status_emojis = {
-                'Pending': '⏳',
-                'Active': '✅',
-                'Rejected': '❌',
-                'Expired': '⏰',
-                'Suspended': '⏸️',
-                'Banned': '🚫',
-                'Deceased': '🕊️',
-                'Terminated': '🔴'
-            };
+			const status_emojis = {
+				'Pending': '⏳',
+				'Active': '✅',
+				'Rejected': '❌',
+				'Expired': '⏰',
+				'Suspended': '⏸️',
+				'Banned': '🚫',
+				'Deceased': '🕊️',
+				'Terminated': '🔴'
+			};
 
-            const emoji = status_emojis[value] || '';
-            return emoji ? `${emoji} ${value}` : value;
-        },
+			const emoji = status_emojis[value] || '';
+			return emoji ? `${emoji} ${value}` : value;
+		},
 
-        // Format member name with status context
-        full_name: function(value, field, doc) {
-            if (!value) return value;
+		// Format member name with status context
+		full_name: function(value, field, doc) {
+			if (!value) return value;
 
-            // Only show application status indicators for application-created members
-            const is_application_member = !!doc.application_id;
+			// Only show application status indicators for application-created members
+			const is_application_member = !!doc.application_id;
 
-            if (is_application_member && doc.application_status && doc.application_status !== 'Active') {
-                const status_badges = {
-                    'Pending': '🟡',
-                    'Under Review': '🔵',
-                    'Approved': '🟢',
-                    'Rejected': '🔴',
-                    'Payment Failed': '🟠',
-                    'Payment Cancelled': '⚫',
-                    'Payment Pending': '🟠'
-                };
+			if (is_application_member && doc.application_status && doc.application_status !== 'Active') {
+				const status_badges = {
+					'Pending': '🟡',
+					'Under Review': '🔵',
+					'Approved': '🟢',
+					'Rejected': '🔴',
+					'Payment Failed': '🟠',
+					'Payment Cancelled': '⚫',
+					'Payment Pending': '🟠'
+				};
 
-                const badge_emoji = status_badges[doc.application_status] || '⚪';
-                return `${value} ${badge_emoji}`;
-            }
+				const badge_emoji = status_badges[doc.application_status] || '⚪';
+				return `${value} ${badge_emoji}`;
+			}
 
-            // For backend-created members, show member status if not Active
-            if (!is_application_member && doc.status && doc.status !== 'Active') {
-                const member_status_badges = {
-                    'Pending': '⏳',
-                    'Expired': '⏰',
-                    'Suspended': '⏸️',
-                    'Banned': '🚫',
-                    'Deceased': '🕊️',
-                    'Terminated': '🔴'
-                };
+			// For backend-created members, show member status if not Active
+			if (!is_application_member && doc.status && doc.status !== 'Active') {
+				const member_status_badges = {
+					'Pending': '⏳',
+					'Expired': '⏰',
+					'Suspended': '⏸️',
+					'Banned': '🚫',
+					'Deceased': '🕊️',
+					'Terminated': '🔴'
+				};
 
-                const badge_emoji = member_status_badges[doc.status] || '';
-                return badge_emoji ? `${value} ${badge_emoji}` : value;
-            }
+				const badge_emoji = member_status_badges[doc.status] || '';
+				return badge_emoji ? `${value} ${badge_emoji}` : value;
+			}
 
-            return value;
-        }
-    },
+			return value;
+		}
+	},
 
-    // ==================== CUSTOM ACTIONS ====================
+	// ==================== CUSTOM ACTIONS ====================
 
-    onload: function(listview) {
-        // Add custom CSS for better status visualization
-        if (!$('#member-list-custom-css').length) {
-            $('head').append(`
+	onload: function(listview) {
+		// Add custom CSS for better status visualization
+		if (!$('#member-list-custom-css').length) {
+			$('head').append(`
                 <style id="member-list-custom-css">
                     .list-row-container[data-doctype="Member"] {
                         border-left: 3px solid transparent;
@@ -217,131 +217,131 @@ frappe.listview_settings['Member'] = {
                     }
                 </style>
             `);
-        }
+		}
 
-        // Add refresh button for manual status sync
-        listview.page.add_menu_item(__('Refresh Status'), function() {
-            frappe.call({
-                method: 'verenigingen.api.membership_application_review.sync_member_statuses',
-                callback: function(r) {
-                    if (r.message) {
-                        frappe.show_alert({
-                            message: __('Member statuses synchronized'),
-                            indicator: 'green'
-                        }, 3);
-                        listview.refresh();
-                    }
-                }
-            });
-        });
+		// Add refresh button for manual status sync
+		listview.page.add_menu_item(__('Refresh Status'), function() {
+			frappe.call({
+				method: 'verenigingen.api.membership_application_review.sync_member_statuses',
+				callback: function(r) {
+					if (r.message) {
+						frappe.show_alert({
+							message: __('Member statuses synchronized'),
+							indicator: 'green'
+						}, 3);
+						listview.refresh();
+					}
+				}
+			});
+		});
 
-        // Add fix for backend members showing as pending
-        if (frappe.user.has_role(['System Manager', 'Verenigingen Administrator'])) {
-            listview.page.add_menu_item(__('Fix Backend Member Status'), function() {
-                frappe.confirm(
-                    __('This will fix backend-created members that are incorrectly showing as "Pending". Continue?'),
-                    function() {
-                        frappe.show_alert(__('Fixing backend member statuses...'), 2);
+		// Add fix for backend members showing as pending
+		if (frappe.user.has_role(['System Manager', 'Verenigingen Administrator'])) {
+			listview.page.add_menu_item(__('Fix Backend Member Status'), function() {
+				frappe.confirm(
+					__('This will fix backend-created members that are incorrectly showing as "Pending". Continue?'),
+					function() {
+						frappe.show_alert(__('Fixing backend member statuses...'), 2);
 
-                        frappe.call({
-                            method: 'verenigingen.api.membership_application_review.fix_backend_member_statuses',
-                            callback: function(r) {
-                                if (r.message && r.message.success) {
-                                    frappe.show_alert({
-                                        message: r.message.message,
-                                        indicator: 'green'
-                                    }, 5);
-                                    listview.refresh();
-                                } else {
-                                    frappe.show_alert({
-                                        message: __('Error: Please run manually: bench execute verenigingen.manual_fix.fix_backend_members_now'),
-                                        indicator: 'red'
-                                    }, 8);
-                                }
-                            },
-                            error: function(err) {
-                                console.error('Fix backend members error:', err);
-                                frappe.show_alert({
-                                    message: __('Error occurred. Please run manually: bench execute verenigingen.manual_fix.fix_backend_members_now'),
-                                    indicator: 'red'
-                                }, 8);
-                            }
-                        });
-                    }
-                );
-            });
-        }
+						frappe.call({
+							method: 'verenigingen.api.membership_application_review.fix_backend_member_statuses',
+							callback: function(r) {
+								if (r.message && r.message.success) {
+									frappe.show_alert({
+										message: r.message.message,
+										indicator: 'green'
+									}, 5);
+									listview.refresh();
+								} else {
+									frappe.show_alert({
+										message: __('Error: Please run manually: bench execute verenigingen.manual_fix.fix_backend_members_now'),
+										indicator: 'red'
+									}, 8);
+								}
+							},
+							error: function(err) {
+								console.error('Fix backend members error:', err);
+								frappe.show_alert({
+									message: __('Error occurred. Please run manually: bench execute verenigingen.manual_fix.fix_backend_members_now'),
+									indicator: 'red'
+								}, 8);
+							}
+						});
+					}
+				);
+			});
+		}
 
-        // Add application status filter buttons
-        add_status_filter_buttons(listview);
-    },
+		// Add application status filter buttons
+		add_status_filter_buttons(listview);
+	},
 
-    // ==================== BUTTON CONFIGURATIONS ====================
+	// ==================== BUTTON CONFIGURATIONS ====================
 
-    button: {
-        show: function(doc) {
-            // Only show for members with application_id (created through application process)
-            // and have pending status
-            return doc.application_id && doc.application_status === 'Pending';
-        },
-        get_label: function(doc) {
-            if (doc.application_id && doc.application_status === 'Pending') {
-                return __('Review Application');
-            }
-            return __('View');
-        },
-        get_description: function(doc) {
-            if (doc.application_id && doc.application_status === 'Pending') {
-                return __('Review and approve/reject this application');
-            }
-            return __('View member details');
-        },
-        action: function(doc) {
-            // Open form for review
-            frappe.set_route('Form', 'Member', doc.name);
-        }
-    }
+	button: {
+		show: function(doc) {
+			// Only show for members with application_id (created through application process)
+			// and have pending status
+			return doc.application_id && doc.application_status === 'Pending';
+		},
+		get_label: function(doc) {
+			if (doc.application_id && doc.application_status === 'Pending') {
+				return __('Review Application');
+			}
+			return __('View');
+		},
+		get_description: function(doc) {
+			if (doc.application_id && doc.application_status === 'Pending') {
+				return __('Review and approve/reject this application');
+			}
+			return __('View member details');
+		},
+		action: function(doc) {
+			// Open form for review
+			frappe.set_route('Form', 'Member', doc.name);
+		}
+	}
 };
 
 // ==================== HELPER FUNCTIONS ====================
 
 function add_status_filter_buttons(listview) {
-    // Add quick filter buttons for common statuses
-    const status_filters = [
-        { label: __('Pending Applications'), filter: { application_status: 'Pending' }, color: 'orange' },
-        { label: __('Active Members'), filter: { status: 'Active' }, color: 'green' },
-        { label: __('Rejected Applications'), filter: { application_status: 'Rejected' }, color: 'red' },
-        { label: __('Payment Pending'), filter: { application_status: 'Payment Pending' }, color: 'yellow' }
-    ];
+	// Add quick filter buttons for common statuses
+	const status_filters = [
+		{ label: __('Pending Applications'), filter: { application_status: 'Pending' }, color: 'orange' },
+		{ label: __('Active Members'), filter: { status: 'Active' }, color: 'green' },
+		{ label: __('Rejected Applications'), filter: { application_status: 'Rejected' }, color: 'red' },
+		{ label: __('Payment Pending'), filter: { application_status: 'Payment Pending' }, color: 'yellow' }
+	];
 
-    status_filters.forEach(function(status_filter) {
-        listview.page.add_action_item(status_filter.label, function() {
-            // Clear existing filters
-            listview.filter_area.clear();
+	status_filters.forEach(function(status_filter) {
+		listview.page.add_action_item(status_filter.label, function() {
+			// Clear existing filters
+			listview.filter_area.clear();
 
-            // Apply new filter
-            Object.keys(status_filter.filter).forEach(function(key) {
-                listview.filter_area.add(key, '=', status_filter.filter[key]);
-            });
+			// Apply new filter
+			Object.keys(status_filter.filter).forEach(function(key) {
+				listview.filter_area.add(key, '=', status_filter.filter[key]);
+			});
 
-            listview.refresh();
-        });
-    });
+			listview.refresh();
+		});
+	});
 }
 
 function add_new_member_filter_buttons(listview) {
-    // Only add buttons once
-    if (listview.$new_member_filters_added) {
-        return;
-    }
-    listview.$new_member_filters_added = true;
+	// Only add buttons once
+	if (listview.$new_member_filters_added) {
+		return;
+	}
+	listview.$new_member_filters_added = true;
 
-    // Add quick filter buttons for new members
-    const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
-    const sevenDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -7);
+	// Add quick filter buttons for new members
+	const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
+	const sevenDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -7);
 
-    // Create filter button container
-    const $filter_buttons = $(`
+	// Create filter button container
+	const $filter_buttons = $(`
         <div class="new-member-filters" style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 6px;">
             <div class="row">
                 <div class="col-md-12">
@@ -366,66 +366,66 @@ function add_new_member_filter_buttons(listview) {
         </div>
     `);
 
-    // Insert after the filter area
-    listview.$frappe_list.find('.filter-area').after($filter_buttons);
+	// Insert after the filter area
+	listview.$frappe_list.find('.filter-area').after($filter_buttons);
 
-    // Bind click events
-    $filter_buttons.on('click', 'button', function() {
-        const filter = $(this).data('filter');
+	// Bind click events
+	$filter_buttons.on('click', 'button', function() {
+		const filter = $(this).data('filter');
 
-        listview.filter_area.clear();
+		listview.filter_area.clear();
 
-        switch(filter) {
-            case 'new-7':
-                listview.filter_area.add([
-                    ["Member", "status", "=", "Active"],
-                    ["Member", "creation", ">=", sevenDaysAgo]
-                ]);
-                break;
-            case 'new-30':
-                listview.filter_area.add([
-                    ["Member", "status", "=", "Active"],
-                    ["Member", "creation", ">=", thirtyDaysAgo]
-                ]);
-                break;
-            case 'chapter-changes':
-                listview.filter_area.add([
-                    ["Member", "chapter_assigned_date", ">=", thirtyDaysAgo]
-                ]);
-                break;
-            case 'no-chapter':
-                // Filter for members without chapters - this will need to be handled differently
-                // since we now use Chapter Member child table
-                frappe.msgprint({
-                    title: __('Filter Info'),
-                    message: __('To see members without chapters, please use the "Members Without Chapter" report.'),
-                    indicator: 'blue'
-                });
-                break;
-            case 'clear':
-                // Clear all filters
-                break;
-        }
+		switch(filter) {
+			case 'new-7':
+				listview.filter_area.add([
+					['Member', 'status', '=', 'Active'],
+					['Member', 'creation', '>=', sevenDaysAgo]
+				]);
+				break;
+			case 'new-30':
+				listview.filter_area.add([
+					['Member', 'status', '=', 'Active'],
+					['Member', 'creation', '>=', thirtyDaysAgo]
+				]);
+				break;
+			case 'chapter-changes':
+				listview.filter_area.add([
+					['Member', 'chapter_assigned_date', '>=', thirtyDaysAgo]
+				]);
+				break;
+			case 'no-chapter':
+				// Filter for members without chapters - this will need to be handled differently
+				// since we now use Chapter Member child table
+				frappe.msgprint({
+					title: __('Filter Info'),
+					message: __('To see members without chapters, please use the "Members Without Chapter" report.'),
+					indicator: 'blue'
+				});
+				break;
+			case 'clear':
+				// Clear all filters
+				break;
+		}
 
-        // Highlight active button
-        $filter_buttons.find('button').removeClass('btn-outline-secondary');
-        if (filter !== 'clear') {
-            $(this).addClass('btn-outline-secondary');
-        }
+		// Highlight active button
+		$filter_buttons.find('button').removeClass('btn-outline-secondary');
+		if (filter !== 'clear') {
+			$(this).addClass('btn-outline-secondary');
+		}
 
-        listview.refresh();
-    });
+		listview.refresh();
+	});
 
-    // Add menu items for reports
-    listview.page.add_menu_item(__("📊 New Members Report"), function() {
-        frappe.set_route("query-report", "New Members");
-    });
+	// Add menu items for reports
+	listview.page.add_menu_item(__('📊 New Members Report'), function() {
+		frappe.set_route('query-report', 'New Members');
+	});
 
-    listview.page.add_menu_item(__("📊 Recent Chapter Changes Report"), function() {
-        frappe.set_route("query-report", "Recent Chapter Changes");
-    });
+	listview.page.add_menu_item(__('📊 Recent Chapter Changes Report'), function() {
+		frappe.set_route('query-report', 'Recent Chapter Changes');
+	});
 
-    listview.page.add_menu_item(__("📊 Members Without Chapter Report"), function() {
-        frappe.set_route("query-report", "Members Without Chapter");
-    });
+	listview.page.add_menu_item(__('📊 Members Without Chapter Report'), function() {
+		frappe.set_route('query-report', 'Members Without Chapter');
+	});
 }

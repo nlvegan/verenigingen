@@ -3,241 +3,241 @@
 import { ChapterAPI } from '../utils/ChapterAPI.js';
 
 export class ChapterStatistics {
-    constructor(frm, state) {
-        this.frm = frm;
-        this.state = state;
-        this.api = new ChapterAPI();
-        this.charts = new Map();
-    }
+	constructor(frm, state) {
+		this.frm = frm;
+		this.state = state;
+		this.api = new ChapterAPI();
+		this.charts = new Map();
+	}
 
-    addButtons() {
-        this.frm.add_custom_button(__('Chapter Statistics'), () => this.showStatisticsDialog(), __('View'));
-        this.frm.add_custom_button(__('Growth Report'), () => this.showGrowthReport(), __('View'));
-        this.frm.add_custom_button(__('Activity Dashboard'), () => this.showActivityDashboard(), __('View'));
-        this.frm.add_custom_button(__('Export Analytics'), () => this.exportAnalytics(), __('Actions'));
-    }
+	addButtons() {
+		this.frm.add_custom_button(__('Chapter Statistics'), () => this.showStatisticsDialog(), __('View'));
+		this.frm.add_custom_button(__('Growth Report'), () => this.showGrowthReport(), __('View'));
+		this.frm.add_custom_button(__('Activity Dashboard'), () => this.showActivityDashboard(), __('View'));
+		this.frm.add_custom_button(__('Export Analytics'), () => this.exportAnalytics(), __('Actions'));
+	}
 
-    async showStatisticsDialog() {
-        try {
-            this.state.setLoading('statistics', true);
+	async showStatisticsDialog() {
+		try {
+			this.state.setLoading('statistics', true);
 
-            // Fetch statistics data
-            const stats = await this.fetchChapterStatistics();
+			// Fetch statistics data
+			const stats = await this.fetchChapterStatistics();
 
-            const dialog = new frappe.ui.Dialog({
-                title: __('Chapter Statistics - {0}', [this.frm.doc.name]),
-                size: 'extra-large',
-                fields: [{
-                    fieldtype: 'HTML',
-                    options: this.generateStatisticsHTML(stats)
-                }],
-                primary_action_label: __('Refresh'),
-                primary_action: async () => {
-                    await this.refreshStatistics(dialog);
-                }
-            });
+			const dialog = new frappe.ui.Dialog({
+				title: __('Chapter Statistics - {0}', [this.frm.doc.name]),
+				size: 'extra-large',
+				fields: [{
+					fieldtype: 'HTML',
+					options: this.generateStatisticsHTML(stats)
+				}],
+				primary_action_label: __('Refresh'),
+				primary_action: async () => {
+					await this.refreshStatistics(dialog);
+				}
+			});
 
-            dialog.show();
+			dialog.show();
 
-            // Initialize charts after dialog is shown
-            setTimeout(() => this.initializeCharts(dialog, stats), 100);
+			// Initialize charts after dialog is shown
+			setTimeout(() => this.initializeCharts(dialog, stats), 100);
 
-        } catch (error) {
-            frappe.msgprint(__('Error loading statistics: {0}', [error.message]));
-        } finally {
-            this.state.setLoading('statistics', false);
-        }
-    }
+		} catch (error) {
+			frappe.msgprint(__('Error loading statistics: {0}', [error.message]));
+		} finally {
+			this.state.setLoading('statistics', false);
+		}
+	}
 
-    async fetchChapterStatistics() {
-        const [basicStats, membershipStats, activityStats, boardStats] = await Promise.all([
-            this.getBasicStatistics(),
-            this.getMembershipStatistics(),
-            this.getActivityStatistics(),
-            this.getBoardStatistics()
-        ]);
+	async fetchChapterStatistics() {
+		const [basicStats, membershipStats, activityStats, boardStats] = await Promise.all([
+			this.getBasicStatistics(),
+			this.getMembershipStatistics(),
+			this.getActivityStatistics(),
+			this.getBoardStatistics()
+		]);
 
-        return {
-            ...basicStats,
-            ...membershipStats,
-            ...activityStats,
-            ...boardStats,
-            lastUpdated: frappe.datetime.now_datetime()
-        };
-    }
+		return {
+			...basicStats,
+			...membershipStats,
+			...activityStats,
+			...boardStats,
+			lastUpdated: frappe.datetime.now_datetime()
+		};
+	}
 
-    async getBasicStatistics() {
-        // Get member counts from Chapter Member table
-        const chapterMemberIds = await this.getChapterMemberIds();
-        const totalMembers = chapterMemberIds.length;
+	async getBasicStatistics() {
+		// Get member counts from Chapter Member table
+		const chapterMemberIds = await this.getChapterMemberIds();
+		const totalMembers = chapterMemberIds.length;
 
-        const activeMembers = await this.api.getCount('Member', {
-            name: ['in', chapterMemberIds],
-            status: 'Active'
-        });
+		const activeMembers = await this.api.getCount('Member', {
+			name: ['in', chapterMemberIds],
+			status: 'Active'
+		});
 
-        // Get board member count
-        const boardMemberCount = this.frm.doc.board_members?.filter(m => m.is_active).length || 0;
+		// Get board member count
+		const boardMemberCount = this.frm.doc.board_members?.filter(m => m.is_active).length || 0;
 
-        // Get recent members (last 30 days) - need to query Chapter Members added recently
-        const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
-        const recentMembers = await this.api.getCount('Member', {
-            name: ['in', chapterMemberIds],
-            creation: ['>=', thirtyDaysAgo]
-        });
+		// Get recent members (last 30 days) - need to query Chapter Members added recently
+		const thirtyDaysAgo = frappe.datetime.add_days(frappe.datetime.nowdate(), -30);
+		const recentMembers = await this.api.getCount('Member', {
+			name: ['in', chapterMemberIds],
+			creation: ['>=', thirtyDaysAgo]
+		});
 
-        return {
-            totalMembers,
-            activeMembers,
-            inactiveMembers: totalMembers - activeMembers,
-            boardMemberCount,
-            recentMembers,
-            memberRetentionRate: totalMembers > 0 ? ((activeMembers / totalMembers) * 100).toFixed(1) : 0
-        };
-    }
+		return {
+			totalMembers,
+			activeMembers,
+			inactiveMembers: totalMembers - activeMembers,
+			boardMemberCount,
+			recentMembers,
+			memberRetentionRate: totalMembers > 0 ? ((activeMembers / totalMembers) * 100).toFixed(1) : 0
+		};
+	}
 
-    async getMembershipStatistics() {
-        // Get membership type distribution
-        const membershipTypes = await this.api.call(
-            'frappe.desk.reportview.get_list',
-            {
-                doctype: 'Membership',
-                fields: ['membership_type', 'count(name) as count'],
-                filters: {
-                    member: ['in', await this.getChapterMemberIds()],
-                    status: 'Active'
-                },
-                group_by: 'membership_type'
-            }
-        );
+	async getMembershipStatistics() {
+		// Get membership type distribution
+		const membershipTypes = await this.api.call(
+			'frappe.desk.reportview.get_list',
+			{
+				doctype: 'Membership',
+				fields: ['membership_type', 'count(name) as count'],
+				filters: {
+					member: ['in', await this.getChapterMemberIds()],
+					status: 'Active'
+				},
+				group_by: 'membership_type'
+			}
+		);
 
-        // Get membership status distribution
-        const membershipStatuses = await this.api.call(
-            'frappe.desk.reportview.get_list',
-            {
-                doctype: 'Membership',
-                fields: ['status', 'count(name) as count'],
-                filters: {
-                    member: ['in', await this.getChapterMemberIds()]
-                },
-                group_by: 'status'
-            }
-        );
+		// Get membership status distribution
+		const membershipStatuses = await this.api.call(
+			'frappe.desk.reportview.get_list',
+			{
+				doctype: 'Membership',
+				fields: ['status', 'count(name) as count'],
+				filters: {
+					member: ['in', await this.getChapterMemberIds()]
+				},
+				group_by: 'status'
+			}
+		);
 
-        return {
-            membershipTypes: membershipTypes || [],
-            membershipStatuses: membershipStatuses || []
-        };
-    }
+		return {
+			membershipTypes: membershipTypes || [],
+			membershipStatuses: membershipStatuses || []
+		};
+	}
 
-    async getActivityStatistics() {
-        const memberIds = await this.getChapterMemberIds();
+	async getActivityStatistics() {
+		const memberIds = await this.getChapterMemberIds();
 
-        // Get event attendance (if events module exists)
-        let eventAttendance = 0;
-        try {
-            eventAttendance = await this.api.getCount('Event Participant', {
-                participant: ['in', memberIds],
-                participation_status: 'Present'
-            });
-        } catch (e) {
-            // Events module might not exist
-        }
+		// Get event attendance (if events module exists)
+		let eventAttendance = 0;
+		try {
+			eventAttendance = await this.api.getCount('Event Participant', {
+				participant: ['in', memberIds],
+				participation_status: 'Present'
+			});
+		} catch (e) {
+			// Events module might not exist
+		}
 
-        // Get volunteer hours (if volunteer module exists)
-        let volunteerHours = 0;
-        try {
-            const volunteerData = await this.api.call(
-                'frappe.desk.reportview.get_list',
-                {
-                    doctype: 'Volunteer Activity',
-                    fields: ['sum(hours) as total_hours'],
-                    filters: {
-                        volunteer: ['in', await this.getChapterVolunteerIds()]
-                    }
-                }
-            );
-            volunteerHours = volunteerData?.[0]?.total_hours || 0;
-        } catch (e) {
-            // Volunteer module might not exist
-        }
+		// Get volunteer hours (if volunteer module exists)
+		let volunteerHours = 0;
+		try {
+			const volunteerData = await this.api.call(
+				'frappe.desk.reportview.get_list',
+				{
+					doctype: 'Volunteer Activity',
+					fields: ['sum(hours) as total_hours'],
+					filters: {
+						volunteer: ['in', await this.getChapterVolunteerIds()]
+					}
+				}
+			);
+			volunteerHours = volunteerData?.[0]?.total_hours || 0;
+		} catch (e) {
+			// Volunteer module might not exist
+		}
 
-        // Get communication count
-        const communicationCount = await this.api.getCount('Communication', {
-            reference_doctype: 'Chapter',
-            reference_name: this.frm.doc.name
-        });
+		// Get communication count
+		const communicationCount = await this.api.getCount('Communication', {
+			reference_doctype: 'Chapter',
+			reference_name: this.frm.doc.name
+		});
 
-        return {
-            eventAttendance,
-            volunteerHours,
-            communicationCount,
-            engagementScore: this.calculateEngagementScore(eventAttendance, volunteerHours, communicationCount)
-        };
-    }
+		return {
+			eventAttendance,
+			volunteerHours,
+			communicationCount,
+			engagementScore: this.calculateEngagementScore(eventAttendance, volunteerHours, communicationCount)
+		};
+	}
 
-    async getBoardStatistics() {
-        const boardMembers = this.frm.doc.board_members || [];
+	async getBoardStatistics() {
+		const boardMembers = this.frm.doc.board_members || [];
 
-        // Role distribution
-        const roleDistribution = {};
-        boardMembers.forEach(member => {
-            if (member.is_active && member.chapter_role) {
-                roleDistribution[member.chapter_role] = (roleDistribution[member.chapter_role] || 0) + 1;
-            }
-        });
+		// Role distribution
+		const roleDistribution = {};
+		boardMembers.forEach(member => {
+			if (member.is_active && member.chapter_role) {
+				roleDistribution[member.chapter_role] = (roleDistribution[member.chapter_role] || 0) + 1;
+			}
+		});
 
-        // Average tenure
-        let totalTenure = 0;
-        let tenureCount = 0;
+		// Average tenure
+		let totalTenure = 0;
+		let tenureCount = 0;
 
-        boardMembers.forEach(member => {
-            if (member.from_date) {
-                const endDate = member.to_date || frappe.datetime.nowdate();
-                const tenure = frappe.datetime.get_day_diff(endDate, member.from_date);
-                totalTenure += tenure;
-                tenureCount++;
-            }
-        });
+		boardMembers.forEach(member => {
+			if (member.from_date) {
+				const endDate = member.to_date || frappe.datetime.nowdate();
+				const tenure = frappe.datetime.get_day_diff(endDate, member.from_date);
+				totalTenure += tenure;
+				tenureCount++;
+			}
+		});
 
-        const averageTenure = tenureCount > 0 ? Math.round(totalTenure / tenureCount) : 0;
+		const averageTenure = tenureCount > 0 ? Math.round(totalTenure / tenureCount) : 0;
 
-        return {
-            roleDistribution,
-            averageTenure,
-            boardTurnoverRate: this.calculateBoardTurnoverRate(boardMembers)
-        };
-    }
+		return {
+			roleDistribution,
+			averageTenure,
+			boardTurnoverRate: this.calculateBoardTurnoverRate(boardMembers)
+		};
+	}
 
-    calculateEngagementScore(events, hours, communications) {
-        // Simple engagement score calculation
-        const eventPoints = events * 10;
-        const hourPoints = hours * 5;
-        const commPoints = communications * 2;
+	calculateEngagementScore(events, hours, communications) {
+		// Simple engagement score calculation
+		const eventPoints = events * 10;
+		const hourPoints = hours * 5;
+		const commPoints = communications * 2;
 
-        const totalPoints = eventPoints + hourPoints + commPoints;
-        const maxPoints = 1000; // Arbitrary max for scaling
+		const totalPoints = eventPoints + hourPoints + commPoints;
+		const maxPoints = 1000; // Arbitrary max for scaling
 
-        return Math.min(100, Math.round((totalPoints / maxPoints) * 100));
-    }
+		return Math.min(100, Math.round((totalPoints / maxPoints) * 100));
+	}
 
-    calculateBoardTurnoverRate(boardMembers) {
-        const lastYear = frappe.datetime.add_days(frappe.datetime.nowdate(), -365);
-        let changes = 0;
+	calculateBoardTurnoverRate(boardMembers) {
+		const lastYear = frappe.datetime.add_days(frappe.datetime.nowdate(), -365);
+		let changes = 0;
 
-        boardMembers.forEach(member => {
-            if ((member.from_date && member.from_date >= lastYear) ||
+		boardMembers.forEach(member => {
+			if ((member.from_date && member.from_date >= lastYear) ||
                 (member.to_date && member.to_date >= lastYear)) {
-                changes++;
-            }
-        });
+				changes++;
+			}
+		});
 
-        const totalPositions = boardMembers.filter(m => m.is_active).length || 1;
-        return ((changes / totalPositions) * 100).toFixed(1);
-    }
+		const totalPositions = boardMembers.filter(m => m.is_active).length || 1;
+		return ((changes / totalPositions) * 100).toFixed(1);
+	}
 
-    generateStatisticsHTML(stats) {
-        return `
+	generateStatisticsHTML(stats) {
+		return `
             <div class="chapter-stats">
                 <!-- Overview Section -->
                 <div class="stats-section">
@@ -402,272 +402,272 @@ export class ChapterStatistics {
                 }
             </style>
         `;
-    }
+	}
 
-    initializeCharts(dialog, stats) {
-        // Member Status Chart
-        this.createPieChart(
-            dialog.$wrapper.find('#member-status-chart')[0],
-            'memberStatus',
-            {
-                labels: [__('Active'), __('Inactive')],
-                datasets: [{
-                    data: [stats.activeMembers, stats.inactiveMembers],
-                    backgroundColor: ['#28a745', '#dc3545']
-                }]
-            }
-        );
+	initializeCharts(dialog, stats) {
+		// Member Status Chart
+		this.createPieChart(
+			dialog.$wrapper.find('#member-status-chart')[0],
+			'memberStatus',
+			{
+				labels: [__('Active'), __('Inactive')],
+				datasets: [{
+					data: [stats.activeMembers, stats.inactiveMembers],
+					backgroundColor: ['#28a745', '#dc3545']
+				}]
+			}
+		);
 
-        // Membership Type Chart
-        if (stats.membershipTypes && stats.membershipTypes.length > 0) {
-            this.createPieChart(
-                dialog.$wrapper.find('#membership-type-chart')[0],
-                'membershipType',
-                {
-                    labels: stats.membershipTypes.map(t => t.membership_type),
-                    datasets: [{
-                        data: stats.membershipTypes.map(t => t.count),
-                        backgroundColor: this.generateColors(stats.membershipTypes.length)
-                    }]
-                }
-            );
-        }
+		// Membership Type Chart
+		if (stats.membershipTypes && stats.membershipTypes.length > 0) {
+			this.createPieChart(
+				dialog.$wrapper.find('#membership-type-chart')[0],
+				'membershipType',
+				{
+					labels: stats.membershipTypes.map(t => t.membership_type),
+					datasets: [{
+						data: stats.membershipTypes.map(t => t.count),
+						backgroundColor: this.generateColors(stats.membershipTypes.length)
+					}]
+				}
+			);
+		}
 
-        // Board Role Chart
-        const roleLabels = Object.keys(stats.roleDistribution);
-        if (roleLabels.length > 0) {
-            this.createPieChart(
-                dialog.$wrapper.find('#board-role-chart')[0],
-                'boardRole',
-                {
-                    labels: roleLabels,
-                    datasets: [{
-                        data: roleLabels.map(role => stats.roleDistribution[role]),
-                        backgroundColor: this.generateColors(roleLabels.length)
-                    }]
-                }
-            );
-        }
+		// Board Role Chart
+		const roleLabels = Object.keys(stats.roleDistribution);
+		if (roleLabels.length > 0) {
+			this.createPieChart(
+				dialog.$wrapper.find('#board-role-chart')[0],
+				'boardRole',
+				{
+					labels: roleLabels,
+					datasets: [{
+						data: roleLabels.map(role => stats.roleDistribution[role]),
+						backgroundColor: this.generateColors(roleLabels.length)
+					}]
+				}
+			);
+		}
 
-        // Activity Chart
-        this.createBarChart(
-            dialog.$wrapper.find('#activity-chart')[0],
-            'activity',
-            {
-                labels: [__('Events'), __('Volunteer Hours'), __('Communications')],
-                datasets: [{
-                    label: __('Activity Metrics'),
-                    data: [stats.eventAttendance, stats.volunteerHours, stats.communicationCount],
-                    backgroundColor: ['#007bff', '#28a745', '#ffc107']
-                }]
-            }
-        );
-    }
+		// Activity Chart
+		this.createBarChart(
+			dialog.$wrapper.find('#activity-chart')[0],
+			'activity',
+			{
+				labels: [__('Events'), __('Volunteer Hours'), __('Communications')],
+				datasets: [{
+					label: __('Activity Metrics'),
+					data: [stats.eventAttendance, stats.volunteerHours, stats.communicationCount],
+					backgroundColor: ['#007bff', '#28a745', '#ffc107']
+				}]
+			}
+		);
+	}
 
-    createPieChart(canvas, chartId, data) {
-        if (!canvas || !window.Chart) return;
+	createPieChart(canvas, chartId, data) {
+		if (!canvas || !window.Chart) return;
 
-        const ctx = canvas.getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'pie',
-            data: data,
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: {
-                            padding: 15,
-                            font: {
-                                size: 12
-                            }
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(context) {
-                                const label = context.label || '';
-                                const value = context.parsed || 0;
-                                const total = context.dataset.data.reduce((a, b) => a + b, 0);
-                                const percentage = ((value / total) * 100).toFixed(1);
-                                return `${label}: ${value} (${percentage}%)`;
-                            }
-                        }
-                    }
-                }
-            }
-        });
+		const ctx = canvas.getContext('2d');
+		const chart = new Chart(ctx, {
+			type: 'pie',
+			data: data,
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				plugins: {
+					legend: {
+						position: 'bottom',
+						labels: {
+							padding: 15,
+							font: {
+								size: 12
+							}
+						}
+					},
+					tooltip: {
+						callbacks: {
+							label: function(context) {
+								const label = context.label || '';
+								const value = context.parsed || 0;
+								const total = context.dataset.data.reduce((a, b) => a + b, 0);
+								const percentage = ((value / total) * 100).toFixed(1);
+								return `${label}: ${value} (${percentage}%)`;
+							}
+						}
+					}
+				}
+			}
+		});
 
-        this.charts.set(chartId, chart);
-    }
+		this.charts.set(chartId, chart);
+	}
 
-    createBarChart(canvas, chartId, data) {
-        if (!canvas || !window.Chart) return;
+	createBarChart(canvas, chartId, data) {
+		if (!canvas || !window.Chart) return;
 
-        const ctx = canvas.getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'bar',
-            data: data,
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        display: false
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true
-                    }
-                }
-            }
-        });
+		const ctx = canvas.getContext('2d');
+		const chart = new Chart(ctx, {
+			type: 'bar',
+			data: data,
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				plugins: {
+					legend: {
+						display: false
+					}
+				},
+				scales: {
+					y: {
+						beginAtZero: true
+					}
+				}
+			}
+		});
 
-        this.charts.set(chartId, chart);
-    }
+		this.charts.set(chartId, chart);
+	}
 
-    generateColors(count) {
-        const colors = [
-            '#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8',
-            '#6610f2', '#e83e8c', '#fd7e14', '#20c997', '#6c757d'
-        ];
+	generateColors(count) {
+		const colors = [
+			'#007bff', '#28a745', '#dc3545', '#ffc107', '#17a2b8',
+			'#6610f2', '#e83e8c', '#fd7e14', '#20c997', '#6c757d'
+		];
 
-        if (count <= colors.length) {
-            return colors.slice(0, count);
-        }
+		if (count <= colors.length) {
+			return colors.slice(0, count);
+		}
 
-        // Generate additional random colors if needed
-        const additionalColors = [];
-        for (let i = colors.length; i < count; i++) {
-            additionalColors.push(this.getRandomColor());
-        }
+		// Generate additional random colors if needed
+		const additionalColors = [];
+		for (let i = colors.length; i < count; i++) {
+			additionalColors.push(this.getRandomColor());
+		}
 
-        return [...colors, ...additionalColors];
-    }
+		return [...colors, ...additionalColors];
+	}
 
-    getRandomColor() {
-        const letters = '0123456789ABCDEF';
-        let color = '#';
-        for (let i = 0; i < 6; i++) {
-            color += letters[Math.floor(Math.random() * 16)];
-        }
-        return color;
-    }
+	getRandomColor() {
+		const letters = '0123456789ABCDEF';
+		let color = '#';
+		for (let i = 0; i < 6; i++) {
+			color += letters[Math.floor(Math.random() * 16)];
+		}
+		return color;
+	}
 
-    async refreshStatistics(dialog) {
-        try {
-            this.state.setLoading('refreshStats', true);
+	async refreshStatistics(dialog) {
+		try {
+			this.state.setLoading('refreshStats', true);
 
-            // Clear existing charts
-            this.charts.forEach(chart => chart.destroy());
-            this.charts.clear();
+			// Clear existing charts
+			this.charts.forEach(chart => chart.destroy());
+			this.charts.clear();
 
-            // Fetch fresh data
-            const stats = await this.fetchChapterStatistics();
+			// Fetch fresh data
+			const stats = await this.fetchChapterStatistics();
 
-            // Update HTML
-            dialog.fields[0].df.options = this.generateStatisticsHTML(stats);
-            dialog.refresh();
+			// Update HTML
+			dialog.fields[0].df.options = this.generateStatisticsHTML(stats);
+			dialog.refresh();
 
-            // Reinitialize charts
-            setTimeout(() => this.initializeCharts(dialog, stats), 100);
+			// Reinitialize charts
+			setTimeout(() => this.initializeCharts(dialog, stats), 100);
 
-            frappe.show_alert({
-                message: __('Statistics refreshed'),
-                indicator: 'green'
-            }, 3);
+			frappe.show_alert({
+				message: __('Statistics refreshed'),
+				indicator: 'green'
+			}, 3);
 
-        } catch (error) {
-            frappe.msgprint(__('Error refreshing statistics: {0}', [error.message]));
-        } finally {
-            this.state.setLoading('refreshStats', false);
-        }
-    }
+		} catch (error) {
+			frappe.msgprint(__('Error refreshing statistics: {0}', [error.message]));
+		} finally {
+			this.state.setLoading('refreshStats', false);
+		}
+	}
 
-    async showGrowthReport() {
-        try {
-            this.state.setLoading('growthReport', true);
+	async showGrowthReport() {
+		try {
+			this.state.setLoading('growthReport', true);
 
-            const growthData = await this.fetchGrowthData();
+			const growthData = await this.fetchGrowthData();
 
-            const dialog = new frappe.ui.Dialog({
-                title: __('Chapter Growth Report - {0}', [this.frm.doc.name]),
-                size: 'large',
-                fields: [{
-                    fieldtype: 'HTML',
-                    options: this.generateGrowthReportHTML(growthData)
-                }],
-                primary_action_label: __('Export'),
-                primary_action: () => {
-                    this.exportGrowthReport(growthData);
-                }
-            });
+			const dialog = new frappe.ui.Dialog({
+				title: __('Chapter Growth Report - {0}', [this.frm.doc.name]),
+				size: 'large',
+				fields: [{
+					fieldtype: 'HTML',
+					options: this.generateGrowthReportHTML(growthData)
+				}],
+				primary_action_label: __('Export'),
+				primary_action: () => {
+					this.exportGrowthReport(growthData);
+				}
+			});
 
-            dialog.show();
+			dialog.show();
 
-            // Initialize growth chart
-            setTimeout(() => this.initializeGrowthChart(dialog, growthData), 100);
+			// Initialize growth chart
+			setTimeout(() => this.initializeGrowthChart(dialog, growthData), 100);
 
-        } catch (error) {
-            frappe.msgprint(__('Error loading growth report: {0}', [error.message]));
-        } finally {
-            this.state.setLoading('growthReport', false);
-        }
-    }
+		} catch (error) {
+			frappe.msgprint(__('Error loading growth report: {0}', [error.message]));
+		} finally {
+			this.state.setLoading('growthReport', false);
+		}
+	}
 
-    async fetchGrowthData() {
-        const endDate = frappe.datetime.nowdate();
-        const startDate = frappe.datetime.add_months(endDate, -12);
+	async fetchGrowthData() {
+		const endDate = frappe.datetime.nowdate();
+		const startDate = frappe.datetime.add_months(endDate, -12);
 
-        // Get monthly member growth
-        const monthlyGrowth = await this.api.call(
-            'frappe.desk.reportview.get_list',
-            {
-                doctype: 'Member',
-                fields: [
-                    'DATE_FORMAT(creation, "%Y-%m") as month',
-                    'count(name) as new_members'
-                ],
-                filters: {
-                    name: ['in', await this.getChapterMemberIds()],
-                    creation: ['between', [startDate, endDate]]
-                },
-                group_by: 'month',
-                order_by: 'month'
-            }
-        );
+		// Get monthly member growth
+		const monthlyGrowth = await this.api.call(
+			'frappe.desk.reportview.get_list',
+			{
+				doctype: 'Member',
+				fields: [
+					'DATE_FORMAT(creation, "%Y-%m") as month',
+					'count(name) as new_members'
+				],
+				filters: {
+					name: ['in', await this.getChapterMemberIds()],
+					creation: ['between', [startDate, endDate]]
+				},
+				group_by: 'month',
+				order_by: 'month'
+			}
+		);
 
-        // Get monthly membership data
-        const monthlyMemberships = await this.api.call(
-            'frappe.desk.reportview.get_list',
-            {
-                doctype: 'Membership',
-                fields: [
-                    'DATE_FORMAT(start_date, "%Y-%m") as month',
-                    'count(name) as new_memberships',
-                    'sum(amount) as revenue'
-                ],
-                filters: {
-                    member: ['in', await this.getChapterMemberIds()],
-                    start_date: ['between', [startDate, endDate]]
-                },
-                group_by: 'month',
-                order_by: 'month'
-            }
-        );
+		// Get monthly membership data
+		const monthlyMemberships = await this.api.call(
+			'frappe.desk.reportview.get_list',
+			{
+				doctype: 'Membership',
+				fields: [
+					'DATE_FORMAT(start_date, "%Y-%m") as month',
+					'count(name) as new_memberships',
+					'sum(amount) as revenue'
+				],
+				filters: {
+					member: ['in', await this.getChapterMemberIds()],
+					start_date: ['between', [startDate, endDate]]
+				},
+				group_by: 'month',
+				order_by: 'month'
+			}
+		);
 
-        return {
-            monthlyGrowth: monthlyGrowth || [],
-            monthlyMemberships: monthlyMemberships || [],
-            startDate,
-            endDate
-        };
-    }
+		return {
+			monthlyGrowth: monthlyGrowth || [],
+			monthlyMemberships: monthlyMemberships || [],
+			startDate,
+			endDate
+		};
+	}
 
-    generateGrowthReportHTML(data) {
-        return `
+	generateGrowthReportHTML(data) {
+		return `
             <div class="growth-report">
                 <div class="report-header mb-4">
                     <p class="text-muted">${__('Period')}: ${frappe.datetime.str_to_user(data.startDate)} - ${frappe.datetime.str_to_user(data.endDate)}</p>
@@ -701,20 +701,20 @@ export class ChapterStatistics {
                 </table>
             </div>
         `;
-    }
+	}
 
-    generateGrowthTableRows(data) {
-        const months = new Set();
-        data.monthlyGrowth.forEach(d => months.add(d.month));
-        data.monthlyMemberships.forEach(d => months.add(d.month));
+	generateGrowthTableRows(data) {
+		const months = new Set();
+		data.monthlyGrowth.forEach(d => months.add(d.month));
+		data.monthlyMemberships.forEach(d => months.add(d.month));
 
-        const sortedMonths = Array.from(months).sort();
+		const sortedMonths = Array.from(months).sort();
 
-        return sortedMonths.map(month => {
-            const growth = data.monthlyGrowth.find(g => g.month === month) || {};
-            const membership = data.monthlyMemberships.find(m => m.month === month) || {};
+		return sortedMonths.map(month => {
+			const growth = data.monthlyGrowth.find(g => g.month === month) || {};
+			const membership = data.monthlyMemberships.find(m => m.month === month) || {};
 
-            return `
+			return `
                 <tr>
                     <td>${month}</td>
                     <td>${growth.new_members || 0}</td>
@@ -722,202 +722,202 @@ export class ChapterStatistics {
                     <td>${frappe.format_currency(membership.revenue || 0)}</td>
                 </tr>
             `;
-        }).join('');
-    }
+		}).join('');
+	}
 
-    sumValues(array, field) {
-        return array.reduce((sum, item) => sum + (parseFloat(item[field]) || 0), 0);
-    }
+	sumValues(array, field) {
+		return array.reduce((sum, item) => sum + (parseFloat(item[field]) || 0), 0);
+	}
 
-    initializeGrowthChart(dialog, data) {
-        const canvas = dialog.$wrapper.find('#growth-chart')[0];
-        if (!canvas || !window.Chart) return;
+	initializeGrowthChart(dialog, data) {
+		const canvas = dialog.$wrapper.find('#growth-chart')[0];
+		if (!canvas || !window.Chart) return;
 
-        const months = new Set();
-        data.monthlyGrowth.forEach(d => months.add(d.month));
-        data.monthlyMemberships.forEach(d => months.add(d.month));
+		const months = new Set();
+		data.monthlyGrowth.forEach(d => months.add(d.month));
+		data.monthlyMemberships.forEach(d => months.add(d.month));
 
-        const sortedMonths = Array.from(months).sort();
+		const sortedMonths = Array.from(months).sort();
 
-        const ctx = canvas.getContext('2d');
-        const chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-                labels: sortedMonths,
-                datasets: [
-                    {
-                        label: __('New Members'),
-                        data: sortedMonths.map(month => {
-                            const growth = data.monthlyGrowth.find(g => g.month === month);
-                            return growth ? growth.new_members : 0;
-                        }),
-                        borderColor: '#007bff',
-                        backgroundColor: 'rgba(0, 123, 255, 0.1)',
-                        tension: 0.1
-                    },
-                    {
-                        label: __('New Memberships'),
-                        data: sortedMonths.map(month => {
-                            const membership = data.monthlyMemberships.find(m => m.month === month);
-                            return membership ? membership.new_memberships : 0;
-                        }),
-                        borderColor: '#28a745',
-                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                        tension: 0.1
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: {
-                        position: 'bottom'
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true
-                    }
-                }
-            }
-        });
+		const ctx = canvas.getContext('2d');
+		const chart = new Chart(ctx, {
+			type: 'line',
+			data: {
+				labels: sortedMonths,
+				datasets: [
+					{
+						label: __('New Members'),
+						data: sortedMonths.map(month => {
+							const growth = data.monthlyGrowth.find(g => g.month === month);
+							return growth ? growth.new_members : 0;
+						}),
+						borderColor: '#007bff',
+						backgroundColor: 'rgba(0, 123, 255, 0.1)',
+						tension: 0.1
+					},
+					{
+						label: __('New Memberships'),
+						data: sortedMonths.map(month => {
+							const membership = data.monthlyMemberships.find(m => m.month === month);
+							return membership ? membership.new_memberships : 0;
+						}),
+						borderColor: '#28a745',
+						backgroundColor: 'rgba(40, 167, 69, 0.1)',
+						tension: 0.1
+					}
+				]
+			},
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				plugins: {
+					legend: {
+						position: 'bottom'
+					}
+				},
+				scales: {
+					y: {
+						beginAtZero: true
+					}
+				}
+			}
+		});
 
-        this.charts.set('growth', chart);
-    }
+		this.charts.set('growth', chart);
+	}
 
-    async showActivityDashboard() {
-        try {
-            this.state.setLoading('activityDashboard', true);
+	async showActivityDashboard() {
+		try {
+			this.state.setLoading('activityDashboard', true);
 
-            const activityData = await this.fetchActivityData();
+			const activityData = await this.fetchActivityData();
 
-            const dialog = new frappe.ui.Dialog({
-                title: __('Activity Dashboard - {0}', [this.frm.doc.name]),
-                size: 'extra-large',
-                fields: [{
-                    fieldtype: 'HTML',
-                    options: this.generateActivityDashboardHTML(activityData)
-                }]
-            });
+			const dialog = new frappe.ui.Dialog({
+				title: __('Activity Dashboard - {0}', [this.frm.doc.name]),
+				size: 'extra-large',
+				fields: [{
+					fieldtype: 'HTML',
+					options: this.generateActivityDashboardHTML(activityData)
+				}]
+			});
 
-            dialog.show();
+			dialog.show();
 
-            // Initialize activity timeline
-            setTimeout(() => this.initializeActivityTimeline(dialog, activityData), 100);
+			// Initialize activity timeline
+			setTimeout(() => this.initializeActivityTimeline(dialog, activityData), 100);
 
-        } catch (error) {
-            frappe.msgprint(__('Error loading activity dashboard: {0}', [error.message]));
-        } finally {
-            this.state.setLoading('activityDashboard', false);
-        }
-    }
+		} catch (error) {
+			frappe.msgprint(__('Error loading activity dashboard: {0}', [error.message]));
+		} finally {
+			this.state.setLoading('activityDashboard', false);
+		}
+	}
 
-    async fetchActivityData() {
-        const endDate = frappe.datetime.nowdate();
-        const startDate = frappe.datetime.add_days(endDate, -90); // Last 90 days
+	async fetchActivityData() {
+		const endDate = frappe.datetime.nowdate();
+		const startDate = frappe.datetime.add_days(endDate, -90); // Last 90 days
 
-        // Get recent activities
-        const recentActivities = await this.getRecentActivities(startDate, endDate);
+		// Get recent activities
+		const recentActivities = await this.getRecentActivities(startDate, endDate);
 
-        // Get top contributors
-        const topContributors = await this.getTopContributors();
+		// Get top contributors
+		const topContributors = await this.getTopContributors();
 
-        // Get upcoming events
-        const upcomingEvents = await this.getUpcomingEvents();
+		// Get upcoming events
+		const upcomingEvents = await this.getUpcomingEvents();
 
-        return {
-            recentActivities,
-            topContributors,
-            upcomingEvents,
-            activitySummary: this.generateActivitySummary(recentActivities)
-        };
-    }
+		return {
+			recentActivities,
+			topContributors,
+			upcomingEvents,
+			activitySummary: this.generateActivitySummary(recentActivities)
+		};
+	}
 
-    async getRecentActivities(startDate, endDate) {
-        const activities = [];
+	async getRecentActivities(startDate, endDate) {
+		const activities = [];
 
-        // Get new members from Chapter Member table
-        const chapterMemberIds = await this.getChapterMemberIds();
-        const newMembers = await this.api.getList('Member', {
-            filters: {
-                name: ['in', chapterMemberIds],
-                creation: ['between', [startDate, endDate]]
-            },
-            fields: ['name', 'full_name', 'creation'],
-            limit: 10,
-            order_by: 'creation desc'
-        });
+		// Get new members from Chapter Member table
+		const chapterMemberIds = await this.getChapterMemberIds();
+		const newMembers = await this.api.getList('Member', {
+			filters: {
+				name: ['in', chapterMemberIds],
+				creation: ['between', [startDate, endDate]]
+			},
+			fields: ['name', 'full_name', 'creation'],
+			limit: 10,
+			order_by: 'creation desc'
+		});
 
-        newMembers.forEach(member => {
-            activities.push({
-                type: 'new_member',
-                title: __('New member joined'),
-                description: member.full_name,
-                date: member.creation,
-                icon: 'fa-user-plus',
-                color: 'green'
-            });
-        });
+		newMembers.forEach(member => {
+			activities.push({
+				type: 'new_member',
+				title: __('New member joined'),
+				description: member.full_name,
+				date: member.creation,
+				icon: 'fa-user-plus',
+				color: 'green'
+			});
+		});
 
-        // Get board changes
-        const boardChanges = this.frm.doc.board_members?.filter(member => {
-            const fromDate = frappe.datetime.str_to_obj(member.from_date);
-            const compareStart = frappe.datetime.str_to_obj(startDate);
-            return fromDate >= compareStart;
-        }) || [];
+		// Get board changes
+		const boardChanges = this.frm.doc.board_members?.filter(member => {
+			const fromDate = frappe.datetime.str_to_obj(member.from_date);
+			const compareStart = frappe.datetime.str_to_obj(startDate);
+			return fromDate >= compareStart;
+		}) || [];
 
-        boardChanges.forEach(change => {
-            activities.push({
-                type: 'board_change',
-                title: __('Board member added'),
-                description: `${change.volunteer_name} - ${change.chapter_role}`,
-                date: change.from_date,
-                icon: 'fa-users',
-                color: 'blue'
-            });
-        });
+		boardChanges.forEach(change => {
+			activities.push({
+				type: 'board_change',
+				title: __('Board member added'),
+				description: `${change.volunteer_name} - ${change.chapter_role}`,
+				date: change.from_date,
+				icon: 'fa-users',
+				color: 'blue'
+			});
+		});
 
-        // Sort by date
-        activities.sort((a, b) => new Date(b.date) - new Date(a.date));
+		// Sort by date
+		activities.sort((a, b) => new Date(b.date) - new Date(a.date));
 
-        return activities.slice(0, 20); // Return top 20 activities
-    }
+		return activities.slice(0, 20); // Return top 20 activities
+	}
 
-    async getTopContributors() {
-        // This would typically involve more complex queries
-        // For now, return board members as top contributors
-        return this.frm.doc.board_members
-            ?.filter(m => m.is_active)
-            .map(m => ({
-                name: m.volunteer_name,
-                role: m.chapter_role,
-                contributions: Math.floor(Math.random() * 50) + 10 // Placeholder
-            }))
-            .sort((a, b) => b.contributions - a.contributions)
-            .slice(0, 5) || [];
-    }
+	async getTopContributors() {
+		// This would typically involve more complex queries
+		// For now, return board members as top contributors
+		return this.frm.doc.board_members
+			?.filter(m => m.is_active)
+			.map(m => ({
+				name: m.volunteer_name,
+				role: m.chapter_role,
+				contributions: Math.floor(Math.random() * 50) + 10 // Placeholder
+			}))
+			.sort((a, b) => b.contributions - a.contributions)
+			.slice(0, 5) || [];
+	}
 
-    async getUpcomingEvents() {
-        // Placeholder - would integrate with events module
-        return [];
-    }
+	async getUpcomingEvents() {
+		// Placeholder - would integrate with events module
+		return [];
+	}
 
-    generateActivitySummary(activities) {
-        const summary = {
-            total: activities.length,
-            byType: {}
-        };
+	generateActivitySummary(activities) {
+		const summary = {
+			total: activities.length,
+			byType: {}
+		};
 
-        activities.forEach(activity => {
-            summary.byType[activity.type] = (summary.byType[activity.type] || 0) + 1;
-        });
+		activities.forEach(activity => {
+			summary.byType[activity.type] = (summary.byType[activity.type] || 0) + 1;
+		});
 
-        return summary;
-    }
+		return summary;
+	}
 
-    generateActivityDashboardHTML(data) {
-        return `
+	generateActivityDashboardHTML(data) {
+		return `
             <div class="activity-dashboard">
                 <div class="row">
                     <div class="col-md-8">
@@ -990,14 +990,14 @@ export class ChapterStatistics {
                 }
             </style>
         `;
-    }
+	}
 
-    generateActivityTimelineHTML(activities) {
-        if (!activities || activities.length === 0) {
-            return `<p class="text-muted">${__('No recent activity')}</p>`;
-        }
+	generateActivityTimelineHTML(activities) {
+		if (!activities || activities.length === 0) {
+			return `<p class="text-muted">${__('No recent activity')}</p>`;
+		}
 
-        return activities.map(activity => `
+		return activities.map(activity => `
             <div class="activity-item">
                 <div class="activity-icon ${activity.color}">
                     <i class="fa ${activity.icon}"></i>
@@ -1009,14 +1009,14 @@ export class ChapterStatistics {
                 </div>
             </div>
         `).join('');
-    }
+	}
 
-    generateContributorListHTML(contributors) {
-        if (!contributors || contributors.length === 0) {
-            return `<p class="text-muted">${__('No contributors data available')}</p>`;
-        }
+	generateContributorListHTML(contributors) {
+		if (!contributors || contributors.length === 0) {
+			return `<p class="text-muted">${__('No contributors data available')}</p>`;
+		}
 
-        return contributors.map(contributor => `
+		return contributors.map(contributor => `
             <div class="contributor-item">
                 <div class="d-flex justify-content-between align-items-center">
                     <div>
@@ -1029,144 +1029,144 @@ export class ChapterStatistics {
                 </div>
             </div>
         `).join('');
-    }
+	}
 
-    generateEventListHTML(events) {
-        // Placeholder implementation
-        return `<p class="text-muted">${__('No upcoming events')}</p>`;
-    }
+	generateEventListHTML(events) {
+		// Placeholder implementation
+		return `<p class="text-muted">${__('No upcoming events')}</p>`;
+	}
 
-    initializeActivityTimeline(dialog, data) {
-        // Add any interactive features to the timeline
-        dialog.$wrapper.find('.activity-item').on('click', function() {
-            $(this).toggleClass('expanded');
-        });
-    }
+	initializeActivityTimeline(dialog, data) {
+		// Add any interactive features to the timeline
+		dialog.$wrapper.find('.activity-item').on('click', function() {
+			$(this).toggleClass('expanded');
+		});
+	}
 
-    async exportAnalytics() {
-        try {
-            this.state.setLoading('exportAnalytics', true);
+	async exportAnalytics() {
+		try {
+			this.state.setLoading('exportAnalytics', true);
 
-            const stats = await this.fetchChapterStatistics();
-            const growthData = await this.fetchGrowthData();
+			const stats = await this.fetchChapterStatistics();
+			const growthData = await this.fetchGrowthData();
 
-            // Create CSV content
-            const csvContent = this.generateAnalyticsCSV(stats, growthData);
+			// Create CSV content
+			const csvContent = this.generateAnalyticsCSV(stats, growthData);
 
-            // Download CSV
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            const url = URL.createObjectURL(blob);
+			// Download CSV
+			const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+			const link = document.createElement('a');
+			const url = URL.createObjectURL(blob);
 
-            link.setAttribute('href', url);
-            link.setAttribute('download', `${this.frm.doc.name}_analytics_${frappe.datetime.nowdate()}.csv`);
-            link.style.visibility = 'hidden';
+			link.setAttribute('href', url);
+			link.setAttribute('download', `${this.frm.doc.name}_analytics_${frappe.datetime.nowdate()}.csv`);
+			link.style.visibility = 'hidden';
 
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
 
-            frappe.show_alert({
-                message: __('Analytics exported successfully'),
-                indicator: 'green'
-            }, 3);
+			frappe.show_alert({
+				message: __('Analytics exported successfully'),
+				indicator: 'green'
+			}, 3);
 
-        } catch (error) {
-            frappe.msgprint(__('Error exporting analytics: {0}', [error.message]));
-        } finally {
-            this.state.setLoading('exportAnalytics', false);
-        }
-    }
+		} catch (error) {
+			frappe.msgprint(__('Error exporting analytics: {0}', [error.message]));
+		} finally {
+			this.state.setLoading('exportAnalytics', false);
+		}
+	}
 
-    generateAnalyticsCSV(stats, growthData) {
-        const lines = [];
+	generateAnalyticsCSV(stats, growthData) {
+		const lines = [];
 
-        // Header
-        lines.push(`Chapter Analytics Report - ${this.frm.doc.name}`);
-        lines.push(`Generated on: ${frappe.datetime.now_datetime()}`);
-        lines.push('');
+		// Header
+		lines.push(`Chapter Analytics Report - ${this.frm.doc.name}`);
+		lines.push(`Generated on: ${frappe.datetime.now_datetime()}`);
+		lines.push('');
 
-        // Overview Section
-        lines.push('OVERVIEW');
-        lines.push(`Total Members,${stats.totalMembers}`);
-        lines.push(`Active Members,${stats.activeMembers}`);
-        lines.push(`Inactive Members,${stats.inactiveMembers}`);
-        lines.push(`Board Members,${stats.boardMemberCount}`);
-        lines.push(`Recent Members (30 days),${stats.recentMembers}`);
-        lines.push(`Retention Rate,${stats.memberRetentionRate}%`);
-        lines.push('');
+		// Overview Section
+		lines.push('OVERVIEW');
+		lines.push(`Total Members,${stats.totalMembers}`);
+		lines.push(`Active Members,${stats.activeMembers}`);
+		lines.push(`Inactive Members,${stats.inactiveMembers}`);
+		lines.push(`Board Members,${stats.boardMemberCount}`);
+		lines.push(`Recent Members (30 days),${stats.recentMembers}`);
+		lines.push(`Retention Rate,${stats.memberRetentionRate}%`);
+		lines.push('');
 
-        // Activity Section
-        lines.push('ACTIVITY METRICS');
-        lines.push(`Event Attendance,${stats.eventAttendance}`);
-        lines.push(`Volunteer Hours,${stats.volunteerHours}`);
-        lines.push(`Communications Sent,${stats.communicationCount}`);
-        lines.push(`Engagement Score,${stats.engagementScore}/100`);
-        lines.push('');
+		// Activity Section
+		lines.push('ACTIVITY METRICS');
+		lines.push(`Event Attendance,${stats.eventAttendance}`);
+		lines.push(`Volunteer Hours,${stats.volunteerHours}`);
+		lines.push(`Communications Sent,${stats.communicationCount}`);
+		lines.push(`Engagement Score,${stats.engagementScore}/100`);
+		lines.push('');
 
-        // Board Statistics
-        lines.push('BOARD STATISTICS');
-        lines.push(`Average Tenure,${stats.averageTenure} days`);
-        lines.push(`Turnover Rate,${stats.boardTurnoverRate}%`);
-        lines.push('');
+		// Board Statistics
+		lines.push('BOARD STATISTICS');
+		lines.push(`Average Tenure,${stats.averageTenure} days`);
+		lines.push(`Turnover Rate,${stats.boardTurnoverRate}%`);
+		lines.push('');
 
-        // Growth Data
-        lines.push('MONTHLY GROWTH DATA');
-        lines.push('Month,New Members,New Memberships,Revenue');
+		// Growth Data
+		lines.push('MONTHLY GROWTH DATA');
+		lines.push('Month,New Members,New Memberships,Revenue');
 
-        const months = new Set();
-        growthData.monthlyGrowth.forEach(d => months.add(d.month));
-        growthData.monthlyMemberships.forEach(d => months.add(d.month));
+		const months = new Set();
+		growthData.monthlyGrowth.forEach(d => months.add(d.month));
+		growthData.monthlyMemberships.forEach(d => months.add(d.month));
 
-        Array.from(months).sort().forEach(month => {
-            const growth = growthData.monthlyGrowth.find(g => g.month === month) || {};
-            const membership = growthData.monthlyMemberships.find(m => m.month === month) || {};
+		Array.from(months).sort().forEach(month => {
+			const growth = growthData.monthlyGrowth.find(g => g.month === month) || {};
+			const membership = growthData.monthlyMemberships.find(m => m.month === month) || {};
 
-            lines.push(`${month},${growth.new_members || 0},${membership.new_memberships || 0},${membership.revenue || 0}`);
-        });
+			lines.push(`${month},${growth.new_members || 0},${membership.new_memberships || 0},${membership.revenue || 0}`);
+		});
 
-        return lines.join('\n');
-    }
+		return lines.join('\n');
+	}
 
-    async getChapterMemberIds() {
-        if (!this.frm.doc.members) return [];
+	async getChapterMemberIds() {
+		if (!this.frm.doc.members) return [];
 
-        return this.frm.doc.members
-            .filter(m => m.enabled)
-            .map(m => m.member);
-    }
+		return this.frm.doc.members
+			.filter(m => m.enabled)
+			.map(m => m.member);
+	}
 
-    async getChapterVolunteerIds() {
-        if (!this.frm.doc.board_members) return [];
+	async getChapterVolunteerIds() {
+		if (!this.frm.doc.board_members) return [];
 
-        return this.frm.doc.board_members
-            .filter(m => m.is_active && m.volunteer)
-            .map(m => m.volunteer);
-    }
-    async refresh() {
-        // Refresh statistics if dialog is open
-        if (this.state.get('ui.activeDialog') === 'statistics') {
-            // Find and refresh the statistics dialog
-            const dialog = Array.from(document.querySelectorAll('.modal-dialog'))
-                .find(d => d.querySelector('.modal-title')?.textContent.includes('Statistics'));
+		return this.frm.doc.board_members
+			.filter(m => m.is_active && m.volunteer)
+			.map(m => m.volunteer);
+	}
+	async refresh() {
+		// Refresh statistics if dialog is open
+		if (this.state.get('ui.activeDialog') === 'statistics') {
+			// Find and refresh the statistics dialog
+			const dialog = Array.from(document.querySelectorAll('.modal-dialog'))
+				.find(d => d.querySelector('.modal-title')?.textContent.includes('Statistics'));
 
-            if (dialog) {
-                await this.refreshStatistics(dialog._frappe_dialog);
-            }
-        }
+			if (dialog) {
+				await this.refreshStatistics(dialog._frappe_dialog);
+			}
+		}
 
-        // Clear cache to force fresh data
-        this.state.update('cache.statistics', null);
-        this.state.update('cache.lastUpdated', null);
-    }
-    destroy() {
-        // Destroy all charts
-        this.charts.forEach(chart => chart.destroy());
-        this.charts.clear();
+		// Clear cache to force fresh data
+		this.state.update('cache.statistics', null);
+		this.state.update('cache.lastUpdated', null);
+	}
+	destroy() {
+		// Destroy all charts
+		this.charts.forEach(chart => chart.destroy());
+		this.charts.clear();
 
-        // Clear references
-        this.frm = null;
-        this.state = null;
-        this.api = null;
-    }
+		// Clear references
+		this.frm = null;
+		this.state = null;
+		this.api = null;
+	}
 }

@@ -4,9 +4,9 @@ frappe.ui.form.on('Member Contact Request', {
 		if (frm.doc.status) {
 			frm.set_indicator_label(frm.doc.status,
 				frm.doc.status === 'Open' ? 'orange' :
-				frm.doc.status === 'In Progress' ? 'blue' :
-				frm.doc.status === 'Waiting for Response' ? 'yellow' :
-				frm.doc.status === 'Resolved' ? 'green' : 'gray');
+					frm.doc.status === 'In Progress' ? 'blue' :
+						frm.doc.status === 'Waiting for Response' ? 'yellow' :
+							frm.doc.status === 'Resolved' ? 'green' : 'gray');
 		}
 
 		// Add custom buttons

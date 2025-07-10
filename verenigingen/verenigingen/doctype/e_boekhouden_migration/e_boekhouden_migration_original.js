@@ -15,163 +15,163 @@ frappe.ui.form.on('E-Boekhouden Migration', {
 			if (frm.doc.migration_status !== 'In Progress') {
 				console.log('Adding core action buttons');
 
-			frm.add_custom_button(__('Test Connection'), function() {
-				console.log('Test Connection clicked');
-				frappe.call({
-					method: 'verenigingen.utils.eboekhouden_api.test_api_connection',
-					callback: function(r) {
-						if (r.message && r.message.success) {
-							frappe.show_alert({
-								message: __('✅ Connection successful! API is working.'),
-								indicator: 'green'
+				frm.add_custom_button(__('Test Connection'), function() {
+					console.log('Test Connection clicked');
+					frappe.call({
+						method: 'verenigingen.utils.eboekhouden_api.test_api_connection',
+						callback: function(r) {
+							if (r.message && r.message.success) {
+								frappe.show_alert({
+									message: __('✅ Connection successful! API is working.'),
+									indicator: 'green'
+								});
+							} else {
+								frappe.show_alert({
+									message: __('❌ Connection failed: ') + (r.message ? r.message.error : 'Unknown error'),
+									indicator: 'red'
+								});
+							}
+						}
+					});
+				}).addClass('btn-info');
+
+				frm.add_custom_button(__('Preview Migration'), function() {
+					console.log('Preview Migration button clicked');
+
+					// Simple validation
+					if (!frm.doc.migration_name) {
+						frappe.msgprint(__('Migration Name is required'));
+						return;
+					}
+					if (!frm.doc.company) {
+						frappe.msgprint(__('Company is required'));
+						return;
+					}
+
+					console.log('Validation passed, showing confirm dialog');
+					frappe.confirm(
+						__('This will preview what data would be migrated without actually importing anything. Continue?'),
+						function() {
+							console.log('User confirmed preview migration');
+
+							// Use direct API call instead of form submission
+							console.log('Starting preview migration via API...');
+
+							frappe.call({
+								method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.start_migration_api',
+								args: {
+									migration_name: frm.doc.name,
+									dry_run: 1
+								},
+								callback: function(r) {
+									console.log('API call completed, response:', r);
+
+									if (r.message && r.message.success) {
+										console.log('Preview migration started successfully');
+										frappe.show_alert({
+											message: __('✅ Preview migration started successfully!'),
+											indicator: 'green'
+										});
+
+										// Reload the form to show updated status
+										setTimeout(() => {
+											frm.reload_doc();
+										}, 1000);
+									} else {
+										console.error('Preview migration failed:', r.message);
+										frappe.show_alert({
+											message: __('❌ Preview migration failed: ') + (r.message ? r.message.error : 'Unknown error'),
+											indicator: 'red'
+										});
+									}
+								},
+								error: function(error) {
+									console.error('API call error:', error);
+									frappe.show_alert({
+										message: __('❌ API call failed: ') + (error.message || error),
+										indicator: 'red'
+									});
+								}
 							});
-						} else {
-							frappe.show_alert({
-								message: __('❌ Connection failed: ') + (r.message ? r.message.error : 'Unknown error'),
-								indicator: 'red'
+						},
+						function() {
+							console.log('User cancelled preview migration');
+						}
+					);
+				}).addClass('btn-secondary');
+
+				frm.add_custom_button(__('Start Migration'), function() {
+					console.log('Start Migration button clicked');
+
+					// Simple validation
+					if (!frm.doc.migration_name) {
+						frappe.msgprint(__('Migration Name is required'));
+						return;
+					}
+					if (!frm.doc.company) {
+						frappe.msgprint(__('Company is required'));
+						return;
+					}
+
+					frappe.confirm(
+						__('Are you sure you want to start the migration? This will import data from e-Boekhouden into ERPNext.<br><br><strong>This action cannot be undone!</strong>'),
+						function() {
+							console.log('User confirmed start migration');
+
+							// Use direct API call instead of form submission
+							console.log('Starting actual migration via API...');
+
+							frappe.call({
+								method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.start_migration_api',
+								args: {
+									migration_name: frm.doc.name,
+									dry_run: 0
+								},
+								callback: function(r) {
+									console.log('API call completed, response:', r);
+
+									if (r.message && r.message.success) {
+										console.log('Migration started successfully');
+										frappe.show_alert({
+											message: __('✅ Migration started successfully!'),
+											indicator: 'green'
+										});
+
+										// Reload the form to show updated status
+										setTimeout(() => {
+											frm.reload_doc();
+										}, 1000);
+									} else {
+										console.error('Migration failed:', r.message);
+										frappe.show_alert({
+											message: __('❌ Migration failed: ') + (r.message ? r.message.error : 'Unknown error'),
+											indicator: 'red'
+										});
+									}
+								},
+								error: function(error) {
+									console.error('API call error:', error);
+									frappe.show_alert({
+										message: __('❌ API call failed: ') + (error.message || error),
+										indicator: 'red'
+									});
+								}
 							});
 						}
+					);
+				}).addClass('btn-primary');
+
+				frm.add_custom_button(__('Full Migration'), function() {
+					console.log('Full Migration button clicked');
+
+					// Simple validation
+					if (!frm.doc.company) {
+						frappe.msgprint(__('Company is required'));
+						return;
 					}
-				});
-			}).addClass('btn-info');
 
-			frm.add_custom_button(__('Preview Migration'), function() {
-				console.log('Preview Migration button clicked');
-
-				// Simple validation
-				if (!frm.doc.migration_name) {
-					frappe.msgprint(__('Migration Name is required'));
-					return;
-				}
-				if (!frm.doc.company) {
-					frappe.msgprint(__('Company is required'));
-					return;
-				}
-
-				console.log('Validation passed, showing confirm dialog');
-				frappe.confirm(
-					__('This will preview what data would be migrated without actually importing anything. Continue?'),
-					function() {
-						console.log('User confirmed preview migration');
-
-						// Use direct API call instead of form submission
-						console.log('Starting preview migration via API...');
-
-						frappe.call({
-							method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.start_migration_api',
-							args: {
-								migration_name: frm.doc.name,
-								dry_run: 1
-							},
-							callback: function(r) {
-								console.log('API call completed, response:', r);
-
-								if (r.message && r.message.success) {
-									console.log('Preview migration started successfully');
-									frappe.show_alert({
-										message: __('✅ Preview migration started successfully!'),
-										indicator: 'green'
-									});
-
-									// Reload the form to show updated status
-									setTimeout(() => {
-										frm.reload_doc();
-									}, 1000);
-								} else {
-									console.error('Preview migration failed:', r.message);
-									frappe.show_alert({
-										message: __('❌ Preview migration failed: ') + (r.message ? r.message.error : 'Unknown error'),
-										indicator: 'red'
-									});
-								}
-							},
-							error: function(error) {
-								console.error('API call error:', error);
-								frappe.show_alert({
-									message: __('❌ API call failed: ') + (error.message || error),
-									indicator: 'red'
-								});
-							}
-						});
-					},
-					function() {
-						console.log('User cancelled preview migration');
-					}
-				);
-			}).addClass('btn-secondary');
-
-			frm.add_custom_button(__('Start Migration'), function() {
-				console.log('Start Migration button clicked');
-
-				// Simple validation
-				if (!frm.doc.migration_name) {
-					frappe.msgprint(__('Migration Name is required'));
-					return;
-				}
-				if (!frm.doc.company) {
-					frappe.msgprint(__('Company is required'));
-					return;
-				}
-
-				frappe.confirm(
-					__('Are you sure you want to start the migration? This will import data from e-Boekhouden into ERPNext.<br><br><strong>This action cannot be undone!</strong>'),
-					function() {
-						console.log('User confirmed start migration');
-
-						// Use direct API call instead of form submission
-						console.log('Starting actual migration via API...');
-
-						frappe.call({
-							method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.start_migration_api',
-							args: {
-								migration_name: frm.doc.name,
-								dry_run: 0
-							},
-							callback: function(r) {
-								console.log('API call completed, response:', r);
-
-								if (r.message && r.message.success) {
-									console.log('Migration started successfully');
-									frappe.show_alert({
-										message: __('✅ Migration started successfully!'),
-										indicator: 'green'
-									});
-
-									// Reload the form to show updated status
-									setTimeout(() => {
-										frm.reload_doc();
-									}, 1000);
-								} else {
-									console.error('Migration failed:', r.message);
-									frappe.show_alert({
-										message: __('❌ Migration failed: ') + (r.message ? r.message.error : 'Unknown error'),
-										indicator: 'red'
-									});
-								}
-							},
-							error: function(error) {
-								console.error('API call error:', error);
-								frappe.show_alert({
-									message: __('❌ API call failed: ') + (error.message || error),
-									indicator: 'red'
-								});
-							}
-						});
-					}
-				);
-			}).addClass('btn-primary');
-
-			frm.add_custom_button(__('Full Migration'), function() {
-				console.log('Full Migration button clicked');
-
-				// Simple validation
-				if (!frm.doc.company) {
-					frappe.msgprint(__('Company is required'));
-					return;
-				}
-
-				frappe.confirm(
-					__('<h4>Full E-Boekhouden Migration</h4>' +
+					frappe.confirm(
+						__('<h4>Full E-Boekhouden Migration</h4>' +
 					   '<p>This will perform a comprehensive migration that includes:</p>' +
 					   '<ul>' +
 					   '<li>Automatically determine the date range from E-Boekhouden</li>' +
@@ -182,40 +182,40 @@ frappe.ui.form.on('E-Boekhouden Migration', {
 					   '</ul>' +
 					   '<p><strong>⚠️ WARNING: This action cannot be undone and may take several minutes!</strong></p>' +
 					   '<p>Are you sure you want to proceed?</p>'),
-					function() {
-						console.log('User confirmed full migration');
+						function() {
+							console.log('User confirmed full migration');
 
-						// Show progress dialog
-						let progress_dialog = new frappe.ui.Dialog({
-							title: 'Full Migration Progress',
-							fields: [{
-								fieldtype: 'HTML',
-								fieldname: 'progress_html',
-								options: '<div id="migration-progress">' +
+							// Show progress dialog
+							let progress_dialog = new frappe.ui.Dialog({
+								title: 'Full Migration Progress',
+								fields: [{
+									fieldtype: 'HTML',
+									fieldname: 'progress_html',
+									options: '<div id="migration-progress">' +
 										'<div class="progress">' +
 										'<div class="progress-bar progress-bar-striped active" role="progressbar" ' +
 										'style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">' +
 										'0%</div></div>' +
 										'<p class="text-muted mt-2" id="progress-message">Initializing migration...</p>' +
 										'</div>'
-							}]
-						});
-						progress_dialog.show();
-						progress_dialog.get_close_btn().hide();
+								}]
+							});
+							progress_dialog.show();
+							progress_dialog.get_close_btn().hide();
 
-						// Start full migration
-						frappe.call({
-							method: 'verenigingen.utils.eboekhouden_full_migration.migrate_all_eboekhouden_data',
-							callback: function(r) {
-								progress_dialog.hide();
-								console.log('Full migration completed, response:', r);
+							// Start full migration
+							frappe.call({
+								method: 'verenigingen.utils.eboekhouden_full_migration.migrate_all_eboekhouden_data',
+								callback: function(r) {
+									progress_dialog.hide();
+									console.log('Full migration completed, response:', r);
 
-								if (r.message && r.message.success) {
-									console.log('Full migration successful');
+									if (r.message && r.message.success) {
+										console.log('Full migration successful');
 
-									// Show detailed summary dialog
-									let summary = r.message.summary;
-									let summary_html = `
+										// Show detailed summary dialog
+										let summary = r.message.summary;
+										let summary_html = `
 										<h5>Migration Completed Successfully!</h5>
 										<hr>
 										<div class="row">
@@ -253,60 +253,60 @@ frappe.ui.form.on('E-Boekhouden Migration', {
 										</table>
 									`;
 
-									if (summary.results.opening_balance.created) {
-										summary_html += `<p><strong>Opening Balance:</strong> Created as ${summary.results.opening_balance.journal_entry}</p>`;
-									}
-
-									let result_dialog = new frappe.ui.Dialog({
-										title: 'Full Migration Summary',
-										fields: [{
-											fieldtype: 'HTML',
-											options: summary_html
-										}],
-										primary_action_label: 'Close',
-										primary_action: function() {
-											result_dialog.hide();
-											frm.reload_doc();
+										if (summary.results.opening_balance.created) {
+											summary_html += `<p><strong>Opening Balance:</strong> Created as ${summary.results.opening_balance.journal_entry}</p>`;
 										}
-									});
-									result_dialog.show();
 
-								} else {
-									console.error('Full migration failed:', r.message);
+										let result_dialog = new frappe.ui.Dialog({
+											title: 'Full Migration Summary',
+											fields: [{
+												fieldtype: 'HTML',
+												options: summary_html
+											}],
+											primary_action_label: 'Close',
+											primary_action: function() {
+												result_dialog.hide();
+												frm.reload_doc();
+											}
+										});
+										result_dialog.show();
+
+									} else {
+										console.error('Full migration failed:', r.message);
+										frappe.msgprint({
+											title: __('Migration Failed'),
+											message: __('Full migration failed: ') + (r.message ? r.message.error : 'Unknown error'),
+											indicator: 'red'
+										});
+									}
+								},
+								error: function(error) {
+									progress_dialog.hide();
+									console.error('Full migration error:', error);
 									frappe.msgprint({
-										title: __('Migration Failed'),
-										message: __('Full migration failed: ') + (r.message ? r.message.error : 'Unknown error'),
+										title: __('Migration Error'),
+										message: __('Full migration error: ') + (error.message || error),
 										indicator: 'red'
 									});
 								}
-							},
-							error: function(error) {
-								progress_dialog.hide();
-								console.error('Full migration error:', error);
-								frappe.msgprint({
-									title: __('Migration Error'),
-									message: __('Full migration error: ') + (error.message || error),
-									indicator: 'red'
-								});
-							}
-						});
+							});
 
-						// Update progress bar
-						frappe.realtime.on('progress', function(data) {
-							if (data.progress) {
-								let percent = data.progress;
-								let message = data.title || 'Processing...';
+							// Update progress bar
+							frappe.realtime.on('progress', function(data) {
+								if (data.progress) {
+									let percent = data.progress;
+									let message = data.title || 'Processing...';
 
-								$('#migration-progress .progress-bar')
-									.css('width', percent + '%')
-									.attr('aria-valuenow', percent)
-									.text(percent + '%');
-								$('#progress-message').text(message);
-							}
-						});
-					}
-				);
-			}).addClass('btn-warning');
+									$('#migration-progress .progress-bar')
+										.css('width', percent + '%')
+										.attr('aria-valuenow', percent)
+										.text(percent + '%');
+									$('#progress-message').text(message);
+								}
+							});
+						}
+					);
+				}).addClass('btn-warning');
 			}
 
 			// Show Post-Migration buttons if we have any migration history or if status is Completed
@@ -743,7 +743,7 @@ function show_account_mapping_dialog(analysis_data) {
 			row_html += ` <span class="badge badge-info badge-sm ml-2">${proposal.parent_category}</span>`;
 		}
 
-		row_html += `</div>`;
+		row_html += '</div>';
 
 		// Show sample accounts more compactly
 		if (proposal.sample_accounts && proposal.sample_accounts.length > 0) {

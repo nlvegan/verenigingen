@@ -4,4 +4,4 @@ frappe.pages['membership-applicati'].on_page_load = function(wrapper) {
 		title: 'Membership Application Review',
 		single_column: true
 	});
-}
+};

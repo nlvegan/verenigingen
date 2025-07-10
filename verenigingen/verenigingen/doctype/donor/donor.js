@@ -219,14 +219,14 @@ function show_anbi_menu(frm) {
 				label: __('BSN (Citizen Service Number)'),
 				fieldname: 'bsn',
 				fieldtype: 'Data',
-				depends_on: "eval:doc.operation=='Update Tax Identifiers' || doc.operation=='Validate BSN'",
+				depends_on: 'eval:doc.operation==\'Update Tax Identifiers\' || doc.operation==\'Validate BSN\'',
 				description: __('9-digit Dutch citizen service number')
 			},
 			{
 				label: __('RSIN (Organization Tax Number)'),
 				fieldname: 'rsin',
 				fieldtype: 'Data',
-				depends_on: "eval:doc.operation=='Update Tax Identifiers'",
+				depends_on: 'eval:doc.operation==\'Update Tax Identifiers\'',
 				description: __('8 or 9-digit organization tax number')
 			},
 			{
@@ -234,19 +234,19 @@ function show_anbi_menu(frm) {
 				fieldname: 'verification_method',
 				fieldtype: 'Select',
 				options: '\nDigiD\nManual\nBank Verification\nOther',
-				depends_on: "eval:doc.operation=='Update Tax Identifiers'"
+				depends_on: 'eval:doc.operation==\'Update Tax Identifiers\''
 			},
 			{
 				label: __('ANBI Consent'),
 				fieldname: 'consent',
 				fieldtype: 'Check',
-				depends_on: "eval:doc.operation=='Update ANBI Consent'"
+				depends_on: 'eval:doc.operation==\'Update ANBI Consent\''
 			},
 			{
 				label: __('Reason (if withdrawing consent)'),
 				fieldname: 'reason',
 				fieldtype: 'Small Text',
-				depends_on: "eval:doc.operation=='Update ANBI Consent' && !doc.consent"
+				depends_on: 'eval:doc.operation==\'Update ANBI Consent\' && !doc.consent'
 			}
 		],
 		primary_action_label: __('Execute'),

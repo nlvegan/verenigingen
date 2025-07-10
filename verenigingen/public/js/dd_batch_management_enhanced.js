@@ -4,25 +4,25 @@
  */
 
 class DDBatchManagementDashboard {
-    constructor() {
-        this.currentBatch = null;
-        this.conflictData = null;
-        this.securityAlerts = [];
-        this.realTimeUpdateInterval = null;
+	constructor() {
+		this.currentBatch = null;
+		this.conflictData = null;
+		this.securityAlerts = [];
+		this.realTimeUpdateInterval = null;
 
-        this.initializeInterface();
-        this.setupEventHandlers();
-        this.startRealTimeUpdates();
-    }
+		this.initializeInterface();
+		this.setupEventHandlers();
+		this.startRealTimeUpdates();
+	}
 
-    initializeInterface() {
-        this.createDashboardLayout();
-        this.initializeFilters();
-        this.loadBatchList();
-    }
+	initializeInterface() {
+		this.createDashboardLayout();
+		this.initializeFilters();
+		this.loadBatchList();
+	}
 
-    createDashboardLayout() {
-        const dashboardHtml = `
+	createDashboardLayout() {
+		const dashboardHtml = `
             <div id="dd-batch-dashboard" class="dd-batch-dashboard">
                 <!-- Header Section -->
                 <div class="dashboard-header">
@@ -150,15 +150,15 @@ class DDBatchManagementDashboard {
             </div>
         `;
 
-        // Insert dashboard into page
-        $('body').append(dashboardHtml);
+		// Insert dashboard into page
+		$('body').append(dashboardHtml);
 
-        // Add CSS styles
-        this.addDashboardStyles();
-    }
+		// Add CSS styles
+		this.addDashboardStyles();
+	}
 
-    addDashboardStyles() {
-        const styles = `
+	addDashboardStyles() {
+		const styles = `
             <style>
                 .dd-batch-dashboard {
                     padding: 20px;
@@ -352,114 +352,114 @@ class DDBatchManagementDashboard {
             </style>
         `;
 
-        $('head').append(styles);
-    }
+		$('head').append(styles);
+	}
 
-    setupEventHandlers() {
-        // Create new batch button
-        $(document).on('click', '#create-new-batch', () => {
-            this.showBatchCreationWizard();
-        });
+	setupEventHandlers() {
+		// Create new batch button
+		$(document).on('click', '#create-new-batch', () => {
+			this.showBatchCreationWizard();
+		});
 
-        // Security overview button
-        $(document).on('click', '#security-overview', () => {
-            this.showSecurityOverview();
-        });
+		// Security overview button
+		$(document).on('click', '#security-overview', () => {
+			this.showSecurityOverview();
+		});
 
-        // Apply filters button
-        $(document).on('click', '#apply-filters', () => {
-            this.loadBatchList();
-        });
+		// Apply filters button
+		$(document).on('click', '#apply-filters', () => {
+			this.loadBatchList();
+		});
 
-        // Batch action buttons
-        $(document).on('click', '.view-batch', (e) => {
-            const batchId = $(e.target).data('batch-id');
-            this.showBatchDetails(batchId);
-        });
+		// Batch action buttons
+		$(document).on('click', '.view-batch', (e) => {
+			const batchId = $(e.target).data('batch-id');
+			this.showBatchDetails(batchId);
+		});
 
-        $(document).on('click', '.resolve-conflicts', (e) => {
-            const batchId = $(e.target).data('batch-id');
-            this.showConflictResolution(batchId);
-        });
+		$(document).on('click', '.resolve-conflicts', (e) => {
+			const batchId = $(e.target).data('batch-id');
+			this.showConflictResolution(batchId);
+		});
 
-        $(document).on('click', '.download-sepa', (e) => {
-            const batchId = $(e.target).data('batch-id');
-            this.downloadSepaFile(batchId);
-        });
+		$(document).on('click', '.download-sepa', (e) => {
+			const batchId = $(e.target).data('batch-id');
+			this.downloadSepaFile(batchId);
+		});
 
-        // Modal actions
-        $(document).on('click', '#process-batch', () => {
-            this.processBatch(this.currentBatch);
-        });
+		// Modal actions
+		$(document).on('click', '#process-batch', () => {
+			this.processBatch(this.currentBatch);
+		});
 
-        $(document).on('click', '#resolve-conflicts', () => {
-            this.applyConflictResolutions();
-        });
+		$(document).on('click', '#resolve-conflicts', () => {
+			this.applyConflictResolutions();
+		});
 
-        $(document).on('click', '#escalate-conflicts', () => {
-            this.escalateConflicts();
-        });
-    }
+		$(document).on('click', '#escalate-conflicts', () => {
+			this.escalateConflicts();
+		});
+	}
 
-    initializeFilters() {
-        // Set default date range (last 30 days)
-        const today = new Date();
-        const thirtyDaysAgo = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
+	initializeFilters() {
+		// Set default date range (last 30 days)
+		const today = new Date();
+		const thirtyDaysAgo = new Date(today.getTime() - (30 * 24 * 60 * 60 * 1000));
 
-        $('#date-to').val(today.toISOString().split('T')[0]);
-        $('#date-from').val(thirtyDaysAgo.toISOString().split('T')[0]);
-    }
+		$('#date-to').val(today.toISOString().split('T')[0]);
+		$('#date-from').val(thirtyDaysAgo.toISOString().split('T')[0]);
+	}
 
-    async loadBatchList() {
-        try {
-            this.showLoading('#batch-list-body');
+	async loadBatchList() {
+		try {
+			this.showLoading('#batch-list-body');
 
-            const filters = this.getFilterValues();
+			const filters = this.getFilterValues();
 
-            const response = await frappe.call({
-                method: 'verenigingen.api.dd_batch_api.get_batch_list_with_security',
-                args: { filters: filters }
-            });
+			const response = await frappe.call({
+				method: 'verenigingen.api.dd_batch_api.get_batch_list_with_security',
+				args: { filters: filters }
+			});
 
-            if (response.message && response.message.success) {
-                this.renderBatchList(response.message.batches);
-                this.updateSecurityAlerts(response.message.security_alerts);
-            } else {
-                this.showError('Failed to load batch list');
-            }
+			if (response.message && response.message.success) {
+				this.renderBatchList(response.message.batches);
+				this.updateSecurityAlerts(response.message.security_alerts);
+			} else {
+				this.showError('Failed to load batch list');
+			}
 
-        } catch (error) {
-            console.error('Error loading batch list:', error);
-            this.showError('Error loading batch list: ' + error.message);
-        }
-    }
+		} catch (error) {
+			console.error('Error loading batch list:', error);
+			this.showError('Error loading batch list: ' + error.message);
+		}
+	}
 
-    renderBatchList(batches) {
-        const tbody = $('#batch-list-body');
-        tbody.empty();
+	renderBatchList(batches) {
+		const tbody = $('#batch-list-body');
+		tbody.empty();
 
-        if (!batches || batches.length === 0) {
-            tbody.append(`
+		if (!batches || batches.length === 0) {
+			tbody.append(`
                 <tr>
                     <td colspan="8" class="text-center text-muted">
                         No batches found matching the selected filters
                     </td>
                 </tr>
             `);
-            return;
-        }
+			return;
+		}
 
-        batches.forEach(batch => {
-            const row = this.createBatchRow(batch);
-            tbody.append(row);
-        });
-    }
+		batches.forEach(batch => {
+			const row = this.createBatchRow(batch);
+			tbody.append(row);
+		});
+	}
 
-    createBatchRow(batch) {
-        const riskLevel = this.calculateRiskLevel(batch);
-        const conflictLevel = this.getConflictLevel(batch);
+	createBatchRow(batch) {
+		const riskLevel = this.calculateRiskLevel(batch);
+		const conflictLevel = this.getConflictLevel(batch);
 
-        return `
+		return `
             <tr data-batch-id="${batch.name}">
                 <td>
                     <div class="d-flex align-items-center">
@@ -507,78 +507,78 @@ class DDBatchManagementDashboard {
                 </td>
             </tr>
         `;
-    }
+	}
 
-    calculateRiskLevel(batch) {
-        let score = 0;
+	calculateRiskLevel(batch) {
+		let score = 0;
 
-        // High amount increases risk
-        if (batch.total_amount > 10000) score += 0.3;
+		// High amount increases risk
+		if (batch.total_amount > 10000) score += 0.3;
 
-        // Many entries increase risk
-        if (batch.entry_count > 100) score += 0.2;
+		// Many entries increase risk
+		if (batch.entry_count > 100) score += 0.2;
 
-        // Conflicts increase risk significantly
-        if (batch.conflicts > 0) score += 0.4;
+		// Conflicts increase risk significantly
+		if (batch.conflicts > 0) score += 0.4;
 
-        // Failed batches are high risk
-        if (batch.status === 'Failed') score += 0.5;
+		// Failed batches are high risk
+		if (batch.status === 'Failed') score += 0.5;
 
-        if (score >= 0.7) return 'high';
-        if (score >= 0.4) return 'medium';
-        return 'low';
-    }
+		if (score >= 0.7) return 'high';
+		if (score >= 0.4) return 'medium';
+		return 'low';
+	}
 
-    getConflictLevel(batch) {
-        if (!batch.conflicts || batch.conflicts === 0) return 'none';
-        if (batch.conflicts <= 2) return 'minor';
-        return 'major';
-    }
+	getConflictLevel(batch) {
+		if (!batch.conflicts || batch.conflicts === 0) return 'none';
+		if (batch.conflicts <= 2) return 'minor';
+		return 'major';
+	}
 
-    getConflictText(level) {
-        switch (level) {
-            case 'none': return 'None';
-            case 'minor': return 'Minor';
-            case 'major': return 'Major';
-            default: return 'Unknown';
-        }
-    }
+	getConflictText(level) {
+		switch (level) {
+			case 'none': return 'None';
+			case 'minor': return 'Minor';
+			case 'major': return 'Major';
+			default: return 'Unknown';
+		}
+	}
 
-    getStatusColor(status) {
-        switch (status.toLowerCase()) {
-            case 'draft': return 'secondary';
-            case 'generated': return 'info';
-            case 'submitted': return 'warning';
-            case 'processed': return 'success';
-            case 'failed': return 'danger';
-            default: return 'secondary';
-        }
-    }
+	getStatusColor(status) {
+		switch (status.toLowerCase()) {
+			case 'draft': return 'secondary';
+			case 'generated': return 'info';
+			case 'submitted': return 'warning';
+			case 'processed': return 'success';
+			case 'failed': return 'danger';
+			default: return 'secondary';
+		}
+	}
 
-    async showBatchDetails(batchId) {
-        try {
-            this.currentBatch = batchId;
+	async showBatchDetails(batchId) {
+		try {
+			this.currentBatch = batchId;
 
-            const response = await frappe.call({
-                method: 'verenigingen.api.dd_batch_api.get_batch_details_with_security',
-                args: { batch_id: batchId }
-            });
+			const response = await frappe.call({
+				method: 'verenigingen.api.dd_batch_api.get_batch_details_with_security',
+				args: { batch_id: batchId }
+			});
 
-            if (response.message && response.message.success) {
-                this.renderBatchDetails(response.message.batch);
-                $('#batch-details-modal').modal('show');
-            } else {
-                this.showError('Failed to load batch details');
-            }
+			if (response.message && response.message.success) {
+				this.renderBatchDetails(response.message.batch);
+				$('#batch-details-modal').modal('show');
+			} else {
+				this.showError('Failed to load batch details');
+			}
 
-        } catch (error) {
-            console.error('Error loading batch details:', error);
-            this.showError('Error loading batch details: ' + error.message);
-        }
-    }
+		} catch (error) {
+			console.error('Error loading batch details:', error);
+			this.showError('Error loading batch details: ' + error.message);
+		}
+	}
 
-    renderBatchDetails(batch) {
-        const content = `
+	renderBatchDetails(batch) {
+		const content = `
             <div class="batch-details">
                 <div class="row">
                     <div class="col-md-6">
@@ -640,18 +640,18 @@ class DDBatchManagementDashboard {
             </div>
         `;
 
-        $('#batch-details-content').html(content);
-    }
+		$('#batch-details-content').html(content);
+	}
 
-    renderSecurityAnalysis(analysis) {
-        if (!analysis) {
-            return '<p class="text-muted">No security analysis available</p>';
-        }
+	renderSecurityAnalysis(analysis) {
+		if (!analysis) {
+			return '<p class="text-muted">No security analysis available</p>';
+		}
 
-        let html = '';
+		let html = '';
 
-        if (analysis.duplicate_risks && analysis.duplicate_risks.length > 0) {
-            html += `
+		if (analysis.duplicate_risks && analysis.duplicate_risks.length > 0) {
+			html += `
                 <div class="alert alert-warning">
                     <h6><i class="fa fa-exclamation-triangle"></i> Duplicate Risks Detected</h6>
                     <ul>
@@ -659,10 +659,10 @@ class DDBatchManagementDashboard {
                     </ul>
                 </div>
             `;
-        }
+		}
 
-        if (analysis.amount_anomalies && analysis.amount_anomalies.length > 0) {
-            html += `
+		if (analysis.amount_anomalies && analysis.amount_anomalies.length > 0) {
+			html += `
                 <div class="alert alert-info">
                     <h6><i class="fa fa-info-circle"></i> Amount Anomalies</h6>
                     <ul>
@@ -670,10 +670,10 @@ class DDBatchManagementDashboard {
                     </ul>
                 </div>
             `;
-        }
+		}
 
-        if (analysis.iban_sharing && analysis.iban_sharing.length > 0) {
-            html += `
+		if (analysis.iban_sharing && analysis.iban_sharing.length > 0) {
+			html += `
                 <div class="alert alert-warning">
                     <h6><i class="fa fa-users"></i> Shared Bank Accounts</h6>
                     <ul>
@@ -681,21 +681,21 @@ class DDBatchManagementDashboard {
                     </ul>
                 </div>
             `;
-        }
+		}
 
-        if (!html) {
-            html = '<div class="alert alert-success"><i class="fa fa-check"></i> No security issues detected</div>';
-        }
+		if (!html) {
+			html = '<div class="alert alert-success"><i class="fa fa-check"></i> No security issues detected</div>';
+		}
 
-        return html;
-    }
+		return html;
+	}
 
-    renderInvoiceList(invoices) {
-        if (!invoices || invoices.length === 0) {
-            return '<tr><td colspan="6" class="text-center text-muted">No invoices found</td></tr>';
-        }
+	renderInvoiceList(invoices) {
+		if (!invoices || invoices.length === 0) {
+			return '<tr><td colspan="6" class="text-center text-muted">No invoices found</td></tr>';
+		}
 
-        return invoices.map(invoice => `
+		return invoices.map(invoice => `
             <tr>
                 <td>${invoice.invoice}</td>
                 <td>${invoice.member_name}</td>
@@ -716,49 +716,49 @@ class DDBatchManagementDashboard {
                 </td>
             </tr>
         `).join('');
-    }
+	}
 
-    maskIban(iban) {
-        if (!iban || iban.length < 8) return iban;
-        return iban.substring(0, 4) + '****' + iban.substring(iban.length - 4);
-    }
+	maskIban(iban) {
+		if (!iban || iban.length < 8) return iban;
+		return iban.substring(0, 4) + '****' + iban.substring(iban.length - 4);
+	}
 
-    getInvoiceStatusColor(status) {
-        switch (status?.toLowerCase()) {
-            case 'pending': return 'warning';
-            case 'successful': return 'success';
-            case 'failed': return 'danger';
-            default: return 'secondary';
-        }
-    }
+	getInvoiceStatusColor(status) {
+		switch (status?.toLowerCase()) {
+			case 'pending': return 'warning';
+			case 'successful': return 'success';
+			case 'failed': return 'danger';
+			default: return 'secondary';
+		}
+	}
 
-    async showConflictResolution(batchId) {
-        try {
-            const response = await frappe.call({
-                method: 'verenigingen.api.dd_batch_api.get_batch_conflicts',
-                args: { batch_id: batchId }
-            });
+	async showConflictResolution(batchId) {
+		try {
+			const response = await frappe.call({
+				method: 'verenigingen.api.dd_batch_api.get_batch_conflicts',
+				args: { batch_id: batchId }
+			});
 
-            if (response.message && response.message.success) {
-                this.conflictData = response.message.conflicts;
-                this.renderConflictResolution(response.message.conflicts);
-                $('#conflict-resolution-modal').modal('show');
-            } else {
-                this.showError('Failed to load conflict data');
-            }
+			if (response.message && response.message.success) {
+				this.conflictData = response.message.conflicts;
+				this.renderConflictResolution(response.message.conflicts);
+				$('#conflict-resolution-modal').modal('show');
+			} else {
+				this.showError('Failed to load conflict data');
+			}
 
-        } catch (error) {
-            console.error('Error loading conflicts:', error);
-            this.showError('Error loading conflicts: ' + error.message);
-        }
-    }
+		} catch (error) {
+			console.error('Error loading conflicts:', error);
+			this.showError('Error loading conflicts: ' + error.message);
+		}
+	}
 
-    renderConflictResolution(conflicts) {
-        let html = '';
+	renderConflictResolution(conflicts) {
+		let html = '';
 
-        // High-risk conflicts
-        if (conflicts.high_risk_matches && conflicts.high_risk_matches.length > 0) {
-            html += `
+		// High-risk conflicts
+		if (conflicts.high_risk_matches && conflicts.high_risk_matches.length > 0) {
+			html += `
                 <div class="alert alert-danger">
                     <h5><i class="fa fa-exclamation-triangle"></i> High Risk Conflicts</h5>
                     <p>These conflicts require immediate attention and cannot be auto-resolved.</p>
@@ -768,11 +768,11 @@ class DDBatchManagementDashboard {
                     ${conflicts.high_risk_matches.map(conflict => this.renderConflictItem(conflict, 'high')).join('')}
                 </div>
             `;
-        }
+		}
 
-        // Potential duplicates
-        if (conflicts.potential_duplicates && conflicts.potential_duplicates.length > 0) {
-            html += `
+		// Potential duplicates
+		if (conflicts.potential_duplicates && conflicts.potential_duplicates.length > 0) {
+			html += `
                 <div class="alert alert-warning">
                     <h5><i class="fa fa-exclamation-triangle"></i> Potential Duplicates</h5>
                     <p>These members may be duplicates. Review and select the appropriate action.</p>
@@ -782,22 +782,22 @@ class DDBatchManagementDashboard {
                     ${conflicts.potential_duplicates.map(conflict => this.renderConflictItem(conflict, 'medium')).join('')}
                 </div>
             `;
-        }
+		}
 
-        if (!html) {
-            html = `
+		if (!html) {
+			html = `
                 <div class="alert alert-success">
                     <h5><i class="fa fa-check"></i> No Conflicts Detected</h5>
                     <p>All members in this batch have been validated without conflicts.</p>
                 </div>
             `;
-        }
+		}
 
-        $('#conflict-resolution-content').html(html);
-    }
+		$('#conflict-resolution-content').html(html);
+	}
 
-    renderConflictItem(conflict, severity) {
-        return `
+	renderConflictItem(conflict, severity) {
+		return `
             <div class="conflict-item mb-4 p-3 border rounded ${severity === 'high' ? 'border-danger' : 'border-warning'}">
                 <div class="conflict-header mb-3">
                     <h6>
@@ -875,85 +875,85 @@ class DDBatchManagementDashboard {
                 </div>
             </div>
         `;
-    }
+	}
 
-    async applyConflictResolutions() {
-        try {
-            const resolutions = this.collectResolutions();
+	async applyConflictResolutions() {
+		try {
+			const resolutions = this.collectResolutions();
 
-            const response = await frappe.call({
-                method: 'verenigingen.api.dd_batch_api.apply_conflict_resolutions',
-                args: {
-                    batch_id: this.currentBatch,
-                    resolutions: resolutions
-                }
-            });
+			const response = await frappe.call({
+				method: 'verenigingen.api.dd_batch_api.apply_conflict_resolutions',
+				args: {
+					batch_id: this.currentBatch,
+					resolutions: resolutions
+				}
+			});
 
-            if (response.message && response.message.success) {
-                $('#conflict-resolution-modal').modal('hide');
-                this.showSuccess('Conflict resolutions applied successfully');
-                this.loadBatchList(); // Refresh the list
-            } else {
-                this.showError('Failed to apply conflict resolutions');
-            }
+			if (response.message && response.message.success) {
+				$('#conflict-resolution-modal').modal('hide');
+				this.showSuccess('Conflict resolutions applied successfully');
+				this.loadBatchList(); // Refresh the list
+			} else {
+				this.showError('Failed to apply conflict resolutions');
+			}
 
-        } catch (error) {
-            console.error('Error applying resolutions:', error);
-            this.showError('Error applying resolutions: ' + error.message);
-        }
-    }
+		} catch (error) {
+			console.error('Error applying resolutions:', error);
+			this.showError('Error applying resolutions: ' + error.message);
+		}
+	}
 
-    collectResolutions() {
-        const resolutions = {};
+	collectResolutions() {
+		const resolutions = {};
 
-        // Collect all radio button selections
-        $('input[type="radio"]:checked').each(function() {
-            const name = $(this).attr('name');
-            const value = $(this).val();
+		// Collect all radio button selections
+		$('input[type="radio"]:checked').each(function() {
+			const name = $(this).attr('name');
+			const value = $(this).val();
 
-            if (name.startsWith('resolution_')) {
-                const memberId = name.replace('resolution_', '');
-                resolutions[memberId] = value;
-            }
-        });
+			if (name.startsWith('resolution_')) {
+				const memberId = name.replace('resolution_', '');
+				resolutions[memberId] = value;
+			}
+		});
 
-        return resolutions;
-    }
+		return resolutions;
+	}
 
-    async escalateConflicts() {
-        try {
-            const response = await frappe.call({
-                method: 'verenigingen.api.dd_batch_api.escalate_conflicts',
-                args: {
-                    batch_id: this.currentBatch,
-                    conflicts: this.conflictData
-                }
-            });
+	async escalateConflicts() {
+		try {
+			const response = await frappe.call({
+				method: 'verenigingen.api.dd_batch_api.escalate_conflicts',
+				args: {
+					batch_id: this.currentBatch,
+					conflicts: this.conflictData
+				}
+			});
 
-            if (response.message && response.message.success) {
-                $('#conflict-resolution-modal').modal('hide');
-                this.showSuccess('Conflicts escalated to administrator');
-            } else {
-                this.showError('Failed to escalate conflicts');
-            }
+			if (response.message && response.message.success) {
+				$('#conflict-resolution-modal').modal('hide');
+				this.showSuccess('Conflicts escalated to administrator');
+			} else {
+				this.showError('Failed to escalate conflicts');
+			}
 
-        } catch (error) {
-            console.error('Error escalating conflicts:', error);
-            this.showError('Error escalating conflicts: ' + error.message);
-        }
-    }
+		} catch (error) {
+			console.error('Error escalating conflicts:', error);
+			this.showError('Error escalating conflicts: ' + error.message);
+		}
+	}
 
-    updateSecurityAlerts(alerts) {
-        const alertContainer = $('#security-alerts');
+	updateSecurityAlerts(alerts) {
+		const alertContainer = $('#security-alerts');
 
-        if (!alerts || alerts.length === 0) {
-            alertContainer.hide();
-            return;
-        }
+		if (!alerts || alerts.length === 0) {
+			alertContainer.hide();
+			return;
+		}
 
-        let html = '';
-        alerts.forEach(alert => {
-            html += `
+		let html = '';
+		alerts.forEach(alert => {
+			html += `
                 <div class="security-alert ${alert.severity}">
                     <strong>${alert.title}</strong>
                     <p>${alert.message}</p>
@@ -964,88 +964,88 @@ class DDBatchManagementDashboard {
                     ` : ''}
                 </div>
             `;
-        });
+		});
 
-        alertContainer.html(html).show();
-    }
+		alertContainer.html(html).show();
+	}
 
-    startRealTimeUpdates() {
-        // Update batch list every 30 seconds
-        this.realTimeUpdateInterval = setInterval(() => {
-            this.loadBatchList();
-        }, 30000);
-    }
+	startRealTimeUpdates() {
+		// Update batch list every 30 seconds
+		this.realTimeUpdateInterval = setInterval(() => {
+			this.loadBatchList();
+		}, 30000);
+	}
 
-    stopRealTimeUpdates() {
-        if (this.realTimeUpdateInterval) {
-            clearInterval(this.realTimeUpdateInterval);
-            this.realTimeUpdateInterval = null;
-        }
-    }
+	stopRealTimeUpdates() {
+		if (this.realTimeUpdateInterval) {
+			clearInterval(this.realTimeUpdateInterval);
+			this.realTimeUpdateInterval = null;
+		}
+	}
 
-    getFilterValues() {
-        return {
-            status: $('#status-filter').val(),
-            date_from: $('#date-from').val(),
-            date_to: $('#date-to').val(),
-            risk_level: $('#risk-filter').val()
-        };
-    }
+	getFilterValues() {
+		return {
+			status: $('#status-filter').val(),
+			date_from: $('#date-from').val(),
+			date_to: $('#date-to').val(),
+			risk_level: $('#risk-filter').val()
+		};
+	}
 
-    showLoading(selector) {
-        $(selector).html(`
+	showLoading(selector) {
+		$(selector).html(`
             <tr>
                 <td colspan="8" class="text-center">
                     <i class="fa fa-spinner fa-spin"></i> Loading...
                 </td>
             </tr>
         `);
-    }
+	}
 
-    showError(message) {
-        frappe.msgprint({
-            title: 'Error',
-            message: message,
-            indicator: 'red'
-        });
-    }
+	showError(message) {
+		frappe.msgprint({
+			title: 'Error',
+			message: message,
+			indicator: 'red'
+		});
+	}
 
-    showSuccess(message) {
-        frappe.msgprint({
-            title: 'Success',
-            message: message,
-            indicator: 'green'
-        });
-    }
+	showSuccess(message) {
+		frappe.msgprint({
+			title: 'Success',
+			message: message,
+			indicator: 'green'
+		});
+	}
 
-    destroy() {
-        this.stopRealTimeUpdates();
-        $('#dd-batch-dashboard').remove();
-    }
+	destroy() {
+		this.stopRealTimeUpdates();
+		$('#dd-batch-dashboard').remove();
+	}
 }
 
 // Batch Creation Wizard
 class BatchCreationWizard {
-    constructor() {
-        this.currentStep = 0;
-        this.steps = [
-            'invoice-selection',
-            'duplicate-detection',
-            'conflict-resolution',
-            'security-validation',
-            'final-review'
-        ];
-        this.batchData = {};
-        this.validationResults = {};
-    }
+	constructor() {
+		this.currentStep = 0;
+		this.steps = [
+			'invoice-selection',
+			'duplicate-detection',
+			'conflict-resolution',
+			'security-validation',
+			'final-review'
+		];
+		this.batchData = {};
+		this.validationResults = {};
+	}
 
-    async start() {
-        this.createWizardInterface();
-        await this.loadStep(0);
-    }
+	async start() {
+		this.createWizardInterface();
+		await this.loadStep(0);
+	}
 
-    createWizardInterface() {
-        const wizardHtml = `
+	createWizardInterface() {
+		const wizardHtml = `
             <div id="batch-creation-wizard" class="modal fade" tabindex="-1">
                 <div class="modal-dialog modal-xl">
                     <div class="modal-content">
@@ -1086,101 +1086,101 @@ class BatchCreationWizard {
             </div>
         `;
 
-        $('body').append(wizardHtml);
-        $('#batch-creation-wizard').modal('show');
+		$('body').append(wizardHtml);
+		$('#batch-creation-wizard').modal('show');
 
-        // Setup event handlers
-        this.setupWizardEventHandlers();
-    }
+		// Setup event handlers
+		this.setupWizardEventHandlers();
+	}
 
-    setupWizardEventHandlers() {
-        $('#wizard-next').on('click', () => this.nextStep());
-        $('#wizard-prev').on('click', () => this.prevStep());
-        $('#wizard-create').on('click', () => this.createBatch());
-    }
+	setupWizardEventHandlers() {
+		$('#wizard-next').on('click', () => this.nextStep());
+		$('#wizard-prev').on('click', () => this.prevStep());
+		$('#wizard-create').on('click', () => this.createBatch());
+	}
 
-    async loadStep(stepIndex) {
-        this.currentStep = stepIndex;
-        this.updateProgress();
+	async loadStep(stepIndex) {
+		this.currentStep = stepIndex;
+		this.updateProgress();
 
-        const stepName = this.steps[stepIndex];
+		const stepName = this.steps[stepIndex];
 
-        switch (stepName) {
-            case 'invoice-selection':
-                await this.loadInvoiceSelection();
-                break;
-            case 'duplicate-detection':
-                await this.loadDuplicateDetection();
-                break;
-            case 'conflict-resolution':
-                await this.loadConflictResolution();
-                break;
-            case 'security-validation':
-                await this.loadSecurityValidation();
-                break;
-            case 'final-review':
-                await this.loadFinalReview();
-                break;
-        }
-    }
+		switch (stepName) {
+			case 'invoice-selection':
+				await this.loadInvoiceSelection();
+				break;
+			case 'duplicate-detection':
+				await this.loadDuplicateDetection();
+				break;
+			case 'conflict-resolution':
+				await this.loadConflictResolution();
+				break;
+			case 'security-validation':
+				await this.loadSecurityValidation();
+				break;
+			case 'final-review':
+				await this.loadFinalReview();
+				break;
+		}
+	}
 
-    updateProgress() {
-        const progress = ((this.currentStep + 1) / this.steps.length) * 100;
-        $('.progress-bar').css('width', progress + '%');
+	updateProgress() {
+		const progress = ((this.currentStep + 1) / this.steps.length) * 100;
+		$('.progress-bar').css('width', progress + '%');
 
-        $('.step-label').removeClass('active completed');
-        $('.step-label').each((index, element) => {
-            if (index < this.currentStep) {
-                $(element).addClass('completed');
-            } else if (index === this.currentStep) {
-                $(element).addClass('active');
-            }
-        });
+		$('.step-label').removeClass('active completed');
+		$('.step-label').each((index, element) => {
+			if (index < this.currentStep) {
+				$(element).addClass('completed');
+			} else if (index === this.currentStep) {
+				$(element).addClass('active');
+			}
+		});
 
-        // Update navigation buttons
-        $('#wizard-prev').toggle(this.currentStep > 0);
-        $('#wizard-next').toggle(this.currentStep < this.steps.length - 1);
-        $('#wizard-create').toggle(this.currentStep === this.steps.length - 1);
-    }
+		// Update navigation buttons
+		$('#wizard-prev').toggle(this.currentStep > 0);
+		$('#wizard-next').toggle(this.currentStep < this.steps.length - 1);
+		$('#wizard-create').toggle(this.currentStep === this.steps.length - 1);
+	}
 
-    async nextStep() {
-        // Validate current step before proceeding
-        const isValid = await this.validateCurrentStep();
-        if (!isValid) return;
+	async nextStep() {
+		// Validate current step before proceeding
+		const isValid = await this.validateCurrentStep();
+		if (!isValid) return;
 
-        if (this.currentStep < this.steps.length - 1) {
-            await this.loadStep(this.currentStep + 1);
-        }
-    }
+		if (this.currentStep < this.steps.length - 1) {
+			await this.loadStep(this.currentStep + 1);
+		}
+	}
 
-    async prevStep() {
-        if (this.currentStep > 0) {
-            await this.loadStep(this.currentStep - 1);
-        }
-    }
+	async prevStep() {
+		if (this.currentStep > 0) {
+			await this.loadStep(this.currentStep - 1);
+		}
+	}
 
-    async validateCurrentStep() {
-        const stepName = this.steps[this.currentStep];
+	async validateCurrentStep() {
+		const stepName = this.steps[this.currentStep];
 
-        switch (stepName) {
-            case 'invoice-selection':
-                return this.validateInvoiceSelection();
-            case 'duplicate-detection':
-                return this.validateDuplicateDetection();
-            case 'conflict-resolution':
-                return this.validateConflictResolution();
-            case 'security-validation':
-                return this.validateSecurityValidation();
-            default:
-                return true;
-        }
-    }
+		switch (stepName) {
+			case 'invoice-selection':
+				return this.validateInvoiceSelection();
+			case 'duplicate-detection':
+				return this.validateDuplicateDetection();
+			case 'conflict-resolution':
+				return this.validateConflictResolution();
+			case 'security-validation':
+				return this.validateSecurityValidation();
+			default:
+				return true;
+		}
+	}
 
-    // Step implementations would continue here...
-    // Each step would have its own load and validate methods
+	// Step implementations would continue here...
+	// Each step would have its own load and validate methods
 
-    async loadInvoiceSelection() {
-        const content = `
+	async loadInvoiceSelection() {
+		const content = `
             <div class="invoice-selection-step">
                 <h5>Select Invoices for Batch Processing</h5>
                 <p>Choose which unpaid invoices to include in this direct debit batch.</p>
@@ -1215,48 +1215,48 @@ class BatchCreationWizard {
             </div>
         `;
 
-        $('#wizard-step-content').html(content);
+		$('#wizard-step-content').html(content);
 
-        // Setup event handlers for this step
-        $('#load-invoices').on('click', () => this.loadEligibleInvoices());
-    }
+		// Setup event handlers for this step
+		$('#load-invoices').on('click', () => this.loadEligibleInvoices());
+	}
 
-    async loadEligibleInvoices() {
-        try {
-            $('#invoice-selection-results').html('<i class="fa fa-spinner fa-spin"></i> Loading invoices...');
+	async loadEligibleInvoices() {
+		try {
+			$('#invoice-selection-results').html('<i class="fa fa-spinner fa-spin"></i> Loading invoices...');
 
-            const filters = {
-                date_from: $('#invoice-date-from').val(),
-                date_to: $('#invoice-date-to').val(),
-                member_type: $('#member-type-filter').val(),
-                amount_min: $('#amount-min').val(),
-                amount_max: $('#amount-max').val()
-            };
+			const filters = {
+				date_from: $('#invoice-date-from').val(),
+				date_to: $('#invoice-date-to').val(),
+				member_type: $('#member-type-filter').val(),
+				amount_min: $('#amount-min').val(),
+				amount_max: $('#amount-max').val()
+			};
 
-            const response = await frappe.call({
-                method: 'verenigingen.api.dd_batch_api.get_eligible_invoices',
-                args: { filters: filters }
-            });
+			const response = await frappe.call({
+				method: 'verenigingen.api.dd_batch_api.get_eligible_invoices',
+				args: { filters: filters }
+			});
 
-            if (response.message && response.message.success) {
-                this.renderEligibleInvoices(response.message.invoices);
-            } else {
-                $('#invoice-selection-results').html('<p class="text-danger">Failed to load invoices</p>');
-            }
+			if (response.message && response.message.success) {
+				this.renderEligibleInvoices(response.message.invoices);
+			} else {
+				$('#invoice-selection-results').html('<p class="text-danger">Failed to load invoices</p>');
+			}
 
-        } catch (error) {
-            console.error('Error loading invoices:', error);
-            $('#invoice-selection-results').html('<p class="text-danger">Error loading invoices</p>');
-        }
-    }
+		} catch (error) {
+			console.error('Error loading invoices:', error);
+			$('#invoice-selection-results').html('<p class="text-danger">Error loading invoices</p>');
+		}
+	}
 
-    renderEligibleInvoices(invoices) {
-        if (!invoices || invoices.length === 0) {
-            $('#invoice-selection-results').html('<p class="text-muted">No eligible invoices found with the selected criteria.</p>');
-            return;
-        }
+	renderEligibleInvoices(invoices) {
+		if (!invoices || invoices.length === 0) {
+			$('#invoice-selection-results').html('<p class="text-muted">No eligible invoices found with the selected criteria.</p>');
+			return;
+		}
 
-        let html = `
+		let html = `
             <div class="invoice-selection-table">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h6>Found ${invoices.length} eligible invoices</h6>
@@ -1307,75 +1307,75 @@ class BatchCreationWizard {
             </div>
         `;
 
-        $('#invoice-selection-results').html(html);
+		$('#invoice-selection-results').html(html);
 
-        // Setup selection event handlers
-        this.setupInvoiceSelectionHandlers();
+		// Setup selection event handlers
+		this.setupInvoiceSelectionHandlers();
 
-        // Store invoice data
-        this.batchData.available_invoices = invoices;
-    }
+		// Store invoice data
+		this.batchData.available_invoices = invoices;
+	}
 
-    setupInvoiceSelectionHandlers() {
-        $('#select-all-invoices, #invoice-select-all').on('click', () => {
-            $('.invoice-checkbox').prop('checked', true);
-            this.updateSelectionSummary();
-        });
+	setupInvoiceSelectionHandlers() {
+		$('#select-all-invoices, #invoice-select-all').on('click', () => {
+			$('.invoice-checkbox').prop('checked', true);
+			this.updateSelectionSummary();
+		});
 
-        $('#deselect-all-invoices').on('click', () => {
-            $('.invoice-checkbox').prop('checked', false);
-            this.updateSelectionSummary();
-        });
+		$('#deselect-all-invoices').on('click', () => {
+			$('.invoice-checkbox').prop('checked', false);
+			this.updateSelectionSummary();
+		});
 
-        $(document).on('change', '.invoice-checkbox', () => {
-            this.updateSelectionSummary();
-        });
-    }
+		$(document).on('change', '.invoice-checkbox', () => {
+			this.updateSelectionSummary();
+		});
+	}
 
-    updateSelectionSummary() {
-        const selectedInvoices = $('.invoice-checkbox:checked');
-        const count = selectedInvoices.length;
+	updateSelectionSummary() {
+		const selectedInvoices = $('.invoice-checkbox:checked');
+		const count = selectedInvoices.length;
 
-        let total = 0;
-        selectedInvoices.each(function() {
-            const invoiceId = $(this).val();
-            const invoice = this.batchData.available_invoices.find(inv => inv.name === invoiceId);
-            if (invoice) {
-                total += invoice.amount;
-            }
-        }.bind(this));
+		let total = 0;
+		selectedInvoices.each(function() {
+			const invoiceId = $(this).val();
+			const invoice = this.batchData.available_invoices.find(inv => inv.name === invoiceId);
+			if (invoice) {
+				total += invoice.amount;
+			}
+		}.bind(this));
 
-        $('#selection-count').text(count);
-        $('#selection-total').text(frappe.format_value(total, {fieldtype: 'Currency'}));
+		$('#selection-count').text(count);
+		$('#selection-total').text(frappe.format_value(total, {fieldtype: 'Currency'}));
 
-        // Store selected invoices
-        this.batchData.selected_invoices = [];
-        selectedInvoices.each(function() {
-            this.batchData.selected_invoices.push($(this).val());
-        }.bind(this));
-    }
+		// Store selected invoices
+		this.batchData.selected_invoices = [];
+		selectedInvoices.each(function() {
+			this.batchData.selected_invoices.push($(this).val());
+		}.bind(this));
+	}
 
-    validateInvoiceSelection() {
-        if (!this.batchData.selected_invoices || this.batchData.selected_invoices.length === 0) {
-            frappe.msgprint('Please select at least one invoice for the batch.');
-            return false;
-        }
+	validateInvoiceSelection() {
+		if (!this.batchData.selected_invoices || this.batchData.selected_invoices.length === 0) {
+			frappe.msgprint('Please select at least one invoice for the batch.');
+			return false;
+		}
 
-        return true;
-    }
+		return true;
+	}
 
-    maskIban(iban) {
-        if (!iban || iban.length < 8) return iban;
-        return iban.substring(0, 4) + '****' + iban.substring(iban.length - 4);
-    }
+	maskIban(iban) {
+		if (!iban || iban.length < 8) return iban;
+		return iban.substring(0, 4) + '****' + iban.substring(iban.length - 4);
+	}
 }
 
 // Initialize the dashboard when document is ready
 $(document).ready(function() {
-    // Only initialize if we're on the appropriate page
-    if (window.location.pathname.includes('dd-batch') || window.location.pathname.includes('direct-debit')) {
-        window.ddBatchDashboard = new DDBatchManagementDashboard();
-    }
+	// Only initialize if we're on the appropriate page
+	if (window.location.pathname.includes('dd-batch') || window.location.pathname.includes('direct-debit')) {
+		window.ddBatchDashboard = new DDBatchManagementDashboard();
+	}
 });
 
 // Export classes for use in other modules
