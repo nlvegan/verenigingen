@@ -262,7 +262,7 @@ def create_journal_entry_from_group(entry_num, mutations, company, cost_center, 
         je = frappe.new_doc("Journal Entry")
         je.company = company
         je.posting_date = posting_date
-        je.user_remark = "E-Boekhouden Entry: {entry_num}"
+        je.user_remark = f"E-Boekhouden Entry: {entry_num}"
         je.eboekhouden_entry_number = entry_num
         je.eboekhouden_group_key = group_key
 
@@ -325,7 +325,7 @@ def create_journal_entry_from_single(mut, company, cost_center, migration_doc):
         je = frappe.new_doc("Journal Entry")
         je.company = company
         je.posting_date = posting_date
-        je.user_remark = "E-Boekhouden Single Mutation: {mut.get('description', '')}"
+        je.user_remark = f"E-Boekhouden Single Mutation: {mut.get('description', '')}"
 
         # Main entry
         mut_type = mut.get("type", 0)

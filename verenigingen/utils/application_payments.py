@@ -39,7 +39,7 @@ def create_membership_invoice_with_amount(member, membership, amount):
         )
 
     # Determine invoice description based on amount type and subscription period
-    description = "Membership Fee - {membership_type.membership_type_name}"
+    description = f"Membership Fee - {membership_type.membership_type_name}"
     if hasattr(membership, "uses_custom_amount") and membership.uses_custom_amount:
         if amount > membership_type.amount:
             description += " (Supporter Contribution)"
@@ -71,7 +71,7 @@ def create_membership_invoice_with_amount(member, membership, amount):
                 "description": description,
             }
         ],
-        "remarks": "Membership application invoice for {member.full_name}",
+        "remarks": f"Membership application invoice for {member.full_name}",
     }
 
     # Add subscription period dates if calculated
@@ -115,14 +115,14 @@ def create_customer_for_member(member):
 
 def get_or_create_membership_item(membership_type):
     """Get or create item for membership type"""
-    item_code = "MEMB-{membership_type.name}"
+    item_code = f"MEMB-{membership_type.name}"
 
     if not frappe.db.exists("Item", item_code):
         item = frappe.get_doc(
             {
                 "doctype": "Item",
                 "item_code": item_code,
-                "item_name": "Membership - {membership_type.membership_type_name}",
+                "item_name": f"Membership - {membership_type.membership_type_name}",
                 "item_group": "Services",
                 "stock_uom": "Nos",
                 "is_stock_item": 0,
@@ -323,12 +323,12 @@ def validate_payment_amount(invoice, received_amount):
     elif received_amount < invoice_amount - tolerance:
         return {
             "valid": False,
-            "message": "Payment amount ({received_amount}) is less than invoice amount ({invoice_amount})",
+            "message": f"Payment amount ({received_amount}) is less than invoice amount ({invoice_amount})",
         }
     else:
         return {
             "valid": True,
-            "message": "Payment amount ({received_amount}) exceeds invoice amount - treating as donation",
+            "message": f"Payment amount ({received_amount}) exceeds invoice amount - treating as donation",
             "overpayment": received_amount - invoice_amount,
         }
 

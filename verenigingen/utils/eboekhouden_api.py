@@ -28,7 +28,7 @@ class EBoekhoudenAPI:
     def get_session_token(self):
         """Get session token using API token"""
         try:
-            session_url = "{self.base_url}/v1/session"
+            session_url = f"{self.base_url}/v1/session"
             session_data = {"accessToken": self.api_token, "source": self.source}
 
             response = requests.post(session_url, json=session_data, timeout=30)
@@ -58,7 +58,7 @@ class EBoekhoudenAPI:
                 "Accept": "application/json",
             }
 
-            url = "{self.base_url}/{endpoint}"
+            url = f"{self.base_url}/{endpoint}"
 
             if method.upper() == "GET":
                 response = requests.get(url, headers=headers, params=params, timeout=120)
@@ -70,7 +70,7 @@ class EBoekhoudenAPI:
             else:
                 return {
                     "success": False,
-                    "error": "HTTP {response.status_code}: {response.text[:500]}",
+                    "error": f"HTTP {response.status_code}: {response.text[:500]}",
                     "status_code": response.status_code,
                 }
 
@@ -489,7 +489,7 @@ def test_session_token_only():
     try:
         settings = frappe.get_single("E-Boekhouden Settings")
 
-        session_url = "{settings.api_url}/v1/session"
+        session_url = f"{settings.api_url}/v1/session"
         session_data = {
             "accessToken": settings.get_password("api_token"),
             "source": settings.source_application or "ERPNext",
@@ -570,7 +570,7 @@ def test_raw_request():
         settings = frappe.get_single("E-Boekhouden Settings")
 
         # Get session token
-        session_url = "{settings.api_url}/v1/session"
+        session_url = f"{settings.api_url}/v1/session"
         session_data = {
             "accessToken": settings.get_password("api_token"),
             "source": settings.source_application or "ERPNext",
@@ -728,7 +728,7 @@ def test_chart_of_accounts_migration():
     try:
         # Create a temporary migration document for testing
         migration = frappe.new_doc("E-Boekhouden Migration")
-        migration.migration_name = "Test Migration {frappe.utils.now()}"
+        migration.migration_name = f"Test Migration {frappe.utils.now()}"
         migration.migrate_accounts = 1
         migration.migrate_cost_centers = 0
         migration.migrate_customers = 0
@@ -767,7 +767,7 @@ def test_cost_center_migration():
     try:
         # Create a temporary migration document for testing
         migration = frappe.new_doc("E-Boekhouden Migration")
-        migration.migration_name = "Test Cost Center Migration {frappe.utils.now()}"
+        migration.migration_name = f"Test Cost Center Migration {frappe.utils.now()}"
         migration.migrate_accounts = 0
         migration.migrate_cost_centers = 1
         migration.migrate_customers = 0
@@ -1094,7 +1094,7 @@ def test_customer_migration():
     try:
         # Create a temporary migration document for testing
         migration = frappe.new_doc("E-Boekhouden Migration")
-        migration.migration_name = "Test Customer Migration {frappe.utils.now()}"
+        migration.migration_name = f"Test Customer Migration {frappe.utils.now()}"
         migration.migrate_accounts = 0
         migration.migrate_cost_centers = 0
         migration.migrate_customers = 1
@@ -1133,7 +1133,7 @@ def test_supplier_migration():
     try:
         # Create a temporary migration document for testing
         migration = frappe.new_doc("E-Boekhouden Migration")
-        migration.migration_name = "Test Supplier Migration {frappe.utils.now()}"
+        migration.migration_name = f"Test Supplier Migration {frappe.utils.now()}"
         migration.migrate_accounts = 0
         migration.migrate_cost_centers = 0
         migration.migrate_customers = 0
@@ -2264,7 +2264,7 @@ def test_enhanced_memorial_logic():
                         )
                         analysis["enhanced_logic_test"][
                             "recommendation"
-                        ] = "This Type 7 memorial booking should be imported as a {analysis['enhanced_logic_test']['would_convert_to']} instead of a Journal Entry"
+                        ] = f"This Type 7 memorial booking should be imported as a {analysis['enhanced_logic_test']['would_convert_to']} instead of a Journal Entry"
                     else:
                         analysis["enhanced_logic_test"]["would_convert_to"] = "Journal Entry (no change)"
                         analysis["enhanced_logic_test"][

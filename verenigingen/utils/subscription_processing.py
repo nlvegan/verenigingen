@@ -313,7 +313,7 @@ def process_all_subscriptions():
                 "Subscription Processing Error",
             )
 
-    return "Processed {count} subscriptions with custom handler"
+    return f"Processed {count} subscriptions with custom handler"
 
 
 @frappe.whitelist()

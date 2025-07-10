@@ -86,7 +86,7 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                             else description
                         )
 
-                    customer_name = "{prefix}{base_name}"
+                    customer_name = f"{prefix}{base_name}"
 
                     # Final truncation check
                     if len(customer_name) > MAX_CUSTOMER_NAME_LENGTH:
@@ -110,7 +110,7 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
 
                         # Store full SEPA description if it was truncated
                         if len(description) > 50:
-                            customer.customer_details = "SEPA Payment Description:\n{description}"
+                            customer.customer_details = f"SEPA Payment Description:\n{description}"
 
                         customer.insert(ignore_permissions=True)
                         pe.party = customer.name
@@ -131,7 +131,7 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                 # Ensure supplier exists before creating payment
                 supplier = get_or_create_supplier(relation_code, description, relation_data=None)
                 if not supplier:
-                    return {"success": False, "error": "Could not create supplier for code {relation_code}"}
+                    return {"success": False, "error": f"Could not create supplier for code {relation_code}"}
                 pe.party = supplier
             else:
                 # Try to extract party info from description

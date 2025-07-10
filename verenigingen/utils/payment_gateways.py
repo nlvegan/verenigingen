@@ -130,7 +130,7 @@ class MollieGateway(PaymentGateway):
 
     def _get_webhook_url(self):
         """Get webhook URL for Mollie"""
-        return "{frappe.utils.get_url()}/api/method/verenigingen.utils.payment_gateways.mollie_webhook"
+        return f"{frappe.utils.get_url()}/api/method/verenigingen.utils.payment_gateways.mollie_webhook"
 
 
 class SEPAGateway(PaymentGateway):

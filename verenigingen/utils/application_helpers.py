@@ -34,7 +34,7 @@ def map_payment_method(payment_method):
 
 def generate_application_id():
     """Generate unique application ID"""
-    return "APP-{frappe.utils.nowdate().replace('-', '')}-{int(time.time() % 10000):04d}"
+    return f"APP-{frappe.utils.nowdate().replace('-', '')}-{int(time.time() % 10000):04d}"
 
 
 def parse_application_data(data_input):

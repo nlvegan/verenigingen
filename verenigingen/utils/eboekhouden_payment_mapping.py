@@ -29,13 +29,13 @@ def get_payment_account_mappings(company):
         # Process mappings by type
         for mapping in mapping_docs:
             if mapping.mapping_type == "Account Type":
-                key = "{mapping.account_type.lower()}_account"
+                key = f"{mapping.account_type.lower()}_account"
                 mappings[key] = mapping.erpnext_account
             elif mapping.mapping_type == "Specific Account":
-                key = "eboekhouden_{mapping.eboekhouden_account}"
+                key = f"eboekhouden_{mapping.eboekhouden_account}"
                 mappings[key] = mapping.erpnext_account
             elif mapping.mapping_type == "Account Number Pattern":
-                key = "pattern_{mapping.account_pattern}"
+                key = f"pattern_{mapping.account_pattern}"
                 mappings[key] = mapping.erpnext_account
 
         # If no mappings found, use defaults
@@ -114,7 +114,7 @@ def get_mapped_account(company, eboekhouden_account_code=None, account_type=None
 
     # Try account type mapping
     if account_type:
-        type_key = "{account_type.lower()}_account"
+        type_key = f"{account_type.lower()}_account"
         if type_key in mappings:
             return mappings[type_key]
 

@@ -217,7 +217,7 @@ def get_expense_permission_query_conditions(user=None):
         team_names = [tm.parent for tm in team_memberships]
         team_conditions = "', '".join(team_names)
         conditions.append(
-            "(`tabVolunteer Expense`.organization_type = 'Team' AND `tabVolunteer Expense`.team IN (f'{team_conditions}'))"
+            f"(`tabVolunteer Expense`.organization_type = 'Team' AND `tabVolunteer Expense`.team IN ('{team_conditions}'))"
         )
 
     if conditions:

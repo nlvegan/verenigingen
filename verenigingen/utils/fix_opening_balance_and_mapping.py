@@ -105,7 +105,7 @@ def fix_opening_balance_import():
         'je.user_remark = "E-Boekhouden Opening Balance Import - All account balances as of 2019-01-01"'
     )
     new_remark = (
-        'je.user_remark = "E-Boekhouden Opening Balance Import - All account balances as of {posting_date}"'
+        'je.user_remark = f"E-Boekhouden Opening Balance Import - All account balances as of {posting_date}"'
     )
     content = content.replace(old_remark, new_remark)
 

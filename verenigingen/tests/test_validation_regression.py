@@ -124,7 +124,7 @@ class TestValidationRegression(unittest.TestCase):
         # This test specifically checks that the bug we fixed doesn't regress
         test_data = {
             "first_name": "Regression",
-            "last_name": "Test Volunteer",
+            "last_name": f"Test Volunteer {frappe.utils.random_string(5)}",
             "email": f"regression.test.{frappe.utils.random_string(5).lower()}@example.com",
             "birth_date": "1990-01-01",
             "address_line1": "Regression Test Street 123",

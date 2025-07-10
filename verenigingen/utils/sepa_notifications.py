@@ -238,7 +238,7 @@ class SEPAMandateNotificationManager:
             return iban
 
         # Show first 4 and last 4 characters
-        return "{iban[:4]}****{iban[-4:]}"
+        return f"{iban[:4]}****{iban[-4:]}"
 
     def _get_bank_name(self, iban):
         """Get bank name from IBAN"""

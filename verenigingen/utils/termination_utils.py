@@ -388,7 +388,7 @@ def generate_weekly_termination_report():
                 """
 
                 for status, count in report_data["by_status"].items():
-                    report_content += "<li>{status}: {count}</li>"
+                    report_content += f"<li>{status}: {count}</li>"
 
                 report_content += """
                 </ul>

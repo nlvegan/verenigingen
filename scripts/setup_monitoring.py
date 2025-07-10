@@ -454,9 +454,9 @@ def check_background_jobs():
         print("  3. Set up Sentry DSN if not done")
         print("  4. Configure log rotation with sudo")
         print("\nMonitoring commands:")
-        print("  - View logs: bench --site {} show-logs".format(self.site_name))
+        print(f"  - View logs: bench --site {self.site_name} show-logs")
         print("  - Check health: curl https://your-site/health")
-        print("  - View errors: bench --site {} console".format(self.site_name))
+        print(f"  - View errors: bench --site {self.site_name} console")
         print("    >>> frappe.get_all('Error Log', limit=10)")
         
     def run_full_setup(self, sentry_dsn=None):

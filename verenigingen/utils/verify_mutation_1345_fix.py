@@ -84,7 +84,7 @@ def verify_mutation_1345_fix():
                 analysis["balancing_correct"] = False
                 analysis[
                     "balancing_status"
-                ] = "❌ WRONG - Balancing entry uses {analysis['balancing_entry']['account']}"
+                ] = f"❌ WRONG - Balancing entry uses {analysis['balancing_entry']['account']}"
                 analysis["issues"].append("Balancing entry still uses wrong account")
         else:
             analysis["balancing_correct"] = False
@@ -112,7 +112,7 @@ def verify_mutation_1345_fix():
             ] = "✅ SUCCESS - Mutation 1345 imported correctly with proper ledger mapping"
             analysis["fix_successful"] = True
         else:
-            analysis["overall_status"] = "❌ ISSUES REMAIN - {len(analysis['issues'])} problems found"
+            analysis["overall_status"] = f"❌ ISSUES REMAIN - {len(analysis['issues'])} problems found"
             analysis["fix_successful"] = False
 
         return {"success": True, "analysis": analysis}

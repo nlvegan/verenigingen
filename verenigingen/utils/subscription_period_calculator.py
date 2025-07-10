@@ -136,15 +136,15 @@ def format_subscription_period_description(period_start, period_end, subscriptio
     elif subscription_period == "Monthly":
         return f"Monthly membership ({start_str} - {end_str})"
     elif subscription_period == "Quarterly":
-        return "Quarterly membership ({start_str} - {end_str})"
+        return f"Quarterly membership ({start_str} - {end_str})"
     elif subscription_period == "Annual":
-        return "Annual membership ({start_str} - {end_str})"
+        return f"Annual membership ({start_str} - {end_str})"
     elif subscription_period == "Biannual":
-        return "Bi-annual membership ({start_str} - {end_str})"
+        return f"Bi-annual membership ({start_str} - {end_str})"
     elif subscription_period == "Lifetime":
-        return "Lifetime membership (starting {start_str})"
+        return f"Lifetime membership (starting {start_str})"
     else:
-        return "Membership period ({start_str} - {end_str})"
+        return f"Membership period ({start_str} - {end_str})"
 
 
 @frappe.whitelist()

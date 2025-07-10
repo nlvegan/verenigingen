@@ -3699,7 +3699,7 @@ def debug_cleanup_all_imported_data(company=None):
                     # Fallback: try individual deletion
                     for je in journal_entries:
                         try:
-                            frappe.db.sql("DELETE FROM `tabJournal Entry` WHERE name = %s", je.name)
+                            frappe.db.sql("DELETE FROM `tabJournal Entry` WHERE name = %s", (je.name,))
                             journal_entries_deleted += 1
                         except Exception as individual_e:
                             frappe.log_error(f"Failed to delete Journal Entry {je.name}: {str(individual_e)}")
@@ -3762,7 +3762,7 @@ def debug_cleanup_all_imported_data(company=None):
                     except Exception:
                         # If delete_doc fails, try direct SQL deletion
                         try:
-                            frappe.db.sql("DELETE FROM `tabPayment Entry` WHERE name = %s", pe.name)
+                            frappe.db.sql("DELETE FROM `tabPayment Entry` WHERE name = %s", (pe.name,))
                         except Exception:
                             pass
 
@@ -3908,7 +3908,7 @@ def debug_cleanup_all_imported_data(company=None):
                     except Exception:
                         # If delete_doc fails, try direct SQL deletion
                         try:
-                            frappe.db.sql("DELETE FROM `tabSales Invoice` WHERE name = %s", si.name)
+                            frappe.db.sql("DELETE FROM `tabSales Invoice` WHERE name = %s", (si.name,))
                         except Exception:
                             pass
 
@@ -4108,7 +4108,7 @@ def debug_cleanup_all_imported_data(company=None):
                     except Exception:
                         # If delete_doc fails, try direct SQL deletion
                         try:
-                            frappe.db.sql("DELETE FROM `tabPurchase Invoice` WHERE name = %s", pi.name)
+                            frappe.db.sql("DELETE FROM `tabPurchase Invoice` WHERE name = %s", (pi.name,))
                         except Exception:
                             pass
 
@@ -4275,7 +4275,7 @@ def debug_cleanup_all_imported_data(company=None):
             for gl in gl_entries:
                 try:
                     # Use SQL delete for GL Entries as they don't have document controllers
-                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", gl.name)
+                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", (gl.name,))
                     gl_entries_deleted += 1
                 except Exception as e:
                     frappe.log_error(f"Failed to delete GL Entry {gl.name}: {str(e)}")
@@ -4370,7 +4370,7 @@ def debug_cleanup_gl_entries_only(company=None):
 
                 for gl in gl_entries:
                     try:
-                        frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", gl.name)
+                        frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", (gl.name,))
                         results["gl_entries_deleted"] += 1
                     except Exception as e:
                         results["errors"].append(f"Failed to delete GL Entry {gl.name}: {str(e)}")
@@ -4394,7 +4394,7 @@ def debug_cleanup_gl_entries_only(company=None):
 
             for gl in si_gl_entries:
                 try:
-                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", gl.name)
+                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", (gl.name,))
                     results["gl_entries_deleted"] += 1
                 except Exception as e:
                     results["errors"].append(f"Failed to delete Sales Invoice GL Entry {gl.name}: {str(e)}")
@@ -4414,7 +4414,7 @@ def debug_cleanup_gl_entries_only(company=None):
 
             for gl in pi_gl_entries:
                 try:
-                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", gl.name)
+                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", (gl.name,))
                     results["gl_entries_deleted"] += 1
                 except Exception as e:
                     results["errors"].append(
@@ -4440,7 +4440,7 @@ def debug_cleanup_gl_entries_only(company=None):
 
             for gl in je_gl_entries:
                 try:
-                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", gl.name)
+                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", (gl.name,))
                     results["gl_entries_deleted"] += 1
                 except Exception as e:
                     results["errors"].append(f"Failed to delete Journal Entry GL Entry {gl.name}: {str(e)}")
@@ -4461,7 +4461,7 @@ def debug_cleanup_gl_entries_only(company=None):
 
             for gl in direct_gl_entries:
                 try:
-                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", gl.name)
+                    frappe.db.sql("DELETE FROM `tabGL Entry` WHERE name = %s", (gl.name,))
                     results["gl_entries_deleted"] += 1
                 except Exception as e:
                     results["errors"].append(f"Failed to delete direct GL Entry {gl.name}: {str(e)}")
