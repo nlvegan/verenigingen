@@ -398,7 +398,7 @@ def _create_discrepancy_log(results):
         _check_company_sepa_settings()
 
         # Create an Error Log entry for manual review
-        log_message = """SEPA Mandate Discrepancy Check Results:
+        log_message = f"""SEPA Mandate Discrepancy Check Results:
 
 Total Members Checked: {results['total_checked']}
 Auto-Fixed Issues: {len(results['auto_fixed'])}

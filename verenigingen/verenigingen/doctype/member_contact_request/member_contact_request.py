@@ -95,7 +95,7 @@ class MemberContactRequest(Document):
             subject = f"New Member Contact Request: {self.subject}"
 
             # Create message content
-            message = """
+            message = f"""
             <h3>New Member Contact Request</h3>
             <p><strong>Member:</strong> {self.member_name} ({self.member})</p>
             <p><strong>Request Type:</strong> {self.request_type}</p>
@@ -211,7 +211,7 @@ class MemberContactRequest(Document):
                 assigned_user = frappe.get_doc("User", self.assigned_to)
                 if assigned_user.enabled and assigned_user.email:
                     subject = f"Member Contact Request Assigned: {self.subject}"
-                    message = """
+                    message = f"""
                     <h3>Contact Request Assigned to You</h3>
                     <p>You have been assigned a member contact request.</p>
                     <p><strong>Member:</strong> {self.member_name}</p>

@@ -2,7 +2,7 @@
 Notification utilities for membership applications
 """
 import frappe
-from frappe.utils import add_days, today
+from frappe.utils import add_days, getdate, today
 
 
 def send_application_confirmation_email(member, application_id):
@@ -348,13 +348,13 @@ def notify_admins_of_new_application(member, invoice=None):
 
 
 def check_overdue_applications():
-    """Check for applications pending more than 2 weeks"""
-    two_weeks_ago = add_days(today(), -14)
+    """Check for applications pending more than 7 days"""
+    seven_days_ago = add_days(today(), -7)
 
     overdue = frappe.get_all(
         "Member",
-        filters={"application_status": "Pending", "application_date": ["<", two_weeks_ago]},
-        fields=["name", "full_name", "application_date"],
+        filters={"application_status": "Pending", "application_date": ["<", seven_days_ago]},
+        fields=["name", "full_name", "application_date", "email", "membership_type"],
     )
 
     if overdue:
@@ -367,25 +367,41 @@ def check_overdue_applications():
 
                 if recipients:
                     # Use Email Template if available
-                    args = {"applications": overdue}
+                    # Calculate days overdue for each application
+                    overdue_with_days = []
+                    for app in overdue:
+                        days_overdue = (getdate(today()) - getdate(app.application_date)).days
+                        overdue_with_days.append({**app, "days_overdue": days_overdue})
+
+                    args = {
+                        "overdue_applications": overdue_with_days,
+                        "overdue_count": len(overdue),
+                        "reviewer_name": "Membership Team",
+                        "company": frappe.defaults.get_global_default("company"),
+                        "base_url": frappe.utils.get_url(),
+                    }
+
                     if frappe.db.exists("Email Template", "membership_applications_overdue"):
                         email_template_doc = frappe.get_doc(
                             "Email Template", "membership_applications_overdue"
                         )
                         frappe.sendmail(
                             recipients=recipients,
-                            subject=email_template_doc.subject or "Overdue Membership Applications",
+                            subject=frappe.render_template(email_template_doc.subject, args),
                             message=frappe.render_template(email_template_doc.response, args),
                             now=True,
                         )
                     else:
                         # Fallback to simple message
-                        # app_list = "\n".join(
-                        #     ["- {app.full_name} (Applied: {app.application_date})" for app in overdue]
-                        # )
-                        message = """
+                        app_list = "\n".join(
+                            [
+                                f"<li>{app['full_name']} (Applied: {app['application_date']}, {app.get('days_overdue', 0)} days overdue)</li>"
+                                for app in overdue_with_days
+                            ]
+                        )
+                        message = f"""
                         <h3>Overdue Membership Applications</h3>
-                        <p>The following membership applications have been pending for more than 2 weeks:</p>
+                        <p>The following membership applications have been pending for more than 7 days:</p>
                         <ul>
                         {app_list}
                         </ul>

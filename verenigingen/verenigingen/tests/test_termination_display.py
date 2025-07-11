@@ -99,8 +99,8 @@ def generate_termination_status_html(status):
     html = '<div class="termination-status-display">'
 
     if status.get("is_terminated") and status.get("executed_requests"):
-        status["executed_requests"][0]
-        html += """
+        term_data = status["executed_requests"][0]
+        html += f"""
             <div class="alert alert-danger">
                 <h5><i class="fa fa-exclamation-triangle"></i> Membership Terminated</h5>
                 <p><strong>Termination Type:</strong> {term_data.get('termination_type', 'Unknown')}</p>
@@ -109,8 +109,8 @@ def generate_termination_status_html(status):
             </div>
         """
     elif status.get("pending_requests"):
-        status["pending_requests"][0]
-        html += """
+        pending = status["pending_requests"][0]
+        html += f"""
             <div class="alert alert-warning">
                 <h5><i class="fa fa-clock-o"></i> Termination Request Pending</h5>
                 <p><strong>Status:</strong> {pending.get('status', 'Unknown')}</p>

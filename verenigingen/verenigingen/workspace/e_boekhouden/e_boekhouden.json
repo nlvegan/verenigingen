@@ -1,7 +1,7 @@
 {
  "charts": [],
  "content": "[{\"id\":\"qrTpaOEEwZ\",\"type\":\"card\",\"data\":{\"card_name\":\"Links\",\"col\":4}}]",
- "creation": "2025-06-25 14:30:00",
+ "creation": "2025-07-10 23:55:33.763164",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -9,6 +9,7 @@
  "hide_custom": 0,
  "icon": "accounting",
  "idx": 0,
+ "indicator_color": "green",
  "is_hidden": 0,
  "label": "E-Boekhouden",
  "links": [
@@ -55,7 +56,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Mapping & Configuration",
-   "link_count": 5,
+   "link_count": 3,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -93,28 +94,8 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Payment Mapping",
-   "link_count": 0,
-   "link_to": "Eboekhouden Payment Mapping",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Account Group Project Mapping",
-   "link_count": 0,
-   "link_to": "Account Group Project Mapping",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Monitoring & Logs",
-   "link_count": 2,
+   "link_count": 1,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -128,19 +109,9 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "REST Mutation Cache",
-   "link_count": 0,
-   "link_to": "Eboekhouden Rest Mutation Cache",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
   }
  ],
- "modified": "2025-06-27 13:23:15.709224",
+ "modified": "2025-07-10 23:55:33.763164",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "E-Boekhouden",

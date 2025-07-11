@@ -244,7 +244,7 @@ class MembershipAmendmentRequest(Document):
             frappe.sendmail(
                 recipients=[self.requested_by],
                 subject=_("Membership Amendment Request Rejected"),
-                message="""
+                message=f"""
                 <h3>Amendment Request Rejected</h3>
 
                 <p>Your membership amendment request has been rejected.</p>

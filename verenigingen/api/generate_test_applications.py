@@ -255,7 +255,7 @@ def generate_test_members():
         "total_applications": len(created_applications) + len(existing_emails),
     }
 
-    message = """
+    message = f"""
     <h4>Test Applications Generated</h4>
     <ul>
         <li><strong>Created:</strong> {summary['created']} new applications</li>

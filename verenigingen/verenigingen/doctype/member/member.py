@@ -962,20 +962,11 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         user.send_welcome_email = 1
         user.user_type = "System User"
 
-        member_role = "Assocation Member"
-        verenigingen_member_role = "Verenigingen Member"
-
-        if frappe.db.exists("Role", member_role):
-            user.append("roles", {"role": member_role})
-        elif frappe.db.exists("Role", verenigingen_member_role):
-            user.append("roles", {"role": verenigingen_member_role})
-        else:
-            frappe.msgprint(
-                _("Warning: Could not find Member role to assign to user. Creating user without roles.")
-            )
-
         user.flags.ignore_permissions = True
         user.insert(ignore_permissions=True)
+
+        # Add member-specific roles after user is created
+        add_member_roles_to_user(user.name)
 
         # Set allowed modules for member users
         set_member_user_modules(user.name)
@@ -2212,8 +2203,10 @@ def create_and_link_mandate_enhanced(
         mandate.account_holder_name = account_holder_name
         mandate.mandate_type = internal_type
         mandate.sign_date = sign_date
-        mandate.used_for_memberships = int(used_for_memberships)
-        mandate.used_for_donations = int(used_for_donations)
+        from verenigingen.utils.boolean_utils import cbool
+
+        mandate.used_for_memberships = cbool(used_for_memberships)
+        mandate.used_for_donations = cbool(used_for_donations)
         mandate.status = "Active"
         mandate.is_active = 1
         mandate.notes = notes
@@ -2312,7 +2305,9 @@ def create_member_user_account(member_name, send_welcome_email=True):
         user.first_name = member.first_name or ""
         user.last_name = member.last_name or ""
         user.full_name = member.full_name
-        user.send_welcome_email = int(send_welcome_email)
+        from verenigingen.utils.boolean_utils import cbool
+
+        user.send_welcome_email = cbool(send_welcome_email)
         user.user_type = "System User"
         user.enabled = 1
 

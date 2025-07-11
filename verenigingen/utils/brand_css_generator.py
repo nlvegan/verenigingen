@@ -26,7 +26,7 @@ def generate_brand_css_file(doc=None, method=None):
             raise Exception("Brand Settings primary_color is empty")
 
         # Generate CSS content
-        css_content = """/* Brand CSS - Auto-generated from Brand Settings */
+        css_content = f"""/* Brand CSS - Auto-generated from Brand Settings */
 /* Generated at: {frappe.utils.now()} */
 
 :root {{

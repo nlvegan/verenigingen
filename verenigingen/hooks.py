@@ -348,13 +348,19 @@ fixtures = [
     {
         "doctype": "Custom Field",
         "filters": [
-            [
-                ["dt", "in", ["Membership Termination Request", "Sales Invoice", "Membership", "Donation"]],
-                ["fieldname", "like", "btw_%"],
-            ],
-            "or",
-            [["dt", "=", "Account"], ["fieldname", "=", "eboekhouden_grootboek_nummer"]],
+            ["fieldname", "like", "btw_%"],
         ],
+    },
+    {
+        "doctype": "Custom Field",
+        "filters": [
+            ["fieldname", "=", "eboekhouden_grootboek_nummer"],
+        ],
+    },
+    # Workspaces
+    {
+        "doctype": "Workspace",
+        "filters": [["name", "in", ["E-Boekhouden", "Verenigingen"]]],
     },
 ]
 

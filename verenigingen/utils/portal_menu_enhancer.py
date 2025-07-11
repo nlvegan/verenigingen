@@ -253,7 +253,7 @@ def generate_portal_menu_html():
         for item in menu_items:
             # Main menu item
             html_parts.append(
-                """
+                f"""
                 <div class="portal-menu-item">
                     <div class="main-menu-item">
                         <a href="{item['route']}" class="menu-link">
@@ -267,9 +267,9 @@ def generate_portal_menu_html():
             if item.get("submenu"):
                 html_parts.append('<div class="submenu-items">')
                 for submenu in item["submenu"]:
-                    submenu.get("icon", "fa fa-circle")
+                    icon = submenu.get("icon", "fa fa-circle")
                     html_parts.append(
-                        """
+                        f"""
                         <div class="submenu-item">
                             <i class="{icon}"></i>
                             <div class="submenu-content">

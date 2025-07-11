@@ -2,13 +2,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, today
 
-from verenigingen.utils.batch_processor import BatchProcessor
-from verenigingen.utils.error_handling import cache_with_ttl, handle_api_errors, validate_request
-from verenigingen.utils.performance_monitoring import monitor_performance
+from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
+from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.performance_utils import performance_monitor
 
 
-@cache_with_ttl(ttl=300)
-@handle_api_errors
+@handle_api_error
 @frappe.whitelist()
 def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
     """Load unpaid invoices for batch processing"""
@@ -134,8 +133,7 @@ def validate_invoice_mandate(invoice, member):
         return {"valid": False, "error": str(e)}
 
 
-@cache_with_ttl(ttl=600)
-@handle_api_errors
+@handle_api_error
 @frappe.whitelist()
 def get_batch_analytics(batch_name):
     """Get detailed analytics for a batch"""

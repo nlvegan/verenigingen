@@ -524,7 +524,7 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
         )
     else:
         # Simple rejection email if no templates exist
-        message = """
+        message = f"""
         <p>Dear {member.first_name},</p>
 
         <p>Thank you for your interest in joining our association.</p>

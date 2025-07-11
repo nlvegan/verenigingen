@@ -45,6 +45,7 @@ class RegressionTestRunner:
             "workflows": [],
             "security": [],
             "configuration": [],
+            "js_api_integration": [],
         }
 
         for file_path in self.changed_files:
@@ -52,8 +53,13 @@ class RegressionTestRunner:
                 categories["core_models"].append(file_path)
             elif "/api/" in file_path:
                 categories["api_endpoints"].append(file_path)
+                # API changes also trigger JS API integration tests
+                categories["js_api_integration"].append(file_path)
             elif file_path.endswith((".js", ".html", ".css")):
                 categories["frontend"].append(file_path)
+                # JavaScript changes trigger JS API integration tests
+                if file_path.endswith(".js"):
+                    categories["js_api_integration"].append(file_path)
             elif "/report/" in file_path:
                 categories["reports"].append(file_path)
             elif "termination" in file_path or "workflow" in file_path:
@@ -107,6 +113,10 @@ class RegressionTestRunner:
         # Report changes - test reports
         if categories["reports"]:
             test_commands.append("python verenigingen/tests/test_runner.py smoke")
+
+        # JavaScript API integration changes - run integration tests
+        if categories["js_api_integration"]:
+            test_commands.append("bench run-tests --app verenigingen --module verenigingen.tests.test_javascript_api_integration")
 
         # Always run smoke tests as baseline
         if not any(categories.values()):

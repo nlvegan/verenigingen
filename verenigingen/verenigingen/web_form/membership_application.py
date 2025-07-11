@@ -167,7 +167,7 @@ def send_application_notifications(member):
         frappe.sendmail(
             recipients=recipients,
             subject=f"New Membership Application: {member.full_name}",
-            message="""
+            message=f"""
             <h3>New Membership Application Received</h3>
             <p>A new membership application has been submitted:</p>
             <ul>
@@ -187,7 +187,7 @@ def send_application_confirmation(member):
     frappe.sendmail(
         recipients=[member.email],
         subject="Membership Application Received",
-        message="""
+        message=f"""
         <h3>Thank you for your membership application!</h3>
         <p>Dear {member.first_name},</p>
         <p>We have received your membership application and it is currently under review.</p>

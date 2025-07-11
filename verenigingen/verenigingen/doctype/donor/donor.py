@@ -37,7 +37,22 @@ class Donor(Document):
 
     def has_permlevel_access(self):
         """Check if user has permlevel 1 access to this doctype"""
-        return frappe.has_permission(self.doctype, ptype="read", permlevel=1)
+        # Check if user has read permission on the document first
+        if not frappe.has_permission(self.doctype, ptype="read", doc=self):
+            return False
+
+        # Check if user has permlevel 1 access by checking user permissions
+        # This is a simplified check - in production you might want more sophisticated logic
+        user_roles = frappe.get_roles(frappe.session.user)
+
+        # System Manager and Administrator roles typically have all permissions
+        if "System Manager" in user_roles or "Administrator" in user_roles:
+            return True
+
+        # Check if user has specific roles that should have permlevel access
+        # You can customize this based on your role structure
+        privileged_roles = ["Verenigingen Administrator", "Donor Administrator", "Finance Manager"]
+        return any(role in user_roles for role in privileged_roles)
 
     def validate_tax_identifiers(self):
         """Validate BSN and RSIN format"""

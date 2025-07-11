@@ -1,132 +1,42 @@
 [
  {
-  "doctype": "Module Profile",
+  "block_modules": [],
   "docstatus": 0,
-  "name": "Verenigingen Basic Access",
+  "doctype": "Module Profile",
+  "modified": "2025-07-10 23:53:31.729847",
   "module_profile_name": "Verenigingen Basic Access",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   }
-  ]
+  "name": "Verenigingen Basic Access"
  },
  {
-  "doctype": "Module Profile",
+  "block_modules": [],
   "docstatus": 0,
-  "name": "Verenigingen Volunteer Access",
+  "doctype": "Module Profile",
+  "modified": "2025-07-10 23:53:31.736375",
   "module_profile_name": "Verenigingen Volunteer Access",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Projects"
-   },
-   {
-    "module": "Support"
-   }
-  ]
+  "name": "Verenigingen Volunteer Access"
  },
  {
-  "doctype": "Module Profile",
+  "block_modules": [],
   "docstatus": 0,
-  "name": "Verenigingen Financial Access",
+  "doctype": "Module Profile",
+  "modified": "2025-07-10 23:53:31.749471",
   "module_profile_name": "Verenigingen Financial Access",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Accounts"
-   },
-   {
-    "module": "Banking"
-   },
-   {
-    "module": "Selling"
-   }
-  ]
+  "name": "Verenigingen Financial Access"
  },
  {
-  "doctype": "Module Profile",
+  "block_modules": [],
   "docstatus": 0,
-  "name": "Verenigingen Management Access",
+  "doctype": "Module Profile",
+  "modified": "2025-07-10 23:53:31.762394",
   "module_profile_name": "Verenigingen Management Access",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Projects"
-   },
-   {
-    "module": "CRM"
-   },
-   {
-    "module": "Support"
-   },
-   {
-    "module": "Accounts"
-   },
-   {
-    "module": "Banking"
-   },
-   {
-    "module": "Selling"
-   },
-   {
-    "module": "Assets"
-   },
-   {
-    "module": "Setup"
-   }
-  ]
+  "name": "Verenigingen Management Access"
  },
  {
-  "doctype": "Module Profile",
+  "block_modules": [],
   "docstatus": 0,
-  "name": "Verenigingen Audit Access",
+  "doctype": "Module Profile",
+  "modified": "2025-07-10 23:53:31.775367",
   "module_profile_name": "Verenigingen Audit Access",
-  "modules": [
-   {
-    "module": "Verenigingen"
-   },
-   {
-    "module": "Portal"
-   },
-   {
-    "module": "Communication"
-   },
-   {
-    "module": "Accounts"
-   },
-   {
-    "module": "Quality Management"
-   }
-  ]
+  "name": "Verenigingen Audit Access"
  }
 ]

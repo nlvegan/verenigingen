@@ -1,0 +1,101 @@
+[
+ {
+  "add_total_row": 0,
+  "add_translate_data": 0,
+  "columns": [],
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Report",
+  "filters": [
+   {
+    "default": null,
+    "fieldname": "from_date",
+    "fieldtype": "Date",
+    "label": "From Date",
+    "mandatory": 0,
+    "options": null,
+    "parent": "Termination Compliance Report",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "to_date",
+    "fieldtype": "Date",
+    "label": "To Date",
+    "mandatory": 0,
+    "options": null,
+    "parent": "Termination Compliance Report",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "termination_type",
+    "fieldtype": "Select",
+    "label": "Termination Type",
+    "mandatory": 0,
+    "options": "\nVoluntary\nNon-payment\nDeceased\nPolicy Violation\nDisciplinary Action\nExpulsion",
+    "parent": "Termination Compliance Report",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "chapter",
+    "fieldtype": "Link",
+    "label": "Chapter",
+    "mandatory": 0,
+    "options": "Chapter",
+    "parent": "Termination Compliance Report",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   },
+   {
+    "default": null,
+    "fieldname": "compliance_issues_only",
+    "fieldtype": "Check",
+    "label": "Compliance Issues Only",
+    "mandatory": 0,
+    "options": null,
+    "parent": "Termination Compliance Report",
+    "parentfield": "filters",
+    "parenttype": "Report",
+    "wildcard_filter": 0
+   }
+  ],
+  "is_standard": "Yes",
+  "javascript": null,
+  "json": null,
+  "letter_head": null,
+  "modified": "2025-01-20 00:00:00",
+  "module": "Verenigingen",
+  "name": "Termination Compliance Report",
+  "prepared_report": 0,
+  "query": "",
+  "ref_doctype": "Membership Termination Request",
+  "reference_report": null,
+  "report_name": "Termination Compliance Report",
+  "report_script": null,
+  "report_type": "Script Report",
+  "roles": [
+   {
+    "parent": "Termination Compliance Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "System Manager"
+   },
+   {
+    "parent": "Termination Compliance Report",
+    "parentfield": "roles",
+    "parenttype": "Report",
+    "role": "Verenigingen Administrator"
+   }
+  ],
+  "timeout": 0
+ }
+]

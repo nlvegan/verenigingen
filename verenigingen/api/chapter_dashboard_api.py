@@ -12,15 +12,11 @@ from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.error_handling import (
     PermissionError,
     ValidationError,
-    cache_with_ttl,
     handle_api_error,
-    handle_api_errors,
     log_error,
-    validate_request,
     validate_required_fields,
 )
 from verenigingen.utils.migration_performance import BatchProcessor
-from verenigingen.utils.performance_monitoring import monitor_performance
 from verenigingen.utils.performance_utils import QueryOptimizer, cached, performance_monitor
 
 
@@ -28,8 +24,7 @@ from verenigingen.utils.performance_utils import QueryOptimizer, cached, perform
 @handle_api_error
 @performance_monitor(threshold_ms=500)
 @cached(ttl=300)  # Cache for 5 minutes
-@cache_with_ttl(ttl=1800)
-@handle_api_errors
+@handle_api_error
 def get_chapter_member_emails(chapter_name):
     """Get email addresses of all active chapter members"""
 
@@ -985,12 +980,12 @@ def get_chapter_quick_stats(chapter_name):
     return {
         "chapter_name": chapter_name,
         "members": {
-            "total": int(member_stats.total or 0),
-            "active": int(member_stats.active or 0),
-            "pending": int(member_stats.pending or 0),
-            "inactive": int(member_stats.inactive or 0),
-            "new_this_week": int(member_stats.new_this_week or 0),
-            "new_this_month": int(member_stats.new_this_month or 0),
+            "total": frappe.utils.cint(member_stats.total or 0),
+            "active": frappe.utils.cint(member_stats.active or 0),
+            "pending": frappe.utils.cint(member_stats.pending or 0),
+            "inactive": frappe.utils.cint(member_stats.inactive or 0),
+            "new_this_week": frappe.utils.cint(member_stats.new_this_week or 0),
+            "new_this_month": frappe.utils.cint(member_stats.new_this_month or 0),
         },
         "board_members": board_count,
         "recent_activity_count": recent_activity,

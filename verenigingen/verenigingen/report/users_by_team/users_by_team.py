@@ -89,7 +89,7 @@ def get_data(filters):
                 return []
 
         # Use safer parameterized query with proper JOIN syntax
-        query = """
+        query = f"""
         SELECT
             t.name as team,
             t.team_lead as team_lead,

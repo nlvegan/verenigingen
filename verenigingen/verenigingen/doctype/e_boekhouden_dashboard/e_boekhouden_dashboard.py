@@ -353,16 +353,16 @@ class EBoekhoudenDashboard(Document):
             """
 
             for migration in recent_migrations:
-                f"status-{migration.migration_status.lower().replace(' ', '-')}"
-                migration.progress_percentage or 0
-                format_datetime(migration.start_time) if migration.start_time else "-"
+                status_class = f"status-{migration.migration_status.lower().replace(' ', '-')}"
+                progress = migration.progress_percentage or 0
+                start_time = format_datetime(migration.start_time) if migration.start_time else "-"
                 current_op = migration.current_operation or "-"
 
                 # Truncate long operations
                 if len(current_op) > 50:
                     current_op = current_op[:47] + "..."
 
-                html += """
+                html += f"""
                         <tr>
                             <td>
                                 <a href="/app/e-boekhouden-migration/{migration.name}" class="migration-link">

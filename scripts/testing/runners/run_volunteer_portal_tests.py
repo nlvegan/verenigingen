@@ -40,6 +40,7 @@ class VolunteerPortalTestRunner:
             "security": "verenigingen.tests.test_volunteer_portal_security",
             "edge": "verenigingen.tests.test_volunteer_portal_edge_cases",
             "integration": "verenigingen.tests.test_volunteer_portal_integration",
+            "js_api": "verenigingen.tests.test_javascript_api_integration",
         }
 
         self.results = {}

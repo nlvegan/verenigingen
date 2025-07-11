@@ -248,7 +248,7 @@ def get_expulsion_statistics(filters=None):
         "WHERE " + " AND ".join(conditions)
 
     # Get basic counts
-    query = """
+    query = f"""
         SELECT
             COUNT(*) as total_expulsions,
             COUNT(CASE WHEN status = 'Active' THEN 1 END) as active_expulsions,
@@ -264,7 +264,7 @@ def get_expulsion_statistics(filters=None):
     result = frappe.db.sql(query, values, as_dict=True)[0]
 
     # Get chapter breakdown
-    chapter_query = """
+    chapter_query = f"""
         SELECT
             chapter_involved,
             COUNT(*) as count
@@ -328,7 +328,7 @@ def generate_expulsion_governance_report(date_range=None, chapter=None):
     if conditions:
         "WHERE " + " AND ".join(conditions)
 
-    detailed_query = """
+    detailed_query = f"""
         SELECT
             ere.name,
             ere.member_name,

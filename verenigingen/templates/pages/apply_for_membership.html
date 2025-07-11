@@ -13,9 +13,11 @@
     <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
 
         <!-- Organization Logo & Header -->
+        {% if organization_logo %}
         <div class="organization-logo animate-fade-in">
-            <img src="/assets/verenigingen/images/logo.png" alt="Organization Logo" class="logo-img">
+            <img src="{{ organization_logo }}" alt="Organization Logo" class="logo-img">
         </div>
+        {% endif %}
 
         <div class="page-header animate-slide-up">
             <h1 class="page-title">{{ _("Become a Member") }}</h1>

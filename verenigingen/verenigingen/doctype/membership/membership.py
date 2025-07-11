@@ -88,12 +88,6 @@ class Membership(Document):
                             title=_("Duplicate Membership"),
                         )
 
-    @frappe.whitelist()
-    def allow_multiple_memberships(member):
-        """Set a flag to allow creating multiple memberships for a member"""
-        frappe.flags.allow_multiple_memberships = True
-        return True
-
     def validate_dates(self):
         # Validate renewal date is not before start date
         if self.renewal_date and self.start_date:
@@ -277,8 +271,408 @@ class Membership(Document):
             self.amount_difference = flt(amount) - flt(membership_type.amount)
         else:
             self.amount_difference = 0
-
         return amount
+
+    def get_billing_amount(self):
+        """Get the billing amount for this membership"""
+        # Return effective amount if already calculated
+        if hasattr(self, "effective_amount") and self.effective_amount:
+            return self.effective_amount
+
+        # Otherwise calculate and return
+        return self.calculate_effective_amount()
+
+    def create_subscription_from_membership(self, options=None):
+        """Create an ERPNext subscription for this membership with additional options"""
+        import frappe
+        from frappe import _
+        from frappe.utils import add_days, add_months, getdate, nowdate
+
+        # Initialize options with defaults if none provided
+        if not options:
+            options = {
+                "follow_calendar_months": 0,
+                "generate_invoice_at_period_start": 1,
+                "generate_new_invoices_past_due_date": 1,
+                "submit_invoice": 1,
+                "days_until_due": 27,
+            }
+
+        # Check if member has a customer
+        member = frappe.get_doc("Member", self.member)
+
+        # Check if there's already an application invoice for this membership
+        has_application_invoice = False
+        if member.customer:
+            # First check for invoices specifically linked to this membership
+            existing_invoice = frappe.db.exists(
+                "Sales Invoice",
+                {
+                    "customer": member.customer,
+                    "membership": self.name,
+                    "docstatus": ["!=", 2],  # Not cancelled
+                },
+            )
+
+            # If no direct link, check for recent invoices for this customer
+            if not existing_invoice:
+                existing_invoice = frappe.db.exists(
+                    "Sales Invoice",
+                    {
+                        "customer": member.customer,
+                        "status": ["in", ["Draft", "Submitted", "Unpaid", "Paid", "Partly Paid"]],
+                        "posting_date": [">=", self.start_date],
+                        "docstatus": ["!=", 2],  # Not cancelled
+                    },
+                )
+
+            if existing_invoice:
+                has_application_invoice = True
+                frappe.log_error(
+                    f"Application invoice {existing_invoice} exists for membership {self.name} - adjusting subscription to prevent duplicates",
+                    "Membership Subscription Creation",
+                )
+                # Modify options to prevent immediate invoice generation
+                options["generate_invoice_at_period_start"] = 0
+                options["generate_new_invoices_past_due_date"] = 0
+
+        if not member.customer:
+            # Create a customer for this member
+            member.create_customer()
+            member.reload()
+
+        if not member.customer:
+            frappe.throw(_("Please create a customer for this member first"))
+
+        try:
+            # Get subscription plan details
+            if not self.subscription_plan:
+                frappe.throw(_("Subscription Plan is required to create a subscription"))
+
+            # Load the subscription plan to get its billing details
+            subscription_plan = frappe.get_doc("Subscription Plan", self.subscription_plan)
+
+            # Create subscription
+            subscription = frappe.new_doc("Subscription")
+
+            # Set basic subscription properties
+            subscription.party_type = "Customer"
+            subscription.party = member.customer
+
+            # Use subscription period calculator for proper date alignment
+            try:
+                from verenigingen.utils.subscription_period_calculator import get_aligned_subscription_dates
+
+                membership_type = frappe.get_doc("Membership Type", self.membership_type)
+
+                # Get properly aligned subscription dates
+                subscription_dates = get_aligned_subscription_dates(
+                    self.start_date, membership_type, has_application_invoice=has_application_invoice
+                )
+
+                subscription.start_date = subscription_dates["subscription_start_date"]
+
+                # Log the calculated date for tracking
+                frappe.log_error(
+                    f"Subscription start date calculated as {subscription_dates['subscription_start_date']} for membership {self.name} "
+                    f"(application invoice: {has_application_invoice}, billing: {subscription_dates['billing_info']['subscription_period']})",
+                    "Membership Subscription Date Calculation",
+                )
+
+            except ImportError:
+                # Fallback to original logic if calculator not available
+                if has_application_invoice:
+                    # Calculate next billing period start date
+
+                    if subscription_plan.billing_interval == "Month":
+                        next_period_start = add_months(
+                            getdate(self.start_date), subscription_plan.billing_interval_count
+                        )
+                    elif subscription_plan.billing_interval == "Year":
+                        next_period_start = add_months(
+                            getdate(self.start_date), subscription_plan.billing_interval_count * 12
+                        )
+                    else:
+                        # Fallback for other intervals
+                        next_period_start = add_days(getdate(self.start_date), 30)
+                    subscription.start_date = next_period_start
+                    frappe.log_error(
+                        f"Fallback: Adjusted subscription start date to {next_period_start} for membership {self.name}",
+                        "Membership Subscription Date Adjustment",
+                    )
+                else:
+                    subscription.start_date = getdate(self.start_date)
+
+            # Set company
+            default_company = frappe.defaults.get_global_default("company")
+            if not default_company:
+                # Fallback to first available company if no default is set
+                companies = frappe.get_all("Company", limit=1, fields=["name"])
+                default_company = companies[0].name if companies else None
+
+            if not default_company:
+                frappe.throw(
+                    _("No company configured in the system. Please set a default company in Global Defaults.")
+                )
+
+            subscription.company = default_company
+
+            # Set billing details from the subscription plan
+            subscription.billing_interval = subscription_plan.billing_interval
+            subscription.billing_interval_count = subscription_plan.billing_interval_count
+
+            # Set options from provided parameters
+            subscription.follow_calendar_months = options.get("follow_calendar_months", 0)
+            if options.get("generate_invoice_at_period_start", 1):
+                subscription.generate_invoice_at = "Beginning of the current subscription period"
+            else:
+                subscription.generate_invoice_at = "End of the current subscription period"
+            subscription.generate_new_invoices_past_due_date = options.get(
+                "generate_new_invoices_past_due_date", 1
+            )
+            subscription.submit_invoice = options.get("submit_invoice", 1)
+            subscription.days_until_due = options.get("days_until_due", 27)
+
+            # Get the effective amount for this membership
+            effective_amount = self.get_billing_amount()
+
+            # Get or create the appropriate subscription plan
+            subscription_plan_to_use = self.get_subscription_plan_for_amount(effective_amount)
+
+            # Add the subscription plan
+            subscription.append("plans", {"plan": subscription_plan_to_use, "qty": 1})
+
+            # Insert and submit
+            subscription.flags.ignore_mandatory = True
+            subscription.flags.ignore_permissions = True
+            subscription.insert()
+
+            # Log the subscription details before submission for debugging
+            frappe.logger().info(
+                f"Creating subscription for membership {self.name}. Start: {subscription.start_date}"
+            )
+
+            try:
+                subscription.submit()
+            except Exception as e:
+                frappe.log_error(f"Error submitting subscription: {str(e)}", "Subscription Submit Error")
+                raise
+
+            # Link subscription to membership
+            self.subscription = subscription.name
+            self.db_set("subscription", subscription.name)
+
+            if subscription.current_invoice_end:
+                self.next_billing_date = add_days(subscription.current_invoice_end, 1)
+                self.db_set("next_billing_date", add_days(subscription.current_invoice_end, 1))
+
+            # Queue job to process subscription for invoice generation
+            if getdate(self.start_date) <= getdate(nowdate()):
+                frappe.flags.in_test = False
+                frappe.enqueue(
+                    "erpnext.accounts.doctype.subscription.subscription.process_all",
+                    subscription=subscription.name,
+                    enqueue_after_commit=True,
+                )
+                frappe.msgprint(_("Subscription created. Invoice will be generated shortly."))
+            else:
+                frappe.msgprint(
+                    _("Subscription created. Invoice will be generated on {0}").format(
+                        frappe.format(subscription.current_invoice_start, {"fieldtype": "Date"})
+                    )
+                )
+
+            frappe.logger().info(
+                f"Created subscription {subscription.name} with amount {effective_amount} "
+                f"(custom: {self.uses_custom_amount}) for membership {self.name}"
+            )
+
+            return subscription.name
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error creating subscription for membership {self.name}: {str(e)}",
+                "Membership Subscription Creation Error",
+            )
+            frappe.throw(_("Error creating subscription: {0}").format(str(e)))
+
+    def sync_payment_details_from_subscription(self):
+        """Sync payment details from linked subscription"""
+        from frappe.utils import add_days, flt, getdate
+
+        if not self.subscription:
+            return
+
+        subscription = frappe.get_doc("Subscription", self.subscription)
+
+        # Update next billing date
+        if subscription.current_invoice_end:
+            # First define the variable
+            next_billing_date = add_days(subscription.current_invoice_end, 1)
+            # Then use it to update the object
+            self.next_billing_date = next_billing_date
+            # Then use it again for db_set
+            self.db_set("next_billing_date", next_billing_date)
+
+        # Get invoices from the subscription's child table
+        if not hasattr(subscription, "invoices") or not subscription.invoices:
+            return
+
+        # Calculate unpaid amount
+        unpaid_amount = 0
+        payment_date = None
+
+        for invoice_ref in subscription.invoices:
+            try:
+                # Determine invoice type based on party type
+                invoice_type = invoice_ref.document_type or (
+                    "Sales Invoice" if subscription.party_type == "Customer" else "Purchase Invoice"
+                )
+                invoice = frappe.get_doc(invoice_type, invoice_ref.invoice)
+
+                # Add to unpaid amount if unpaid or overdue
+                if invoice.status in ["Unpaid", "Overdue"]:
+                    unpaid_amount += flt(invoice.outstanding_amount)
+
+                # Get latest payment date
+                if invoice.status == "Paid" and (
+                    not payment_date or getdate(invoice.posting_date) > getdate(payment_date)
+                ):
+                    payment_date = invoice.posting_date
+            except Exception as e:
+                frappe.log_error(
+                    f"Error processing invoice {invoice_ref.invoice}: {str(e)}",
+                    "Membership Payment Sync Error",
+                )
+
+        # Update unpaid amount
+        self.unpaid_amount = unpaid_amount
+        self.db_set("unpaid_amount", unpaid_amount)
+
+        # Update last payment date if found
+        if payment_date:
+            self.last_payment_date = payment_date
+            self.db_set("last_payment_date", payment_date)
+
+    def get_subscription_plan_for_amount(self, amount):
+        """Get or create a subscription plan for the specified amount"""
+        # If using standard amount, use the original subscription plan
+        if not self.uses_custom_amount or not self.custom_amount:
+            return self.subscription_plan
+
+        # For custom amounts, get/create a custom subscription plan
+        original_plan = frappe.get_doc("Subscription Plan", self.subscription_plan)
+
+        # Create a unique plan name for this amount
+        custom_plan_name = f"{original_plan.plan_name} - €{amount:.2f}"
+
+        # Check if custom plan already exists
+        existing_plan = frappe.db.exists("Subscription Plan", {"plan_name": custom_plan_name})
+        if existing_plan:
+            return existing_plan
+
+        # Create new custom subscription plan
+        custom_plan = frappe.get_doc(
+            {
+                "doctype": "Subscription Plan",
+                "plan_name": custom_plan_name,
+                "item": original_plan.item,
+                "currency": original_plan.currency,
+                "price_determination": "Fixed Rate",
+                "cost": amount,
+                "billing_interval": original_plan.billing_interval,
+                "billing_interval_count": original_plan.billing_interval_count,
+                "payment_gateway": original_plan.payment_gateway,
+                "cost_center": original_plan.cost_center,
+            }
+        )
+
+        custom_plan.insert(ignore_permissions=True)
+        frappe.log_error(
+            f"Created custom subscription plan {custom_plan_name} with cost {amount} for membership {self.name}"
+        )
+
+        return custom_plan.name
+
+    def on_submit(self):
+        import json
+
+        import frappe
+        from frappe import _
+        from frappe.utils import add_days, add_months, getdate
+
+        # Update member's current membership
+        self.update_member_status()
+
+        # Make sure unpaid_amount is set if not already
+        if not self.unpaid_amount:
+            self.unpaid_amount = 0
+
+        # Initialize next_billing_date to start_date if not set
+        if not self.next_billing_date:
+            self.next_billing_date = self.start_date
+
+        # Clear cancellation fields if not set
+        if not self.cancellation_date:
+            self.cancellation_date = None
+            self.cancellation_reason = None
+            self.cancellation_type = None
+
+        # Update status properly
+        self.set_status()
+
+        # Force update to database
+        self.db_set("status", self.status)
+        self.db_set("unpaid_amount", self.unpaid_amount)
+        self.db_set("next_billing_date", self.next_billing_date)
+        self.db_set("cancellation_date", None)
+        self.db_set("cancellation_reason", None)
+        self.db_set("cancellation_type", None)
+
+        # Update member's current membership
+        self.update_member_status()
+
+        # Link to subscription if configured
+        if not self.subscription and self.subscription_plan:
+            subscription_options = {
+                "follow_calendar_months": 0,
+                "generate_invoice_at_period_start": 1,  # Beginning of period
+                "generate_new_invoices_past_due_date": 1,  # Generate even if past due
+                "submit_invoice": 1,  # Submit invoices
+                "days_until_due": 27,
+            }
+            self.create_subscription_from_membership(subscription_options)
+
+            # Sync payment details from subscription
+            self.sync_payment_details_from_subscription()
+
+    def on_cancel(self):
+        """Handle when membership is cancelled directly (not the same as member cancellation)"""
+        from frappe.utils import add_months, getdate, nowdate, today
+
+        # Check if membership is submitted (docstatus == 1) before enforcing the 1-year rule
+        if self.docstatus == 1 and getdate(self.start_date):
+            min_membership_period = add_months(getdate(self.start_date), 12)
+            current_date = getdate(today())
+
+            if current_date < min_membership_period:
+                # Check if user is an admin
+                is_admin = "System Manager" in frappe.get_roles(frappe.session.user)
+
+                if is_admin:
+                    # Show warning but allow cancellation
+                    frappe.msgprint(
+                        _(
+                            "Warning: Membership is being cancelled before the minimum 1-year period. This is allowed for administrators only."
+                        ),
+                        indicator="yellow",
+                        alert=True,
+                    )
+                else:
+                    frappe.throw(_("Membership cannot be cancelled before 1 year from start date"))
+
+        self.status = "Cancelled"
+        self.cancellation_date = self.cancellation_date or nowdate()
 
 
 def on_submit(doc, method=None):
@@ -1012,3 +1406,21 @@ def fix_subscription_amounts():
         "fixed_count": fixed_count,
         "message": f"Fixed {fixed_count} subscription amounts",
     }
+
+
+@frappe.whitelist()
+def test_subscription_creation(membership_name):
+    """Test subscription creation for a membership"""
+    try:
+        membership = frappe.get_doc("Membership", membership_name)
+        result = membership.create_subscription_from_membership()
+        return {"success": True, "subscription": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def allow_multiple_memberships(member):
+    """Set a flag to allow creating multiple memberships for a member"""
+    frappe.flags.allow_multiple_memberships = True
+    return True

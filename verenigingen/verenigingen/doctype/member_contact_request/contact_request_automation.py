@@ -49,7 +49,7 @@ def send_follow_up_reminders():
             assigned_user = frappe.get_doc("User", request.assigned_to)
             if assigned_user.enabled and assigned_user.email:
                 subject = f"Follow-up Reminder: {request.subject}"
-                message = """
+                message = f"""
                 <h3>Contact Request Follow-up Reminder</h3>
                 <p>This is a reminder that the following contact request needs follow-up:</p>
 
@@ -134,7 +134,7 @@ def escalate_contact_request(request, overdue_days):
 
     if manager_emails:
         subject = f"ESCALATION: Overdue Contact Request - {request.subject}"
-        message = """
+        message = f"""
         <h3 style="color: #dc3545;">Contact Request Escalation</h3>
         <p>The following contact request is overdue and requires immediate attention:</p>
 
@@ -204,7 +204,7 @@ def auto_close_resolved_requests():
             member_doc = frappe.get_doc("Member", request.member)
             if member_doc.email_address:
                 subject = f"Contact Request Closed: {request.subject}"
-                message = """
+                message = f"""
                 <h3>Contact Request Closed</h3>
                 <p>Dear {request.member_name},</p>
 

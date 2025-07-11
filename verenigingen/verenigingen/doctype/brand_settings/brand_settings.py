@@ -240,7 +240,7 @@ def generate_brand_css():
     get_contrasting_text_color(settings["secondary_color"])
     get_contrasting_text_color(settings["accent_color"])
 
-    css = """
+    css = f"""
 /* Brand Settings CSS - Auto-generated */
 :root {{
     --brand-primary: {settings['primary_color']};

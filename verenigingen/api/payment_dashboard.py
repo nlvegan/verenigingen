@@ -4,14 +4,13 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
-from verenigingen.utils.batch_processor import BatchProcessor
-from verenigingen.utils.error_handling import cache_with_ttl, handle_api_errors, validate_request
-from verenigingen.utils.performance_monitoring import monitor_performance
+from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
+from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.performance_utils import performance_monitor
 
 
-@cache_with_ttl(ttl=300)
-@handle_api_errors
-@monitor_performance
+@handle_api_error
+@performance_monitor()
 @frappe.whitelist()
 def get_dashboard_data(member=None):
     """Get payment dashboard summary data"""
@@ -121,8 +120,7 @@ def get_payment_method(member=None):
     return {"has_active_mandate": False}
 
 
-@cache_with_ttl(ttl=600)
-@handle_api_errors
+@handle_api_error
 @frappe.whitelist()
 def get_payment_history(member=None, year=None, status=None, **kwargs):
     """Get payment history for member"""
@@ -173,8 +171,8 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         """
 
     # Pagination support
-    limit = int(kwargs.get('limit', 100))
-    offset = int(kwargs.get('offset', 0))
+    limit = frappe.utils.cint(kwargs.get('limit', 100))
+    offset = frappe.utils.cint(kwargs.get('offset', 0))
     if limit > 1000:
         limit = 1000  # Max limit for performance
         SELECT
@@ -285,8 +283,7 @@ def get_mandate_history(member=None):
     return mandates
 
 
-@cache_with_ttl(ttl=3600)
-@handle_api_errors
+@handle_api_error
 @frappe.whitelist()
 def get_payment_schedule(member=None):
     """Get upcoming payment schedule"""

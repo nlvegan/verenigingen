@@ -3,9 +3,9 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
-from verenigingen.utils.error_handling import cache_with_ttl, handle_api_errors, validate_request
+from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
 from verenigingen.utils.migration_performance import BatchProcessor
-from verenigingen.utils.performance_monitoring import monitor_performance
+from verenigingen.utils.performance_utils import performance_monitor
 
 
 @frappe.whitelist()
@@ -19,11 +19,12 @@ def suspend_member(member_name, suspension_reason, suspend_user=True, suspend_te
     if not can_terminate_member(member_name):
         frappe.throw(_("You don't have permission to suspend this member"))
 
+    # Convert string booleans to actual booleans
+    from verenigingen.utils.boolean_utils import cbool
     from verenigingen.utils.termination_integration import suspend_member_safe
 
-    # Convert string booleans to actual booleans
-    suspend_user = frappe.utils.cint(suspend_user)
-    suspend_teams = frappe.utils.cint(suspend_teams)
+    suspend_user = cbool(suspend_user)
+    suspend_teams = cbool(suspend_teams)
 
     results = suspend_member_safe(
         member_name=member_name,
@@ -138,9 +139,8 @@ def _can_suspend_member_fallback(member_name):
     return False
 
 
-@cache_with_ttl(ttl=300)
-@handle_api_errors
-@monitor_performance
+@handle_api_error
+@performance_monitor()
 @frappe.whitelist()
 def get_suspension_preview(member_name):
     """
@@ -184,9 +184,8 @@ def get_suspension_preview(member_name):
     }
 
 
-@handle_api_errors
-@validate_request
-@monitor_performance
+@handle_api_error
+@performance_monitor()
 @frappe.whitelist()
 def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, suspend_teams=True):
     """
@@ -225,8 +224,8 @@ def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, susp
             suspend_result = suspend_member_safe(
                 member_name=member_name,
                 suspension_reason=suspension_reason,
-                suspend_user=frappe.utils.cint(suspend_user),
-                suspend_teams=frappe.utils.cint(suspend_teams),
+                suspend_user=cbool(suspend_user),
+                suspend_teams=cbool(suspend_teams),
             )
 
             if suspend_result.get("success"):
@@ -277,18 +276,16 @@ def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, susp
     return results
 
 
-@cache_with_ttl(ttl=600)
-@handle_api_errors
-@validate_request
-@monitor_performance
+@handle_api_error
+@performance_monitor()
 @frappe.whitelist()
 def get_suspension_list(limit=100, offset=0, status=None, chapter=None):
     """
     Get list of suspended members with pagination and filtering
     """
     # Validate and sanitize pagination parameters
-    limit = int(limit) if limit else 100
-    offset = int(offset) if offset else 0
+    limit = frappe.utils.cint(limit) if limit else 100
+    offset = frappe.utils.cint(offset) if offset else 0
 
     if limit > 1000:
         limit = 1000  # Max limit for performance

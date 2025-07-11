@@ -242,7 +242,7 @@ def generate_test_members():
         "total_test_members": len(created_members) + len(existing_emails),
     }
 
-    message = """
+    message = f"""
     <h4>Test Members Generated</h4>
     <ul>
         <li><strong>Created:</strong> {summary['created']} new members</li>

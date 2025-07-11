@@ -286,8 +286,8 @@ def process_overdue_termination_requests():
                     """
 
                     for request in overdue_requests:
-                        (getdate(today()) - getdate(request.request_date)).days
-                        email_content += """
+                        days_overdue = (getdate(today()) - getdate(request.request_date)).days
+                        email_content += f"""
                         <tr>
                             <td>{request.name}</td>
                             <td>{request.member_name}</td>
@@ -372,7 +372,7 @@ def generate_weekly_termination_report():
 
             if admin_emails:
                 # Create report content
-                report_content = """
+                report_content = f"""
                 <h3>Weekly Termination Report</h3>
                 <p>Period: {week_ago} to {today()}</p>
 
@@ -536,7 +536,7 @@ def audit_termination_compliance():
                     admin_emails = [admin.email for admin in administrators if admin.email]
 
                     if admin_emails:
-                        email_content = """
+                        email_content = f"""
                         <h3>Termination Compliance Alert</h3>
                         <p>The daily audit has identified compliance issues that require attention:</p>
 

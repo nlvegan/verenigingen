@@ -10,6 +10,24 @@ import frappe
 from frappe import _
 
 
+def has_donor_permlevel_access(permission_type="read"):
+    """Check if user has permlevel 1 access to Donor doctype"""
+    # Check if user has basic permission first
+    if not frappe.has_permission("Donor", ptype=permission_type):
+        return False
+
+    # Check if user has permlevel 1 access by checking user permissions
+    user_roles = frappe.get_roles(frappe.session.user)
+
+    # System Manager and Administrator roles typically have all permissions
+    if "System Manager" in user_roles or "Administrator" in user_roles:
+        return True
+
+    # Check if user has specific roles that should have permlevel access
+    privileged_roles = ["Verenigingen Administrator", "Donor Administrator", "Finance Manager"]
+    return any(role in user_roles for role in privileged_roles)
+
+
 @frappe.whitelist()
 def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method=None):
     """
@@ -25,7 +43,7 @@ def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method
         dict: Success status and message
     """
     # Check permissions
-    if not frappe.has_permission("Donor", "write", permlevel=1):
+    if not has_donor_permlevel_access("write"):
         frappe.throw(_("Insufficient permissions to update tax identifiers"))
 
     try:
@@ -71,7 +89,7 @@ def get_donor_anbi_data(donor):
         dict: Donor ANBI data (masked for display)
     """
     # Check permissions
-    if not frappe.has_permission("Donor", "read", permlevel=1):
+    if not has_donor_permlevel_access("read"):
         frappe.throw(_("Insufficient permissions to view ANBI data"))
 
     try:
@@ -114,7 +132,7 @@ def generate_anbi_report(from_date, to_date, include_bsn=False):
         frappe.throw(_("Insufficient permissions to generate ANBI report"))
 
     # Check special permission for BSN/RSIN export
-    if include_bsn and not frappe.has_permission("Donor", "export", permlevel=1):
+    if include_bsn and not has_donor_permlevel_access("read"):
         frappe.throw(_("Insufficient permissions to export BSN/RSIN data"))
 
     try:
@@ -207,7 +225,9 @@ def update_anbi_consent(donor, consent, reason=None):
         donor_doc = frappe.get_doc("Donor", donor)
 
         # Update consent
-        donor_doc.anbi_consent = int(consent)
+        from verenigingen.utils.boolean_utils import cbool
+
+        donor_doc.anbi_consent = cbool(consent)
 
         if consent:
             donor_doc.anbi_consent_date = frappe.utils.now()

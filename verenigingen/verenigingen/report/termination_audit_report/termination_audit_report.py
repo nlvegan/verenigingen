@@ -73,7 +73,7 @@ def get_data(filters):
         "WHERE " + " AND ".join(conditions)
 
     # Main query to get termination requests
-    query = """
+    query = f"""
         SELECT
             mtr.name as request_id,
             mtr.member,

@@ -175,7 +175,7 @@ def send_batch_creation_notification(result):
 
         batch_details = optimization_report.get("batch_details", [])
         for batch in batch_details:
-            message += """
+            message += f"""
             <tr>
                 <td>{batch['name']}</td>
                 <td>{batch['invoice_count']}</td>
@@ -252,7 +252,9 @@ def get_batch_creation_schedule():
 def toggle_auto_batch_creation(enabled):
     """Enable or disable automatic batch creation"""
     settings = frappe.get_single("Verenigingen Settings")
-    settings.enable_auto_batch_creation = int(enabled)
+    from verenigingen.utils.boolean_utils import cbool
+
+    settings.enable_auto_batch_creation = cbool(enabled)
     settings.save()
 
     action = "enabled" if enabled else "disabled"

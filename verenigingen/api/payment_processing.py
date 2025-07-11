@@ -328,7 +328,7 @@ def send_chapter_notification(chapter, member_name, payment_info):
 
         member = frappe.get_doc("Member", member_name)
 
-        message = """
+        message = f"""
         <h3>Overdue Payment Notification</h3>
 
         <p>A member in your chapter has overdue payments:</p>
