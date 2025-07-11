@@ -674,6 +674,18 @@ class Membership(Document):
         self.status = "Cancelled"
         self.cancellation_date = self.cancellation_date or nowdate()
 
+    def update_member_status(self):
+        """Update the membership status in the Member document"""
+        if self.member:
+            try:
+                member = frappe.get_doc("Member", self.member)
+                member.save()  # This will trigger the update_membership_status method
+            except frappe.PermissionError:
+                # If user doesn't have permission to update member, skip
+                frappe.logger().debug(
+                    f"Skipping member status update for {self.member} due to permission error"
+                )
+
 
 def on_submit(doc, method=None):
     """

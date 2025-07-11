@@ -294,6 +294,9 @@ function add_consolidated_action_buttons(frm) {
 	// Volunteer profile creation
 	check_and_add_volunteer_creation_button(frm);
 
+	// Membership creation - only for members without active memberships
+	add_membership_creation_button(frm);
+
 	// === MEMBER ACTIONS GROUP ===
 
 	// Payment actions for submitted documents
@@ -485,6 +488,36 @@ function add_membership_review_button(frm) {
 			frm.dashboard.add_indicator(__('Pending Review'), 'orange');
 		}
 	}
+}
+
+function add_membership_creation_button(frm) {
+	// Check if member has any active memberships
+	frappe.call({
+		method: 'frappe.client.get_list',
+		args: {
+			doctype: 'Membership',
+			filters: {
+				'member': frm.doc.name,
+				'status': ['in', ['Active', 'Pending']]
+			},
+			fields: ['name'],
+			limit: 1
+		},
+		callback: function(r) {
+			if (!r.message || r.message.length === 0) {
+				// No active memberships found, show create button
+				frm.add_custom_button(__('Create Membership'), function() {
+					frappe.new_doc('Membership', {
+						'member': frm.doc.name,
+						'member_name': frm.doc.full_name,
+						'email': frm.doc.email,
+						'mobile_no': frm.doc.contact_number,
+						'start_date': frappe.datetime.get_today()
+					});
+				}, __('Create'));
+			}
+		}
+	});
 }
 
 function check_and_add_volunteer_creation_button(frm) {

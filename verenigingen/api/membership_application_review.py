@@ -83,7 +83,7 @@ def approve_membership_application(member_name, membership_type=None, chapter=No
     member.save()
 
     # Create employee record for volunteers whose applications are now approved
-    if member.interested_in_volunteering:
+    if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:
         volunteer_record = frappe.db.get_value("Volunteer", {"member": member.name}, "name")
         if volunteer_record:
             try:
