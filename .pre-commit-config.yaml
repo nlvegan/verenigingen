@@ -65,3 +65,11 @@ repos:
         always_run: true
         stages: [pre-commit]
         verbose: true
+
+      - id: docfield-checker
+        name: Check docfield references
+        entry: python scripts/validation/docfield_checker.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [pre-commit]
