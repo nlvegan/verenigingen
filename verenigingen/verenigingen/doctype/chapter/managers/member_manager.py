@@ -57,10 +57,6 @@ class MemberManager(BaseManager):
                     # Re-enable disabled member
                     existing_member.enabled = 1
                     existing_member.leave_reason = None
-                    if introduction:
-                        existing_member.introduction = introduction
-                    if website_url:
-                        existing_member.website_url = website_url
 
                     self.chapter_doc.save()
 
@@ -91,9 +87,6 @@ class MemberManager(BaseManager):
                 "members",
                 {
                     "member": member_id,
-                    "member_name": member_doc.full_name,
-                    "introduction": introduction,
-                    "website_url": website_url,
                     "enabled": enabled,
                 },
             )
@@ -165,7 +158,7 @@ class MemberManager(BaseManager):
                     "action": "not_found",
                 }
 
-            member_name = member_row.member_name or self._get_member_name(member_id)
+            member_name = self._get_member_name(member_id)
 
             if permanent:
                 # Remove completely
@@ -258,17 +251,6 @@ class MemberManager(BaseManager):
             # Track changes
             changes = []
 
-            if introduction is not None and member_row.introduction != introduction:
-                member_row.introduction = introduction
-                changes.append("introduction")
-
-            if website_url is not None and member_row.website_url != website_url:
-                # Validate URL format
-                if website_url and not self._validate_url(website_url):
-                    frappe.throw(_("Invalid website URL format"))
-                member_row.website_url = website_url
-                changes.append("website_url")
-
             if enabled is not None and member_row.enabled != enabled:
                 member_row.enabled = enabled
                 if not enabled and not member_row.leave_reason:
@@ -285,7 +267,8 @@ class MemberManager(BaseManager):
 
             # Create audit comment
             self.create_comment(
-                "Info", _("Updated member {0}: {1}").format(member_row.member_name, ", ".join(changes))
+                "Info",
+                _("Updated member {0}: {1}").format(self._get_member_name(member_id), ", ".join(changes)),
             )
 
             self.log_action("Member info updated", {"member": member_id, "changes": changes})
@@ -402,9 +385,9 @@ class MemberManager(BaseManager):
             if include_disabled or member.enabled:
                 member_data = {
                     "member_id": member.member,
-                    "member_name": member.member_name,
-                    "introduction": member.introduction,
-                    "website_url": member.website_url,
+                    "member_name": self._get_member_name(member.member),
+                    "introduction": "",  # Field doesn't exist in doctype
+                    "website_url": "",  # Field doesn't exist in doctype
                     "enabled": member.enabled,
                     "leave_reason": member.leave_reason,
                 }
@@ -441,8 +424,8 @@ class MemberManager(BaseManager):
         disabled_members = [m for m in members if not m.enabled]
 
         # Count members with additional info
-        with_introduction = len([m for m in enabled_members if m.introduction])
-        with_website = len([m for m in enabled_members if m.website_url])
+        with_introduction = 0  # Field doesn't exist in doctype
+        with_website = 0  # Field doesn't exist in doctype
 
         # Get primary vs secondary members
         # Primary members are determined by Chapter Member ordering (first entry is primary)
@@ -500,16 +483,13 @@ class MemberManager(BaseManager):
                 continue
 
             # Search in name and introduction
-            if (
-                query_lower in (member.member_name or "").lower()
-                or query_lower in (member.introduction or "").lower()
-            ):
+            if query_lower in (self._get_member_name(member.member) or "").lower():
                 matching_members.append(
                     {
                         "member_id": member.member,
-                        "member_name": member.member_name,
-                        "introduction": member.introduction,
-                        "website_url": member.website_url,
+                        "member_name": self._get_member_name(member.member),
+                        "introduction": "",  # Field doesn't exist in doctype
+                        "website_url": "",  # Field doesn't exist in doctype
                         "enabled": member.enabled,
                     }
                 )
@@ -555,7 +535,7 @@ class MemberManager(BaseManager):
             for member in members:
                 row = [
                     member.get("member_id", ""),
-                    member.get("member_name", ""),
+                    self._get_member_name(member.get("member", "")),
                     member.get("email", ""),
                     member.get("status", ""),
                     member.get("introduction", ""),
@@ -750,7 +730,7 @@ class MemberManager(BaseManager):
                     "Member disabled",
                     {
                         "member": member.member,
-                        "member_name": member.member_name,
+                        "member_name": self._get_member_name(member.member),
                         "reason": member.leave_reason,
                     },
                 )
@@ -767,7 +747,8 @@ class MemberManager(BaseManager):
                 )
 
                 self.log_action(
-                    "Member re-enabled", {"member": member.member, "member_name": member.member_name}
+                    "Member re-enabled",
+                    {"member": member.member, "member_name": self._get_member_name(member.member)},
                 )
 
         # Handle deleted members
@@ -809,7 +790,11 @@ class MemberManager(BaseManager):
 
                 self.log_action(
                     "Member deleted from chapter",
-                    {"member": old_member.member, "member_name": old_member.member_name, "end_date": today()},
+                    {
+                        "member": old_member.member,
+                        "member_name": self._get_member_name(old_member.member),
+                        "end_date": today(),
+                    },
                 )
 
     def handle_member_additions(self, old_doc):
@@ -851,7 +836,7 @@ class MemberManager(BaseManager):
                     "Member added to chapter",
                     {
                         "member": member.member,
-                        "member_name": member.member_name,
+                        "member_name": self._get_member_name(member.member),
                         "join_date": member.chapter_join_date or today(),
                     },
                 )

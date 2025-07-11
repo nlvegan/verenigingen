@@ -1275,7 +1275,6 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         }
 
     @frappe.whitelist()
-    @frappe.whitelist()
     def refresh_subscription_history(self):
         """Refresh the subscription history table with current data"""
         if not self.customer:
@@ -2440,7 +2439,7 @@ def set_member_user_modules(user_name):
         user.set("block_modules", [])
 
         # Get all available modules
-        all_modules = frappe.get_all("Module De", fields=["name"])
+        all_modules = frappe.get_all("Module Def", fields=["name"])
 
         # Block all modules except the allowed ones
         for module in all_modules:

@@ -414,10 +414,15 @@ def submit_application(**kwargs):
                         f"Failed to create pending chapter membership for {member.name} in {suggested_chapter}"
                     )
             except Exception as e:
-                frappe.log_error(
-                    f"Error creating pending chapter membership for {member.name}: {str(e)}",
-                    "Chapter Membership Creation",
-                )
+                # Log error with shorter message to avoid title length issues
+                try:
+                    frappe.log_error(
+                        f"Chapter membership creation failed for {member.name}: {str(e)[:200]}",
+                        "Chapter Setup Error",
+                    )
+                except Exception:
+                    # Fallback: just log to system log if error log creation fails
+                    frappe.logger().error(f"Chapter membership creation failed for {member.name}")
                 # Don't fail the application submission if chapter membership creation fails
 
         # Send notifications

@@ -702,15 +702,15 @@ def create_pending_chapter_membership(member, chapter_name):
     try:
         # Check if chapter exists and is valid
         if not frappe.db.exists("Chapter", chapter_name):
-            frappe.log_error(f"Chapter {chapter_name} does not exist", "Chapter Membership Creation")
+            frappe.log_error(f"Chapter {chapter_name} does not exist", "Chapter Not Found")
             return None
 
         # Check if Chapter Member record already exists for this member and chapter
         existing = frappe.db.exists("Chapter Member", {"member": member.name, "parent": chapter_name})
         if existing:
             frappe.log_error(
-                "Chapter Member record already exists for {member.name} in {chapter_name}",
-                "Chapter Membership Creation",
+                f"Chapter Member record already exists for {member.name} in {chapter_name}",
+                "Chapter Membership Error",
             )
             return existing
 
@@ -742,10 +742,15 @@ def create_pending_chapter_membership(member, chapter_name):
         return chapter_member
 
     except Exception as e:
-        frappe.log_error(
-            f"Error creating pending chapter membership for {member.name} in {chapter_name}: {str(e)}",
-            "Chapter Membership Creation Error",
-        )
+        # Use shorter error message to avoid title length issues
+        try:
+            frappe.log_error(
+                f"Chapter membership creation failed: {str(e)[:150]}",
+                "Chapter Setup Error",
+            )
+        except Exception:
+            # Fallback logging if error log creation fails
+            frappe.logger().error(f"Chapter membership creation failed for {member.name}")
         return None
 
 
@@ -801,7 +806,7 @@ def activate_pending_chapter_membership(member, chapter_name):
     except Exception as e:
         frappe.log_error(
             f"Error activating chapter membership for {member.name} in {chapter_name}: {str(e)}",
-            "Chapter Membership Activation Error",
+            "Chapter Activation Error",
         )
         return None
 
@@ -814,7 +819,7 @@ def create_active_chapter_membership(member, chapter_name):
     try:
         # Check if chapter exists
         if not frappe.db.exists("Chapter", chapter_name):
-            frappe.log_error(f"Chapter {chapter_name} does not exist", "Chapter Membership Creation")
+            frappe.log_error(f"Chapter {chapter_name} does not exist", "Chapter Not Found")
             return None
 
         # Check if Chapter Member record already exists
@@ -860,7 +865,7 @@ def create_active_chapter_membership(member, chapter_name):
     except Exception as e:
         frappe.log_error(
             f"Error creating active chapter membership for {member.name} in {chapter_name}: {str(e)}",
-            "Chapter Membership Creation Error",
+            "Chapter Creation Error",
         )
         return None
 
@@ -917,6 +922,6 @@ def remove_pending_chapter_membership(member, chapter_name=None):
     except Exception as e:
         frappe.log_error(
             f"Error removing pending chapter membership for {member.name} from {chapter_name}: {str(e)}",
-            "Chapter Membership Removal Error",
+            "Chapter Removal Error",
         )
         return False

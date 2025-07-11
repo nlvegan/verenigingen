@@ -24,6 +24,19 @@ frappe.ui.form.on('Member', {
 		// Test if JavaScript is loading
 		console.log('Member form refresh event triggered for:', frm.doc.name || 'new document');
 
+		// Skip API calls for new/unsaved documents
+		if (frm.doc.__islocal || !frm.doc.name || frm.doc.name.startsWith('new-member-')) {
+			// Only initialize basic UI for new documents
+			UIUtils.add_custom_css();
+			UIUtils.setup_payment_history_grid(frm);
+			UIUtils.setup_member_id_display(frm);
+			setup_dutch_naming_fields(frm);
+
+			// Add basic buttons that don't require API calls
+			add_basic_action_buttons(frm);
+			return;
+		}
+
 		// Initialize UI and custom CSS
 		UIUtils.add_custom_css();
 		UIUtils.setup_payment_history_grid(frm);
@@ -218,6 +231,32 @@ frappe.ui.form.on('Member Payment History', {
 });
 
 // ==================== CONSOLIDATED BUTTON SETUP FUNCTIONS ====================
+
+function add_basic_action_buttons(frm) {
+	// Only add buttons that don't require API calls for new documents
+	frm.clear_custom_buttons();
+
+	// Basic creation buttons that don't need saved document
+	if (frm.doc.email && !frm.doc.user) {
+		frm.add_custom_button(__('Create User Account'), function() {
+			create_user_account_dialog(frm);
+		}, __('Create'));
+	}
+
+	if (!frm.doc.customer) {
+		frm.add_custom_button(__('Create Customer'), function() {
+			frm.call({
+				doc: frm.doc,
+				method: 'create_customer',
+				callback: function(r) {
+					if (r.message) {
+						frm.refresh();
+					}
+				}
+			});
+		}, __('Create'));
+	}
+}
 
 function add_consolidated_action_buttons(frm) {
 	// Clear existing custom buttons to avoid duplicates

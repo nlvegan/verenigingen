@@ -353,8 +353,8 @@ def test_simple_field_population(member_id):
         return {"success": False, "error": str(e)}
 
 
-@handle_api_error
 @frappe.whitelist()
+@handle_api_error
 def get_address_members_html_api(member_id):
     """Dedicated API method to get address members HTML - completely separate from document methods"""
     try:
