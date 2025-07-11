@@ -1,0 +1,32 @@
+[
+ {
+  "doctype": "Membership Type",
+  "name": "Monthly Membership",
+  "membership_type": "Monthly Membership",
+  "amount": 3.0,
+  "subscription_period": "Month",
+  "auto_renewal": 1,
+  "description": "Monthly membership subscription - automatically renews every month",
+  "creation": "2025-01-01 00:00:00.000000",
+  "modified": "2025-01-01 00:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "docstatus": 0,
+  "idx": 0
+ },
+ {
+  "doctype": "Membership Type",
+  "name": "Annual Membership",
+  "membership_type": "Annual Membership",
+  "amount": 30.0,
+  "subscription_period": "Year",
+  "auto_renewal": 1,
+  "description": "Annual membership subscription - automatically renews every year with discount",
+  "creation": "2025-01-01 00:00:00.000000",
+  "modified": "2025-01-01 00:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "docstatus": 0,
+  "idx": 0
+ }
+]

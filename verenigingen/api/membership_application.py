@@ -7,7 +7,6 @@ import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
-from verenigingen.utils.api_validators import APIValidator, rate_limit, require_roles, validate_api_input
 from verenigingen.utils.application_helpers import check_application_status as check_application_status_util
 from verenigingen.utils.application_helpers import (
     create_address_from_application,
@@ -39,25 +38,39 @@ from verenigingen.utils.application_notifications import (
 )
 from verenigingen.utils.application_payments import get_payment_methods as get_payment_methods_util
 from verenigingen.utils.application_payments import process_application_payment
-
-# Import our utility modules
-from verenigingen.utils.application_validators import (
-    check_application_eligibility as check_application_eligibility_util,
-)
-from verenigingen.utils.application_validators import validate_address as validate_address_util
-from verenigingen.utils.application_validators import validate_birth_date as validate_birth_date_util
-from verenigingen.utils.application_validators import validate_custom_amount as validate_custom_amount_util
-from verenigingen.utils.application_validators import validate_email as validate_email_util
-from verenigingen.utils.application_validators import validate_membership_amount_selection
-from verenigingen.utils.application_validators import validate_name as validate_name_util
-from verenigingen.utils.application_validators import validate_phone_number as validate_phone_number_util
-from verenigingen.utils.application_validators import validate_postal_code as validate_postal_code_util
-from verenigingen.utils.application_validators import validate_required_fields
 from verenigingen.utils.config_manager import ConfigManager
 
 # Import enhanced utilities
 from verenigingen.utils.error_handling import PermissionError, ValidationError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
+from verenigingen.utils.validation.api_validators import (
+    APIValidator,
+    rate_limit,
+    require_roles,
+    validate_api_input,
+)
+
+# Import our utility modules
+from verenigingen.utils.validation.application_validators import (
+    check_application_eligibility as check_application_eligibility_util,
+)
+from verenigingen.utils.validation.application_validators import validate_address as validate_address_util
+from verenigingen.utils.validation.application_validators import (
+    validate_birth_date as validate_birth_date_util,
+)
+from verenigingen.utils.validation.application_validators import (
+    validate_custom_amount as validate_custom_amount_util,
+)
+from verenigingen.utils.validation.application_validators import validate_email as validate_email_util
+from verenigingen.utils.validation.application_validators import validate_membership_amount_selection
+from verenigingen.utils.validation.application_validators import validate_name as validate_name_util
+from verenigingen.utils.validation.application_validators import (
+    validate_phone_number as validate_phone_number_util,
+)
+from verenigingen.utils.validation.application_validators import (
+    validate_postal_code as validate_postal_code_util,
+)
+from verenigingen.utils.validation.application_validators import validate_required_fields
 
 # Utility functions
 

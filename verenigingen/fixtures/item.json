@@ -1,0 +1,23 @@
+[
+ {
+  "doctype": "Item",
+  "name": "Membership",
+  "item_code": "MEMBERSHIP",
+  "item_name": "Membership",
+  "item_group": "Services",
+  "is_stock_item": 0,
+  "is_sales_item": 1,
+  "is_purchase_item": 0,
+  "is_service_item": 1,
+  "description": "Association membership service item for subscription plans",
+  "disabled": 0,
+  "has_variants": 0,
+  "stock_uom": "Unit",
+  "creation": "2025-01-01 00:00:00.000000",
+  "modified": "2025-01-01 00:00:00.000000",
+  "modified_by": "Administrator",
+  "owner": "Administrator",
+  "docstatus": 0,
+  "idx": 0
+ }
+]

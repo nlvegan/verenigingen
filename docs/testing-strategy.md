@@ -107,7 +107,7 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module test_member
 bench --site dev.veganisme.net run-tests --app verenigingen --coverage
 
 # Run custom test runner
-bench --site dev.veganisme.net execute verenigingen.tests.test_runner_simple.run_comprehensive_tests
+bench --site dev.veganisme.net execute verenigingen.tests.utils.test_runner_simple.run_comprehensive_tests
 ```
 
 ## Test Writing Guidelines

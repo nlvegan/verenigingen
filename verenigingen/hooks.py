@@ -357,6 +357,21 @@ fixtures = [
             ["fieldname", "=", "eboekhouden_grootboek_nummer"],
         ],
     },
+    # Membership Types
+    {
+        "doctype": "Membership Type",
+        "filters": [["name", "in", ["Monthly Membership", "Annual Membership"]]],
+    },
+    # Items
+    {
+        "doctype": "Item",
+        "filters": [["item_code", "=", "MEMBERSHIP"]],
+    },
+    # Subscription Plans
+    {
+        "doctype": "Subscription Plan",
+        "filters": [["name", "in", ["Monthly Membership Plan", "Annual Membership Plan"]]],
+    },
     # Workspaces
     {
         "doctype": "Workspace",

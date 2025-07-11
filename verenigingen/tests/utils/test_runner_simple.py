@@ -11,26 +11,26 @@ import frappe
 # Direct function mappings
 TEST_FUNCTIONS = {
     "quick": [
-        "verenigingen.tests.test_validation_regression.run_validation_regression_suite",
-        "verenigingen.tests.test_runner_wrappers.run_iban_validation_tests",
-        "verenigingen.tests.test_runner_wrappers.run_special_character_tests",
+        "verenigingen.tests.backend.validation.test_validation_regression.run_validation_regression_suite",
+        "verenigingen.tests.utils.test_runner_wrappers.run_iban_validation_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_special_character_tests",
     ],
     "comprehensive": [
-        "verenigingen.tests.test_validation_regression.run_validation_regression_suite",
-        "verenigingen.tests.test_runner_wrappers.run_all_doctype_validation_tests",
-        "verenigingen.tests.test_runner_wrappers.run_all_security_tests",
-        "verenigingen.tests.test_runner_wrappers.run_all_tests",
-        "verenigingen.tests.test_runner_wrappers.run_expense_integration_tests",
-        "verenigingen.tests.test_runner_wrappers.run_all_sepa_tests",
-        "verenigingen.tests.test_runner_wrappers.run_all_portal_tests",
-        "verenigingen.tests.test_runner_wrappers.run_all_termination_tests",
-        "verenigingen.tests.test_runner_wrappers.run_workflow_tests",
-        "verenigingen.tests.test_runner_wrappers.run_transition_tests",
+        "verenigingen.tests.backend.validation.test_validation_regression.run_validation_regression_suite",
+        "verenigingen.tests.utils.test_runner_wrappers.run_all_doctype_validation_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_all_security_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_all_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_expense_integration_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_all_sepa_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_all_portal_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_all_termination_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_workflow_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_transition_tests",
     ],
     "scheduled": [
-        "verenigingen.tests.test_runner_wrappers.run_performance_tests",
-        "verenigingen.tests.test_runner_wrappers.run_payment_failure_tests",
-        "verenigingen.tests.test_runner_wrappers.run_financial_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_performance_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_payment_failure_tests",
+        "verenigingen.tests.utils.test_runner_wrappers.run_financial_tests",
     ],
 }
 

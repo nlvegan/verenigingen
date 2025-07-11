@@ -4,12 +4,17 @@ This directory contains organized debug, test, validation, setup, and migration 
 
 ## Directory Structure
 
+- **`admin/`** - Administrative operations and system management
+- **`api_maintenance/`** - API maintenance scripts (moved from API directory)
 - **`debug/`** - Debug and troubleshooting scripts organized by component
 - **`testing/`** - Test scripts and test runners organized by type
 - **`validation/`** - Feature and migration validation scripts
 - **`setup/`** - Setup and configuration scripts
 - **`migration/`** - Data migration scripts
 - **`tools/`** - Developer tools and helpers
+- **`optimization/`** - Performance optimization and monitoring scripts
+- **`deployment/`** - Deployment-related scripts and checks
+- **`monitoring/`** - System monitoring integration scripts
 
 ## Usage
 

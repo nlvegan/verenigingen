@@ -59,7 +59,7 @@ repos:
     hooks:
       - id: run-quick-tests
         name: Run quick validation tests
-        entry: bash -c 'cd /home/frappe/frappe-bench && bench --site dev.veganisme.net execute verenigingen.tests.test_runner_simple.run_quick_tests || echo "Tests failed but continuing commit"'
+        entry: bash -c 'cd /home/frappe/frappe-bench && bench --site dev.veganisme.net execute verenigingen.tests.utils.quick_validation.run_quick_tests || echo "Tests failed but continuing commit"'
         language: system
         pass_filenames: false
         always_run: true

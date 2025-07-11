@@ -12,7 +12,7 @@ import frappe
 def run_iban_validation_tests():
     """Run IBAN validation tests"""
     try:
-        from verenigingen.tests.test_iban_validator import run_tests
+        from verenigingen.tests.backend.validation.test_iban_validator import run_tests
 
         run_tests()
         return {"success": True, "message": "IBAN validation tests completed"}
@@ -27,7 +27,7 @@ def run_special_character_tests():
         # Run the tests using unittest
         import unittest
 
-        from verenigingen.tests import test_special_characters_validation
+        from verenigingen.tests.backend.security import test_special_characters_validation
 
         suite = unittest.TestLoader().loadTestsFromModule(test_special_characters_validation)
         runner = unittest.TextTestRunner(verbosity=2)
@@ -51,7 +51,7 @@ def run_special_character_tests():
 def run_all_doctype_validation_tests():
     """Run all doctype validation tests"""
     try:
-        from verenigingen.tests.test_doctype_validation_comprehensive import run_doctype_validation_tests
+        from verenigingen.tests.backend.comprehensive.test_doctype_validation_comprehensive import run_doctype_validation_tests
 
         return run_doctype_validation_tests()
     except Exception as e:
@@ -62,7 +62,7 @@ def run_all_doctype_validation_tests():
 def run_all_security_tests():
     """Run all security tests"""
     try:
-        from verenigingen.tests.test_security_comprehensive import run_all_security_tests
+        from verenigingen.tests.backend.security.test_security_comprehensive import run_all_security_tests
 
         return run_all_security_tests()
     except Exception as e:
@@ -73,7 +73,7 @@ def run_all_security_tests():
 def run_all_tests():
     """Run comprehensive edge case tests"""
     try:
-        from verenigingen.tests.test_comprehensive_edge_cases import run_all_tests
+        from verenigingen.tests.backend.comprehensive.test_comprehensive_edge_cases import run_all_tests
 
         return run_all_tests()
     except Exception as e:
@@ -87,7 +87,7 @@ def run_expense_integration_tests():
         # Import test class and run
         import unittest
 
-        from verenigingen.tests.test_erpnext_expense_integration import TestERPNextExpenseIntegration
+        from verenigingen.tests.backend.comprehensive.test_erpnext_expense_integration import TestERPNextExpenseIntegration
 
         suite = unittest.TestLoader().loadTestsFromTestCase(TestERPNextExpenseIntegration)
         runner = unittest.TextTestRunner(verbosity=2)
@@ -108,7 +108,7 @@ def run_expense_integration_tests():
 def run_all_sepa_tests():
     """Run all SEPA tests"""
     try:
-        from verenigingen.tests.test_sepa_mandate_creation import run_all_sepa_tests
+        from verenigingen.tests.backend.security.test_sepa_mandate_creation import run_all_sepa_tests
 
         return run_all_sepa_tests()
     except Exception as e:
@@ -121,7 +121,7 @@ def run_all_portal_tests():
     try:
         import unittest
 
-        from verenigingen.tests.test_volunteer_portal_integration import TestVolunteerPortalIntegration
+        from verenigingen.tests.backend.comprehensive.test_volunteer_portal_integration import TestVolunteerPortalIntegration
 
         suite = unittest.TestLoader().loadTestsFromTestCase(TestVolunteerPortalIntegration)
         runner = unittest.TextTestRunner(verbosity=2)
@@ -142,7 +142,7 @@ def run_all_portal_tests():
 def run_all_termination_tests():
     """Run all termination system tests"""
     try:
-        from verenigingen.tests.test_termination_system_comprehensive import run_all_termination_tests
+        from verenigingen.tests.backend.comprehensive.test_termination_system_comprehensive import run_all_termination_tests
 
         return run_all_termination_tests()
     except Exception as e:
@@ -155,7 +155,7 @@ def run_workflow_tests():
     try:
         import unittest
 
-        from verenigingen.tests.test_chapter_membership_workflow import TestChapterMembershipWorkflow
+        from verenigingen.tests.backend.comprehensive.test_chapter_membership_workflow import TestChapterMembershipWorkflow
 
         suite = unittest.TestLoader().loadTestsFromTestCase(TestChapterMembershipWorkflow)
         runner = unittest.TextTestRunner(verbosity=2)
@@ -176,7 +176,7 @@ def run_workflow_tests():
 def run_transition_tests():
     """Run member status transition tests"""
     try:
-        from verenigingen.tests.test_member_status_transitions import run_all_transition_tests
+        from verenigingen.tests.backend.comprehensive.test_member_status_transitions import run_all_transition_tests
 
         return run_all_transition_tests()
     except Exception as e:
@@ -190,7 +190,7 @@ def run_transition_tests():
 def run_performance_tests():
     """Run performance edge case tests"""
     try:
-        from verenigingen.tests.test_performance_edge_cases import run_performance_tests
+        from verenigingen.tests.backend.comprehensive.test_performance_edge_cases import run_performance_tests
 
         return run_performance_tests()
     except Exception as e:
@@ -201,7 +201,7 @@ def run_performance_tests():
 def run_payment_failure_tests():
     """Run payment failure scenario tests"""
     try:
-        from verenigingen.tests.test_payment_failure_scenarios import run_all_payment_failure_tests
+        from verenigingen.tests.backend.comprehensive.test_payment_failure_scenarios import run_all_payment_failure_tests
 
         return run_all_payment_failure_tests()
     except Exception as e:
@@ -212,7 +212,7 @@ def run_payment_failure_tests():
 def run_financial_tests():
     """Run financial integration edge case tests"""
     try:
-        from verenigingen.tests.test_financial_integration_edge_cases import run_all_financial_tests
+        from verenigingen.tests.backend.comprehensive.test_financial_integration_edge_cases import run_all_financial_tests
 
         return run_all_financial_tests()
     except Exception as e:
