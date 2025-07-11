@@ -69,7 +69,6 @@ jobs:
       - name: Install Dependencies
         run: |
           bash ${{ github.workspace }}/.github/scripts/install-dependencies.sh
-          pip install frappe-bench
           bench init --skip-redis-config-generation frappe-bench
           cd frappe-bench
           bench get-app verenigingen ${{ github.workspace }}
@@ -80,20 +79,28 @@ jobs:
           bench new-site test-site --db-root-password root --admin-password admin
           bench --site test-site install-app verenigingen
           bench --site test-site add-to-hosts
+          bench --site test-site migrate
 
       - name: Install Cypress
         run: |
           cd frappe-bench/apps/verenigingen
-          yarn add cypress @cypress/code-coverage @testing-library/cypress cypress-real-events --save-dev
+          if [ -f "package.json" ]; then
+            yarn install
+            yarn add cypress @cypress/code-coverage @testing-library/cypress cypress-real-events --save-dev
+          else
+            echo "No package.json found, skipping Cypress installation"
+            exit 0
+          fi
 
       - name: Run Cypress Tests
+        if: hashFiles('frappe-bench/apps/verenigingen/cypress/**/*') != ''
         uses: cypress-io/github-action@v6
         with:
           working-directory: frappe-bench/apps/verenigingen
           start: cd ../.. && bench start
           wait-on: 'http://test-site:8000'
           wait-on-timeout: 120
-          record: true
+          record: false
           parallel: true
           group: 'UI Tests'
         env:
@@ -102,9 +109,10 @@ jobs:
           CYPRESS_baseUrl: http://test-site:8000
 
       - name: Upload Coverage
-        if: always()
+        if: always() && hashFiles('frappe-bench/apps/verenigingen/coverage/**/*') != ''
         uses: codecov/codecov-action@v4
         with:
           directory: frappe-bench/apps/verenigingen/coverage
           flags: ui-tests
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
