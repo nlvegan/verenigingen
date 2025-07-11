@@ -110,7 +110,7 @@ def validate_invoice_mandate(invoice, member):
             return {"valid": False, "error": _("No active SEPA mandate")}
 
         # Validate IBAN
-        from verenigingen.utils.iban_validator import validate_iban
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
         iban_validation = validate_iban(mandate.iban)
 

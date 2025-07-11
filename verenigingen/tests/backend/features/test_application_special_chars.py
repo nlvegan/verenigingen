@@ -24,7 +24,7 @@ def test_membership_application_special_characters():
         }
 
         # Test the validation functions first
-        from verenigingen.utils.application_validators import check_application_eligibility, validate_name
+        from verenigingen.utils.validation.application_validators import check_application_eligibility, validate_name
 
         # Test name validation
         first_name_result = validate_name(test_data["first_name"], "First Name")

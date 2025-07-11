@@ -264,7 +264,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                             "send_welcome_email": 0,
                         }
                     )
-                    user.append("roles", {"role": "Member"})
+                    user.append("roles", {"role": "Verenigingen Member"})
                     user.insert(ignore_permissions=True)
                     self.track_doc("User", user.name)
                 else:
@@ -308,7 +308,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
         self.assertTrue(user.enabled)
 
         roles = [role.role for role in user.roles]
-        self.assertIn("Member", roles)
+        self.assertIn("Verenigingen Member", roles)
 
     # Stage 4: Process Initial Payment
     def _stage_4_process_payment(self, context):

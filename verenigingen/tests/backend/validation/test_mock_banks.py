@@ -6,7 +6,7 @@ import unittest
 
 import frappe
 
-from verenigingen.utils.iban_validator import (
+from verenigingen.utils.validation.iban_validator import (
     derive_bic_from_iban,
     generate_test_iban,
     get_bank_from_iban,

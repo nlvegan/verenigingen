@@ -162,7 +162,7 @@ def create_address_from_application(data):
         return None
 
     # Import here to avoid circular imports
-    from verenigingen.utils.application_validators import validate_name
+    from verenigingen.utils.validation.application_validators import validate_name
 
     # Sanitize names for address title
     first_name = data.get("first_name", "")
@@ -202,7 +202,7 @@ def create_address_from_application(data):
 def create_member_from_application(data, application_id, address=None):
     """Create member record from application data"""
     # Import here to avoid circular imports
-    from verenigingen.utils.application_validators import validate_name
+    from verenigingen.utils.validation.application_validators import validate_name
 
     # Sanitize names before creating member record
     first_name = data.get("first_name", "")

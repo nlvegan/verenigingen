@@ -268,7 +268,7 @@ class TestDataFactory:
 
     def generate_test_iban(self, bank_code=None):
         """Generate a valid test IBAN using mock banks"""
-        from verenigingen.utils.iban_validator import generate_test_iban
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
         
         if not bank_code:
             # Randomly choose from available mock banks

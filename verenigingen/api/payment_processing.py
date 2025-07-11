@@ -8,7 +8,6 @@ import frappe
 from frappe import _
 from frappe.utils import flt, today
 
-from verenigingen.utils.api_validators import APIValidator, rate_limit, require_roles, validate_api_input
 from verenigingen.utils.config_manager import ConfigManager
 from verenigingen.utils.error_handling import (
     PermissionError,
@@ -18,6 +17,12 @@ from verenigingen.utils.error_handling import (
     validate_required_fields,
 )
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
+from verenigingen.utils.validation.api_validators import (
+    APIValidator,
+    rate_limit,
+    require_roles,
+    validate_api_input,
+)
 
 
 @frappe.whitelist()

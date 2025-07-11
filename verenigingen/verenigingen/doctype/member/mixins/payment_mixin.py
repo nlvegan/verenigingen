@@ -264,7 +264,11 @@ class PaymentMixin:
         if not iban:
             return None
 
-        from verenigingen.utils.iban_validator import derive_bic_from_iban, format_iban, validate_iban
+        from verenigingen.utils.validation.iban_validator import (
+            derive_bic_from_iban,
+            format_iban,
+            validate_iban,
+        )
 
         # Validate IBAN
         validation_result = validate_iban(iban)

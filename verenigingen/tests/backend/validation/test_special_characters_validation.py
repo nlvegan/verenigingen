@@ -15,7 +15,7 @@ class TestSpecialCharactersValidation(unittest.TestCase):
 
     def test_validate_name_with_accented_characters(self):
         """Test name validation with accented characters"""
-        from verenigingen.utils.application_validators import validate_name
+        from verenigingen.utils.validation.application_validators import validate_name
 
         # Test cases with accented characters
         test_names = ["José", "García", "François", "Müller", "Björn"]
@@ -28,7 +28,7 @@ class TestSpecialCharactersValidation(unittest.TestCase):
 
     def test_validate_name_with_hyphens_and_apostrophes(self):
         """Test name validation with hyphens and apostrophes"""
-        from verenigingen.utils.application_validators import validate_name
+        from verenigingen.utils.validation.application_validators import validate_name
 
         # Test cases with hyphens and apostrophes
         test_names = ["Anne-Marie", "O'Connor", "Van der Berg", "D'Angelo"]
@@ -41,7 +41,7 @@ class TestSpecialCharactersValidation(unittest.TestCase):
 
     def test_validate_name_with_invalid_characters(self):
         """Test name validation rejects invalid characters"""
-        from verenigingen.utils.application_validators import validate_name
+        from verenigingen.utils.validation.application_validators import validate_name
 
         # Test cases with invalid characters
         invalid_names = ["<script>", "javascript:", "test@email", "name&symbol", "user<tag>"]
@@ -53,7 +53,7 @@ class TestSpecialCharactersValidation(unittest.TestCase):
 
     def test_validate_name_sanitization(self):
         """Test that names are properly sanitized"""
-        from verenigingen.utils.application_validators import validate_name
+        from verenigingen.utils.validation.application_validators import validate_name
 
         # Test case with extra whitespace
         result = validate_name("  José García  ", "Test Name")
@@ -107,7 +107,7 @@ def run_tests():
 def test_special_character_validation():
     """Whitelisted function to test special character validation"""
     try:
-        from verenigingen.utils.application_validators import validate_name
+        from verenigingen.utils.validation.application_validators import validate_name
 
         test_cases = [
             {"name": "José", "should_pass": True},

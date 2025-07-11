@@ -85,7 +85,7 @@ class DirectDebitBatch(Document):
             # BIC is optional - can be derived from IBAN
             if not getattr(settings, "company_bic", None) and getattr(settings, "company_iban", None):
                 # Try to derive BIC from IBAN
-                from verenigingen.utils.iban_validator import derive_bic_from_iban
+                from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 
                 derived_bic = derive_bic_from_iban(settings.company_iban)
                 if derived_bic:
@@ -455,7 +455,7 @@ def update_membership_payment_status(membership_name):
 
 def get_bic_from_iban(iban):
     """Try to determine BIC from IBAN - use enhanced validator"""
-    from verenigingen.utils.iban_validator import derive_bic_from_iban
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 
     return derive_bic_from_iban(iban)
 

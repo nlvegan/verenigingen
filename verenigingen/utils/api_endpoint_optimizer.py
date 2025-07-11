@@ -94,7 +94,7 @@ from verenigingen.utils.error_handling import (
     validate_required_fields, log_error
 )
 from verenigingen.utils.performance_utils import performance_monitor, QueryOptimizer, cached
-from verenigingen.utils.api_validators import (
+from verenigingen.utils.validation.api_validators import (
     validate_api_input, APIValidator, require_roles, rate_limit
 )
 from verenigingen.utils.config_manager import ConfigManager

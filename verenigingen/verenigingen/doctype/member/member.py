@@ -780,7 +780,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
 
             # Use the improved validation from application_validators
             try:
-                from verenigingen.utils.application_validators import validate_name
+                from verenigingen.utils.validation.application_validators import validate_name
 
                 field_value = getattr(self, field)
                 field_name = field.replace("_", " ").title()
@@ -2201,7 +2201,7 @@ def create_and_link_mandate_enhanced(
             return {"success": False, "error": f"Member {member} does not exist"}
 
         # Validate IBAN format
-        from verenigingen.utils.iban_validator import validate_iban
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
         iban_validation = validate_iban(iban)
         if not iban_validation.get("valid"):

@@ -10,7 +10,11 @@ class MemberIBANHistory(Document):
     def validate(self):
         # Validate IBAN format
         if self.iban:
-            from verenigingen.utils.iban_validator import derive_bic_from_iban, format_iban, validate_iban
+            from verenigingen.utils.validation.iban_validator import (
+                derive_bic_from_iban,
+                format_iban,
+                validate_iban,
+            )
 
             # Validate IBAN
             validation_result = validate_iban(self.iban)

@@ -22,7 +22,7 @@ from verenigingen.tests.test_framework_enhanced import (
 )
 from verenigingen.utils.error_handling import ValidationError, PermissionError
 from verenigingen.utils.performance_utils import CacheManager
-from verenigingen.utils.api_validators import APIValidator
+from verenigingen.utils.validation.api_validators import APIValidator
 from verenigingen.utils.config_manager import ConfigManager
 
 
