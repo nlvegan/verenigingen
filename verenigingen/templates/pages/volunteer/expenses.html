@@ -9,32 +9,66 @@
 
 {% block style %}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 <style>
-/* Fallback colors if brand CSS variables aren't loaded */
-:root {
-    --brand-primary: #cf3131;
-    --brand-secondary: #01796f;
-    --brand-primary-dark: #a52828;
+/* No custom gradient needed - using standard brand classes */
+
+/* Override hardcoded focus colors with brand colors */
+.focus\:ring-red-500:focus {
+    --tw-ring-color: var(--brand-primary) !important;
 }
 
-/* Fallback gradients for browsers that don't support color-mix() */
-.gradient-primary-to-dark {
-    background: linear-gradient(to right, var(--brand-primary), var(--brand-primary-dark))!important;
+.focus\:border-red-500:focus {
+    border-color: var(--brand-primary) !important;
 }
 
-/* Modern browsers with color-mix support */
-@supports (color: color-mix(in srgb, red, blue)) {
-    .gradient-primary-to-dark {
-        background: linear-gradient(to right, var(--brand-primary), color-mix(in srgb, var(--brand-primary) 70%, black))!important;
-    }
+/* Custom focus styles for inputs */
+input:focus, select:focus, textarea:focus {
+    border-color: var(--brand-primary) !important;
+    box-shadow: 0 0 0 3px rgba(var(--brand-primary-rgb), 0.1) !important;
 }
+
+/* Alert styling */
+.alert-success {
+    background-color: var(--brand-success-light) !important;
+    color: var(--brand-success) !important;
+    border-color: var(--brand-success) !important;
+}
+
+.alert-danger {
+    background-color: var(--brand-error-light) !important;
+    color: var(--brand-error) !important;
+    border-color: var(--brand-error) !important;
+}
+
+.alert-info {
+    background-color: var(--brand-info-light) !important;
+    color: var(--brand-info) !important;
+    border-color: var(--brand-info) !important;
+}
+
+/* Improve text contrast */
+.text-gray-600 {
+    color: #4b5563 !important; /* Darker gray for better contrast */
+}
+
+.text-gray-500 {
+    color: #6b7280 !important; /* Darker gray for better contrast */
+}
+
+.text-gray-700 {
+    color: #374151 !important; /* Even darker for labels */
+}
+
+/* All gradient styling removed - using standard brand classes */
 </style>
 {% endblock %}
 
 {% block page_content %}
 <div class="max-w-7xl mx-auto p-8">
     {% if error_message %}
-        <div class="bg-red-50 border border-red-200 text-red-800 p-4 rounded-lg mb-6">
+        <div class="p-4 rounded-lg mb-6" style="background-color: var(--brand-error-light); border: 1px solid var(--brand-error); color: var(--brand-error);">
             <div class="flex items-center">
                 <i class="fa fa-exclamation-triangle mr-3"></i>
                 <span>{{ error_message }}</span>
@@ -42,7 +76,7 @@
         </div>
     {% else %}
         <!-- Portal Header -->
-        <div class="gradient-primary-to-dark text-white p-8 rounded-xl mb-8 text-center">
+        <div class="bg-primary-600 text-white p-8 rounded-xl mb-8 text-center">
             <h1 class="text-4xl font-light mb-2">{{ _("Volunteer Expenses") }}</h1>
             <p class="text-xl opacity-90">{{ _("Submit and track your volunteer expenses") }}</p>
         </div>
@@ -161,10 +195,10 @@
                     <p class="text-sm text-gray-600 mt-1">
                         {{ _("Upload receipt or invoice (JPG, PNG, PDF, DOC formats accepted)") }}
                     </p>
-                    <div class="bg-green-50 border border-green-200 rounded-md p-3 mt-2">
+                    <div class="rounded-md p-3 mt-2" style="background-color: var(--brand-success-light); border: 1px solid var(--brand-success);">
                         <div class="flex items-start">
-                            <i class="fa fa-check-circle text-green-600 mr-2 mt-0.5"></i>
-                            <div class="text-sm text-green-800">
+                            <i class="fa fa-check-circle mr-2 mt-0.5" style="color: var(--brand-success);"></i>
+                            <div class="text-sm" style="color: var(--brand-success);">
                                 <strong>{{ _("Info:") }}</strong>
                                 {{ _("Receipts will be automatically attached to your expense claim in ERPNext for administrator review.") }}
                             </div>
@@ -177,10 +211,10 @@
                     <textarea id="notes" name="notes" rows="4"
                               class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-red-500 focus:border-red-500 resize-y"
                               placeholder="{{ _('Any additional information about this expense...\n\nIMPORTANT: If reimbursement should be paid to a different bank account than on file, please provide the complete bank details here (IBAN, account holder name, bank name).') }}"></textarea>
-                    <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3 mt-2">
+                    <div class="rounded-md p-3 mt-2" style="background-color: var(--brand-warning-light); border: 1px solid var(--brand-warning);">
                         <div class="flex items-start">
-                            <i class="fa fa-info-circle text-yellow-600 mr-2 mt-0.5"></i>
-                            <div class="text-sm text-yellow-800">
+                            <i class="fa fa-info-circle mr-2 mt-0.5" style="color: var(--brand-warning);"></i>
+                            <div class="text-sm" style="color: var(--brand-warning);">
                                 <strong>{{ _("Bank Account Reminder:") }}</strong>
                                 {{ _("By default, reimbursements will be paid to your bank account on file. If you need payment to a different account, please include complete bank details (IBAN, account holder name, bank name) in the notes above.") }}
                             </div>
@@ -189,7 +223,7 @@
                 </div>
 
                 <div class="mt-8">
-                    <button type="submit" class="gradient-primary-to-dark w-full text-white font-medium py-3 px-6 rounded-md transition-all duration-200 transform hover:-translate-y-0.5 hover:shadow-lg disabled:transform-none disabled:shadow-none disabled:cursor-not-allowed" id="submit-btn">
+                    <button type="submit" class="bg-primary-600 hover:bg-primary-700 w-full text-white font-medium py-3 px-6 rounded-md transition-all duration-200 transform hover:-translate-y-0.5 hover:shadow-lg disabled:transform-none disabled:shadow-none disabled:cursor-not-allowed" id="submit-btn">
                         <i class="fa fa-paper-plane mr-2"></i>
                         {{ _("Submit Expense") }}
                     </button>
@@ -223,12 +257,12 @@
                                     {{ expense.formatted_date }}
                                 </span>
                                 <span class="inline-block px-3 py-1 rounded-full text-xs font-medium min-w-20 text-center
-                                    {% if expense.status_class == 'badge-warning' %}bg-yellow-100 text-yellow-800
-                                    {% elif expense.status_class == 'badge-success' %}bg-green-100 text-green-800
-                                    {% elif expense.status_class == 'badge-danger' %}bg-red-100 text-red-800
-                                    {% elif expense.status_class == 'badge-secondary' %}bg-gray-100 text-gray-800
-                                    {% elif expense.status_class == 'badge-primary' %}bg-blue-100 text-blue-800
-                                    {% else %}bg-gray-100 text-gray-800{% endif %}">
+                                    {% if expense.status_class == 'badge-warning' %}" style="background-color: var(--brand-warning-light); color: var(--brand-warning);"
+                                    {% elif expense.status_class == 'badge-success' %}" style="background-color: var(--brand-success-light); color: var(--brand-success);"
+                                    {% elif expense.status_class == 'badge-danger' %}" style="background-color: var(--brand-error-light); color: var(--brand-error);"
+                                    {% elif expense.status_class == 'badge-secondary' %}bg-gray-100 text-gray-800"
+                                    {% elif expense.status_class == 'badge-primary' %}" style="background-color: var(--brand-info-light); color: var(--brand-info);"
+                                    {% else %}bg-gray-100 text-gray-800" {% endif %}
                                     {{ _(expense.status) }}
                                 </span>
                             </div>
@@ -588,51 +622,7 @@ if (document.readyState === 'loading') {
     initExpenseForm();
 }
 
-// Load brand CSS after Frappe is ready
-function loadBrandCSS() {
-    if (typeof frappe !== 'undefined' && frappe.call) {
-        frappe.call({
-            method: 'verenigingen.templates.pages.brand_css.serve_brand_css',
-            callback: function(r) {
-                if (r.message) {
-                    // Remove any existing dynamic brand CSS
-                    var existingStyle = document.getElementById('brand-css-dynamic');
-                    if (existingStyle) {
-                        existingStyle.remove();
-                    }
-
-                    var style = document.createElement('style');
-                    style.type = 'text/css';
-                    style.innerHTML = r.message;
-                    style.id = 'brand-css-dynamic';
-                    document.head.appendChild(style);
-                    console.log('Brand CSS loaded successfully');
-                } else {
-                    console.warn('Brand CSS API returned empty response');
-                }
-            },
-            error: function(xhr, status, error) {
-                console.warn('Failed to load brand CSS:', {xhr: xhr, status: status, error: error});
-                // Continue with fallback colors - they're already loaded
-            }
-        });
-    } else {
-        // Retry after 100ms if frappe is not ready (max 50 attempts = 5 seconds)
-        if (!loadBrandCSS.attempts) loadBrandCSS.attempts = 0;
-        if (loadBrandCSS.attempts < 50) {
-            loadBrandCSS.attempts++;
-            setTimeout(loadBrandCSS, 100);
-        } else {
-            console.warn('Frappe not available after 5 seconds, using fallback brand colors');
-        }
-    }
-}
-
-// Start loading brand CSS when page is ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', loadBrandCSS);
-} else {
-    loadBrandCSS();
-}
+// Brand CSS is now loaded via the macro approach like other pages
+// No additional JavaScript loading needed
 </script>
 {% endblock %}

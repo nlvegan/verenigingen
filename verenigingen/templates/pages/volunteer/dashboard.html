@@ -3,6 +3,9 @@
 {% block title %}{{ _("Volunteer Dashboard") }}{% endblock %}
 
 {% block head_include %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 <style>
     .volunteer-dashboard {
         max-width: 1200px;
@@ -11,7 +14,7 @@
     }
 
     .dashboard-header {
-        background: linear-gradient(135deg, #663399 0%, #cf3131 100%);
+        background: linear-gradient(135deg, var(--brand-accent) 0%, var(--brand-primary) 100%);
         color: white;
         padding: 30px;
         border-radius: 10px;
@@ -112,7 +115,7 @@
         padding: 20px;
         background: #f8f9fa;
         border-radius: 8px;
-        border-left: 4px solid #663399;
+        border-left: 4px solid var(--brand-accent);
     }
 
     .stat-item h4 {
@@ -152,9 +155,9 @@
         color: white;
     }
 
-    .activity-icon.assignment { background: #28a745; }
-    .activity-icon.expense { background: #17a2b8; }
-    .activity-icon.task { background: #ffc107; color: #333; }
+    .activity-icon.assignment { background: var(--brand-success); }
+    .activity-icon.expense { background: var(--brand-info); }
+    .activity-icon.task { background: var(--brand-warning); color: #333; }
 
     .activity-content {
         flex: 1;
@@ -203,12 +206,12 @@
         border-radius: 20px;
         font-size: 0.85rem;
         font-weight: 600;
-        background: #663399;
+        background: var(--brand-accent);
         color: white;
     }
 
     .org-type.team {
-        background: #01796f;
+        background: var(--brand-secondary);
     }
 
     .profile-info {

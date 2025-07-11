@@ -2,18 +2,77 @@
 
 {% block title %}{{ _("My Account") }}{% endblock %}
 
+{% block head_include %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+.account-container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 2rem;
+}
+
+.account-card {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    margin: 1rem 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.account-card h3 {
+    color: var(--brand-primary);
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--brand-primary);
+    padding-bottom: 0.5rem;
+}
+
+.error-message {
+    background: var(--brand-error-light);
+    color: var(--brand-error);
+    padding: 1rem;
+    border-radius: 4px;
+    margin: 1rem 0;
+    border: 1px solid var(--brand-error);
+}
+
+.quick-links ul {
+    list-style: none;
+    padding: 0;
+}
+
+.quick-links li {
+    margin-bottom: 0.5rem;
+}
+
+.quick-links a {
+    color: var(--brand-primary);
+    text-decoration: none;
+    padding: 0.5rem 0;
+    display: block;
+    transition: color 0.2s ease;
+}
+
+.quick-links a:hover {
+    color: var(--brand-primary-dark);
+    text-decoration: underline;
+}
+</style>
+{% endblock %}
+
 {% block page_content %}
-<div style="max-width: 800px; margin: 2rem auto; padding: 2rem;">
+<div class="account-container">
     <h1>{{ _("My Account") }}</h1>
 
     {% if error_message %}
-    <div style="background: #f8d7da; color: #721c24; padding: 1rem; border-radius: 4px; margin: 1rem 0;">
+    <div class="error-message">
         {{ error_message }}
     </div>
     {% endif %}
 
     {% if member %}
-    <div style="background: white; padding: 2rem; border-radius: 8px; margin: 1rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div class="account-card">
         <h3>{{ _("Account Information") }}</h3>
         <p><strong>{{ _("Name") }}:</strong> {{ member.full_name }}</p>
         <p><strong>{{ _("Email") }}:</strong> {{ member.email }}</p>
@@ -23,7 +82,7 @@
     {% endif %}
 
     {% if has_user_info %}
-    <div style="background: white; padding: 2rem; border-radius: 8px; margin: 1rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div class="account-card">
         <h3>{{ _("User Information") }}</h3>
         <p><strong>{{ _("Email") }}:</strong> {{ user_email }}</p>
         <p><strong>{{ _("User Type") }}:</strong> {{ user_type }}</p>
@@ -34,7 +93,7 @@
     </div>
     {% endif %}
 
-    <div style="background: white; padding: 2rem; border-radius: 8px; margin: 1rem 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+    <div class="account-card quick-links">
         <h3>{{ _("Quick Links") }}</h3>
         <ul>
             <li><a href="/member_portal">{{ _("Member Portal") }}</a></li>

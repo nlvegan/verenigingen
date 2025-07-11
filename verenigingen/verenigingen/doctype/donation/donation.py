@@ -163,7 +163,7 @@ class Donation(Document):
         if self.donation_purpose_type == "General":
             return "General Fund"
         elif self.donation_purpose_type == "Campaign":
-            return f"Campaign: {self.campaign_reference}"
+            return f"Campaign: {self.donation_campaign}"
         elif self.donation_purpose_type == "Chapter":
             chapter_name = frappe.db.get_value("Chapter", self.chapter_reference, "chapter_name")
             return f"Chapter: {chapter_name or self.chapter_reference}"
@@ -210,7 +210,7 @@ class Donation(Document):
             if chapter_account:
                 credit_account = chapter_account
 
-        elif self.donation_purpose_type == "Campaign" and self.campaign_reference:
+        elif self.donation_purpose_type == "Campaign" and self.donation_campaign:
             # For campaigns, use a campaign-specific account if configured
             # This could be expanded to link to a Campaign doctype with accounts
             pass

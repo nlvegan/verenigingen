@@ -259,8 +259,9 @@ class Membership(Document):
             amount = membership_type.amount
 
             # Apply discount if present
-            if hasattr(self, "discount_percentage") and self.discount_percentage:
-                amount = amount * (1 - self.discount_percentage / 100)
+            # TODO: Add discount_percentage field if discount functionality is needed
+            # if hasattr(self, "discount_percentage") and self.discount_percentage:
+            #     amount = amount * (1 - self.discount_percentage / 100)
 
         self.effective_amount = amount
         self.membership_fee = amount

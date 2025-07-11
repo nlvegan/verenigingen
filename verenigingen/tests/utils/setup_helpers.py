@@ -25,7 +25,6 @@ class TestEnvironmentSetup:
             region = frappe.get_doc(
                 {
                     "doctype": "Region",
-                    "name": "Test Region",  # Set the name explicitly
                     "region_name": "Test Region",
                     "region_code": "TR",
                     "country": "Netherlands",

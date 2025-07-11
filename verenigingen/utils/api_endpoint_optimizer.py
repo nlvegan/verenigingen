@@ -209,7 +209,7 @@ from verenigingen.utils.config_manager import ConfigManager
 
         # Replace basic exception handling
         content = re.sub(
-            rf'except Exception as e:\s*\n\s*return {"success": False, "error": str\(e\)}',
+            r'except Exception as e:\s*\n\s*return \{"success": False, "error": str\(e\)\}',
             r'except Exception as e:\n        log_error(f"Unexpected error: {str(e)}", "API Error")\n        raise',
             content,
         )

@@ -671,6 +671,14 @@ def map_erpnext_status_to_volunteer_status(erpnext_status, approval_status):
             return "Rejected"
         else:
             return "Submitted"
+    elif erpnext_status == "Unpaid":
+        # Unpaid means it's been processed (approved/rejected)
+        if approval_status == "Approved":
+            return "Approved"
+        elif approval_status == "Rejected":
+            return "Rejected"
+        else:
+            return "Submitted"
     elif erpnext_status == "Paid":
         return "Reimbursed"
     elif erpnext_status == "Cancelled":
@@ -769,46 +777,27 @@ def get_expense_statistics(volunteer_name):
                 amount = flt(claim.total_claimed_amount)
                 status = map_erpnext_status_to_volunteer_status(claim.status, claim.approval_status)
 
-                if status in ["Submitted", "Approved", "Reimbursed"]:
-                    total_submitted += amount
-                    total_count += 1
+                total_count += 1
+
+                # All expenses count toward total_submitted
+                total_submitted += amount
 
                 if status == "Approved":
-                    total_approved += flt(claim.total_sanctioned_amount or amount)
+                    sanctioned_amount = flt(claim.total_sanctioned_amount or amount)
+                    total_approved += sanctioned_amount
                     approved_count += 1
-                elif status == "Submitted":
+                elif status == "Awaiting Approval":  # Draft status = pending approval
                     pending_count += 1
+                elif status == "Submitted":  # Submitted but not yet approved/rejected
+                    pending_count += 1
+                elif status == "Rejected":  # Rejected expenses
+                    pass  # Already counted in total_submitted
                 elif status == "Reimbursed":
                     total_approved += flt(claim.total_sanctioned_amount or amount)
                     reimbursed_count += 1
 
-        # Also get direct Volunteer Expense records
-        volunteer_expenses = frappe.get_all(
-            "Volunteer Expense",
-            filters={
-                "volunteer": volunteer_name,
-                "expense_date": [">=", from_date],
-                "docstatus": ["!=", 2],  # Not cancelled
-            },
-            fields=["name", "amount", "status", "expense_date"],
-        )
-
-        for vol_expense in volunteer_expenses:
-            amount = flt(vol_expense.amount)
-            status = vol_expense.status
-
-            if status in ["Submitted", "Awaiting Approval", "Approved", "Reimbursed"]:
-                total_submitted += amount
-                total_count += 1
-
-            if status == "Approved":
-                total_approved += amount
-                approved_count += 1
-            elif status in ["Submitted", "Awaiting Approval"]:
-                pending_count += 1
-            elif status == "Reimbursed":
-                total_approved += amount
-                reimbursed_count += 1
+        # Note: Volunteer Expense doctype appears to be legacy/unused
+        # The actual workflow uses ERPNext Expense Claims only
 
         return {
             "total_submitted": total_submitted,
@@ -866,7 +855,7 @@ def get_expense_statistics_legacy(volunteer_name):
 
 def get_approval_thresholds():
     """Get approval thresholds for UI guidance"""
-    return {"basic_limit": 100.0, "financial_limit": 500.0, "admin_limit": float("inf")}
+    return {"basic_limit": 100.0, "financial_limit": 500.0, "admin_limit": 999999.0}
 
 
 def get_national_chapter():
@@ -903,6 +892,125 @@ def get_status_class(status):
         "Reimbursed": "badge-primary",
     }
     return status_classes.get(status, "badge-secondary")
+
+
+@frappe.whitelist()
+def debug_expense_claim_statuses():
+    """Debug function to check expense claim statuses"""
+    result = frappe.db.sql(
+        """
+        SELECT status, approval_status, docstatus, COUNT(*) as count
+        FROM `tabExpense Claim`
+        GROUP BY status, approval_status, docstatus
+        ORDER BY count DESC
+    """,
+        as_dict=True,
+    )
+    return result
+
+
+@frappe.whitelist()
+def debug_expense_claim_dates():
+    """Debug function to check expense claim dates"""
+    result = frappe.db.sql(
+        """
+        SELECT name, posting_date, creation, status, approval_status, docstatus,
+               YEAR(posting_date) as posting_year, MONTH(posting_date) as posting_month,
+               YEAR(creation) as creation_year, MONTH(creation) as creation_month
+        FROM `tabExpense Claim`
+        ORDER BY creation DESC
+    """,
+        as_dict=True,
+    )
+    return result
+
+
+@frappe.whitelist()
+def fix_expense_claim_dashboard_cards():
+    """Fix the expense claim dashboard cards to include draft expenses"""
+
+    # Update the main "Expense Claims (This Month)" card to filter by submission date
+    try:
+        card1 = frappe.get_doc("Number Card", "Expense Claims (This Month)")
+        card1.label = "Expense Claims (This Month)"
+        # Filter by creation date (submission date) instead of posting date (expense date)
+        card1.filters_json = '[["Expense Claim","creation","Timespan","this month",false]]'
+        card1.save()
+
+        # Update "Approved Claims (This Month)" to filter by submission date
+        card2 = frappe.get_doc("Number Card", "Approved Claims (This Month)")
+        card2.label = "Approved Claims (This Month)"
+        card2.filters_json = '[["Expense Claim","approval_status","=","Approved",false],["Expense Claim","creation","Timespan","this month",false],["Expense Claim","docstatus","=","1",false]]'
+        card2.save()
+
+        # Update "Rejected Claims (This Month)" to filter by submission date
+        card3 = frappe.get_doc("Number Card", "Rejected Claims (This Month)")
+        card3.label = "Rejected Claims (This Month)"
+        card3.filters_json = '[["Expense Claim","approval_status","=","Rejected",false],["Expense Claim","creation","Timespan","this month",false],["Expense Claim","docstatus","=","1",false]]'
+        card3.save()
+
+        return {"success": True, "message": "Dashboard cards updated successfully"}
+    except Exception as e:
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def debug_expense_statistics(volunteer_name):
+    """Debug function to see expense statistics calculation"""
+    from frappe.utils import add_months
+
+    # Get expenses from last 12 months
+    from_date = add_months(today(), -12)
+
+    # Get volunteer's employee ID
+    volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+
+    result = {
+        "volunteer_name": volunteer_name,
+        "employee_id": volunteer_doc.employee_id,
+        "from_date": from_date,
+        "expense_claims": [],
+        "totals": {},
+    }
+
+    if volunteer_doc.employee_id:
+        # Get ERPNext Expense Claims for this employee
+        expense_claims = frappe.get_all(
+            "Expense Claim",
+            filters={
+                "employee": volunteer_doc.employee_id,
+                "posting_date": [">=", from_date],
+                "docstatus": ["!=", 2],  # Not cancelled
+            },
+            fields=[
+                "name",
+                "total_claimed_amount",
+                "total_sanctioned_amount",
+                "status",
+                "approval_status",
+                "posting_date",
+            ],
+        )
+
+        for claim in expense_claims:
+            mapped_status = map_erpnext_status_to_volunteer_status(claim.status, claim.approval_status)
+            result["expense_claims"].append(
+                {
+                    "name": claim.name,
+                    "erpnext_status": claim.status,
+                    "approval_status": claim.approval_status,
+                    "mapped_status": mapped_status,
+                    "total_claimed_amount": claim.total_claimed_amount,
+                    "total_sanctioned_amount": claim.total_sanctioned_amount,
+                    "posting_date": claim.posting_date,
+                }
+            )
+
+    # Get the actual calculated statistics
+    stats = get_expense_statistics(volunteer_name)
+    result["totals"] = stats
+
+    return result
 
 
 @frappe.whitelist()
@@ -2231,6 +2339,235 @@ def is_policy_covered_expense(category):
         return False
 
 
+@frappe.whitelist()
+def test_expense_form_with_foppe():
+    """Test expense form APIs with Foppe de Haan's account"""
+
+    print("🚀 TESTING EXPENSE FORM WITH FOPPE DE HAAN")
+    print("=" * 60)
+
+    # Check if Foppe exists
+    foppe_member = frappe.db.get_value(
+        "Member", {"email": "foppe@veganisme.org"}, ["name", "first_name", "last_name"], as_dict=True
+    )
+
+    if not foppe_member:
+        print("❌ Foppe de Haan not found in Member records")
+        return {"success": False, "error": "Foppe de Haan not found"}
+
+    print(f"✅ Found Foppe: {foppe_member.first_name} {foppe_member.last_name}")
+
+    # Check if Foppe has a volunteer record
+    foppe_volunteer = frappe.db.get_value(
+        "Volunteer", {"member": foppe_member.name}, ["name", "volunteer_name", "email"], as_dict=True
+    )
+
+    if not foppe_volunteer:
+        print("❌ No volunteer record found for Foppe")
+        # Create volunteer record for Foppe
+        try:
+            volunteer_doc = frappe.get_doc(
+                {
+                    "doctype": "Volunteer",
+                    "volunteer_name": f"{foppe_member.first_name} {foppe_member.last_name}",
+                    "email": "foppe@veganisme.org",
+                    "member": foppe_member.name,
+                    "status": "Active",
+                    "start_date": frappe.utils.today(),
+                }
+            )
+            volunteer_doc.insert(ignore_permissions=True)
+            foppe_volunteer = {
+                "name": volunteer_doc.name,
+                "volunteer_name": volunteer_doc.volunteer_name,
+                "email": volunteer_doc.email,
+            }
+            print(f"✅ Created volunteer record for Foppe: {foppe_volunteer['name']}")
+        except Exception as e:
+            print(f"❌ Failed to create volunteer record: {e}")
+            return {"success": False, "error": f"Failed to create volunteer: {e}"}
+    else:
+        print(f"✅ Found volunteer record: {foppe_volunteer.volunteer_name}")
+
+    # Store original user
+    original_user = frappe.session.user
+
+    try:
+        # Switch to Foppe's session
+        frappe.session.user = "foppe@veganisme.org"
+        print(f"🔄 Switched to user: {frappe.session.user}")
+
+        # Test 1: Get volunteer expense context
+        print("\n1. Testing get_volunteer_expense_context with Foppe")
+        try:
+            response = frappe.call(
+                "verenigingen.templates.pages.volunteer.expenses.get_volunteer_expense_context"
+            )
+
+            if response and isinstance(response, dict):
+                if response.get("success"):
+                    print("✅ PASS: API returns successful response")
+                    print(f"   Volunteer: {response.get('volunteer')}")
+                    print(f"   User chapters: {len(response.get('user_chapters', []))}")
+                    print(f"   User teams: {len(response.get('user_teams', []))}")
+                    print(f"   Expense categories: {len(response.get('expense_categories', []))}")
+                    print(f"   Available categories: {response.get('expense_categories', [])}")
+                    context_success = True
+                    # Store available categories for test
+                    available_categories = response.get("expense_categories", [])
+                else:
+                    print("❌ FAIL: API returns failure response")
+                    print(f"   Error: {response.get('message', 'Unknown error')}")
+                    context_success = False
+                    available_categories = []
+            else:
+                print("❌ FAIL: Invalid response format")
+                print(f"   Response: {response}")
+                context_success = False
+                available_categories = []
+
+        except Exception as e:
+            print(f"❌ FAIL: Exception occurred: {e}")
+            context_success = False
+            available_categories = []
+
+        # Test 2: Submit multiple expenses with Foppe
+        print("\n2. Testing submit_multiple_expenses with Foppe")
+        try:
+            # Use the first available category if any
+            test_category = available_categories[0] if available_categories else "Travel"
+            print(f"   Using category: {test_category}")
+
+            test_expenses = [
+                {
+                    "description": "Test expense - Office supplies",
+                    "amount": 25.50,
+                    "expense_date": "2025-01-10",
+                    "organization_type": "Team",
+                    "category": test_category,
+                    "chapter": None,
+                    "team": "IT",  # Try with IT team
+                    "notes": "Test expense submission via API",
+                    "receipt_attachment": None,
+                }
+            ]
+
+            response = frappe.call(
+                "verenigingen.templates.pages.volunteer.expenses.submit_multiple_expenses",
+                expenses=test_expenses,
+            )
+
+            if response and isinstance(response, dict):
+                if response.get("success"):
+                    print("✅ PASS: Expenses submitted successfully")
+                    print(f"   Created count: {response.get('created_count', 0)}")
+                    print(f"   Total amount: €{response.get('total_amount', 0)}")
+                    submit_success = True
+                else:
+                    print("❌ FAIL: Failed to submit expenses")
+                    print(f"   Error: {response.get('message', 'Unknown error')}")
+                    print(f"   Full response: {response}")
+                    submit_success = False
+            else:
+                print("❌ FAIL: Invalid response format")
+                print(f"   Response: {response}")
+                submit_success = False
+
+        except Exception as e:
+            print(f"❌ FAIL: Exception occurred: {e}")
+            submit_success = False
+
+        # Test 3: Test validation with invalid data
+        print("\n3. Testing form validation with invalid data")
+        try:
+            invalid_expenses = [
+                {
+                    "description": "",  # Empty description
+                    "amount": 0,  # Zero amount
+                    "expense_date": "",  # Empty date
+                    "organization_type": "",
+                    "category": "",
+                    "chapter": None,
+                    "team": None,
+                    "notes": "",
+                    "receipt_attachment": None,
+                }
+            ]
+
+            response = frappe.call(
+                "verenigingen.templates.pages.volunteer.expenses.submit_multiple_expenses",
+                expenses=invalid_expenses,
+            )
+
+            if response and isinstance(response, dict):
+                if not response.get("success"):
+                    print("✅ PASS: Form validation correctly rejects invalid data")
+                    print(f"   Error: {response.get('message', 'Validation error')}")
+                    validation_success = True
+                else:
+                    print("❌ FAIL: Form validation should reject invalid data")
+                    validation_success = False
+            else:
+                print("❌ FAIL: Invalid response format")
+                validation_success = False
+
+        except Exception as e:
+            print(f"❌ FAIL: Exception occurred: {e}")
+            validation_success = False
+
+    finally:
+        # Restore original user
+        frappe.session.user = original_user
+        print(f"🔄 Restored user: {frappe.session.user}")
+
+    # Summary
+    print("\n" + "=" * 50)
+    print("📊 EXPENSE FORM TEST SUMMARY (FOPPE)")
+    print("=" * 50)
+
+    tests_passed = sum([context_success, submit_success, validation_success])
+    total_tests = 3
+
+    print(f"Tests Passed: {tests_passed}/{total_tests}")
+
+    if tests_passed == total_tests:
+        print("🎉 ALL TESTS PASSED! Expense form works with Foppe's account.")
+        success = True
+    else:
+        print("⚠️  Some tests failed. Check the details above.")
+        success = False
+
+    print(f"Test completed at: {frappe.utils.now_datetime()}")
+
+    return {
+        "success": success,
+        "tests_passed": tests_passed,
+        "total_tests": total_tests,
+        "foppe_member": foppe_member.name if foppe_member else None,
+        "foppe_volunteer": foppe_volunteer["name"] if foppe_volunteer else None,
+    }
+
+
+@frappe.whitelist()
+def debug_api_access():
+    """Debug API access issues"""
+    try:
+        # Test basic info
+        user = frappe.session.user
+
+        # Test the get_volunteer_expense_context function directly
+        result = get_volunteer_expense_context()
+
+        return {"success": True, "user": user, "api_result": result, "timestamp": frappe.utils.now()}
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "user": frappe.session.user,
+            "timestamp": frappe.utils.now(),
+        }
+
+
 def get_or_create_expense_type(category):
     """Get or create expense claim type for category"""
     try:
@@ -2307,3 +2644,338 @@ def get_or_create_expense_type(category):
         if existing_types:
             return existing_types[0].name
         return "Travel"  # This is a common default in ERPNext
+
+
+@frappe.whitelist(allow_guest=False)
+def submit_multiple_expenses(expenses):
+    """Submit multiple expenses from the portal at once"""
+    try:
+        # Ensure user is logged in
+        if frappe.session.user == "Guest":
+            return {"success": False, "message": _("Please log in to submit expenses")}
+        # Parse JSON string if needed
+        if isinstance(expenses, str):
+            import json
+
+            expenses = json.loads(expenses)
+
+        # Validate input
+        if not expenses or not isinstance(expenses, list):
+            return {"success": False, "message": _("Invalid expense data provided")}
+
+        if len(expenses) > 50:  # Reasonable limit
+            return {
+                "success": False,
+                "message": _("Too many expenses in one submission. Maximum allowed: 50"),
+            }
+
+        # Get current user's volunteer record once
+        volunteer = get_user_volunteer_record()
+        if not volunteer:
+            user_email = frappe.session.user
+            member = frappe.db.get_value("Member", {"email": user_email}, "name")
+            if member:
+                error_msg = _(
+                    "No volunteer record found for your account. You have a member record ({0}) but no linked volunteer record. Please contact your chapter administrator to create a volunteer profile."
+                ).format(member)
+            else:
+                error_msg = _(
+                    "No volunteer record found for your account. Your email ({0}) is not associated with any member or volunteer record. Please contact your chapter administrator."
+                ).format(user_email)
+            return {"success": False, "message": error_msg}
+
+        created_expenses = []
+        errors = []
+        total_amount = 0
+
+        # Validate each expense before processing
+        for idx, expense_data in enumerate(expenses):
+            # Basic validation
+            validation_errors = validate_expense_data(expense_data, idx + 1)
+            if validation_errors:
+                errors.extend(validation_errors)
+                continue
+
+            total_amount += float(expense_data.get("amount", 0))
+
+        # Check total amount limit (reasonable safety limit)
+        if total_amount > 10000:  # €10,000 limit per submission
+            return {
+                "success": False,
+                "message": _(
+                    "Total expense amount (€{0}) exceeds the maximum allowed per submission (€10,000)"
+                ).format(total_amount),
+            }
+
+        # If we have validation errors, return them immediately
+        if errors:
+            return {
+                "success": False,
+                "message": _("Validation errors found in expense data"),
+                "errors": errors,
+            }
+
+        # Process each expense
+        for idx, expense_data in enumerate(expenses):
+            try:
+                # Submit individual expense
+                result = submit_expense(expense_data)
+
+                if result.get("success"):
+                    created_expenses.append(
+                        {
+                            "expense_claim_name": result.get("expense_claim_name"),
+                            "expense_name": result.get("expense_name"),
+                            "description": expense_data.get("description"),
+                            "amount": expense_data.get("amount"),
+                        }
+                    )
+                else:
+                    errors.append(
+                        {
+                            "index": idx,
+                            "description": expense_data.get("description"),
+                            "error": result.get("message", "Unknown error"),
+                        }
+                    )
+
+            except Exception as e:
+                errors.append(
+                    {
+                        "index": idx,
+                        "description": expense_data.get("description", f"Expense {idx + 1}"),
+                        "error": str(e),
+                    }
+                )
+
+        # Prepare response
+        if created_expenses and not errors:
+            # All expenses created successfully
+            return {
+                "success": True,
+                "message": _("Successfully submitted {0} expense(s)").format(len(created_expenses)),
+                "created_count": len(created_expenses),
+                "created_expenses": created_expenses,
+            }
+        elif created_expenses and errors:
+            # Partial success
+            return {
+                "success": True,
+                "partial": True,
+                "message": _("Submitted {0} expense(s) successfully, {1} failed").format(
+                    len(created_expenses), len(errors)
+                ),
+                "created_count": len(created_expenses),
+                "created_expenses": created_expenses,
+                "errors": errors,
+            }
+        else:
+            # All failed
+            return {"success": False, "message": _("Failed to submit any expenses"), "errors": errors}
+
+    except Exception as e:
+        import traceback
+
+        return {"success": False, "message": str(e), "traceback": traceback.format_exc()}
+
+
+@frappe.whitelist(allow_guest=False)
+def get_volunteer_expense_context():
+    """Get context data for the expense claim form"""
+    try:
+        # Ensure user is logged in
+        if frappe.session.user == "Guest":
+            return {"success": False, "message": _("Please log in to access this feature")}
+
+        # Get current user's volunteer record
+        volunteer = get_user_volunteer_record()
+        if not volunteer:
+            return {"success": False, "message": _("No volunteer record found for your account")}
+
+        # Get organizations
+        organizations = get_volunteer_organizations(volunteer.name)
+
+        # Get expense categories
+        categories = get_expense_categories()
+
+        # Get approval thresholds for UI guidance
+        thresholds = get_approval_thresholds()
+
+        return {
+            "success": True,
+            "volunteer": volunteer.name,
+            "user_chapters": [ch["name"] for ch in organizations.get("chapters", [])],
+            "user_teams": [tm["name"] for tm in organizations.get("teams", [])],
+            "expense_categories": [cat["name"] for cat in categories],
+            "approval_thresholds": thresholds,
+        }
+
+    except Exception as e:
+        import traceback
+
+        return {"success": False, "message": str(e), "traceback": traceback.format_exc()}
+
+
+def validate_expense_data(expense_data, line_number):
+    """Validate individual expense data"""
+    errors = []
+
+    # Required fields validation
+    required_fields = {
+        "description": _("Description"),
+        "amount": _("Amount"),
+        "expense_date": _("Expense Date"),
+        "organization_type": _("Organization Type"),
+        "category": _("Category"),
+    }
+
+    for field, label in required_fields.items():
+        if not expense_data.get(field):
+            errors.append(
+                {
+                    "index": line_number - 1,
+                    "field": field,
+                    "error": _("Line {0}: {1} is required").format(line_number, label),
+                }
+            )
+
+    # Amount validation
+    try:
+        amount = float(expense_data.get("amount", 0))
+        if amount <= 0:
+            errors.append(
+                {
+                    "index": line_number - 1,
+                    "field": "amount",
+                    "error": _("Line {0}: Amount must be greater than 0").format(line_number),
+                }
+            )
+        if amount > 5000:  # Individual expense limit
+            errors.append(
+                {
+                    "index": line_number - 1,
+                    "field": "amount",
+                    "error": _("Line {0}: Amount cannot exceed €5,000 per expense").format(line_number),
+                }
+            )
+    except (ValueError, TypeError):
+        errors.append(
+            {
+                "index": line_number - 1,
+                "field": "amount",
+                "error": _("Line {0}: Invalid amount format").format(line_number),
+            }
+        )
+
+    # Date validation
+    if expense_data.get("expense_date"):
+        try:
+            from frappe.utils import getdate, today
+
+            expense_date = getdate(expense_data.get("expense_date"))
+            today_date = getdate(today())
+
+            if expense_date > today_date:
+                errors.append(
+                    {
+                        "index": line_number - 1,
+                        "field": "expense_date",
+                        "error": _("Line {0}: Expense date cannot be in the future").format(line_number),
+                    }
+                )
+
+            # Check if date is too old (e.g., older than 1 year)
+            days_old = (today_date - expense_date).days
+            if days_old > 365:
+                errors.append(
+                    {
+                        "index": line_number - 1,
+                        "field": "expense_date",
+                        "error": _("Line {0}: Expense date is too old (older than 1 year)").format(
+                            line_number
+                        ),
+                    }
+                )
+        except (ValueError, TypeError):
+            errors.append(
+                {
+                    "index": line_number - 1,
+                    "field": "expense_date",
+                    "error": _("Line {0}: Invalid date format").format(line_number),
+                }
+            )
+
+    # Description validation
+    description = expense_data.get("description", "").strip()
+    if description and len(description) > 200:
+        errors.append(
+            {
+                "index": line_number - 1,
+                "field": "description",
+                "error": _("Line {0}: Description is too long (maximum 200 characters)").format(line_number),
+            }
+        )
+
+    # Organization validation
+    org_type = expense_data.get("organization_type")
+    if org_type == "Chapter" and not expense_data.get("chapter"):
+        errors.append(
+            {
+                "index": line_number - 1,
+                "field": "chapter",
+                "error": _("Line {0}: Chapter selection is required for chapter expenses").format(
+                    line_number
+                ),
+            }
+        )
+    elif org_type == "Team" and not expense_data.get("team"):
+        errors.append(
+            {
+                "index": line_number - 1,
+                "field": "team",
+                "error": _("Line {0}: Team selection is required for team expenses").format(line_number),
+            }
+        )
+
+    # Category validation
+    category = expense_data.get("category")
+    if category:
+        if not frappe.db.exists("Expense Category", category):
+            errors.append(
+                {
+                    "index": line_number - 1,
+                    "field": "category",
+                    "error": _("Line {0}: Invalid expense category").format(line_number),
+                }
+            )
+
+    # File validation (if receipt provided)
+    receipt = expense_data.get("receipt_attachment")
+    if receipt and isinstance(receipt, dict):
+        file_name = receipt.get("file_name", "")
+        if file_name:
+            # Check file extension
+            allowed_extensions = [".pdf", ".jpg", ".jpeg", ".png", ".gif", ".bmp"]
+            if not any(file_name.lower().endswith(ext) for ext in allowed_extensions):
+                errors.append(
+                    {
+                        "index": line_number - 1,
+                        "field": "receipt_attachment",
+                        "error": _("Line {0}: Invalid file type. Allowed: PDF, JPG, PNG, GIF, BMP").format(
+                            line_number
+                        ),
+                    }
+                )
+
+            # Check file content size (base64 encoded, so roughly file_size * 1.33)
+            file_content = receipt.get("file_content", "")
+            if file_content and len(file_content) > 10 * 1024 * 1024:  # ~7.5MB actual file size
+                errors.append(
+                    {
+                        "index": line_number - 1,
+                        "field": "receipt_attachment",
+                        "error": _("Line {0}: File size too large (maximum 7.5MB)").format(line_number),
+                    }
+                )
+
+    return errors

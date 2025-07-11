@@ -13,38 +13,67 @@ def suspend_member(member_name, suspension_reason, suspend_user=True, suspend_te
     """
     Suspend a member with specified options
     """
-    # Check permissions first
-    from verenigingen.permissions import can_terminate_member
+    try:
+        # Validate mandatory fields
+        if not member_name or not member_name.strip():
+            return {"success": False, "error": "Member name is required"}
 
-    if not can_terminate_member(member_name):
-        frappe.throw(_("You don't have permission to suspend this member"))
+        if not suspension_reason or not suspension_reason.strip():
+            return {"success": False, "error": "Suspension reason is required"}
 
-    # Convert string booleans to actual booleans
-    from verenigingen.utils.boolean_utils import cbool
-    from verenigingen.utils.termination_integration import suspend_member_safe
+        # Validate member exists
+        if not frappe.db.exists("Member", member_name):
+            return {"success": False, "error": f"Member {member_name} does not exist"}
 
-    suspend_user = cbool(suspend_user)
-    suspend_teams = cbool(suspend_teams)
+        # Check permissions first
+        from verenigingen.permissions import can_terminate_member
 
-    results = suspend_member_safe(
-        member_name=member_name,
-        suspension_reason=suspension_reason,
-        suspension_date=today(),
-        suspend_user=suspend_user,
-        suspend_teams=suspend_teams,
-    )
+        if not can_terminate_member(member_name):
+            return {"success": False, "error": "You don't have permission to suspend this member"}
 
-    if results.get("success"):
-        frappe.msgprint(
-            _("Member suspended successfully. Actions taken: {0}").format(
-                ", ".join(results.get("actions_taken", []))
-            ),
-            indicator="orange",
+        # Convert string booleans to actual booleans
+        from verenigingen.utils.boolean_utils import cbool
+        from verenigingen.utils.termination_integration import suspend_member_safe
+
+        suspend_user = cbool(suspend_user)
+        suspend_teams = cbool(suspend_teams)
+
+        results = suspend_member_safe(
+            member_name=member_name,
+            suspension_reason=suspension_reason,
+            suspension_date=today(),
+            suspend_user=suspend_user,
+            suspend_teams=suspend_teams,
         )
-    else:
-        frappe.throw(_("Failed to suspend member: {0}").format(results.get("error", "Unknown error")))
 
-    return results
+        if results.get("success"):
+            return {
+                "success": True,
+                "message": f"Member suspended successfully. Actions taken: {', '.join(results.get('actions_taken', []))}",
+                "actions_taken": results.get("actions_taken", []),
+                "member_name": member_name,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to suspend member: {results.get('error', 'Unknown error')}",
+            }
+
+    except frappe.ValidationError as e:
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+
+    except frappe.PermissionError as e:
+        return {"success": False, "error": f"Permission denied: {str(e)}"}
+
+    except Exception as e:
+        # Log unexpected errors for debugging
+        frappe.log_error(
+            f"Unexpected error suspending member {member_name}: {str(e)}", "Member Suspension Error"
+        )
+        return {
+            "success": False,
+            "error": "An unexpected error occurred while suspending the member. Please try again or contact support.",
+        }
 
 
 @frappe.whitelist()
@@ -52,27 +81,56 @@ def unsuspend_member(member_name, unsuspension_reason):
     """
     Unsuspend a member
     """
-    # Check permissions first
-    from verenigingen.permissions import can_terminate_member
+    try:
+        # Validate mandatory fields
+        if not member_name or not member_name.strip():
+            return {"success": False, "error": "Member name is required"}
 
-    if not can_terminate_member(member_name):
-        frappe.throw(_("You don't have permission to unsuspend this member"))
+        if not unsuspension_reason or not unsuspension_reason.strip():
+            return {"success": False, "error": "Unsuspension reason is required"}
 
-    from verenigingen.utils.termination_integration import unsuspend_member_safe
+        # Validate member exists
+        if not frappe.db.exists("Member", member_name):
+            return {"success": False, "error": f"Member {member_name} does not exist"}
 
-    results = unsuspend_member_safe(member_name=member_name, unsuspension_reason=unsuspension_reason)
+        # Check permissions first
+        from verenigingen.permissions import can_terminate_member
 
-    if results.get("success"):
-        frappe.msgprint(
-            _("Member unsuspended successfully. Actions taken: {0}").format(
-                ", ".join(results.get("actions_taken", []))
-            ),
-            indicator="green",
+        if not can_terminate_member(member_name):
+            return {"success": False, "error": "You don't have permission to unsuspend this member"}
+
+        from verenigingen.utils.termination_integration import unsuspend_member_safe
+
+        results = unsuspend_member_safe(member_name=member_name, unsuspension_reason=unsuspension_reason)
+
+        if results.get("success"):
+            return {
+                "success": True,
+                "message": f"Member unsuspended successfully. Actions taken: {', '.join(results.get('actions_taken', []))}",
+                "actions_taken": results.get("actions_taken", []),
+                "member_name": member_name,
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to unsuspend member: {results.get('error', 'Unknown error')}",
+            }
+
+    except frappe.ValidationError as e:
+        return {"success": False, "error": f"Validation error: {str(e)}"}
+
+    except frappe.PermissionError as e:
+        return {"success": False, "error": f"Permission denied: {str(e)}"}
+
+    except Exception as e:
+        # Log unexpected errors for debugging
+        frappe.log_error(
+            f"Unexpected error unsuspending member {member_name}: {str(e)}", "Member Unsuspension Error"
         )
-    else:
-        frappe.throw(_("Failed to unsuspend member: {0}").format(results.get("error", "Unknown error")))
-
-    return results
+        return {
+            "success": False,
+            "error": "An unexpected error occurred while unsuspending the member. Please try again or contact support.",
+        }
 
 
 @frappe.whitelist()

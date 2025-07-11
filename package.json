@@ -41,5 +41,8 @@
     "tailwindcss": "^4.1.10"
   },
   "author": "Verenigingen Team",
-  "license": "AGPL-3"
+  "license": "AGPL-3",
+  "dependencies": {
+    "frappe-ui": "^0.1.168"
+  }
 }

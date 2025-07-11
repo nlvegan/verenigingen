@@ -417,7 +417,8 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "Pending\nActive\nRejected\nExpired\nSuspended\nBanned\nDeceased\nTerminated"
+   "options": "Pending\nActive\nRejected\nExpired\nSuspended\nBanned\nDeceased\nTerminated",
+   "read_only": 1
   },
   {
    "collapsible": 1,

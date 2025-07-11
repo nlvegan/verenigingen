@@ -65,13 +65,13 @@ class PeriodicDonationAgreement(Document):
             duration_years = self.calculate_duration_years()
 
             # Check minimum duration based on agreement type
-            if self.is_anbi_eligible and duration_years < 5:
+            if self.anbi_eligible and duration_years < 5:
                 frappe.throw(
                     _(
                         "ANBI periodic donation agreements must be for a minimum of 5 years. For shorter commitments, uncheck 'ANBI Tax Benefits Applicable'."
                     )
                 )
-            elif not self.is_anbi_eligible and duration_years < 1:
+            elif not self.anbi_eligible and duration_years < 1:
                 frappe.throw(_("Donation pledges must be for a minimum of 1 year"))
 
     def validate_annual_amount(self):

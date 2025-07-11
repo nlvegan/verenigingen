@@ -1,59 +1,50 @@
 {% extends "templates/web.html" %}
 
-{% block title %}Chapter Portal{% endblock %}
+{% block title %}Chapters{% endblock %}
 
 {% block page_content %}
-<link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 <link rel="stylesheet" href="/assets/verenigingen/css/member_portal.css">
 <style>
-    /* Brand colors */
-    :root {
-        --brand-primary: #cf3131;
-        --brand-secondary: #01796f;
-        --brand-accent: #663399;
-        --brand-success: #10b981;
-        --brand-warning: #f59e0b;
-        --brand-error: #ef4444;
-        --brand-info: #3b82f6;
-    }
-
     /* Use brand colors */
     .chapter-link:hover {
-        color: #cf3131 !important;
+        color: var(--brand-primary) !important;
     }
 
     .badge-member {
-        background-color: #d4f3e5;
-        color: #10b981;
+        background-color: var(--brand-success-light);
+        color: var(--brand-success);
     }
 
     .badge-available {
-        background-color: #dbeafe;
-        color: #3b82f6;
+        background-color: var(--brand-info-light);
+        color: var(--brand-info);
     }
 
     .tab-btn:hover {
-        border-color: #cf3131 !important;
-        color: #cf3131 !important;
+        border-color: var(--brand-primary) !important;
+        color: var(--brand-primary) !important;
     }
 
     .error-alert {
-        background-color: #fee;
-        border-color: #ef4444;
-        color: #ef4444;
+        background-color: var(--brand-error-light);
+        border-color: var(--brand-error);
+        color: var(--brand-error);
     }
 
     /* Override Tailwind classes with brand colors */
-    .text-primary-600 { color: #cf3131 !important; }
-    .bg-primary-600 { background-color: #cf3131 !important; }
-    .border-primary-600 { border-color: #cf3131 !important; }
-    .hover\:bg-primary-700:hover { background-color: #b82828 !important; }
+    .text-primary-600 { color: var(--brand-primary) !important; }
+    .bg-primary-600 { background-color: var(--brand-primary) !important; }
+    .border-primary-600 { border-color: var(--brand-primary) !important; }
+    .hover\:bg-primary-700:hover { background-color: var(--brand-primary-dark) !important; }
 </style>
 <div class="min-h-screen bg-gray-50 py-8">
     <div class="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <!-- Header -->
         <div class="text-center mb-8">
-            <h1 class="text-4xl font-bold text-gray-900 mb-4">Chapter Portal</h1>
+            <h1 class="text-4xl font-bold text-gray-900 mb-4">Chapters</h1>
             <p class="text-xl text-gray-600">Connect with your local chapter community</p>
         </div>
 
@@ -67,7 +58,7 @@
 
         <!-- Loading State -->
         <div id="loading" class="text-center py-12">
-            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2" style="border-color: #cf3131;"></div>
+            <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2" style="border-color: var(--brand-primary);"></div>
             <p class="mt-4 text-gray-600">Loading chapters...</p>
         </div>
 
@@ -83,11 +74,11 @@
                     <div class="text-gray-600 mt-2">All Chapters</div>
                 </div>
                 <div class="bg-white rounded-lg shadow-md p-6 text-center transform transition-transform hover:scale-105">
-                    <div class="text-4xl font-bold" style="color: #10b981;" id="my-count">0</div>
+                    <div class="text-4xl font-bold" style="color: var(--brand-success);" id="my-count">0</div>
                     <div class="text-gray-600 mt-2">My Chapters</div>
                 </div>
                 <div class="bg-white rounded-lg shadow-md p-6 text-center transform transition-transform hover:scale-105">
-                    <div class="text-4xl font-bold" style="color: #3b82f6;" id="available-count">0</div>
+                    <div class="text-4xl font-bold" style="color: var(--brand-info);" id="available-count">0</div>
                     <div class="text-gray-600 mt-2">Available to Join</div>
                 </div>
             </div>
@@ -97,7 +88,7 @@
                 <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('all')">
                     All Chapters (<span id="all-tab-count">0</span>)
                 </button>
-                <button class="tab-btn active px-6 py-3 border-2 rounded-lg font-medium text-white transition-all" style="background-color: #cf3131; border-color: #cf3131;" onclick="showTab('my')">
+                <button class="tab-btn active px-6 py-3 border-2 rounded-lg font-medium text-white transition-all" style="background-color: var(--brand-primary); border-color: var(--brand-primary);" onclick="showTab('my')">
                     My Chapters (<span id="my-tab-count">0</span>)
                 </button>
                 <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('available')">
@@ -245,8 +236,8 @@
             // Style active button
             event.target.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
             event.target.classList.add('text-white');
-            event.target.style.backgroundColor = '#cf3131';
-            event.target.style.borderColor = '#cf3131';
+            event.target.style.backgroundColor = 'var(--brand-primary)';
+            event.target.style.borderColor = 'var(--brand-primary)';
         }
 
         function showError(message) {

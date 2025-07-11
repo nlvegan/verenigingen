@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, today
 
-from verenigingen.utils.error_handling import cache_with_ttl, handle_api_errors
+from verenigingen.utils.error_handling import cache_with_ttl, handle_api_error
 from verenigingen.utils.performance_monitoring import monitor_performance
 from verenigingen.utils.performance_utils import QueryOptimizer
 

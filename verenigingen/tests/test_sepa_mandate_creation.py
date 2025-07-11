@@ -26,8 +26,8 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "email": "sepa.creation@test.com",
                 "full_name": "SEPA Creation",
                 "status": "Active",
-                "iban": "NL91ABNA0417164300",
-                "bic": "ABNANL2A",
+                "iban": "NL13TEST0123456789",  # Use test bank IBAN
+                "bic": "TESTNL2A",
             }
         )
         cls.member.insert(ignore_permissions=True)
@@ -62,6 +62,14 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
             except Exception:
                 pass
+        
+        # Clean up member's SEPA mandates table
+        try:
+            member_doc = frappe.get_doc("Member", self.member.name)
+            member_doc.sepa_mandates = []
+            member_doc.save()
+        except Exception:
+            pass
 
     # ===== TEST validate_mandate_creation =====
 
@@ -70,7 +78,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
         from verenigingen.verenigingen.doctype.member.member import validate_mandate_creation
 
         result = validate_mandate_creation(
-            member=self.member.name, iban="NL91ABNA0417164300", mandate_id="TEST-MANDATE-001"
+            member=self.member.name, iban="NL13TEST0123456789", mandate_id="TEST-MANDATE-001"
         )
 
         self.assertTrue(result.get("valid"))
@@ -81,7 +89,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
         from verenigingen.verenigingen.doctype.member.member import validate_mandate_creation
 
         result = validate_mandate_creation(
-            member="NON-EXISTENT-MEMBER", iban="NL91ABNA0417164300", mandate_id="TEST-MANDATE-001"
+            member="NON-EXISTENT-MEMBER", iban="NL13TEST0123456789", mandate_id="TEST-MANDATE-001"
         )
 
         self.assertIn("error", result)
@@ -98,7 +106,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "mandate_id": "DUPLICATE-MANDATE-001",
                 "member": self.member.name,
                 "account_holder_name": self.member.full_name,
-                "iban": "NL91ABNA0417164300",
+                "iban": "NL13TEST0123456789",
                 "sign_date": today(),
                 "status": "Active",
             }
@@ -108,14 +116,17 @@ class TestSEPAMandateCreation(unittest.TestCase):
         try:
             result = validate_mandate_creation(
                 member=self.member.name,
-                iban="DE89370400440532013000",  # Different IBAN
+                iban="NL82MOCK0123456789",  # Different IBAN
                 mandate_id="DUPLICATE-MANDATE-001",  # Same mandate ID
             )
 
             self.assertIn("error", result)
             self.assertIn("already exists", result["error"])
         finally:
-            existing_mandate.delete()
+            try:
+                existing_mandate.delete()
+            except Exception:
+                frappe.delete_doc("SEPA Mandate", existing_mandate.name, force=True)
 
     def test_validate_mandate_creation_existing_iban_mandate(self):
         """Test validate_mandate_creation with existing mandate for same IBAN"""
@@ -128,7 +139,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "mandate_id": "EXISTING-IBAN-001",
                 "member": self.member.name,
                 "account_holder_name": self.member.full_name,
-                "iban": "NL91ABNA0417164300",
+                "iban": "NL13TEST0123456789",
                 "sign_date": today(),
                 "status": "Active",
                 "is_active": 1,
@@ -139,7 +150,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
         try:
             result = validate_mandate_creation(
                 member=self.member.name,
-                iban="NL91ABNA0417164300",  # Same IBAN
+                iban="NL13TEST0123456789",  # Same IBAN
                 mandate_id="NEW-MANDATE-001",  # Different mandate ID
             )
 
@@ -148,7 +159,10 @@ class TestSEPAMandateCreation(unittest.TestCase):
             self.assertEqual(result["existing_mandate"], "EXISTING-IBAN-001")
             self.assertIn("warning", result)
         finally:
-            existing_mandate.delete()
+            try:
+                existing_mandate.delete()
+            except Exception:
+                frappe.delete_doc("SEPA Mandate", existing_mandate.name, force=True)
 
     # ===== TEST derive_bic_from_iban =====
 
@@ -157,10 +171,10 @@ class TestSEPAMandateCreation(unittest.TestCase):
         from verenigingen.verenigingen.doctype.member.member import derive_bic_from_iban
 
         test_cases = [
-            ("NL91ABNA0417164300", "ABNANL2A"),  # ABN AMRO
-            ("NL91INGB0001234567", "INGBNL2A"),  # ING Bank
-            ("NL91RABO0123456789", "RABONL2U"),  # Rabobank
-            ("NL91TRIO0123456789", "TRIONL2U"),  # Triodos Bank
+            ("NL13TEST0123456789", "TESTNL2A"),  # ABN AMRO
+            ("NL20INGB0001234567", "INGBNL2A"),  # ING Bank
+            ("NL92RABO0001234567", "RABONL2U"),  # Rabobank
+            ("NL21TRIO0001234567", "TRIONL2U"),  # Triodos Bank
         ]
 
         for iban, expected_bic in test_cases:
@@ -202,7 +216,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "mandate_id": "ACTIVE-MANDATE-001",
                 "member": self.member.name,
                 "account_holder_name": self.member.full_name,
-                "iban": "NL91ABNA0417164300",
+                "iban": "NL13TEST0123456789",
                 "sign_date": today(),
                 "status": "Active",
                 "is_active": 1,
@@ -217,7 +231,10 @@ class TestSEPAMandateCreation(unittest.TestCase):
             self.assertEqual(result["mandate_id"], "ACTIVE-MANDATE-001")
             self.assertEqual(result["status"], "Active")
         finally:
-            mandate.delete()
+            try:
+                mandate.delete()
+            except Exception:
+                frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
 
     def test_get_active_sepa_mandate_with_iban_filter(self):
         """Test get_active_sepa_mandate with IBAN filter"""
@@ -230,7 +247,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "mandate_id": "IBAN-MANDATE-001",
                 "member": self.member.name,
                 "account_holder_name": self.member.full_name,
-                "iban": "NL91ABNA0417164300",
+                "iban": "NL13TEST0123456789",
                 "sign_date": today(),
                 "status": "Active",
                 "is_active": 1,
@@ -244,7 +261,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "mandate_id": "IBAN-MANDATE-002",
                 "member": self.member.name,
                 "account_holder_name": self.member.full_name,
-                "iban": "DE89370400440532013000",
+                "iban": "NL82MOCK0123456789",
                 "sign_date": today(),
                 "status": "Active",
                 "is_active": 1,
@@ -254,11 +271,11 @@ class TestSEPAMandateCreation(unittest.TestCase):
 
         try:
             # Test filtering by specific IBAN
-            result = get_active_sepa_mandate(member=self.member.name, iban="DE89370400440532013000")
+            result = get_active_sepa_mandate(member=self.member.name, iban="NL82MOCK0123456789")
 
             self.assertIsNotNone(result)
             self.assertEqual(result["mandate_id"], "IBAN-MANDATE-002")
-            self.assertEqual(result["iban"], "DE89370400440532013000")
+            self.assertEqual(result["iban"], "NL82MOCK0123456789")
         finally:
             mandate1.delete()
             mandate2.delete()
@@ -272,8 +289,8 @@ class TestSEPAMandateCreation(unittest.TestCase):
         result = create_and_link_mandate_enhanced(
             member=self.member.name,
             mandate_id="ENHANCED-MANDATE-001",
-            iban="NL91ABNA0417164300",
-            bic="ABNANL2A",
+            iban="NL13TEST0123456789",  # Use mock bank IBAN
+            bic="TESTNL2A",
             account_holder_name=self.member.full_name,
             mandate_type="Recurring",
             sign_date=today(),
@@ -297,11 +314,22 @@ class TestSEPAMandateCreation(unittest.TestCase):
         mandate_links = [
             link for link in member_doc.sepa_mandates if link.mandate_reference == "ENHANCED-MANDATE-001"
         ]
+        
         self.assertEqual(len(mandate_links), 1)
         self.assertTrue(mandate_links[0].is_current)
 
-        # Cleanup
-        mandate.delete()
+        # Cleanup - first clean up the member links, then delete the mandate
+        try:
+            member_doc.reload()
+            member_doc.sepa_mandates = []
+            member_doc.save()
+            try:
+                mandate.delete()
+            except Exception:
+                frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
+        except Exception:
+            # Force delete if there are link issues
+            frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
 
     def test_create_and_link_mandate_enhanced_one_off(self):
         """Test one-off mandate creation"""
@@ -310,7 +338,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
         result = create_and_link_mandate_enhanced(
             member=self.member.name,
             mandate_id="ONEOFF-MANDATE-001",
-            iban="NL91ABNA0417164300",
+            iban="NL13TEST0123456789",
             account_holder_name=self.member.full_name,
             mandate_type="One-off",  # Should convert to OOFF
         )
@@ -322,7 +350,10 @@ class TestSEPAMandateCreation(unittest.TestCase):
         self.assertEqual(mandate.mandate_type, "OOFF")
 
         # Cleanup
-        mandate.delete()
+        try:
+            mandate.delete()
+        except Exception:
+            frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
 
     def test_create_and_link_mandate_enhanced_replace_existing(self):
         """Test mandate creation with replacement of existing mandate"""
@@ -335,7 +366,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "mandate_id": "OLD-MANDATE-001",
                 "member": self.member.name,
                 "account_holder_name": self.member.full_name,
-                "iban": "NL91ABNA0417164300",
+                "iban": "NL13TEST0123456789",
                 "sign_date": today(),
                 "status": "Active",
             }
@@ -361,7 +392,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
             result = create_and_link_mandate_enhanced(
                 member=self.member.name,
                 mandate_id="NEW-MANDATE-001",
-                iban="DE89370400440532013000",  # Different IBAN
+                iban="NL82MOCK0123456789",  # Different IBAN
                 account_holder_name=self.member.full_name,
                 replace_existing="OLD-MANDATE-001",
             )
@@ -387,41 +418,61 @@ class TestSEPAMandateCreation(unittest.TestCase):
             new_mandate = frappe.get_doc("SEPA Mandate", result["mandate_name"])
             new_mandate.delete()
         finally:
-            existing_mandate.delete()
+            try:
+                existing_mandate.delete()
+            except Exception:
+                frappe.delete_doc("SEPA Mandate", existing_mandate.name, force=True)
 
     def test_create_and_link_mandate_enhanced_invalid_member(self):
         """Test mandate creation with invalid member"""
         from verenigingen.verenigingen.doctype.member.member import create_and_link_mandate_enhanced
 
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            create_and_link_mandate_enhanced(
-                member="NON-EXISTENT-MEMBER",
-                mandate_id="INVALID-MANDATE-001",
-                iban="NL91ABNA0417164300",
-                account_holder_name="Test Name",
-            )
+        result = create_and_link_mandate_enhanced(
+            member="NON-EXISTENT-MEMBER",
+            mandate_id="INVALID-MANDATE-001",
+            iban="NL13TEST0123456789",  # Use mock bank IBAN
+            account_holder_name="Test Name",
+        )
+        
+        self.assertFalse(result.get("success"))
+        self.assertIn("does not exist", result.get("error"))
 
     def test_create_and_link_mandate_enhanced_missing_required_fields(self):
         """Test mandate creation with missing required fields"""
         from verenigingen.verenigingen.doctype.member.member import create_and_link_mandate_enhanced
 
         # Test missing mandate_id
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            create_and_link_mandate_enhanced(
-                member=self.member.name,
-                mandate_id="",  # Empty mandate ID
-                iban="NL91ABNA0417164300",
-                account_holder_name=self.member.full_name,
-            )
+        result = create_and_link_mandate_enhanced(
+            member=self.member.name,
+            mandate_id="",  # Empty mandate ID
+            iban="NL13TEST0123456789",  # Use mock bank IBAN
+            account_holder_name=self.member.full_name,
+        )
+        
+        self.assertFalse(result.get("success"))
+        self.assertIn("Mandate ID is required", result.get("error"))
 
         # Test missing IBAN
-        with self.assertRaises(frappe.exceptions.ValidationError):
-            create_and_link_mandate_enhanced(
-                member=self.member.name,
-                mandate_id="TEST-MANDATE-001",
-                iban="",  # Empty IBAN
-                account_holder_name=self.member.full_name,
-            )
+        result = create_and_link_mandate_enhanced(
+            member=self.member.name,
+            mandate_id="TEST-MANDATE-001",
+            iban="",  # Empty IBAN
+            account_holder_name=self.member.full_name,
+        )
+        
+        self.assertFalse(result.get("success"))
+        self.assertIn("IBAN is required", result.get("error"))
+        
+        # Test missing account holder name
+        result = create_and_link_mandate_enhanced(
+            member=self.member.name,
+            mandate_id="TEST-MANDATE-002",
+            iban="NL13TEST0123456789",  # Use mock bank IBAN
+            account_holder_name="",  # Empty account holder name
+        )
+        
+        self.assertFalse(result.get("success"))
+        self.assertIn("Account holder name is required", result.get("error"))
 
     # ===== INTEGRATION TESTS =====
 
@@ -435,12 +486,12 @@ class TestSEPAMandateCreation(unittest.TestCase):
 
         # Step 1: Validate mandate creation
         validation_result = validate_mandate_creation(
-            member=self.member.name, iban="NL91INGB0001234567", mandate_id="WORKFLOW-MANDATE-001"
+            member=self.member.name, iban="NL20INGB0001234567", mandate_id="WORKFLOW-MANDATE-001"
         )
         self.assertTrue(validation_result.get("valid"))
 
         # Step 2: Derive BIC from IBAN
-        bic_result = derive_bic_from_iban("NL91INGB0001234567")
+        bic_result = derive_bic_from_iban("NL20INGB0001234567")
         expected_bic = "INGBNL2A"
         self.assertEqual(bic_result.get("bic"), expected_bic)
 
@@ -448,7 +499,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
         creation_result = create_and_link_mandate_enhanced(
             member=self.member.name,
             mandate_id="WORKFLOW-MANDATE-001",
-            iban="NL91INGB0001234567",
+            iban="NL20INGB0001234567",
             bic=bic_result.get("bic"),
             account_holder_name=self.member.full_name,
             mandate_type="Recurring",
@@ -461,11 +512,14 @@ class TestSEPAMandateCreation(unittest.TestCase):
         # Verify complete setup
         mandate = frappe.get_doc("SEPA Mandate", creation_result["mandate_name"])
         self.assertEqual(mandate.bic, expected_bic)
-        self.assertEqual(mandate.iban, "NL91INGB0001234567")
+        self.assertEqual(mandate.iban, "NL20 INGB 0001 2345 67")
         self.assertEqual(mandate.status, "Active")
 
         # Cleanup
-        mandate.delete()
+        try:
+            mandate.delete()
+        except Exception:
+            frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
 
 
 def run_sepa_mandate_creation_tests():

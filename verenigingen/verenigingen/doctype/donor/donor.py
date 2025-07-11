@@ -38,7 +38,7 @@ class Donor(Document):
     def has_permlevel_access(self):
         """Check if user has permlevel 1 access to this doctype"""
         # Check if user has read permission on the document first
-        if not frappe.has_permission(self.doctype, ptype="read", doc=self):
+        if not frappe.has_permission(self.doctype, ptype="read"):
             return False
 
         # Check if user has permlevel 1 access by checking user permissions

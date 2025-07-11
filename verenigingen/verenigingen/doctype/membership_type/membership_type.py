@@ -89,14 +89,15 @@ class MembershipType(Document):
         plan.billing_interval_count = interval_count
 
         # Handle GST/tax if applicable
-        if (
-            hasattr(self, "tax_inclusive")
-            and self.tax_inclusive
-            and hasattr(self, "tax_rate")
-            and self.tax_rate
-        ):
-            plan.is_including_tax = 1
-            # Would need to handle tax template assignment here
+        # TODO: Add tax_inclusive and tax_rate fields if tax handling is needed
+        # if (
+        #     hasattr(self, "tax_inclusive")
+        #     and self.tax_inclusive
+        #     and hasattr(self, "tax_rate")
+        #     and self.tax_rate
+        # ):
+        #     plan.is_including_tax = 1
+        #     # Would need to handle tax template assignment here
 
         plan.flags.ignore_mandatory = True
         plan.insert(ignore_permissions=True)

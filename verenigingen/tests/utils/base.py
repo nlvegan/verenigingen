@@ -112,7 +112,7 @@ class VereningingenTestCase(FrappeTestCase):
         # Ensure test Chapter exists
         if not frappe.db.exists("Chapter", "Test Chapter"):
             # Get the actual region name after insert
-            region_name = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "Test Region"
+            region_name = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
@@ -127,6 +127,11 @@ class VereningingenTestCase(FrappeTestCase):
     def track_doc(self, doctype, name):
         """Track a document for cleanup"""
         self._test_docs.append({"doctype": doctype, "name": name})
+    
+    @staticmethod
+    def get_test_region_name():
+        """Get the actual test region name from database"""
+        return frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
 
     @classmethod
     def track_class_doc(cls, doctype, name):

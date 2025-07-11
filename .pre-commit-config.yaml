@@ -68,7 +68,7 @@ repos:
 
       - id: docfield-checker
         name: Check docfield references
-        entry: python scripts/validation/docfield_checker.py
+        entry: python scripts/validation/final_field_validator.py
         language: system
         pass_filenames: false
         files: \.py$

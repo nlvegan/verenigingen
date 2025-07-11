@@ -269,7 +269,7 @@ def run_batch_creation_now():
     try:
         # Check permissions
         if not frappe.has_permission("SEPA Direct Debit Batch", "create"):
-            frappe.throw(_("You don't have permission to create batches"))
+            return {"success": False, "error": "You don't have permission to create batches"}
 
         # Get configuration
         config = get_scheduler_config()

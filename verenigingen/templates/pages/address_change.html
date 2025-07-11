@@ -3,6 +3,9 @@
 {% block title %}{{ _("Update Address") }}{% endblock %}
 
 {% block head_include %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 <style>
     .address-form {
         max-width: 600px;
@@ -22,12 +25,12 @@
     }
 
     .required-field {
-        color: #cf3131;
+        color: var(--brand-primary);
     }
 
     .confirmation-box {
         background-color: #f8f4ff;
-        border: 1px solid #663399;
+        border: 1px solid var(--brand-accent);
         border-radius: 0.25rem;
         padding: 1rem;
         margin: 1rem 0;
@@ -49,14 +52,14 @@
     }
 
     .btn-primary {
-        background-color: #cf3131;
-        border-color: #cf3131;
+        background-color: var(--brand-primary);
+        border-color: var(--brand-primary);
         color: white;
     }
 
     .btn-primary:hover {
-        background-color: #b82828;
-        border-color: #b82828;
+        background-color: var(--brand-primary-dark);
+        border-color: var(--brand-primary-dark);
     }
 
     .btn-secondary {
@@ -72,15 +75,15 @@
     }
 
     .alert-success {
-        color: #014a44;
-        background-color: #dcf2dc;
-        border-color: #01796f;
+        color: var(--brand-success);
+        background-color: var(--brand-success-light);
+        border-color: var(--brand-secondary);
     }
 
     .alert-danger {
-        color: #891717;
-        background-color: #fee2e2;
-        border-color: #cf3131;
+        color: var(--brand-error);
+        background-color: var(--brand-error-light);
+        border-color: var(--brand-error);
     }
 
     @media (max-width: 768px) {

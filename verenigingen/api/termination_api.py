@@ -28,28 +28,40 @@ def execute_safe_termination(member_name, termination_type, termination_date=Non
     """
     Execute termination using safe integration methods
     """
-    # Check permissions first
-    from verenigingen.permissions import can_terminate_member
-
-    if not can_terminate_member(member_name):
-        frappe.throw(_("You don't have permission to terminate this member"))
-
-    from verenigingen.utils.termination_integration import (
-        cancel_membership_safe,
-        cancel_sepa_mandate_safe,
-        deactivate_user_account_safe,
-        end_board_positions_safe,
-        suspend_team_memberships_safe,
-        update_customer_safe,
-        update_member_status_safe,
-    )
-
-    if not termination_date:
-        termination_date = frappe.utils.today()
-
-    results = {"success": True, "actions_taken": [], "errors": []}
-
     try:
+        # Validate mandatory fields
+        if not member_name or not member_name.strip():
+            return {"success": False, "error": "Member name is required"}
+
+        if not termination_type or not termination_type.strip():
+            return {"success": False, "error": "Termination type is required"}
+
+        # Validate member exists
+        if not frappe.db.exists("Member", member_name):
+            return {"success": False, "error": f"Member {member_name} does not exist"}
+
+        # Check permissions first
+        from verenigingen.permissions import can_terminate_member
+
+        if not can_terminate_member(member_name):
+            return {"success": False, "error": "You don't have permission to terminate this member"}
+
+        from verenigingen.utils.termination_integration import (
+            cancel_membership_safe,
+            cancel_sepa_mandate_safe,
+            deactivate_user_account_safe,
+            end_board_positions_safe,
+            suspend_team_memberships_safe,
+            update_customer_safe,
+            update_member_status_safe,
+        )
+
+        if not termination_date:
+            termination_date = frappe.utils.today()
+
+        results = {"success": True, "actions_taken": [], "errors": []}
+
+        # Continue processing termination
         member = frappe.get_doc("Member", member_name)
 
         # 1. Cancel active memberships
@@ -135,5 +147,28 @@ def execute_safe_termination(member_name, termination_type, termination_date=Non
 
         return results
 
+    except frappe.ValidationError as e:
+        return {
+            "success": False,
+            "error": f"Validation error: {str(e)}",
+            "message": "Termination validation failed",
+        }
+
+    except frappe.PermissionError as e:
+        return {
+            "success": False,
+            "error": f"Permission denied: {str(e)}",
+            "message": "Insufficient permissions for termination",
+        }
+
     except Exception as e:
-        return {"success": False, "error": str(e), "message": "Termination failed with critical error"}
+        # Log unexpected errors for debugging
+        frappe.log_error(
+            f"Unexpected error during termination of member {member_name}: {str(e)}",
+            "Member Termination Error",
+        )
+        return {
+            "success": False,
+            "error": "An unexpected error occurred during termination. Please try again or contact support.",
+            "message": "Termination failed with critical error",
+        }

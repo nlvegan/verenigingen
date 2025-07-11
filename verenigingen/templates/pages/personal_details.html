@@ -3,6 +3,9 @@
 {% block title %}{{ _("Personal Details") }}{% endblock %}
 
 {% block head_include %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 <style>
 .personal-details-form {
     max-width: 800px;
@@ -23,7 +26,7 @@
 .form-section h3 {
     margin-bottom: 1.5rem;
     color: #333;
-    border-bottom: 2px solid #cf3131;
+    border-bottom: 2px solid var(--brand-primary);
     padding-bottom: 0.5rem;
     display: flex;
     align-items: center;
@@ -31,7 +34,7 @@
 
 .form-section h3 .icon {
     margin-right: 0.75rem;
-    color: #cf3131;
+    color: var(--brand-primary);
 }
 
 .form-row {
@@ -67,8 +70,8 @@
 
 .form-control:focus {
     outline: none;
-    border-color: #cf3131;
-    box-shadow: 0 0 0 2px rgba(207,49,49,0.25);
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 2px rgba(var(--brand-primary-rgb), 0.25);
 }
 
 .form-control:disabled {
@@ -91,7 +94,7 @@
     padding: 1rem;
     border-radius: 4px;
     margin-bottom: 1.5rem;
-    border-left: 4px solid #cf3131;
+    border-left: 4px solid var(--brand-primary);
 }
 
 .current-info h5 {
@@ -101,7 +104,7 @@
 
 .current-info .current-value {
     font-weight: 500;
-    color: #cf3131;
+    color: var(--brand-primary);
 }
 
 .pronouns-options {
@@ -143,7 +146,7 @@
 }
 
 .image-upload-section:hover {
-    border-color: #cf3131;
+    border-color: var(--brand-primary);
     background: #fef2f2;
 }
 
@@ -158,7 +161,7 @@
 .image-upload-label {
     display: inline-block;
     padding: 0.75rem 1.5rem;
-    background: #cf3131;
+    background: var(--brand-primary);
     color: white;
     border-radius: 4px;
     cursor: pointer;
@@ -166,7 +169,7 @@
 }
 
 .image-upload-label:hover {
-    background: #b82828;
+    background: var(--brand-primary-dark);
 }
 
 .image-upload-input {
@@ -187,12 +190,12 @@
 }
 
 .btn-primary {
-    background-color: #cf3131;
+    background-color: var(--brand-primary);
     color: white;
 }
 
 .btn-primary:hover {
-    background-color: #b82828;
+    background-color: var(--brand-primary-dark);
     color: white;
     text-decoration: none;
 }
@@ -260,7 +263,7 @@
 }
 
 .privacy-note h6 {
-    color: #cf3131;
+    color: var(--brand-primary);
     margin-bottom: 0.5rem;
 }
 

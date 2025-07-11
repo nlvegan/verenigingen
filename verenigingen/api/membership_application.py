@@ -480,7 +480,7 @@ def approve_membership_application(member_name, notes=None):
         member = frappe.get_doc("Member", member_name)
 
         if member.application_status not in ["Pending", "Under Review"]:
-            frappe.throw(_("This application cannot be approved in its current state"))
+            return {"success": False, "error": "This application cannot be approved in its current state"}
 
         # Add notes if provided
         if notes:
@@ -513,7 +513,7 @@ def reject_membership_application(member_name, reason):
         member = frappe.get_doc("Member", member_name)
 
         if member.application_status not in ["Pending", "Under Review"]:
-            frappe.throw(_("This application cannot be rejected in its current state"))
+            return {"success": False, "error": "This application cannot be rejected in its current state"}
 
         # Use the new reject_application method which handles chapter membership cleanup
         member.reject_application(reason)

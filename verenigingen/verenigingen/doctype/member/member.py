@@ -436,10 +436,10 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             if activated_count == 0:
                 # Fallback: Check for suggested chapter or current chapter display fields
                 chapter_to_activate = None
-                if hasattr(self, "suggested_chapter") and self.suggested_chapter:
-                    chapter_to_activate = self.suggested_chapter
-                elif hasattr(self, "current_chapter_display") and self.current_chapter_display:
+                if hasattr(self, "current_chapter_display") and self.current_chapter_display:
                     chapter_to_activate = self.current_chapter_display
+                elif hasattr(self, "previous_chapter") and self.previous_chapter:
+                    chapter_to_activate = self.previous_chapter
 
                 if chapter_to_activate:
                     chapter_member = activate_pending_chapter_membership(self, chapter_to_activate)
@@ -534,10 +534,10 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
 
             # Check for suggested chapter or current chapter display
             chapter_to_remove = None
-            if hasattr(self, "suggested_chapter") and self.suggested_chapter:
-                chapter_to_remove = self.suggested_chapter
-            elif hasattr(self, "current_chapter_display") and self.current_chapter_display:
+            if hasattr(self, "current_chapter_display") and self.current_chapter_display:
                 chapter_to_remove = self.current_chapter_display
+            elif hasattr(self, "previous_chapter") and self.previous_chapter:
+                chapter_to_remove = self.previous_chapter
 
             if chapter_to_remove:
                 success = remove_pending_chapter_membership(self, chapter_to_remove)
@@ -897,10 +897,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             customer.email_id = self.email
         if hasattr(self, "contact_number") and self.contact_number:
             customer.mobile_no = self.contact_number
-        elif hasattr(self, "mobile_no") and self.mobile_no:
-            customer.mobile_no = self.mobile_no
-        if hasattr(self, "phone") and self.phone:
-            customer.phone = self.phone
+            customer.phone = self.contact_number
 
         customer.flags.ignore_mandatory = True
 
@@ -2186,11 +2183,38 @@ def create_and_link_mandate_enhanced(
 ):
     """Create a new SEPA mandate and link it to the member"""
     try:
+        # Validate mandatory fields before proceeding
+        if not member or not member.strip():
+            return {"success": False, "error": "Member is required"}
+
+        if not mandate_id or not mandate_id.strip():
+            return {"success": False, "error": "Mandate ID is required"}
+
+        if not iban or not iban.strip():
+            return {"success": False, "error": "IBAN is required for SEPA mandate creation"}
+
+        if not account_holder_name or not account_holder_name.strip():
+            return {"success": False, "error": "Account holder name is required"}
+
+        # Validate member exists
+        if not frappe.db.exists("Member", member):
+            return {"success": False, "error": f"Member {member} does not exist"}
+
+        # Validate IBAN format
+        from verenigingen.utils.iban_validator import validate_iban
+
+        iban_validation = validate_iban(iban)
+        if not iban_validation.get("valid"):
+            return {
+                "success": False,
+                "error": f"Invalid IBAN: {iban_validation.get('error', 'Unknown IBAN validation error')}",
+            }
+
         if not sign_date:
             sign_date = today()
 
         # Convert mandate type to internal format
-        type_mapping = {"One-of": "OOFF", "Recurring": "RCUR"}
+        type_mapping = {"One-off": "OOFF", "One-of": "OOFF", "Recurring": "RCUR"}
         internal_type = type_mapping.get(mandate_type, "RCUR")
 
         # Create mandate
@@ -2221,25 +2245,61 @@ def create_and_link_mandate_enhanced(
                 if link.mandate_reference == replace_existing:
                     link.is_current = 0
 
-        # Add new mandate link
-        member_doc.append(
-            "sepa_mandates",
-            {
-                "sepa_mandate": mandate.name,
-                "mandate_reference": mandate_id,
-                "is_current": 1,
-                "status": "Active",
-                "valid_from": sign_date,
-            },
-        )
+        # Check if this mandate is already linked to avoid duplicates
+        existing_link = None
+        for link in member_doc.sepa_mandates:
+            if link.mandate_reference == mandate_id:
+                existing_link = link
+                break
+
+        if existing_link:
+            # Update existing link
+            existing_link.sepa_mandate = mandate.name
+            existing_link.is_current = 1
+            existing_link.status = "Active"
+            existing_link.valid_from = sign_date
+        else:
+            # Add new mandate link
+            member_doc.append(
+                "sepa_mandates",
+                {
+                    "sepa_mandate": mandate.name,
+                    "mandate_reference": mandate_id,
+                    "is_current": 1,
+                    "status": "Active",
+                    "valid_from": sign_date,
+                },
+            )
 
         member_doc.save()
 
         return {"success": True, "mandate_name": mandate.name, "mandate_id": mandate_id}
 
+    except frappe.ValidationError as e:
+        # Handle validation errors gracefully
+        error_msg = str(e)
+        if "iban" in error_msg.lower():
+            return {"success": False, "error": "Invalid IBAN format. Please provide a valid IBAN."}
+        elif "mandate_id" in error_msg.lower():
+            return {"success": False, "error": "Invalid mandate ID. Please provide a unique mandate ID."}
+        elif "account_holder_name" in error_msg.lower():
+            return {"success": False, "error": "Account holder name is required."}
+        else:
+            return {"success": False, "error": f"Validation error: {error_msg}"}
+
+    except frappe.DuplicateEntryError:
+        return {
+            "success": False,
+            "error": "A mandate with this ID already exists. Please use a different mandate ID.",
+        }
+
     except Exception as e:
-        frappe.log_error(f"Error creating SEPA mandate: {str(e)}")
-        frappe.throw(_("Error creating SEPA mandate: {0}").format(str(e)))
+        # Log unexpected errors for debugging
+        frappe.log_error(f"Unexpected error creating SEPA mandate: {str(e)}", "SEPA Mandate Creation Error")
+        return {
+            "success": False,
+            "error": "An unexpected error occurred while creating the SEPA mandate. Please try again or contact support.",
+        }
 
 
 @frappe.whitelist()

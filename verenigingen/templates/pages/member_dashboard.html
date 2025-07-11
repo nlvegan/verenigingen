@@ -2,6 +2,12 @@
 
 {% block title %}{{ _("Member Dashboard") }}{% endblock %}
 
+{% block head_include %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+{% endblock %}
+
 {% block page_content %}
 <div class="member-dashboard">
     <div class="container">
@@ -256,15 +262,15 @@
 }
 
 .status-indicator.status-active {
-    color: #28a745;
+    color: var(--brand-success);
 }
 
 .status-indicator.status-pending {
-    color: #ffc107;
+    color: var(--brand-warning);
 }
 
 .status-indicator.status-expired {
-    color: #dc3545;
+    color: var(--brand-error);
 }
 
 .activity-list {
@@ -297,7 +303,7 @@
 }
 
 .featured-portal-link a {
-    background: linear-gradient(135deg, #cf3131, #b82828);
+    background: linear-gradient(135deg, var(--brand-primary), var(--brand-primary-dark));
     border: none;
     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     transition: transform 0.2s ease, box-shadow 0.2s ease;

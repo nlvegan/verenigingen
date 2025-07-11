@@ -5,6 +5,7 @@ This module provides consistent error handling patterns, logging utilities,
 and custom exception types for the Verenigingen association management system.
 """
 
+import time
 import traceback
 from functools import wraps
 from typing import Any, Callable, Dict, Optional, Union
@@ -356,6 +357,54 @@ ERROR_HANDLING_CONFIG = {
     "error_notification_roles": ["System Manager", "Verenigingen System Admin"],
     "critical_error_threshold": 10,  # Number of errors before alerting
 }
+
+
+def cache_with_ttl(ttl=300):
+    """
+    Decorator to cache function results with time-to-live
+
+    Args:
+        ttl: Time to live in seconds (default: 5 minutes)
+
+    Usage:
+        @cache_with_ttl(ttl=600)
+        def expensive_function():
+            # Function implementation
+    """
+
+    def decorator(func):
+        cache = {}
+
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # Create cache key from function name and arguments
+            cache_key = f"{func.__name__}:{hash(str(args) + str(sorted(kwargs.items())))}"
+            current_time = time.time()
+
+            # Check if we have a cached result that's still valid
+            if cache_key in cache:
+                cached_result, cached_time = cache[cache_key]
+                if current_time - cached_time < ttl:
+                    return cached_result
+
+            # Execute function and cache result
+            result = func(*args, **kwargs)
+            cache[cache_key] = (result, current_time)
+
+            # Clean up old cache entries (simple cleanup)
+            keys_to_remove = []
+            for key, (cached_result, cached_time) in cache.items():
+                if current_time - cached_time >= ttl:
+                    keys_to_remove.append(key)
+
+            for key in keys_to_remove:
+                del cache[key]
+
+            return result
+
+        return wrapper
+
+    return decorator
 
 
 def setup_error_monitoring():
