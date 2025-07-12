@@ -1,5 +1,5 @@
 zabbix_export:
-  version: '7.0'
+  version: '7.2'
   template_groups:
     - uuid: 170d4aa3711147cf9600b1c84bb4de34
       name: Frappe Applications

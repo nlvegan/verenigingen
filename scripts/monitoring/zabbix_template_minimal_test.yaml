@@ -1,0 +1,29 @@
+zabbix_export:
+  version: '7.0'
+  template_groups:
+    - uuid: 170d4aa3-7111-47cf-9600-b1c84bb4de34
+      name: Frappe Applications
+  templates:
+    - uuid: 7124a0c3-66fe-4735-a079-de8170934e0f
+      template: Template Frappe Test
+      name: Template Frappe Test
+      description: Minimal test template for Zabbix 7.2
+      groups:
+        - name: Frappe Applications
+      items:
+        - uuid: 5a1f0ffa-d816-4565-856d-6dcd3f4154e2
+          name: Simple Test Item
+          type: HTTP_AGENT
+          key: test.item
+          delay: 1m
+          history: 7d
+          value_type: TEXT
+          url: 'https://httpbin.org/json'
+          timeout: 10s
+      tags:
+        - tag: class
+          value: test
+      macros:
+        - macro: '{$TEST_MACRO}'
+          value: 'test_value'
+          description: 'Test macro'
