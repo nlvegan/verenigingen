@@ -100,7 +100,7 @@ def run_migration_test():
 
         # Test 6: Test duplicate detection
         try:
-            from verenigingen.utils.migration_duplicate_detection import DuplicateDetector
+            from verenigingen.utils.migration.migration_duplicate_detection import DuplicateDetector
 
             detector = DuplicateDetector()
             test_record = {
@@ -121,7 +121,7 @@ def run_migration_test():
 
         # Test 7: Test audit trail
         try:
-            from verenigingen.utils.migration_audit_trail import MigrationAuditTrail
+            from verenigingen.utils.migration.migration_audit_trail import MigrationAuditTrail
 
             audit = MigrationAuditTrail(migration_doc)
             audit.log_event("test", {"message": "Testing audit trail"})
@@ -131,7 +131,7 @@ def run_migration_test():
 
         # Test 8: Test error recovery
         try:
-            from verenigingen.utils.migration_error_recovery import MigrationErrorRecovery
+            from verenigingen.utils.migration.migration_error_recovery import MigrationErrorRecovery
 
             recovery = MigrationErrorRecovery(migration_doc)
             recovery.log_error("Test error", {"test": True})
@@ -141,7 +141,7 @@ def run_migration_test():
 
         # Test 9: Test date chunking
         try:
-            from verenigingen.utils.migration_date_chunking import DateRangeChunker
+            from verenigingen.utils.migration.migration_date_chunking import DateRangeChunker
 
             chunker = DateRangeChunker(api_limit=500)
             # chunks = chunker.calculate_optimal_chunks(from_date, to_date, estimated_records_per_day=10)
@@ -152,7 +152,7 @@ def run_migration_test():
 
         # Test 10: Test transaction safety
         try:
-            from verenigingen.utils.migration_transaction_safety import MigrationTransaction
+            from verenigingen.utils.migration.migration_transaction_safety import MigrationTransaction
 
             trans = MigrationTransaction(migration_doc)
             checkpoint = trans.create_checkpoint("test_operation")

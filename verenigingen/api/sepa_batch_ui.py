@@ -3,7 +3,7 @@ from frappe import _
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
-from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
 
 

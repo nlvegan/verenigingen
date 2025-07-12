@@ -15,7 +15,7 @@ from verenigingen.utils.error_handling import (
     log_error,
     validate_required_fields,
 )
-from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import QueryOptimizer, cached, performance_monitor
 from verenigingen.utils.validation.api_validators import (
     APIValidator,

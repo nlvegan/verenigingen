@@ -73,3 +73,12 @@ repos:
         pass_filenames: false
         files: \.py$
         stages: [pre-commit]
+
+      - id: enhanced-field-validator
+        name: Validate DocType field references
+        entry: python scripts/pre_commit_field_validator.py
+        language: system
+        pass_filenames: true
+        files: \.py$
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py)'

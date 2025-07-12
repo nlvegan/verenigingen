@@ -4,7 +4,7 @@ from frappe import _
 from frappe.utils import today
 
 from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
-from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
 
 
@@ -277,6 +277,7 @@ def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, susp
                 }
 
             # Suspend the member
+            from verenigingen.utils.boolean_utils import cbool
             from verenigingen.utils.termination_integration import suspend_member_safe
 
             suspend_result = suspend_member_safe(

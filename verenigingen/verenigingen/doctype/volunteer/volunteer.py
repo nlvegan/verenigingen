@@ -997,356 +997,260 @@ class Volunteer(Document):
                     )
                 else:
                     frappe.logger().warning(f"Failed to auto-create employee for volunteer {self.name}")
-            else:
-                if not self.email:
-                    frappe.logger().info(
-                        f"Skipping employee creation for volunteer {self.name} - no email address"
-                    )
-                elif self.employee_id:
-                    frappe.logger().info(
-                        f"Skipping employee creation for volunteer {self.name} - employee already exists: {self.employee_id}"
-                    )
-
         except Exception as e:
-            # Log error but don't fail volunteer creation
             frappe.log_error(
-                f"Error auto-creating employee for volunteer {self.name}: {str(e)}",
-                "Auto Employee Creation Error",
+                f"Error creating employee for volunteer {self.name}: {str(e)}", "Employee Creation Error"
             )
-            frappe.logger().warning(f"Auto employee creation failed for volunteer {self.name}: {str(e)}")
-
-    def get_default_expense_approver(self):
-        """Get the default expense approver (treasurer) for expense claims"""
-        try:
-            # Method 1: Look for treasurer in national board settings
-            settings = frappe.get_single("Verenigingen Settings")
-            if settings and settings.national_board_chapter:
-                # Get board members with financial permissions from national chapter
-                # Try to get treasurer first
-                board_members = frappe.get_all(
-                    "Chapter Board Member",
-                    filters={
-                        "parent": settings.national_board_chapter,
-                        "chapter_role": "Treasurer",
-                        "is_active": 1,
-                    },
-                    fields=["volunteer", "chapter_role"],
-                    limit=1,
-                )
-
-                # If no treasurer, try other financial roles
-                if not board_members:
-                    board_members = frappe.get_all(
-                        "Chapter Board Member",
-                        filters={
-                            "parent": settings.national_board_chapter,
-                            "chapter_role": [
-                                "in",
-                                ["Financial Officer", "Secretary-Treasurer", "Board Chair"],
-                            ],
-                            "is_active": 1,
-                        },
-                        fields=["volunteer", "chapter_role"],
-                        limit=1,
-                    )
-
-                for board_member in board_members:
-                    # Get the volunteer's email
-                    volunteer = frappe.get_doc("Volunteer", board_member.volunteer)
-                    if volunteer.email and frappe.db.exists("User", volunteer.email):
-                        frappe.logger().info(
-                            f"Found default expense approver: {volunteer.email} ({board_member.chapter_role})"
-                        )
-                        return volunteer.email
-                    elif volunteer.personal_email and frappe.db.exists("User", volunteer.personal_email):
-                        frappe.logger().info(
-                            f"Found default expense approver: {volunteer.personal_email} ({board_member.chapter_role})"
-                        )
-                        return volunteer.personal_email
-
-            # Method 2: Look for users with "Verenigingen Administrator" role
-            admin_users = frappe.get_all(
-                "Has Role", filters={"role": "Verenigingen Administrator"}, fields=["parent"]
-            )
-
-            for admin in admin_users:
-                user = frappe.get_doc("User", admin.parent)
-                if user.enabled and user.email:
-                    frappe.logger().info(
-                        f"Using Verenigingen Administrator as default expense approver: {user.email}"
-                    )
-                    return user.email
-
-            # Method 3: Fallback to system manager
-            system_managers = frappe.get_all(
-                "Has Role", filters={"role": "System Manager"}, fields=["parent"]
-            )
-
-            for manager in system_managers:
-                user = frappe.get_doc("User", manager.parent)
-                if user.enabled and user.email and user.email != "Administrator":
-                    frappe.logger().info(f"Using System Manager as fallback expense approver: {user.email}")
-                    return user.email
-
-            # Method 4: Last resort - use Administrator
-            frappe.logger().warning("No suitable expense approver found, using Administrator as fallback")
-            return "Administrator"
-
-        except Exception as e:
-            frappe.log_error(f"Error getting default expense approver: {str(e)}", "Expense Approver Error")
-            frappe.logger().warning(f"Error finding expense approver, using Administrator: {str(e)}")
-            return "Administrator"
-
-
-# Integration functions to be called from other doctypes
 
 
 @frappe.whitelist()
-def create_volunteer_from_member(member_doc):
-    """Create or update volunteer record from member and automatically create user account"""
-    try:
-        if not member_doc:
-            return None
+def search_volunteers_by_skill(skill_name, category=None, min_level=None):
+    """Search volunteers by specific skill
 
-        if isinstance(member_doc, str):
-            member_doc = frappe.get_doc("Member", member_doc)
+    Args:
+        skill_name: Skill name to search for (partial match)
+        category: Optional skill category filter
+        min_level: Optional minimum proficiency level filter
 
-        if not member_doc.email:
-            frappe.msgprint(_("Member does not have an email address. Cannot create volunteer record."))
-            return None
+    Returns:
+        List of volunteers with matching skills
+    """
+    conditions = ["v.status = 'Active'"]
+    params = {"skill_name": f"%{skill_name}%"}
 
-        # Note: We allow volunteer creation even if member already has a user account
-        # The volunteer will get an organization email address for volunteer activities
+    if category:
+        conditions.append("vs.skill_category = %(category)s")
+        params["category"] = category
 
-        # Check if volunteer record already exists
-        existing_volunteer = frappe.db.exists("Volunteer", {"member": member_doc.name})
+    if min_level:
+        conditions.append("CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED) >= %(min_level)s")
+        params["min_level"] = min_level
 
-        if existing_volunteer:
-            existing_vol = frappe.get_doc("Volunteer", existing_volunteer)
-            if existing_vol.status not in ["Inactive", "Cancelled"]:
-                frappe.throw(
-                    _("Member {0} already has an active volunteer record: {1}").format(
-                        member_doc.full_name, existing_volunteer
-                    )
-                )
-            else:
-                # Reactivate existing inactive volunteer record
-                existing_vol.status = "Active"
-                existing_vol.save()
-                frappe.msgprint(
-                    _("Reactivated existing volunteer record for {0}").format(member_doc.full_name)
-                )
-                return existing_vol
-
-        # Generate organization email based on full name including middle names/particles
-        domain = (
-            frappe.db.get_single_value("Verenigingen Settings", "organization_email_domain") or "example.org"
-        )
-        name_for_email = member_doc.full_name.replace(" ", ".").lower() if member_doc.full_name else ""
-
-        # Clean up special characters but preserve name particles (van, de, etc.)
-        import re
-
-        # Remove special characters except dots and letters, but keep the name particles
-        name_for_email = re.sub(r"[^a-z\.]", "", name_for_email)
-        # Clean up multiple consecutive dots and trim dots from ends
-        name_for_email = re.sub(r"\.+", ".", name_for_email).strip(".")
-
-        org_email = f"{name_for_email}@{domain}" if name_for_email else ""
-
-        # Create new volunteer record
-        volunteer = frappe.new_doc("Volunteer")
-
-        # Use proper Dutch naming if applicable
-        if member_doc.full_name:
-            # Use the member's properly formatted full_name (which includes Dutch naming if applicable)
-            volunteer_name = member_doc.full_name
-        elif is_dutch_installation() and hasattr(member_doc, "tussenvoegsel") and member_doc.tussenvoegsel:
-            # For Dutch installations, format name with tussenvoegsel
-            volunteer_name = format_dutch_full_name(
-                member_doc.first_name,
-                None,  # Don't use middle_name when tussenvoegsel is available
-                member_doc.tussenvoegsel,
-                member_doc.last_name,
-            )
-        else:
-            # Standard name formatting for non-Dutch installations
-            volunteer_name = f"{member_doc.first_name} {member_doc.last_name}".strip()
-
-        volunteer.update(
-            {
-                "volunteer_name": volunteer_name,
-                "member": member_doc.name,
-                "email": org_email,
-                "personal_email": member_doc.email,
-                "preferred_pronouns": getattr(member_doc, "pronouns", ""),
-                "status": "New",
-                "start_date": getdate(today()),
-            }
-        )
-
-        volunteer.insert(ignore_permissions=True)
-
-        # Create organization user account if org_email is valid
-        user_created = False
-        if org_email and org_email != "":
-            try:
-                user_created = create_organization_user_for_volunteer(volunteer, member_doc)
-            except Exception as e:
-                frappe.log_error(f"Error creating user account for volunteer {volunteer.name}: {str(e)}")
-                frappe.msgprint(
-                    _("Volunteer record created, but failed to create user account: {0}").format(str(e))
-                )
-
-        success_message = _("Volunteer record created for {0}").format(member_doc.full_name)
-        if user_created:
-            success_message += _(" with organization user account ({0})").format(volunteer.email)
-
-        if member_doc.user:
-            success_message += _(" (member keeps existing personal user account)")
-
-        frappe.msgprint(success_message)
-        return volunteer
-
-    except frappe.DoesNotExistError:
-        frappe.throw(_("Member record not found"))
-    except frappe.ValidationError as e:
-        frappe.throw(_("Failed to create volunteer record: {0}").format(str(e)))
-    except Exception as e:
-        frappe.log_error(f"Error creating volunteer from member: {str(e)}")
-        frappe.throw(_("An error occurred while creating the volunteer record"))
-
-
-@frappe.whitelist()
-def sync_chapter_board_members():
-    """Sync all chapter board members with volunteer system"""
-    # Get all active chapter board members
-    board_members = frappe.db.sql(
+    volunteers = frappe.db.sql(
         """
-        SELECT
-            cbm.name, cbm.parent as chapter, cbm.member, cbm.chapter_role,
-            cbm.from_date, cbm.to_date, cbm.is_active
-        FROM `tabChapter Board Member` cbm
-        WHERE cbm.is_active = 1
+        SELECT DISTINCT
+            v.name,
+            v.volunteer_name,
+            v.status,
+            vs.volunteer_skill as matched_skill,
+            vs.proficiency_level,
+            vs.skill_category
+        FROM `tabVolunteer` v
+        INNER JOIN `tabVolunteer Skill` vs ON vs.parent = v.name
+        WHERE v.status = 'Active'
+            AND vs.volunteer_skill LIKE %(skill_name)s
+            {additional_conditions}
+        ORDER BY
+            CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED) DESC,
+            v.volunteer_name
+    """.format(
+            additional_conditions=" AND " + " AND ".join(conditions[1:]) if len(conditions) > 1 else ""
+        ),
+        params,
+        as_dict=True,
+    )
+
+    return volunteers
+
+
+@frappe.whitelist()
+def get_all_skills_list():
+    """Get unique list of all skills for autocomplete and overview
+
+    Returns:
+        List of unique skills with usage statistics
+    """
+    skills = frappe.db.sql(
+        """
+        SELECT DISTINCT
+            volunteer_skill,
+            skill_category,
+            COUNT(*) as volunteer_count,
+            AVG(CAST(LEFT(proficiency_level, 1) AS UNSIGNED)) as avg_level
+        FROM `tabVolunteer Skill` vs
+        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+        WHERE vs.volunteer_skill IS NOT NULL
+            AND vs.volunteer_skill != ''
+            AND v.status = 'Active'
+        GROUP BY volunteer_skill, skill_category
+        ORDER BY volunteer_count DESC, volunteer_skill
     """,
         as_dict=True,
     )
 
-    updated_count = 0
-
-    for board_member in board_members:
-        # Get or create volunteer record
-        volunteer = None
-        member_doc = frappe.get_doc("Member", board_member.member)
-
-        # Find volunteer by member link
-        existing_volunteer = frappe.db.exists("Volunteer", {"member": board_member.member})
-
-        if existing_volunteer:
-            volunteer = frappe.get_doc("Volunteer", existing_volunteer)
-        else:
-            # Create new volunteer from member
-            volunteer = create_volunteer_from_member(member_doc)
-
-        if volunteer:
-            updated_count += 1
-
-    return {"updated_count": updated_count}
-
-
-def create_organization_user_for_volunteer(volunteer, member_doc):
-    """Link volunteer to existing member user account instead of creating new one"""
-    try:
-        # Check if member already has a user account from membership approval
-        if member_doc.user:
-            existing_user = frappe.get_doc("User", member_doc.user)
-
-            # Add volunteer role to existing user if not already present
-            existing_roles = [role.role for role in existing_user.roles]
-            volunteer_role = "Verenigingen Volunteer"
-
-            if volunteer_role not in existing_roles and frappe.db.exists("Role", volunteer_role):
-                existing_user.append("roles", {"role": volunteer_role})
-                existing_user.save(ignore_permissions=True)
-                frappe.msgprint(_("Added volunteer role to existing user account"))
-
-            # Link existing user to volunteer record
-            volunteer.user = existing_user.name
-            volunteer.save(ignore_permissions=True)
-
-            frappe.msgprint(
-                _("Linked volunteer to existing member user account {0}").format(existing_user.email)
-            )
-            return True
-
-        # Fallback: if no member user exists, check for organizational email user
-        org_email = volunteer.email
-        if org_email and frappe.db.exists("User", org_email):
-            existing_user = frappe.get_doc("User", org_email)
-
-            # Link existing user to volunteer if not already linked
-            if not volunteer.user:
-                volunteer.user = existing_user.name
-                volunteer.save(ignore_permissions=True)
-
-            frappe.msgprint(_("Linked existing user account {0} to volunteer").format(org_email))
-            return True
-
-        # Last resort: create new user account only if no existing user found
-        if org_email:
-            user = frappe.get_doc(
-                {
-                    "doctype": "User",
-                    "email": org_email,
-                    "first_name": member_doc.first_name or "",
-                    "last_name": member_doc.last_name or "",
-                    "full_name": member_doc.full_name or "",
-                    "send_welcome_email": 1,
-                    "user_type": "System User",
-                    "new_password": frappe.generate_hash(length=12),
-                }
-            )
-
-            # Add volunteer-related roles
-            volunteer_roles = ["Verenigingen Volunteer", "Verenigingen Member"]
-
-            for role in volunteer_roles:
-                if frappe.db.exists("Role", role):
-                    user.append("roles", {"role": role})
-
-            # Add default system roles for volunteers
-            default_roles = ["All"]
-            for role in default_roles:
-                if frappe.db.exists("Role", role):
-                    user.append("roles", {"role": role})
-
-            user.insert(ignore_permissions=True)
-
-            # Link user to volunteer record
-            volunteer.user = user.name
-            volunteer.save(ignore_permissions=True)
-
-            frappe.logger().info(f"Created new user {org_email} for volunteer {volunteer.name}")
-            frappe.msgprint(_("Created new user account {0} for volunteer").format(org_email))
-            return True
-
-        return False
-
-    except frappe.DuplicateEntryError:
-        frappe.msgprint(_("User account already exists"))
-        return False
-    except Exception as e:
-        frappe.log_error(f"Error linking user to volunteer: {str(e)}")
-        raise e
+    return skills
 
 
 @frappe.whitelist()
-def create_from_member(member=None, member_name=None):
-    """Create volunteer from member - alias for create_volunteer_from_member"""
-    # Handle both 'member' and 'member_name' parameters for compatibility
-    target_member = member or member_name
+def get_skill_suggestions(partial_skill):
+    """Get skill suggestions for autocomplete
 
-    if not target_member:
-        frappe.throw(_("Member is required"))
+    Args:
+        partial_skill: Partial skill name to search for
 
-    return create_volunteer_from_member(target_member)
+    Returns:
+        List of skill names matching the partial input
+    """
+    if not partial_skill or len(partial_skill) < 2:
+        return []
+
+    suggestions = frappe.db.sql(
+        """
+        SELECT DISTINCT volunteer_skill, COUNT(*) as frequency
+        FROM `tabVolunteer Skill`
+        WHERE volunteer_skill LIKE %(partial)s
+            AND volunteer_skill IS NOT NULL
+            AND volunteer_skill != ''
+        GROUP BY volunteer_skill
+        ORDER BY frequency DESC, volunteer_skill
+        LIMIT 10
+    """,
+        {"partial": f"%{partial_skill}%"},
+        as_dict=True,
+    )
+
+    return [s.volunteer_skill for s in suggestions]
+
+
+@frappe.whitelist()
+def get_volunteers_with_filters(category=None, skill=None, min_level=None, max_results=50):
+    """Get volunteers with skill-based filters
+
+    Args:
+        category: Optional skill category filter
+        skill: Optional specific skill filter
+        min_level: Optional minimum proficiency level
+        max_results: Maximum number of results to return
+
+    Returns:
+        List of volunteers matching the filters
+    """
+    conditions = ["v.status = 'Active'"]
+    params = {"max_results": max_results}
+
+    join_clause = ""
+    if skill or category or min_level:
+        join_clause = "INNER JOIN `tabVolunteer Skill` vs ON vs.parent = v.name"
+
+        if skill:
+            conditions.append("vs.volunteer_skill LIKE %(skill)s")
+            params["skill"] = f"%{skill}%"
+        if category:
+            conditions.append("vs.skill_category = %(category)s")
+            params["category"] = category
+        if min_level:
+            conditions.append("CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED) >= %(min_level)s")
+            params["min_level"] = min_level
+
+    # Build skills summary field based on whether we're joining skills table
+    if join_clause:
+        skills_field = """GROUP_CONCAT(DISTINCT CONCAT(vs.volunteer_skill, ' (', vs.proficiency_level, ')')
+            ORDER BY vs.skill_category, vs.volunteer_skill SEPARATOR ', ') as skills_summary"""
+    else:
+        skills_field = "NULL as skills_summary"
+
+    volunteers = frappe.db.sql(
+        """
+        SELECT DISTINCT
+            v.name,
+            v.volunteer_name,
+            v.status,
+            v.email,
+            {skills_field}
+        FROM `tabVolunteer` v
+        {join_clause}
+        WHERE {conditions}
+        GROUP BY v.name
+        ORDER BY v.volunteer_name
+        LIMIT %(max_results)s
+    """.format(
+            skills_field=skills_field, join_clause=join_clause, conditions=" AND ".join(conditions)
+        ),
+        params,
+        as_dict=True,
+    )
+
+    return volunteers
+
+
+@frappe.whitelist()
+def get_skill_insights():
+    """Get skill insights for dashboard
+
+    Returns:
+        Dictionary with popular skills, skill gaps, and category distribution
+    """
+    # Most common skills
+    popular_skills = frappe.db.sql(
+        """
+        SELECT volunteer_skill, skill_category, COUNT(*) as count
+        FROM `tabVolunteer Skill` vs
+        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+        WHERE v.status = 'Active'
+            AND vs.volunteer_skill IS NOT NULL
+            AND vs.volunteer_skill != ''
+        GROUP BY volunteer_skill, skill_category
+        ORDER BY count DESC
+        LIMIT 10
+    """,
+        as_dict=True,
+    )
+
+    # Skills by category (to identify gaps)
+    category_distribution = frappe.db.sql(
+        """
+        SELECT
+            skill_category,
+            COUNT(DISTINCT parent) as volunteer_count,
+            COUNT(*) as skill_count,
+            AVG(CAST(LEFT(proficiency_level, 1) AS UNSIGNED)) as avg_proficiency
+        FROM `tabVolunteer Skill` vs
+        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+        WHERE v.status = 'Active'
+        GROUP BY skill_category
+        ORDER BY volunteer_count DESC
+    """,
+        as_dict=True,
+    )
+
+    # High-level skills (Expert level)
+    expert_skills = frappe.db.sql(
+        """
+        SELECT volunteer_skill, skill_category, COUNT(*) as expert_count
+        FROM `tabVolunteer Skill` vs
+        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+        WHERE v.status = 'Active'
+            AND vs.proficiency_level LIKE '5%'
+        GROUP BY volunteer_skill, skill_category
+        ORDER BY expert_count DESC
+        LIMIT 5
+    """,
+        as_dict=True,
+    )
+
+    # Skills in development (from development goals)
+    development_skills = frappe.db.sql(
+        """
+        SELECT skill, COUNT(*) as learner_count
+        FROM `tabVolunteer Development Goal` vdg
+        INNER JOIN `tabVolunteer` v ON vdg.parent = v.name
+        WHERE v.status = 'Active'
+            AND vdg.skill IS NOT NULL
+            AND vdg.skill != ''
+        GROUP BY skill
+        ORDER BY learner_count DESC
+        LIMIT 5
+    """,
+        as_dict=True,
+    )
+
+    return {
+        "popular_skills": popular_skills,
+        "category_distribution": category_distribution,
+        "expert_skills": expert_skills,
+        "development_skills": development_skills,
+        "total_skills": len(get_all_skills_list()),
+        "total_volunteers_with_skills": frappe.db.count(
+            "Volunteer Skill", filters={"parenttype": "Volunteer"}
+        ),
+    }

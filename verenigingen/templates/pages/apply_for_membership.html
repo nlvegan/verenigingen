@@ -315,9 +315,203 @@
                         </div>
 
                         <div class="input-group">
-                            <label for="volunteer_skills" class="input-label">{{ _("Skills & Experience") }}</label>
-                            <textarea class="form-input" id="volunteer_skills" name="volunteer_skills" rows="2"
-                                      placeholder="{{ _('What skills or experience do you have that could help our organization?') }}"></textarea>
+                            <label class="input-label">{{ _("Skills & Experience") }}</label>
+                            <p class="text-gray-600 text-sm mb-3">{{ _("Select skills you have or add new ones. This helps us match you with suitable volunteer opportunities.") }}</p>
+
+                            <!-- Skills by Category -->
+                            <div id="skills-selection" class="space-y-4">
+                                <!-- Technical Skills -->
+                                <div class="skill-category">
+                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Technical Skills") }}</h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Web Development" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Web Development") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Graphic Design" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Graphic Design") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Video Editing" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Video Editing") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Photography" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Photography") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Social Media Management" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Social Media Management") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Technical|Data Analysis" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Data Analysis") }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Communication Skills -->
+                                <div class="skill-category">
+                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Communication Skills") }}</h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Writing" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Writing") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Public Speaking" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Public Speaking") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Translation" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Translation") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Teaching" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Teaching/Training") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Customer Service" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Customer Service") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Communication|Networking" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Networking") }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Organizational Skills -->
+                                <div class="skill-category">
+                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Organizational Skills") }}</h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Project Management" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Project Management") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Event Planning" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Event Planning") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Logistics" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Logistics") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Research" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Research") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Administration" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Administration") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Organizational|Database Management" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Database Management") }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Leadership Skills -->
+                                <div class="skill-category">
+                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Leadership Skills") }}</h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Team Leadership" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Team Leadership") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Mentoring" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Mentoring") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Board Experience" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Board Experience") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Strategic Planning" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Strategic Planning") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Facilitation" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Facilitation") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Leadership|Conflict Resolution" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Conflict Resolution") }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <!-- Financial Skills -->
+                                <div class="skill-category">
+                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Financial Skills") }}</h4>
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Accounting" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Accounting") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Bookkeeping" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Bookkeeping") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Fundraising" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Fundraising") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Grant Writing" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Grant Writing") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Budget Planning" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Budget Planning") }}</span>
+                                        </label>
+                                        <label class="flex items-center space-x-2">
+                                            <input type="checkbox" name="volunteer_skills[]" value="Financial|Financial Analysis" class="form-input w-auto">
+                                            <span class="text-sm">{{ _("Financial Analysis") }}</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Add Custom Skills -->
+                            <div class="mt-4">
+                                <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                                    <h4 class="font-medium text-gray-700 mb-2">{{ _("Add Custom Skills") }}</h4>
+                                    <div class="flex space-x-2 mb-2">
+                                        <select id="custom-skill-category" class="form-input flex-none w-32">
+                                            <option value="Technical">{{ _("Technical") }}</option>
+                                            <option value="Communication">{{ _("Communication") }}</option>
+                                            <option value="Organizational">{{ _("Organizational") }}</option>
+                                            <option value="Leadership">{{ _("Leadership") }}</option>
+                                            <option value="Financial">{{ _("Financial") }}</option>
+                                            <option value="Other">{{ _("Other") }}</option>
+                                        </select>
+                                        <input type="text" id="custom-skill-name" class="form-input flex-1" placeholder="{{ _('Enter skill name...') }}">
+                                        <button type="button" onclick="addCustomSkill()" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors">
+                                            {{ _("Add") }}
+                                        </button>
+                                    </div>
+                                    <div id="custom-skills-list" class="space-y-1">
+                                        <!-- Custom skills will appear here -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Proficiency Level -->
+                            <div class="mt-4">
+                                <label for="volunteer_skill_level" class="input-label">{{ _("Overall Experience Level") }}</label>
+                                <select class="form-input" id="volunteer_skill_level" name="volunteer_skill_level">
+                                    <option value="">{{ _("Select your overall experience level...") }}</option>
+                                    <option value="1">{{ _("1 - Beginner (Learning and eager to help)") }}</option>
+                                    <option value="2">{{ _("2 - Basic (Some experience in volunteer work)") }}</option>
+                                    <option value="3">{{ _("3 - Intermediate (Solid experience in several areas)") }}</option>
+                                    <option value="4">{{ _("4 - Advanced (Experienced with leadership capabilities)") }}</option>
+                                    <option value="5">{{ _("5 - Expert (Highly experienced, can mentor others)") }}</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="input-group">
@@ -546,6 +740,79 @@ document.addEventListener('DOMContentLoaded', function() {
             form.insertBefore(errorDiv, form.firstChild);
         }
     }
+
+    // Initialize skills functionality
+    initializeSkillsSection();
 });
+
+// Skills section functionality
+function initializeSkillsSection() {
+    // Show/hide skills section based on volunteer interest
+    const volunteerCheckbox = document.getElementById('interested_in_volunteering');
+    const skillsSection = document.getElementById('skills-selection');
+
+    if (volunteerCheckbox && skillsSection) {
+        function toggleSkillsSection() {
+            const skillsContainer = skillsSection.closest('.input-group');
+            if (volunteerCheckbox.checked) {
+                skillsContainer.style.display = 'block';
+            } else {
+                skillsContainer.style.display = 'none';
+            }
+        }
+
+        volunteerCheckbox.addEventListener('change', toggleSkillsSection);
+        toggleSkillsSection(); // Initial state
+    }
+}
+
+function addCustomSkill() {
+    const categorySelect = document.getElementById('custom-skill-category');
+    const skillInput = document.getElementById('custom-skill-name');
+    const skillsList = document.getElementById('custom-skills-list');
+
+    const category = categorySelect.value;
+    const skillName = skillInput.value.trim();
+
+    if (!skillName) {
+        alert('Please enter a skill name');
+        return;
+    }
+
+    // Check if skill already exists
+    const existingSkills = document.querySelectorAll('input[name="volunteer_skills[]"]');
+    const skillValue = `${category}|${skillName}`;
+
+    for (let existing of existingSkills) {
+        if (existing.value === skillValue) {
+            alert('This skill is already added');
+            return;
+        }
+    }
+
+    // Create new skill element
+    const skillElement = document.createElement('div');
+    skillElement.className = 'flex items-center justify-between bg-white p-2 rounded border';
+    skillElement.innerHTML = `
+        <label class="flex items-center space-x-2 flex-1">
+            <input type="checkbox" name="volunteer_skills[]" value="${skillValue}" class="form-input w-auto" checked>
+            <span class="text-sm">${skillName}</span>
+            <span class="text-xs text-gray-500">(${category})</span>
+        </label>
+        <button type="button" onclick="removeCustomSkill(this)" class="text-red-500 hover:text-red-700 text-sm px-2">
+            Remove
+        </button>
+    `;
+
+    skillsList.appendChild(skillElement);
+
+    // Clear input
+    skillInput.value = '';
+    skillInput.focus();
+}
+
+function removeCustomSkill(button) {
+    button.closest('div').remove();
+}
 </script>
 {% endblock %}

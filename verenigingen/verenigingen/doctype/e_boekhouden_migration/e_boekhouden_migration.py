@@ -783,7 +783,7 @@ class EBoekhoudenMigration(Document):
         """Migrate Stock Transactions from e-Boekhouden"""
         try:
             # Use the fixed stock migration that properly handles E-Boekhouden limitations
-            from verenigingen.utils.stock_migration_fixed import migrate_stock_transactions_safe
+            from verenigingen.utils.migration.stock_migration_fixed import migrate_stock_transactions_safe
 
             # Get date range
             date_from = self.date_from if self.date_from else None

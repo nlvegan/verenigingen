@@ -16,7 +16,7 @@ from verenigingen.api.sepa_duplicate_prevention import (
     validate_batch_mandates,
 )
 from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
-from verenigingen.utils.migration_performance import BatchProcessor
+from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
 
 # ========================

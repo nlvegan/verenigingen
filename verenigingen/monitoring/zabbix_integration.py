@@ -229,8 +229,23 @@ def get_metrics_for_zabbix():
 
 @frappe.whitelist(allow_guest=True, methods=["GET", "POST"])
 def health_check():
-    """Simple health check endpoint for Zabbix"""
-    return {"status": "healthy", "timestamp": now_datetime().isoformat()}
+    """Health check endpoint for Zabbix that evaluates actual system health"""
+    try:
+        health_score = get_system_health_score()
+        status = "healthy" if health_score >= 70 else "unhealthy"
+
+        # Get details about what's affecting health
+        details = get_health_details()
+
+        return {
+            "status": status,
+            "score": health_score,
+            "details": details,
+            "timestamp": now_datetime().isoformat(),
+        }
+    except Exception as e:
+        frappe.log_error(f"Health check error: {str(e)}")
+        return {"status": "unhealthy", "score": 0, "error": str(e), "timestamp": now_datetime().isoformat()}
 
 
 def get_queue_length():
@@ -383,6 +398,53 @@ def get_db_connections():
         return 0
     except Exception:
         return 0
+
+
+def get_health_details():
+    """Get detailed health information for debugging"""
+    details = {}
+
+    try:
+        # Error rate details
+        error_count = frappe.db.count("Error Log", {"creation": [">", get_datetime() - timedelta(hours=1)]})
+        details["errors_last_hour"] = error_count
+        details["error_score"] = 100 if error_count == 0 else max(0, 100 - (error_count * 10))
+    except Exception as e:
+        details["error_check_failed"] = str(e)
+        details["error_score"] = 50
+
+    try:
+        # Scheduler health
+        if frappe.db.exists("DocType", "Scheduled Job Log"):
+            recent_jobs = frappe.db.count(
+                "Scheduled Job Log", {"modified": [">", get_datetime() - timedelta(minutes=30)]}
+            )
+            details["recent_scheduled_jobs"] = recent_jobs
+            details["scheduler_score"] = 100 if recent_jobs > 0 else 0
+        else:
+            details["scheduler_status"] = "No job logs available"
+            details["scheduler_score"] = 75
+    except Exception as e:
+        details["scheduler_check_failed"] = str(e)
+        details["scheduler_score"] = 50
+
+    try:
+        # Database response time
+        start = datetime.now()
+        frappe.db.sql("SELECT 1")
+        response_time = (datetime.now() - start).total_seconds()
+        details["db_response_time_seconds"] = response_time
+        details["db_score"] = 100 if response_time < 0.1 else 50
+    except Exception as e:
+        details["db_check_failed"] = str(e)
+        details["db_score"] = 0
+
+    # Calculate overall score
+    scores = [details.get("error_score", 50), details.get("scheduler_score", 50), details.get("db_score", 50)]
+    details["overall_score"] = round(sum(scores) / len(scores)) if scores else 50
+    details["threshold"] = 70
+
+    return details
 
 
 # Scheduled job to send metrics

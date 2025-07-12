@@ -400,7 +400,7 @@ class StockTransactionMigrator:
         """Get or create a warehouse for migration purposes"""
         try:
             # Use the fixed warehouse function that handles duplicates properly
-            from verenigingen.utils.stock_migration_warehouse_fix import (
+            from verenigingen.utils.migration.stock_migration_warehouse_fix import (
                 get_or_create_migration_warehouse_fixed,
             )
 

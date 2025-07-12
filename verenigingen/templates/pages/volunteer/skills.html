@@ -1,0 +1,285 @@
+{% extends "templates/base.html" %}
+
+{% block title %}{{ _("Skills Directory") }}{% endblock %}
+
+{% block page_content %}
+<div class="container-fluid mt-4">
+    <!-- Page Header -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="mb-2">{{ _("Volunteer Skills Directory") }}</h1>
+            <p class="text-muted">{{ _("Discover volunteer skills and find the right people for your projects") }}</p>
+        </div>
+    </div>
+
+    <!-- Skills Statistics -->
+    {% if skills_stats %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-md-3">
+                            <div class="skill-stat">
+                                <h3 class="text-primary">{{ skills_stats.total_unique_skills }}</h3>
+                                <p class="mb-0 text-muted">{{ _("Unique Skills") }}</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="skill-stat">
+                                <h3 class="text-success">{{ skills_stats.volunteers_with_skills }}</h3>
+                                <p class="mb-0 text-muted">{{ _("Volunteers with Skills") }}</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="skill-stat">
+                                <h3 class="text-info">{{ skills_stats.total_skill_entries }}</h3>
+                                <p class="mb-0 text-muted">{{ _("Total Skill Entries") }}</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="skill-stat">
+                                <h3 class="text-warning">{{ skills_stats.skill_categories }}</h3>
+                                <p class="mb-0 text-muted">{{ _("Skill Categories") }}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Search Form -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">{{ _("Search Skills") }}</h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-4">
+                            <label for="skill" class="form-label">{{ _("Skill Name") }}</label>
+                            <input type="text" class="form-control" id="skill" name="skill"
+                                   value="{{ search_params.skill }}"
+                                   placeholder="{{ _('e.g., Python, Leadership, Design...') }}">
+                        </div>
+                        <div class="col-md-3">
+                            <label for="category" class="form-label">{{ _("Category") }}</label>
+                            <select class="form-select" id="category" name="category">
+                                <option value="">{{ _("All Categories") }}</option>
+                                <option value="Technical" {% if search_params.category == "Technical" %}selected{% endif %}>{{ _("Technical") }}</option>
+                                <option value="Organizational" {% if search_params.category == "Organizational" %}selected{% endif %}>{{ _("Organizational") }}</option>
+                                <option value="Communication" {% if search_params.category == "Communication" %}selected{% endif %}>{{ _("Communication") }}</option>
+                                <option value="Leadership" {% if search_params.category == "Leadership" %}selected{% endif %}>{{ _("Leadership") }}</option>
+                                <option value="Financial" {% if search_params.category == "Financial" %}selected{% endif %}>{{ _("Financial") }}</option>
+                                <option value="Event Planning" {% if search_params.category == "Event Planning" %}selected{% endif %}>{{ _("Event Planning") }}</option>
+                                <option value="Other" {% if search_params.category == "Other" %}selected{% endif %}>{{ _("Other") }}</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <label for="min_level" class="form-label">{{ _("Minimum Level") }}</label>
+                            <select class="form-select" id="min_level" name="min_level">
+                                <option value="">{{ _("Any Level") }}</option>
+                                <option value="1" {% if search_params.min_level == "1" %}selected{% endif %}>{{ _("1 - Beginner") }}</option>
+                                <option value="2" {% if search_params.min_level == "2" %}selected{% endif %}>{{ _("2 - Basic") }}</option>
+                                <option value="3" {% if search_params.min_level == "3" %}selected{% endif %}>{{ _("3 - Intermediate") }}</option>
+                                <option value="4" {% if search_params.min_level == "4" %}selected{% endif %}>{{ _("4 - Advanced") }}</option>
+                                <option value="5" {% if search_params.min_level == "5" %}selected{% endif %}>{{ _("5 - Expert") }}</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label">&nbsp;</label>
+                            <div>
+                                <button type="submit" class="btn btn-primary">{{ _("Search") }}</button>
+                                <a href="/volunteer/skills" class="btn btn-outline-secondary">{{ _("Clear") }}</a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search Results -->
+    {% if search_results is not none %}
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">{{ _("Search Results") }}</h5>
+                    <span class="badge bg-primary">{{ search_results|length }} {{ _("volunteers found") }}</span>
+                </div>
+                <div class="card-body">
+                    {% if search_results %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>{{ _("Volunteer") }}</th>
+                                    <th>{{ _("Matched Skill") }}</th>
+                                    <th>{{ _("Category") }}</th>
+                                    <th>{{ _("Proficiency Level") }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for volunteer in search_results %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ volunteer.volunteer_name }}</strong>
+                                    </td>
+                                    <td>{{ volunteer.matched_skill }}</td>
+                                    <td>
+                                        <span class="badge bg-secondary">{{ volunteer.skill_category }}</span>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-success">{{ volunteer.proficiency_level }}</span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="fa fa-search fa-2x text-muted mb-3"></i>
+                        <p class="text-muted">{{ _("No volunteers found matching your search criteria.") }}</p>
+                        <p class="text-muted">{{ _("Try adjusting your search terms or browse all skills below.") }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Browse All Skills -->
+    {% if skills_by_category %}
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">{{ _("Browse All Skills") }}</h5>
+                </div>
+                <div class="card-body">
+                    {% for category, skills in skills_by_category.items() %}
+                    <div class="skill-category-section mb-4">
+                        <h6 class="text-primary border-bottom pb-2 mb-3">
+                            {{ _(category) }}
+                            <span class="badge bg-light text-dark">{{ skills|length }} {{ _("skills") }}</span>
+                        </h6>
+
+                        <div class="row">
+                            {% for skill in skills %}
+                            <div class="col-md-6 col-lg-4 mb-3">
+                                <div class="skill-card p-3 border rounded hover-shadow">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <h6 class="skill-name mb-0">{{ skill.skill_name }}</h6>
+                                        <span class="badge bg-primary">{{ skill.volunteer_count }}</span>
+                                    </div>
+
+                                    <div class="skill-details">
+                                        <small class="text-muted d-block mb-1">
+                                            {{ _("Average Level") }}:
+                                            <span class="fw-bold">{{ skill.avg_level }}/5</span>
+                                        </small>
+
+                                        {% if skill.volunteer_names %}
+                                        <small class="text-muted">
+                                            {{ _("Volunteers") }}: {{ skill.volunteer_names }}
+                                        </small>
+                                        {% endif %}
+                                    </div>
+
+                                    <!-- Quick search button for this skill -->
+                                    <div class="mt-2">
+                                        <a href="/volunteer/skills?skill={{ skill.skill_name|urlencode }}"
+                                           class="btn btn-sm btn-outline-primary">
+                                            {{ _("Find Volunteers") }}
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-body text-center py-5">
+                    <i class="fa fa-users fa-3x text-muted mb-3"></i>
+                    <h5 class="text-muted">{{ _("No Skills Found") }}</h5>
+                    <p class="text-muted">{{ _("No volunteer skills have been recorded yet.") }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+.skill-stat {
+    padding: 1rem;
+}
+
+.skill-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.skill-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+}
+
+.hover-shadow {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.skill-category-section:last-child {
+    margin-bottom: 0 !important;
+}
+
+.skill-name {
+    color: var(--text-color);
+    font-weight: 600;
+}
+
+@media (max-width: 768px) {
+    .col-md-3 {
+        margin-bottom: 1rem;
+    }
+
+    .skill-card {
+        margin-bottom: 1rem;
+    }
+}
+</style>
+
+<!-- Optional: Add some JavaScript for enhanced interactions -->
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Add click handlers for skill cards to show more info
+    document.querySelectorAll('.skill-card').forEach(card => {
+        card.addEventListener('click', function(e) {
+            if (e.target.tagName !== 'A' && e.target.tagName !== 'BUTTON') {
+                // Could add modal or expanded view here
+                console.log('Skill card clicked:', this.querySelector('.skill-name').textContent);
+            }
+        });
+    });
+
+    // Auto-focus search field on page load
+    const skillInput = document.getElementById('skill');
+    if (skillInput && !skillInput.value) {
+        skillInput.focus();
+    }
+});
+</script>
+{% endblock %}

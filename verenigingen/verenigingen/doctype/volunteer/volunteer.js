@@ -579,7 +579,43 @@ function add_new_skill(frm) {
 		}
 	});
 
+	// Add autocomplete to skill field
+	d.fields_dict.volunteer_skill.$input.on('input', function() {
+		const partial_skill = $(this).val();
+		if (partial_skill && partial_skill.length >= 2) {
+			frappe.call({
+				method: 'verenigingen.verenigingen.doctype.volunteer.volunteer.get_skill_suggestions',
+				args: { partial_skill: partial_skill },
+				callback: function(r) {
+					if (r.message && r.message.length > 0) {
+						setup_skill_autocomplete(d.fields_dict.volunteer_skill, r.message);
+					}
+				}
+			});
+		}
+	});
+
 	d.show();
+}
+
+// Helper function to setup skill autocomplete
+function setup_skill_autocomplete(field, suggestions) {
+	if (!field || !field.$input) return;
+
+	// Remove existing autocomplete
+	if (field.$input.autocomplete) {
+		field.$input.autocomplete('destroy');
+	}
+
+	// Setup new autocomplete
+	field.$input.autocomplete({
+		source: suggestions,
+		minLength: 2,
+		select: function(event, ui) {
+			field.set_value(ui.item.value);
+			return false;
+		}
+	});
 }
 
 // Function to generate volunteer report
@@ -809,3 +845,31 @@ function show_report_dialog(frm, html) {
 		'border-radius': '10px'
 	});
 }
+
+// Child table events for Volunteer Skill
+frappe.ui.form.on('Volunteer Skill', {
+	volunteer_skill: function(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		if (row.volunteer_skill && row.volunteer_skill.length > 2) {
+			// Get suggestions from existing skills
+			frappe.call({
+				method: 'verenigingen.verenigingen.doctype.volunteer.volunteer.get_skill_suggestions',
+				args: { partial_skill: row.volunteer_skill },
+				callback: function(r) {
+					if (r.message && r.message.length > 0) {
+						// Log suggestions for now - we can enhance this later with a proper autocomplete widget
+						console.log('Skill suggestions for "' + row.volunteer_skill + '":', r.message);
+
+						// Show suggestions in a frappe message
+						if (r.message.length > 1) {
+							frappe.show_alert({
+								message: __('Similar skills found: {0}', [r.message.slice(0, 3).join(', ')]),
+								indicator: 'blue'
+							}, 3);
+						}
+					}
+				}
+			});
+		}
+	}
+});
