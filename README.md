@@ -85,11 +85,23 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 ## 🚀 **Quick Start**
 
 ### Installation
+
+**Quick Install** (ERPNext v15+ required):
 ```bash
-# Install in existing ERPNext environment
-bench get-app https://github.com/verenigingen/verenigingen
-bench install-app verenigingen --site your-site-name
-bench migrate
+# Clone the app
+bench get-app https://github.com/0spinboson/verenigingen
+# Install on your site
+bench --site your-site-name install-app verenigingen
+# Run initial setup
+bench --site your-site-name migrate
+bench --site your-site-name build --app verenigingen
+```
+
+**Requirements Check**:
+```bash
+# Verify dependencies
+bench version  # Should be v15.0.0+
+# Required apps: erpnext, payments, hrms, crm
 ```
 
 ### Essential Configuration
@@ -100,11 +112,22 @@ bench migrate
 5. **Email Templates**: Customize communication templates
 
 ### Documentation Links
-- **[📖 Complete Documentation](docs/README.md)** - Comprehensive guides and references
-- **[🚀 Getting Started](docs/GETTING_STARTED.md)** - Step-by-step setup guide
-- **[👨‍💼 Admin Guide](docs/ADMIN_GUIDE.md)** - Administrative procedures and configuration
-- **[🔌 API Documentation](docs/API_DOCUMENTATION.md)** - Integration and development reference
-- **[❓ FAQ & Troubleshooting](docs/FAQ_TROUBLESHOOTING.md)** - Common questions and solutions
+
+#### 📚 **Essential Guides**
+- **[📖 Complete Documentation](docs/README.md)** - Full documentation index and navigation
+- **[🚀 Getting Started](docs/GETTING_STARTED.md)** - New user onboarding and first steps
+- **[⚙️ Installation Guide](docs/INSTALLATION.md)** - Complete installation and deployment
+- **[🔒 Security Guide](SECURITY.md)** - Security configuration and best practices
+
+#### 👥 **User Guides**
+- **[👨‍💼 Admin Guide](docs/ADMIN_GUIDE.md)** - System administration and configuration
+- **[👤 Member Portal](docs/user-manual/MEMBER_PORTAL_GUIDE.md)** - Member self-service guide
+- **[🤝 Volunteer Portal](docs/user-manual/VOLUNTEER_PORTAL_GUIDE.md)** - Volunteer coordination guide
+
+#### 🔧 **Technical Documentation**
+- **[🔌 API Documentation](docs/API_DOCUMENTATION.md)** - Complete API reference and examples
+- **[❓ FAQ & Troubleshooting](docs/FAQ_TROUBLESHOOTING.md)** - Common issues and solutions
+- **[🛠️ Developer Guide](CLAUDE.md)** - Development guidelines and technical context
 
 ## 🎯 **Use Cases**
 

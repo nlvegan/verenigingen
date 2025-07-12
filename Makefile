@@ -19,15 +19,15 @@ help:
 
 test:
 	@echo "Running comprehensive tests..."
-	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.test_runner_simple.run_comprehensive_tests
+	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.test_runner_wrappers.run_all_tests
 
 test-quick:
 	@echo "Running quick tests..."
-	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.test_runner_simple.run_quick_tests
+	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.quick_validation.run_quick_tests
 
 test-all:
 	@echo "Running all tests..."
-	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.test_runner_simple.run_all_tests
+	@cd $(BENCH_DIR) && bench --site $(SITE) execute $(APP).tests.utils.test_runner_wrappers.run_all_tests
 
 coverage:
 	@echo "Running tests with coverage..."

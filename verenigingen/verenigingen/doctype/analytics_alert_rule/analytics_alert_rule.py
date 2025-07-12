@@ -221,13 +221,15 @@ class AnalyticsAlertRule(Document):
             frappe.log_error(f"Webhook call failed: {str(e)}")
 
     def execute_custom_script(self, alert_data):
-        """Execute custom Python script"""
-        try:
-            # Create safe context for script execution
-            context = {"alert_data": alert_data, "frappe": frappe, "rule": self}
-            exec(self.custom_script, context)
-        except Exception as e:
-            frappe.log_error(f"Custom script execution failed: {str(e)}")
+        """Execute custom Python script with security restrictions"""
+        # SECURITY: Disable exec() for security reasons
+        # TODO: Implement safer alternative like sandboxed execution or whitelist approach
+        frappe.log_error(
+            "Custom script execution disabled for security reasons. Contact administrator to implement safer alternative."
+        )
+        frappe.throw(
+            "Custom script execution is disabled for security reasons. Please contact your system administrator."
+        )
 
     def log_alert(self, alert_data):
         """Log the alert for audit trail"""

@@ -144,7 +144,7 @@ class SEPAGateway(PaymentGateway):
             return {"status": "error", "message": "IBAN is required for SEPA payments"}
 
         # Validate IBAN format with comprehensive validation
-        from verenigingen.utils.iban_validator import validate_iban
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
         validation_result = validate_iban(iban)
         if not validation_result["valid"]:
@@ -178,7 +178,7 @@ class SEPAGateway(PaymentGateway):
 
     def _validate_iban(self, iban):
         """Comprehensive IBAN validation with mod-97 checksum"""
-        from verenigingen.utils.iban_validator import validate_iban
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
         result = validate_iban(iban)
         return result["valid"]
@@ -190,7 +190,7 @@ class SEPAGateway(PaymentGateway):
             donor = frappe.get_doc("Donor", donation.donor)
 
             # Validate and format IBAN
-            from verenigingen.utils.iban_validator import derive_bic_from_iban, validate_iban
+            from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
 
             validation_result = validate_iban(iban)
             formatted_iban = validation_result.get("formatted", iban) if validation_result["valid"] else iban

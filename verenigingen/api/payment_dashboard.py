@@ -102,7 +102,7 @@ def get_payment_method(member=None):
     active_mandate = member_doc.get_active_sepa_mandate()
 
     if active_mandate:
-        from verenigingen.utils.iban_validator import format_iban
+        from verenigingen.utils.validation.iban_validator import format_iban
 
         return {
             "has_active_mandate": True,
@@ -272,7 +272,7 @@ def get_mandate_history(member=None):
     )
 
     # Format mandate data
-    from verenigingen.utils.iban_validator import format_iban, get_bank_from_iban
+    from verenigingen.utils.validation.iban_validator import format_iban, get_bank_from_iban
 
     for mandate in mandates:
         mandate["iban_formatted"] = format_iban(mandate.iban)

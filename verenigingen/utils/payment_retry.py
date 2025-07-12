@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
-from verenigingen.utils.iban_validator import derive_bic_from_iban
+from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 
 
 class PaymentRetryManager:

@@ -2,21 +2,24 @@
 
 This directory contains comprehensive documentation for the Verenigingen association management system.
 
-## Quick Start
+## 🚀 Quick Start
 
-### New Users
-1. **[Getting Started Guide](GETTING_STARTED.md)** - Essential first steps and setup
-2. **[Installation Guide](INSTALLATION.md)** - Complete installation instructions
-3. **[FAQ & Troubleshooting](FAQ_TROUBLESHOOTING.md)** - Common questions and solutions
+### 👶 **New Users** (First Time Setup)
+1. **[Getting Started Guide](GETTING_STARTED.md)** - Essential first steps and setup concepts
+2. **[Installation Guide](INSTALLATION.md)** - Complete technical installation instructions
+3. **[Security Guide](../SECURITY.md)** - Security configuration and best practices
+4. **[FAQ & Troubleshooting](FAQ_TROUBLESHOOTING.md)** - Common questions and solutions
 
-### User Guides by Role
-- **[Administrator Guide](ADMIN_GUIDE.md)** - Complete system administration
-- **[Member Portal Guide](user-manual/MEMBER_PORTAL_GUIDE.md)** - Member portal usage
-- **[Volunteer Portal Guide](user-manual/VOLUNTEER_PORTAL_GUIDE.md)** - Volunteer portal usage
+### 👥 **User Guides by Role**
+- **[👨‍💼 Administrator Guide](ADMIN_GUIDE.md)** - Complete system administration and configuration
+- **[👤 Member Portal Guide](user-manual/MEMBER_PORTAL_GUIDE.md)** - Member self-service portal usage
+- **[🤝 Volunteer Portal Guide](user-manual/VOLUNTEER_PORTAL_GUIDE.md)** - Volunteer coordination and expense management
 
-### Developers and Integrators
-- **[API Documentation](API_DOCUMENTATION.md)** - Complete API reference and examples
-- **[CLAUDE.md](../CLAUDE.md)** - Development guidelines and technical context
+### 🔧 **Technical Documentation**
+- **[🔌 API Documentation](API_DOCUMENTATION.md)** - Complete API reference with examples
+- **[🛠️ Developer Guide](../CLAUDE.md)** - Development guidelines and technical context
+- **[🔄 Upgrade Guide](UPGRADE_GUIDE.md)** - Version upgrade procedures and best practices
+- **[💾 Backup & Recovery](BACKUP_RECOVERY_GUIDE.md)** - Data protection and disaster recovery
 
 ## Documentation Structure
 

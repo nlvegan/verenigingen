@@ -11,7 +11,7 @@ import sys
 # Test modules to run
 CRITICAL_TEST_MODULES = [
     # Core critical business logic tests
-    "verenigingen.tests.test_critical_business_logic",
+    "verenigingen.tests.backend.business_logic.test_critical_business_logic",
     # High-risk doctype tests
     "verenigingen.verenigingen.doctype.membership_termination_request.test_membership_termination_request_critical",
     "verenigingen.verenigingen.doctype.e_boekhouden_migration.test_e_boekhouden_migration_critical",

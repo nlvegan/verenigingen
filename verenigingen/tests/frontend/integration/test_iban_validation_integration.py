@@ -8,7 +8,7 @@ import unittest
 import frappe
 from frappe.utils import today
 
-from verenigingen.utils.iban_validator import derive_bic_from_iban, validate_iban
+from verenigingen.utils.validation.iban_validator import derive_bic_from_iban, validate_iban
 
 
 class TestIBANValidationIntegration(unittest.TestCase):

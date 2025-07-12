@@ -142,7 +142,7 @@ def update_bank_details():
             frappe.throw(_("Account holder name is required"))
 
         # Validate IBAN format with comprehensive validation
-        from verenigingen.utils.iban_validator import validate_iban
+        from verenigingen.utils.validation.iban_validator import validate_iban
 
         validation_result = validate_iban(new_iban)
         if not validation_result["valid"]:
@@ -289,7 +289,7 @@ def update_bank_details():
 
 def validate_iban_format(iban):
     """Validate IBAN format using comprehensive validation"""
-    from verenigingen.utils.iban_validator import validate_iban
+    from verenigingen.utils.validation.iban_validator import validate_iban
 
     result = validate_iban(iban)
     return result["valid"]
@@ -297,7 +297,7 @@ def validate_iban_format(iban):
 
 def derive_bic_from_dutch_iban(iban):
     """Derive BIC from Dutch IBAN bank code using centralized function"""
-    from verenigingen.utils.iban_validator import derive_bic_from_iban
+    from verenigingen.utils.validation.iban_validator import derive_bic_from_iban
 
     return derive_bic_from_iban(iban)
 
