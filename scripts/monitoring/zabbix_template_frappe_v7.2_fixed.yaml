@@ -23,7 +23,7 @@ zabbix_export:
           history: 7d
           trends: '0'
           value_type: TEXT
-          url: '{$FRAPPE_URL}/health'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.health_check'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
@@ -37,7 +37,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - $.status
+                - $.message.status
               error_handler: CUSTOM_VALUE
               error_handler_params: unhealthy
           triggers:
