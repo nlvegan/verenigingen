@@ -1,0 +1,37 @@
+# Different value map formats to test with Zabbix 7.2
+
+# Format 1: Standard constants (try this first)
+valuemaps_format1:
+  - uuid: b739e89b-8577-41a9-80ac-4cf1e7d3e074
+    name: 'Frappe Health Status'
+    mappings:
+      - type: EQUAL
+        value: healthy
+        newvalue: Healthy
+      - type: EQUAL  
+        value: unhealthy
+        newvalue: Unhealthy
+      - type: DEFAULT
+        newvalue: Unknown
+
+# Format 2: Without default (simpler)
+valuemaps_format2:
+  - uuid: b739e89b-8577-41a9-80ac-4cf1e7d3e074
+    name: 'Frappe Health Status'
+    mappings:
+      - type: EQUAL
+        value: healthy
+        newvalue: Healthy
+      - type: EQUAL
+        value: unhealthy
+        newvalue: Unhealthy
+
+# Format 3: Different structure
+valuemaps_format3:
+  - uuid: b739e89b-8577-41a9-80ac-4cf1e7d3e074
+    name: 'Frappe Health Status'
+    mappings:
+      - value: healthy
+        newvalue: Healthy
+      - value: unhealthy
+        newvalue: Unhealthy

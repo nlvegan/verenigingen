@@ -7,7 +7,7 @@ zabbix_export:
     - uuid: 6552de8d-c1d0-4198-a260-0d459626c457
       template: Template Frappe Cloud Monitoring
       name: Template Frappe Cloud Monitoring
-      description: Monitor Frappe/ERPNext applications including Verenigingen - Zabbix 7.2 Compatible
+      description: Monitor Frappe/ERPNext applications including Verenigingen - Minimal Zabbix 7.2 Compatible
       vendor:
         name: Verenigingen
         version: '7.0'
@@ -87,9 +87,6 @@ zabbix_export:
             - type: JSONPATH
               parameters:
                 - $.message.metrics.daily_donations
-            - type: MULTIPLIER
-              parameters:
-                - '1'
           tags:
             - tag: component
               value: financial
@@ -112,9 +109,6 @@ zabbix_export:
             - type: JSONPATH
               parameters:
                 - $.message.metrics.error_rate
-            - type: DISCARD_UNCHANGED_HEARTBEAT
-              parameters:
-                - 5m
           triggers:
             - uuid: d491b2fd-ab6d-418d-a0d7-e4827e0bd521
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>{$ERROR_RATE_WARN}'
@@ -182,12 +176,6 @@ zabbix_export:
             - type: JSONPATH
               parameters:
                 - $.message.metrics.system_health
-            - type: IN_RANGE
-              parameters:
-                - '0'
-                - '100'
-              error_handler: CUSTOM_VALUE
-              error_handler_params: '0'
           triggers:
             - uuid: 023f3e0d-0db9-4a09-8ada-b5c02e34c492
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.score)<50'
@@ -219,58 +207,6 @@ zabbix_export:
             - tag: component
               value: volunteer
 
-        # Worker Status
-        - uuid: 66de9511-00f0-4afb-af31-67c3a59eefb3
-          name: Background Jobs Queue Size
-          type: HTTP_AGENT
-          key: frappe.jobs.queue
-          delay: 1m
-          history: 7d
-          trends: 30d
-          value_type: UNSIGNED
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
-          headers:
-            - name: Authorization
-              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
-          preprocessing:
-            - type: JSONPATH
-              parameters:
-                - $.message.metrics.job_queue_size
-          triggers:
-            - uuid: eff34511-6fe6-461b-a644-c4e23db4440c
-              expression: 'last(/Template Frappe Cloud Monitoring/frappe.jobs.queue)>100'
-              name: 'Large job queue backlog'
-              priority: WARNING
-              tags:
-                - tag: scope
-                  value: performance
-
-        # Database Connections
-        - uuid: f4ca8bae-1f3a-4bd3-8007-6dfd1f0f17f9
-          name: Database Connections
-          type: HTTP_AGENT
-          key: frappe.db.connections
-          delay: 1m
-          history: 7d
-          trends: 30d
-          value_type: UNSIGNED
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
-          headers:
-            - name: Authorization
-              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
-          preprocessing:
-            - type: JSONPATH
-              parameters:
-                - $.message.metrics.db_connections
-          triggers:
-            - uuid: c4a0659d-30fd-416d-8793-dc46c8c3ae74
-              expression: 'last(/Template Frappe Cloud Monitoring/frappe.db.connections)>80'
-              name: 'High database connection usage'
-              priority: WARNING
-              tags:
-                - tag: scope
-                  value: resource
-
       tags:
         - tag: class
           value: application
@@ -298,16 +234,3 @@ zabbix_export:
         - macro: '{$RESPONSE_TIME_WARN}'
           value: '2000'
           description: 'Warning threshold for response time (ms)'
-
-      valuemaps:
-        - uuid: b739e89b-8577-41a9-80ac-4cf1e7d3e074
-          name: 'Frappe Health Status'
-          mappings:
-            - type: EQUAL
-              value: healthy
-              newvalue: Healthy
-            - type: EQUAL
-              value: unhealthy
-              newvalue: Unhealthy
-            - type: DEFAULT
-              newvalue: Unknown

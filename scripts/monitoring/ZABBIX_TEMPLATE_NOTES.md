@@ -2,16 +2,16 @@
 
 ## Issues Found and Fixed
 
-### 1. Value Map Type Constants (Zabbix 7.x)
-In Zabbix 7.x, value map types must use numeric string values instead of named constants:
-- `'0'` = EQUALS (exact match)
-- `'1'` = GREATER_OR_EQUAL
-- `'2'` = LESS_OR_EQUAL  
-- `'3'` = IN_RANGE
-- `'4'` = REGEX
-- `'5'` = DEFAULT
+### 1. Value Map Type Constants (Zabbix 7.2)
+In Zabbix 7.2, value map types use these constants:
+- `EQUAL` = exact match (note: not "EQUALS")
+- `GREATER_EQUAL` = greater or equal
+- `LESS_EQUAL` = less or equal  
+- `IN_RANGE` = in range
+- `REGEXP` = regular expression
+- `DEFAULT` = default value
 
-**Fixed**: Changed `type: EQUALS` to `type: '0'` and `type: DEFAULT` to `type: '5'` (quoted strings)
+**Fixed**: Changed `type: EQUALS` to `type: EQUAL` and kept `type: DEFAULT`
 
 ### 2. Invalid UUIDs
 Original templates contained invalid UUIDs with non-hexadecimal characters (g-z).
@@ -38,7 +38,8 @@ UUIDs must only contain: 0-9, a-f, A-F
 
 ## Template Files
 
-- `zabbix_template_frappe_v7.2_fixed.yaml` - **RECOMMENDED** - Clean Zabbix 7.2 compatible template
+- `zabbix_template_frappe_v7.2_fixed.yaml` - **RECOMMENDED** - Working template with proper value maps for Zabbix 7.2
+- `zabbix_template_frappe_v7.2_minimal.yaml` - Alternative template without value maps (simpler)
 - `zabbix_template_frappe_v7_compatible.yaml` - Partially fixed template (UUIDs still need fixing)
 - `zabbix_template_frappe_v7.yaml` - Original advanced template (has dashboard issues)
 - `zabbix_template_frappe.xml` - Legacy XML format (may need similar fixes)
