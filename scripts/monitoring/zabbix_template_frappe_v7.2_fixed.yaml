@@ -1,23 +1,21 @@
 zabbix_export:
-  version: '6.4'
+  version: '7.0'
   template_groups:
-    - uuid: 8f5da2e5c4f34850a75421e7e7e7e7e7
+    - uuid: 95d836da-12c2-4d6e-83dc-176ddf1b03c0
       name: Frappe Applications
   templates:
-    - uuid: a19c3d5b6e9b4f5e85f7b8c9d0e1f2g3
+    - uuid: 6552de8d-c1d0-4198-a260-0d459626c457
       template: Template Frappe Cloud Monitoring
       name: Template Frappe Cloud Monitoring
-      description: Monitor Frappe/ERPNext applications including Verenigingen - Compatible Version
+      description: Monitor Frappe/ERPNext applications including Verenigingen - Zabbix 7.2 Compatible
       vendor:
         name: Verenigingen
-        version: '6.4'
-      templates:
-        - name: Template Frappe Cloud Monitoring
+        version: '7.0'
       groups:
         - name: Frappe Applications
       items:
         # Health Check
-        - uuid: 1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p
+        - uuid: 74ac7f10-57e0-41c1-9430-6d60f2cae147
           name: Frappe Health Status
           type: HTTP_AGENT
           key: frappe.health.status
@@ -37,7 +35,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: unhealthy
           triggers:
-            - uuid: 2a3b4c5d6e7f8g9h0i1j2k3l4m5n6o7p
+            - uuid: 107277e9-17e3-4316-9339-c850bf7e7b93
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.status)<>"healthy"'
               name: 'Frappe application is unhealthy'
               priority: HIGH
@@ -47,7 +45,7 @@ zabbix_export:
                   value: availability
 
         # Member Metrics
-        - uuid: 3a4b5c6d7e8f9g0h1i2j3k4l5m6n7o8p
+        - uuid: 154f3f77-39e4-41a5-a272-ba63a31b35b0
           name: Active Members Count
           type: HTTP_AGENT
           key: frappe.members.active
@@ -72,7 +70,7 @@ zabbix_export:
               value: members
 
         # Financial Metrics
-        - uuid: 4a5b6c7d8e9f0g1h2i3j4k5l6m7n8o9p
+        - uuid: b738de18-9f3c-49c7-805b-571bbe6df495
           name: Daily Donations Total
           type: HTTP_AGENT
           key: frappe.donations.daily
@@ -96,8 +94,8 @@ zabbix_export:
             - tag: component
               value: financial
 
-        # Performance Metrics - simplified
-        - uuid: 5a6b7c8d9e0f1g2h3i4j5k6l7m8n9o0p
+        # Performance Metrics
+        - uuid: 24947374-1c1a-438e-ab53-60708b94e177
           name: Error Rate
           type: HTTP_AGENT
           key: frappe.error.rate
@@ -116,10 +114,10 @@ zabbix_export:
                 - $.message.metrics.error_rate
             - type: DISCARD_UNCHANGED_HEARTBEAT
               parameters:
-                - 50m
+                - 5m
           triggers:
-            - uuid: 6a7b8c9d0e1f2g3h4i5j6k7l8m9n0o1p
-              expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>5'
+            - uuid: d491b2fd-ab6d-418d-a0d7-e4827e0bd521
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>{$ERROR_RATE_WARN}'
               name: 'High error rate on Frappe application'
               event_name: 'Error rate: {ITEM.VALUE}%'
               priority: WARNING
@@ -129,8 +127,8 @@ zabbix_export:
               tags:
                 - tag: scope
                   value: performance
-            - uuid: 7a8b9c0d1e2f3g4h5i6j7k8l9m0n1o2p
-              expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>10'
+            - uuid: 607d431b-19dd-44ad-843c-a821aab4228d
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>{$ERROR_RATE_HIGH}'
               name: 'Critical error rate on Frappe application'
               event_name: 'Critical error rate: {ITEM.VALUE}%'
               priority: HIGH
@@ -139,7 +137,7 @@ zabbix_export:
                   value: performance
 
         # Response Time
-        - uuid: 8a9b0c1d2e3f4g5h6i7j8k9l0m1n2o3p
+        - uuid: 67dff822-24e9-4328-923c-56a9c4e9f819
           name: Average Response Time
           type: HTTP_AGENT
           key: frappe.response.time
@@ -157,8 +155,8 @@ zabbix_export:
               parameters:
                 - $.message.metrics.response_time
           triggers:
-            - uuid: 9a0b1c2d3e4f5g6h7i8j9k0l1m2n3o4p
-              expression: 'last(/Template Frappe Cloud Monitoring/frappe.response.time)>2000'
+            - uuid: 005a4b07-ab4d-42da-8ef8-8eb17c03c3c5
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.response.time)>{$RESPONSE_TIME_WARN}'
               name: 'Slow response time on Frappe application'
               event_name: 'Response time: {ITEM.VALUE}ms'
               priority: WARNING
@@ -166,8 +164,8 @@ zabbix_export:
                 - tag: scope
                   value: performance
 
-        # System Health Score - simplified
-        - uuid: 0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p
+        # System Health Score
+        - uuid: d16a6c24-69e7-4724-ac6b-f198051ccfd4
           name: System Health Score
           type: HTTP_AGENT
           key: frappe.health.score
@@ -184,8 +182,14 @@ zabbix_export:
             - type: JSONPATH
               parameters:
                 - $.message.metrics.system_health
+            - type: IN_RANGE
+              parameters:
+                - '0'
+                - '100'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
           triggers:
-            - uuid: 1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q
+            - uuid: 023f3e0d-0db9-4a09-8ada-b5c02e34c492
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.score)<50'
               name: 'Low system health score'
               event_name: 'Health score: {ITEM.VALUE}%'
@@ -195,7 +199,7 @@ zabbix_export:
                   value: availability
 
         # Business Metrics
-        - uuid: 2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q
+        - uuid: 79f96a8a-acc4-489f-a8ca-e6cf40a7ea4e
           name: Pending Volunteer Expenses
           type: HTTP_AGENT
           key: frappe.expenses.pending
@@ -214,6 +218,58 @@ zabbix_export:
           tags:
             - tag: component
               value: volunteer
+
+        # Worker Status
+        - uuid: 66de9511-00f0-4afb-af31-67c3a59eefb3
+          name: Background Jobs Queue Size
+          type: HTTP_AGENT
+          key: frappe.jobs.queue
+          delay: 1m
+          history: 7d
+          trends: 30d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics.job_queue_size
+          triggers:
+            - uuid: eff34511-6fe6-461b-a644-c4e23db4440c
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.jobs.queue)>100'
+              name: 'Large job queue backlog'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: performance
+
+        # Database Connections
+        - uuid: f4ca8bae-1f3a-4bd3-8007-6dfd1f0f17f9
+          name: Database Connections
+          type: HTTP_AGENT
+          key: frappe.db.connections
+          delay: 1m
+          history: 7d
+          trends: 30d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics.db_connections
+          triggers:
+            - uuid: c4a0659d-30fd-416d-8793-dc46c8c3ae74
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.db.connections)>80'
+              name: 'High database connection usage'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: resource
 
       tags:
         - tag: class
@@ -244,7 +300,7 @@ zabbix_export:
           description: 'Warning threshold for response time (ms)'
 
       valuemaps:
-        - uuid: 6d7e8f9g0h1i2j3k4l5m6n7o8p9q0r1s
+        - uuid: b739e89b-8577-41a9-80ac-4cf1e7d3e074
           name: 'Frappe Health Status'
           mappings:
             - type: 0
