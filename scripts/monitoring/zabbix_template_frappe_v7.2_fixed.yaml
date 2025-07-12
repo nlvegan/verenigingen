@@ -27,7 +27,13 @@ zabbix_export:
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+            - name: Content-Type
+              value: 'application/json'
+            - name: Accept
+              value: 'application/json'
           timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
           preprocessing:
             - type: JSONPATH
               parameters:
@@ -54,7 +60,7 @@ zabbix_export:
           trends: 365d
           value_type: UNSIGNED
           units: members
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
@@ -79,7 +85,7 @@ zabbix_export:
           trends: 365d
           value_type: FLOAT
           units: EUR
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
@@ -104,7 +110,7 @@ zabbix_export:
           trends: 30d
           value_type: FLOAT
           units: '%'
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
@@ -146,7 +152,7 @@ zabbix_export:
           trends: 30d
           value_type: UNSIGNED
           units: ms
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
@@ -174,7 +180,7 @@ zabbix_export:
           trends: 30d
           value_type: UNSIGNED
           units: '%'
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
@@ -207,7 +213,7 @@ zabbix_export:
           history: 30d
           trends: 90d
           value_type: UNSIGNED
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
@@ -228,7 +234,7 @@ zabbix_export:
           history: 7d
           trends: 30d
           value_type: UNSIGNED
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
@@ -254,7 +260,7 @@ zabbix_export:
           history: 7d
           trends: 30d
           value_type: UNSIGNED
-          url: '{$FRAPPE_URL}/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
           headers:
             - name: Authorization
               value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
