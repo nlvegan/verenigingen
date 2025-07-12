@@ -110,6 +110,11 @@ jobs:
         bench set-config redis_queue redis://localhost:6379
         bench set-config redis_socketio redis://localhost:6379
 
+    - name: Clean Database
+      working-directory: frappe-bench
+      run: |
+        mysql -h 127.0.0.1 -u root -ptravis -e "DROP DATABASE IF EXISTS test_frappe;"
+
     - name: Setup Test Site
       working-directory: frappe-bench
       run: |
