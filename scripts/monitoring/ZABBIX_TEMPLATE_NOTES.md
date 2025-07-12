@@ -3,15 +3,15 @@
 ## Issues Found and Fixed
 
 ### 1. Value Map Type Constants (Zabbix 7.x)
-In Zabbix 7.x, value map types must use numeric values instead of string constants:
-- `0` = EQUALS (exact match)
-- `1` = GREATER_OR_EQUAL
-- `2` = LESS_OR_EQUAL  
-- `3` = IN_RANGE
-- `4` = REGEX
-- `5` = DEFAULT
+In Zabbix 7.x, value map types must use numeric string values instead of named constants:
+- `'0'` = EQUALS (exact match)
+- `'1'` = GREATER_OR_EQUAL
+- `'2'` = LESS_OR_EQUAL  
+- `'3'` = IN_RANGE
+- `'4'` = REGEX
+- `'5'` = DEFAULT
 
-**Fixed**: Changed `type: EQUALS` to `type: 0` and `type: DEFAULT` to `type: 5`
+**Fixed**: Changed `type: EQUALS` to `type: '0'` and `type: DEFAULT` to `type: '5'` (quoted strings)
 
 ### 2. Invalid UUIDs
 Original templates contained invalid UUIDs with non-hexadecimal characters (g-z).

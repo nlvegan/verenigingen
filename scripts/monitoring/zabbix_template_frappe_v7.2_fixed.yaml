@@ -303,11 +303,11 @@ zabbix_export:
         - uuid: b739e89b-8577-41a9-80ac-4cf1e7d3e074
           name: 'Frappe Health Status'
           mappings:
-            - type: 0
+            - type: '0'
               value: healthy
               newvalue: Healthy
-            - type: 0
+            - type: '0'
               value: unhealthy
               newvalue: Unhealthy
-            - type: 5
+            - type: '5'
               newvalue: Unknown
