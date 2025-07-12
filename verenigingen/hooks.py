@@ -148,7 +148,7 @@ scheduler_events = {
         # Contact request automation
         "verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation.process_contact_request_automation",
         # E-Boekhouden dashboard updates
-        "verenigingen.utils.eboekhouden_api.update_dashboard_data_periodically",
+        "verenigingen.utils.eboekhouden.eboekhouden_api.update_dashboard_data_periodically",
         # Board member role cleanup
         # "verenigingen.utils.board_member_role_cleanup.cleanup_expired_board_member_roles",
         # SEPA payment retry processing

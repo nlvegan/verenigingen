@@ -61,7 +61,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		if (frm.doc.connection_status && frm.doc.connection_status.includes('✅')) {
 			frm.add_custom_button(__('Test Chart of Accounts'), function() {
 				frappe.call({
-					method: 'verenigingen.utils.eboekhouden_api.preview_chart_of_accounts',
+					method: 'verenigingen.utils.eboekhouden.eboekhouden_api.preview_chart_of_accounts',
 					callback: function(r) {
 						if (r.message && r.message.success) {
 							let dialog = new frappe.ui.Dialog({

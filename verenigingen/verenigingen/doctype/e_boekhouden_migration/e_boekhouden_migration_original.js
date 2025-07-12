@@ -18,7 +18,7 @@ frappe.ui.form.on('E-Boekhouden Migration', {
 				frm.add_custom_button(__('Test Connection'), function() {
 					console.log('Test Connection clicked');
 					frappe.call({
-						method: 'verenigingen.utils.eboekhouden_api.test_api_connection',
+						method: 'verenigingen.utils.eboekhouden.eboekhouden_api.test_api_connection',
 						callback: function(r) {
 							if (r.message && r.message.success) {
 								frappe.show_alert({

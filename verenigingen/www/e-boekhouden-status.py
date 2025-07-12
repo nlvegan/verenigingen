@@ -12,7 +12,7 @@ def get_context(context):
 
     # Get data using direct API call to avoid import issues
     try:
-        dashboard_data = frappe.call("verenigingen.utils.eboekhouden_api.get_dashboard_data_api")
+        dashboard_data = frappe.call("verenigingen.utils.eboekhouden.eboekhouden_api.get_dashboard_data_api")
 
         if dashboard_data.get("success"):
             context.update(dashboard_data)
