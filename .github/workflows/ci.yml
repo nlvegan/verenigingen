@@ -125,7 +125,7 @@ jobs:
     - name: Install Verenigingen
       working-directory: frappe-bench
       run: |
-        bench get-app ../apps/verenigingen
+        bench get-app ${{ github.workspace }}/apps/verenigingen
         bench --site test_site install-app verenigingen
 
     - name: Run Python Tests
@@ -144,19 +144,28 @@ jobs:
       uses: codecov/codecov-action@v4
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./frappe-bench/coverage.xml
+        file: ./coverage.xml
+        working-directory: ./frappe-bench
         flags: unittests
         name: codecov-umbrella
         fail_ci_if_error: false
 
     - name: Run JavaScript Tests
-      working-directory: frappe-bench/apps/verenigingen
       run: |
-        if [ -f "package.json" ]; then
+        cd frappe-bench
+        if [ -d "apps/verenigingen" ] && [ -f "apps/verenigingen/package.json" ]; then
+          cd apps/verenigingen
           npm install
           npm test -- --coverage
         else
-          echo "No package.json found, skipping JavaScript tests"
+          echo "No package.json found in bench app directory, checking original location..."
+          cd ${{ github.workspace }}/apps/verenigingen
+          if [ -f "package.json" ]; then
+            npm install
+            npm test -- --coverage
+          else
+            echo "No package.json found, skipping JavaScript tests"
+          fi
         fi
 
     - name: Run Linting
