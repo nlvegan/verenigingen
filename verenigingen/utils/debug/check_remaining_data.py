@@ -135,14 +135,14 @@ def nuclear_cleanup_remaining():
             for table in child_tables:
                 try:
                     child_deleted = frappe.db.sql(
-                        "DELETE FROM `tab{table}` WHERE parent IN (SELECT name FROM `tabJournal Entry` WHERE company = %s UNION SELECT name FROM `tabPayment Entry` WHERE company = %s UNION SELECT name FROM `tabSales Invoice` WHERE company = %s UNION SELECT name FROM `tabPurchase Invoice` WHERE company = %s)",
+                        f"DELETE FROM `tab{table}` WHERE parent IN (SELECT name FROM `tabJournal Entry` WHERE company = %s UNION SELECT name FROM `tabPayment Entry` WHERE company = %s UNION SELECT name FROM `tabSales Invoice` WHERE company = %s UNION SELECT name FROM `tabPurchase Invoice` WHERE company = %s)",
                         (company, company, company, company),
                     )
                     if child_deleted:
-                        results["cleanup_steps"].append("{table} entries deleted: {child_deleted}")
+                        results["cleanup_steps"].append(f"{table} entries deleted: {child_deleted}")
                 except Exception:
                     # Delete directly from remaining entries
-                    frappe.db.sql("DELETE FROM `tab{table}`")
+                    frappe.db.sql(f"DELETE FROM `tab{table}`")
 
             frappe.db.commit()
 

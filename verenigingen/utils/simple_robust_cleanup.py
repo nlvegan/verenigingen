@@ -117,7 +117,7 @@ def simple_robust_cleanup(company=None):
 
                     # Set to cancelled first to avoid constraints
                     frappe.db.sql(
-                        "UPDATE `tabPayment Entry` SET docstatus = 2 WHERE name IN ({pe_placeholder})",
+                        f"UPDATE `tabPayment Entry` SET docstatus = 2 WHERE name IN ({pe_placeholder})",
                         pe_names,
                     )
 

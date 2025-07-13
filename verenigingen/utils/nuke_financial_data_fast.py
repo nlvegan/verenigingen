@@ -60,7 +60,7 @@ def nuke_financial_data_fast(confirm="NO"):
 
             # Get submitted docs
             submitted = frappe.db.sql(
-                """
+                f"""
                 SELECT name FROM `tab{doctype}`
                 WHERE company = %s AND docstatus = 1
                 LIMIT 100
@@ -72,14 +72,14 @@ def nuke_financial_data_fast(confirm="NO"):
             while submitted:
                 for (name,) in submitted:
                     try:
-                        frappe.db.sql("UPDATE `tab{doctype}` SET docstatus = 2 WHERE name = %s", name)
+                        frappe.db.sql(f"UPDATE `tab{doctype}` SET docstatus = 2 WHERE name = %s", name)
                         cancelled += 1
                     except:
                         pass
 
                 # Get next batch
                 submitted = frappe.db.sql(
-                    """
+                    f"""
                     SELECT name FROM `tab{doctype}`
                     WHERE company = %s AND docstatus = 1
                     LIMIT 100
@@ -90,8 +90,8 @@ def nuke_financial_data_fast(confirm="NO"):
             print(f"      Cancelled {cancelled} {doctype}s")
 
             # Now delete all
-            total = frappe.db.sql("SELECT COUNT(*) FROM `tab{doctype}` WHERE company = %s", company)[0][0]
-            frappe.db.sql("DELETE FROM `tab{doctype}` WHERE company = %s", company)
+            total = frappe.db.sql(f"SELECT COUNT(*) FROM `tab{doctype}` WHERE company = %s", company)[0][0]
+            frappe.db.sql(f"DELETE FROM `tab{doctype}` WHERE company = %s", company)
             print(f"      Deleted {total} {doctype}s")
 
         # 5. Reset cache tables if they exist

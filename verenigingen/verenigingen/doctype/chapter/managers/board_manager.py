@@ -178,7 +178,7 @@ class BoardManager(BaseManager):
             try:
                 volunteer_doc = frappe.get_doc("Volunteer", board_member_data["volunteer"])
                 if volunteer_doc.member:
-                    ChapterMembershipHistoryManager.complete_membership_history(
+                    ChapterMembershipHistoryManager.end_chapter_membership(
                         member_id=volunteer_doc.member,
                         chapter_name=self.chapter_name,
                         assignment_type="Board Member",
@@ -844,7 +844,7 @@ class BoardManager(BaseManager):
                 try:
                     volunteer_doc = frappe.get_doc("Volunteer", old_board_member.volunteer)
                     if volunteer_doc.member:
-                        ChapterMembershipHistoryManager.complete_membership_history(
+                        ChapterMembershipHistoryManager.end_chapter_membership(
                             member_id=volunteer_doc.member,
                             chapter_name=self.chapter_name,
                             assignment_type="Board Member",

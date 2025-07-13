@@ -58,7 +58,7 @@ class ChapterMembershipHistoryManager:
                     "assignment_type": assignment_type,
                     "start_date": start_date,
                     "status": status,
-                    "reason": reason or "Assigned to {chapter_name} as {assignment_type}",
+                    "reason": reason or f"Assigned to {chapter_name} as {assignment_type}",
                 },
             )
 
@@ -75,7 +75,7 @@ class ChapterMembershipHistoryManager:
             return False
 
     @staticmethod
-    def complete_membership_history(
+    def end_chapter_membership(
         member_id: str,
         chapter_name: str,
         assignment_type: str,
@@ -84,7 +84,7 @@ class ChapterMembershipHistoryManager:
         reason: str = None,
     ) -> bool:
         """
-        Complete member chapter membership history when ending a relationship
+        End member chapter membership history when ending a relationship normally
 
         Args:
             member_id: Member ID
@@ -120,7 +120,7 @@ class ChapterMembershipHistoryManager:
                     target_membership.reason = reason
 
                 frappe.log_error(
-                    "Updated specific membership history for member {member_id}: {assignment_type} at {chapter_name}",
+                    f"Updated specific membership history for member {member_id}: {assignment_type} at {chapter_name}",
                     "Chapter Membership History Manager",
                 )
             else:
@@ -142,7 +142,7 @@ class ChapterMembershipHistoryManager:
                         fallback_membership.reason = reason
 
                     frappe.log_error(
-                        "Updated fallback membership history for member {member_id}: {assignment_type} at {chapter_name}",
+                        f"Updated fallback membership history for member {member_id}: {assignment_type} at {chapter_name}",
                         "Chapter Membership History Manager",
                     )
                 else:
@@ -155,7 +155,7 @@ class ChapterMembershipHistoryManager:
                             "start_date": start_date,
                             "end_date": end_date,
                             "status": "Completed",
-                            "reason": reason or "Left {chapter_name} as {assignment_type}",
+                            "reason": reason or f"Left {chapter_name} as {assignment_type}",
                         },
                     )
 
@@ -209,11 +209,11 @@ class ChapterMembershipHistoryManager:
             return []
 
     @staticmethod
-    def remove_membership_history(
+    def cancel_chapter_membership(
         member_id: str, chapter_name: str, assignment_type: str, start_date: str
     ) -> bool:
         """
-        Remove membership history entry (for cases where membership is cancelled before completion)
+        Cancel membership history entry (for cases where membership is cancelled before completion)
 
         Args:
             member_id: Member ID
@@ -263,11 +263,11 @@ class ChapterMembershipHistoryManager:
             return False
 
     @staticmethod
-    def terminate_membership_history(
+    def terminate_chapter_membership(
         member_id: str, chapter_name: str, assignment_type: str, end_date: str, reason: str
     ) -> bool:
         """
-        Terminate membership history (different from completion - implies involuntary end)
+        Terminate chapter membership (different from normal end - implies involuntary end)
 
         Args:
             member_id: Member ID

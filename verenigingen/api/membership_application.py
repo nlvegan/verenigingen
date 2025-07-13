@@ -339,12 +339,12 @@ def submit_application(**kwargs):
         # Validate membership amount if custom amount is provided
         if data.get("membership_amount") or data.get("uses_custom_amount"):
             membership_type = data.get("selected_membership_type")
-            membership_amount = data.get("membership_amount")
+            custom_contribution_fee = data.get("custom_contribution_fee")
             uses_custom = data.get("uses_custom_amount", False)
 
-            if membership_type and membership_amount:
+            if membership_type and custom_contribution_fee:
                 # Validate custom amount
-                amount_validation = validate_custom_amount_util(membership_type, membership_amount)
+                amount_validation = validate_custom_amount_util(membership_type, custom_contribution_fee)
                 if not amount_validation["valid"]:
                     frappe.log_error(
                         f"Custom amount validation failed for application: {amount_validation['message']}",
@@ -359,7 +359,7 @@ def submit_application(**kwargs):
 
                 # Also validate using the membership amount selection validator
                 selection_validation = validate_membership_amount_selection(
-                    membership_type, membership_amount, uses_custom
+                    membership_type, custom_contribution_fee, uses_custom
                 )
                 if not selection_validation["valid"]:
                     frappe.log_error(

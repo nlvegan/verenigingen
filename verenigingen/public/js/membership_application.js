@@ -471,7 +471,7 @@ class MembershipApplication {
 					isValid = false;
 				} else {
 					// Check if custom amount is valid when used
-					const membershipAmount = this.state.get('membership_amount') || (membership && membership.amount);
+					const membershipAmount = this.state.get('custom_contribution_fee') || (membership && membership.amount);
 					const usesCustomAmount = this.state.get('uses_custom_amount') || (membership && membership.isCustom);
 
 					if (usesCustomAmount && (!membershipAmount || membershipAmount <= 0)) {
@@ -671,7 +671,7 @@ class MembershipApplication {
 
 			// Step 3: Membership and Chapter selection
 			selected_membership_type: this.state.get('selected_membership_type') || '',
-			membership_amount: this.state.get('membership_amount') || 0,
+			custom_contribution_fee: this.state.get('custom_contribution_fee') || 0,
 			uses_custom_amount: this.state.get('uses_custom_amount') || false,
 			selected_chapter: $('#selected_chapter').val() || '',
 
@@ -1108,7 +1108,7 @@ class MembershipApplication {
 		// Collect any additional form data not handled by step manager
 		return {
 			selected_membership_type: this.state.get('selected_membership_type') || '',
-			membership_amount: this.state.get('membership_amount') || 0,
+			custom_contribution_fee: this.state.get('custom_contribution_fee') || 0,
 			uses_custom_amount: this.state.get('uses_custom_amount') || false,
 			payment_method: this.getPaymentMethod() || ''
 		};
@@ -2037,7 +2037,7 @@ class MembershipApplication {
 				content += `<p><strong>Type:</strong> ${typeName}</p>`;
 
 				// Format amount with billing period
-				const amount = data.membership_amount || membershipType.amount;
+				const amount = data.custom_contribution_fee || membershipType.amount;
 				const period = membershipType.subscription_period || 'year';
 				// Use simple currency formatting to avoid HTML structure issues
 				const currency = membershipType.currency || 'EUR';
@@ -2050,8 +2050,8 @@ class MembershipApplication {
 				}
 			} else {
 				content += `<p><strong>Type:</strong> ${data.selected_membership_type}</p>`;
-				if (data.membership_amount) {
-					const formattedAmount = `EUR ${parseFloat(data.membership_amount).toFixed(2)}`;
+				if (data.custom_contribution_fee) {
+					const formattedAmount = `EUR ${parseFloat(data.custom_contribution_fee).toFixed(2)}`;
 					content += `<p><strong>Amount:</strong> ${formattedAmount}</p>`;
 				}
 			}
@@ -2159,7 +2159,7 @@ class MembershipApplication {
 
 		// Membership Information
 		const membershipType = this.state.get('selected_membership_type') || 'Not selected';
-		const membershipAmount = this.state.get('membership_amount') || 0;
+		const membershipAmount = this.state.get('custom_contribution_fee') || 0;
 		$('#confirm-membership-type').text(membershipType);
 		$('#confirm-membership-fee').text(membershipAmount ? `€${membershipAmount}` : 'Not set');
 
@@ -2485,7 +2485,7 @@ class MembershipApplication {
 
 		// Legacy compatibility
 		this.state.set('selected_membership_type', membershipType);
-		this.state.set('membership_amount', finalAmount);
+		this.state.set('custom_contribution_fee', finalAmount);
 		this.state.set('uses_custom_amount', usesCustomAmount);
 
 		$('#membership-type-error').hide();
@@ -2699,7 +2699,7 @@ class ApplicationState {
 			payment: {},
 			// Legacy compatibility
 			selected_membership_type: '',
-			membership_amount: 0,
+			custom_contribution_fee: 0,
 			uses_custom_amount: false
 		};
 
@@ -3819,7 +3819,7 @@ window.debugMembershipSelection = () => {
 	console.log('Membership data:', membership);
 	console.log('Legacy compatibility:');
 	console.log('  - selected_membership_type:', window.membershipApp.state.get('selected_membership_type'));
-	console.log('  - membership_amount:', window.membershipApp.state.get('membership_amount'));
+	console.log('  - custom_contribution_fee:', window.membershipApp.state.get('custom_contribution_fee'));
 	console.log('  - uses_custom_amount:', window.membershipApp.state.get('uses_custom_amount'));
 
 	// Check visible custom sections

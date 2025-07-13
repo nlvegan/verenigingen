@@ -52,6 +52,20 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         
         # Create test chapter - always create fresh to avoid stale member references
         chapter_name = f"Chapter Member Test Chapter {self.factory.get_next_sequence('chapter')}"
+        
+        # Get or create a region
+        existing_regions = frappe.get_all("Region", limit=1)
+        if existing_regions:
+            region = existing_regions[0].name
+        else:
+            # Create a test region if none exist
+            test_region = frappe.get_doc({
+                "doctype": "Region",
+                "region_name": "Test Region"
+            })
+            test_region.insert()
+            region = test_region.name
+        
         self.chapter = frappe.get_doc({
             "doctype": "Chapter",
             "name": chapter_name,
@@ -59,7 +73,7 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
             "short_name": "CMTC",
             "introduction": "Test Chapter for Member Integration",
             "published": 1,
-            "region": "Test Region",  # Ensure required fields are set
+            "region": region,
             "contact_email": "test@example.com"
         })
         self.chapter.insert()
@@ -73,7 +87,19 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         """Clean up test data to prevent conflicts"""
         # Clean up in reverse dependency order
         
-        # Clean up test chapters first
+        # Clean up chapter members child table entries
+        frappe.db.sql("""
+            DELETE FROM `tabChapter Member` 
+            WHERE parent LIKE 'Chapter Member Test Chapter%'
+        """)
+        
+        # Clean up board members child table entries
+        frappe.db.sql("""
+            DELETE FROM `tabChapter Board Member` 
+            WHERE parent LIKE 'Chapter Member Test Chapter%'
+        """)
+        
+        # Clean up test chapters
         frappe.db.sql("""
             DELETE FROM `tabChapter` 
             WHERE name LIKE 'Chapter Member Test Chapter%'
@@ -93,7 +119,7 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
                OR email LIKE 'TEST_member_%@test.invalid'
         """)
         
-        frappe.db.commit()
+        # Note: No commit in test context - FrappeTestCase handles rollback
 
     def test_add_member_method(self):
         """Test directly adding a member to a chapter"""
@@ -102,6 +128,7 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         initial_member_count = len(self.chapter.members)
         
         # Add member using the add_member method
+        # Note: introduction and website_url are accepted by the API but not stored in Chapter Member
         result = self.chapter.add_member(
             self.test_member1.name, 
             introduction="Test introduction", 
@@ -123,16 +150,10 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
         for member in self.chapter.members:
             if member.member == self.test_member1.name:
                 member_found = True
-                self.assertEqual(
-                    member.introduction, 
-                    "Test introduction", 
-                    "Member introduction should be set"
-                )
-                self.assertEqual(
-                    member.website_url, 
-                    "https://example.com", 
-                    "Member website URL should be set"
-                )
+                # Verify standard fields
+                self.assertTrue(member.enabled, "Member should be enabled by default")
+                self.assertEqual(member.status, "Active", "Member status should be Active")
+                # Note: introduction and website_url fields don't exist in Chapter Member doctype
                 break
         
         self.assertTrue(member_found, "Member should be added to chapter")
@@ -185,8 +206,8 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
     def test_no_duplicate_members(self):
         """Test that the same member cannot be added twice to the chapter members list"""
         # Add the member twice using the add_member method
-        self.chapter.add_member(self.test_member1.name, introduction="First addition")
-        self.chapter.add_member(self.test_member1.name, introduction="Second addition")
+        self.chapter.add_member(self.test_member1.name)
+        self.chapter.add_member(self.test_member1.name)
         
         # Reload chapter
         self.chapter.reload()

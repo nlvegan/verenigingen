@@ -47,7 +47,7 @@ class SmartTegenrekeningMapper:
 
     def _get_smart_item(self, account_code):
         """Get pre-created smart item for account code"""
-        item_code = "EB-{account_code}"
+        item_code = f"EB-{account_code}"
 
         item_data = frappe.db.get_value("Item", item_code, ["name", "item_name", "item_group"], as_dict=True)
 
@@ -85,7 +85,7 @@ class SmartTegenrekeningMapper:
             return None
 
         # Generate item name and properties
-        item_code = "EB-{account_code}"
+        item_code = f"EB-{account_code}"
         # Use descriptive name from account instead of technical item name
         item_name = self._get_descriptive_name_from_account(
             account_code, erpnext_account

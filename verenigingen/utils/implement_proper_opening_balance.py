@@ -315,7 +315,7 @@ def _create_opening_journal_entry(entries, company, cost_center, posting_date, d
             SELECT name FROM `tabJournal Entry`
             WHERE name LIKE %s
             ORDER BY name DESC LIMIT 1
-        """, ["OPB-{posting_year}-%"], as_dict=True)
+        """, [f"OPB-{posting_year}-%"], as_dict=True)
 
         if existing_opb:
             # Extract number and increment
@@ -324,12 +324,12 @@ def _create_opening_journal_entry(entries, company, cost_center, posting_date, d
         else:
             next_num = 1
 
-        je.naming_series = "OPB-{posting_year}-"
-        je.name = "OPB-{posting_year}-{str(next_num).zfill(5)}"
+        je.naming_series = f"OPB-{posting_year}-"
+        je.name = f"OPB-{posting_year}-{str(next_num).zfill(5)}"
 
         # Set descriptive title
-        je.title = "Opening Balance as of {posting_date}"
-        je.user_remark = "E-Boekhouden Opening Balance Import - Non-party accounts as of {posting_date}\\nImported from eBoekhouden mutation type 0"
+        je.title = f"Opening Balance as of {posting_date}"
+        je.user_remark = f"E-Boekhouden Opening Balance Import - Non-party accounts as of {posting_date}\\nImported from eBoekhouden mutation type 0"
         je.voucher_type = "Opening Entry"
 
         # Store eBoekhouden references

@@ -180,8 +180,8 @@ class MemberManager(BaseManager):
 
             # Update membership history tracking
             if permanent:
-                # Complete the membership history for permanent removal
-                ChapterMembershipHistoryManager.complete_membership_history(
+                # End the membership history for permanent removal
+                ChapterMembershipHistoryManager.end_chapter_membership(
                     member_id=member_id,
                     chapter_name=self.chapter_name,
                     assignment_type="Member",
@@ -191,7 +191,7 @@ class MemberManager(BaseManager):
                 )
             else:
                 # Terminate the membership history for disabled member
-                ChapterMembershipHistoryManager.terminate_membership_history(
+                ChapterMembershipHistoryManager.terminate_chapter_membership(
                     member_id=member_id,
                     chapter_name=self.chapter_name,
                     assignment_type="Member",
@@ -717,7 +717,7 @@ class MemberManager(BaseManager):
             # Check if member was disabled
             if old_member.enabled and not member.enabled:
                 # Member was disabled - update history
-                ChapterMembershipHistoryManager.complete_membership_history(
+                ChapterMembershipHistoryManager.end_chapter_membership(
                     member_id=member.member,
                     chapter_name=self.chapter_name,
                     assignment_type="Member",
@@ -779,7 +779,7 @@ class MemberManager(BaseManager):
                 and old_member.member
             ):
                 # Member was deleted - update history
-                ChapterMembershipHistoryManager.complete_membership_history(
+                ChapterMembershipHistoryManager.end_chapter_membership(
                     member_id=old_member.member,
                     chapter_name=self.chapter_name,
                     assignment_type="Member",

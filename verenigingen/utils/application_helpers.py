@@ -268,30 +268,32 @@ def create_member_from_application(data, application_id, address=None):
         member.volunteer_skills = volunteer_skills
 
     # Handle custom membership amount using new fee override fields
-    if data.get("membership_amount") or data.get("uses_custom_amount"):
+    if data.get("custom_contribution_fee") or data.get("uses_custom_amount"):
         try:
             # Debug logging
             frappe.logger().info(
-                f"Processing custom amount for application. membership_amount: {data.get('membership_amount')}, uses_custom_amount: {data.get('uses_custom_amount')}"
+                f"Processing custom amount for application. custom_contribution_fee: {data.get('custom_contribution_fee')}, uses_custom_amount: {data.get('uses_custom_amount')}"
             )
 
-            # Safely convert membership_amount to float
-            membership_amount = 0
-            if data.get("membership_amount"):
+            # Safely convert custom_contribution_fee to float
+            custom_contribution_fee = 0
+            if data.get("custom_contribution_fee"):
                 try:
-                    membership_amount = float(data.get("membership_amount"))
-                    frappe.logger().info(f"Converted membership_amount to: {membership_amount}")
+                    custom_contribution_fee = float(data.get("custom_contribution_fee"))
+                    frappe.logger().info(f"Converted custom_contribution_fee to: {custom_contribution_fee}")
                 except (ValueError, TypeError) as e:
                     frappe.logger().error(
-                        f"Error converting membership_amount f'{data.get('membership_amount')}' to float: {str(e)}"
+                        f"Error converting custom_contribution_fee '{data.get('custom_contribution_fee')}' to float: {str(e)}"
                     )
-                    membership_amount = 0
+                    custom_contribution_fee = 0
 
             # Set fee override fields if custom amount is specified
-            if membership_amount > 0:
-                member.membership_fee_override = membership_amount
+            if custom_contribution_fee > 0:
+                member.membership_fee_override = custom_contribution_fee
                 member.fee_override_reason = f"Custom amount selected during application: {data.get('custom_amount_reason', 'Member-specified contribution level')}"
                 member.fee_override_date = today()
+                # Also store in the application-specific field
+                member.application_custom_fee = custom_contribution_fee
 
                 # Use a safe fallback for fee_override_by - ensure the user exists
                 override_user = None
@@ -325,17 +327,17 @@ def create_member_from_application(data, application_id, address=None):
 
             # Store legacy data in notes for audit purposes
             custom_amount_data = {
-                "membership_amount": membership_amount,
+                "custom_contribution_fee": custom_contribution_fee,
                 "uses_custom_amount": bool(data.get("uses_custom_amount", False)),
             }
 
             # Only store if there's actually custom amount data
-            if membership_amount > 0 or custom_amount_data["uses_custom_amount"]:
+            if custom_contribution_fee > 0 or custom_amount_data["uses_custom_amount"]:
                 existing_notes = member.notes or ""
                 if existing_notes:
                     existing_notes += "\n\n"
 
-                member.notes = existing_notes + "Custom Amount Data: {json.dumps(custom_amount_data)}"
+                member.notes = existing_notes + f"Custom Amount Data: {json.dumps(custom_amount_data)}"
         except Exception as e:
             # Log the error for debugging but don't fail the submission
             frappe.log_error(f"Error storing custom amount data: {str(e)}", "Custom Amount Storage Error")

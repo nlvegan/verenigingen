@@ -86,7 +86,7 @@ class ChapterMember(Document):
 
                 elif not self.enabled and self.has_value_changed("enabled"):
                     # Membership disabled
-                    ChapterMembershipHistoryManager.terminate_membership_history(
+                    ChapterMembershipHistoryManager.terminate_chapter_membership(
                         member_id=self.member,
                         chapter_name=self.parent,
                         assignment_type="Member",

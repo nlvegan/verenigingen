@@ -412,9 +412,9 @@ class DuplicateMerger:
         )
 
         for field in link_fields:
-            if frappe.db.table_exists("tab{field.parent}"):
+            if frappe.db.table_exists(f"tab{field.parent}"):
                 frappe.db.sql(
-                    """
+                    f"""
                     UPDATE `tab{field.parent}`
                     SET `{field.fieldname}` = %s
                     WHERE `{field.fieldname}` = %s

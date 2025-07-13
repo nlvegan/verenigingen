@@ -107,6 +107,7 @@ def submit_membership_application(data):
                 "notes": data.get("motivation", ""),  # Why they want to join
                 # Mark this as an application-created member
                 "application_id": f"APP-{now_datetime().strftime('%Y%m%d%H%M%S')}-{data.get('email', '').split('@')[0][:5]}",
+                "interested_in_volunteering": data.get("interested_in_volunteering", False),
             }
         )
 
@@ -245,8 +246,7 @@ def approve_membership_application(member_name, create_invoice=True, membership_
         send_payment_confirmation_email(member, None)
 
     # Create volunteer record if member expressed interest
-    has_volunteer_interest = member.notes and "VOLUNTEER_INTEREST_FLAG: True" in member.notes
-    if has_volunteer_interest:
+    if member.interested_in_volunteering:
         create_volunteer_from_approved_member(member)
 
     return {"success": True}
@@ -337,9 +337,9 @@ Skills Selected:
     else:
         member.notes = volunteer_notes
 
-    # Mark member as having volunteer interest in notes (since custom field doesn't exist)
-    member.notes += f"\n\nVOLUNTEER_INTEREST_FLAG: True"
-    member.db_set("notes", member.notes, update_modified=False)
+    # Set the volunteer interest flag
+    member.interested_in_volunteering = True
+    member.db_set("interested_in_volunteering", True, update_modified=False)
 
     # Create a separate volunteer application record for review
     try:
@@ -372,8 +372,30 @@ def create_volunteer_from_approved_member(member):
             frappe.logger().info(f"Volunteer record already exists for member {member.name}")
             return existing_volunteer
 
-        # Parse volunteer data from member notes
+        # Parse volunteer data from member notes or comments
         volunteer_data = parse_volunteer_data_from_notes(member.notes)
+
+        # If not in notes, check comments
+        if not volunteer_data:
+            comments = frappe.get_all(
+                "Comment",
+                filters={
+                    "reference_doctype": "Member",
+                    "reference_name": member.name,
+                    "content": ["like", "%VOLUNTEER INTEREST APPLICATION DATA:%"],
+                },
+                fields=["content"],
+                order_by="creation desc",
+                limit=1,
+            )
+            if comments:
+                # Extract text content from HTML
+                import re
+
+                content = comments[0].content
+                # Remove HTML tags
+                text_content = re.sub("<.*?>", "", content)
+                volunteer_data = parse_volunteer_data_from_notes(text_content)
 
         # Create volunteer record
         volunteer = frappe.get_doc(
@@ -459,12 +481,7 @@ def parse_volunteer_data_from_notes(notes):
             elif current_section == "areas" and ":" not in line:
                 if line != "None specified":
                     data["volunteer_areas"].extend([area.strip() for area in line.split(",")])
-            elif (
-                current_section == "skills"
-                and ":" in line
-                and line != "None specified"
-                and not line.startswith("VOLUNTEER_INTEREST_FLAG")
-            ):
+            elif current_section == "skills" and ":" in line and line != "None specified":
                 # Stop processing skills when we hit other sections
                 if line.startswith("Availability Details:") or line.startswith("Additional Comments:"):
                     current_section = None

@@ -165,7 +165,7 @@ def robust_cleanup_all_imported_data(company=None):
                     for child_table in ["Payment Entry Reference", "Payment Entry Deduction"]:
                         try:
                             frappe.db.sql(
-                                """DELETE FROM `tab{child_table}`
+                                f"""DELETE FROM `tab{child_table}`
                                     WHERE parent IN ({','.join(['%s'] * len(pe_names))})""",
                                 pe_names,
                             )
@@ -229,7 +229,7 @@ def robust_cleanup_all_imported_data(company=None):
                     for child_table in ["Sales Invoice Item", "Sales Taxes and Charges"]:
                         try:
                             frappe.db.sql(
-                                """DELETE FROM `tab{child_table}`
+                                f"""DELETE FROM `tab{child_table}`
                                     WHERE parent IN ({','.join(['%s'] * len(si_names))})""",
                                 si_names,
                             )
@@ -285,7 +285,7 @@ def robust_cleanup_all_imported_data(company=None):
                     for child_table in ["Purchase Invoice Item", "Purchase Taxes and Charges"]:
                         try:
                             frappe.db.sql(
-                                """DELETE FROM `tab{child_table}`
+                                f"""DELETE FROM `tab{child_table}`
                                     WHERE parent IN ({','.join(['%s'] * len(pi_names))})""",
                                 pi_names,
                             )

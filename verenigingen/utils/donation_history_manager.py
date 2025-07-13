@@ -140,7 +140,7 @@ class DonationHistoryManager:
 
             donor.save(ignore_permissions=True)
 
-            return {"success": True, "message": "Removed donation {donation_name} from history"}
+            return {"success": True, "message": f"Removed donation {donation_name} from history"}
 
         except Exception as e:
             frappe.log_error(f"Error removing donation entry from history: {str(e)}")

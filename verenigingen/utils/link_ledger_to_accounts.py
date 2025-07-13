@@ -65,7 +65,7 @@ def auto_link_ledgers_to_accounts():
             "already_linked": already_linked,
             "not_found": len(not_found),
             "not_found_samples": not_found[:20],  # First 20 samples
-            "message": "Linked {linked_count} ledgers to accounts",
+            "message": f"Linked {linked_count} ledgers to accounts",
         }
 
     except Exception as e:
@@ -225,7 +225,7 @@ def create_missing_accounts_from_ledgers():
             "success": True,
             "created": created,
             "errors": errors,
-            "message": "Created {created} new accounts",
+            "message": f"Created {created} new accounts",
         }
 
     except Exception as e:

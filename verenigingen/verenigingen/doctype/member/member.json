@@ -88,6 +88,8 @@
   "reviewed_by",
   "review_date",
   "review_notes",
+  "interested_in_volunteering",
+  "application_custom_fee",
   "termination_status_section",
   "termination_status_html",
   "amendment_status_section",
@@ -262,6 +264,21 @@
    "fieldname": "review_notes",
    "fieldtype": "Small Text",
    "label": "Review Notes"
+  },
+  {
+   "description": "Indicates if the member expressed interest in volunteering during application",
+   "fieldname": "interested_in_volunteering",
+   "fieldtype": "Check",
+   "label": "Interested in Volunteering",
+   "read_only": 1
+  },
+  {
+   "description": "Custom membership fee requested during application",
+   "fieldname": "application_custom_fee",
+   "fieldtype": "Currency",
+   "label": "Application Custom Fee",
+   "options": "EUR",
+   "read_only": 1
   },
   {
    "fieldname": "bic",
