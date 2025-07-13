@@ -96,11 +96,13 @@ jobs:
         bench init frappe-bench --frappe-branch $FRAPPE_BRANCH --skip-assets --python python${{ matrix.python-version }} --skip-redis-config-generation
         cd frappe-bench
 
-    - name: Install ERPNext
+    - name: Install ERPNext and Dependencies
       working-directory: frappe-bench
       run: |
         bench get-app erpnext --branch $ERPNEXT_BRANCH
         bench get-app payments
+        bench get-app hrms --branch $ERPNEXT_BRANCH
+        bench get-app banking https://github.com/alyf-de/banking.git
 
     - name: Configure Redis Connection
       working-directory: frappe-bench
@@ -121,6 +123,8 @@ jobs:
         bench new-site test_site --db-name test_frappe --admin-password admin --mariadb-root-password travis
         bench --site test_site install-app erpnext
         bench --site test_site install-app payments
+        bench --site test_site install-app hrms
+        bench --site test_site install-app banking
 
     - name: Install Verenigingen
       working-directory: frappe-bench
