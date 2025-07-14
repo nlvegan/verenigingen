@@ -273,7 +273,28 @@ class PaymentMixin:
         # Validate IBAN
         validation_result = validate_iban(iban)
         if not validation_result["valid"]:
-            frappe.throw(_(validation_result["message"]))
+            error_message = validation_result["message"]
+
+            # Provide more user-friendly error messages
+            if "checksum" in error_message.lower():
+                error_message = _(
+                    "The IBAN you entered appears to be incorrect. "
+                    "Please double-check the account number and try again. "
+                    "Common issues include typos or missing/extra digits."
+                )
+            elif "too short" in error_message.lower():
+                error_message = _(
+                    "The IBAN you entered is too short. " "Please enter the complete IBAN number."
+                )
+            elif "invalid characters" in error_message.lower():
+                error_message = _(
+                    "The IBAN contains invalid characters. " "IBANs should only contain letters and numbers."
+                )
+            elif "must be" in error_message and "characters" in error_message:
+                # Keep the country-specific length message as it's already helpful
+                pass
+
+            frappe.throw(error_message, title=_("Invalid IBAN"), exc=frappe.ValidationError)
 
         # Format IBAN properly
         formatted_iban = format_iban(iban)

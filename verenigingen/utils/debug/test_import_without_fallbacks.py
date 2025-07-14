@@ -21,7 +21,7 @@ def test_import_without_fallbacks():
 
     # Import the migration module and run a test import
     try:
-        from vereiningen.utils.eboekhouden_rest_full_migration import (
+        from verenigingen.utils.eboekhouden_rest_full_migration import (
             _get_default_company,
             start_full_rest_import,
         )

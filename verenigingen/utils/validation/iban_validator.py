@@ -84,7 +84,10 @@ def validate_iban(iban):
 
     # Perform mod-97 checksum validation
     if not validate_iban_checksum(iban_clean):
-        return {"valid": False, "message": _("Invalid IBAN checksum")}
+        return {
+            "valid": False,
+            "message": _("Invalid IBAN checksum - please verify the account number is correct"),
+        }
 
     return {"valid": True, "message": _("Valid IBAN")}
 

@@ -55,7 +55,7 @@ class TestBankingImport(FrappeTestCase):
             
         try:
             # Parse MT940 file
-            from vereiningen.utils.mt940_parser import parse_mt940_file
+            from verenigingen.utils.mt940_parser import parse_mt940_file
             
             # Mock the parser for testing
             transactions = [

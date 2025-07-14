@@ -30,7 +30,10 @@ class SmartTegenrekeningMapper:
         """
 
         if not account_code:
-            return self._get_fallback_item(transaction_type, description)
+            error_msg = (
+                "No account code provided for transaction. Cannot proceed without proper account mapping."
+            )
+            frappe.throw(error_msg, title="Account Code Missing")
 
         # Strategy 1: Use pre-created smart items
         smart_item = self._get_smart_item(account_code)
@@ -42,8 +45,9 @@ class SmartTegenrekeningMapper:
         if dynamic_item:
             return dynamic_item
 
-        # Strategy 3: Fallback to generic item
-        return self._get_fallback_item(transaction_type, description)
+        # No mapping found - raise error instead of using generic fallback
+        error_msg = f"No mapping found for E-Boekhouden account {account_code}. Please configure the account and item mapping before importing transactions."
+        frappe.throw(error_msg, title="Account Mapping Missing")
 
     def _get_smart_item(self, account_code):
         """Get pre-created smart item for account code"""
@@ -316,16 +320,8 @@ def create_invoice_line_for_tegenrekening(
 
     # Check if mapping was successful
     if not item_mapping or not isinstance(item_mapping, dict):
-        frappe.log_error(f"Smart mapping failed for tegenrekening {tegenrekening_code}: {item_mapping}")
-        # Return basic fallback
-        return {
-            "item_code": "E-Boekhouden Import Item",
-            "item_name": "E-Boekhouden Import Item",
-            "description": description or "E-Boekhouden Import",
-            "qty": 1,
-            "rate": abs(float(amount)),
-            "amount": abs(float(amount)),
-        }
+        error_msg = f"Smart mapping failed for tegenrekening {tegenrekening_code}. Please configure the account and item mapping before importing transactions."
+        frappe.throw(error_msg, title="Tegenrekening Mapping Failed")
 
     # Get cost center
     cost_center = frappe.db.get_value("Cost Center", {"company": mapper.company, "is_group": 0}, "name")

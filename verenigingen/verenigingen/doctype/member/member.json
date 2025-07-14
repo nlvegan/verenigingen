@@ -180,7 +180,8 @@
    "fieldtype": "Data",
    "label": "IBAN",
    "length": 34,
-   "mandatory_depends_on": "eval:doc.payment_method=='SEPA Direct Debit'"
+   "mandatory_depends_on": "eval:doc.payment_method=='SEPA Direct Debit'",
+   "description": "International Bank Account Number (e.g., NL91ABNA0417164300)"
   },
   {
    "fieldname": "payment_method",

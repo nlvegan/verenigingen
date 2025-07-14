@@ -325,46 +325,13 @@ def create_invoice_line_for_tegenrekening(
     """
     Enhanced invoice line creation with smart tegenrekening account mapping
     """
-    # Default accounts based on transaction type
-    default_accounts = {
-        "purchase": "44009 - Onvoorziene kosten - NVV",  # Unforeseen costs for purchases
-        "sales": "41199 - Overige opbrengsten - NVV",  # Other revenues for sales
-    }
+    # Use the smart tegenrekening mapper which now raises errors instead of using fallbacks
+    from verenigingen.utils.smart_tegenrekening_mapper import (
+        create_invoice_line_for_tegenrekening as smart_create_line,
+    )
 
-    # Try to map tegenrekening code to an account if provided
-    if tegenrekening_code and str(tegenrekening_code).strip():
-        # Check if we have a mapping for this tegenrekening
-        mapping = frappe.db.get_value(
-            "E-Boekhouden Ledger Mapping", {"ledger_id": str(tegenrekening_code)}, "erpnext_account"
-        )
-
-        if mapping:
-            account = mapping
-        else:
-            # Check if there's an account with this number
-            account_with_number = frappe.db.get_value(
-                "Account", {"account_number": str(tegenrekening_code)}, "name"
-            )
-
-            if account_with_number:
-                account = account_with_number
-            else:
-                # Use default account
-                account = default_accounts.get(transaction_type, default_accounts["purchase"])
-    else:
-        # No tegenrekening provided, use default
-        account = default_accounts.get(transaction_type, default_accounts["purchase"])
-
-    # Create the line dict
-    line_dict = {
-        "expense_account" if transaction_type == "purchase" else "income_account": account,
-        "description": description or "eBoekhouden Transaction",
-        "qty": 1,
-        "rate": abs(amount),
-        "amount": abs(amount),
-    }
-
-    return line_dict
+    # Delegate to the smart mapper
+    return smart_create_line(tegenrekening_code, amount, description, transaction_type)
 
 
 @frappe.whitelist()
@@ -2019,108 +1986,218 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
                 existing_doc,
             )
 
-        # Handle different mutation types
+        # CRITICAL: Fetch full mutation details for complete data
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+
+        iterator = EBoekhoudenRESTIterator()
+
+        mutation_detail = iterator.fetch_mutation_detail(mutation_id)
+        if not mutation_detail:
+            debug_info.append(f"Could not fetch detailed data for mutation {mutation_id}, using summary data")
+            mutation_detail = mutation  # Fallback to summary data
+        else:
+            debug_info.append(
+                f"Fetched detailed data for mutation {mutation_id} with {len(mutation_detail.get('Regels', []))} line items"
+            )
+
+        # Handle different mutation types with detailed data
         if mutation_type == 1:  # Sales Invoice
-            return _create_sales_invoice(mutation, company, cost_center, debug_info)
+            return _create_sales_invoice(mutation_detail, company, cost_center, debug_info)
         elif mutation_type == 2:  # Purchase Invoice
-            return _create_purchase_invoice(mutation, company, cost_center, debug_info)
+            return _create_purchase_invoice(mutation_detail, company, cost_center, debug_info)
         elif mutation_type in [3, 4]:  # Payment types
-            return _create_payment_entry(mutation, company, cost_center, debug_info)
+            return _create_payment_entry(mutation_detail, company, cost_center, debug_info)
         else:
             # Create Journal Entry for other types
-            return _create_journal_entry(mutation, company, cost_center, debug_info)
+            return _create_journal_entry(mutation_detail, company, cost_center, debug_info)
 
     except Exception as e:
         debug_info.append(f"Error processing single mutation {mutation.get('id')}: {str(e)}")
         raise
 
 
-def _create_sales_invoice(mutation, company, cost_center, debug_info):
-    """Create Sales Invoice from mutation"""
-    mutation_id = mutation.get("id")
-    description = mutation.get("description", "eBoekhouden Import {mutation_id}")
-    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
-    relation_id = mutation.get("relationId")
-    invoice_number = mutation.get("invoiceNumber")
-    ledger_id = mutation.get("ledgerId")
+def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
+    """Create Sales Invoice with ALL available fields from detailed mutation data"""
+    from frappe.utils import add_days, now
+
+    from .invoice_helpers import (
+        add_tax_lines,
+        create_single_line_fallback,
+        get_or_create_payment_terms,
+        process_line_items,
+        resolve_customer,
+    )
+
+    mutation_id = mutation_detail.get("id")
+    description = mutation_detail.get("description", f"eBoekhouden Import {mutation_id}")
+    relation_id = mutation_detail.get("relationId")
+    invoice_number = mutation_detail.get("invoiceNumber")
+
+    debug_info.append(f"Creating Sales Invoice for mutation {mutation_id}")
 
     si = frappe.new_doc("Sales Invoice")
+
+    # Basic fields
     si.company = company
-    si.posting_date = mutation.get("date")
-    si.customer = relation_id if relation_id else "Guest Customer"
+    si.posting_date = mutation_detail.get("date")
+    si.set_posting_time = 1
+
+    # Customer - properly resolved
+    customer = resolve_customer(relation_id, debug_info)
+    si.customer = customer
+
+    # Currency
+    si.currency = "EUR"
+    si.conversion_rate = 1.0
+
+    # Payment terms and due date
+    payment_days = mutation_detail.get("Betalingstermijn", 30)
+    if payment_days:
+        si.payment_terms_template = get_or_create_payment_terms(payment_days)
+        si.due_date = add_days(si.posting_date, payment_days)
+
+    # References
+    if mutation_detail.get("Referentie"):
+        si.po_no = mutation_detail.get("Referentie")
+
+    # Description
+    si.remarks = description
+
+    # Check for credit notes
+    total_amount = frappe.utils.flt(mutation_detail.get("amount", 0))
+    si.is_return = total_amount < 0
+
+    # Custom tracking fields
     si.eboekhouden_mutation_nr = str(mutation_id)
-
     if invoice_number:
-        si.name = invoice_number
+        si.eboekhouden_invoice_number = invoice_number
 
-    line_dict = create_invoice_line_for_tegenrekening(
-        tegenrekening_code=ledger_id, amount=amount, description=description, transaction_type="sales"
-    )
-
-    si.append(
-        "items",
-        {
-            "item_code": "Service Item",
-            "description": line_dict["description"],
-            "qty": line_dict["qty"],
-            "rate": line_dict["rate"],
-            "amount": line_dict["amount"],
-            "income_account": line_dict["income_account"],
-            "cost_center": cost_center,
-        },
-    )
+    # CRITICAL: Process line items from Regels
+    regels = mutation_detail.get("Regels", [])
+    if regels:
+        success = process_line_items(si, regels, "sales", cost_center, debug_info)
+        if success:
+            add_tax_lines(si, regels, "sales", debug_info)
+        else:
+            # Fallback to single line
+            create_single_line_fallback(si, mutation_detail, cost_center, debug_info)
+    else:
+        # No line items available, create fallback
+        debug_info.append("No Regels found, creating single line fallback")
+        create_single_line_fallback(si, mutation_detail, cost_center, debug_info)
 
     si.save()
     si.submit()
-    debug_info.append(f"Created Sales Invoice {si.name}")
+    debug_info.append(f"Created enhanced Sales Invoice {si.name} with {len(si.items)} line items")
     return si
 
 
-def _create_purchase_invoice(mutation, company, cost_center, debug_info):
-    """Create Purchase Invoice from mutation"""
-    mutation_id = mutation.get("id")
-    description = mutation.get("description", "eBoekhouden Import {mutation_id}")
-    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
-    relation_id = mutation.get("relationId")
-    invoice_number = mutation.get("invoiceNumber")
-    ledger_id = mutation.get("ledgerId")
+def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
+    """Create Purchase Invoice with ALL available fields from detailed mutation data"""
+    from frappe.utils import add_days, now
+
+    from .invoice_helpers import (
+        add_tax_lines,
+        create_single_line_fallback,
+        get_or_create_payment_terms,
+        process_line_items,
+        resolve_supplier,
+    )
+
+    mutation_id = mutation_detail.get("id")
+    description = mutation_detail.get("description", f"eBoekhouden Import {mutation_id}")
+    amount = frappe.utils.flt(mutation_detail.get("amount", 0), 2)
+    relation_id = mutation_detail.get("relationId")
+    invoice_number = mutation_detail.get("invoiceNumber")
+
+    debug_info.append(f"Creating Purchase Invoice for mutation {mutation_id}")
 
     pi = frappe.new_doc("Purchase Invoice")
-    pi.company = company
-    pi.posting_date = mutation.get("date")
-    pi.supplier = relation_id if relation_id else "Default Supplier"
-    pi.eboekhouden_mutation_nr = str(mutation_id)
 
+    # Basic fields
+    pi.company = company
+    pi.posting_date = mutation_detail.get("date")
+    pi.set_posting_time = 1
+
+    # Supplier - properly resolved
+    supplier = resolve_supplier(relation_id, debug_info)
+    pi.supplier = supplier
+
+    # Currency
+    pi.currency = "EUR"
+    pi.conversion_rate = 1.0
+
+    # Payment terms and due date
+    payment_days = mutation_detail.get("Betalingstermijn", 30)
+    if payment_days:
+        pi.payment_terms_template = get_or_create_payment_terms(payment_days)
+        pi.due_date = add_days(pi.posting_date, payment_days)
+
+    # Bill number and references
     if invoice_number:
         pi.bill_no = invoice_number
+    if mutation_detail.get("Referentie"):
+        pi.supplier_invoice_no = mutation_detail.get("Referentie")
 
-    line_dict = create_invoice_line_for_tegenrekening(
-        tegenrekening_code=ledger_id, amount=amount, description=description, transaction_type="purchase"
-    )
+    # Description
+    pi.remarks = description
 
-    pi.append(
-        "items",
-        {
-            "item_code": "Service Item",
-            "description": line_dict["description"],
-            "qty": line_dict["qty"],
-            "rate": line_dict["rate"],
-            "amount": line_dict["amount"],
-            "expense_account": line_dict["expense_account"],
-            "cost_center": cost_center,
-        },
-    )
+    # Check for credit notes
+    total_amount = frappe.utils.flt(mutation_detail.get("amount", 0))
+    pi.is_return = total_amount < 0
+
+    # Custom tracking fields
+    pi.eboekhouden_mutation_nr = str(mutation_id)
+    if invoice_number:
+        pi.eboekhouden_invoice_number = invoice_number
+
+    # CRITICAL: Process line items from Regels
+    regels = mutation_detail.get("Regels", [])
+    if regels:
+        success = process_line_items(pi, regels, "purchase", cost_center, debug_info)
+        if success:
+            add_tax_lines(pi, regels, "purchase", debug_info)
+        else:
+            # Fallback to single line
+            create_single_line_fallback(pi, mutation_detail, cost_center, debug_info)
+    else:
+        # No line items available, create fallback
+        debug_info.append("No Regels found, creating single line fallback")
+        create_single_line_fallback(pi, mutation_detail, cost_center, debug_info)
 
     pi.save()
     pi.submit()
-    debug_info.append(f"Created Purchase Invoice {pi.name}")
+    debug_info.append(f"Created enhanced Purchase Invoice {pi.name} with {len(pi.items)} line items")
     return pi
 
 
 def _create_payment_entry(mutation, company, cost_center, debug_info):
-    """Create Payment Entry from mutation"""
+    """
+    Create Payment Entry from mutation.
+
+    This function now uses the enhanced PaymentEntryHandler for:
+    - Proper bank account mapping from ledger IDs
+    - Multi-invoice payment support
+    - Automatic payment reconciliation
+    """
+    # Check if enhanced processing is enabled
+    use_enhanced = frappe.db.get_single_value("E-Boekhouden Settings", "use_enhanced_payment_processing")
+    if use_enhanced is None:
+        use_enhanced = True  # Default to enhanced if setting doesn't exist
+
+    if use_enhanced:
+        # Use enhanced payment handler
+        from verenigingen.utils.eboekhouden.enhanced_payment_import import create_enhanced_payment_entry
+
+        payment_name = create_enhanced_payment_entry(mutation, company, cost_center, debug_info)
+        if payment_name:
+            return frappe.get_doc("Payment Entry", payment_name)
+        else:
+            # Fall back to basic implementation if enhanced fails
+            debug_info.append("WARNING: Enhanced payment creation failed, using basic implementation")
+
+    # Basic implementation (legacy)
     mutation_id = mutation.get("id")
-    # mutation.get("description", "eBoekhouden Import {mutation_id}")
     amount = frappe.utils.flt(mutation.get("amount", 0), 2)
     relation_id = mutation.get("relationId")
     invoice_number = mutation.get("invoiceNumber")
@@ -2134,31 +2211,32 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
     pe.payment_type = payment_type
     pe.eboekhouden_mutation_nr = str(mutation_id)
 
+    # DEPRECATED: Hardcoded bank accounts
     if payment_type == "Receive":
-        pe.paid_to = "10000 - Kas - NVV"
+        pe.paid_to = "10000 - Kas - NVV"  # Should use ledger mapping
         pe.received_amount = amount
         if relation_id:
             pe.party_type = "Customer"
-            pe.party = relation_id
+            pe.party = _get_or_create_customer(relation_id, debug_info)
             pe.paid_from = frappe.db.get_value(
                 "Account", {"account_type": "Receivable", "company": company}, "name"
             )
     else:
-        pe.paid_from = "10000 - Kas - NVV"
+        pe.paid_from = "10000 - Kas - NVV"  # Should use ledger mapping
         pe.paid_amount = amount
         if relation_id:
             pe.party_type = "Supplier"
-            pe.party = relation_id
+            pe.party = _get_or_create_supplier(relation_id, "", debug_info)
             pe.paid_to = frappe.db.get_value(
                 "Account", {"account_type": "Payable", "company": company}, "name"
             )
 
-    pe.reference_no = invoice_number if invoice_number else "EB-{mutation_id}"
+    pe.reference_no = invoice_number if invoice_number else f"EB-{mutation_id}"
     pe.reference_date = mutation.get("date")
 
     pe.save()
     pe.submit()
-    debug_info.append(f"Created Payment Entry {pe.name}")
+    debug_info.append(f"Created Payment Entry {pe.name} (Basic Implementation)")
     return pe
 
 
