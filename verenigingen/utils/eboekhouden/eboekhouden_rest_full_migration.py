@@ -9,6 +9,11 @@ import frappe
 from frappe import _
 from frappe.utils import getdate
 
+from verenigingen.utils.eboekhouden.eboekhouden_payment_naming import (
+    enhance_journal_entry_fields,
+    get_journal_entry_title,
+)
+
 
 @frappe.whitelist()
 def export_unprocessed_mutations_csv(export_path="/tmp/unprocessed_mutations.csv"):
@@ -855,7 +860,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                     je.posting_date = mutation.get("date")
                     je.voucher_type = "Journal Entry"
 
-                    # Set descriptive name and title immediately
+                    # Set descriptive name and title using enhanced naming functions
                     invoice_number = mutation.get("invoiceNumber")
                     if invoice_number:
                         # Clean invoice number for use in name (remove special characters)
@@ -863,7 +868,8 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                             str(invoice_number).replace("/", "-").replace("\\", "-").replace(" ", "-")
                         )
                         je.name = f"EBH-{clean_invoice}"
-                        je.title = "eBoekhouden {invoice_number}"
+                        # Use enhanced title generation
+                        je.title = get_journal_entry_title(mutation, mutation_type)
                     else:
                         # Give more descriptive names based on mutation type
                         type_names = {
@@ -875,13 +881,19 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                             9: "Manual Entry",
                             10: "Stock Mutation",
                         }
-                        type_name = type_names.get(mutation_type, "Type {mutation_type}")
+                        type_name = type_names.get(mutation_type, f"Type {mutation_type}")
                         je.name = f"EBH-{type_name}-{mutation_id}"
-                        je.title = f"eBoekhouden {type_name} #{mutation_id}"
+                        # Use enhanced title generation
+                        je.title = get_journal_entry_title(mutation, mutation_type)
 
                     je.eboekhouden_mutation_nr = str(mutation_id)
                     je.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else ""
                     je.user_remark = description
+
+                    # Enhance journal entry fields for better identification
+                    je = enhance_journal_entry_fields(
+                        je, mutation, type_name if "type_name" in locals() else None
+                    )
 
                     # Check if this is a multi-line journal entry
                     if len(rows) > 1:
@@ -1226,14 +1238,15 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
 
                         # Create the first entry (row ledger)
                         if row_account:
+                            # Get E-Boekhouden categories for proper debit/credit logic
+                            row_debit, row_credit, main_debit, main_credit = _get_memorial_booking_amounts(
+                                row_ledger_id, ledger_id, row_amount, debug_info
+                            )
+
                             entry_line = {
                                 "account": row_account,
-                                "debit_in_account_currency": frappe.utils.flt(
-                                    row_amount if row_amount > 0 else 0, 2
-                                ),
-                                "credit_in_account_currency": frappe.utils.flt(
-                                    -row_amount if row_amount < 0 else 0, 2
-                                ),
+                                "debit_in_account_currency": frappe.utils.flt(row_debit, 2),
+                                "credit_in_account_currency": frappe.utils.flt(row_credit, 2),
                                 "cost_center": cost_center,
                                 "user_remark": description,
                             }
@@ -1250,17 +1263,13 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
 
                         # Create the balancing entry (main ledger)
                         if main_account:
-                            # Reverse the amounts for the main ledger entry to balance
+                            # Use calculated amounts from category-based logic
                             main_entry = {
                                 "account": main_account,
-                                "debit_in_account_currency": frappe.utils.flt(
-                                    -row_amount if row_amount < 0 else 0, 2
-                                ),
-                                "credit_in_account_currency": frappe.utils.flt(
-                                    row_amount if row_amount > 0 else 0, 2
-                                ),
+                                "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
+                                "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
                                 "cost_center": cost_center,
-                                "user_remark": "Contra entry for {description}",
+                                "user_remark": f"Contra entry for {description}",
                             }
 
                             # Add party details if needed
@@ -1387,10 +1396,13 @@ def _process_money_transfer_mutation(
     je.eboekhouden_mutation_nr = str(mutation_id)
     je.user_remark = description
 
-    # Set descriptive name and title
+    # Set descriptive name and title using enhanced naming functions
     type_name = "Money Received" if mutation_type == 5 else "Money Paid"
     je.name = f"EBH-{type_name}-{mutation_id}"
-    je.title = f"eBoekhouden {type_name} #{mutation_id}"
+    je.title = get_journal_entry_title(mutation, mutation_type)
+
+    # Enhance journal entry fields for better identification
+    je = enhance_journal_entry_fields(je, mutation, type_name)
 
     from_account = from_account_mapping["erpnext_account"]
     to_account = to_account_mapping["erpnext_account"]
@@ -2106,7 +2118,6 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
 
     mutation_id = mutation_detail.get("id")
     description = mutation_detail.get("description", f"eBoekhouden Import {mutation_id}")
-    amount = frappe.utils.flt(mutation_detail.get("amount", 0), 2)
     relation_id = mutation_detail.get("relationId")
     invoice_number = mutation_detail.get("invoiceNumber")
 
@@ -2259,11 +2270,11 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     je.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else ""
     je.user_remark = description
 
-    # Set descriptive name and title
+    # Set descriptive name and title using enhanced naming functions
     if invoice_number:
         clean_invoice = str(invoice_number).replace("/", "-").replace("\\", "-").replace(" ", "-")
         je.name = f"EBH-{clean_invoice}"
-        je.title = f"eBoekhouden {invoice_number}"
+        je.title = get_journal_entry_title(mutation, mutation_type)
     else:
         type_names = {
             0: "Opening Balance",
@@ -2274,9 +2285,12 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
             9: "Manual Entry",
             10: "Stock Mutation",
         }
-        type_name = type_names.get(mutation_type, "Type {mutation_type}")
+        type_name = type_names.get(mutation_type, f"Type {mutation_type}")
         je.name = f"EBH-{type_name}-{mutation_id}"
-        je.title = f"eBoekhouden {type_name} #{mutation_id}"
+        je.title = get_journal_entry_title(mutation, mutation_type)
+
+    # Enhance journal entry fields for better identification
+    je = enhance_journal_entry_fields(je, mutation, type_name if "type_name" in locals() else None)
 
     if len(rows) > 0:
         # Multi-line journal entry
@@ -2444,3 +2458,176 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     je.submit()
     debug_info.append(f"Created Journal Entry {je.name}")
     return je
+
+
+def _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, debug_info):
+    """
+    Calculate proper debit/credit amounts for memorial bookings based on E-Boekhouden account categories.
+
+    This function fixes the memorial booking debit/credit logic by using E-Boekhouden account categories
+    instead of simple amount-based rules that were causing inverted postings.
+
+    Args:
+        row_ledger_id: E-Boekhouden ledger ID for the row account
+        main_ledger_id: E-Boekhouden ledger ID for the main account
+        row_amount: Amount from E-Boekhouden (positive or negative)
+        debug_info: List to append debug messages to
+
+    Returns:
+        tuple: (row_debit, row_credit, main_debit, main_credit)
+    """
+    try:
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+
+        # Get E-Boekhouden account categories
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api = EBoekhoudenAPI(settings)
+
+        row_category = None
+        main_category = None
+
+        # Fetch row account category
+        if row_ledger_id:
+            try:
+                result = api.make_request(f"v1/ledger/{row_ledger_id}")
+                if result["success"]:
+                    import json
+
+                    ledger_data = json.loads(result["data"])
+                    row_category = ledger_data.get("category")
+            except Exception as e:
+                debug_info.append(f"Failed to get row ledger category: {str(e)}")
+
+        # Fetch main account category
+        if main_ledger_id:
+            try:
+                result = api.make_request(f"v1/ledger/{main_ledger_id}")
+                if result["success"]:
+                    import json
+
+                    ledger_data = json.loads(result["data"])
+                    main_category = ledger_data.get("category")
+            except Exception as e:
+                debug_info.append(f"Failed to get main ledger category: {str(e)}")
+
+        abs_amount = abs(row_amount)
+        debug_info.append(
+            f"Memorial booking logic: row_category={row_category}, main_category={main_category}, amount={row_amount}"
+        )
+
+        # Apply proper debit/credit logic based on E-Boekhouden categories and amount direction
+        if row_amount > 0:
+            # Positive amount: Row account receives (increases), Main account provides (decreases)
+            if _should_debit_increase(row_category):
+                # Row account increases with debit (assets, expenses)
+                row_debit, row_credit = abs_amount, 0
+            else:
+                # Row account increases with credit (liabilities, equity, income)
+                row_debit, row_credit = 0, abs_amount
+
+            if _should_debit_increase(main_category):
+                # Main account decreases with credit (assets, expenses)
+                main_debit, main_credit = 0, abs_amount
+            else:
+                # Main account decreases with debit (liabilities, equity, income)
+                main_debit, main_credit = abs_amount, 0
+
+        else:
+            # Negative amount: Row account provides (decreases), Main account receives (increases)
+            if _should_debit_increase(row_category):
+                # Row account decreases with credit (assets, expenses)
+                row_debit, row_credit = 0, abs_amount
+            else:
+                # Row account decreases with debit (liabilities, equity, income)
+                row_debit, row_credit = abs_amount, 0
+
+            if _should_debit_increase(main_category):
+                # Main account increases with debit (assets, expenses)
+                main_debit, main_credit = abs_amount, 0
+            else:
+                # Main account increases with credit (liabilities, equity, income)
+                main_debit, main_credit = 0, abs_amount
+
+        debug_info.append(
+            f"Calculated amounts - Row: Dr {row_debit}, Cr {row_credit} | Main: Dr {main_debit}, Cr {main_credit}"
+        )
+        return row_debit, row_credit, main_debit, main_credit
+
+    except Exception as e:
+        debug_info.append(f"Error in memorial booking calculation: {str(e)}")
+        # Fallback to original logic if category lookup fails
+        if row_amount > 0:
+            return row_amount, 0, 0, row_amount
+        else:
+            return 0, -row_amount, -row_amount, 0
+
+
+def _should_debit_increase(eboekhouden_category, ledger_id=None):
+    """
+    Determine if an account with the given E-Boekhouden category increases with debits.
+
+    This function uses both category and specific ledger knowledge to determine proper debit/credit behavior.
+    Based on analysis of actual memorial bookings, we know specific account behaviors.
+
+    Args:
+        eboekhouden_category: The category from E-Boekhouden API
+        ledger_id: The specific E-Boekhouden ledger ID for more precise logic
+
+    Returns:
+        bool: True if account increases with debits, False if increases with credits
+    """
+    if not eboekhouden_category:
+        return True  # Default to debit increases for unknown categories
+
+    # Specific ledger overrides based on known account behaviors
+    if ledger_id:
+        # Known equity/result accounts that increase with credits
+        equity_result_ledgers = {
+            13201865,  # 05000 - Vrij besteedbaar eigen vermogen (Equity)
+            16167827,  # 99998 - Eindresultaat (Result account)
+        }
+
+        # Known asset accounts that increase with debits
+        asset_ledgers = {
+            13201861,  # 02400 - Apparatuur en toebehoren (Equipment)
+            13201870,  # 10470 - PayPal (Bank/Financial)
+            14526213,  # 10001 - Kruisposten (Clearing account)
+            13849374,  # 14700 - Overlopende Posten (Accruals)
+        }
+
+        # Known expense accounts that increase with debits
+        expense_ledgers = {
+            13201953,  # 48010 - Afschrijving Inventaris (Depreciation expense)
+        }
+
+        if ledger_id in equity_result_ledgers:
+            return False  # Equity/result accounts increase with credits
+        elif ledger_id in asset_ledgers or ledger_id in expense_ledgers:
+            return True  # Asset/expense accounts increase with debits
+
+    # Category-based logic
+    if eboekhouden_category == "VW":  # Verlies & Winst (P&L)
+        # P&L accounts: expenses increase with debits, income increases with credits
+        # Default to expense behavior unless we know it's an income/result account
+        if ledger_id == 16167827:  # Specific result account
+            return False
+        return True  # Most P&L accounts are expenses
+
+    elif eboekhouden_category == "BAL":  # Balans (Balance Sheet)
+        # Balance Sheet: assets increase with debits, liabilities/equity increase with credits
+        # Use specific ledger knowledge or default to asset behavior
+        if ledger_id == 13201865:  # Specific equity account
+            return False
+        return True  # Most balance sheet accounts we deal with are assets
+
+    elif eboekhouden_category == "FIN":  # Financial accounts
+        return True  # Financial accounts (banks, cash) are assets - increase with debits
+
+    elif eboekhouden_category == "DEB":  # Debiteuren (Receivables)
+        return True  # Receivables are assets - increase with debits
+
+    elif eboekhouden_category == "CRED":  # Crediteuren (Payables)
+        return False  # Payables are liabilities - increase with credits
+
+    # Default fallback
+    return True

@@ -775,6 +775,34 @@ function add_post_migration_tools(frm) {
 			window.location.href = '/eboekhouden_mapping_review';
 		}, __('Tools'));
 	}
+
+	// Add Data Quality Check button
+	frm.add_custom_button(__('Check Data Quality'), function() {
+		frappe.show_alert({
+			message: __('Analyzing data quality...'),
+			indicator: 'blue'
+		});
+
+		frappe.call({
+			method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.check_migration_data_quality',
+			args: {
+				migration_name: frm.doc.name
+			},
+			freeze: true,
+			freeze_message: __('Analyzing imported data quality...'),
+			callback: function(r) {
+				if (r.message && r.message.success) {
+					show_data_quality_report(frm, r.message.report);
+				} else {
+					frappe.msgprint({
+						title: __('Quality Check Failed'),
+						message: r.message ? r.message.error : 'Unknown error',
+						indicator: 'red'
+					});
+				}
+			}
+		});
+	}, __('Tools'));
 }
 
 function check_account_types(frm) {
@@ -1604,33 +1632,61 @@ function start_opening_balance_import(frm, options) {
 
 function add_tools_dropdown(frm) {
 	// Add debugging and REST API tools
-	setTimeout(() => {
-		// Debug Connection
-		frappe.ui.toolbar.add_dropdown_button(__('Tools'), __('Debug Connection'), function() {
-			frappe.call({
-				method: 'verenigingen.api.test_eboekhouden_connection',
-				freeze: true,
-				freeze_message: __('Testing connection...'),
-				callback: function(r) {
-					if (r.message && r.message.success) {
-						frappe.msgprint({
-							title: __('Connection Test Successful'),
-							message: __('Successfully connected to E-Boekhouden API.<br><br>Details:<br>' + r.message.message),
-							indicator: 'green'
-						});
-					} else {
-						frappe.msgprint({
-							title: __('Connection Test Failed'),
-							message: __('Failed to connect: ' + (r.message ? r.message.message : 'Unknown error')),
-							indicator: 'red'
-						});
-					}
+
+	// Debug Connection - moved to frm.add_custom_button
+	frm.add_custom_button(__('Debug Connection'), function() {
+		frappe.call({
+			method: 'vereiningen.api.test_eboekhouden_connection',
+			freeze: true,
+			freeze_message: __('Testing connection...'),
+			callback: function(r) {
+				if (r.message && r.message.success) {
+					frappe.msgprint({
+						title: __('Connection Test Successful'),
+						message: __('Successfully connected to E-Boekhouden API.<br><br>Details:<br>' + r.message.message),
+						indicator: 'green'
+					});
+				} else {
+					frappe.msgprint({
+						title: __('Connection Test Failed'),
+						message: __('Failed to connect: ' + (r.message ? r.message.message : 'Unknown error')),
+						indicator: 'red'
+					});
 				}
-			});
+			}
+		});
+	}, __('Tools'));
+
+	// Add Data Quality Check
+	frm.add_custom_button(__('Check Data Quality'), function() {
+		frappe.show_alert({
+			message: __('Analyzing data quality...'),
+			indicator: 'blue'
 		});
 
-		// Add REST API migration button
-		frappe.ui.toolbar.add_dropdown_button(__('Tools'), __('Fetch ALL Mutations (REST API)'), function() {
+		frappe.call({
+			method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.check_migration_data_quality',
+			args: {
+				migration_name: frm.doc.name
+			},
+			freeze: true,
+			freeze_message: __('Analyzing imported data quality...'),
+			callback: function(r) {
+				if (r.message && r.message.success) {
+					show_data_quality_report(frm, r.message.report);
+				} else {
+					frappe.msgprint({
+						title: __('Quality Check Failed'),
+						message: r.message ? r.message.error : 'Unknown error',
+						indicator: 'red'
+					});
+				}
+			}
+		});
+	}, __('Tools'));
+
+	// Add REST API migration button
+	frm.add_custom_button(__('Fetch ALL Mutations (REST API)'), function() {
 			frappe.confirm(
 				__('This will fetch ALL historical mutations using the REST API by iterating through mutation IDs. This may take several minutes. Continue?'),
 				function() {
@@ -1715,8 +1771,101 @@ function add_tools_dropdown(frm) {
 					d.show();
 				}
 			);
+		}, __('Tools'));
+}
+
+function show_data_quality_report(frm, report) {
+	// Display data quality report in a comprehensive dialog
+	let report_html = '<div class="data-quality-report">';
+
+	// Header
+	report_html += `
+		<div style="margin-bottom: 20px;">
+			<h4>Data Quality Report</h4>
+			<p style="color: #666;">Generated: ${frappe.datetime.str_to_user(report.timestamp)}</p>
+			<p style="color: #666;">Company: ${report.company}</p>
+		</div>
+	`;
+
+	// Issues Summary
+	if (report.issues && report.issues.length > 0) {
+		report_html += '<div style="margin-bottom: 20px;">';
+		report_html += '<h5 style="color: #d32f2f;">Issues Found (' + report.issues.length + ')</h5>';
+		report_html += '<ul style="list-style-type: disc; padding-left: 20px;">';
+		report.issues.forEach(issue => {
+			report_html += '<li style="margin-bottom: 10px;">';
+			report_html += '<strong>' + issue.type + ':</strong> ' + issue.description;
+			if (issue.count) {
+				report_html += ' <span style="color: #666;">(' + issue.count + ' records)</span>';
+			}
+			if (issue.examples && issue.examples.length > 0) {
+				report_html += '<ul style="margin-top: 5px; font-size: 0.9em; color: #666;">';
+				issue.examples.forEach(example => {
+					report_html += '<li>' + example + '</li>';
+				});
+				report_html += '</ul>';
+			}
+			report_html += '</li>';
 		});
-	}, 500); // Small delay to ensure toolbar is loaded
+		report_html += '</ul>';
+		report_html += '</div>';
+	} else {
+		report_html += '<div style="margin-bottom: 20px; color: #4caf50;">';
+		report_html += '<h5>✓ No Quality Issues Found</h5>';
+		report_html += '<p>All imported data appears to be complete and properly mapped.</p>';
+		report_html += '</div>';
+	}
+
+	// Statistics
+	if (report.statistics && Object.keys(report.statistics).length > 0) {
+		report_html += '<div style="margin-bottom: 20px;">';
+		report_html += '<h5>Import Statistics</h5>';
+		report_html += '<table style="width: 100%; border-collapse: collapse;">';
+		for (let [key, value] of Object.entries(report.statistics)) {
+			report_html += '<tr style="border-bottom: 1px solid #e0e0e0;">';
+			report_html += '<td style="padding: 8px;">' + key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + '</td>';
+			report_html += '<td style="padding: 8px; text-align: right; font-weight: bold;">' + value + '</td>';
+			report_html += '</tr>';
+		}
+		report_html += '</table>';
+		report_html += '</div>';
+	}
+
+	// Recommendations
+	if (report.recommendations && report.recommendations.length > 0) {
+		report_html += '<div style="margin-bottom: 20px;">';
+		report_html += '<h5>Recommendations</h5>';
+		report_html += '<ol style="padding-left: 20px;">';
+		report.recommendations.forEach(rec => {
+			report_html += '<li style="margin-bottom: 8px;">' + rec + '</li>';
+		});
+		report_html += '</ol>';
+		report_html += '</div>';
+	}
+
+	report_html += '</div>';
+
+	// Show in dialog
+	const dialog = new frappe.ui.Dialog({
+		title: __('Data Quality Report'),
+		size: 'large',
+		fields: [{
+			fieldtype: 'HTML',
+			fieldname: 'report_html'
+		}],
+		primary_action: function() {
+			dialog.hide();
+			// Update quality check timestamp
+			if (frm.doc.name) {
+				frappe.db.set_value('E-Boekhouden Migration', frm.doc.name,
+					'last_quality_check', frappe.datetime.now_datetime());
+			}
+		},
+		primary_action_label: __('Close')
+	});
+
+	dialog.fields_dict.report_html.$wrapper.html(report_html);
+	dialog.show();
 }
 
 function handle_import_single_mutation(frm) {
