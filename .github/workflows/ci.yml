@@ -96,14 +96,6 @@ jobs:
         bench init frappe-bench --frappe-branch $FRAPPE_BRANCH --skip-assets --python python${{ matrix.python-version }} --skip-redis-config-generation
         cd frappe-bench
 
-    - name: Install ERPNext and Dependencies
-      working-directory: frappe-bench
-      run: |
-        bench get-app erpnext --branch $ERPNEXT_BRANCH
-        bench get-app payments
-        bench get-app hrms --branch $ERPNEXT_BRANCH
-        bench get-app banking https://github.com/alyf-de/banking.git
-
     - name: Configure Redis Connection
       working-directory: frappe-bench
       run: |
@@ -111,6 +103,18 @@ jobs:
         bench set-config redis_cache redis://localhost:6379
         bench set-config redis_queue redis://localhost:6379
         bench set-config redis_socketio redis://localhost:6379
+        # Verify Redis connection
+        redis-cli -h localhost -p 6379 ping
+        # Display current Redis configuration
+        bench --site test_site get-config || echo "No site configured yet"
+
+    - name: Install ERPNext and Dependencies
+      working-directory: frappe-bench
+      run: |
+        bench get-app erpnext --branch $ERPNEXT_BRANCH
+        bench get-app payments
+        bench get-app hrms --branch $ERPNEXT_BRANCH
+        bench get-app banking https://github.com/alyf-de/banking.git
 
     - name: Clean Database
       working-directory: frappe-bench
@@ -121,6 +125,18 @@ jobs:
       working-directory: frappe-bench
       run: |
         bench new-site test_site --db-name test_frappe --admin-password admin --mariadb-root-password travis
+
+    - name: Verify Redis Configuration
+      working-directory: frappe-bench
+      run: |
+        # Check site config for Redis settings
+        bench --site test_site get-config
+        # Test Redis connection from bench
+        bench --site test_site console --execute "import frappe; print('Redis cache:', frappe.cache().get('test_key') or 'Redis working')"
+
+    - name: Install Apps
+      working-directory: frappe-bench
+      run: |
         bench --site test_site install-app erpnext
         bench --site test_site install-app payments
         bench --site test_site install-app hrms

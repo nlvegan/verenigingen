@@ -484,7 +484,7 @@ class PerformanceDashboard:
                     message = f"No subscription invoices generated today (active subscriptions: {active_subscriptions})"
             else:
                 status = "ok"
-                message = f"Invoice generation healthy"
+                message = "Invoice generation healthy"
 
             return {
                 "status": status,
