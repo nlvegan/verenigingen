@@ -21,9 +21,22 @@ class EBoekhoudenAPI:
             settings = frappe.get_single("E-Boekhouden Settings")
 
         self.settings = settings
-        self.base_url = settings.api_url.rstrip("/")  # Remove trailing slash
+
+        # Ensure API URL has proper scheme
+        api_url = settings.api_url.rstrip("/")  # Remove trailing slash
+        if not api_url.startswith(("http://", "https://")):
+            # Default to https if no scheme provided
+            api_url = f"https://{api_url}"
+        self.base_url = api_url
+
         self.api_token = settings.get_password("api_token")
         self.source = settings.source_application or "Verenigingen ERPNext"
+
+        # Validate required settings
+        if not self.base_url or self.base_url == "https://":
+            raise ValueError("E-Boekhouden API URL is not configured")
+        if not self.api_token:
+            raise ValueError("E-Boekhouden API token is not configured")
 
     def get_session_token(self):
         """Get session token using API token"""
@@ -31,17 +44,22 @@ class EBoekhoudenAPI:
             session_url = f"{self.base_url}/v1/session"
             session_data = {"accessToken": self.api_token, "source": self.source}
 
+            frappe.logger().debug(f"Requesting session token from: {session_url}")
             response = requests.post(session_url, json=session_data, timeout=30)
 
             if response.status_code == 200:
                 session_response = response.json()
                 return session_response.get("token")
             else:
-                frappe.log_error(f"Session token request failed: {response.status_code} - {response.text}")
+                error_msg = f"Session token request failed: {response.status_code} - {response.text}"
+                frappe.log_error(error_msg, "E-Boekhouden API")
+                frappe.msgprint(error_msg, title="E-Boekhouden API Error", indicator="red")
                 return None
 
         except Exception as e:
-            frappe.log_error(f"Error getting session token: {str(e)}")
+            error_msg = f"Error getting session token from {self.base_url}: {str(e)}"
+            frappe.log_error(error_msg, "E-Boekhouden API")
+            frappe.msgprint(error_msg, title="E-Boekhouden API Error", indicator="red")
             return None
 
     def make_request(self, endpoint, method="GET", params=None):

@@ -360,8 +360,14 @@ def update_all_membership_durations():
                     new_total_days = member.calculate_total_membership_days()
                     old_total_days = getattr(member, "total_membership_days", 0) or 0
 
-                    # Only update if the value has changed or if it's never been set
-                    if new_total_days != old_total_days or not member_data.last_duration_update:
+                    # Only update if the value has changed, never been set, or cumulative duration is missing
+                    needs_update = (
+                        new_total_days != old_total_days
+                        or not member_data.last_duration_update
+                        or not getattr(member, "cumulative_membership_duration", None)
+                    )
+
+                    if needs_update:
                         member.total_membership_days = new_total_days
                         member.last_duration_update = now()
                         member.calculate_cumulative_membership_duration()

@@ -43,7 +43,10 @@ class SystemHealthDashboard {
 					</div>
 				</div>
 				<div class="row mt-4">
-					<div class="col-md-12">
+					<div class="col-md-6">
+						<div class="business-metrics-section"></div>
+					</div>
+					<div class="col-md-6">
 						<div class="api-performance-section"></div>
 					</div>
 				</div>
@@ -61,6 +64,7 @@ class SystemHealthDashboard {
 			this.load_performance_metrics(),
 			this.load_optimization_suggestions(),
 			this.load_database_stats(),
+			this.load_business_metrics(),
 			this.load_api_performance()
 		]).then(() => {
 			frappe.hide_progress();
@@ -95,7 +99,25 @@ class SystemHealthDashboard {
 		let checks_html = '';
 		for (let [check, result] of Object.entries(data.checks || {})) {
 			const check_color = result.status === 'ok' ? 'green' :
+							   result.status === 'warning' ? 'orange' :
 							   result.status === 'slow' ? 'orange' : 'red';
+
+			let details = '';
+			if (result.response_time_ms !== undefined) {
+				details += `<br><small>${result.response_time_ms.toFixed(2)}ms</small>`;
+			}
+			if (result.message) {
+				details += `<br><small class="text-muted">${result.message}</small>`;
+			}
+
+			// Special handling for subscription and scheduler metrics
+			if (check === 'subscription_processing' && result.active_subscriptions !== undefined) {
+				details += `<br><small>Active: ${result.active_subscriptions}, Today: ${result.invoices_today}</small>`;
+			}
+			if (check === 'scheduler' && result.stuck_jobs !== undefined) {
+				details += `<br><small>Stuck: ${result.stuck_jobs}, Recent: ${result.recent_activity}</small>`;
+			}
+
 			checks_html += `
 				<div class="col-md-4 mb-3">
 					<div class="card">
@@ -103,8 +125,7 @@ class SystemHealthDashboard {
 							<h6>${frappe.utils.to_title_case(check.replace('_', ' '))}</h6>
 							<div class="text-${check_color}">
 								<i class="fa fa-circle"></i> ${result.status.toUpperCase()}
-								${result.response_time_ms !== undefined ?
-		`<br><small>${result.response_time_ms.toFixed(2)}ms</small>` : ''}
+								${details}
 							</div>
 						</div>
 					</div>
@@ -242,7 +263,7 @@ class SystemHealthDashboard {
 		let table_html = largest_tables.map(table => `
 			<tr>
 				<td>${table.table_name}</td>
-				<td class="text-right">${frappe.utils.number_format(table.table_rows)}</td>
+				<td class="text-right">${table.table_rows.toLocaleString()}</td>
 				<td class="text-right">${table.total_size_mb.toFixed(2)} MB</td>
 				<td class="text-right">${table.index_ratio_percent.toFixed(1)}%</td>
 			</tr>
@@ -259,7 +280,7 @@ class SystemHealthDashboard {
 							<strong>Total Tables:</strong> ${data.summary.total_tables}
 						</div>
 						<div class="col-md-4">
-							<strong>Total Rows:</strong> ${frappe.utils.number_format(data.summary.total_rows)}
+							<strong>Total Rows:</strong> ${data.summary.total_rows.toLocaleString()}
 						</div>
 						<div class="col-md-4">
 							<strong>Total Size:</strong> ${data.summary.total_size_mb.toFixed(2)} MB
@@ -279,6 +300,77 @@ class SystemHealthDashboard {
 							${table_html}
 						</tbody>
 					</table>
+				</div>
+			</div>
+		`);
+	}
+
+	load_business_metrics() {
+		return frappe.call({
+			method: 'verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix',
+			callback: (r) => {
+				if (r.message && r.message.metrics) {
+					this.render_business_metrics(r.message.metrics);
+				}
+			}
+		});
+	}
+
+	render_business_metrics(metrics) {
+		const businessMetrics = [
+			{
+				label: 'Active Subscriptions',
+				value: metrics.active_subscriptions || 0,
+				color: 'blue'
+			},
+			{
+				label: 'Sales Invoices Today',
+				value: metrics.sales_invoices_today || 0,
+				color: 'green'
+			},
+			{
+				label: 'Subscription Invoices Today',
+				value: metrics.subscription_invoices_today || 0,
+				color: 'orange'
+			},
+			{
+				label: 'Total Invoices Today',
+				value: metrics.total_invoices_today || 0,
+				color: 'purple'
+			},
+			{
+				label: 'Hours Since Last Subscription Run',
+				value: metrics.last_subscription_run || 0,
+				color: metrics.last_subscription_run > 25 ? 'red' : metrics.last_subscription_run > 4 ? 'orange' : 'green'
+			},
+			{
+				label: 'Stuck Scheduler Jobs',
+				value: metrics.stuck_jobs || 0,
+				color: metrics.stuck_jobs > 0 ? 'red' : 'green'
+			}
+		];
+
+		let metrics_html = businessMetrics.map(metric => `
+			<div class="col-md-6 mb-3">
+				<div class="card">
+					<div class="card-body text-center">
+						<h3 class="text-${metric.color}">${metric.value}</h3>
+						<p class="mb-0 small">${metric.label}</p>
+					</div>
+				</div>
+			</div>
+		`).join('');
+
+		this.$container.find('.business-metrics-section').html(`
+			<div class="card">
+				<div class="card-header">
+					<h5>Business & System Metrics</h5>
+					<small class="text-muted">Real-time subscription and invoice tracking</small>
+				</div>
+				<div class="card-body">
+					<div class="row">
+						${metrics_html}
+					</div>
 				</div>
 			</div>
 		`);

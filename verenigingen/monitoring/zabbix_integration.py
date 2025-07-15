@@ -92,12 +92,21 @@ def send_frappe_metrics_to_zabbix():
         """
             )[0][0]
         ),
+        # Invoice generation tracking
+        "frappe.invoices.sales_today": get_sales_invoices_today(),
+        "frappe.invoices.subscription_today": get_subscription_invoices_today(),
+        "frappe.invoices.total_today": get_total_invoices_today(),
+        # Subscription processing health
+        "frappe.subscriptions.active": frappe.db.count("Subscription", {"status": "Active"}),
+        "frappe.subscriptions.processed_today": get_subscriptions_processed_today(),
+        "frappe.scheduler.last_subscription_run": get_last_subscription_processing(),
         # Performance metrics
         "frappe.error_logs.count": frappe.db.count(
             "Error Log", {"creation": [">=", get_datetime() - timedelta(hours=1)]}
         ),
         # Queue metrics
         "frappe.queue.pending": get_queue_length(),
+        "frappe.queue.stuck_jobs": get_stuck_jobs_count(),
         # Custom business metrics
         "frappe.member.churn_rate": calculate_churn_rate(),
         "frappe.volunteer.engagement": calculate_volunteer_engagement(),
@@ -192,8 +201,14 @@ def get_metrics_for_zabbix():
     # This endpoint can be called by Zabbix HTTP agent
 
     try:
-        # Check if API key authentication is provided
-        auth_header = frappe.get_request_header("Authorization")
+        # Check if API key authentication is provided (only when in request context)
+        auth_header = None
+        try:
+            auth_header = frappe.get_request_header("Authorization")
+        except RuntimeError:
+            # No request context (e.g., called via bench execute), skip auth check
+            pass
+
         if auth_header and auth_header.startswith("token "):
             # Validate API token if provided
             try:
@@ -203,7 +218,7 @@ def get_metrics_for_zabbix():
                     return {"error": "Invalid API credentials", "status": "unauthorized"}
             except Exception as e:
                 return {"error": f"Invalid API credentials format: {str(e)}", "status": "unauthorized"}
-        # If no auth header, proceed anyway for now (you can make this stricter later)
+        # If no auth header or no request context, proceed anyway
 
         metrics = {
             "timestamp": now_datetime().isoformat(),
@@ -216,6 +231,14 @@ def get_metrics_for_zabbix():
                 "response_time": get_average_response_time(),
                 "job_queue_size": get_queue_length(),
                 "db_connections": get_db_connections(),
+                # New subscription and invoice tracking metrics
+                "active_subscriptions": frappe.db.count("Subscription", {"status": "Active", "docstatus": 1}),
+                "sales_invoices_today": get_sales_invoices_today(),
+                "subscription_invoices_today": get_subscription_invoices_today(),
+                "total_invoices_today": get_total_invoices_today(),
+                "subscriptions_processed_today": get_subscriptions_processed_today(),
+                "last_subscription_run": get_last_subscription_processing(),
+                "stuck_jobs": get_stuck_jobs_count(),
             },
         }
 
@@ -448,6 +471,110 @@ def get_health_details():
 
 
 # Scheduled job to send metrics
+def get_sales_invoices_today():
+    """Get count of Sales Invoices created today"""
+    try:
+        count = frappe.db.count(
+            "Sales Invoice",
+            {"creation": [">=", get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)]},
+        )
+        return count
+    except Exception as e:
+        frappe.logger().error(f"Error getting sales invoices today: {str(e)}")
+        return 0
+
+
+def get_subscription_invoices_today():
+    """Get count of subscription-related Sales Invoices created today"""
+    try:
+        count = frappe.db.count(
+            "Sales Invoice",
+            {
+                "creation": [">=", get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)],
+                "subscription": ["!=", ""],
+            },
+        )
+        return count
+    except Exception as e:
+        frappe.logger().error(f"Error getting subscription invoices today: {str(e)}")
+        return 0
+
+
+def get_total_invoices_today():
+    """Get total count of all invoices (Sales + Purchase) created today"""
+    try:
+        today_start = get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        sales_count = frappe.db.count("Sales Invoice", {"creation": [">=", today_start]})
+        purchase_count = frappe.db.count("Purchase Invoice", {"creation": [">=", today_start]})
+
+        return sales_count + purchase_count
+    except Exception as e:
+        frappe.logger().error(f"Error getting total invoices today: {str(e)}")
+        return 0
+
+
+def get_subscriptions_processed_today():
+    """Get count of Process Subscription documents created today"""
+    try:
+        if not frappe.db.exists("DocType", "Process Subscription"):
+            return 0
+
+        count = frappe.db.count(
+            "Process Subscription",
+            {"creation": [">=", get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)]},
+        )
+        return count
+    except Exception as e:
+        frappe.logger().error(f"Error getting subscriptions processed today: {str(e)}")
+        return 0
+
+
+def get_last_subscription_processing():
+    """Get hours since last subscription processing (0 = processed today)"""
+    try:
+        if not frappe.db.exists("DocType", "Process Subscription"):
+            return 999  # No subscription processing available
+
+        last_process = frappe.db.get_value(
+            "Process Subscription", filters={}, fieldname="creation", order_by="creation desc"
+        )
+
+        if not last_process:
+            return 999  # Never processed
+
+        hours_ago = (now_datetime() - get_datetime(last_process)).total_seconds() / 3600
+        return round(hours_ago, 1)
+
+    except Exception as e:
+        frappe.logger().error(f"Error getting last subscription processing: {str(e)}")
+        return 999
+
+
+def get_stuck_jobs_count():
+    """Get count of potentially stuck scheduler jobs"""
+    try:
+        if not frappe.db.exists("DocType", "Scheduled Job Type"):
+            return 0
+
+        # Jobs that haven't run in over 25 hours but should run daily
+        stuck_jobs = frappe.db.sql(
+            """
+            SELECT COUNT(*)
+            FROM `tabScheduled Job Type`
+            WHERE stopped = 0
+            AND frequency IN ('Daily', 'Daily Long')
+            AND (last_execution IS NULL OR last_execution < DATE_SUB(NOW(), INTERVAL 25 HOUR))
+        """
+        )[0][0]
+
+        return int(stuck_jobs)
+
+    except Exception as e:
+        frappe.logger().error(f"Error getting stuck jobs count: {str(e)}")
+        return 0
+
+
 def send_metrics_to_zabbix_scheduled():
     """Scheduled job to send metrics every 5 minutes"""
     try:

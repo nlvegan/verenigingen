@@ -3046,3 +3046,115 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=False):
     from verenigingen.utils.eboekhouden.cleanup_utils import cleanup_chart_of_accounts as cleanup_impl
 
     return cleanup_impl(company, delete_all_accounts)
+
+
+@frappe.whitelist()
+def import_single_mutation(migration_name, mutation_id, overwrite_existing=True):
+    """Import a single mutation by ID for testing purposes"""
+    try:
+        # Get migration record
+        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+
+        # Check if mutation already exists
+        existing_je = frappe.db.get_value(
+            "Journal Entry", {"eboekhouden_mutation_nr": str(mutation_id)}, "name"
+        )
+        existing_si = frappe.db.get_value(
+            "Sales Invoice", {"eboekhouden_mutation_nr": str(mutation_id)}, "name"
+        )
+        existing_pi = frappe.db.get_value(
+            "Purchase Invoice", {"eboekhouden_mutation_nr": str(mutation_id)}, "name"
+        )
+        existing_pe = frappe.db.get_value(
+            "Payment Entry", {"eboekhouden_mutation_nr": str(mutation_id)}, "name"
+        )
+
+        existing_doc = existing_je or existing_si or existing_pi or existing_pe
+
+        if existing_doc and not overwrite_existing:
+            return {
+                "success": False,
+                "error": f"Mutation {mutation_id} already exists as {existing_doc}. Enable 'Overwrite if exists' to replace it.",
+            }
+
+        # Delete existing document if overwrite is enabled
+        if existing_doc and overwrite_existing:
+            if existing_je:
+                frappe.delete_doc("Journal Entry", existing_je, force=True)
+            if existing_si:
+                frappe.delete_doc("Sales Invoice", existing_si, force=True)
+            if existing_pi:
+                frappe.delete_doc("Purchase Invoice", existing_pi, force=True)
+            if existing_pe:
+                frappe.delete_doc("Payment Entry", existing_pe, force=True)
+
+        # Fetch mutation from eBoekhouden API
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+
+        try:
+            settings = frappe.get_single("E-Boekhouden Settings")
+            api = EBoekhoudenAPI(settings)
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"E-Boekhouden API configuration error: {str(e)}. Please check the E-Boekhouden Settings.",
+            }
+
+        result = api.make_request(f"v1/mutation/{mutation_id}")
+
+        if not result or not result.get("success") or result.get("status_code") != 200:
+            return {
+                "success": False,
+                "error": f"Failed to fetch mutation {mutation_id} from eBoekhouden API: {result.get('error', 'Unknown error')}",
+            }
+
+        # Parse mutation data
+        import json
+
+        mutation_data = json.loads(result.get("data", "{}"))
+
+        # Import the mutation
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import _process_single_mutation
+
+        debug_info = []
+
+        # Get cost center for the company
+        company = migration.company
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+        if not cost_center:
+            return {"success": False, "error": f"No cost center found for company {company}"}
+
+        # Process the mutation
+        created_doc = _process_single_mutation(
+            mutation=mutation_data, company=company, cost_center=cost_center, debug_info=debug_info
+        )
+
+        if created_doc:
+            # Get document type and name from the document object
+            doc_type = created_doc.doctype
+            doc_name = created_doc.name
+
+            frappe.db.commit()
+
+            return {
+                "success": True,
+                "mutation_id": mutation_id,
+                "document_type": doc_type,
+                "document_name": doc_name,
+                "debug_info": debug_info,
+                "message": f"Successfully imported mutation {mutation_id} as {doc_type} {doc_name}",
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Failed to create document for mutation {mutation_id}. Check debug info for details.",
+                "debug_info": debug_info,
+            }
+
+    except Exception as e:
+        frappe.log_error(f"Error importing single mutation {mutation_id}: {str(e)}")
+        return {
+            "success": False,
+            "error": f"Unexpected error importing mutation {mutation_id}: {str(e)}",
+        }

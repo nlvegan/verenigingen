@@ -175,10 +175,42 @@ class PerformanceDashboard:
 
         # Database connectivity
         try:
+            start_time = time.time()
             frappe.db.sql("SELECT 1")
-            health["checks"]["database"] = {"status": "ok", "response_time_ms": 0}
+            db_response_time = (time.time() - start_time) * 1000
+            health["checks"]["database"] = {"status": "ok", "response_time_ms": db_response_time}
         except Exception as e:
             health["checks"]["database"] = {"status": "error", "error": str(e)}
+            health["status"] = "degraded"
+
+        # Subscription processing health
+        try:
+            subscription_health = self._check_subscription_health()
+            health["checks"]["subscription_processing"] = subscription_health
+            if subscription_health["status"] != "ok":
+                health["status"] = "degraded" if health["status"] == "healthy" else "critical"
+        except Exception as e:
+            health["checks"]["subscription_processing"] = {"status": "error", "error": str(e)}
+            health["status"] = "degraded"
+
+        # Invoice generation health
+        try:
+            invoice_health = self._check_invoice_generation_health()
+            health["checks"]["invoice_generation"] = invoice_health
+            if invoice_health["status"] != "ok":
+                health["status"] = "degraded" if health["status"] == "healthy" else health["status"]
+        except Exception as e:
+            health["checks"]["invoice_generation"] = {"status": "error", "error": str(e)}
+            health["status"] = "degraded"
+
+        # Scheduler health
+        try:
+            scheduler_health = self._check_scheduler_health()
+            health["checks"]["scheduler"] = scheduler_health
+            if scheduler_health["status"] != "ok":
+                health["status"] = "critical" if scheduler_health["status"] == "critical" else "degraded"
+        except Exception as e:
+            health["checks"]["scheduler"] = {"status": "error", "error": str(e)}
             health["status"] = "degraded"
 
         # Cache performance
@@ -368,6 +400,150 @@ class PerformanceDashboard:
         )
 
         return suggestions
+
+    def _check_subscription_health(self) -> Dict[str, Any]:
+        """Check subscription processing health"""
+        try:
+            # Check if subscription processing is working
+            if not frappe.db.exists("DocType", "Process Subscription"):
+                return {"status": "unknown", "message": "Process Subscription doctype not found"}
+
+            # Get last subscription processing time
+            last_process = frappe.db.get_value(
+                "Process Subscription", filters={}, fieldname="creation", order_by="creation desc"
+            )
+
+            if not last_process:
+                return {"status": "critical", "message": "No subscription processing history found"}
+
+            hours_ago = (now_datetime() - get_datetime(last_process)).total_seconds() / 3600
+
+            # Get active subscriptions count
+            active_subscriptions = frappe.db.count("Subscription", {"status": "Active", "docstatus": 1})
+
+            # Get today's subscription invoices
+            today_start = get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)
+            subscription_invoices_today = frappe.db.count(
+                "Sales Invoice", {"creation": [">=", today_start], "subscription": ["!=", ""]}
+            )
+
+            if hours_ago > 25:  # More than 25 hours since last processing
+                return {
+                    "status": "critical",
+                    "message": f"Subscription processing stopped {hours_ago:.1f} hours ago",
+                    "last_processed": last_process,
+                    "active_subscriptions": active_subscriptions,
+                    "invoices_today": subscription_invoices_today,
+                }
+            elif hours_ago > 4:  # More than 4 hours (should process daily)
+                return {
+                    "status": "warning",
+                    "message": f"Subscription processing delayed {hours_ago:.1f} hours",
+                    "last_processed": last_process,
+                    "active_subscriptions": active_subscriptions,
+                    "invoices_today": subscription_invoices_today,
+                }
+            else:
+                return {
+                    "status": "ok",
+                    "message": f"Last processed {hours_ago:.1f} hours ago",
+                    "last_processed": last_process,
+                    "active_subscriptions": active_subscriptions,
+                    "invoices_today": subscription_invoices_today,
+                }
+
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+    def _check_invoice_generation_health(self) -> Dict[str, Any]:
+        """Check invoice generation health"""
+        try:
+            today_start = get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)
+
+            # Count different types of invoices today
+            sales_invoices_today = frappe.db.count("Sales Invoice", {"creation": [">=", today_start]})
+            subscription_invoices_today = frappe.db.count(
+                "Sales Invoice", {"creation": [">=", today_start], "subscription": ["!=", ""]}
+            )
+            total_invoices_today = sales_invoices_today + frappe.db.count(
+                "Purchase Invoice", {"creation": [">=", today_start]}
+            )
+
+            # Check for active subscriptions that should generate invoices
+            active_subscriptions = frappe.db.count("Subscription", {"status": "Active", "docstatus": 1})
+
+            # Simple health logic
+            if active_subscriptions > 0 and subscription_invoices_today == 0:
+                # Check if it's early in the day (before 6 AM) - might not have processed yet
+                current_hour = now_datetime().hour
+                if current_hour < 6:
+                    status = "ok"
+                    message = f"Too early for invoicing (current hour: {current_hour})"
+                else:
+                    status = "warning"
+                    message = f"No subscription invoices generated today (active subscriptions: {active_subscriptions})"
+            else:
+                status = "ok"
+                message = f"Invoice generation healthy"
+
+            return {
+                "status": status,
+                "message": message,
+                "sales_invoices_today": sales_invoices_today,
+                "subscription_invoices_today": subscription_invoices_today,
+                "total_invoices_today": total_invoices_today,
+                "active_subscriptions": active_subscriptions,
+            }
+
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
+
+    def _check_scheduler_health(self) -> Dict[str, Any]:
+        """Check scheduler health for stuck jobs"""
+        try:
+            if not frappe.db.exists("DocType", "Scheduled Job Type"):
+                return {"status": "unknown", "message": "Scheduled Job Type doctype not found"}
+
+            # Check for stuck daily jobs
+            stuck_jobs = frappe.db.sql(
+                """
+                SELECT COUNT(*)
+                FROM `tabScheduled Job Type`
+                WHERE stopped = 0
+                AND frequency IN ('Daily', 'Daily Long')
+                AND (last_execution IS NULL OR last_execution < DATE_SUB(NOW(), INTERVAL 25 HOUR))
+            """
+            )[0][0]
+
+            # Check recent job activity
+            recent_jobs = frappe.db.count(
+                "Scheduled Job Log", {"modified": [">=", get_datetime() - timedelta(minutes=30)]}
+            )
+
+            if stuck_jobs > 0:
+                return {
+                    "status": "critical",
+                    "message": f"{stuck_jobs} daily jobs haven't run in 25+ hours",
+                    "stuck_jobs": stuck_jobs,
+                    "recent_activity": recent_jobs,
+                }
+            elif recent_jobs == 0:
+                return {
+                    "status": "warning",
+                    "message": "No scheduler activity in last 30 minutes",
+                    "stuck_jobs": stuck_jobs,
+                    "recent_activity": recent_jobs,
+                }
+            else:
+                return {
+                    "status": "ok",
+                    "message": f"Scheduler healthy ({recent_jobs} recent jobs)",
+                    "stuck_jobs": stuck_jobs,
+                    "recent_activity": recent_jobs,
+                }
+
+        except Exception as e:
+            return {"status": "error", "error": str(e)}
 
 
 # Global performance metrics instance

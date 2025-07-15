@@ -82,7 +82,7 @@ def create_eboekhouden_tracking_fields():
                 "fieldname": "eboekhouden_mutation_type",
                 "label": "E-Boekhouden Mutation Type",
                 "fieldtype": "Select",
-                "options": "0\n1\n2\n3\n4\n5\n6\n7",
+                "options": "\n0\n1\n2\n3\n4\n5\n6\n7",
                 "insert_after": "eboekhouden_main_ledger_id",
                 "allow_on_submit": 1,
                 "description": "0=Opening, 1=PurchInv, 2=SalesInv, 3=CustPayment, 4=SuppPayment, 5=MoneyReceived, 6=MoneySent, 7=Memorial",
@@ -101,7 +101,7 @@ def create_eboekhouden_tracking_fields():
                 "fieldname": "eboekhouden_mutation_type",
                 "label": "E-Boekhouden Mutation Type",
                 "fieldtype": "Select",
-                "options": "0\n1\n2\n3\n4\n5\n6\n7",
+                "options": "\n0\n1\n2\n3\n4\n5\n6\n7",
                 "insert_after": "eboekhouden_mutation_nr",
                 "allow_on_submit": 1,
                 "description": "0=Opening, 1=PurchInv, 2=SalesInv, 3=CustPayment, 4=SuppPayment, 5=MoneyReceived, 6=MoneySent, 7=Memorial",
@@ -122,6 +122,49 @@ def create_eboekhouden_tracking_fields():
 def ensure_eboekhouden_fields():
     """Ensure all E-Boekhouden tracking fields exist"""
     return create_eboekhouden_tracking_fields()
+
+
+@frappe.whitelist()
+def update_mutation_type_field_options():
+    """Update E-Boekhouden Mutation Type field to include empty option"""
+    try:
+        updates_made = []
+
+        # Update the custom field for Payment Entry
+        try:
+            custom_field_pe = frappe.get_doc(
+                "Custom Field", {"dt": "Payment Entry", "fieldname": "eboekhouden_mutation_type"}
+            )
+            if custom_field_pe:
+                custom_field_pe.options = "\n0\n1\n2\n3\n4\n5\n6\n7"
+                custom_field_pe.save()
+                updates_made.append("Payment Entry field updated")
+        except frappe.DoesNotExistError:
+            updates_made.append("Payment Entry field not found")
+
+        # Update the custom field for Journal Entry
+        try:
+            custom_field_je = frappe.get_doc(
+                "Custom Field", {"dt": "Journal Entry", "fieldname": "eboekhouden_mutation_type"}
+            )
+            if custom_field_je:
+                custom_field_je.options = "\n0\n1\n2\n3\n4\n5\n6\n7"
+                custom_field_je.save()
+                updates_made.append("Journal Entry field updated")
+        except frappe.DoesNotExistError:
+            updates_made.append("Journal Entry field not found")
+
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": "E-Boekhouden Mutation Type fields updated to include empty option",
+            "updates": updates_made,
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error updating mutation type field: {str(e)}")
+        return {"success": False, "error": str(e)}
 
 
 if __name__ == "__main__":

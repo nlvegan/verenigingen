@@ -990,7 +990,10 @@ class Volunteer(Document):
                         return
 
                 frappe.logger().info(f"Auto-creating employee record for new volunteer: {self.name}")
-                employee_id = self.create_minimal_employee()
+                # Use enhanced employee creation that includes user linking
+                from verenigingen.utils.employee_user_link import enhanced_create_minimal_employee
+
+                employee_id = enhanced_create_minimal_employee(self)
                 if employee_id:
                     frappe.logger().info(
                         f"Successfully auto-created employee {employee_id} for volunteer {self.name}"

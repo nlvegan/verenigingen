@@ -39,6 +39,7 @@ doctype_js = {
     "Membership Type": "public/js/membership_type.js",
     "SEPA Direct Debit Batch": "public/js/direct_debit_batch.js",
     "Membership Termination Request": "public/js/membership_termination_request.js",
+    "Customer": "public/js/customer_member_link.js",
 }
 
 # doctype_list_js = {

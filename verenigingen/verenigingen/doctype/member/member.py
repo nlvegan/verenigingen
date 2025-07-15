@@ -1190,25 +1190,44 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             return []
 
     def calculate_cumulative_membership_duration(self):
-        """Calculate total membership duration in years"""
-        total_days = 0
+        """Calculate and set total membership duration in human-readable format"""
+        try:
+            # Use the already calculated total_membership_days if available, otherwise calculate it
+            total_days = getattr(self, "total_membership_days", 0) or self.calculate_total_membership_days()
 
-        # Get all memberships for this member
-        memberships = frappe.get_all(
-            "Membership",
-            filters={"member": self.name, "docstatus": ["!=", 2]},
-            fields=["start_date", "renewal_date", "status"],
-            order_by="start_date",
-        )
+            if total_days <= 0:
+                self.cumulative_membership_duration = "Less than 1 day"
+                return 0
 
-        for membership in memberships:
-            if membership.start_date and membership.renewal_date:
-                days = date_diff(membership.renewal_date, membership.start_date)
-                if days > 0:
-                    total_days += days
+            # Convert total days to human-readable format
+            years = total_days // 365
+            remaining_days = total_days % 365
+            months = remaining_days // 30
+            remaining_days = remaining_days % 30
 
-        # Convert to years
-        return total_days / 365.25 if total_days > 0 else 0
+            # Build duration string
+            duration_parts = []
+            if years > 0:
+                duration_parts.append(f"{years} year{'s' if years != 1 else ''}")
+            if months > 0:
+                duration_parts.append(f"{months} month{'s' if months != 1 else ''}")
+            if remaining_days > 0 and years == 0:  # Only show days if less than a year
+                duration_parts.append(f"{remaining_days} day{'s' if remaining_days != 1 else ''}")
+
+            if duration_parts:
+                self.cumulative_membership_duration = ", ".join(duration_parts)
+            else:
+                self.cumulative_membership_duration = "Less than 1 day"
+
+            # Also return the value in years for backward compatibility
+            return total_days / 365.25
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error calculating cumulative membership duration for {self.name}: {str(e)}", "Member Error"
+            )
+            self.cumulative_membership_duration = "Error calculating duration"
+            return 0
 
     @frappe.whitelist()
     def get_current_membership_fee(self):

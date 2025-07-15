@@ -220,6 +220,16 @@ def activate_volunteer_record(member):
             volunteer.status = "Active"
             volunteer.save()
             frappe.logger().info(f"Activated volunteer record {volunteer_name} for member {member.name}")
+
+            # Create employee if not exists (for volunteers created during pending application)
+            if not volunteer.employee_id and volunteer.email:
+                from verenigingen.utils.employee_user_link import create_employee_for_approved_volunteer
+
+                employee_id = create_employee_for_approved_volunteer(volunteer)
+                if employee_id:
+                    frappe.logger().info(
+                        f"Created employee {employee_id} for approved volunteer {volunteer_name}"
+                    )
         else:
             # Create volunteer record if it doesn't exist (fallback)
             from verenigingen.utils.application_helpers import create_volunteer_record
