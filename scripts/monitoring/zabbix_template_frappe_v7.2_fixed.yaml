@@ -39,7 +39,7 @@ zabbix_export:
               parameters:
                 - $.message.status
               error_handler: CUSTOM_VALUE
-              error_handler_params: unhealthy
+              error_handler_params: 'unhealthy'
           triggers:
             - uuid: 9cf127bac955446397d9147b57ede0bd
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.status)<>"healthy"'
@@ -298,7 +298,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.members.total"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
 
         - uuid: 09a8646ba6ae464fb209984e99c218c5
           name: Member Churn Rate
@@ -321,7 +321,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.member.churn_rate"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
           triggers:
             - uuid: 6266c2c206184f97a38bdf55cd71cc5d
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.member.churn_rate)>{$CHURN_RATE_WARN}'
@@ -351,7 +351,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.volunteers.active"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
 
         - uuid: 03ed144ef51b41fe9069a4c02295e440
           name: Volunteer Engagement Rate
@@ -374,7 +374,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.volunteer.engagement"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
 
         # Financial Metrics
         - uuid: 3fd5157eacc349bb875c9395d55be5d3
@@ -397,7 +397,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.invoices.sales_today"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
 
         - uuid: 8e321ef20b1b4a699109d76f84700588
           name: Subscription Invoices Today
@@ -419,7 +419,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.invoices.subscription_today"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
 
         - uuid: c87238de5ff54a74b5d0410a68e7610a
           name: Total Invoices Today
@@ -441,7 +441,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.invoices.total_today"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
 
         # Subscription Metrics
         - uuid: 67b90cdc444148888475bb66b2d7866a
@@ -464,7 +464,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.subscriptions.active"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
 
         - uuid: 172cb0ca07dc48ab89aa565e40f11b73
           name: Subscriptions Processed Today
@@ -486,7 +486,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.subscriptions.processed_today"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
 
         - uuid: cb0c52cce8bf4a53a242a0ef99f25a49
           name: Hours Since Last Subscription Run
@@ -509,7 +509,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.scheduler.last_subscription_run"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 999
+              error_handler_params: '999'
           triggers:
             - uuid: 1dcde5728ab04df781ddb5981d9a81b9
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.scheduler.last_subscription_run)>{$SUBSCRIPTION_DELAY_WARN}'
@@ -547,7 +547,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.error_logs.count"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
           triggers:
             - uuid: cd738e6a38574ccc9e84f2fff26fcf45
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.error_logs.count)>{$ERROR_COUNT_WARN}'
@@ -577,7 +577,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics["frappe.queue.stuck_jobs"]
               error_handler: CUSTOM_VALUE
-              error_handler_params: 0
+              error_handler_params: '0'
           triggers:
             - uuid: 58c769ceb413443daf79b24e61e14353
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.queue.stuck_jobs)>0'
