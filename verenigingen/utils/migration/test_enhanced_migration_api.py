@@ -68,7 +68,7 @@ def run_migration_test():
 
         # Test 4: Test dry run
         try:
-            from verenigingen.utils.eboekhouden_enhanced_migration import run_migration_dry_run
+            from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration import run_migration_dry_run
 
             dry_run_result = run_migration_dry_run(migration_doc.name)
 
@@ -88,7 +88,7 @@ def run_migration_test():
 
         # Test 5: Test validation
         try:
-            from verenigingen.utils.eboekhouden_enhanced_migration import validate_migration_data
+            from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration import validate_migration_data
 
             # validation_result = validate_migration_data(migration_doc.name)
             validate_migration_data(migration_doc.name)

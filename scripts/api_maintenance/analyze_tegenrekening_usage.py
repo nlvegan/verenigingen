@@ -15,7 +15,7 @@ def analyze_tegenrekening_patterns():
         settings = frappe.get_single("E-Boekhouden Settings")
 
         # Import API class
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI(settings)
 
@@ -161,7 +161,7 @@ def get_chart_of_accounts_mapping():
         settings = frappe.get_single("E-Boekhouden Settings")
 
         # Import API class
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI(settings)
 

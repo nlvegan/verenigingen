@@ -82,7 +82,7 @@ class EnhancedAccountMigration:
         """
         # Use smart account type detection
         try:
-            from verenigingen.utils.eboekhouden_smart_account_typing import get_smart_account_type
+            from verenigingen.utils.eboekhouden.eboekhouden_smart_account_typing import get_smart_account_type
 
             return get_smart_account_type(account_data)
         except ImportError:

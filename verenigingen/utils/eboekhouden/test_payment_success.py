@@ -12,7 +12,7 @@ def test_payment_success():
     Test that shows enhanced payment processing working correctly.
     Focus on the key improvements: bank account mapping and invoice parsing.
     """
-    from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+    from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
     company = frappe.db.get_single_value("Global Defaults", "default_company")
 

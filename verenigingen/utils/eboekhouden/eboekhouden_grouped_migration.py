@@ -15,7 +15,7 @@ def migrate_mutations_grouped(migration_doc, settings):
     Migrate mutations using native transaction types instead of creating journal entries for everything
     """
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         from .eboekhouden_transaction_type_mapper import simplify_migration_process
 

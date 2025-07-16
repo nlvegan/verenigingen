@@ -38,7 +38,7 @@ def enhanced_coa_import_with_bank_accounts(migration_doc_name):
             "success": True,
             "coa_import": coa_result,
             "bank_accounts_created": bank_creation_result,
-            "message": "CoA imported successfully. {bank_creation_result.get('created', 0)} bank accounts created.",
+            "message": f"CoA imported successfully. {bank_creation_result.get('created', 0)} bank accounts created.",
         }
 
         return combined_result
@@ -113,7 +113,7 @@ def create_bank_accounts_from_coa(migration_doc):
             "success": True,
             "created": created_bank_accounts,
             "errors": errors,
-            "message": "Created {created_bank_accounts} bank accounts",
+            "message": f"Created {created_bank_accounts} bank accounts",
         }
 
     except Exception as e:
@@ -504,9 +504,9 @@ def create_bank_account_record(account, bank_name, bank_info, company):
                 "{bank_info['bank_namef']} - {bank_info['account_number']} - {bank_info['description']}"
             )
         elif bank_info.get("account_number"):
-            bank_account.account_name = "{bank_info['bank_name']} - {bank_info['account_number']}"
+            bank_account.account_name = f"{bank_info['bank_name']} - {bank_info['account_number']}"
         elif bank_info.get("description"):
-            bank_account.account_name = "{bank_info['bank_name']} - {bank_info['description']}"
+            bank_account.account_name = f"{bank_info['bank_name']} - {bank_info['description']}"
         else:
             # Use Chart of Accounts account name to ensure uniqueness
             bank_account.account_name = f"{bank_info['bank_name']} - {account_display_name}"

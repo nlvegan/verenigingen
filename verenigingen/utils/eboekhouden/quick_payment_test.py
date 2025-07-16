@@ -9,7 +9,7 @@ from frappe import _
 @frappe.whitelist()
 def quick_test():
     """Quick test of payment handler functionality."""
-    from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+    from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
     company = frappe.db.get_single_value("Global Defaults", "default_company")
 

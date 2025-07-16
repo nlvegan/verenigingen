@@ -16,7 +16,7 @@ def test_enhanced_payment_with_mutation_5473():
     - 2 row allocations: 60.50 and 61.29
     - Ledger 13201869 (should map to Triodos)
     """
-    from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+    from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
     # Test mutation data
     mutation = {

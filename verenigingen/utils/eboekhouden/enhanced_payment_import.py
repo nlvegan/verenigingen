@@ -8,7 +8,7 @@ mutations with proper bank account mapping and multi-invoice support.
 import frappe
 from frappe import _
 
-from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
 
 def create_enhanced_payment_entry(mutation_detail, company, cost_center, debug_info):

@@ -41,7 +41,7 @@ def check_settings():
 @frappe.whitelist()
 def test_payment_without_settings():
     """Test payment processing without relying on E-Boekhouden Settings."""
-    from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+    from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
     # Use Global Defaults company
     company = frappe.db.get_single_value("Global Defaults", "default_company")

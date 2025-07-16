@@ -641,7 +641,7 @@ def test_eboekhouden_framework():
 def test_eboekhouden_api_mock():
     """Test e-Boekhouden API utilities with mock data"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenXMLParser
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenXMLParser
 
         # Test XML parsing with sample data
         results = {}
@@ -811,7 +811,7 @@ def test_eboekhouden_complete():
 
         # Test 5: API utilities comprehensive test
         try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenXMLParser
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenXMLParser
 
             # Test XML parser with real-world structure
             complex_xml = """<?xml version="1.0" encoding="utf-8"?>

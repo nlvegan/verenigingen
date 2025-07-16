@@ -66,14 +66,14 @@ Combines both approaches for comprehensive monitoring:
 scheduler_events = {
     "cron": {
         "*/5 * * * *": [
-            "verenigingen.scripts.monitoring.zabbix_integration.send_metrics_to_zabbix_scheduled"
+            "verenigingen.monitoring.zabbix_integration.send_metrics_to_zabbix_scheduled"
         ]
     }
 }
 
 # Add webhook endpoint
 webhook_events = {
-    "on_webhook": "verenigingen.scripts.monitoring.zabbix_integration.zabbix_webhook_receiver"
+    "on_webhook": "verenigingen.monitoring.zabbix_integration.zabbix_webhook_receiver"
 }
 ```
 
@@ -306,7 +306,7 @@ ORDER BY clock
 
 ```bash
 # Test Frappe endpoint
-curl -X GET https://your-site.frappe.cloud/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix
+curl -X GET https://your-site.frappe.cloud/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix
 
 # Test Zabbix API
 curl -X POST http://zabbix.server/api_jsonrpc.php \

@@ -181,7 +181,7 @@ def create_address_from_application(data):
     address = frappe.get_doc(
         {
             "doctype": "Address",
-            "address_title": "{first_name} {last_name}",
+            "address_title": f"{first_name} {last_name}",
             "address_type": "Personal",
             "address_line1": data.get("address_line1"),
             "address_line2": data.get("address_line2", ""),
@@ -391,7 +391,7 @@ def create_volunteer_record(member):
             )
         else:
             # Standard name formatting for non-Dutch installations
-            volunteer_name = "{member.first_name} {member.last_name}".strip()
+            volunteer_name = f"{member.first_name} {member.last_name}".strip()
 
         if not volunteer_name:
             volunteer_name = member.email  # Fallback to email if no name available
@@ -513,7 +513,7 @@ def get_membership_type_details(membership_type):
                 {
                     "amount": base_amount * multiplier,
                     "label": label,
-                    "description": "Support our mission with {int((multiplier - 1) * 100)}% extra",
+                    "description": f"Support our mission with {int((multiplier - 1) * 100)}% extra",
                 }
             )
 
@@ -622,11 +622,11 @@ def suggest_membership_amounts(membership_type_name):
 def save_draft_application(data):
     """Save application as draft"""
     try:
-        draft_id = "DRAFT-{int(time.time())}"
+        draft_id = f"DRAFT-{int(time.time())}"
 
         # Store in cache for 24 hours
         frappe.cache().set_value(
-            "application_draft:{draft_id}", json.dumps(data), expires_in_sec=86400  # 24 hours
+            f"application_draft:{draft_id}", json.dumps(data), expires_in_sec=86400  # 24 hours
         )
 
         return {"success": True, "draft_id": draft_id, "message": _("Draft saved successfully")}
@@ -638,7 +638,7 @@ def save_draft_application(data):
 def load_draft_application(draft_id):
     """Load application draft"""
     try:
-        draft_data = frappe.cache().get_value("application_draft:{draft_id}")
+        draft_data = frappe.cache().get_value(f"application_draft:{draft_id}")
 
         if not draft_data:
             return {"success": False, "message": _("Draft not found or expired")}
@@ -737,7 +737,7 @@ def create_pending_chapter_membership(member, chapter_name):
             assignment_type="Member",
             start_date=today(),
             status="Pending",
-            reason="Applied for membership in {chapter_name} chapter",
+            reason=f"Applied for membership in {chapter_name} chapter",
         )
 
         frappe.logger().info(f"Created pending Chapter Member record for {member.name} in {chapter_name}")
@@ -780,7 +780,7 @@ def activate_pending_chapter_membership(member, chapter_name):
         if not pending_member:
             # No pending record found, create a new active one
             frappe.logger().info(
-                "No pending Chapter Member found for {member.name} in {chapter_name}, creating new active record"
+                f"No pending Chapter Member found for {member.name} in {chapter_name}, creating new active record"
             )
             return create_active_chapter_membership(member, chapter_name)
 
@@ -799,7 +799,7 @@ def activate_pending_chapter_membership(member, chapter_name):
             chapter_name=chapter_name,
             assignment_type="Member",
             new_status="Active",
-            reason="Membership application approved for {chapter_name} chapter",
+            reason=f"Membership application approved for {chapter_name} chapter",
         )
 
         frappe.logger().info(f"Activated Chapter Member record for {member.name} in {chapter_name}")
@@ -836,7 +836,7 @@ def create_active_chapter_membership(member, chapter_name):
                         cm.chapter_join_date = today()
                         chapter_doc.save()
                         frappe.logger().info(
-                            "Updated existing Chapter Member record to Active for {member.name} in {chapter_name}"
+                            f"Updated existing Chapter Member record to Active for {member.name} in {chapter_name}"
                         )
                     return cm
 
@@ -858,7 +858,7 @@ def create_active_chapter_membership(member, chapter_name):
             assignment_type="Member",
             start_date=today(),
             status="Active",
-            reason="Direct activation for {chapter_name} chapter",
+            reason=f"Direct activation for {chapter_name} chapter",
         )
 
         frappe.logger().info(f"Created active Chapter Member record for {member.name} in {chapter_name}")
@@ -912,7 +912,7 @@ def remove_pending_chapter_membership(member, chapter_name=None):
             # Save the chapter document
             chapter_doc.save()
             frappe.logger().info(
-                "Removed {len(members_to_remove)} pending Chapter Member record(s) for {member.name} from {chapter_name}"
+                f"Removed {len(members_to_remove)} pending Chapter Member record(s) for {member.name} from {chapter_name}"
             )
             return True
         else:

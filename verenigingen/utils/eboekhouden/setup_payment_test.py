@@ -106,7 +106,7 @@ def run_payment_test():
     """
     Run the enhanced payment test with prepared data.
     """
-    from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+    from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
     # First setup test data
     setup_result = setup_payment_test_data()

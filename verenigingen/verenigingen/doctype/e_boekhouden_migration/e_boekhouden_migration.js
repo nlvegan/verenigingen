@@ -1366,30 +1366,27 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 			frm.set_value('migrate_transactions', 1);
 			frm.set_value('dry_run', options.dry_run ? 1 : 0);
 
-			// Set dates - retrieve mutation 0 date for start, today for end
+			// Set dates based on import type
 			if (options.date_from) {
 				frm.set_value('date_from', options.date_from);
 			} else {
-				// Get mutation 0 date as start date
-				frappe.call({
-					method: 'verenigingen.utils.eboekhouden_rest_iterator.test_mutation_zero',
-					async: false,
-					callback: function(r) {
-						if (r.message && r.message.success && r.message.result.mutation_0_exists) {
-							const mutation_0_date = r.message.result.mutation_0_data.date;
-							frm.set_value('date_from', mutation_0_date);
-						} else {
-							// Fallback to detected range or 5 years
-							if (window.eboekhouden_date_range) {
-								frm.set_value('date_from', window.eboekhouden_date_range.earliest_date);
-							} else {
-								const today = frappe.datetime.get_today();
-								const fiveYearsAgo = frappe.datetime.add_days(today, -1825);
-								frm.set_value('date_from', fiveYearsAgo);
-							}
-						}
+				// Set default dates based on import type
+				if (import_type === 'recent') {
+					// Last 90 days for recent transactions
+					const today = frappe.datetime.get_today();
+					const ninety_days_ago = frappe.datetime.add_days(today, -90);
+					frm.set_value('date_from', ninety_days_ago);
+				} else {
+					// For 'all' transactions, try to get mutation 0 date or use fallback
+					if (window.eboekhouden_date_range && window.eboekhouden_date_range.earliest_date) {
+						frm.set_value('date_from', window.eboekhouden_date_range.earliest_date);
+					} else {
+						// Fallback to 5 years ago for full import
+						const today = frappe.datetime.get_today();
+						const five_years_ago = frappe.datetime.add_days(today, -1825);
+						frm.set_value('date_from', five_years_ago);
 					}
-				});
+				}
 			}
 
 			if (options.date_to) {
@@ -1401,31 +1398,44 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 
 			// Save document first, then start import
 			frm.save().then(() => {
-				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.start_transaction_import',
-					args: {
-						migration_name: frm.doc.name,
-						import_type: import_type
-					},
-					callback: function(r) {
-						if (r.message && r.message.success) {
-							frappe.show_alert({
-								message: __('REST API transaction import started! This may take several minutes.'),
-								indicator: 'green'
-							});
-							frm.reload_doc();
+				// Double-check that document exists before calling API
+				if (!frm.doc.name) {
+					frappe.msgprint({
+						title: __('Save Failed'),
+						message: __('Document was not saved properly. Please try again.'),
+						indicator: 'red'
+					});
+					return;
+				}
 
-							// Start progress monitoring
-							show_migration_progress(frm);
-						} else {
-							frappe.msgprint({
-								title: __('Import Failed'),
-								message: r.message.error || __('Unknown error'),
-								indicator: 'red'
-							});
+				// Add a small delay to ensure save is committed
+				setTimeout(() => {
+					frappe.call({
+						method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.start_transaction_import',
+						args: {
+							migration_name: frm.doc.name,
+							import_type: import_type
+						},
+						callback: function(r) {
+							if (r.message && r.message.success) {
+								frappe.show_alert({
+									message: __('REST API transaction import started! This may take several minutes.'),
+									indicator: 'green'
+								});
+								frm.reload_doc();
+
+								// Start progress monitoring
+								show_migration_progress(frm);
+							} else {
+								frappe.msgprint({
+									title: __('Import Failed'),
+									message: r.message.error || __('Unknown error occurred'),
+									indicator: 'red'
+								});
+							}
 						}
-					}
-				});
+					});
+				}, 500); // 500ms delay to ensure save is committed
 			}).catch(err => {
 				frappe.msgprint({
 					title: __('Save Failed'),
@@ -1636,7 +1646,7 @@ function add_tools_dropdown(frm) {
 	// Debug Connection - moved to frm.add_custom_button
 	frm.add_custom_button(__('Debug Connection'), function() {
 		frappe.call({
-			method: 'vereiningen.api.test_eboekhouden_connection',
+			method: 'verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection',
 			freeze: true,
 			freeze_message: __('Testing connection...'),
 			callback: function(r) {
@@ -1837,7 +1847,26 @@ function show_data_quality_report(frm, report) {
 		report_html += '<h5>Recommendations</h5>';
 		report_html += '<ol style="padding-left: 20px;">';
 		report.recommendations.forEach(rec => {
-			report_html += '<li style="margin-bottom: 8px;">' + rec + '</li>';
+			// Handle both string and object recommendations
+			if (typeof rec === 'string') {
+				report_html += '<li style="margin-bottom: 8px;">' + rec + '</li>';
+			} else if (typeof rec === 'object' && rec !== null) {
+				// Format object recommendation
+				let recText = '';
+				if (rec.priority) {
+					recText += `<span class="badge badge-${rec.priority === 'high' ? 'danger' : rec.priority === 'medium' ? 'warning' : 'info'}">${rec.priority.toUpperCase()}</span> `;
+				}
+				if (rec.action) {
+					recText += `<strong>${rec.action}</strong>`;
+				}
+				if (rec.description) {
+					recText += `: ${rec.description}`;
+				}
+				if (rec.impact) {
+					recText += ` <em>(${rec.impact})</em>`;
+				}
+				report_html += '<li style="margin-bottom: 8px;">' + (recText || JSON.stringify(rec)) + '</li>';
+			}
 		});
 		report_html += '</ol>';
 		report_html += '</div>';

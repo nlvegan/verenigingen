@@ -53,7 +53,7 @@ def get_migration_config_status():
 def stage_eboekhouden_data(from_date, to_date):
     """Stage E-Boekhouden data for configuration"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         settings = frappe.get_single("E-Boekhouden Settings")
         if not settings.api_token:

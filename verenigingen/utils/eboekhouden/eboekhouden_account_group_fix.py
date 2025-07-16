@@ -55,7 +55,7 @@ def fix_account_groups():
     Fix existing accounts that should be groups
     """
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         settings = frappe.get_single("E-Boekhouden Settings")
         api = EBoekhoudenAPI(settings)

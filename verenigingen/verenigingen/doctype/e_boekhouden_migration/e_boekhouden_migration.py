@@ -273,7 +273,7 @@ class EBoekhoudenMigration(Document):
             else:
                 frappe.logger().info(f"Root accounts: {root_result['message']}")
 
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             # Get Chart of Accounts data using new API
             api = EBoekhoudenAPI(settings)
@@ -296,7 +296,7 @@ class EBoekhoudenMigration(Document):
                 return dry_run_msg
 
             # Analyze account hierarchy to determine which should be groups
-            from verenigingen.utils.eboekhouden_account_group_fix import analyze_account_hierarchy
+            from verenigingen.utils.eboekhouden.eboekhouden_account_group_fix import analyze_account_hierarchy
 
             group_accounts = analyze_account_hierarchy(accounts_data)
             frappe.logger().info(f"Identified {len(group_accounts)} accounts that should be groups")
@@ -356,7 +356,7 @@ class EBoekhoudenMigration(Document):
     def analyze_specific_accounts(self):
         """Analyze specific problematic accounts"""
         try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             # Get E-Boekhouden settings
             settings = frappe.get_single("E-Boekhouden Settings")
@@ -438,7 +438,7 @@ class EBoekhoudenMigration(Document):
     def analyze_eboekhouden_data(self):
         """Analyze E-Boekhouden data to understand group structure"""
         try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             # Get E-Boekhouden settings
             settings = frappe.get_single("E-Boekhouden Settings")
@@ -631,7 +631,7 @@ class EBoekhoudenMigration(Document):
         """Migrate Cost Centers from e-Boekhouden with proper hierarchy"""
         try:
             # Use the fixed cost center migration
-            from verenigingen.utils.eboekhouden_cost_center_fix import (
+            from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix import (
                 cleanup_cost_centers,
                 migrate_cost_centers_with_hierarchy,
             )
@@ -645,7 +645,9 @@ class EBoekhoudenMigration(Document):
                 # Run cleanup to fix any orphaned cost centers and group flags
                 if settings.default_company:
                     # First fix any cost centers that should be groups
-                    from verenigingen.utils.eboekhouden_cost_center_fix import fix_cost_center_groups
+                    from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix import (
+                        fix_cost_center_groups,
+                    )
 
                     group_fix_result = fix_cost_center_groups(settings.default_company)
                     if group_fix_result["success"] and group_fix_result["fixed"] > 0:
@@ -665,7 +667,7 @@ class EBoekhoudenMigration(Document):
                 return f"Error: {result.get('error', 'Unknown error')}"
 
             # Old implementation below for reference
-            # from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            # from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
             #
             # # Get Cost Centers data using new API
             # api = EBoekhoudenAPI(settings)
@@ -701,7 +703,9 @@ class EBoekhoudenMigration(Document):
 
             if use_enhanced:
                 # Use the enhanced migration with all improvements
-                from verenigingen.utils.eboekhouden_enhanced_migration import execute_enhanced_migration
+                from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration import (
+                    execute_enhanced_migration,
+                )
 
                 result = execute_enhanced_migration(self.name)
 
@@ -740,7 +744,9 @@ class EBoekhoudenMigration(Document):
                 # The old use_soap_api flag is ignored
 
                 # Use REST API migration
-                from verenigingen.utils.eboekhouden_rest_full_migration import start_full_rest_import
+                from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import (
+                    start_full_rest_import,
+                )
 
                 # Start the REST import synchronously for this context
                 result = start_full_rest_import(self.name)
@@ -931,7 +937,9 @@ class EBoekhoudenMigration(Document):
             # Use enhanced migration if available and enabled
             if use_enhanced:
                 try:
-                    from verenigingen.utils.eboekhouden_migration_enhancements import EnhancedAccountMigration
+                    from verenigingen.utils.eboekhouden.eboekhouden_migration_enhancements import (
+                        EnhancedAccountMigration,
+                    )
 
                     enhanced_migrator = EnhancedAccountMigration(self)
                     result = enhanced_migrator.analyze_and_create_account(account_data)
@@ -1444,7 +1452,7 @@ class EBoekhoudenMigration(Document):
         Enhanced Bank Account creation for Chart of Accounts bank account
         """
         try:
-            from verenigingen.utils.eboekhouden_enhanced_coa_import import (
+            from verenigingen.utils.eboekhouden.eboekhouden_enhanced_coa_import import (
                 create_bank_account_record,
                 extract_bank_info_from_account_name,
                 get_or_create_bank,
@@ -1833,7 +1841,7 @@ class EBoekhoudenMigration(Document):
 
             if not parent_cost_center:
                 # Try to create root cost center if it doesn't exist
-                from verenigingen.utils.eboekhouden_cost_center_fix import ensure_root_cost_center
+                from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix import ensure_root_cost_center
 
                 parent_cost_center = ensure_root_cost_center(company)
 
@@ -2548,7 +2556,7 @@ class EBoekhoudenMigration(Document):
             if not hasattr(self, "_ledger_id_mapping"):
                 self._ledger_id_mapping = {}
 
-                from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+                from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
                 settings = frappe.get_single("E-Boekhouden Settings")
                 api = EBoekhoudenAPI(settings)
@@ -3158,3 +3166,244 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
             "success": False,
             "error": f"Unexpected error importing mutation {mutation_id}: {str(e)}",
         }
+
+
+@frappe.whitelist()
+def start_transaction_import(migration_name, import_type="recent"):
+    """Start importing transactions using REST API only
+
+    DEPRECATED: The 'recent' option previously used SOAP API which was limited to 500 transactions.
+    Now both 'recent' and 'all' use REST API with different date ranges.
+
+    Args:
+        migration_name: Name of the migration document
+        import_type: 'recent' for last 90 days, 'all' for full history via REST
+    """
+    try:
+        # Debug: Log the migration name we're looking for
+        frappe.logger().info(f"Looking for migration document: {migration_name}")
+
+        # Check if document exists first
+        if not frappe.db.exists("E-Boekhouden Migration", migration_name):
+            # Get recent migrations for debugging
+            recent_migrations = frappe.get_all(
+                "E-Boekhouden Migration",
+                fields=["name", "migration_name", "creation"],
+                order_by="creation desc",
+                limit=5,
+            )
+            frappe.logger().error(
+                f"Migration document '{migration_name}' not found. Recent migrations: {recent_migrations}"
+            )
+            return {
+                "success": False,
+                "error": f"Migration document '{migration_name}' not found. Please ensure the document is saved before starting import.",
+                "debug_info": {"recent_migrations": recent_migrations},
+            }
+
+        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        if migration.migration_status != "Draft":
+            return {"success": False, "error": "Migration must be in Draft status to start"}
+
+        # Check if REST API is configured
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api_token = settings.get_password("api_token") or settings.get_password("rest_api_token")
+        if not api_token:
+            return {
+                "success": False,
+                "error": "REST API token not configured. Please configure in E-Boekhouden Settings.",
+            }
+
+        # Configure migration for transaction import
+        migration.db_set(
+            {
+                "migrate_accounts": 0,  # Skip accounts
+                "migrate_cost_centers": 0,  # Skip cost centers
+                "migrate_customers": 1,  # Import any new customers found
+                "migrate_suppliers": 1,  # Import any new suppliers found
+                "migrate_transactions": 1,  # Import transactions
+            }
+        )
+
+        # Set date range based on import type
+        if import_type == "recent":
+            # Import last 90 days of transactions
+            from frappe.utils import add_days, today
+
+            migration.db_set({"date_from": add_days(today(), -90), "date_to": today()})
+            message = "Recent transactions import started (last 90 days) via REST API"
+        else:
+            # Full import - dates should already be set or will use full range
+            message = "Full transaction import started via REST API"
+
+        frappe.db.commit()
+
+        # Always use REST API import
+        frappe.enqueue(
+            "verenigingen.utils.eboekhouden_rest_full_migration.start_full_rest_import",
+            migration_name=migration_name,
+            queue="long",
+            timeout=7200 if import_type == "all" else 3600,  # 2 hours for full, 1 hour for recent
+        )
+
+        return {"success": True, "message": message}
+
+    except Exception as e:
+        frappe.log_error(f"Error starting transaction import: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def check_rest_api_status():
+    """Check if REST API is configured and working"""
+    try:
+        settings = frappe.get_single("E-Boekhouden Settings")
+
+        # Check if API token is configured (either field name could be used)
+        api_token = settings.get_password("api_token") or settings.get_password("rest_api_token")
+        if not api_token:
+            return {"configured": False, "message": "REST API token not configured"}
+
+        # Try a simple REST API call to verify it works
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+
+        try:
+            iterator = EBoekhoudenRESTIterator()
+            # Try to get session token by calling the private method
+            session_token = iterator._get_session_token()
+            if session_token:
+                return {"configured": True, "working": True, "message": "REST API is configured and working"}
+            else:
+                return {
+                    "configured": True,
+                    "working": False,
+                    "message": "REST API token configured but authentication failed",
+                }
+        except Exception as e:
+            return {"configured": True, "working": False, "message": f"REST API error: {str(e)}"}
+
+    except Exception as e:
+        return {"configured": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def check_migration_data_quality(migration_name):
+    """Check data quality for a migration"""
+    try:
+        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        quality_report = migration.check_data_quality()
+
+        # Store the quality report in the migration document
+        # Using migration_summary field as data_quality_report field doesn't exist
+        migration.db_set("migration_summary", json.dumps(quality_report))
+
+        return {"success": True, "report": quality_report}
+    except Exception as e:
+        frappe.log_error(f"Data quality check failed: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def import_opening_balances_only(migration_name):
+    """Import only opening balances using the new ERPNext approach"""
+    try:
+        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+
+        # Import opening balances using the new implementation
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import _import_opening_balances
+
+        # Get company details
+        company = migration.company
+        cost_center = frappe.db.get_value("Company", company, "cost_center")
+
+        debug_info = []
+
+        # Check if this is a dry run
+        is_dry_run = migration.get("dry_run", False)
+
+        # Call the new opening balance import function
+        frappe.logger().info(f"Starting opening balance import for company: {company}, dry_run: {is_dry_run}")
+        result = _import_opening_balances(company, cost_center, debug_info, dry_run=is_dry_run)
+        frappe.logger().info(f"Opening balance import result: {result}")
+
+        # Update migration record with results
+        if result.get("success"):
+            migration.db_set(
+                {
+                    "migration_status": "Completed",
+                    "imported_records": 1 if result.get("journal_entry") else 0,
+                    "migration_summary": f"Opening balances imported. Journal Entry: {result.get('journal_entry', 'None')}",
+                }
+            )
+        else:
+            migration.db_set(
+                {
+                    "migration_status": "Failed",
+                    "error_log": result.get("error", "Unknown error"),
+                }
+            )
+
+        frappe.db.commit()
+
+        return {
+            "success": result.get("success", False),
+            "result": {
+                "imported": 1 if result.get("journal_entry") else 0,
+                "journal_entry": result.get("journal_entry"),
+                "message": result.get("message", ""),
+                "errors": [result.get("error")] if result.get("error") else [],
+                "debug_info": debug_info,
+            },
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Opening balance import failed: {str(e)}")
+
+        # Update migration record with error
+        try:
+            migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+            migration.db_set({"migration_status": "Failed", "error_log": str(e)})
+            frappe.db.commit()
+        except:
+            pass
+
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def update_account_type_mapping(account_name, new_account_type, company):
+    """Update the account type for a specific account
+
+    Args:
+        account_name: Either the account name (doctype name) or account_name field
+        new_account_type: The new account type to set
+        company: Company name
+    """
+    try:
+        # First try to find by name (doctype primary key)
+        if frappe.db.exists("Account", account_name):
+            account = frappe.get_doc("Account", account_name)
+        # Otherwise try by account_name field
+        elif frappe.db.exists("Account", {"account_name": account_name, "company": company}):
+            account = frappe.get_doc("Account", {"account_name": account_name, "company": company})
+        else:
+            return {"success": False, "error": f"Account {account_name} not found"}
+
+        # Validate it's from the right company
+        if account.company != company:
+            return {"success": False, "error": f"Account {account_name} belongs to different company"}
+
+        # Update account type
+        account.account_type = new_account_type
+        account.save(ignore_permissions=True)
+
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Updated account type for {account.account_name} to {new_account_type}",
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error updating account type: {str(e)}")
+        return {"success": False, "error": str(e)}

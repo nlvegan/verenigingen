@@ -349,7 +349,7 @@ def full_rest_migration_all_mutations(
     try:
         # Get settings
         settings = frappe.get_single("E-Boekhouden Settings")
-        if not settings.rest_api_token:
+        if not settings.get_password("api_token"):
             return {
                 "success": False,
                 "error": "REST API token not configured in E-Boekhouden Settings",
@@ -419,7 +419,7 @@ def full_rest_migration_all_mutations(
                 "migration_progress",
                 {
                     "migration_name": migration_name,
-                    "current_operation": "Imported {total_imported} mutations",
+                    "current_operation": f"Imported {total_imported} mutations",
                     "progress_percentage": min(
                         90, (i + batch_size) / len(mutations) * 80
                     ),  # Leave 20% for cleanup
@@ -445,7 +445,7 @@ def full_rest_migration_all_mutations(
 def _cache_all_mutations(settings):
     """Cache all mutations from eBoekhouden REST API by iterating through IDs"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
 
@@ -479,7 +479,7 @@ def _cache_all_mutations(settings):
                     continue
 
                 # Fetch from API
-                result = api.make_request("v1/mutation/{mutation_id}")
+                result = api.make_request(f"v1/mutation/{mutation_id}")
 
                 if result and result.get("success") and result.get("status_code") == 200:
                     # Parse mutation data
@@ -552,12 +552,12 @@ def get_progress_info():
 def test_single_mutation_import(mutation_id):
     """Test importing a single mutation for debugging"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
 
         # Fetch specific mutation
-        result = api.make_request("v1/mutation/{mutation_id}")
+        result = api.make_request(f"v1/mutation/{mutation_id}")
 
         if result and result.get("success") and result.get("status_code") == 200:
             mutation_data = json.loads(result.get("data", "{}"))
@@ -581,7 +581,7 @@ def test_single_mutation_import(mutation_id):
                 "cost_center": cost_center,
             }
         else:
-            return {"success": False, "error": "Failed to fetch mutation {mutation_id} from API"}
+            return {"success": False, "error": f"Failed to fetch mutation {mutation_id} from API"}
 
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -636,7 +636,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                 continue
 
             mutation_type = mutation.get("type", 0)
-            description = mutation.get("description", "eBoekhouden Import {mutation_id}")
+            description = mutation.get("description", f"eBoekhouden Import {mutation_id}")
             amount = frappe.utils.flt(mutation.get("amount", 0), 2)
             relation_id = mutation.get("relationId")
             invoice_number = mutation.get("invoiceNumber")
@@ -682,10 +682,28 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                     transaction_type="sales",
                 )
 
+                # Get or create item using intelligent creation
+                from verenigingen.utils.eboekhouden.eboekhouden_improved_item_naming import (
+                    get_or_create_item_improved,
+                )
+
+                # Use account code from the income account for intelligent item creation
+                account_code = (
+                    line_dict.get("income_account", "").split(" - ")[0]
+                    if " - " in line_dict.get("income_account", "")
+                    else ""
+                )
+                item_code = get_or_create_item_improved(
+                    account_code=account_code,
+                    company=company,
+                    transaction_type="Sales",
+                    description=line_dict["description"],
+                )
+
                 si.append(
                     "items",
                     {
-                        "item_code": "Service Item",  # Default service item
+                        "item_code": item_code,
                         "description": line_dict["description"],
                         "qty": line_dict["qty"],
                         "rate": line_dict["rate"],
@@ -723,10 +741,28 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                     transaction_type="purchase",
                 )
 
+                # Get or create item using intelligent creation
+                from verenigingen.utils.eboekhouden.eboekhouden_improved_item_naming import (
+                    get_or_create_item_improved,
+                )
+
+                # Use account code from the expense account for intelligent item creation
+                account_code = (
+                    line_dict.get("expense_account", "").split(" - ")[0]
+                    if " - " in line_dict.get("expense_account", "")
+                    else ""
+                )
+                item_code = get_or_create_item_improved(
+                    account_code=account_code,
+                    company=company,
+                    transaction_type="Purchase",
+                    description=line_dict["description"],
+                )
+
                 pi.append(
                     "items",
                     {
-                        "item_code": "Service Item",  # Default service item
+                        "item_code": item_code,
                         "description": line_dict["description"],
                         "qty": line_dict["qty"],
                         "rate": line_dict["rate"],
@@ -775,7 +811,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                             "Account", {"account_type": "Payable", "company": company}, "name"
                         )
 
-                pe.reference_no = invoice_number if invoice_number else "EB-{mutation_id}"
+                pe.reference_no = invoice_number if invoice_number else f"EB-{mutation_id}"
                 pe.reference_date = mutation.get("date")
 
                 pe.save()
@@ -787,7 +823,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
             # For other types or complex mutations, create Journal Entry
             if len(rows) > 0:
                 debug_info.append(
-                    "Creating Journal Entry for mutation type {mutation_type} with {len(rows)} rows"
+                    f"Creating Journal Entry for mutation type {mutation_type} with {len(rows)} rows"
                 )
 
                 # For Type 7 (memorial bookings), check if this should be a Purchase Debit Note
@@ -827,11 +863,24 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                 if invoice_number:
                                     pi.bill_no = invoice_number
 
-                                # Create invoice line
+                                # Create invoice line with intelligent item creation
+                                from verenigingen.utils.eboekhouden.eboekhouden_improved_item_naming import (
+                                    get_or_create_item_improved,
+                                )
+
+                                # Use account code from the expense account for intelligent item creation
+                                account_code = row_account.split(" - ")[0] if " - " in row_account else ""
+                                item_code = get_or_create_item_improved(
+                                    account_code=account_code,
+                                    company=company,
+                                    transaction_type="Purchase",
+                                    description=description,
+                                )
+
                                 pi.append(
                                     "items",
                                     {
-                                        "item_code": "Service Item",
+                                        "item_code": item_code,
                                         "description": description,
                                         "qty": 1,
                                         "rate": row_amount,
@@ -846,7 +895,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                     pi.submit()
                                     imported += 1
                                     debug_info.append(
-                                        "Successfully created Purchase Debit Note for Type 7 mutation {mutation_id}"
+                                        f"Successfully created Purchase Debit Note for Type 7 mutation {mutation_id}"
                                     )
                                     continue  # Skip journal entry creation
                                 except Exception as e:
@@ -914,7 +963,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                             is_memorial_booking = mutation_type == 7
                             if is_memorial_booking:
                                 debug_info.append(
-                                    "Memorial booking row: amount {row_amount}, ledger {row_ledger_id}"
+                                    f"Memorial booking row: amount {row_amount}, ledger {row_ledger_id}"
                                 )
 
                             # Track processed ledgers to identify the source account
@@ -964,7 +1013,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                         # Check if party creation failed
                                         if not row_party:
                                             debug_info.append(
-                                                "WARNING: Failed to create customer for receivable account {row_account}, skipping party assignment"
+                                                f"WARNING: Failed to create customer for receivable account {row_account}, skipping party assignment"
                                             )
                                             row_party_type = None
                                     elif account_type == "Payable":
@@ -991,7 +1040,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                         # Check if party creation failed
                                         if not row_party:
                                             debug_info.append(
-                                                "WARNING: Failed to create supplier for payable account {row_account}, skipping party assignment"
+                                                f"WARNING: Failed to create supplier for payable account {row_account}, skipping party assignment"
                                             )
                                             row_party_type = None
 
@@ -1010,7 +1059,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                             # Skip rows with zero amounts to avoid "Both Debit and Credit values cannot be zero" error
                             if row_amount == 0:
                                 debug_info.append(
-                                    "Skipping row with zero amount: ledger {row_ledger_id}, account {row_account}"
+                                    f"Skipping row with zero amount: ledger {row_ledger_id}, account {row_account}"
                                 )
                                 continue
 
@@ -1036,7 +1085,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                         row_debit = 0
                                         row_credit = abs_amount
                                         debug_info.append(
-                                            "Memorial: €{abs_amount} FROM {main_account} TO {row_account}"
+                                            f"Memorial: €{abs_amount} FROM {main_account} TO {row_account}"
                                         )
                                     else:
                                         # Negative row amount: Main ledger receives (credit), Row ledger provides (debit)
@@ -1045,7 +1094,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                         row_debit = abs_amount
                                         row_credit = 0
                                         debug_info.append(
-                                            "Memorial: €{abs_amount} FROM {row_account} TO {main_account}"
+                                            f"Memorial: €{abs_amount} FROM {row_account} TO {main_account}"
                                         )
 
                                     # Add main ledger entry
@@ -1054,7 +1103,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                         "debit_in_account_currency": frappe.utils.flt(main_debit, 2),
                                         "credit_in_account_currency": frappe.utils.flt(main_credit, 2),
                                         "cost_center": cost_center,
-                                        "user_remark": "Memorial booking main ledger: {description}",
+                                        "user_remark": f"Memorial booking main ledger: {description}",
                                     }
 
                                     # Add main ledger party details if needed
@@ -1086,7 +1135,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                                     }
                                 else:
                                     frappe.throw(
-                                        "Memorial booking {mutation_id}: No mapping found for main ledger {ledger_id}. "
+                                        f"Memorial booking {mutation_id}: No mapping found for main ledger {ledger_id}. "
                                         "This ledger must be mapped to create a proper memorial booking."
                                     )
                             else:
@@ -1146,11 +1195,11 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
 
                         # Final balance check
                         debug_info.append(
-                            "Final totals - Total debit: {total_debit}, Total credit: {total_credit}"
+                            f"Final totals - Total debit: {total_debit}, Total credit: {total_credit}"
                         )
                         if abs(total_debit - total_credit) > 0.01:
                             debug_info.append(
-                                "WARNING: Journal entry still not balanced! Difference: {total_debit - total_credit}"
+                                f"WARNING: Journal entry still not balanced! Difference: {total_debit - total_credit}"
                             )
 
                     else:
@@ -1258,7 +1307,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
 
                             je.append("accounts", entry_line)
                             debug_info.append(
-                                "Added row entry: {row_account}, Debit: {entry_line['debit_in_account_currency']}, Credit: {entry_line['credit_in_account_currency']}"
+                                f"Added row entry: {row_account}, Debit: {entry_line['debit_in_account_currency']}, Credit: {entry_line['credit_in_account_currency']}"
                             )
 
                         # Create the balancing entry (main ledger)
@@ -1279,7 +1328,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
 
                             je.append("accounts", main_entry)
                             debug_info.append(
-                                "Added main entry: {main_account}, Debit: {main_entry['debit_in_account_currency']}, Credit: {main_entry['credit_in_account_currency']}"
+                                f"Added main entry: {main_account}, Debit: {main_entry['debit_in_account_currency']}, Credit: {main_entry['credit_in_account_currency']}"
                             )
 
                     # Try to save and submit the Journal Entry
@@ -1350,7 +1399,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                         "debit_in_account_currency": frappe.utils.flt(-amount if amount < 0 else 0, 2),
                         "credit_in_account_currency": frappe.utils.flt(amount if amount > 0 else 0, 2),
                         "cost_center": cost_center,
-                        "user_remark": "Balancing entry for {description}",
+                        "user_remark": f"Balancing entry for {description}",
                     },
                 )
 
@@ -1382,7 +1431,7 @@ def _process_money_transfer_mutation(
 ):
     """Process a money transfer mutation (type 5 or 6)"""
     mutation_id = mutation.get("id")
-    description = mutation.get("description", "Money Transfer {mutation_id}")
+    description = mutation.get("description", f"Money Transfer {mutation_id}")
     amount = abs(frappe.utils.flt(mutation.get("amount", 0), 2))
     mutation_type = mutation.get("type", 5)
 
@@ -1416,7 +1465,7 @@ def _process_money_transfer_mutation(
             "account": from_account,
             "credit_in_account_currency": amount,
             "cost_center": cost_center,
-            "user_remark": "{description} - From",
+            "user_remark": f"{description} - From",
         },
     )
 
@@ -1427,7 +1476,7 @@ def _process_money_transfer_mutation(
             "account": to_account,
             "debit_in_account_currency": amount,
             "cost_center": cost_center,
-            "user_remark": "{description} - To",
+            "user_remark": f"{description} - To",
         },
     )
 
@@ -1453,10 +1502,10 @@ def _get_or_create_customer(relation_id, debug_info):
             return existing_customer
 
         # Try to fetch customer data from eBoekhouden
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
-        result = api.make_request("v1/relation/{relation_id}")
+        result = api.make_request(f"v1/relation/{relation_id}")
 
         if result and result.get("success") and result.get("status_code") == 200:
             relation_data = json.loads(result.get("data", "{}"))
@@ -1465,8 +1514,8 @@ def _get_or_create_customer(relation_id, debug_info):
             customer = frappe.new_doc("Customer")
             customer.customer_name = (
                 relation_data.get("bedrijfsnaam")
-                or "{relation_data.get('voornaam', '')} {relation_data.get('achternaam', '')}".strip()
-                or "Customer {relation_id}"
+                or f"{relation_data.get('voornaam', '')} {relation_data.get('achternaam', '')}".strip()
+                or f"Customer {relation_id}"
             )
             customer.eboekhouden_relation_id = str(relation_id)
             customer.customer_type = "Company" if relation_data.get("bedrijfsnaam") else "Individual"
@@ -1482,11 +1531,11 @@ def _get_or_create_customer(relation_id, debug_info):
             return customer.name
         else:
             debug_info.append(
-                "Failed to fetch relation {relation_id} from eBoekhouden, creating generic customer"
+                f"Failed to fetch relation {relation_id} from eBoekhouden, creating generic customer"
             )
             # Create generic customer if API fails
             customer = frappe.new_doc("Customer")
-            customer.customer_name = "eBoekhouden Customer {relation_id}"
+            customer.customer_name = f"eBoekhouden Customer {relation_id}"
             customer.eboekhouden_relation_id = str(relation_id)
             customer.save()
             debug_info.append(f"Created generic customer: {customer.name}")
@@ -1509,10 +1558,10 @@ def _get_or_create_supplier(relation_id, description, debug_info):
             return existing_supplier
 
         # Try to fetch supplier data from eBoekhouden
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
-        result = api.make_request("v1/relation/{relation_id}")
+        result = api.make_request(f"v1/relation/{relation_id}")
 
         if result and result.get("success") and result.get("status_code") == 200:
             relation_data = json.loads(result.get("data", "{}"))
@@ -1521,8 +1570,8 @@ def _get_or_create_supplier(relation_id, description, debug_info):
             supplier = frappe.new_doc("Supplier")
             supplier.supplier_name = (
                 relation_data.get("bedrijfsnaam")
-                or "{relation_data.get('voornaam', '')} {relation_data.get('achternaam', '')}".strip()
-                or "Supplier {relation_id}"
+                or f"{relation_data.get('voornaam', '')} {relation_data.get('achternaam', '')}".strip()
+                or f"Supplier {relation_id}"
             )
             supplier.eboekhouden_relation_id = str(relation_id)
             supplier.supplier_type = "Company" if relation_data.get("bedrijfsnaam") else "Individual"
@@ -1538,11 +1587,11 @@ def _get_or_create_supplier(relation_id, description, debug_info):
             return supplier.name
         else:
             debug_info.append(
-                "Failed to fetch relation {relation_id} from eBoekhouden, creating generic supplier"
+                f"Failed to fetch relation {relation_id} from eBoekhouden, creating generic supplier"
             )
             # Create generic supplier if API fails
             supplier = frappe.new_doc("Supplier")
-            supplier.supplier_name = "eBoekhouden Supplier {relation_id}"
+            supplier.supplier_name = f"eBoekhouden Supplier {relation_id}"
             supplier.eboekhouden_relation_id = str(relation_id)
             supplier.save()
             debug_info.append(f"Created generic supplier: {supplier.name}")
@@ -1611,7 +1660,7 @@ def _get_or_create_company_as_customer(company, debug_info):
     """Get or create the company as a customer for internal transactions"""
     try:
         # Use the company name as customer name
-        customer_name = "{company} (Internal)"
+        customer_name = f"{company} (Internal)"
 
         # Check if this customer already exists
         existing = frappe.db.get_value("Customer", {"customer_name": customer_name}, "name")
@@ -1636,7 +1685,7 @@ def _get_or_create_company_as_supplier(company, debug_info):
     """Get or create the company as a supplier for internal transactions"""
     try:
         # Use the company name as supplier name
-        supplier_name = "{company} (Internal)"
+        supplier_name = f"{company} (Internal)"
 
         # Check if this supplier already exists
         existing = frappe.db.get_value("Supplier", {"supplier_name": supplier_name}, "name")
@@ -1734,23 +1783,37 @@ def get_mutation_gap_report():
         return {"success": False, "error": str(e)}
 
 
-def _import_opening_balances(company, cost_center, debug_info):
+def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
     """Import opening balances from eBoekhouden using REST API"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
 
         # Get opening balances from eBoekhouden
-        result = api.make_request("v1/mutation", {"type": 0})
+        result = api.make_request("v1/mutation", method="GET", params={"type": 0})
 
         if not result or not result.get("success") or result.get("status_code") != 200:
             return {
                 "success": False,
-                "error": "Failed to fetch opening balances: {result.get('error', 'Unknown error')}",
+                "error": f"Failed to fetch opening balances: {result.get('error', 'Unknown error')}",
             }
 
         mutations_data = json.loads(result.get("data", "[]"))
+
+        # Debug: Check data structure
+        debug_info.append(f"mutations_data type: {type(mutations_data)}")
+
+        # Handle if mutations_data is a dict instead of list
+        if isinstance(mutations_data, dict):
+            debug_info.append(f"mutations_data is dict with keys: {list(mutations_data.keys())[:5]}")
+            # If it has 'items' key, use that (standard API response format)
+            if "items" in mutations_data:
+                mutations_data = mutations_data["items"]
+            else:
+                # Otherwise convert dict values to list
+                mutations_data = list(mutations_data.values())
+
         debug_info.append(f"Found {len(mutations_data)} opening balance mutations")
 
         if not mutations_data:
@@ -1769,10 +1832,15 @@ def _import_opening_balances(company, cost_center, debug_info):
         processed_accounts = set()
 
         for mutation in mutations_data:
+            # Handle if mutation is a list instead of dict (some APIs return arrays)
+            if isinstance(mutation, list):
+                debug_info.append(f"WARNING: Mutation is a list, not dict: {mutation}")
+                continue
+
             mutation_id = mutation.get("id")
             ledger_id = mutation.get("ledgerId")
             amount = frappe.utils.flt(mutation.get("amount", 0), 2)
-            # description = mutation.get("description", "Opening Balance")
+            description = mutation.get("description", "Opening Balance")
 
             debug_info.append(
                 f"Processing opening balance: ID={mutation_id}, Ledger={ledger_id}, Amount={amount}"
@@ -1816,6 +1884,13 @@ def _import_opening_balances(company, cost_center, debug_info):
                 debug_info.append(f"Skipping P&L account {account} (type: {root_type})")
                 continue
 
+            # Skip Stock accounts - they can only be updated via Stock transactions
+            if account_doc.account_type == "Stock":
+                debug_info.append(
+                    f"Skipping Stock account {account} - can only be updated via Stock transactions"
+                )
+                continue
+
             # Determine if this account needs a party
             party_type = None
             party = None
@@ -1832,7 +1907,7 @@ def _import_opening_balances(company, cost_center, debug_info):
                 "debit_in_account_currency": frappe.utils.flt(amount if amount > 0 else 0, 2),
                 "credit_in_account_currency": frappe.utils.flt(-amount if amount < 0 else 0, 2),
                 "cost_center": cost_center,
-                "user_remark": "Opening balance: {description}",
+                "user_remark": f"Opening balance: {description}",
             }
 
             # Add party if needed
@@ -1846,7 +1921,7 @@ def _import_opening_balances(company, cost_center, debug_info):
             total_credit += entry_line["credit_in_account_currency"]
 
             debug_info.append(
-                "Added opening balance entry: {account}, Debit: {entry_line['debit_in_account_currency']}, Credit: {entry_line['credit_in_account_currency']}"
+                f"Added opening balance entry: {account}, Debit: {entry_line['debit_in_account_currency']}, Credit: {entry_line['credit_in_account_currency']}"
             )
 
         # Add balancing entry if needed
@@ -1917,22 +1992,36 @@ def _import_opening_balances(company, cost_center, debug_info):
             je.append("accounts", balancing_line)
             debug_info.append(f"Added balancing entry: {balancing_account}, difference: {balance_difference}")
 
-        # Save and submit journal entry
-        try:
-            je.save()
-            je.submit()
-            debug_info.append(f"Successfully created opening balance journal entry: {je.name}")
+        # Save and submit journal entry (unless dry run)
+        if dry_run:
+            debug_info.append("DRY RUN: Would create opening balance journal entry")
+            debug_info.append(f"Total debit: {total_debit}")
+            debug_info.append(f"Total credit: {total_credit}")
+            debug_info.append(f"Number of accounts: {len(je.accounts)}")
             return {
                 "success": True,
-                "journal_entry": je.name,
-                "message": "Opening balances imported successfully",
+                "journal_entry": "DRY-RUN-PREVIEW",
+                "message": "Opening balances preview completed (no changes made)",
             }
-        except Exception as e:
-            debug_info.append(f"Failed to save opening balance journal entry: {str(e)}")
-            return {"success": False, "error": "Failed to create journal entry: {str(e)}"}
+        else:
+            try:
+                je.save()
+                je.submit()
+                debug_info.append(f"Successfully created opening balance journal entry: {je.name}")
+                return {
+                    "success": True,
+                    "journal_entry": je.name,
+                    "message": "Opening balances imported successfully",
+                }
+            except Exception as e:
+                debug_info.append(f"Failed to save opening balance journal entry: {str(e)}")
+                return {"success": False, "error": f"Failed to create journal entry: {str(e)}"}
 
     except Exception as e:
+        import traceback
+
         debug_info.append(f"Error in _import_opening_balances: {str(e)}")
+        debug_info.append(f"Traceback: {traceback.format_exc()}")
         return {"success": False, "error": str(e)}
 
 
@@ -2065,8 +2154,18 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     # Payment terms and due date
     payment_days = mutation_detail.get("Betalingstermijn", 30)
     if payment_days:
-        si.payment_terms_template = get_or_create_payment_terms(payment_days)
-        si.due_date = add_days(si.posting_date, payment_days)
+        try:
+            payment_terms = get_or_create_payment_terms(payment_days)
+            if payment_terms:
+                si.payment_terms_template = payment_terms
+                si.due_date = add_days(si.posting_date, payment_days)
+            else:
+                # Fallback: just set due date without payment terms template
+                si.due_date = add_days(si.posting_date, payment_days)
+        except Exception as e:
+            debug_info.append(f"Warning: Failed to create payment terms for {payment_days} days: {str(e)}")
+            # Fallback: just set due date without payment terms template
+            si.due_date = add_days(si.posting_date, payment_days)
 
     # References
     if mutation_detail.get("Referentie"):
@@ -2141,8 +2240,18 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     # Payment terms and due date
     payment_days = mutation_detail.get("Betalingstermijn", 30)
     if payment_days:
-        pi.payment_terms_template = get_or_create_payment_terms(payment_days)
-        pi.due_date = add_days(pi.posting_date, payment_days)
+        try:
+            payment_terms = get_or_create_payment_terms(payment_days)
+            if payment_terms:
+                pi.payment_terms_template = payment_terms
+                pi.due_date = add_days(pi.posting_date, payment_days)
+            else:
+                # Fallback: just set due date without payment terms template
+                pi.due_date = add_days(pi.posting_date, payment_days)
+        except Exception as e:
+            debug_info.append(f"Warning: Failed to create payment terms for {payment_days} days: {str(e)}")
+            # Fallback: just set due date without payment terms template
+            pi.due_date = add_days(pi.posting_date, payment_days)
 
     # Bill number and references
     if invoice_number:
@@ -2491,8 +2600,6 @@ def _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, deb
             try:
                 result = api.make_request(f"v1/ledger/{row_ledger_id}")
                 if result["success"]:
-                    import json
-
                     ledger_data = json.loads(result["data"])
                     row_category = ledger_data.get("category")
             except Exception as e:
@@ -2503,8 +2610,6 @@ def _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, deb
             try:
                 result = api.make_request(f"v1/ledger/{main_ledger_id}")
                 if result["success"]:
-                    import json
-
                     ledger_data = json.loads(result["data"])
                     main_category = ledger_data.get("category")
             except Exception as e:
@@ -2631,3 +2736,458 @@ def _should_debit_increase(eboekhouden_category, ledger_id=None):
 
     # Default fallback
     return True
+
+
+def start_full_rest_import(migration_name):
+    """
+    Start full REST import for a migration document.
+
+    This function was restored from git history to fix the missing import error.
+    Uses the simpler REST iterator approach with enhanced error handling for new fields.
+
+    Args:
+        migration_name: Name of the E-Boekhouden Migration document
+
+    Returns:
+        dict: Migration result with success status and stats
+    """
+    try:
+        # Get the migration document to extract parameters
+        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+
+        # Get settings
+        settings = frappe.get_single("E-Boekhouden Settings")
+        if not settings.get_password("api_token"):
+            return {
+                "success": False,
+                "error": "REST API token not configured in E-Boekhouden Settings",
+            }
+
+        # Extract migration parameters with defaults
+        company = getattr(migration_doc, "company", None) or settings.default_company
+        date_from = getattr(migration_doc, "date_from", None)
+        date_to = getattr(migration_doc, "date_to", None)
+
+        if not company:
+            return {"success": False, "error": "No company specified"}
+
+        # Update migration document with progress
+        migration_doc.db_set("current_operation", "Starting REST API import...")
+        migration_doc.db_set("progress_percentage", 5)
+        frappe.db.commit()
+
+        # Use the simpler REST iterator approach
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+
+        iterator = EBoekhoudenRESTIterator()
+
+        # Import all mutation types (Sales, Purchase, Payments, Journal)
+        mutation_types = [1, 2, 3, 4]
+        total_imported = 0
+        total_failed = 0
+        total_skipped = 0
+        errors = []
+
+        for i, mutation_type in enumerate(mutation_types):
+            try:
+                # Update progress
+                progress = 10 + (i * 20)  # 10%, 30%, 50%, 70%
+                migration_doc.db_set("current_operation", f"Processing mutation type {mutation_type}...")
+                migration_doc.db_set("progress_percentage", progress)
+                frappe.db.commit()
+
+                # Fetch all mutations of this type
+                mutations = iterator.fetch_mutations_by_type(mutation_type=mutation_type, limit=500)
+
+                # Filter by date if specified
+                if date_from or date_to:
+                    filtered_mutations = []
+                    for mutation in mutations:
+                        mutation_date = mutation.get("date")
+                        if mutation_date:
+                            mut_date = getdate(mutation_date)
+                            include = True
+
+                            if date_from and mut_date < getdate(date_from):
+                                include = False
+                            if date_to and mut_date > getdate(date_to):
+                                include = False
+
+                            if include:
+                                filtered_mutations.append(mutation)
+                    mutations = filtered_mutations
+
+                if mutations:
+                    # Process mutations using the batch import with enhanced error handling
+                    batch_result = _import_rest_mutations_batch_enhanced(migration_name, mutations, settings)
+                    total_imported += batch_result.get("imported", 0)
+                    total_failed += batch_result.get("failed", 0)
+                    total_skipped += batch_result.get("skipped", 0)
+                    errors.extend(batch_result.get("errors", []))
+
+            except Exception as e:
+                errors.append(f"Error importing mutation type {mutation_type}: {str(e)}")
+                total_failed += 1
+
+        # Final progress update
+        migration_doc.db_set("current_operation", "Import completed")
+        migration_doc.db_set("progress_percentage", 100)
+        migration_doc.db_set("imported_records", total_imported)
+        migration_doc.db_set("failed_records", total_failed)
+        frappe.db.commit()
+
+        # Return results in expected format
+        return {
+            "success": True,
+            "stats": {
+                "total_mutations": total_imported + total_failed + total_skipped,
+                "invoices_created": total_imported,  # Simplified - actual breakdown would need more detail
+                "payments_processed": 0,  # Would need to track separately
+                "journal_entries_created": 0,  # Would need to track separately
+                "skipped_existing": total_skipped,
+                "errors": errors,
+            },
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error in start_full_rest_import: {str(e)}", "E-Boekhouden Migration")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_start_full_rest_import():
+    """Debug function to test start_full_rest_import step by step"""
+    try:
+        # Get the most recent migration document
+        migrations = frappe.get_all(
+            "E-Boekhouden Migration",
+            fields=["name", "migration_name", "migration_status"],
+            order_by="creation desc",
+            limit=1,
+        )
+
+        if not migrations:
+            return {"error": "No migration documents found"}
+
+        migration_name = migrations[0].name
+        debug_log = []
+
+        debug_log.append(f"Testing start_full_rest_import with migration: {migration_name}")
+
+        # Step 1: Get migration document
+        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        debug_log.append(f"Migration doc loaded: {migration_doc.name}")
+
+        # Step 2: Get settings
+        settings = frappe.get_single("E-Boekhouden Settings")
+        api_token_exists = bool(settings.get_password("api_token"))
+        debug_log.append(f"API token configured: {api_token_exists}")
+
+        if not api_token_exists:
+            return {"error": "API token not configured", "debug_log": debug_log}
+
+        # Step 3: Get company and other params
+        company = getattr(migration_doc, "company", None) or settings.default_company
+        cost_center = getattr(migration_doc, "cost_center", None) or settings.default_cost_center
+        date_from = getattr(migration_doc, "date_from", None)
+        date_to = getattr(migration_doc, "date_to", None)
+
+        debug_log.append(f"Company: {company}")
+        debug_log.append(f"Cost center: {cost_center}")
+        debug_log.append(f"Date range: {date_from} to {date_to}")
+
+        # Step 4: Test REST iterator
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+
+        iterator = EBoekhoudenRESTIterator()
+        debug_log.append("REST iterator created")
+
+        # Step 5: Test fetching mutations for one type
+        try:
+            mutations = iterator.fetch_mutations_by_type(
+                mutation_type=1, limit=50
+            )  # Test with more mutations
+            debug_log.append(f"Found {len(mutations)} mutations of type 1")
+
+            if mutations:
+                debug_log.append(
+                    f"First mutation sample: {mutations[0].get('id', 'no-id')} - {mutations[0].get('date', 'no-date')}"
+                )
+                debug_log.append(
+                    f"Last mutation sample: {mutations[-1].get('id', 'no-id')} - {mutations[-1].get('date', 'no-date')}"
+                )
+
+                # Check how many are already imported
+                already_imported = 0
+                need_import = 0
+
+                for mutation in mutations:
+                    mutation_id = mutation.get("id")
+                    if mutation_id:
+                        existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
+                        existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
+                        existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
+                        existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
+
+                        if existing_je or existing_pe or existing_si or existing_pi:
+                            already_imported += 1
+                        else:
+                            need_import += 1
+
+                debug_log.append(f"Status: {already_imported} already imported, {need_import} need import")
+
+        except Exception as e:
+            debug_log.append(f"Error fetching mutations: {str(e)}")
+            return {"error": f"Mutation fetch failed: {str(e)}", "debug_log": debug_log}
+
+        # Step 6: Test batch import with just one mutation
+        if mutations:
+            try:
+                test_mutations = mutations[:1]  # Just one mutation for testing
+                test_mutation = test_mutations[0]
+                debug_log.append("Testing batch import with 1 mutation")
+                debug_log.append(
+                    f"Test mutation details: ID={test_mutation.get('id')}, Type={test_mutation.get('type')}, Date={test_mutation.get('date')}"
+                )
+
+                # Find a mutation that needs import for testing
+                unimported_mutation = None
+                for mutation in mutations:
+                    mutation_id = mutation.get("id")
+                    if mutation_id:
+                        existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
+                        existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
+                        existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
+                        existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
+
+                        if not (existing_je or existing_pe or existing_si or existing_pi):
+                            unimported_mutation = mutation
+                            break
+
+                if unimported_mutation:
+                    debug_log.append(
+                        f"Testing with unimported mutation: ID={unimported_mutation.get('id')}, Type={unimported_mutation.get('type')}, Date={unimported_mutation.get('date')}"
+                    )
+                    test_mutations = [unimported_mutation]
+                else:
+                    debug_log.append(
+                        "No unimported mutations found in sample, testing with first mutation anyway"
+                    )
+                    debug_log.append(
+                        f"Test mutation details: ID={test_mutation.get('id')}, Type={test_mutation.get('type')}, Date={test_mutation.get('date')}"
+                    )
+
+                    # Check if already imported
+                    mutation_id = test_mutation.get("id")
+                    if mutation_id:
+                        existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
+                        existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
+                        existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
+                        existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
+
+                        debug_log.append(
+                            f"Existing checks: JE={existing_je}, PE={existing_pe}, SI={existing_si}, PI={existing_pi}"
+                        )
+
+                        if existing_je or existing_pe or existing_si or existing_pi:
+                            debug_log.append(f"Mutation {mutation_id} already imported, would be skipped")
+                        else:
+                            debug_log.append(f"Mutation {mutation_id} not yet imported, would process")
+
+                batch_result = _import_rest_mutations_batch(migration_name, test_mutations, settings)
+                debug_log.append(f"Batch result: {batch_result}")
+
+            except Exception as e:
+                debug_log.append(f"Batch import error: {str(e)}")
+                return {"error": f"Batch import failed: {str(e)}", "debug_log": debug_log}
+
+        return {
+            "migration_tested": migration_name,
+            "debug_log": debug_log,
+            "mutations_found": len(mutations) if mutations else 0,
+            "status": "debug_completed",
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error in debug_start_full_rest_import: {str(e)}")
+        return {"error": str(e), "debug_log": debug_log if "debug_log" in locals() else []}
+
+
+@frappe.whitelist()
+def debug_payment_terms_issue():
+    """Debug the specific payment_terms issue"""
+    try:
+        from verenigingen.utils.eboekhouden.invoice_helpers import get_or_create_payment_terms
+
+        # Test payment terms creation
+        result = get_or_create_payment_terms(30)
+        return {
+            "payment_terms_result": result,
+            "payment_terms_type": type(result).__name__,
+            "status": "success",
+        }
+
+    except Exception as e:
+        return {"error": str(e), "status": "failed"}
+
+
+@frappe.whitelist()
+def debug_specific_mutation_processing():
+    """Debug processing of the specific failing mutation"""
+    try:
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+
+        iterator = EBoekhoudenRESTIterator()
+        mutations = iterator.fetch_mutations_by_type(mutation_type=1, limit=50)
+
+        # Find the mutation that's not imported
+        unimported_mutation = None
+        for mutation in mutations:
+            mutation_id = mutation.get("id")
+            if mutation_id:
+                existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
+                existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
+                existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
+                existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
+
+                if not (existing_je or existing_pe or existing_si or existing_pi):
+                    unimported_mutation = mutation
+                    break
+
+        if not unimported_mutation:
+            return {"error": "No unimported mutations found"}
+
+        # Debug the mutation structure
+        mutation_info = {
+            "id": unimported_mutation.get("id"),
+            "type": unimported_mutation.get("type"),
+            "date": unimported_mutation.get("date"),
+            "has_betalingstermijn": "Betalingstermijn" in unimported_mutation,
+            "betalingstermijn_value": unimported_mutation.get("Betalingstermijn"),
+            "keys": list(unimported_mutation.keys()),
+        }
+
+        # Try to process just the first step
+        settings = frappe.get_single("E-Boekhouden Settings")
+        company = settings.default_company
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+        debug_info = []
+
+        # Test the processing step by step
+        try:
+            doc = _process_single_mutation(unimported_mutation, company, cost_center, debug_info)
+            processing_result = {
+                "success": True,
+                "doc_created": doc is not None,
+                "doc_type": doc.doctype if doc else None,
+                "doc_name": doc.name if doc else None,
+            }
+        except Exception as processing_error:
+            processing_result = {
+                "success": False,
+                "error": str(processing_error),
+                "error_type": type(processing_error).__name__,
+            }
+
+        return {
+            "mutation_info": mutation_info,
+            "processing_result": processing_result,
+            "debug_info": debug_info,
+            "status": "debug_completed",
+        }
+
+    except Exception as e:
+        return {"error": str(e), "status": "failed"}
+
+
+def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):
+    """
+    Enhanced batch import that handles new fields gracefully.
+
+    This version includes better error handling for newly added fields like payment_terms
+    that might not exist in all mutations or might cause processing issues.
+    """
+    imported = 0
+    failed = 0
+    skipped = 0
+    errors = []
+    debug_info = []
+
+    debug_info.append(f"Starting enhanced batch import with {len(mutations) if mutations else 0} mutations")
+
+    if not mutations:
+        debug_info.append("No mutations provided, returning early")
+        frappe.log_error("ENHANCED BATCH Log:\n" + "\n".join(debug_info), "REST Enhanced Batch Debug")
+        return {"imported": 0, "failed": 0, "skipped": 0, "errors": []}
+
+    company = settings.default_company
+    debug_info.append(f"Company: {company}")
+
+    # Get cost center
+    cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+    debug_info.append(f"Cost center found: {cost_center}")
+
+    if not cost_center:
+        errors.append("No cost center found")
+        debug_info.append("ERROR - No cost center found")
+        frappe.log_error("ENHANCED BATCH Log:\n" + "\n".join(debug_info), "REST Enhanced Batch Debug")
+        return {"imported": 0, "failed": len(mutations), "skipped": 0, "errors": errors}
+
+    for i, mutation in enumerate(mutations):
+        try:
+            # Skip if already imported
+            mutation_id = mutation.get("id")
+            if not mutation_id:
+                errors.append("Mutation missing ID, skipping")
+                debug_info.append("ERROR - Mutation missing ID")
+                failed += 1
+                continue
+
+            # Check for existing documents
+            existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
+            existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
+            existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
+            existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
+
+            if existing_je or existing_pe or existing_si or existing_pi:
+                debug_info.append(f"Mutation {mutation_id} already imported, skipping")
+                skipped += 1
+                continue
+
+            # Process the mutation with enhanced error handling
+            try:
+                debug_info.append(f"Processing mutation {mutation_id}")
+                doc = _process_single_mutation(mutation, company, cost_center, debug_info)
+
+                if doc:
+                    imported += 1
+                    debug_info.append(
+                        f"Successfully imported mutation {mutation_id} as {doc.doctype} {doc.name}"
+                    )
+                else:
+                    failed += 1
+                    debug_info.append(f"Failed to process mutation {mutation_id} - no document returned")
+
+            except Exception as processing_error:
+                failed += 1
+                error_msg = f"Error processing mutation {mutation_id}: {str(processing_error)}"
+                errors.append(error_msg)
+                debug_info.append(f"PROCESSING ERROR - {error_msg}")
+
+                # Log the specific error for debugging
+                frappe.log_error(
+                    f"Enhanced Batch Processing Error for mutation {mutation_id}:\n{str(processing_error)}\n\nMutation data:\n{mutation}",
+                    "Enhanced Batch Processing Error",
+                )
+
+        except Exception as e:
+            failed += 1
+            error_msg = f"Error in batch processing loop for mutation {i}: {str(e)}"
+            errors.append(error_msg)
+            debug_info.append(f"LOOP ERROR - {error_msg}")
+
+    # Log comprehensive debug info
+    frappe.log_error("ENHANCED BATCH Log:\n" + "\n".join(debug_info), "REST Enhanced Batch Debug")
+
+    return {"imported": imported, "failed": failed, "skipped": skipped, "errors": errors}

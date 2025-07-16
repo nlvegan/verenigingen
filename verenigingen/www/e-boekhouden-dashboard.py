@@ -30,7 +30,7 @@ def get_context(context):
 
 def get_dashboard_data():
     """Get comprehensive dashboard data"""
-    from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+    from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
     data = {}
 

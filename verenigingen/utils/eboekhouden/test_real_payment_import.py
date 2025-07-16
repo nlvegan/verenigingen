@@ -126,7 +126,7 @@ def compare_old_vs_new_payment():
 
     # Test with new handler
     from verenigingen.utils.eboekhouden.eboekhouden_rest_client import EBoekhoudenRESTClient
-    from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+    from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
     try:
         # Get mutation data

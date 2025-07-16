@@ -34,7 +34,7 @@ class EBoekhoudenRESTIterator:
                 return self._session_token
 
         try:
-            session_url = "{self.base_url}/v1/session"
+            session_url = f"{self.base_url}/v1/session"
             session_data = {
                 "accessToken": self.api_token,
                 "source": self.settings.source_application or "Verenigingen ERPNext",
@@ -50,7 +50,7 @@ class EBoekhoudenRESTIterator:
                 return self._session_token
             else:
                 frappe.log_error(
-                    "Session token request failed: {response.status_code} - {response.text}",
+                    f"Session token request failed: {response.status_code} - {response.text}",
                     "E-Boekhouden REST",
                 )
                 return None
@@ -78,7 +78,7 @@ class EBoekhoudenRESTIterator:
             Mutation data or None if not found
         """
         try:
-            url = "{self.base_url}/v1/mutation"
+            url = f"{self.base_url}/v1/mutation"
             params = {"id": mutation_id}
 
             response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
@@ -97,7 +97,7 @@ class EBoekhoudenRESTIterator:
             else:
                 if response.status_code != 404:  # Don't log 404s
                     frappe.log_error(
-                        "Failed to fetch mutation {mutation_id}: {response.status_code}",
+                        f"Failed to fetch mutation {mutation_id}: {response.status_code}",
                         "E-Boekhouden REST Iterator",
                     )
                 return None
@@ -117,7 +117,7 @@ class EBoekhoudenRESTIterator:
             Detailed mutation data or None if not found
         """
         try:
-            url = "{self.base_url}/v1/mutation/{mutation_id}"
+            url = f"{self.base_url}/v1/mutation/{mutation_id}"
             response = requests.get(url, headers=self._get_headers(), timeout=30)
 
             if response.status_code == 200:
@@ -148,7 +148,7 @@ class EBoekhoudenRESTIterator:
 
         while True:
             try:
-                url = "{self.base_url}/v1/mutation"
+                url = f"{self.base_url}/v1/mutation"
                 params = {"type": mutation_type, "limit": min(limit, 500), "offset": offset}  # API max is 500
 
                 response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
@@ -194,13 +194,13 @@ class EBoekhoudenRESTIterator:
 
                     else:
                         frappe.log_error(
-                            "Unexpected response format for type {mutation_type}", "REST Iterator"
+                            f"Unexpected response format for type {mutation_type}", "REST Iterator"
                         )
                         break
 
                 else:
                     frappe.log_error(
-                        "Failed to fetch mutations of type {mutation_type}: {response.status_code}",
+                        f"Failed to fetch mutations of type {mutation_type}: {response.status_code}",
                         "REST Iterator",
                     )
                     break
@@ -280,7 +280,7 @@ class EBoekhoudenRESTIterator:
             if consecutive_not_found >= max_consecutive_not_found:
                 frappe.msgprint(
                     f"Stopped at ID {mutation_id} after {max_consecutive_not_found} consecutive not found. "
-                    "Found {found_count} mutations total."
+                    f"Found {found_count} mutations total."
                 )
                 break
 
@@ -546,8 +546,8 @@ def test_mutation_range(start_id=650, end_id=750):
                 # Check if we hit the consecutive limit
                 if consecutive_not_found >= 100:
                     results[
-                        "stopped_at_{mutation_id}"
-                    ] = "Hit consecutive not found limit: {consecutive_not_found}"
+                        f"stopped_at_{mutation_id}"
+                    ] = f"Hit consecutive not found limit: {consecutive_not_found}"
                     break
 
         return {"success": True, "results": results}
@@ -626,7 +626,7 @@ def analyze_migration_issues():
             "processed_so_far": processed,
             "remaining": remaining,
             "percentage_completed": (processed / total_range) * 100,
-            "range": "{range_result['lowest_id']} to {range_result['highest_id']}",
+            "range": f"{range_result['lowest_id']} to {range_result['highest_id']}",
             "issues": [],
         }
 
@@ -635,7 +635,7 @@ def analyze_migration_issues():
             result["issues"].append(
                 {
                     "type": "CRITICAL",
-                    "description": "Only {processed} out of {total_range} mutations processed ({result['percentage_completed']:.1f}%)",
+                    "description": f"Only {processed} out of {total_range} mutations processed ({result['percentage_completed']:.1f}%)",
                     "recommendation": "Need to continue migration from mutation 680",
                 }
             )
@@ -664,7 +664,7 @@ def analyze_migration_issues():
             result["issues"].append(
                 {
                     "type": "WARNING",
-                    "description": "Many missing mutations around ID 680: {missing_around_680}",
+                    "description": f"Many missing mutations around ID 680: {missing_around_680}",
                     "recommendation": "Consecutive not found limit may have been hit",
                 }
             )
@@ -682,7 +682,7 @@ def analyze_migration_issues():
             result["issues"].append(
                 {
                     "type": "CRITICAL",
-                    "description": "High failure rate: {migration['failed_records']} failed vs {migration['imported_records']} imported",
+                    "description": f"High failure rate: {migration['failed_records']} failed vs {migration['imported_records']} imported",
                     "recommendation": "Need to improve error handling in import logic",
                 }
             )
@@ -706,7 +706,7 @@ def continue_rest_import_from_680():
 
         # Create a new migration document for the continuation
         new_migration = frappe.new_doc("E-Boekhouden Migration")
-        new_migration.migration_name = "REST Continue from 680 - {frappe.utils.today()}"
+        new_migration.migration_name = f"REST Continue from 680 - {frappe.utils.today()}"
         new_migration.company = frappe.get_single("E-Boekhouden Settings").default_company
         new_migration.migrate_accounts = 0
         new_migration.migrate_cost_centers = 0
@@ -755,7 +755,7 @@ def test_mutation_type_filtering():
 
         for params in test_params:
             try:
-                url = "{iterator.base_url}/v1/mutation"
+                url = f"{iterator.base_url}/v1/mutation"
                 response = requests.get(url, headers=iterator._get_headers(), params=params, timeout=30)
 
                 param_name = list(params.keys())[0]
@@ -779,7 +779,7 @@ def test_mutation_type_filtering():
 
         # Also test the base endpoint without parameters
         try:
-            url = "{iterator.base_url}/v1/mutation"
+            url = f"{iterator.base_url}/v1/mutation"
             response = requests.get(url, headers=iterator._get_headers(), timeout=30)
             results["no_params"] = {
                 "status_code": response.status_code,
@@ -823,7 +823,7 @@ def test_mutation_pagination_and_filtering():
 
         # Test 1: Pagination with limit/offset
         try:
-            url = "{iterator.base_url}/v1/mutation"
+            url = f"{iterator.base_url}/v1/mutation"
             params = {"type": 2, "limit": 10, "offset": 0}
             response = requests.get(url, headers=iterator._get_headers(), params=params, timeout=30)
 
@@ -844,7 +844,7 @@ def test_mutation_pagination_and_filtering():
 
         # Test 2: Date filtering
         try:
-            url = "{iterator.base_url}/v1/mutation"
+            url = f"{iterator.base_url}/v1/mutation"
             params = {"type": 2, "date": "[gte]2024-01-01", "limit": 5}
             response = requests.get(url, headers=iterator._get_headers(), params=params, timeout=30)
 
@@ -867,7 +867,7 @@ def test_mutation_pagination_and_filtering():
 
         # Test 3: Higher limit
         try:
-            url = "{iterator.base_url}/v1/mutation"
+            url = f"{iterator.base_url}/v1/mutation"
             params = {"type": 1, "limit": 500}
             response = requests.get(url, headers=iterator._get_headers(), params=params, timeout=30)
 
@@ -887,7 +887,7 @@ def test_mutation_pagination_and_filtering():
 
         # Test 4: Check for sort/order parameters
         try:
-            url = "{iterator.base_url}/v1/mutation"
+            url = f"{iterator.base_url}/v1/mutation"
             params = {"type": 2, "sort": "date", "limit": 5}
             response = requests.get(url, headers=iterator._get_headers(), params=params, timeout=30)
 
@@ -919,7 +919,7 @@ def fetch_mutations_batch(start_id=1, end_id=100):
 
         def progress_update(info):
             print(
-                "Progress: ID {info['current_idf']}, Found: {info['found']}, Not found: {info['not_found']}"
+                f"Progress: ID {info['current_id']}, Found: {info['found']}, Not found: {info['not_found']}"
             )
 
         mutations = iterator.fetch_all_mutations_by_range(
@@ -976,7 +976,7 @@ def test_optimized_import_approach():
                 )
 
                 results[mutation_type] = {
-                    "type_name": type_names.get(mutation_type, "Type {mutation_type}"),
+                    "type_name": type_names.get(mutation_type, f"Type {mutation_type}"),
                     "count": len(mutations),
                     "sample": mutations[0] if mutations else None,
                 }
@@ -985,7 +985,7 @@ def test_optimized_import_approach():
 
             except Exception as e:
                 results[mutation_type] = {
-                    "type_name": type_names.get(mutation_type, "Type {mutation_type}"),
+                    "type_name": type_names.get(mutation_type, f"Type {mutation_type}"),
                     "error": str(e),
                 }
 
@@ -993,7 +993,7 @@ def test_optimized_import_approach():
             "success": True,
             "total_mutations_found": total_mutations,
             "by_type": results,
-            "message": "Found {total_mutations} mutations across {len([r for r in results.values() if 'count' in r])} types",
+            "message": f"Found {total_mutations} mutations across {len([r for r in results.values() if 'count' in r])} types",
         }
 
     except Exception as e:

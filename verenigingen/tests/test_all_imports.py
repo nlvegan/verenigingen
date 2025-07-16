@@ -1,7 +1,7 @@
 """
 Test All Imports - Ensures all modules can be imported successfully
 
-This test file validates that all Python modules in the vereiningen app
+This test file validates that all Python modules in the verenigingen app
 can be imported without errors. This catches typos in import statements
 and missing dependencies early.
 """

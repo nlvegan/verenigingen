@@ -15,7 +15,7 @@ def recalculate_opening_balance_totals():
     # Get opening balance entries from eBoekhouden
     import requests
 
-    from verenigingen.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+    from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
     iterator = EBoekhoudenRESTIterator()
     url = f"{iterator.base_url}/v1/mutation"

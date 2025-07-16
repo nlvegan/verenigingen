@@ -36,7 +36,7 @@ class StockMigrationFixed:
         3. Suggest manual stock adjustment if needed
         """
         try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             # Get stock accounts from E-Boekhouden
             api = EBoekhoudenAPI()

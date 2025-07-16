@@ -13,7 +13,7 @@ def fetch_mutation_4595():
     """Fetch mutation 4595 from eBoekhouden REST API"""
 
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
 

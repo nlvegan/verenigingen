@@ -193,7 +193,7 @@ def test_account_type_detection(account_code=None):
         return {"success": True, "results": results}
     else:
         # Test specific account
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
 

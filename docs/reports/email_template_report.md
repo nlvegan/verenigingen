@@ -103,7 +103,7 @@ The system uses a 3-tier fallback approach:
 6. **Update template contexts** - ensure all expected variables are provided
 
 ## Fixture Integration
-✅ **Template added to fixtures**: The `membership_applications_overdue` template has been added to `/vereinigen/fixtures/email_template.json` and will be automatically installed when the app is deployed.
+✅ **Template added to fixtures**: The `membership_applications_overdue` template has been added to `/verenigingen/fixtures/email_template.json` and will be automatically installed when the app is deployed.
 
 ✅ **Automatic export**: The template is also included in the hooks.py fixture filters (`["name", "like", "membership_%"]`) so it will be automatically exported when fixtures are regenerated.
 

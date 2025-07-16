@@ -88,6 +88,18 @@ The System Health Dashboard has been significantly enhanced with business monito
 - **Fix**: Added proper error handling for missing HTTP request context
 - **Status**: ✅ Resolved
 
+### 2. Permission Error Fix (July 16, 2025)
+- **Problem**: "You do not have enough permissions to access this resource" HTTP 403 error
+- **Cause**: Authentication logic blocking internal dashboard calls from logged-in users
+- **Fix**: Modified authentication logic to allow internal dashboard calls from logged-in users
+- **Status**: ✅ Resolved
+
+### 3. Database Query Errors (July 16, 2025)
+- **Problem**: Multiple database errors: Unknown column 'volunteer', missing RQ Job table, missing response_time column
+- **Cause**: Queries referencing non-existent tables/columns in this Frappe installation
+- **Fix**: Added comprehensive exception handling for all database queries with graceful fallbacks
+- **Status**: ✅ Resolved
+
 ### 2. Database Statistics Formatting
 - **Problem**: Total rows showing as currency "€ 556,926"
 - **Cause**: JavaScript using `format_currency()` instead of number formatting

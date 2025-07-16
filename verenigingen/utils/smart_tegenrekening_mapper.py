@@ -164,7 +164,7 @@ class SmartTegenrekeningMapper:
         if str(account_code).isdigit() and len(str(account_code)) > 5:
             # This looks like a ledger ID, not an account code
             # Try to get the actual account code from ledger mapping
-            from .eboekhouden_ledger_mapping import get_account_code_from_ledger_id
+            from .eboekhouden.eboekhouden_ledger_mapping import get_account_code_from_ledger_id
 
             mapped_code = get_account_code_from_ledger_id(account_code)
             if mapped_code:

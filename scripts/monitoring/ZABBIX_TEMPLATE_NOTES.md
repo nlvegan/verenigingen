@@ -60,7 +60,7 @@ UUIDs must only contain: 0-9, a-f, A-F
 ## Prerequisites
 
 The template requires the monitoring API endpoint to be available:
-- Endpoint: `/api/method/verenigingen.scripts.monitoring.zabbix_integration.get_metrics_for_zabbix`
+- Endpoint: `/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix`
 - Authentication: API token (key:secret)
 - Response format: JSON with metrics object
 

@@ -801,7 +801,7 @@ def get_meaningful_customer_name(code, description, relation_data, mutation_nr=N
             return truncate_name(clean_desc, include_mutation_ref=True)
 
     # Last resort: use code with prefix
-    return truncate_name("Customer {code}", include_mutation_ref=True)
+    return truncate_name(f"Customer {code}", include_mutation_ref=True)
 
 
 def create_customer_from_description(description, mutation_nr=None):
@@ -846,7 +846,7 @@ def create_customer_from_description(description, mutation_nr=None):
 
     # Store the full SEPA description in customer_details field
     if len(full_description) > MAX_CUSTOMER_NAME_LENGTH:
-        customer.customer_details = "SEPA Payment Description:\n{full_description}"
+        customer.customer_details = f"SEPA Payment Description:\n{full_description}"
 
     customer.insert(ignore_permissions=True)
 
@@ -985,7 +985,7 @@ def get_meaningful_supplier_name(code, description, relation_data, mutation_nr=N
             return truncate_name(clean_desc, include_mutation_ref=True)
 
     # Last resort: use code with prefix
-    return truncate_name("Supplier {code}", include_mutation_ref=True)
+    return truncate_name(f"Supplier {code}", include_mutation_ref=True)
 
 
 def extract_name_from_sepa_description(description):
@@ -1216,7 +1216,7 @@ def create_supplier_from_description(description, mutation_nr=None):
 
     # Store the full SEPA description in supplier_details field
     if len(full_description) > MAX_SUPPLIER_NAME_LENGTH:
-        supplier.supplier_details = "SEPA Payment Description:\n{full_description}"
+        supplier.supplier_details = f"SEPA Payment Description:\n{full_description}"
 
     supplier.insert(ignore_permissions=True)
 

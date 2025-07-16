@@ -198,9 +198,23 @@ def create_sales_invoice_impl(migration_doc, invoice_data):
             quantity = flt(line.get("Aantal", 1))
             rate = flt(line.get("PrijsExclBTW", 0))
 
+            # Get or create item using intelligent creation
+            from verenigingen.utils.eboekhouden.eboekhouden_improved_item_naming import (
+                get_or_create_item_improved,
+            )
+
+            # Use account code from the transaction for intelligent item creation
+            account_code = line.get("TegenrekeningCode", "")
+            item_code = get_or_create_item_improved(
+                account_code=account_code,
+                company=migration_doc.company,
+                transaction_type="Sales",
+                description=item_description,
+            )
+
             # Add invoice item
             si_item = si.append("items")
-            si_item.item_code = "Service Item"  # Default service item
+            si_item.item_code = item_code
             si_item.item_name = item_description
             si_item.description = item_description
             si_item.qty = quantity
@@ -260,9 +274,23 @@ def create_purchase_invoice_impl(migration_doc, invoice_data):
             quantity = flt(line.get("Aantal", 1))
             rate = flt(line.get("PrijsExclBTW", 0))
 
+            # Get or create item using intelligent creation
+            from verenigingen.utils.eboekhouden.eboekhouden_improved_item_naming import (
+                get_or_create_item_improved,
+            )
+
+            # Use account code from the transaction for intelligent item creation
+            account_code = line.get("TegenrekeningCode", "")
+            item_code = get_or_create_item_improved(
+                account_code=account_code,
+                company=migration_doc.company,
+                transaction_type="Purchase",
+                description=item_description,
+            )
+
             # Add invoice item
             pi_item = pi.append("items")
-            pi_item.item_code = "Service Item"  # Default service item
+            pi_item.item_code = item_code
             pi_item.item_name = item_description
             pi_item.description = item_description
             pi_item.qty = quantity

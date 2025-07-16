@@ -54,22 +54,174 @@ class SystemHealthDashboard {
 		`).appendTo(this.page.main);
 	}
 
+	force_hide_progress() {
+		console.log('Attempting to force hide progress dialog...');
+
+		// Debug: Check what elements are present
+		console.log('Modal elements found:', {
+			'progress-modal': $('.progress-modal').length,
+			'modal-backdrop': $('.modal-backdrop').length,
+			'modal': $('.modal').length,
+			'modal-open': $('body').hasClass('modal-open'),
+			'frappe-modal': $('.frappe-modal').length
+		});
+
+		// Try multiple approaches to hide progress - WITHOUT the nuclear option
+		try {
+			// Method 1: Standard frappe.hide_progress()
+			frappe.hide_progress();
+			console.log('Called frappe.hide_progress()');
+
+			// Method 2: Targeted DOM manipulation - only progress-related elements
+			setTimeout(() => {
+				// Only remove progress-specific elements
+				$('.progress-modal').remove();
+				$('.modal-backdrop').remove();
+				$('body').removeClass('modal-open');
+
+				// Force remove any remaining backdrops
+				$('.modal-backdrop').each(function() {
+					$(this).remove();
+				});
+
+				// Reset any CSS that might be blocking
+				$('body').css('overflow', 'auto');
+				$('html').css('overflow', 'auto');
+				$('body').removeClass('modal-open');
+
+				console.log('Removed progress modal elements via DOM manipulation');
+
+				// Check if backdrop is still there
+				console.log('After removal - modal-backdrop count:', $('.modal-backdrop').length);
+			}, 100);
+
+			// Method 3: Force close frappe dialogs
+			setTimeout(() => {
+				if (frappe.cur_dialog) {
+					frappe.cur_dialog.hide();
+					console.log('Closed current dialog');
+				}
+
+				// Clear any progress state
+				if (frappe.freeze_count) {
+					frappe.freeze_count = 0;
+				}
+
+				console.log('Closed dialogs and reset state');
+			}, 200);
+
+			// Method 4: Final cleanup - extra aggressive backdrop removal
+			setTimeout(() => {
+				// Remove backdrop more aggressively
+				$('.modal-backdrop').remove();
+				$('body').removeClass('modal-open');
+
+				// Force hide any visible progress elements
+				$('[class*="progress"]').filter(function() {
+					return $(this).is(':visible');
+				}).hide();
+
+				// Target specific progress dialog elements that might persist
+				$('.progress-area, .progress-bar, .progress-message').hide();
+				$('div:contains("Loading")').filter(function() {
+					return $(this).text().trim() === 'Loading';
+				}).hide();
+				$('div:contains("Please wait")').filter(function() {
+					return $(this).text().includes('Please wait');
+				}).hide();
+
+				// Final check
+				console.log('Final cleanup - modal-backdrop count:', $('.modal-backdrop').length);
+				console.log('Final cleanup - body modal-open:', $('body').hasClass('modal-open'));
+			}, 500);
+
+		} catch (e) {
+			console.error('Error hiding progress:', e);
+		}
+	}
+
 	load_dashboard() {
 		// Show loading
 		frappe.show_progress('Loading', 0, 100, 'Please wait...');
 
-		// Load all sections
-		Promise.all([
-			this.load_health_status(),
-			this.load_performance_metrics(),
-			this.load_optimization_suggestions(),
-			this.load_database_stats(),
-			this.load_business_metrics(),
-			this.load_api_performance()
-		]).then(() => {
-			frappe.hide_progress();
+		// Add timeout to ensure loading message doesn't hang
+		const timeout = new Promise((resolve) => {
+			setTimeout(() => {
+				console.log('Dashboard loading timeout reached');
+				resolve(null);
+			}, 30000); // 30 second timeout
+		});
+
+		// Load all sections with individual error handling and detailed logging
+		console.log('Starting dashboard load...');
+
+		const healthPromise = this.load_health_status().then(r => {
+			console.log('Health status loaded');
+			return r;
 		}).catch(err => {
-			frappe.hide_progress();
+			console.error('Error loading health status:', err);
+			return null;
+		});
+
+		const performancePromise = this.load_performance_metrics().then(r => {
+			console.log('Performance metrics loaded');
+			return r;
+		}).catch(err => {
+			console.error('Error loading performance metrics:', err);
+			return null;
+		});
+
+		const optimizationPromise = this.load_optimization_suggestions().then(r => {
+			console.log('Optimization suggestions loaded');
+			return r;
+		}).catch(err => {
+			console.error('Error loading optimization suggestions:', err);
+			return null;
+		});
+
+		const databasePromise = this.load_database_stats().then(r => {
+			console.log('Database stats loaded');
+			return r;
+		}).catch(err => {
+			console.error('Error loading database stats:', err);
+			return null;
+		});
+
+		const businessPromise = this.load_business_metrics().then(r => {
+			console.log('Business metrics loaded');
+			return r;
+		}).catch(err => {
+			console.error('Error loading business metrics:', err);
+			return null;
+		});
+
+		const apiPromise = this.load_api_performance().then(r => {
+			console.log('API performance loaded');
+			return r;
+		}).catch(err => {
+			console.error('Error loading API performance:', err);
+			return null;
+		});
+
+		Promise.race([
+			Promise.all([
+				healthPromise,
+				performancePromise,
+				optimizationPromise,
+				databasePromise,
+				businessPromise,
+				apiPromise
+			]).then(() => {
+				console.log('All dashboard sections loaded successfully');
+			}),
+			timeout
+		]).then(() => {
+			console.log('Dashboard loading complete, hiding progress...');
+			this.force_hide_progress();
+		}).catch(err => {
+			console.log('Dashboard loading failed, hiding progress...');
+			this.force_hide_progress();
+			console.error('Dashboard loading error:', err);
 			frappe.msgprint({
 				title: __('Error'),
 				indicator: 'red',
@@ -85,6 +237,15 @@ class SystemHealthDashboard {
 				if (r.message) {
 					this.render_health_status(r.message);
 				}
+			},
+			error: (r) => {
+				console.error('Health status error:', r);
+				// Show empty section with error message
+				this.$container.find('.health-status-section').html(`
+					<div class="alert alert-danger">
+						<strong>Error loading health status:</strong> ${r.message || 'Unknown error'}
+					</div>
+				`);
 			}
 		});
 	}
@@ -312,6 +473,22 @@ class SystemHealthDashboard {
 				if (r.message && r.message.metrics) {
 					this.render_business_metrics(r.message.metrics);
 				}
+			},
+			error: (r) => {
+				console.error('Business metrics error:', r);
+				// Show empty section with error message
+				this.$container.find('.business-metrics-section').html(`
+					<div class="card">
+						<div class="card-header">
+							<h5>Business & System Metrics</h5>
+						</div>
+						<div class="card-body">
+							<div class="alert alert-danger">
+								<strong>Error loading business metrics:</strong> ${r.message || 'Unknown error'}
+							</div>
+						</div>
+					</div>
+				`);
 			}
 		});
 	}

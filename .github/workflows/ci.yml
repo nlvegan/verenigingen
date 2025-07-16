@@ -106,7 +106,7 @@ jobs:
         # Verify Redis connection
         redis-cli -h localhost -p 6379 ping
         # Display current Redis configuration
-        bench --site test_site get-config || echo "No site configured yet"
+        bench --site test_site show-config || echo "No site configured yet"
 
     - name: Install ERPNext and Dependencies
       working-directory: frappe-bench
@@ -130,7 +130,7 @@ jobs:
       working-directory: frappe-bench
       run: |
         # Check site config for Redis settings
-        bench --site test_site get-config
+        bench --site test_site show-config
         # Test Redis connection from bench
         bench --site test_site console --execute "import frappe; print('Redis cache:', frappe.cache().get('test_key') or 'Redis working')"
 

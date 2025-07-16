@@ -48,7 +48,9 @@ class TransactionProcessor:
     def _migrate_transactions_enhanced(self):
         """Use enhanced migration with all improvements"""
         try:
-            from verenigingen.utils.eboekhouden_enhanced_migration import execute_enhanced_migration
+            from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration import (
+                execute_enhanced_migration,
+            )
 
             result = execute_enhanced_migration(self.migration_doc.name)
 
@@ -64,7 +66,7 @@ class TransactionProcessor:
     def _migrate_transactions_rest(self):
         """Use REST API migration"""
         try:
-            from verenigingen.utils.eboekhouden_rest_full_migration import start_full_rest_import
+            from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import start_full_rest_import
 
             result = start_full_rest_import(self.migration_doc.name)
 

@@ -230,7 +230,7 @@ def get_or_create_customer(mutation):
 
             # Store the full SEPA description in customer_details field
             if len(full_description) > MAX_CUSTOMER_NAME_LENGTH:
-                customer.customer_details = "SEPA Payment Description:\n{full_description}"
+                customer.customer_details = f"SEPA Payment Description:\n{full_description}"
 
             customer.insert(ignore_permissions=True)
             return customer.name
@@ -281,7 +281,7 @@ def get_or_create_supplier(mutation):
 
             # Store the full SEPA description in supplier_details field
             if len(full_description) > MAX_SUPPLIER_NAME_LENGTH:
-                supplier.supplier_details = "SEPA Payment Description:\n{full_description}"
+                supplier.supplier_details = f"SEPA Payment Description:\n{full_description}"
 
             supplier.insert(ignore_permissions=True)
             return supplier.name
@@ -317,7 +317,7 @@ def get_default_item(item_type):
         return existing_item
 
     # Create a default item if none exists
-    item_name = "Default {item_type.title()} Item"
+    item_name = f"Default {item_type.title()} Item"
     try:
         if not frappe.db.exists("Item", item_name):
             item = frappe.new_doc("Item")

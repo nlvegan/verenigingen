@@ -83,7 +83,7 @@ class FraudDetector:
         # Log high-risk attempts
         if risk_assessment["risk_level"] == "high":
             self.logger.warning(
-                "High-risk payment detected for {member_name}",
+                f"High-risk payment detected for {member_name}",
                 extra={
                     "member": member_name,
                     "risk_score": risk_assessment["risk_score"],
@@ -334,7 +334,7 @@ class FraudDetector:
             r"[^\w\s\-\']",  # Special characters
         ]
 
-        full_name = "{first_name} {last_name}".lower()
+        full_name = f"{first_name} {last_name}".lower()
 
         return any(re.search(pattern, full_name, re.IGNORECASE) for pattern in suspicious_patterns)
 
@@ -442,10 +442,10 @@ class FraudPreventionService:
                     "comment_type": "Alert",
                     "reference_doctype": "Member" if alert_type == "payment" else "Membership Application",
                     "reference_name": identifier,
-                    "content": "FRAUD ALERT: {alert_type}\n"
-                    "Risk Score: {risk_assessment['risk_score']}\n"
-                    "Flags: {', '.join(risk_assessment['flags'])}\n"
-                    "Recommendations: {', '.join(risk_assessment['recommendations'])}",
+                    "content": f"FRAUD ALERT: {alert_type}\n"
+                    f"Risk Score: {risk_assessment['risk_score']}\n"
+                    f"Flags: {', '.join(risk_assessment['flags'])}\n"
+                    f"Recommendations: {', '.join(risk_assessment['recommendations'])}",
                 }
             )
             alert.insert(ignore_permissions=True)

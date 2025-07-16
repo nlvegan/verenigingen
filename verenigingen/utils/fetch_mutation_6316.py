@@ -13,7 +13,7 @@ def fetch_and_compare_mutation_6316():
     """Fetch mutation 6316 from eBoekhouden REST API and compare with journal entry"""
 
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
 

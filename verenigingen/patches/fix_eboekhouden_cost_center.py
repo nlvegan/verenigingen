@@ -14,7 +14,7 @@ def execute():
     """
 
     # Import the fix
-    from verenigingen.utils.eboekhouden_cost_center_fix import ensure_root_cost_center
+    from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix import ensure_root_cost_center
 
     # Get all companies that might need fixing
     companies = frappe.get_all("Company", fields=["name"])

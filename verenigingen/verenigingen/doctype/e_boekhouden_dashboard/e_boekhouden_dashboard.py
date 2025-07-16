@@ -37,7 +37,7 @@ class EBoekhoudenDashboard(Document):
     def update_connection_status(self):
         """Update API connection status"""
         try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             settings = frappe.get_single("E-Boekhouden Settings")
             api = EBoekhoudenAPI(settings)
@@ -71,7 +71,7 @@ class EBoekhoudenDashboard(Document):
     def update_data_availability(self):
         """Update available data counts from e-Boekhouden"""
         try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             settings = frappe.get_single("E-Boekhouden Settings")
             api = EBoekhoudenAPI(settings)
@@ -141,7 +141,7 @@ class EBoekhoudenDashboard(Document):
             #     + (self.suppliers_available or 0)
             # )
 
-            html = """
+            html = f"""
             <div class="dashboard-container">
                 <style>
                     .dashboard-container {{
@@ -304,40 +304,41 @@ class EBoekhoudenDashboard(Document):
                 self.recent_migrations_html = "<p>No migrations found.</p>"
                 return
 
-            html = """
+            migration_css = """
+                .migration-table {
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 10px;
+                }
+                .migration-table th,
+                .migration-table td {
+                    padding: 12px;
+                    text-align: left;
+                    border-bottom: 1px solid #ddd;
+                }
+                .migration-table th {
+                    background-color: #f8f9fa;
+                    font-weight: 600;
+                }
+                .status-completed { color: #28a745; font-weight: bold; }
+                .status-failed { color: #dc3545; font-weight: bold; }
+                .status-in-progress { color: #007bff; font-weight: bold; }
+                .status-draft { color: #6c757d; font-weight: bold; }
+                .migration-link {
+                    color: #007bff;
+                    text-decoration: none;
+                    cursor: pointer;
+                }
+                .migration-link:hover {
+                    text-decoration: underline;
+                }
+                .progress-cell {
+                    min-width: 100px;
+                }
+            """
+            html = f"""
             <div class="recent-migrations">
-                <style>
-                    .migration-table {
-                        width: 100%;
-                        border-collapse: collapse;
-                        margin-top: 10px;
-                    }
-                    .migration-table th,
-                    .migration-table td {
-                        padding: 12px;
-                        text-align: left;
-                        border-bottom: 1px solid #ddd;
-                    }
-                    .migration-table th {
-                        background-color: #f8f9fa;
-                        font-weight: 600;
-                    }
-                    .status-completed { color: #28a745; font-weight: bold; }
-                    .status-failed { color: #dc3545; font-weight: bold; }
-                    .status-in-progress { color: #007bff; font-weight: bold; }
-                    .status-draft { color: #6c757d; font-weight: bold; }
-                    .migration-link {
-                        color: #007bff;
-                        text-decoration: none;
-                        cursor: pointer;
-                    }
-                    .migration-link:hover {
-                        text-decoration: underline;
-                    }
-                    .progress-cell {
-                        min-width: 100px;
-                    }
-                </style>
+                <style>{migration_css}</style>
 
                 <table class="migration-table">
                     <thead>

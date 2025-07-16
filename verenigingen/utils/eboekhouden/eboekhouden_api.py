@@ -914,7 +914,7 @@ def debug_rest_vs_soap_same_relations():
         settings = frappe.get_single("E-Boekhouden Settings")
 
         # Get SOAP relations
-        from verenigingen.utils.eboekhouden_soap_api import EBoekhoudenSOAPAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_soap_api import EBoekhoudenSOAPAPI
 
         soap_api = EBoekhoudenSOAPAPI(settings)
         soap_result = soap_api.get_relaties()
@@ -1270,7 +1270,7 @@ def test_dashboard_data():
         }
 
         # Test API connection
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         settings = frappe.get_single("E-Boekhouden Settings")
         api = EBoekhoudenAPI(settings)
@@ -1758,7 +1758,7 @@ def test_mutation_zero():
 def test_iterator_starting_point():
     """Test where the REST iterator actually starts scanning"""
     try:
-        from verenigingen.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
         iterator = EBoekhoudenRESTIterator()
         results = {}
@@ -2638,7 +2638,7 @@ def compare_api_relation_data():
 
     # Test SOAP API
     try:
-        from verenigingen.utils.eboekhouden_soap_api import EBoekhoudenSOAPAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_soap_api import EBoekhoudenSOAPAPI
 
         soap_api = EBoekhoudenSOAPAPI(settings)
 

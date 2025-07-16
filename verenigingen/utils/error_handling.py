@@ -105,7 +105,7 @@ def log_error(error: Exception, context: Dict[str, Any] = None, module: str = No
 
     # Also create a Frappe Error Log entry for tracking
     frappe.log_error(
-        title=f"{module}: {type(error).__name__}", message="Error: {str(error)}\nContext: {error_context}"
+        title=f"{module}: {type(error).__name__}", message=f"Error: {str(error)}\nContext: {error_context}"
     )
 
 

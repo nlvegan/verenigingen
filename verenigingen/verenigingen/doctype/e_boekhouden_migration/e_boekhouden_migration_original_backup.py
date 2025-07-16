@@ -273,7 +273,7 @@ class EBoekhoudenMigration(Document):
             else:
                 frappe.logger().info(f"Root accounts: {root_result['message']}")
 
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             # Get Chart of Accounts data using new API
             api = EBoekhoudenAPI(settings)
@@ -296,7 +296,7 @@ class EBoekhoudenMigration(Document):
                 return dry_run_msg
 
             # Analyze account hierarchy to determine which should be groups
-            from verenigingen.utils.eboekhouden_account_group_fix import analyze_account_hierarchy
+            from verenigingen.utils.eboekhouden.eboekhouden_account_group_fix import analyze_account_hierarchy
 
             group_accounts = analyze_account_hierarchy(accounts_data)
             frappe.logger().info(f"Identified {len(group_accounts)} accounts that should be groups")
@@ -356,7 +356,7 @@ class EBoekhoudenMigration(Document):
     def analyze_specific_accounts(self):
         """Analyze specific problematic accounts"""
         try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             # Get E-Boekhouden settings
             settings = frappe.get_single("E-Boekhouden Settings")
@@ -438,7 +438,7 @@ class EBoekhoudenMigration(Document):
     def analyze_eboekhouden_data(self):
         """Analyze E-Boekhouden data to understand group structure"""
         try:
-            from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
             # Get E-Boekhouden settings
             settings = frappe.get_single("E-Boekhouden Settings")
@@ -631,7 +631,7 @@ class EBoekhoudenMigration(Document):
         """Migrate Cost Centers from e-Boekhouden with proper hierarchy"""
         try:
             # Use the fixed cost center migration
-            from verenigingen.utils.eboekhouden_cost_center_fix import (
+            from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix import (
                 cleanup_cost_centers,
                 migrate_cost_centers_with_hierarchy,
             )
@@ -645,7 +645,9 @@ class EBoekhoudenMigration(Document):
                 # Run cleanup to fix any orphaned cost centers and group flags
                 if settings.default_company:
                     # First fix any cost centers that should be groups
-                    from verenigingen.utils.eboekhouden_cost_center_fix import fix_cost_center_groups
+                    from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix import (
+                        fix_cost_center_groups,
+                    )
 
                     group_fix_result = fix_cost_center_groups(settings.default_company)
                     if group_fix_result["success"] and group_fix_result["fixed"] > 0:
@@ -665,7 +667,7 @@ class EBoekhoudenMigration(Document):
                 return f"Error: {result.get('error', 'Unknown error')}"
 
             # Old implementation below for reference
-            # from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+            # from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
             #
             # # Get Cost Centers data using new API
             # api = EBoekhoudenAPI(settings)
@@ -701,7 +703,9 @@ class EBoekhoudenMigration(Document):
 
             if use_enhanced:
                 # Use the enhanced migration with all improvements
-                from verenigingen.utils.eboekhouden_enhanced_migration import execute_enhanced_migration
+                from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration import (
+                    execute_enhanced_migration,
+                )
 
                 result = execute_enhanced_migration(self.name)
 
@@ -931,7 +935,9 @@ class EBoekhoudenMigration(Document):
             # Use enhanced migration if available and enabled
             if use_enhanced:
                 try:
-                    from verenigingen.utils.eboekhouden_migration_enhancements import EnhancedAccountMigration
+                    from verenigingen.utils.eboekhouden.eboekhouden_migration_enhancements import (
+                        EnhancedAccountMigration,
+                    )
 
                     enhanced_migrator = EnhancedAccountMigration(self)
                     result = enhanced_migrator.analyze_and_create_account(account_data)
@@ -1444,7 +1450,7 @@ class EBoekhoudenMigration(Document):
         Enhanced Bank Account creation for Chart of Accounts bank account
         """
         try:
-            from verenigingen.utils.eboekhouden_enhanced_coa_import import (
+            from verenigingen.utils.eboekhouden.eboekhouden_enhanced_coa_import import (
                 create_bank_account_record,
                 extract_bank_info_from_account_name,
                 get_or_create_bank,
@@ -1833,7 +1839,7 @@ class EBoekhoudenMigration(Document):
 
             if not parent_cost_center:
                 # Try to create root cost center if it doesn't exist
-                from verenigingen.utils.eboekhouden_cost_center_fix import ensure_root_cost_center
+                from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix import ensure_root_cost_center
 
                 parent_cost_center = ensure_root_cost_center(company)
 
@@ -2548,7 +2554,7 @@ class EBoekhoudenMigration(Document):
             if not hasattr(self, "_ledger_id_mapping"):
                 self._ledger_id_mapping = {}
 
-                from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+                from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
                 settings = frappe.get_single("E-Boekhouden Settings")
                 api = EBoekhoudenAPI(settings)
@@ -6336,7 +6342,7 @@ def check_rest_api_status():
             return {"configured": False, "message": "REST API token not configured"}
 
         # Try a simple REST API call to verify it works
-        from verenigingen.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
         try:
             iterator = EBoekhoudenRESTIterator()
@@ -6652,7 +6658,7 @@ def import_single_mutation(migration_name, mutation_id, overwrite_existing=True)
                 frappe.delete_doc("Payment Entry", existing_pe, force=True)
 
         # Fetch mutation from eBoekhouden API
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
 

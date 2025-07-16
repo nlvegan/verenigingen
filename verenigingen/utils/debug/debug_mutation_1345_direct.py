@@ -13,7 +13,7 @@ import frappe
 def debug_mutation_1345_direct():
     """Debug mutation 1345 and compare with Journal Entry ACC-JV-2025-72016"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
         results = {

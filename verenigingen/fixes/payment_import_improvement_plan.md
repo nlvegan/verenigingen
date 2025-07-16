@@ -231,7 +231,7 @@ def _attempt_payment_reconciliation(payment_entry, debug_info):
 ## Implementation Steps
 
 1. **Create Enhanced Payment Module**
-   - File: `vereinigen/utils/eboekhouden/enhanced_payment_import.py`
+   - File: `verenigingen/utils/eboekhouden/enhanced_payment_import.py`
    - Implement the enhanced payment creation logic
    - Add comprehensive error handling and logging
 

@@ -34,7 +34,7 @@ class EBoekhoudenRESTClient:
             return self._session_token
 
         try:
-            session_url = "{self.base_url}/v1/session"
+            session_url = f"{self.base_url}/v1/session"
             session_data = {
                 "accessToken": self.api_token,
                 "source": self.settings.source_application or "Verenigingen ERPNext",
@@ -48,7 +48,7 @@ class EBoekhoudenRESTClient:
                 return self._session_token
             else:
                 frappe.log_error(
-                    "Session token request failed: {response.status_code} - {response.text}",
+                    f"Session token request failed: {response.status_code} - {response.text}",
                     "E-Boekhouden REST",
                 )
                 return None
@@ -79,7 +79,7 @@ class EBoekhoudenRESTClient:
             Dict with success status, mutations list, and pagination info
         """
         try:
-            url = "{self.base_url}/v1/mutation"
+            url = f"{self.base_url}/v1/mutation"
             params = {"limit": min(limit, 2000), "offset": offset}  # API max is 2000
 
             # Add date filters if provided
@@ -116,7 +116,7 @@ class EBoekhoudenRESTClient:
             else:
                 return {
                     "success": False,
-                    "error": "API request failed: {response.status_code} - {response.text}",
+                    "error": f"API request failed: {response.status_code} - {response.text}",
                 }
 
         except Exception as e:
@@ -134,14 +134,14 @@ class EBoekhoudenRESTClient:
             Detailed mutation data or None if failed
         """
         try:
-            url = "{self.base_url}/v1/mutation/{mutation_id}"
+            url = f"{self.base_url}/v1/mutation/{mutation_id}"
             response = requests.get(url, headers=self._get_headers(), timeout=30)
 
             if response.status_code == 200:
                 return response.json()
             else:
                 frappe.log_error(
-                    "Failed to get mutation detail for ID {mutation_id}: {response.status_code}",
+                    f"Failed to get mutation detail for ID {mutation_id}: {response.status_code}",
                     "E-Boekhouden REST",
                 )
                 return None
@@ -182,7 +182,7 @@ class EBoekhoudenRESTClient:
             # Progress update
             frappe.publish_realtime(
                 "eboekhouden_migration_progress",
-                {"message": "Fetched {len(all_mutations)} mutations...", "progress": len(all_mutations)},
+                {"message": f"Fetched {len(all_mutations)} mutations...", "progress": len(all_mutations)},
             )
 
         return {"success": True, "mutations": all_mutations, "count": len(all_mutations)}
@@ -198,7 +198,7 @@ class EBoekhoudenRESTClient:
             return {"success": True, "ledgers": self._ledger_cache}
 
         try:
-            url = "{self.base_url}/v1/ledger"
+            url = f"{self.base_url}/v1/ledger"
             all_ledgers = []
             offset = 0
             limit = 2000
@@ -208,7 +208,7 @@ class EBoekhoudenRESTClient:
                 response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
 
                 if response.status_code != 200:
-                    return {"success": False, "error": "Failed to get ledgers: {response.status_code}"}
+                    return {"success": False, "error": f"Failed to get ledgers: {response.status_code}"}
 
                 data = response.json()
                 if not data:
@@ -240,7 +240,7 @@ class EBoekhoudenRESTClient:
             return {"success": True, "relations": self._relation_cache}
 
         try:
-            url = "{self.base_url}/v1/relation"
+            url = f"{self.base_url}/v1/relation"
             all_relations = []
             offset = 0
             limit = 2000
@@ -250,7 +250,7 @@ class EBoekhoudenRESTClient:
                 response = requests.get(url, headers=self._get_headers(), params=params, timeout=30)
 
                 if response.status_code != 200:
-                    return {"success": False, "error": "Failed to get relations: {response.status_code}"}
+                    return {"success": False, "error": f"Failed to get relations: {response.status_code}"}
 
                 data = response.json()
                 if not data:
@@ -284,7 +284,7 @@ def test_rest_mutations():
         if result["success"]:
             return {
                 "success": True,
-                "message": "Successfully fetched {result['count']} mutations",
+                "message": f"Successfully fetched {result['count']} mutations",
                 "sample": result["mutations"][0] if result["mutations"] else None,
                 "has_more": result.get("has_more", False),
             }
@@ -315,7 +315,7 @@ def count_all_mutations():
                 "success": True,
                 "total_count": result["count"],
                 "by_type": by_type,
-                "message": "Found {result['count']} total mutations via REST API",
+                "message": f"Found {result['count']} total mutations via REST API",
             }
         else:
             return result

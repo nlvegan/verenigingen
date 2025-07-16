@@ -573,7 +573,9 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
     transaction_type = "sales" if invoice.doctype == "Sales Invoice" else "purchase"
 
     # Use existing function to create line
-    from verenigingen.utils.eboekhouden_api import create_invoice_line_for_tegenrekening
+    from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import (
+        create_invoice_line_for_tegenrekening,
+    )
 
     line_dict = create_invoice_line_for_tegenrekening(
         tegenrekening_code=ledger_id,
@@ -582,8 +584,33 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
         transaction_type=transaction_type,
     )
 
+    # Get or create item using intelligent creation
+    from verenigingen.utils.eboekhouden.eboekhouden_improved_item_naming import get_or_create_item_improved
+
+    # Use account code from the appropriate account for intelligent item creation
+    account_code = ""
+    if transaction_type == "sales":
+        account_code = (
+            line_dict.get("income_account", "").split(" - ")[0]
+            if " - " in line_dict.get("income_account", "")
+            else ""
+        )
+    else:
+        account_code = (
+            line_dict.get("expense_account", "").split(" - ")[0]
+            if " - " in line_dict.get("expense_account", "")
+            else ""
+        )
+
+    item_code = get_or_create_item_improved(
+        account_code=account_code,
+        company=company,
+        transaction_type="Sales" if transaction_type == "sales" else "Purchase",
+        description=line_dict["description"],
+    )
+
     line_item = {
-        "item_code": "Service Item",
+        "item_code": item_code,
         "description": line_dict["description"],
         "qty": line_dict["qty"],
         "rate": line_dict["rate"],

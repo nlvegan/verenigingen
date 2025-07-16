@@ -7,6 +7,75 @@ from frappe.utils import getdate
 
 
 @frappe.whitelist()
+def debug_opening_balance_import():
+    """Debug the opening balance import issue"""
+    try:
+        # Test basic imports
+        result = {"tests": []}
+
+        # Test 1: Import the migration module
+        try:
+            from verenigingen.verenigingen.doctype.e_boekhouden_migration import e_boekhouden_migration
+
+            result["tests"].append("✓ Migration module import successful")
+        except Exception as e:
+            result["tests"].append(f"✗ Migration module import failed: {e}")
+            return result
+
+        # Test 2: Get the function
+        try:
+            func = getattr(e_boekhouden_migration, "import_opening_balances_only")
+            result["tests"].append("✓ Function found in module")
+        except Exception as e:
+            result["tests"].append(f"✗ Function not found: {e}")
+            return result
+
+        # Test 3: Import the REST migration module
+        try:
+            from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import (
+                _import_opening_balances,
+            )
+
+            result["tests"].append("✓ REST migration module import successful")
+        except Exception as e:
+            result["tests"].append(f"✗ REST migration module import failed: {e}")
+            import traceback
+
+            result["traceback"] = traceback.format_exc()
+
+        # Test 4: Get latest migration
+        try:
+            migrations = frappe.get_all(
+                "E-Boekhouden Migration", filters={"docstatus": ["!=", 2]}, order_by="creation desc", limit=1
+            )
+            if migrations:
+                result["tests"].append(f"✓ Found migration: {migrations[0].name}")
+                result["migration_name"] = migrations[0].name
+
+                # Test 5: Call the function
+                try:
+                    test_result = func(migrations[0].name)
+                    result["tests"].append(f"✓ Function executed: {test_result}")
+                    result["function_result"] = test_result
+                except Exception as e:
+                    result["tests"].append(f"✗ Function execution failed: {e}")
+                    import traceback
+
+                    result["execution_traceback"] = traceback.format_exc()
+            else:
+                result["tests"].append("✗ No migrations found")
+        except Exception as e:
+            result["tests"].append(f"✗ Error getting migration: {e}")
+
+        return result
+
+    except Exception as e:
+        import traceback
+
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
+@frappe.whitelist()
 def preview_migration(from_date=None, to_date=None):
     """Preview what will be migrated"""
     from verenigingen.utils.eboekhouden.migration_clean_import import get_migration_preview

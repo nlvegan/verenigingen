@@ -12,7 +12,7 @@ import frappe
 def test_mutation_1345_reimport():
     """Test re-import of mutation 1345 to see if the fix works"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
         from verenigingen.utils.eboekhouden_rest_full_migration import process_mutation
 
         api = EBoekhoudenAPI()

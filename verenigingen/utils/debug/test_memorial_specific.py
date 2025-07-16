@@ -12,7 +12,7 @@ import frappe
 def test_memorial_specific():
     """Test specific memorial bookings with detailed error reporting"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
         from verenigingen.utils.eboekhouden_rest_full_migration import _import_rest_mutations_batch
 
         api = EBoekhoudenAPI()

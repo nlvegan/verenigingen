@@ -73,7 +73,7 @@ def check_mutation_1345_status():
 def force_reimport_mutation_1345():
     """Force re-import of mutation 1345 using the fixed logic"""
     try:
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
         from verenigingen.utils.eboekhouden_rest_full_migration import _import_rest_mutations_batch
 
         api = EBoekhoudenAPI()

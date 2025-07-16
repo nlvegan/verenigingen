@@ -158,7 +158,7 @@ def test_payment_identification(limit=10):
     try:
         from datetime import datetime, timedelta
 
-        from verenigingen.utils.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
 

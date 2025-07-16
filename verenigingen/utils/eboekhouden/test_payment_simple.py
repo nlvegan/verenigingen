@@ -11,7 +11,7 @@ def test_payment_handler_simple():
     """
     Test the payment handler with a simple mutation.
     """
-    from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+    from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
     company = frappe.db.get_single_value("Global Defaults", "default_company")
 

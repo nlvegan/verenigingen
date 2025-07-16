@@ -60,7 +60,7 @@ def cancel_subscription_safe(subscription_name):
         # Handle edge case: docstatus=2 but status=Active (data inconsistency)
         if subscription.docstatus == 2:
             frappe.logger().warning(
-                "Subscription {subscription_name} has docstatus=2 but status={subscription.status}, updating status"
+                f"Subscription {subscription_name} has docstatus=2 but status={subscription.status}, updating status"
             )
             # Direct update to fix inconsistency
             frappe.db.set_value("Subscription", subscription_name, "status", "Cancelled")
@@ -122,7 +122,7 @@ def cancel_sepa_mandate_safe(mandate_id, reason=None, cancellation_date=None):
         mandate.cancelled_reason = reason or "Mandate cancelled"
 
         # Add cancellation note
-        cancellation_note = "Cancelled on {cancellation_date}"
+        cancellation_note = f"Cancelled on {cancellation_date}"
         if reason:
             cancellation_note += f" - Reason: {reason}"
 
@@ -153,7 +153,7 @@ def update_customer_safe(customer_name, termination_note, disable_for_disciplina
         # Add to customer details field (standard ERPNext field)
         if hasattr(customer, "customer_details"):
             if customer.customer_details:
-                customer.customer_details += "\n\n{termination_note}"
+                customer.customer_details += f"\n\n{termination_note}"
             else:
                 customer.customer_details = termination_note
 
@@ -182,7 +182,7 @@ def update_invoice_safe(invoice_name, termination_note):
 
         # Add to invoice remarks (standard ERPNext field)
         if invoice.remarks:
-            invoice.remarks += "\n\n{termination_note}"
+            invoice.remarks += f"\n\n{termination_note}"
         else:
             invoice.remarks = termination_note
 
@@ -221,7 +221,7 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
             member.status = status_mapping.get(termination_type, "Suspended")
 
         # Add termination information to notes (standard field)
-        termination_note = "Membership terminated on {termination_date} - Type: {termination_type}"
+        termination_note = f"Membership terminated on {termination_date} - Type: {termination_type}"
         if termination_request:
             termination_note += f" - Request: {termination_request}"
 
@@ -270,9 +270,9 @@ def end_board_positions_safe(member_name, end_date, reason):
                     # Add reason to notes if field exists
                     if hasattr(board_member, "notes"):
                         if board_member.notes:
-                            board_member.notes += "\n\nEnded: {reason}"
+                            board_member.notes += f"\n\nEnded: {reason}"
                         else:
-                            board_member.notes = "Ended: {reason}"
+                            board_member.notes = f"Ended: {reason}"
 
                     board_member.flags.ignore_permissions = True
                     board_member.save()
@@ -320,7 +320,7 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                     team_member_doc.cancel()
                     teams_affected += 1
                     frappe.logger().info(
-                        "Cancelled team membership for {team_membership.user} in team {team_membership.parent}"
+                        f"Cancelled team membership for {team_membership.user} in team {team_membership.parent}"
                     )
                 elif team_member_doc.docstatus == 0:
                     # Delete draft team memberships
@@ -328,7 +328,7 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                     team_member_doc.delete()
                     teams_affected += 1
                     frappe.logger().info(
-                        "Deleted draft team membership for {team_membership.user} in team {team_membership.parent}"
+                        f"Deleted draft team membership for {team_membership.user} in team {team_membership.parent}"
                     )
 
             except Exception as e:
@@ -347,7 +347,7 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                     team_doc.team_lead = None
 
                     # Add note about leadership change
-                    termination_note = "Team lead removed on {termination_date} - {reason}"
+                    termination_note = f"Team lead removed on {termination_date} - {reason}"
                     if hasattr(team_doc, "description"):
                         if team_doc.description:
                             team_doc.description += f"\n\n{termination_note}"
@@ -440,7 +440,7 @@ def reactivate_user_account_safe(member_name, reason):
         user_doc.enabled = 1
 
         # Add reactivation note
-        reactivation_note = "Account reactivated on {today()} - {reason}"
+        reactivation_note = f"Account reactivated on {today()} - {reason}"
         if hasattr(user_doc, "bio") and user_doc.bio:
             user_doc.bio += f"\n\n{reactivation_note}"
         elif hasattr(user_doc, "bio"):
@@ -483,7 +483,7 @@ def suspend_member_safe(
         member.status = "Suspended"
 
         # Add suspension note
-        suspension_note = "Member suspended on {suspension_date} - Reason: {suspension_reason}"
+        suspension_note = f"Member suspended on {suspension_date} - Reason: {suspension_reason}"
         if member.notes:
             member.notes += f"\n\n{suspension_note}"
         else:
@@ -497,7 +497,7 @@ def suspend_member_safe(
         member.save()
 
         results["member_suspended"] = True
-        results["actions_taken"].append("Member status changed from {original_status} to Suspended")
+        results["actions_taken"].append(f"Member status changed from {original_status} to Suspended")
 
         # 2. Suspend user account if requested
         if suspend_user:
@@ -507,7 +507,7 @@ def suspend_member_safe(
                 user_doc.enabled = 0
 
                 # Add suspension note to user
-                user_suspension_note = "Account suspended on {suspension_date} - {suspension_reason}"
+                user_suspension_note = f"Account suspended on {suspension_date} - {suspension_reason}"
                 if hasattr(user_doc, "bio") and user_doc.bio:
                     user_doc.bio += f"\n\n{user_suspension_note}"
                 elif hasattr(user_doc, "bio"):
@@ -522,11 +522,11 @@ def suspend_member_safe(
         # 3. Suspend team memberships if requested
         if suspend_teams:
             teams_suspended = suspend_team_memberships_safe(
-                member_name, suspension_date, "Member suspended - {suspension_reason}"
+                member_name, suspension_date, f"Member suspended - {suspension_reason}"
             )
             results["teams_suspended"] = teams_suspended
             if teams_suspended > 0:
-                results["actions_taken"].append("Suspended {teams_suspended} team membership(s)")
+                results["actions_taken"].append(f"Suspended {teams_suspended} team membership(s)")
 
         frappe.logger().info(f"Successfully suspended member {member_name}")
         return results
@@ -555,7 +555,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
         if member.status != "Suspended":
             return {
                 "success": False,
-                "error": "Member {member_name} is not suspended (current status: {member.status})",
+                "error": f"Member {member_name} is not suspended (current status: {member.status})",
                 "actions_taken": [],
                 "errors": ["Member is not suspended"],
             }
@@ -565,7 +565,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
         member.status = restore_status
 
         # Add unsuspension note
-        unsuspension_note = "Member unsuspended on {today()} - Reason: {unsuspension_reason}"
+        unsuspension_note = f"Member unsuspended on {today()} - Reason: {unsuspension_reason}"
         if member.notes:
             member.notes += f"\n\n{unsuspension_note}"
         else:
@@ -579,7 +579,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
         member.save()
 
         results["member_unsuspended"] = True
-        results["actions_taken"].append("Member status restored to {restore_status}")
+        results["actions_taken"].append(f"Member status restored to {restore_status}")
 
         # 2. Reactivate user account
         user_email = frappe.db.get_value("Member", member_name, "user")
@@ -591,7 +591,7 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
                 user_doc.enabled = 1
 
                 # Add unsuspension note
-                user_unsuspension_note = "Account unsuspended on {today()} - {unsuspension_reason}"
+                user_unsuspension_note = f"Account unsuspended on {today()} - {unsuspension_reason}"
                 if hasattr(user_doc, "bio") and user_doc.bio:
                     user_doc.bio += f"\n\n{user_unsuspension_note}"
                 elif hasattr(user_doc, "bio"):
@@ -650,10 +650,10 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     volunteer_doc.inactive_reason = "Deceased"
                 elif termination_type in disciplinary_types:
                     volunteer_doc.status = "Suspended"
-                    volunteer_doc.inactive_reason = "Member terminated - {termination_type}"
+                    volunteer_doc.inactive_reason = f"Member terminated - {termination_type}"
                 else:
                     volunteer_doc.status = "Inactive"
-                    volunteer_doc.inactive_reason = "Member terminated - {termination_type}"
+                    volunteer_doc.inactive_reason = f"Member terminated - {termination_type}"
 
                 # Add termination note
                 termination_note = f"Volunteer record updated on {termination_date} - {reason}"
@@ -671,7 +671,7 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 volunteer_doc.save()
 
                 results["volunteers_terminated"] += 1
-                results["actions_taken"].append("Updated volunteer record {volunteer_data.volunteer_name}")
+                results["actions_taken"].append(f"Updated volunteer record {volunteer_data.volunteer_name}")
 
                 # Cancel any active volunteer expenses
                 active_expenses = frappe.get_all(
@@ -688,12 +688,12 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     try:
                         expense_doc = frappe.get_doc("Volunteer Expense", expense.name)
                         expense_doc.approval_status = "Cancelled"
-                        expense_doc.cancellation_reason = "Volunteer terminated - {reason}"
+                        expense_doc.cancellation_reason = f"Volunteer terminated - {reason}"
                         expense_doc.flags.ignore_permissions = True
                         expense_doc.save()
 
                         results["volunteer_expenses_cancelled"] += 1
-                        results["actions_taken"].append("Cancelled volunteer expense {expense.name}")
+                        results["actions_taken"].append(f"Cancelled volunteer expense {expense.name}")
 
                     except Exception as expense_error:
                         results["errors"].append(
@@ -706,7 +706,7 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                 )
 
         frappe.logger().info(
-            "Terminated {results['volunteers_terminated']} volunteer record(s) for member {member_name}"
+            f"Terminated {results['volunteers_terminated']} volunteer record(s) for member {member_name}"
         )
         return results
 
@@ -779,7 +779,7 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
                     )
 
         frappe.logger().info(
-            "Found {len(employee_records)} active employee record(s) for member {member_name}"
+            f"Found {len(employee_records)} active employee record(s) for member {member_name}"
         )
 
         for employee_data in employee_records:
@@ -802,7 +802,7 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
 
                 # Add termination note to remarks
                 termination_note = (
-                    "Employee record updated on {termination_date} due to member termination - {reason}"
+                    f"Employee record updated on {termination_date} due to member termination - {reason}"
                 )
                 if hasattr(employee_doc, "remarks"):
                     if employee_doc.remarks:
@@ -814,7 +814,7 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
                 employee_doc.save()
 
                 results["employees_terminated"] += 1
-                results["actions_taken"].append("Updated employee record {employee_data.employee_name}")
+                results["actions_taken"].append(f"Updated employee record {employee_data.employee_name}")
 
             except Exception as employee_error:
                 results["errors"].append(
@@ -822,7 +822,7 @@ def terminate_employee_records_safe(member_name, termination_type, termination_d
                 )
 
         frappe.logger().info(
-            "Terminated {results['employees_terminated']} employee record(s) for member {member_name}"
+            f"Terminated {results['employees_terminated']} employee record(s) for member {member_name}"
         )
         return results
 
