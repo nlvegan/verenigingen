@@ -92,7 +92,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.donations.today"]'
+                - "$.message.metrics[\"frappe.donations.today\"]"
             - type: MULTIPLIER
               parameters:
                 - '1'
@@ -296,7 +296,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.members.total"]'
+                - "$.message.metrics[\"frappe.members.total\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
@@ -319,7 +319,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.member.churn_rate"]'
+                - "$.message.metrics[\"frappe.member.churn_rate\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
           triggers:
@@ -349,7 +349,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.volunteers.active"]'
+                - "$.message.metrics[\"frappe.volunteers.active\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
@@ -372,7 +372,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.volunteer.engagement"]'
+                - "$.message.metrics[\"frappe.volunteer.engagement\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
@@ -395,7 +395,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.invoices.sales_today"]'
+                - "$.message.metrics[\"frappe.invoices.sales_today\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
@@ -417,7 +417,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.invoices.subscription_today"]'
+                - "$.message.metrics[\"frappe.invoices.subscription_today\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
@@ -439,7 +439,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.invoices.total_today"]'
+                - "$.message.metrics[\"frappe.invoices.total_today\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
@@ -462,7 +462,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.subscriptions.active"]'
+                - "$.message.metrics[\"frappe.subscriptions.active\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
@@ -484,7 +484,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.subscriptions.processed_today"]'
+                - "$.message.metrics[\"frappe.subscriptions.processed_today\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
@@ -507,7 +507,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.scheduler.last_subscription_run"]'
+                - "$.message.metrics[\"frappe.scheduler.last_subscription_run\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '999'
           triggers:
@@ -545,7 +545,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.error_logs.count"]'
+                - "$.message.metrics[\"frappe.error_logs.count\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
           triggers:
@@ -575,7 +575,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - '$.message.metrics["frappe.queue.stuck_jobs"]'
+                - "$.message.metrics[\"frappe.queue.stuck_jobs\"]"
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
           triggers:
