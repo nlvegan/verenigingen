@@ -1,10 +1,10 @@
 zabbix_export:
   version: '7.2'
   template_groups:
-    - uuid: 170d4aa3711147cf9600b1c84bb4de34
+    - uuid: 38b195f7-c419-4c44-b956-4509523982e6
       name: Frappe Applications
   templates:
-    - uuid: 7124a0c366fe4735a079de8170934e0f
+    - uuid: f689a768-4da6-4cd4-962c-03b041b0e36f
       template: Template Frappe Cloud Monitoring
       name: Template Frappe Cloud Monitoring
       description: Monitor Frappe/ERPNext applications including Verenigingen - Zabbix 7.2 Compatible
@@ -15,7 +15,7 @@ zabbix_export:
         - name: Frappe Applications
       items:
         # Health Check
-        - uuid: 5a1f0ffad8164565856d6dcd3f4154e2
+        - uuid: 231d4b9d-e39a-46cd-996b-6412d2031c27
           name: Frappe Health Status
           type: HTTP_AGENT
           key: frappe.health.status
@@ -41,7 +41,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: 'unhealthy'
           triggers:
-            - uuid: 9cf127bac955446397d9147b57ede0bd
+            - uuid: 65bd2f96-7aff-42bb-91f5-02e8e547dc76
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.status)<>"healthy"'
               name: 'Frappe application is unhealthy'
               priority: HIGH
@@ -51,7 +51,7 @@ zabbix_export:
                   value: availability
 
         # Member Metrics
-        - uuid: 0de787959c2845c9bc6231a407ee6b9b
+        - uuid: d014f27f-5a13-4f00-9efd-0481f387c83a
           name: Active Members Count
           type: HTTP_AGENT
           key: frappe.members.active
@@ -76,7 +76,7 @@ zabbix_export:
               value: members
 
         # Financial Metrics
-        - uuid: 8d3998541d2642849f760c76fd621fd4
+        - uuid: 95306fd7-766f-4ebf-9e2c-0b7de67eec3f
           name: Daily Donations Total
           type: HTTP_AGENT
           key: frappe.donations.today
@@ -101,7 +101,7 @@ zabbix_export:
               value: financial
 
         # Performance Metrics
-        - uuid: 609f62def406468aa63f42b76098b84e
+        - uuid: f55c0da1-469d-4d85-93ce-3363075ee33a
           name: Error Rate
           type: HTTP_AGENT
           key: frappe.error.rate
@@ -122,7 +122,7 @@ zabbix_export:
               parameters:
                 - 5m
           triggers:
-            - uuid: 55aa50ee25864934b3787f0238e6ddc3
+            - uuid: 858b2cb0-f6fb-49e6-a0e6-d96e56e9d91e
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>{$ERROR_RATE_WARN}'
               name: 'High error rate on Frappe application'
               event_name: 'Error rate: {ITEM.VALUE}%'
@@ -133,7 +133,7 @@ zabbix_export:
               tags:
                 - tag: scope
                   value: performance
-            - uuid: 2c05c9396a8b4c8fac44fe753661f6ed
+            - uuid: 206db5c7-e5cb-46d9-887c-dc6fc18e5b7c
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.error.rate)>{$ERROR_RATE_HIGH}'
               name: 'Critical error rate on Frappe application'
               event_name: 'Critical error rate: {ITEM.VALUE}%'
@@ -143,7 +143,7 @@ zabbix_export:
                   value: performance
 
         # Response Time
-        - uuid: a3f449b54eb14cf89a094790fbcdbf23
+        - uuid: e4b91100-6ee9-43e0-bd5f-5a119304ad9c
           name: Average Response Time
           type: HTTP_AGENT
           key: frappe.response.time
@@ -161,7 +161,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics.response_time
           triggers:
-            - uuid: fa43cb28942048ae9d4c5346130d6240
+            - uuid: 8b7ad39b-6705-4c96-90b5-6c1b46cbe564
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.response.time)>{$RESPONSE_TIME_WARN}'
               name: 'Slow response time on Frappe application'
               event_name: 'Response time: {ITEM.VALUE}ms'
@@ -171,7 +171,7 @@ zabbix_export:
                   value: performance
 
         # System Health Score
-        - uuid: d66664306e874505acd2f21860be4157
+        - uuid: 825b23a3-e23f-4a08-b6a6-adba6e140dfd
           name: System Health Score
           type: HTTP_AGENT
           key: frappe.health.score
@@ -195,7 +195,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
           triggers:
-            - uuid: a4f8ec00cd6c4f599b1c311a79df7ea3
+            - uuid: f89470c8-c3d6-4afe-9bc3-e1a33bd40acb
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.health.score)<50'
               name: 'Low system health score'
               event_name: 'Health score: {ITEM.VALUE}%'
@@ -205,7 +205,7 @@ zabbix_export:
                   value: availability
 
         # Business Metrics
-        - uuid: 7e2f43bdd1c147dbba14b904d9cfba3f
+        - uuid: 680e4ed9-9c4c-4a69-9958-91c17d511f2d
           name: Pending Volunteer Expenses
           type: HTTP_AGENT
           key: frappe.expenses.pending
@@ -226,7 +226,7 @@ zabbix_export:
               value: volunteer
 
         # Worker Status
-        - uuid: bc047695f38346edb404e8c144471f1c
+        - uuid: ef8f18aa-1978-4d18-9f39-c1b1d765abe5
           name: Background Jobs Queue Size
           type: HTTP_AGENT
           key: frappe.jobs.queue
@@ -243,7 +243,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics.job_queue_size
           triggers:
-            - uuid: 3a03490970d44a44b9135f39256517ed
+            - uuid: 93c88f9c-5857-4e94-ae02-98570338788d
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.jobs.queue)>100'
               name: 'Large job queue backlog'
               priority: WARNING
@@ -252,7 +252,7 @@ zabbix_export:
                   value: performance
 
         # Database Connections
-        - uuid: fdd021e94faf4745a07812018781ed77
+        - uuid: 9470d0ea-34b1-4ae1-be13-334e1a79ac32
           name: Database Connections
           type: HTTP_AGENT
           key: frappe.db.connections
@@ -269,7 +269,7 @@ zabbix_export:
               parameters:
                 - $.message.metrics.db_connections
           triggers:
-            - uuid: cc5b034cc9634b4b96554caba3865c60
+            - uuid: cd0619e9-41b9-4ca7-8c55-f86ab1bfd51a
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.db.connections)>80'
               name: 'High database connection usage'
               priority: WARNING
@@ -278,7 +278,7 @@ zabbix_export:
                   value: resource
 
         # New Business Metrics
-        - uuid: b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6
+        - uuid: b53240cb-899d-4245-8398-ab5b9e8152f1
           name: Member Total Count
           type: HTTP_AGENT
           key: frappe.members.total
@@ -300,7 +300,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
-        - uuid: c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7
+        - uuid: 5cd3248a-e234-453d-8c21-d01919a0c9e1
           name: Member Churn Rate
           type: HTTP_AGENT
           key: frappe.member.churn_rate
@@ -323,7 +323,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
           triggers:
-            - uuid: d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8
+            - uuid: 7666e74b-9f34-4c4f-8d96-a1d1fe96fd12
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.member.churn_rate)>{$CHURN_RATE_WARN}'
               name: 'High member churn rate'
               priority: WARNING
@@ -331,7 +331,7 @@ zabbix_export:
                 - tag: scope
                   value: business
 
-        - uuid: e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9
+        - uuid: 9e241973-80ee-4d75-983c-929674d822f5
           name: Active Volunteers
           type: HTTP_AGENT
           key: frappe.volunteers.active
@@ -353,7 +353,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
-        - uuid: f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0
+        - uuid: 59cf8cd8-71f7-4d6f-96c5-9929105ad44b
           name: Volunteer Engagement Rate
           type: HTTP_AGENT
           key: frappe.volunteer.engagement
@@ -377,7 +377,7 @@ zabbix_export:
               error_handler_params: '0'
 
         # Financial Metrics
-        - uuid: a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1
+        - uuid: fb41d713-c395-4b1b-a9f8-754f2321ea7e
           name: Sales Invoices Today
           type: HTTP_AGENT
           key: frappe.invoices.sales_today
@@ -399,7 +399,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
-        - uuid: b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2
+        - uuid: 2ee405f6-c81c-41bb-98dc-35de77b7d99f
           name: Subscription Invoices Today
           type: HTTP_AGENT
           key: frappe.invoices.subscription_today
@@ -421,7 +421,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
-        - uuid: c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3
+        - uuid: 8a15a7fb-d943-4ee0-9aa0-563e2766428a
           name: Total Invoices Today
           type: HTTP_AGENT
           key: frappe.invoices.total_today
@@ -444,7 +444,7 @@ zabbix_export:
               error_handler_params: '0'
 
         # Subscription Metrics
-        - uuid: d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4
+        - uuid: ffe1ea0a-7e6f-466a-954c-b2908ada337e
           name: Active Subscriptions
           type: HTTP_AGENT
           key: frappe.subscriptions.active
@@ -466,7 +466,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
-        - uuid: e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5
+        - uuid: 7e065d81-691e-4fb2-a0ad-85fc7e9ad6be
           name: Subscriptions Processed Today
           type: HTTP_AGENT
           key: frappe.subscriptions.processed_today
@@ -488,7 +488,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
-        - uuid: f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6
+        - uuid: e148f1af-b072-426a-8161-cab4be7d3c2f
           name: Hours Since Last Subscription Run
           type: HTTP_AGENT
           key: frappe.scheduler.last_subscription_run
@@ -511,14 +511,14 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '999'
           triggers:
-            - uuid: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+            - uuid: 9e8c4a09-de0e-44e1-93ed-8f208d7fd5b5
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.scheduler.last_subscription_run)>{$SUBSCRIPTION_DELAY_WARN}'
               name: 'Subscription processing delayed'
               priority: WARNING
               tags:
                 - tag: scope
                   value: scheduler
-            - uuid: b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7
+            - uuid: 2854198d-bded-4bb5-bac9-345cf304db23
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.scheduler.last_subscription_run)>{$SUBSCRIPTION_DELAY_HIGH}'
               name: 'Subscription processing severely delayed'
               priority: HIGH
@@ -527,7 +527,7 @@ zabbix_export:
                   value: scheduler
 
         # System Health Metrics
-        - uuid: a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7
+        - uuid: 109dbf7e-4780-40df-bdcc-5679b591275a
           name: Error Log Count
           type: HTTP_AGENT
           key: frappe.error_logs.count
@@ -549,7 +549,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
           triggers:
-            - uuid: b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8
+            - uuid: 9621cf73-77e4-4617-86b3-bc9671e941f2
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.error_logs.count)>{$ERROR_COUNT_WARN}'
               name: 'High error log count'
               priority: WARNING
@@ -557,7 +557,7 @@ zabbix_export:
                 - tag: scope
                   value: application
 
-        - uuid: c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8
+        - uuid: 3cc76613-8517-4af0-904f-fc7b81b59df8
           name: Queue Stuck Jobs
           type: HTTP_AGENT
           key: frappe.queue.stuck_jobs
@@ -579,7 +579,7 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
           triggers:
-            - uuid: d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9
+            - uuid: 2fcd35ac-6499-4796-abaa-a0ccf6f3acf0
               expression: 'last(/Template Frappe Cloud Monitoring/frappe.queue.stuck_jobs)>0'
               name: 'Stuck background jobs detected'
               priority: WARNING
@@ -628,7 +628,7 @@ zabbix_export:
           description: 'Warning threshold for error log count per hour'
 
       valuemaps:
-        - uuid: 856d69d9e5b74eb8a64bc32b6e12a671
+        - uuid: 0ac64bf2-a9a0-4cb6-8fc2-fb79330a05de
           name: 'Frappe Health Status'
           mappings:
             - type: EQUAL
