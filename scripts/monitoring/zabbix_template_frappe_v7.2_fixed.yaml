@@ -188,10 +188,6 @@ zabbix_export:
             - type: JSONPATH
               parameters:
                 - $.message.metrics.system_health
-            - type: IN_RANGE
-              parameters:
-                - '0'
-                - '100'
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
           triggers:
