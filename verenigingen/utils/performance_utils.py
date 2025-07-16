@@ -226,7 +226,7 @@ def cached(ttl: int = 300, key_func: Callable = None):
             if key_func:
                 cache_key = key_func(*args, **kwargs)
             else:
-                cache_key = "{func.__module__}.{func.__name__}:{hash(str(args) + str(kwargs))}"
+                cache_key = f"{func.__module__}.{func.__name__}:{hash(str(args) + str(kwargs))}"
 
             # Try to get from cache
             result = CacheManager.get(cache_key)

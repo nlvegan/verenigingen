@@ -135,7 +135,7 @@ class EBoekhoudenSOAPAPI:
         <DatumVan>{date_from}</DatumVan>
         <DatumTm>{date_to}</DatumTm>"""
 
-        envelope = """<?xml version="1.0" encoding="utf-8"?>
+        envelope = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -230,7 +230,7 @@ class EBoekhoudenSOAPAPI:
             if not session_result["success"]:
                 return session_result
 
-        envelope = """<?xml version="1.0" encoding="utf-8"?>
+        envelope = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -288,7 +288,7 @@ class EBoekhoudenSOAPAPI:
             if not session_result["success"]:
                 return session_result
 
-        envelope = """<?xml version="1.0" encoding="utf-8"?>
+        envelope = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -347,7 +347,7 @@ class EBoekhoudenSOAPAPI:
 
         # Try to get the last mutation by using a very high number range
         # Start with a reasonable high number and work backwards
-        envelope = """<?xml version="1.0" encoding="utf-8"?>
+        envelope = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -470,7 +470,7 @@ def debug_soap_relations():
             return {"success": False, "error": "Session failed: {session_result}"}
 
         # Get raw relations
-        envelope = """<?xml version="1.0" encoding="utf-8"?>
+        envelope = f"""<?xml version="1.0" encoding="utf-8"?>
 <soap:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                xmlns:xsd="http://www.w3.org/2001/XMLSchema"
                xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">

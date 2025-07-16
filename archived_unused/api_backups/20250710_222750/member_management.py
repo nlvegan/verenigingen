@@ -434,7 +434,7 @@ def get_address_members_html_api(member_id):
             # Get status color
             get_status_color_simple(other.get("status", "Unknown"))
 
-            html_content += """
+            html_content += f"""
             <div class="member-card" style="border: 1px solid #ddd; padding: 8px; margin: 4px 0; border-radius: 4px; background: #f8f9fa;">
                 <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                     <div style="flex-grow: 1;">

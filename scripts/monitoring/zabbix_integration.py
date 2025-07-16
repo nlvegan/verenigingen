@@ -228,13 +228,15 @@ def get_subscription_metrics():
     except Exception:
         metrics["frappe.subscriptions.active"] = 0
     
-    # Subscriptions processed today - handle gracefully if Subscription Invoice table doesn't exist
+    # Subscriptions processed today - check Sales Invoice records with subscription field
     try:
         today_start = datetime.combine(datetime.now().date(), datetime.min.time())
         processed_today = frappe.db.sql("""
             SELECT COUNT(DISTINCT subscription) 
-            FROM `tabSubscription Invoice`
+            FROM `tabSales Invoice`
             WHERE creation >= %s
+            AND subscription IS NOT NULL
+            AND subscription != ''
         """, (today_start,))[0][0] or 0
         metrics["frappe.subscriptions.processed_today"] = processed_today
     except Exception:

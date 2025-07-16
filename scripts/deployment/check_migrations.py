@@ -229,7 +229,7 @@ def execute():
             
             migration_file = f"migrate_{timestamp}.py"
             print(f"\n  Save this as: verenigingen/patches/{migration_file}")
-            print("  Add to patches.txt: verenigingen.patches.{migration_file}")
+            print(f"  Add to patches.txt: verenigingen.patches.{migration_file}")
             print("\n" + "="*50)
             print(template)
             print("="*50)

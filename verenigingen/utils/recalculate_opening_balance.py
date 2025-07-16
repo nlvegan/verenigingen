@@ -83,13 +83,13 @@ def recalculate_opening_balance_totals():
             print(f"{category:>15} | {ledger_id:>6} | {amount:>12.2f} | {mapping or 'Not mapped'}")
 
         print("=" * 80)
-        print("{'TOTALS BY TYPEf':>15} | {'':>6} | {'':>12} |")
+        print(f"{'TOTALS BY TYPE':>15} | {'':>6} | {'':>12} |")
         print("=" * 80)
-        print("{'Assets':>15} | {'':>6} | {assets_total:>12.2f} |")
-        print("{'Receivables':>15} | {'':>6} | {receivable_total:>12.2f} |")
-        print("{'Liabilities':>15} | {'':>6} | {liabilities_total:>12.2f} |")
-        print("{'Payables':>15} | {'':>6} | {payable_total:>12.2f} |")
-        print("{'Equity':>15} | {'':>6} | {equity_total:>12.2f} |")
+        print(f"{'Assets':>15} | {'':>6} | {assets_total:>12.2f} |")
+        print(f"{'Receivables':>15} | {'':>6} | {receivable_total:>12.2f} |")
+        print(f"{'Liabilities':>15} | {'':>6} | {liabilities_total:>12.2f} |")
+        print(f"{'Payables':>15} | {'':>6} | {payable_total:>12.2f} |")
+        print(f"{'Equity':>15} | {'':>6} | {equity_total:>12.2f} |")
 
         # Calculate the accounting equation
         total_debits = assets_total + receivable_total  # Assets and receivables are debits
@@ -98,11 +98,13 @@ def recalculate_opening_balance_totals():
         )  # Liabilities, payables, and equity are credits
 
         print("=" * 80)
-        print("{'ACCOUNTING EQUATIONf':>15} | {'':>6} | {'':>12} |")
+        print(f"{'ACCOUNTING EQUATION':>15} | {'':>6} | {'':>12} |")
         print("=" * 80)
-        print("{'Total Debits':>15} | {'':>6} | {total_debits:>12.2f} | (Assets + Receivables)")
-        print("{'Total Credits':>15} | {'':>6} | {total_credits:>12.2f} | (Liabilities + Payables + Equity)")
-        print("{'Difference':>15} | {'':>6} | {total_debits - total_credits:>12.2f} | (Should be close to 0)")
+        print(f"{'Total Debits':>15} | {'':>6} | {total_debits:>12.2f} | (Assets + Receivables)")
+        print(f"{'Total Credits':>15} | {'':>6} | {total_credits:>12.2f} | (Liabilities + Payables + Equity)")
+        print(
+            f"{'Difference':>15} | {'':>6} | {total_debits - total_credits:>12.2f} | (Should be close to 0)"
+        )
 
         if abs(total_debits - total_credits) > 0.01:
             print(f"\n⚠️  IMBALANCE: Difference is {abs(total_debits - total_credits):.2f}")

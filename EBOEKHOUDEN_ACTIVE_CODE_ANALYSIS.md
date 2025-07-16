@@ -10,7 +10,7 @@ This analysis traces the active code paths starting from the eBoekhouden migrati
 - **✅ Intelligent Item Creation** - Enhanced transaction processing with smart item handling
 - **✅ Comprehensive Error Handling** - Enhanced logging and error recovery throughout
 - **✅ Import Path Issues Fixed** - Resolved 25+ import path problems across the codebase
-- **✅ F-String Issues Fixed** - Resolved 75+ f-string prefix issues app-wide
+- **✅ F-String Issues Fixed** - Resolved 35+ f-string prefix issues app-wide
 - **Clear Active Code Path** - UI → API → Migration Class → Core Logic
 - **Significant Orphaned Code** - Many debug/test files aren't in the active path
 
@@ -137,14 +137,16 @@ verenigingen.utils.test_rest_migration.test_rest_mutation_fetch()           # �
 **Status**: ✅ **COMPLETED - SYSTEM NOW WORKING**
 
 ```python
-# F-String Fixes (75+ instances across entire app)
+# F-String Fixes (35+ instances across entire app)
 # Fixed missing f-string prefixes that caused string formatting failures
-eboekhouden_rest_iterator.py        # ✅ FIXED - 10+ instances
-eboekhouden_rest_client.py          # ✅ FIXED - 6+ instances
-eboekhouden_rest_full_migration.py  # ✅ FIXED - 25+ instances
-termination_utils.py                # ✅ FIXED - 15+ instances
-application_helpers.py              # ✅ FIXED - 10+ instances
-# ... and 20+ more files
+eboekhouden_soap_api.py             # ✅ FIXED - 5 XML envelope instances
+application_notifications.py        # ✅ FIXED - 6 email template instances
+membership_application_review.py    # ✅ FIXED - 2 email template instances
+payment_processing.py               # ✅ FIXED - 1 payment reminder instance
+expulsion_report_entry.py           # ✅ FIXED - 2 governance notification instances
+dd_batch_scheduler.py               # ✅ FIXED - 1 batch summary instance
+member_contact_request.py           # ✅ FIXED - 1 contact request instance
+# ... and 20+ more files across the app
 
 # Import Path Fixes (25+ instances)
 # Fixed incorrect import paths that caused ModuleNotFoundError
@@ -203,20 +205,50 @@ def create_supplier()               # ❓ POTENTIALLY ACTIVE
 #### **12. Debug Files Not in Active Path**
 **Status**: ❌ **INACTIVE - SAFE TO REMOVE**
 
-**Orphaned Debug Files (28 files):**
+**Orphaned Debug Files (35+ files):**
 ```
-/utils/debug/fix_opening_balance_approach.py       # ❌ INACTIVE
-/utils/debug/fix_opening_balance_logic.py          # ❌ INACTIVE
-/utils/debug/fix_balancing_account.py              # ❌ INACTIVE
-/utils/debug/debug_mutation_1345_direct.py         # ❌ INACTIVE
-/utils/debug/delete_latest_je_1345.py              # ❌ INACTIVE
-/utils/debug/fix_9999_as_equity.py                 # ❌ INACTIVE
-/utils/debug/test_memorial_fix.py                  # ❌ INACTIVE
-/utils/debug/test_memorial_signed_amounts.py       # ❌ INACTIVE
-/utils/debug/test_memorial_specific.py             # ❌ INACTIVE
-/utils/debug/test_mutation_1345_reimport.py        # ❌ INACTIVE
-/utils/debug/test_non_opening_mutations.py         # ❌ INACTIVE
-... (17 more similar files)
+# Opening Balance Fixes (One-off patches)
+/utils/debug/fix_opening_balance_approach.py       # ❌ INACTIVE - One-off fix
+/utils/debug/fix_opening_balance_logic.py          # ❌ INACTIVE - One-off fix
+/utils/debug/fix_opening_balance_and_mapping.py    # ❌ INACTIVE - Patch script (find/replace)
+/utils/debug/fix_opening_balance_issues.py         # ❌ INACTIVE - One-off fix
+/utils/debug/implement_proper_opening_balance.py   # ❌ INACTIVE - One-off fix
+/utils/debug/revert_to_simple_opening_balance.py   # ❌ INACTIVE - One-off fix
+
+# Account Fixes (One-off patches)
+/utils/debug/fix_balancing_account.py              # ❌ INACTIVE - One-off fix
+/utils/debug/fix_9999_as_equity.py                 # ❌ INACTIVE - One-off fix
+/utils/debug/fix_company_expense_account.py        # ❌ INACTIVE - One-off fix
+/utils/debug/fix_verrekeningen_account.py          # ❌ INACTIVE - One-off fix
+/utils/debug/check_and_fix_9999_account.py         # ❌ INACTIVE - One-off fix
+
+# Mutation-Specific Fixes (One-off patches)
+/utils/debug/debug_mutation_1345_direct.py         # ❌ INACTIVE - Specific mutation
+/utils/debug/delete_latest_je_1345.py              # ❌ INACTIVE - Specific mutation
+/utils/debug/test_mutation_1345_reimport.py        # ❌ INACTIVE - Specific mutation
+/utils/debug/check_mutation_1345_status.py         # ❌ INACTIVE - Specific mutation
+/utils/debug/trigger_mutation_1345_reimport.py     # ❌ INACTIVE - Specific mutation
+/utils/debug/verify_mutation_1345_fix.py           # ❌ INACTIVE - Specific mutation
+
+# Memorial Booking Tests (One-off patches)
+/utils/debug/test_memorial_fix.py                  # ❌ INACTIVE - One-off test
+/utils/debug/test_memorial_signed_amounts.py       # ❌ INACTIVE - One-off test
+/utils/debug/test_memorial_specific.py             # ❌ INACTIVE - One-off test
+/utils/debug/debug_memorial_processing.py          # ❌ INACTIVE - One-off test
+
+# Payment Logic Fixes (One-off patches)
+/utils/debug/fix_payment_vs_journal_logic.py       # ❌ INACTIVE - One-off fix
+/utils/debug/fix_duplicate_and_logging.py          # ❌ INACTIVE - One-off fix
+/utils/debug/debug_duplicate.py                    # ❌ INACTIVE - One-off fix
+
+# Stock Account Fixes (One-off patches)
+/utils/debug/fix_stock_account_balancing.py        # ❌ INACTIVE - One-off fix
+/utils/debug/check_pinv_stock_account.py           # ❌ INACTIVE - One-off fix
+
+# Other Debug Files
+/utils/debug/test_non_opening_mutations.py         # ❌ INACTIVE - One-off test
+/utils/debug/analyze_mutation_types.py             # ❌ INACTIVE - One-off analysis
+... (additional mutation-specific and account-specific fixes)
 ```
 
 #### **13. Root Directory Test Scripts**
@@ -273,17 +305,17 @@ console_test_quality.py                            # ❌ INACTIVE
 1. **✅ All 7 missing API functions implemented/restored**
 2. **✅ All active code paths tested and working**
 3. **✅ Dual API system (SOAP + REST) fully functional**
-4. **✅ 75+ f-string issues fixed app-wide**
+4. **✅ 35+ f-string issues fixed app-wide**
 5. **✅ 25+ import path issues resolved**
 6. **✅ Intelligent item creation integrated**
 
 ### **Phase 2: Remove Inactive Code (Safe)**
-1. **Remove 28 orphaned debug files** (one-off fixes)
+1. **Remove 35+ orphaned debug files** (one-off fixes, patch scripts)
 2. **Remove 5 root directory test scripts** (not in active path)
 3. **Remove 15+ one-off utility scripts** (specific mutations/fixes)
 4. **Remove archived/unused files** (1 file)
 
-**Total Removal**: ~50 files (safe to remove)
+**Total Removal**: ~60 files (safe to remove)
 
 ### **Phase 3: Consolidate Active Code**
 1. **Keep all active UI/API/core code** (critical)

@@ -89,7 +89,7 @@ class APIDocGenerator:
             f.read()
 
         # Import the module to inspect functions
-        module_name = "verenigingen.api.{file_path.stem}"
+        module_name = f"verenigingen.api.{file_path.stem}"
 
         try:
             module = frappe.get_module(module_name)

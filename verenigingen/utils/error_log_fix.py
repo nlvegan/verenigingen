@@ -63,7 +63,7 @@ def get_clean_error_message(e):
 
             match = re.search(r"Duplicate entry '([^']+)'", error_str)
             if match:
-                return "Duplicate entry: {match.group(1)}"
+                return f"Duplicate entry: {match.group(1)}"
 
     # Handle nested error logs
     if "Error Log" in error_str:

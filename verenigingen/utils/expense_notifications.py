@@ -46,7 +46,7 @@ class ExpenseNotificationManager:
 
         expense_details = self._get_expense_details(expense_doc)
 
-        subject = "✅ Expense Approved - {expense_doc.name}"
+        subject = f"✅ Expense Approved - {expense_doc.name}"
 
         message = self._render_template(
             "expense_approved",
@@ -75,7 +75,7 @@ class ExpenseNotificationManager:
 
         expense_details = self._get_expense_details(expense_doc)
 
-        subject = "❌ Expense Rejected - {expense_doc.name}"
+        subject = f"❌ Expense Rejected - {expense_doc.name}"
 
         message = self._render_template(
             "expense_rejected",
@@ -122,7 +122,7 @@ class ExpenseNotificationManager:
 
         expense_details = self._get_expense_details(expense_doc)
 
-        subject = "⬆️ Expense Escalated - {expense_doc.name}"
+        subject = f"⬆️ Expense Escalated - {expense_doc.name}"
 
         message = self._render_template(
             "expense_escalated",
@@ -182,7 +182,7 @@ class ExpenseNotificationManager:
         self, expense_doc, expense_details, approver_email, approver_name, required_level
     ):
         """Send individual approval request email"""
-        subject = "💰 Expense Approval Required - {expense_doc.name}"
+        subject = f"💰 Expense Approval Required - {expense_doc.name}"
 
         message = self._render_template(
             "expense_approval_request",
@@ -215,7 +215,7 @@ class ExpenseNotificationManager:
 
     def _send_overdue_reminder_email(self, approver_email, approver_name, expenses, days_overdue):
         """Send overdue reminder email"""
-        subject = "⏰ Overdue Expense Approvals ({len(expenses)} pending)"
+        subject = f"⏰ Overdue Expense Approvals ({len(expenses)} pending)"
 
         message = self._render_template(
             "expense_overdue_reminder",

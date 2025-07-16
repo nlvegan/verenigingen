@@ -1,0 +1,197 @@
+{
+    "actions": [],
+    "autoname": "format:MDS-{YYYY}-{#####}",
+    "creation": "2025-07-16 10:00:00.000000",
+    "doctype": "DocType",
+    "engine": "InnoDB",
+    "field_order": [
+        "section_membership",
+        "member",
+        "member_name",
+        "membership",
+        "membership_type",
+        "column_break_1",
+        "status",
+        "billing_frequency",
+        "auto_generate",
+        "test_mode",
+        "section_schedule",
+        "next_invoice_date",
+        "last_invoice_date",
+        "invoice_days_before",
+        "column_break_2",
+        "amount",
+        "currency",
+        "payment_terms_template",
+        "section_notes",
+        "notes"
+    ],
+    "fields": [
+        {
+            "fieldname": "section_membership",
+            "fieldtype": "Section Break",
+            "label": "Membership Details"
+        },
+        {
+            "fieldname": "member",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Member",
+            "options": "Member",
+            "reqd": 1
+        },
+        {
+            "fetch_from": "member.full_name",
+            "fieldname": "member_name",
+            "fieldtype": "Data",
+            "label": "Member Name",
+            "read_only": 1
+        },
+        {
+            "fieldname": "membership",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "label": "Membership",
+            "options": "Membership",
+            "reqd": 1
+        },
+        {
+            "fetch_from": "membership.membership_type",
+            "fieldname": "membership_type",
+            "fieldtype": "Link",
+            "label": "Membership Type",
+            "options": "Membership Type",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_1",
+            "fieldtype": "Column Break"
+        },
+        {
+            "default": "Active",
+            "fieldname": "status",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Status",
+            "options": "Active\nPaused\nCancelled\nTest",
+            "reqd": 1
+        },
+        {
+            "default": "Annual",
+            "fieldname": "billing_frequency",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Billing Frequency",
+            "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nCustom",
+            "reqd": 1
+        },
+        {
+            "default": 1,
+            "fieldname": "auto_generate",
+            "fieldtype": "Check",
+            "label": "Auto Generate Invoices"
+        },
+        {
+            "default": 0,
+            "fieldname": "test_mode",
+            "fieldtype": "Check",
+            "label": "Test Mode (Don't create actual invoices)"
+        },
+        {
+            "fieldname": "section_schedule",
+            "fieldtype": "Section Break",
+            "label": "Billing Schedule"
+        },
+        {
+            "fieldname": "next_invoice_date",
+            "fieldtype": "Date",
+            "in_list_view": 1,
+            "label": "Next Invoice Date",
+            "reqd": 1
+        },
+        {
+            "fieldname": "last_invoice_date",
+            "fieldtype": "Date",
+            "label": "Last Invoice Date",
+            "read_only": 1
+        },
+        {
+            "default": "30",
+            "description": "Generate invoice this many days before due date",
+            "fieldname": "invoice_days_before",
+            "fieldtype": "Int",
+            "label": "Invoice Days Before Due"
+        },
+        {
+            "fieldname": "column_break_2",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "amount",
+            "fieldtype": "Currency",
+            "in_list_view": 1,
+            "label": "Amount",
+            "reqd": 1
+        },
+        {
+            "default": "EUR",
+            "fieldname": "currency",
+            "fieldtype": "Link",
+            "label": "Currency",
+            "options": "Currency",
+            "reqd": 1
+        },
+        {
+            "fieldname": "payment_terms_template",
+            "fieldtype": "Link",
+            "label": "Payment Terms Template",
+            "options": "Payment Terms Template"
+        },
+        {
+            "fieldname": "section_notes",
+            "fieldtype": "Section Break",
+            "label": "Notes"
+        },
+        {
+            "fieldname": "notes",
+            "fieldtype": "Text",
+            "label": "Notes"
+        }
+    ],
+    "links": [],
+    "modified": "2025-07-16 10:00:00.000000",
+    "modified_by": "Administrator",
+    "module": "Vereinigingen",
+    "name": "Membership Dues Schedule",
+    "naming_rule": "Expression",
+    "owner": "Administrator",
+    "permissions": [
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "print": 1,
+            "read": 1,
+            "role": "System Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 1,
+            "delete": 1,
+            "email": 1,
+            "print": 1,
+            "read": 1,
+            "role": "Verenigingen Administrator",
+            "share": 1,
+            "write": 1
+        }
+    ],
+    "search_fields": "member_name,membership_type",
+    "sort_field": "next_invoice_date",
+    "sort_order": "ASC",
+    "states": [],
+    "track_changes": 1
+}

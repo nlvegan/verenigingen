@@ -168,9 +168,9 @@ def get_email_context(donation, donor):
             chapter_name = frappe.db.get_value("Chapter", donation.chapter_reference, "chapter_name")
             earmarking = f"Chapter: {chapter_name}"
         elif donation.donation_purpose_type == "Campaign" and donation.campaign_reference:
-            earmarking = "Campaign: {donation.campaign_reference}"
+            earmarking = f"Campaign: {donation.campaign_reference}"
         elif donation.donation_purpose_type == "Specific Goal" and donation.specific_goal_description:
-            earmarking = "Specific Goal: {donation.specific_goal_description[:50]}"
+            earmarking = f"Specific Goal: {donation.specific_goal_description[:50]}"
 
     return {
         # Donation details

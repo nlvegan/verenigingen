@@ -436,7 +436,7 @@ def send_approval_notification(member, invoice, membership_type):
             )
         else:
             # Fallback to simple HTML email
-            message = """
+            message = f"""
             <h2>Membership Application Approved!</h2>
 
             <p>Dear {member.first_name},</p>
@@ -464,7 +464,7 @@ def send_approval_notification(member, invoice, membership_type):
             )
     else:
         # Use simple HTML email instead of template
-        message = """
+        message = f"""
         <h2>Membership Application Approved!</h2>
 
         <p>Dear {member.first_name},</p>

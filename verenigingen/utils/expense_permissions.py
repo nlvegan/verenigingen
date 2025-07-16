@@ -221,6 +221,6 @@ def get_expense_permission_query_conditions(user=None):
         )
 
     if conditions:
-        return "({' OR '.join(conditions)})"
+        return f"({' OR '.join(conditions)})"
     else:
         return "1=0"  # No access if no permissions found

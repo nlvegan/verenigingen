@@ -147,9 +147,9 @@ def send_batch_creation_notification(result):
         subject = f"Auto-created {result['batches_created']} SEPA Direct Debit batches"
 
         optimization_report = result.get("optimization_report", {})
-        optimization_report.get("summary", {})
+        summary = optimization_report.get("summary", {})
 
-        message = """
+        message = f"""
         <h3>Automated Batch Creation Summary</h3>
 
         <p><strong>Date:</strong> {now_datetime().strftime('%Y-%m-%d %H:%M')}</p>

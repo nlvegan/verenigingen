@@ -514,7 +514,7 @@ def test_session_token_only():
         }
 
         frappe.log_error(f"Testing session token with URL: {session_url}")
-        frappe.log_error("Session data: {{'accessToken': '***', 'source': '{session_data['source']}'}}")
+        frappe.log_error(f"Session data: {{'accessToken': '***', 'source': '{session_data['source']}'}}")
 
         response = requests.post(session_url, json=session_data, timeout=30)
 

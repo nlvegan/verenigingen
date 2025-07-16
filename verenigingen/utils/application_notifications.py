@@ -8,7 +8,7 @@ from frappe.utils import add_days, getdate, today
 def send_application_confirmation_email(member, application_id):
     """Send confirmation email with application ID"""
     try:
-        message = """
+        message = f"""
         <h3>Thank you for your membership application!</h3>
 
         <p>Dear {member.first_name},</p>
@@ -49,7 +49,7 @@ def notify_reviewers_of_new_application(member, application_id):
     reviewers = get_application_reviewers(member)
 
     if reviewers:
-        message = """
+        message = f"""
         <h3>New Membership Application: {application_id}</h3>
 
         <p>A new membership application has been submitted:</p>
@@ -96,7 +96,7 @@ def send_approval_email(member, invoice):
     try:
         # payment_url = frappe.utils.get_url() + "/payment?invoice={invoice.name}"
 
-        message = """
+        message = f"""
         <h3>Your membership application has been approved!</h3>
 
         <p>Dear {member.first_name},</p>
@@ -146,7 +146,7 @@ def send_approval_email(member, invoice):
 def send_rejection_email(member, reason):
     """Send email when application is rejected"""
     try:
-        message = """
+        message = f"""
         <h3>Regarding your membership application</h3>
 
         <p>Dear {member.first_name},</p>
@@ -182,7 +182,7 @@ def send_rejection_email(member, reason):
 def send_payment_confirmation_email(member, invoice):
     """Send confirmation email after successful payment"""
     try:
-        message = """
+        message = f"""
         <h3>Welcome! Your membership is now active</h3>
 
         <p>Dear {member.first_name},</p>
@@ -313,7 +313,7 @@ def notify_admins_of_new_application(member, invoice=None):
             # </div>
             # """
 
-        message = """
+        message = f"""
         <h3>New Membership Application</h3>
 
         <p>A new membership application has been submitted:</p>
@@ -420,7 +420,7 @@ def check_overdue_applications():
 def send_simple_notification(data, member_id):
     """Send simple notification about application submission"""
     try:
-        message = """
+        message = f"""
         <h3>Application Submitted Successfully</h3>
 
         <p>Your membership application has been submitted and is being reviewed.</p>

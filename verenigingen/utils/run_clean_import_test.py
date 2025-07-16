@@ -21,7 +21,7 @@ def run_clean_import_test():
     # Create new migration
     print("\n2. Creating new migration...")
     migration = frappe.new_doc("E-Boekhouden Migration")
-    migration.migration_name = "Clean Test - {now_datetime()}"
+    migration.migration_name = f"Clean Test - {now_datetime()}"
     migration.migration_type = "Recent Transactions"
     migration.status = "In Progress"
     migration.import_method = "REST API"

@@ -54,7 +54,7 @@ def revert_to_simple_opening_balance():
         local_debug.append("Fetching opening balance entries using list endpoint...")
 
         # Get opening balance entries
-        url = "{iterator.base_url}/v1/mutation"
+        url = f"{iterator.base_url}/v1/mutation"
         params = {"type": 0}
         response = requests.get(url, headers=iterator._get_headers(), params=params, timeout=30)
 

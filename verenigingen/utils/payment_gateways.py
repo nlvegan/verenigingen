@@ -35,7 +35,7 @@ class BankTransferGateway(PaymentGateway):
         company = frappe.get_doc("Company", settings.donation_company)
 
         # Generate unique payment reference
-        payment_reference = "DON-{donation.name}-{donation.creation.strftime('%Y%m%d')}"
+        payment_reference = f"DON-{donation.name}-{donation.creation.strftime('%Y%m%d')}"
 
         # Update donation with payment reference
         donation.db_set("payment_id", payment_reference)

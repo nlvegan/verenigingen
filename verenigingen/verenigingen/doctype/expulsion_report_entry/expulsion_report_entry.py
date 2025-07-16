@@ -84,7 +84,7 @@ class ExpulsionReportEntry(Document):
 
         subject = f"New Expulsion Report Entry - {self.member_name}"
 
-        message = """
+        message = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px;">
             <div style="background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #dc3545;">
                 <h2 style="color: #721c24; margin: 0;">New Expulsion Report Entry</h2>
@@ -178,7 +178,7 @@ class ExpulsionReportEntry(Document):
 
         subject = f"Expulsion Reversed - {self.member_name}"
 
-        message = """
+        message = f"""
         <div style="font-family: Arial, sans-serif; max-width: 600px;">
             <div style="background-color: #d4edda; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #28a745;">
                 <h2 style="color: #155724; margin: 0;">Expulsion Reversed</h2>

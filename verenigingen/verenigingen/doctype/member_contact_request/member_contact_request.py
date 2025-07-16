@@ -117,7 +117,7 @@ class MemberContactRequest(Document):
             if self.phone:
                 message += f"<p><strong>Phone:</strong> {self.phone}</p>"
 
-            message += """
+            message += f"""
             <p><strong>CRM Lead:</strong> {self.crm_lead or 'Not created'}</p>
             <hr>
             <p><a href="/app/member-contact-request/{self.name}">View Contact Request</a></p>

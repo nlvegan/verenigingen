@@ -215,7 +215,7 @@ def analyze_date_distribution(sample_size=1000):
                     date_str = date_str.split("T")[0]
                 try:
                     date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-                    year_month = "{date_obj.year}-{date_obj.month:02d}"
+                    year_month = f"{date_obj.year}-{date_obj.month:02d}"
                     year = str(date_obj.year)
 
                     year_month_counts[year_month] += 1

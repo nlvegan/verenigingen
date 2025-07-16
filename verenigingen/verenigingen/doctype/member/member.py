@@ -113,7 +113,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
                 html_content = f'<div class="address-members-display"><h6>Other Members at This Address ({len(other_members)} found): </h6>'
 
                 for other in other_members:
-                    html_content += """
+                    html_content += f"""
                     <div class="member-card" style="border: 1px solid #ddd; padding: 8px; margin: 4px 0; border-radius: 4px; background: #f8f9fa;">
                         <strong>{other.get("full_name", "Unknown")}</strong>
                         <span class="text-muted">({other.get("name", "Unknown ID")})</span>

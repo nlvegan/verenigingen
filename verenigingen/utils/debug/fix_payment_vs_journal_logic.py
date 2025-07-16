@@ -128,7 +128,7 @@ def fix_payment_logic():
                                 pe.eboekhouden_mutation_type = str(mutation_type)
 
                             # Add remarks
-                            pe.user_remark = "E-Boekhouden REST Import - Multi-invoice payment {mutation_id}"
+                            pe.user_remark = f"E-Boekhouden REST Import - Multi-invoice payment {mutation_id}"
 
                             try:
                                 pe.save(ignore_permissions=True)

@@ -267,7 +267,7 @@ def handle_partial_sepa_batch(bank_transaction, sepa_batch):
     task = frappe.get_doc(
         {
             "doctype": "ToDo",
-            "description": """
+            "description": f"""
 SEPA Batch Partial Success - Manual Review Required
 
 Batch: {sepa_batch.name}
@@ -317,7 +317,7 @@ def handle_excess_sepa_payment(bank_transaction, sepa_batch):
     task = frappe.get_doc(
         {
             "doctype": "ToDo",
-            "description": """
+            "description": f"""
 SEPA Batch Excess Payment - Investigation Required
 
 Batch: {sepa_batch.name}
@@ -529,7 +529,7 @@ def create_failed_payment_record(member_name, invoice_name, return_item):
             "comment_type": "Info",
             "reference_doctype": "Member",
             "reference_name": member_name,
-            "content": """
+            "content": f"""
 SEPA Payment Failed
 Invoice: {invoice_name}
 Amount: €{return_item.get('amount', 0):,.2f}

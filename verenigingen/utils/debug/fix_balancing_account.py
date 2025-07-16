@@ -136,7 +136,7 @@ def analyze_opening_balance_totals():
     from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
     iterator = EBoekhoudenRESTIterator()
-    url = "{iterator.base_url}/v1/mutation"
+    url = f"{iterator.base_url}/v1/mutation"
     params = {"type": 0}
     response = requests.get(url, headers=iterator._get_headers(), params=params, timeout=30)
 

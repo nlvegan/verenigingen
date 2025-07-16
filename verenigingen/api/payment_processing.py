@@ -392,7 +392,7 @@ def generate_payment_reminder_html(member, payment_info, reminder_type, custom_m
     #     "Bulk Reminder": "info",
     # }.get(reminder_type, "info")  # Unused
 
-    html = """
+    html = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #333;">Payment Reminder</h2>
 
@@ -561,3 +561,95 @@ def process_application_refund(member_name, reason):
     except Exception as e:
         frappe.logger().error(f"Failed to process refund for {member_name}: {str(e)}")
         return {"success": False, "message": f"Refund processing failed: {str(e)}"}
+
+
+@frappe.whitelist()
+@handle_api_error
+@require_roles(["System Manager", "Verenigingen Administrator"])
+def check_scheduler_logs():
+    """Check subscription scheduler error logs in the last 7 days"""
+    from datetime import datetime, timedelta
+
+    # Calculate date 7 days ago
+    seven_days_ago = datetime.now() - timedelta(days=7)
+
+    results = {
+        "error_logs": [],
+        "scheduled_jobs": [],
+        "start_date_errors": [],
+        "job_stats": {},
+        "detailed_errors": [],
+    }
+
+    # Check Error Log for subscription-related errors
+    error_logs = frappe.get_all(
+        "Error Log",
+        filters={"error": ["like", "%subscription%"], "creation": [">", seven_days_ago.strftime("%Y-%m-%d")]},
+        fields=["name", "error", "creation", "method"],
+        order_by="creation desc",
+        limit=10,
+    )
+
+    results["error_logs"] = error_logs
+
+    # Get detailed error information
+    detailed_errors = []
+    for error_log in error_logs[:5]:  # Get details for first 5 errors
+        try:
+            error_doc = frappe.get_doc("Error Log", error_log["name"])
+            detailed_errors.append(
+                {
+                    "name": error_doc.name,
+                    "method": error_doc.method,
+                    "creation": error_doc.creation,
+                    "reference_doctype": getattr(error_doc, "reference_doctype", None),
+                    "reference_name": getattr(error_doc, "reference_name", None),
+                    "error": error_doc.error[:1000],  # First 1000 chars
+                }
+            )
+        except:
+            pass
+
+    results["detailed_errors"] = detailed_errors
+
+    # Check Scheduled Job Log
+    scheduled_jobs = frappe.get_all(
+        "Scheduled Job Log",
+        filters={"creation": [">", seven_days_ago.strftime("%Y-%m-%d")]},
+        fields=["name", "scheduled_job_type", "status", "creation", "details"],
+        order_by="creation desc",
+        limit=50,
+    )
+
+    # Filter subscription-related jobs
+    subscription_jobs = [job for job in scheduled_jobs if "subscription" in job.scheduled_job_type.lower()]
+    results["scheduled_jobs"] = subscription_jobs
+
+    # Check for "Current Invoice Start Date" errors
+    start_date_errors = frappe.get_all(
+        "Error Log",
+        filters={
+            "error": ["like", "%Current Invoice Start Date%"],
+            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+        },
+        fields=["name", "error", "creation", "method", "reference_name"],
+        order_by="creation desc",
+        limit=5,
+    )
+
+    results["start_date_errors"] = start_date_errors
+
+    # Group jobs by type and status
+    job_stats = {}
+    for job in scheduled_jobs:
+        job_type = job.scheduled_job_type
+        status = job.status
+        if job_type not in job_stats:
+            job_stats[job_type] = {}
+        if status not in job_stats[job_type]:
+            job_stats[job_type][status] = 0
+        job_stats[job_type][status] += 1
+
+    results["job_stats"] = job_stats
+
+    return results
