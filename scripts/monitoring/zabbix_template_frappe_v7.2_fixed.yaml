@@ -79,7 +79,7 @@ zabbix_export:
         - uuid: 8d3998541d2642849f760c76fd621fd4
           name: Daily Donations Total
           type: HTTP_AGENT
-          key: frappe.donations.daily
+          key: frappe.donations.today
           delay: 5m
           history: 90d
           trends: 365d
@@ -92,7 +92,7 @@ zabbix_export:
           preprocessing:
             - type: JSONPATH
               parameters:
-                - $.message.metrics.daily_donations
+                - $.message.metrics["frappe.donations.today"]
             - type: MULTIPLIER
               parameters:
                 - '1'
@@ -277,6 +277,316 @@ zabbix_export:
                 - tag: scope
                   value: resource
 
+        # New Business Metrics
+        - uuid: b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6
+          name: Member Total Count
+          type: HTTP_AGENT
+          key: frappe.members.total
+          delay: 5m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.members.total"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+
+        - uuid: c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7
+          name: Member Churn Rate
+          type: HTTP_AGENT
+          key: frappe.member.churn_rate
+          delay: 1h
+          history: 30d
+          trends: 90d
+          value_type: FLOAT
+          units: '%'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.member.churn_rate"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+          triggers:
+            - uuid: d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.member.churn_rate)>{$CHURN_RATE_WARN}'
+              name: 'High member churn rate'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: business
+
+        - uuid: e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9
+          name: Active Volunteers
+          type: HTTP_AGENT
+          key: frappe.volunteers.active
+          delay: 5m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.volunteers.active"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+
+        - uuid: f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0
+          name: Volunteer Engagement Rate
+          type: HTTP_AGENT
+          key: frappe.volunteer.engagement
+          delay: 1h
+          history: 30d
+          trends: 90d
+          value_type: FLOAT
+          units: '%'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.volunteer.engagement"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+
+        # Financial Metrics
+        - uuid: a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1
+          name: Sales Invoices Today
+          type: HTTP_AGENT
+          key: frappe.invoices.sales_today
+          delay: 10m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.invoices.sales_today"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+
+        - uuid: b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2
+          name: Subscription Invoices Today
+          type: HTTP_AGENT
+          key: frappe.invoices.subscription_today
+          delay: 10m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.invoices.subscription_today"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+
+        - uuid: c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3
+          name: Total Invoices Today
+          type: HTTP_AGENT
+          key: frappe.invoices.total_today
+          delay: 10m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.invoices.total_today"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+
+        # Subscription Metrics
+        - uuid: d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4
+          name: Active Subscriptions
+          type: HTTP_AGENT
+          key: frappe.subscriptions.active
+          delay: 5m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.subscriptions.active"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+
+        - uuid: e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5
+          name: Subscriptions Processed Today
+          type: HTTP_AGENT
+          key: frappe.subscriptions.processed_today
+          delay: 10m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.subscriptions.processed_today"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+
+        - uuid: f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6
+          name: Hours Since Last Subscription Run
+          type: HTTP_AGENT
+          key: frappe.scheduler.last_subscription_run
+          delay: 5m
+          history: 30d
+          trends: 90d
+          value_type: FLOAT
+          units: 'h'
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.scheduler.last_subscription_run"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 999
+          triggers:
+            - uuid: a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.scheduler.last_subscription_run)>{$SUBSCRIPTION_DELAY_WARN}'
+              name: 'Subscription processing delayed'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: scheduler
+            - uuid: b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.scheduler.last_subscription_run)>{$SUBSCRIPTION_DELAY_HIGH}'
+              name: 'Subscription processing severely delayed'
+              priority: HIGH
+              tags:
+                - tag: scope
+                  value: scheduler
+
+        # System Health Metrics
+        - uuid: a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7
+          name: Error Log Count
+          type: HTTP_AGENT
+          key: frappe.error_logs.count
+          delay: 1m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.error_logs.count"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+          triggers:
+            - uuid: b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.error_logs.count)>{$ERROR_COUNT_WARN}'
+              name: 'High error log count'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: application
+
+        - uuid: c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8
+          name: Queue Stuck Jobs
+          type: HTTP_AGENT
+          key: frappe.queue.stuck_jobs
+          delay: 2m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.queue.stuck_jobs"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: 0
+          triggers:
+            - uuid: d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.queue.stuck_jobs)>0'
+              name: 'Stuck background jobs detected'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: queue
+
       tags:
         - tag: class
           value: application
@@ -304,6 +614,18 @@ zabbix_export:
         - macro: '{$RESPONSE_TIME_WARN}'
           value: '2000'
           description: 'Warning threshold for response time (ms)'
+        - macro: '{$CHURN_RATE_WARN}'
+          value: '5'
+          description: 'Warning threshold for member churn rate (%)'
+        - macro: '{$SUBSCRIPTION_DELAY_WARN}'
+          value: '25'
+          description: 'Warning threshold for subscription processing delay (hours)'
+        - macro: '{$SUBSCRIPTION_DELAY_HIGH}'
+          value: '48'
+          description: 'High threshold for subscription processing delay (hours)'
+        - macro: '{$ERROR_COUNT_WARN}'
+          value: '10'
+          description: 'Warning threshold for error log count per hour'
 
       valuemaps:
         - uuid: 856d69d9e5b74eb8a64bc32b6e12a671
