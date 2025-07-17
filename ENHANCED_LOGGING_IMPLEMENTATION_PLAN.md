@@ -10,14 +10,6 @@
 
 ## Key Assumptions and Resource Dependencies
 
-### Resource Availability Requirements
-- **Senior Developer**: 120 hours (primary implementation)
-- **Technical Lead**: 30 hours (architecture, reviews, handover)
-- **Senior DevOps Engineer**: 30 hours (monitoring, dashboards, automation)
-- **Business Analyst**: 20 hours (requirements, testing, compliance)
-- **QA Team**: 20 hours (testing, validation)
-- **Developer with Basic BI Skills**: 10 hours (simple analytics views)
-
 ### Critical Dependencies
 - Secured commitment from business stakeholders for testing and feedback sessions
 - Availability of compliance team for regulatory requirements definition
