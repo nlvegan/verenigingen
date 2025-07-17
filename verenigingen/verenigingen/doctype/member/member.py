@@ -12,12 +12,13 @@ from verenigingen.utils.dutch_name_utils import (
 )
 from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
 from verenigingen.verenigingen.doctype.member.mixins.chapter_mixin import ChapterMixin
+from verenigingen.verenigingen.doctype.member.mixins.financial_mixin import FinancialMixin
 from verenigingen.verenigingen.doctype.member.mixins.payment_mixin import PaymentMixin
 from verenigingen.verenigingen.doctype.member.mixins.sepa_mixin import SEPAMandateMixin
 from verenigingen.verenigingen.doctype.member.mixins.termination_mixin import TerminationMixin
 
 
-class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, TerminationMixin):
+class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, TerminationMixin, FinancialMixin):
     """
     Member doctype with refactored structure using mixins for better organization
     """
@@ -2132,6 +2133,19 @@ def deactivate_old_sepa_mandates(member, new_iban):
 
     except Exception as e:
         frappe.log_error(f"Error deactivating old SEPA mandates for member {member}: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def refresh_sepa_mandates(member):
+    """Refresh the SEPA mandates child table by syncing with actual SEPA Mandate records"""
+    try:
+        member_doc = frappe.get_doc("Member", member)
+        result = member_doc.refresh_sepa_mandates_table()
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Error refreshing SEPA mandates for member {member}: {str(e)}")
         return {"success": False, "error": str(e)}
 
 

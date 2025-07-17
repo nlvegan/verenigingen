@@ -53,6 +53,47 @@ class SEPAMandateMixin:
 
         return frappe.db.exists("SEPA Mandate", filters)
 
+    def refresh_sepa_mandates_table(self):
+        """Refresh the SEPA mandates child table by syncing with actual SEPA Mandate records"""
+        try:
+            # Get all SEPA mandates for this member
+            mandates = frappe.get_all(
+                "SEPA Mandate",
+                filters={"member": self.name},
+                fields=["name", "mandate_id", "status", "is_active", "sign_date", "expiry_date"],
+                order_by="creation desc",
+            )
+
+            # Clear existing links
+            self.sepa_mandates = []
+
+            # Rebuild the child table from actual mandates
+            for mandate in mandates:
+                self.append(
+                    "sepa_mandates",
+                    {
+                        "sepa_mandate": mandate.name,
+                        "mandate_reference": mandate.mandate_id,
+                        "status": mandate.status,
+                        "is_current": 1 if mandate.status == "Active" and mandate.is_active else 0,
+                        "valid_from": mandate.sign_date,
+                        "valid_until": mandate.expiry_date,
+                    },
+                )
+
+            # Save the updated member document
+            self.save(ignore_permissions=True)
+
+            return {
+                "success": True,
+                "message": f"Refreshed {len(mandates)} SEPA mandate(s)",
+                "mandates_count": len(mandates),
+            }
+
+        except Exception as e:
+            frappe.log_error(f"Error refreshing SEPA mandates for member {self.name}: {str(e)}")
+            return {"success": False, "error": str(e)}
+
     @frappe.whitelist()
     def create_sepa_mandate(self):
         """Create a new SEPA mandate for this member with enhanced prefilling"""

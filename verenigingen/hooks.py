@@ -34,7 +34,7 @@ app_include_js = [
 
 # include js in doctype views
 doctype_js = {
-    "Member": "public/js/member.js",
+    "Member": "verenigingen/doctype/member/member.js",
     "Membership": "public/js/membership.js",
     "Membership Type": "public/js/membership_type.js",
     "SEPA Direct Debit Batch": "public/js/direct_debit_batch.js",
@@ -146,6 +146,8 @@ scheduler_events = {
         "verenigingen.utils.termination_utils.audit_termination_compliance",
         # SEPA mandate synchronization
         "verenigingen.verenigingen.doctype.member.mixins.sepa_mixin.check_sepa_mandate_discrepancies",
+        # SEPA mandate child table sync (catches cases where hooks didn't trigger)
+        "verenigingen.api.sepa_mandate_management.periodic_sepa_mandate_child_table_sync",
         # Contact request automation
         "verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation.process_contact_request_automation",
         # E-Boekhouden dashboard updates

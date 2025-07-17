@@ -100,7 +100,10 @@ class SEPAMandate(Document):
                     frappe.msgprint(_("BIC automatically derived from IBAN: {0}").format(derived_bic))
 
     def after_insert(self):
-        """Send notification when mandate is created"""
+        """Send notification when mandate is created and update member's child table"""
+        # Update member's SEPA mandates child table
+        self.update_member_sepa_mandates_table()
+
         if self.status == "Active":
             from verenigingen.utils.sepa_notifications import SEPAMandateNotificationManager
 
@@ -129,55 +132,52 @@ class SEPAMandate(Document):
                 reason = self.cancellation_reason or "Cancelled by member request"
                 notification_manager.send_mandate_cancelled_notification(self, reason)
 
-        if self.member and self.status == "Active" and self.is_active and self.used_for_memberships:
-            # Find if this mandate is already linked to the member
+        # Always update member's SEPA mandates child table when mandate is updated
+        if self.member:
+            self.update_member_sepa_mandates_table()
+
+    def update_member_sepa_mandates_table(self):
+        """Update the member's SEPA mandates child table to reflect this mandate"""
+        if not self.member:
+            return
+
+        try:
             member = frappe.get_doc("Member", self.member)
 
-            # Check if this mandate is in the member's mandate list
+            # Check if this mandate is already linked to the member
             mandate_exists = False
-            is_already_current = False
 
             for mandate_link in member.sepa_mandates:
                 if mandate_link.sepa_mandate == self.name:
                     mandate_exists = True
-                    if mandate_link.is_current:
-                        is_already_current = True
+                    # Update the existing link with current mandate data
+                    mandate_link.mandate_reference = self.mandate_id
+                    mandate_link.status = self.status
+                    mandate_link.valid_from = self.sign_date
+                    mandate_link.valid_until = self.expiry_date
+                    mandate_link.is_current = 1 if (self.status == "Active" and self.is_active) else 0
                     break
 
             # If mandate isn't linked, add it
             if not mandate_exists:
-                # Check if there are other active mandates
-                other_active_mandates = any(
-                    link.status == "Active" and link.is_current for link in member.sepa_mandates
-                )
-
-                # Add this mandate as the current one if no other active current mandates
                 member.append(
-                    "sepa_mandates", {"sepa_mandate": self.name, "is_current": not other_active_mandates}
-                )
-                member.save(ignore_permissions=True)
-
-            # If this is the only active mandate, set it as current
-            elif not is_already_current:
-                other_mandates = frappe.get_all(
-                    "SEPA Mandate",
-                    filters={
-                        "member": self.member,
-                        "status": "Active",
-                        "is_active": 1,
-                        "name": ["!=", self.name],
+                    "sepa_mandates",
+                    {
+                        "sepa_mandate": self.name,
+                        "mandate_reference": self.mandate_id,
+                        "status": self.status,
+                        "is_current": 1 if (self.status == "Active" and self.is_active) else 0,
+                        "valid_from": self.sign_date,
+                        "valid_until": self.expiry_date,
                     },
                 )
 
-                if not other_mandates:
-                    # Set this as the current mandate in the member's mandate list
-                    for mandate_link in member.sepa_mandates:
-                        if mandate_link.sepa_mandate == self.name:
-                            mandate_link.is_current = 1
-                        else:
-                            mandate_link.is_current = 0
+            member.save(ignore_permissions=True)
 
-                    member.save(ignore_permissions=True)
+        except Exception as e:
+            frappe.log_error(
+                f"Error updating member SEPA mandates table: {str(e)}", "SEPA Mandate Update Error"
+            )
 
 
 def cancel_mandate(self, reason=None, cancellation_date=None):

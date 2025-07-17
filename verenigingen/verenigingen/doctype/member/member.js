@@ -2,8 +2,10 @@
 // For license information, please see license.txt
 // Cache buster: v2025-01-13-001
 
-// Test if this file is loading
-console.log('Member.js file is loading - v2025-01-13-001');
+// Member Doctype JavaScript - Backend ERPNext interface
+// This file provides the full administrative interface for Member records
+// in the ERPNext backend. It includes comprehensive functionality for
+// staff and administrators to manage member records.
 
 // Import utility modules
 frappe.require([
@@ -21,15 +23,15 @@ frappe.ui.form.on('Member', {
 	// ==================== FORM LIFECYCLE EVENTS ====================
 
 	refresh: function(frm) {
-		// Test if JavaScript is loading
-		console.log('Member form refresh event triggered for:', frm.doc.name || 'new document');
 
 		// Skip API calls for new/unsaved documents
 		if (frm.doc.__islocal || !frm.doc.name || frm.doc.name.startsWith('new-member-')) {
 			// Only initialize basic UI for new documents
-			UIUtils.add_custom_css();
-			UIUtils.setup_payment_history_grid(frm);
-			UIUtils.setup_member_id_display(frm);
+			if (window.UIUtils) {
+				UIUtils.add_custom_css();
+				UIUtils.setup_payment_history_grid(frm);
+				UIUtils.setup_member_id_display(frm);
+			}
 			setup_dutch_naming_fields(frm);
 
 			// Add basic buttons that don't require API calls
@@ -38,9 +40,11 @@ frappe.ui.form.on('Member', {
 		}
 
 		// Initialize UI and custom CSS
-		UIUtils.add_custom_css();
-		UIUtils.setup_payment_history_grid(frm);
-		UIUtils.setup_member_id_display(frm);
+		if (window.UIUtils) {
+			UIUtils.add_custom_css();
+			UIUtils.setup_payment_history_grid(frm);
+			UIUtils.setup_member_id_display(frm);
+		}
 
 		// Handle Dutch naming field visibility
 		setup_dutch_naming_fields(frm);
@@ -84,7 +88,9 @@ frappe.ui.form.on('Member', {
 		check_sepa_mandate_status_debounced(frm);
 
 		// Show volunteer info if exists
-		VolunteerUtils.show_volunteer_info(frm);
+		if (window.VolunteerUtils) {
+			VolunteerUtils.show_volunteer_info(frm);
+		}
 
 
 		// Setup chapter membership history display and utilities (with delay for async loading)
@@ -135,7 +141,9 @@ frappe.ui.form.on('Member', {
 	},
 
 	payment_method: function(frm) {
-		UIUtils.handle_payment_method_change(frm);
+		if (window.UIUtils) {
+			UIUtils.handle_payment_method_change(frm);
+		}
 		// Only update UI elements, don't prompt for mandate creation during field changes
 		check_sepa_mandate_status_debounced(frm);
 	},
@@ -302,11 +310,15 @@ function add_consolidated_action_buttons(frm) {
 	// Payment actions for submitted documents
 	if (frm.doc.docstatus === 1 && frm.doc.payment_status !== 'Paid') {
 		frm.add_custom_button(__('Process Payment'), function() {
-			PaymentUtils.process_payment(frm);
+			if (window.PaymentUtils) {
+				PaymentUtils.process_payment(frm);
+			}
 		}, __('Member Actions'));
 
 		frm.add_custom_button(__('Mark as Paid'), function() {
-			PaymentUtils.mark_as_paid(frm);
+			if (window.PaymentUtils) {
+				PaymentUtils.mark_as_paid(frm);
+			}
 		}, __('Member Actions'));
 	}
 
@@ -324,7 +336,9 @@ function add_consolidated_action_buttons(frm) {
 	// Financial actions
 	if (frm.doc.customer) {
 		frm.add_custom_button(__('Refresh Financial History'), function() {
-			PaymentUtils.refresh_financial_history(frm);
+			if (window.PaymentUtils) {
+				PaymentUtils.refresh_financial_history(frm);
+			}
 		}, __('Review Actions'));
 	}
 }
@@ -532,7 +546,9 @@ function check_and_add_volunteer_creation_button(frm) {
 		callback: function(r) {
 			if (!r.message || r.message.length === 0) {
 				frm.add_custom_button(__('Create Volunteer Profile'), function() {
-					VolunteerUtils.create_volunteer_from_member(frm);
+					if (window.VolunteerUtils) {
+						VolunteerUtils.create_volunteer_from_member(frm);
+					}
 				}, __('Create'));
 			}
 		}
@@ -568,7 +584,9 @@ function add_chapter_assignment_button(frm) {
 		callback: function(r) {
 			if (r.message) {
 				frm.add_custom_button(__('Assign Chapter'), function() {
-					ChapterUtils.assign_chapter_for_member(frm);
+					if (window.ChapterUtils) {
+						ChapterUtils.assign_chapter_for_member(frm);
+					}
 				}, __('Member Actions'));
 
 				// Add simple chapter suggestion when no chapter is assigned
@@ -621,7 +639,9 @@ function add_termination_action_button(frm) {
 		callback: function(r) {
 			if (r.message && !r.message.has_active_termination) {
 				let btn = frm.add_custom_button(__('Terminate Membership'), function() {
-					TerminationUtils.show_termination_dialog(frm.doc.name, frm.doc.full_name);
+					if (window.TerminationUtils) {
+						TerminationUtils.show_termination_dialog(frm.doc.name, frm.doc.full_name);
+					}
 				}, __('Member Actions'));
 
 				if (btn && btn.addClass) {
@@ -766,7 +786,9 @@ function setup_form_behavior(frm) {
 	}
 
 	// Set up payment method dependent fields
-	UIUtils.handle_payment_method_change(frm);
+	if (window.UIUtils) {
+		UIUtils.handle_payment_method_change(frm);
+	}
 
 	// Set up organization user creation if enabled
 	setup_organization_user_creation(frm);
@@ -779,7 +801,9 @@ function setup_organization_user_creation(frm) {
 			if (r.message && r.message.organization_email_domain) {
 				if (!frm.doc.user && frm.doc.docstatus === 1) {
 					frm.add_custom_button(__('Create Organization User'), function() {
-						UIUtils.create_organization_user(frm);
+						if (window.UIUtils) {
+							UIUtils.create_organization_user(frm);
+						}
 					}, __('Actions'));
 				}
 			}
@@ -1701,17 +1725,24 @@ function display_amendment_status(frm) {
 // ==================== SEPA MANDATE OPTIMIZATION ====================
 
 // Debounced SEPA mandate status check to avoid rapid API calls
-let sepa_check_timeout;
+// Function declaration to avoid redeclaration issues
 function check_sepa_mandate_status_debounced(frm) {
+	// Static variable to store timeout
+	if (!check_sepa_mandate_status_debounced.timeout) {
+		check_sepa_mandate_status_debounced.timeout = null;
+	}
+
 	// Clear any existing timeout
-	if (sepa_check_timeout) {
-		clearTimeout(sepa_check_timeout);
+	if (check_sepa_mandate_status_debounced.timeout) {
+		clearTimeout(check_sepa_mandate_status_debounced.timeout);
 	}
 
 	// Set a new timeout to check SEPA status after 300ms of inactivity
-	sepa_check_timeout = setTimeout(function() {
+	check_sepa_mandate_status_debounced.timeout = setTimeout(function() {
 		if (frm.doc.payment_method === 'SEPA Direct Debit' && frm.doc.iban) {
-			SepaUtils.check_sepa_mandate_status(frm);
+			if (window.SepaUtils && window.SepaUtils.check_sepa_mandate_status) {
+				SepaUtils.check_sepa_mandate_status(frm);
+			}
 		} else {
 			// Clear SEPA UI if conditions aren't met
 			if (window.SepaUtils && window.SepaUtils.clear_sepa_ui_elements) {
