@@ -101,10 +101,13 @@ def get_data(filters):
             cutoff_date = add_days(today(), -days)
             conditions.append(f"DATE(m.application_date) < '{cutoff_date}'")
 
-    " AND ".join(conditions)
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+    else:
+        where_clause = ""
 
     data = frappe.db.sql(
-        """
+        f"""
         SELECT
             m.name,
             m.full_name,
@@ -117,7 +120,7 @@ def get_data(filters):
             '' as application_source,
             m.application_status
         FROM `tabMember` m
-        WHERE {where_clause}
+        {where_clause}
         ORDER BY m.application_date ASC
     """,
         filters or {},

@@ -72,7 +72,14 @@ The system treats memberships as **perpetual relationships** with **periodic fin
 member: Link[Member] (required)
 membership: Link[Membership] (required)
 billing_frequency: Select["Annual", "Semi-Annual", "Quarterly", "Monthly", "Custom"]
-amount: Currency
+amount: Currency  # Current active amount
+
+# Price History Management
+base_membership_type: Link[Membership Type] (required)
+use_custom_amount: Check (default: 0)
+custom_amount_reason: Text
+custom_amount_approved_by: Link[User]
+custom_amount_approved_date: Date
 
 # Schedule Management
 next_invoice_date: Date
@@ -97,7 +104,7 @@ last_reminder_date: Date
 
 # Payment Plan Integration
 has_payment_plan: Check (readonly)
-payment_plan_reference: Data (readonly)
+payment_plan_reference: Link[Member Payment Plan] (readonly)
 original_schedule: Link[Membership Dues Schedule]
 
 # Audit Trail
@@ -111,6 +118,132 @@ modification_history: Table[
   - new_value: Data
   - reason: Text
 ]
+```
+
+### Membership Fee Price History
+
+```python
+# New DocType: Membership Fee Price History
+member: Link[Member] (required)
+membership_type: Link[Membership Type] (required)
+effective_date: Date (required)
+amount: Currency (required)
+previous_amount: Currency (readonly)
+change_reason: Select["Annual Adjustment", "Hardship Rate", "Student Rate", "Custom Approval", "System Migration"]
+approved_by: Link[User]
+notes: Text
+
+# Automatic validation to prevent overlapping effective dates
+# Only one active rate per member per date range
+```
+
+### Enhanced Membership Type Configuration
+
+```python
+# Enhanced Membership Type fields
+minimum_annual_fee: Currency (required)  # Base rate - minimum any member can pay
+standard_annual_fee: Currency (required)  # Standard recommended rate
+suggested_contribution_tiers: Table[
+  - tier_name: Data  # e.g., "Student", "Standard", "Supporter", "Patron"
+  - annual_amount: Currency
+  - description: Text
+]
+
+# Special rate categories
+student_discount_percentage: Float (default: 50)
+hardship_minimum_amount: Currency
+enable_custom_amounts: Check (default: 1)
+```
+
+### Price History Management Functions
+
+```python
+def get_effective_dues_amount(member_name, effective_date=None):
+    """
+    Get the effective dues amount for a member on a specific date
+    Accounts for price history and custom rates
+    """
+    effective_date = effective_date or today()
+
+    # Check for custom rate in effect on this date
+    custom_rate = frappe.db.sql("""
+        SELECT amount, change_reason
+        FROM `tabMembership Fee Price History`
+        WHERE member = %(member)s
+        AND effective_date <= %(date)s
+        ORDER BY effective_date DESC
+        LIMIT 1
+    """, {"member": member_name, "date": effective_date}, as_dict=True)
+
+    if custom_rate:
+        return {
+            "amount": custom_rate[0].amount,
+            "source": "custom_rate",
+            "reason": custom_rate[0].change_reason
+        }
+
+    # Fall back to membership type minimum rate
+    membership = get_current_membership(member_name)
+    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+
+    return {
+        "amount": membership_type.minimum_annual_fee,
+        "source": "membership_type_minimum",
+        "reason": "Standard minimum rate"
+    }
+
+def create_fee_adjustment(member_name, new_amount, reason, effective_date=None, approved_by=None):
+    """
+    Create a new fee adjustment with proper validation
+    """
+    effective_date = effective_date or today()
+
+    # Get current amount for history
+    current_amount = get_effective_dues_amount(member_name, add_days(effective_date, -1))
+
+    # Validate new amount against minimums
+    membership = get_current_membership(member_name)
+    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+
+    if new_amount < membership_type.minimum_annual_fee:
+        if reason not in ["Hardship Rate", "Student Rate"] or not approved_by:
+            frappe.throw(f"Amount below minimum €{membership_type.minimum_annual_fee}. Requires approval for hardship/student rates.")
+
+    # Create price history record
+    price_history = frappe.new_doc("Membership Fee Price History")
+    price_history.member = member_name
+    price_history.membership_type = membership.membership_type
+    price_history.effective_date = effective_date
+    price_history.amount = new_amount
+    price_history.previous_amount = current_amount["amount"]
+    price_history.change_reason = reason
+    price_history.approved_by = approved_by or frappe.session.user
+    price_history.insert()
+
+    # Update active dues schedule if exists
+    active_schedule = get_active_dues_schedule(member_name)
+    if active_schedule:
+        # Create audit trail entry
+        active_schedule.append("modification_history", {
+            "date": now_datetime(),
+            "user": frappe.session.user,
+            "change_type": "Amount Adjustment",
+            "old_value": str(current_amount["amount"]),
+            "new_value": str(new_amount),
+            "reason": f"{reason} - Effective {effective_date}"
+        })
+
+        # Update amount if effective immediately
+        if effective_date <= today():
+            active_schedule.amount = new_amount
+            active_schedule.use_custom_amount = 1
+            active_schedule.custom_amount_reason = reason
+            active_schedule.custom_amount_approved_by = approved_by
+            active_schedule.custom_amount_approved_date = today()
+
+        active_schedule.save()
+
+    return price_history
 ```
 
 ### Calculated Fields & Virtual Properties
@@ -289,7 +422,15 @@ def generate_upcoming_invoices():
                 })
                 continue
 
-            # Generate invoice
+            # Generate invoice with current effective rate
+            effective_amount = get_effective_dues_amount(schedule.member, schedule.next_invoice_date)
+
+            # Update schedule amount if rate has changed
+            if effective_amount["amount"] != schedule.amount:
+                schedule.amount = effective_amount["amount"]
+                schedule.add_comment("Info", f"Amount updated to €{effective_amount['amount']} - {effective_amount['reason']}")
+                schedule.save()
+
             invoice = schedule.generate_invoice()
             if invoice:
                 results["generated"] += 1
@@ -778,6 +919,159 @@ def dues_system_health_check():
 
 ### 5.1 Member Portal Experience
 
+#### Enhanced Contribution Fee Selection
+
+```html
+<!-- Enhanced Membership Fee Selection Form -->
+<div class="contribution-selection-card">
+    <h3>Choose Your Annual Contribution</h3>
+
+    <div class="fee-structure-info">
+        <p>Our minimum annual membership fee is €{{ membership_type.minimum_annual_fee }},
+        but many members choose to contribute more to support our mission.</p>
+    </div>
+
+    <!-- Suggested Contribution Tiers -->
+    <div class="contribution-tiers">
+        {% for tier in membership_type.suggested_contribution_tiers %}
+        <div class="tier-option" data-amount="{{ tier.annual_amount }}">
+            <div class="tier-header">
+                <h4>{{ tier.tier_name }}</h4>
+                <span class="tier-amount">€{{ tier.annual_amount }}/year</span>
+            </div>
+            <p class="tier-description">{{ tier.description }}</p>
+            <button class="btn btn-outline-primary select-tier"
+                    onclick="selectTier({{ tier.annual_amount }})">
+                Select This Amount
+            </button>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Custom Amount Selection -->
+    <div class="custom-amount-section">
+        <h4>Choose Your Own Amount</h4>
+        <div class="custom-amount-input">
+            <label>Annual Contribution (minimum €{{ membership_type.minimum_annual_fee }})</label>
+            <div class="input-group">
+                <span class="input-group-text">€</span>
+                <input type="number"
+                       id="custom_amount"
+                       class="form-control"
+                       min="{{ membership_type.minimum_annual_fee }}"
+                       step="1"
+                       placeholder="{{ membership_type.standard_annual_fee }}">
+                <span class="input-group-text">/year</span>
+            </div>
+            <small class="form-text text-muted">
+                You can adjust this amount at any time through your member portal.
+            </small>
+        </div>
+    </div>
+
+    <!-- Special Circumstances -->
+    <div class="special-circumstances">
+        <h4>Special Circumstances</h4>
+
+        <div class="circumstances-options">
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="student_rate">
+                <label class="form-check-label" for="student_rate">
+                    I am a student ({{ membership_type.student_discount_percentage }}% discount available)
+                </label>
+            </div>
+
+            <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="hardship_rate">
+                <label class="form-check-label" for="hardship_rate">
+                    I am experiencing financial hardship
+                </label>
+            </div>
+        </div>
+
+        <div id="hardship_explanation" style="display: none;">
+            <p class="text-info">
+                <i class="fa fa-info-circle"></i>
+                If you're experiencing financial difficulties, we offer reduced rates starting at
+                €{{ membership_type.hardship_minimum_amount }}. Your request will be reviewed confidentially.
+            </p>
+            <textarea class="form-control"
+                      id="hardship_reason"
+                      placeholder="Please briefly explain your circumstances (optional - this information is kept confidential)"></textarea>
+        </div>
+    </div>
+
+    <!-- Final Selection Display -->
+    <div class="selected-amount-display">
+        <h4>Selected Annual Contribution: €<span id="final_amount">{{ membership_type.standard_annual_fee }}</span></h4>
+        <p id="amount_breakdown"></p>
+    </div>
+</div>
+
+<script>
+function selectTier(amount) {
+    document.getElementById('custom_amount').value = amount;
+    updateFinalAmount(amount);
+    document.querySelectorAll('.tier-option').forEach(t => t.classList.remove('selected'));
+    event.target.closest('.tier-option').classList.add('selected');
+}
+
+function updateFinalAmount(amount) {
+    document.getElementById('final_amount').textContent = amount;
+
+    let breakdown = '';
+    if (amount > {{ membership_type.standard_annual_fee }}) {
+        breakdown = `Thank you for your generous support! Your extra contribution of €${amount - {{ membership_type.standard_annual_fee }}} helps fund our programs.`;
+    } else if (amount == {{ membership_type.minimum_annual_fee }}) {
+        breakdown = 'Minimum membership fee selected.';
+    } else {
+        breakdown = 'Standard membership contribution selected.';
+    }
+
+    document.getElementById('amount_breakdown').textContent = breakdown;
+}
+
+// Handle special circumstances
+document.getElementById('hardship_rate').addEventListener('change', function() {
+    document.getElementById('hardship_explanation').style.display =
+        this.checked ? 'block' : 'none';
+
+    if (this.checked) {
+        document.getElementById('custom_amount').value = {{ membership_type.hardship_minimum_amount }};
+        updateFinalAmount({{ membership_type.hardship_minimum_amount }});
+    }
+});
+
+document.getElementById('student_rate').addEventListener('change', function() {
+    if (this.checked) {
+        const studentAmount = Math.max(
+            {{ membership_type.minimum_annual_fee }},
+            {{ membership_type.standard_annual_fee }} * (1 - {{ membership_type.student_discount_percentage }}/100)
+        );
+        document.getElementById('custom_amount').value = studentAmount;
+        updateFinalAmount(studentAmount);
+    }
+});
+
+// Real-time validation
+document.getElementById('custom_amount').addEventListener('input', function() {
+    const amount = parseFloat(this.value);
+    const minimum = {{ membership_type.minimum_annual_fee }};
+
+    if (amount < minimum) {
+        this.setCustomValidity(`Minimum amount is €${minimum}`);
+        this.classList.add('is-invalid');
+    } else {
+        this.setCustomValidity('');
+        this.classList.remove('is-invalid');
+        updateFinalAmount(amount);
+    }
+});
+</script>
+```
+
+### 5.1 Member Portal Experience
+
 **Dashboard View:**
 
 ```html
@@ -1193,7 +1487,444 @@ def get_dues_item_accounting_details():
     }
 ```
 
-### 6.3 Communication Integration
+### 6.3 Credit Notes and Refunds System
+
+```python
+class DuesRefundManager:
+    """
+    Comprehensive refund and credit management for membership dues
+    """
+
+    def __init__(self):
+        self.refund_reasons = [
+            "Overpayment", "Duplicate Payment", "Membership Cancellation",
+            "Downgrade Adjustment", "System Error", "Goodwill Gesture",
+            "Membership Termination", "Pro-rata Refund"
+        ]
+
+    def process_refund_request(self, member_name, amount, reason, effective_date=None):
+        """
+        Process a refund request with proper workflow
+        """
+        effective_date = effective_date or today()
+
+        # Validate refund eligibility
+        eligibility = self.check_refund_eligibility(member_name, amount, reason)
+        if not eligibility["eligible"]:
+            frappe.throw(eligibility["reason"])
+
+        # Determine refund method
+        refund_method = self.determine_refund_method(member_name, amount)
+
+        if refund_method == "credit_note":
+            return self.create_credit_note(member_name, amount, reason, effective_date)
+        elif refund_method == "bank_transfer":
+            return self.process_bank_refund(member_name, amount, reason, effective_date)
+        elif refund_method == "sepa_refund":
+            return self.process_sepa_refund(member_name, amount, reason, effective_date)
+
+    def create_credit_note(self, member_name, amount, reason, effective_date):
+        """
+        Create ERPNext credit note for dues refund
+        """
+        # Get original invoice for reference
+        original_invoice = self.find_refund_source_invoice(member_name, amount)
+
+        # Create credit note
+        credit_note = frappe.new_doc("Sales Invoice")
+        credit_note.customer = member_name
+        credit_note.is_return = 1
+        credit_note.return_against = original_invoice.name if original_invoice else None
+        credit_note.posting_date = effective_date
+        credit_note.due_date = effective_date
+
+        # Add credit note item
+        credit_note.append("items", {
+            "item_code": get_membership_dues_item(),
+            "qty": -1,  # Negative quantity for credit
+            "rate": amount,
+            "amount": -amount,
+            "description": f"Membership dues refund - {reason}"
+        })
+
+        # Set accounting details
+        accounting_details = get_dues_item_accounting_details()
+        credit_note.items[0].income_account = accounting_details["income_account"]
+        credit_note.items[0].cost_center = accounting_details["cost_center"]
+
+        # Add custom fields for tracking
+        credit_note.refund_reason = reason
+        credit_note.refund_type = "Membership Dues"
+        credit_note.remarks = f"Credit note for membership dues refund - {reason}"
+
+        credit_note.insert()
+        credit_note.submit()
+
+        # Update member payment history
+        self.update_payment_history_for_refund(member_name, credit_note, amount, reason)
+
+        # Send notification
+        self.send_refund_notification(member_name, credit_note, "credit_note")
+
+        return credit_note
+
+    def process_bank_refund(self, member_name, amount, reason, effective_date):
+        """
+        Process bank transfer refund
+        """
+        member = frappe.get_doc("Member", member_name)
+
+        # Get member's bank details
+        bank_details = self.get_member_bank_details(member_name)
+        if not bank_details:
+            frappe.throw("Member bank details required for refund")
+
+        # Create payment entry for refund
+        payment_entry = frappe.new_doc("Payment Entry")
+        payment_entry.payment_type = "Pay"
+        payment_entry.party_type = "Customer"
+        payment_entry.party = member_name
+        payment_entry.paid_from = get_default_bank_account()
+        payment_entry.paid_to = get_accounts_receivable_account()
+        payment_entry.paid_amount = amount
+        payment_entry.received_amount = amount
+        payment_entry.reference_no = f"REF-{member_name}-{random_string(6)}"
+        payment_entry.reference_date = effective_date
+        payment_entry.posting_date = effective_date
+
+        # Add refund details
+        payment_entry.refund_reason = reason
+        payment_entry.remarks = f"Membership dues refund - {reason}"
+
+        payment_entry.insert()
+        payment_entry.submit()
+
+        # Create refund instruction for accounting team
+        self.create_refund_instruction(member_name, payment_entry, bank_details, reason)
+
+        # Update payment history
+        self.update_payment_history_for_refund(member_name, payment_entry, amount, reason)
+
+        # Send notification
+        self.send_refund_notification(member_name, payment_entry, "bank_transfer")
+
+        return payment_entry
+
+    def check_refund_eligibility(self, member_name, amount, reason):
+        """
+        Check if refund is eligible based on business rules
+        """
+        # Get member's payment history
+        payment_history = get_member_payment_history(member_name, months=24)
+
+        # Rule 1: Can't refund more than paid in last 24 months
+        total_paid = sum(p.amount for p in payment_history if p.payment_status == "Paid")
+        if amount > total_paid:
+            return {
+                "eligible": False,
+                "reason": f"Refund amount €{amount} exceeds total payments €{total_paid} in last 24 months"
+            }
+
+        # Rule 2: Check for existing pending refunds
+        pending_refunds = frappe.db.count("Payment Entry", {
+            "party": member_name,
+            "payment_type": "Pay",
+            "docstatus": 1,
+            "refund_reason": ["!=", ""],
+            "creation": [">", add_months(now_datetime(), -6)]
+        })
+
+        if pending_refunds > 2:
+            return {
+                "eligible": False,
+                "reason": "Member has multiple recent refunds - manual review required"
+            }
+
+        # Rule 3: Membership status check for certain reasons
+        if reason in ["Membership Cancellation", "Membership Termination"]:
+            member = frappe.get_doc("Member", member_name)
+            if member.status == "Active":
+                return {
+                    "eligible": False,
+                    "reason": "Cannot process cancellation refund for active member"
+                }
+
+        return {"eligible": True, "reason": "Eligible for refund"}
+
+    def calculate_prorata_refund(self, member_name, termination_date):
+        """
+        Calculate pro-rata refund for membership termination
+        """
+        # Get active dues schedule
+        schedule = get_active_dues_schedule(member_name)
+        if not schedule:
+            return {"amount": 0, "reason": "No active dues schedule"}
+
+        # Find last payment and coverage period
+        last_payment = frappe.db.sql("""
+            SELECT si.posting_date, si.paid_amount, si.outstanding_amount
+            FROM `tabSales Invoice` si
+            LEFT JOIN `tabMember Payment History` mph
+                ON mph.invoice = si.name AND mph.parent = %(member)s
+            WHERE si.customer = %(member)s
+            AND si.paid_amount > 0
+            AND si.docstatus = 1
+            ORDER BY si.posting_date DESC
+            LIMIT 1
+        """, {"member": member_name}, as_dict=True)
+
+        if not last_payment:
+            return {"amount": 0, "reason": "No payments found"}
+
+        # Calculate coverage period based on billing frequency
+        payment_date = getdate(last_payment[0].posting_date)
+
+        if schedule.billing_frequency == "Annual":
+            coverage_end = add_months(payment_date, 12)
+        elif schedule.billing_frequency == "Semi-Annual":
+            coverage_end = add_months(payment_date, 6)
+        elif schedule.billing_frequency == "Quarterly":
+            coverage_end = add_months(payment_date, 3)
+        elif schedule.billing_frequency == "Monthly":
+            coverage_end = add_months(payment_date, 1)
+
+        # Calculate unused period
+        termination_date = getdate(termination_date)
+        if termination_date >= coverage_end:
+            return {"amount": 0, "reason": "Termination after coverage period ends"}
+
+        total_days = (coverage_end - payment_date).days
+        unused_days = (coverage_end - termination_date).days
+
+        if unused_days <= 0:
+            return {"amount": 0, "reason": "No unused coverage period"}
+
+        refund_amount = (last_payment[0].paid_amount * unused_days) / total_days
+
+        return {
+            "amount": round(refund_amount, 2),
+            "reason": f"Pro-rata refund for {unused_days} unused days out of {total_days}",
+            "coverage_start": payment_date,
+            "coverage_end": coverage_end,
+            "termination_date": termination_date
+        }
+
+def get_member_bank_details(member_name):
+    """Get member's bank details for refund processing"""
+    # Check for active SEPA mandate first
+    sepa_mandate = frappe.db.get_value("SEPA Mandate",
+        {"party": member_name, "status": "Active"},
+        ["iban", "account_holder_name"], as_dict=True)
+
+    if sepa_mandate:
+        return {
+            "method": "SEPA",
+            "iban": sepa_mandate.iban,
+            "account_holder": sepa_mandate.account_holder_name
+        }
+
+    # Check member profile for bank details
+    member = frappe.get_doc("Member", member_name)
+    if hasattr(member, 'bank_account_iban') and member.bank_account_iban:
+        return {
+            "method": "Bank Transfer",
+            "iban": member.bank_account_iban,
+            "account_holder": f"{member.first_name} {member.last_name}"
+        }
+
+    return None
+```
+
+### 6.4 Payment Gateway Integration
+
+```python
+class PaymentGatewayIntegration:
+    """
+    Comprehensive payment gateway integration for online dues payments
+    """
+
+    def __init__(self):
+        self.supported_gateways = ["stripe", "mollie", "paypal", "adyen"]
+        self.supported_methods = ["card", "ideal", "sofort", "bancontact", "paypal"]
+
+    def create_payment_intent(self, member_name, amount, payment_method="card"):
+        """
+        Create payment intent for member dues payment
+        """
+        member = frappe.get_doc("Member", member_name)
+
+        # Get active dues schedule for context
+        schedule = get_active_dues_schedule(member_name)
+        outstanding = get_total_outstanding(member_name)
+
+        # Determine payment gateway based on settings
+        gateway = self.get_preferred_gateway(member.country)
+
+        # Create payment metadata
+        metadata = {
+            "member_id": member_name,
+            "member_email": member.email,
+            "purpose": "membership_dues",
+            "outstanding_amount": outstanding,
+            "billing_frequency": schedule.billing_frequency if schedule else "Annual"
+        }
+
+        if gateway == "stripe":
+            return self.create_stripe_payment_intent(amount, metadata, payment_method)
+        elif gateway == "mollie":
+            return self.create_mollie_payment(amount, metadata, payment_method)
+        elif gateway == "paypal":
+            return self.create_paypal_payment(amount, metadata)
+        elif gateway == "adyen":
+            return self.create_adyen_payment(amount, metadata, payment_method)
+
+    def create_stripe_payment_intent(self, amount, metadata, payment_method):
+        """Create Stripe payment intent"""
+        import stripe
+
+        stripe.api_key = get_stripe_secret_key()
+
+        intent = stripe.PaymentIntent.create(
+            amount=int(amount * 100),  # Stripe uses cents
+            currency='eur',
+            payment_method_types=[payment_method] if payment_method != "card" else ["card", "sepa_debit", "ideal"],
+            metadata=metadata,
+            description=f"Membership dues payment - {metadata['member_email']}",
+            receipt_email=metadata['member_email'],
+            setup_future_usage="off_session" if metadata.get('save_payment_method') else None
+        )
+
+        return {
+            "gateway": "stripe",
+            "payment_id": intent.id,
+            "client_secret": intent.client_secret,
+            "amount": amount,
+            "currency": "EUR",
+            "status": intent.status
+        }
+
+    def create_mollie_payment(self, amount, metadata, payment_method):
+        """Create Mollie payment"""
+        from mollie.api.client import Client
+
+        mollie_client = Client()
+        mollie_client.set_api_key(get_mollie_api_key())
+
+        payment = mollie_client.payments.create({
+            "amount": {
+                "currency": "EUR",
+                "value": f"{amount:.2f}"
+            },
+            "description": f"Membership dues - {metadata['member_email']}",
+            "redirectUrl": get_payment_success_url(),
+            "webhookUrl": get_mollie_webhook_url(),
+            "method": payment_method,
+            "metadata": metadata
+        })
+
+        return {
+            "gateway": "mollie",
+            "payment_id": payment.id,
+            "checkout_url": payment.checkout_url,
+            "amount": amount,
+            "currency": "EUR",
+            "status": payment.status
+        }
+
+    def handle_payment_webhook(self, gateway, payload):
+        """Handle payment gateway webhooks"""
+        if gateway == "stripe":
+            return self.handle_stripe_webhook(payload)
+        elif gateway == "mollie":
+            return self.handle_mollie_webhook(payload)
+        # Add other gateways...
+
+    def handle_successful_payment(self, payment_data):
+        """Process successful payment from any gateway"""
+        member_name = payment_data["metadata"]["member_id"]
+        amount = payment_data["amount"]
+        gateway_transaction_id = payment_data["payment_id"]
+
+        # Create ERPNext payment entry
+        payment_entry = frappe.new_doc("Payment Entry")
+        payment_entry.payment_type = "Receive"
+        payment_entry.party_type = "Customer"
+        payment_entry.party = member_name
+        payment_entry.paid_from = get_default_bank_account()
+        payment_entry.paid_to = get_accounts_receivable_account()
+        payment_entry.paid_amount = amount
+        payment_entry.received_amount = amount
+        payment_entry.reference_no = gateway_transaction_id
+        payment_entry.reference_date = today()
+        payment_entry.posting_date = today()
+        payment_entry.mode_of_payment = payment_data.get("payment_method", "Online Payment")
+
+        # Link to outstanding invoices
+        outstanding_invoices = get_outstanding_invoices(member_name)
+        for invoice in outstanding_invoices:
+            if payment_entry.paid_amount <= 0:
+                break
+
+            allocated_amount = min(payment_entry.paid_amount, invoice.outstanding_amount)
+
+            payment_entry.append("references", {
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice.name,
+                "allocated_amount": allocated_amount
+            })
+
+            payment_entry.paid_amount -= allocated_amount
+
+        payment_entry.insert()
+        payment_entry.submit()
+
+        # Update member payment history
+        update_member_payment_history(member_name, payment_entry)
+
+        # Send confirmation email
+        send_payment_confirmation_email(member_name, payment_entry, payment_data)
+
+        return payment_entry
+
+@frappe.whitelist(allow_guest=True)
+def create_payment_session(member_email, amount=None):
+    """
+    Public API endpoint for creating payment sessions
+    Used by member portal "Pay Now" button
+    """
+    # Validate member
+    member = frappe.db.get_value("Member", {"email": member_email}, "name")
+    if not member:
+        frappe.throw("Member not found")
+
+    # Calculate amount if not provided
+    if not amount:
+        outstanding = get_total_outstanding(member)
+        if outstanding <= 0:
+            frappe.throw("No outstanding balance")
+        amount = outstanding
+
+    # Create payment session
+    gateway_integration = PaymentGatewayIntegration()
+    payment_session = gateway_integration.create_payment_intent(member, amount)
+
+    return payment_session
+
+@frappe.whitelist(allow_guest=True, methods=["POST"])
+def payment_webhook_handler(gateway):
+    """
+    Handle payment gateway webhooks
+    Called by payment providers on payment events
+    """
+    payload = frappe.request.data
+
+    gateway_integration = PaymentGatewayIntegration()
+    result = gateway_integration.handle_payment_webhook(gateway, payload)
+
+    return {"status": "success", "processed": result}
+```
+
+### 6.5 Communication Integration
 
 ```python
 def setup_communication_templates():
@@ -1643,6 +2374,539 @@ This comprehensive plan provides:
 
 The system respects the reality that association memberships are relationships, not subscriptions, while leveraging ERPNext's strengths in accounting and document management.
 
+## 10. Data Retention and Archiving Policies
+
+### 10.1 Data Lifecycle Management
+
+```python
+class DuesDataRetentionManager:
+    """
+    Comprehensive data retention and archiving for dues system
+    """
+
+    def __init__(self):
+        self.retention_policies = {
+            "active_member_data": {"years": None},  # Keep indefinitely while active
+            "terminated_member_financial": {"years": 7},  # Legal requirement
+            "payment_history": {"years": 7},  # Tax and audit requirements
+            "dues_schedules_cancelled": {"years": 5},  # Historical reference
+            "notification_logs": {"years": 2},  # Communication history
+            "audit_trails": {"years": 10},  # Compliance and investigation
+            "refund_records": {"years": 7},  # Financial audit requirements
+            "payment_plan_history": {"years": 5},  # Member service history
+            "invoice_data": {"years": 7},  # Legal requirement
+            "webhook_logs": {"years": 1},  # Technical debugging only
+        }
+
+    def archive_terminated_member_data(self, member_name, termination_date):
+        """
+        Archive data for terminated members based on retention policies
+        """
+        termination_date = getdate(termination_date)
+        retention_deadline = add_years(termination_date, 7)
+
+        if getdate() < retention_deadline:
+            # Still within retention period
+            return self.soft_archive_member_data(member_name, termination_date)
+        else:
+            # Beyond retention period - can be purged
+            return self.hard_archive_member_data(member_name, termination_date)
+
+    def soft_archive_member_data(self, member_name, termination_date):
+        """
+        Soft archive: Mark as archived but keep data accessible
+        """
+        archive_log = {
+            "member": member_name,
+            "archive_date": today(),
+            "termination_date": termination_date,
+            "archive_type": "soft",
+            "data_preserved": []
+        }
+
+        # Mark dues schedules as archived
+        dues_schedules = frappe.get_all("Membership Dues Schedule",
+            filters={"member": member_name})
+
+        for schedule in dues_schedules:
+            schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
+            schedule_doc.archived = 1
+            schedule_doc.archive_date = today()
+            schedule_doc.archive_reason = "Member termination - soft archive"
+            schedule_doc.save()
+            archive_log["data_preserved"].append(f"Dues Schedule: {schedule.name}")
+
+        # Archive payment history (keep but mark)
+        payment_entries = frappe.get_all("Payment Entry",
+            filters={"party": member_name, "party_type": "Customer"})
+
+        for payment in payment_entries:
+            payment_doc = frappe.get_doc("Payment Entry", payment.name)
+            payment_doc.archived = 1
+            payment_doc.archive_date = today()
+            payment_doc.save()
+            archive_log["data_preserved"].append(f"Payment: {payment.name}")
+
+        # Create archive record
+        archive_record = frappe.new_doc("Member Data Archive")
+        archive_record.update(archive_log)
+        archive_record.insert()
+
+        return archive_record
+
+    def hard_archive_member_data(self, member_name, termination_date):
+        """
+        Hard archive: Move data to archive tables and remove from active system
+        """
+        # First create comprehensive export
+        export_data = self.export_member_financial_data(member_name)
+
+        # Store in archive table
+        archive_record = frappe.new_doc("Member Financial Archive")
+        archive_record.member_name = member_name
+        archive_record.termination_date = termination_date
+        archive_record.archive_date = today()
+        archive_record.archive_type = "hard"
+        archive_record.data_export = json.dumps(export_data)
+        archive_record.insert()
+
+        # Remove from active tables (after export confirmed)
+        self.purge_member_active_data(member_name, preserve_legal_minimum=True)
+
+        return archive_record
+
+    def export_member_financial_data(self, member_name):
+        """
+        Create comprehensive export of member financial data
+        """
+        export_data = {
+            "member": member_name,
+            "export_date": today(),
+            "dues_schedules": [],
+            "invoices": [],
+            "payments": [],
+            "refunds": [],
+            "payment_plans": [],
+            "audit_trail": []
+        }
+
+        # Export dues schedules
+        schedules = frappe.get_all("Membership Dues Schedule",
+            filters={"member": member_name},
+            fields=["*"])
+        export_data["dues_schedules"] = schedules
+
+        # Export invoices
+        invoices = frappe.get_all("Sales Invoice",
+            filters={"customer": member_name},
+            fields=["*"])
+        export_data["invoices"] = invoices
+
+        # Export payment entries
+        payments = frappe.get_all("Payment Entry",
+            filters={"party": member_name, "party_type": "Customer"},
+            fields=["*"])
+        export_data["payments"] = payments
+
+        # Export payment plans
+        payment_plans = frappe.get_all("Member Payment Plan",
+            filters={"member": member_name},
+            fields=["*"])
+        export_data["payment_plans"] = payment_plans
+
+        return export_data
+
+def cleanup_old_notification_logs():
+    """
+    Scheduled job to clean up old notification logs
+    Run monthly
+    """
+    cutoff_date = add_years(today(), -2)
+
+    old_logs = frappe.get_all("Email Queue",
+        filters={"creation": ["<", cutoff_date]},
+        fields=["name"])
+
+    for log in old_logs:
+        frappe.delete_doc("Email Queue", log.name, ignore_permissions=True)
+
+    return f"Cleaned up {len(old_logs)} old notification logs"
+
+def cleanup_old_webhook_logs():
+    """
+    Scheduled job to clean up old webhook logs
+    Run weekly
+    """
+    cutoff_date = add_years(today(), -1)
+
+    # Clean up old payment gateway logs
+    old_webhooks = frappe.get_all("Payment Gateway Log",
+        filters={"creation": ["<", cutoff_date]},
+        fields=["name"])
+
+    for webhook in old_webhooks:
+        frappe.delete_doc("Payment Gateway Log", webhook.name, ignore_permissions=True)
+
+    return f"Cleaned up {len(old_webhooks)} old webhook logs"
+```
+
+### 10.2 Legal Compliance and GDPR
+
+```python
+def handle_gdpr_data_request(member_name, request_type):
+    """
+    Handle GDPR data requests for member financial data
+    """
+    if request_type == "export":
+        return export_gdpr_financial_data(member_name)
+    elif request_type == "delete":
+        return process_gdpr_deletion_request(member_name)
+    elif request_type == "rectification":
+        return generate_gdpr_rectification_form(member_name)
+
+def export_gdpr_financial_data(member_name):
+    """
+    Export all financial data for GDPR compliance
+    """
+    retention_manager = DuesDataRetentionManager()
+    financial_data = retention_manager.export_member_financial_data(member_name)
+
+    # Add GDPR-specific metadata
+    gdpr_export = {
+        "gdpr_request_date": today(),
+        "member_name": member_name,
+        "data_controller": "Verenigingen Organization",
+        "financial_data": financial_data,
+        "retention_policy": retention_manager.retention_policies,
+        "legal_basis": "Membership contract and legitimate business interest"
+    }
+
+    return gdpr_export
+
+def process_gdpr_deletion_request(member_name):
+    """
+    Process right to be forgotten request (with legal constraints)
+    """
+    # Check if member has legal retention requirements
+    member = frappe.get_doc("Member", member_name)
+
+    if member.status == "Active":
+        return {
+            "status": "denied",
+            "reason": "Cannot delete data for active member"
+        }
+
+    # Check retention requirements
+    termination_date = member.termination_date
+    if termination_date and getdate() < add_years(getdate(termination_date), 7):
+        return {
+            "status": "partial",
+            "reason": "Financial data must be retained for 7 years per legal requirements",
+            "actions_taken": "Personal data anonymized, financial data retained"
+        }
+
+    # Can proceed with full deletion
+    retention_manager = DuesDataRetentionManager()
+    result = retention_manager.hard_archive_member_data(member_name, termination_date)
+
+    return {
+        "status": "completed",
+        "archive_record": result.name,
+        "deletion_date": today()
+    }
+```
+
+## 11. Deceased Member Handling
+
+### 11.1 Deceased Member Detection and Processing
+
+```python
+class DeceasedMemberProcessor:
+    """
+    Handle deceased member detection and appropriate actions
+    """
+
+    def mark_member_deceased(self, member_name, date_of_death, source="Manual"):
+        """
+        Mark member as deceased and trigger appropriate workflows
+        """
+        member = frappe.get_doc("Member", member_name)
+
+        # Validate date of death
+        date_of_death = getdate(date_of_death)
+        if date_of_death > today():
+            frappe.throw("Date of death cannot be in the future")
+
+        if member.birth_date and date_of_death < getdate(member.birth_date):
+            frappe.throw("Date of death cannot be before birth date")
+
+        # Update member record
+        member.status = "Deceased"
+        member.date_of_death = date_of_death
+        member.deceased_notification_source = source
+        member.deceased_processed_date = today()
+
+        # Add to modification history
+        member.append("status_history", {
+            "date": today(),
+            "previous_status": member.status,
+            "new_status": "Deceased",
+            "reason": f"Member deceased on {date_of_death}",
+            "source": source
+        })
+
+        member.save()
+
+        # Trigger deceased member workflow
+        self.process_deceased_member_workflow(member_name, date_of_death)
+
+        return member
+
+    def process_deceased_member_workflow(self, member_name, date_of_death):
+        """
+        Execute complete deceased member workflow
+        """
+        workflow_log = {
+            "member": member_name,
+            "date_of_death": date_of_death,
+            "processing_date": today(),
+            "actions_taken": []
+        }
+
+        # 1. Cancel all active dues schedules
+        self.cancel_dues_schedules(member_name, date_of_death, workflow_log)
+
+        # 2. Handle outstanding invoices
+        self.handle_outstanding_invoices(member_name, date_of_death, workflow_log)
+
+        # 3. Cancel SEPA mandates
+        self.cancel_sepa_mandates(member_name, workflow_log)
+
+        # 4. Cancel volunteer assignments
+        self.handle_volunteer_assignments(member_name, workflow_log)
+
+        # 5. Notify relevant staff
+        self.notify_staff_deceased_member(member_name, workflow_log)
+
+        # 6. Archive communications
+        self.archive_member_communications(member_name, workflow_log)
+
+        # Create workflow record
+        workflow_record = frappe.new_doc("Deceased Member Workflow")
+        workflow_record.update(workflow_log)
+        workflow_record.insert()
+
+        return workflow_record
+
+    def cancel_dues_schedules(self, member_name, date_of_death, workflow_log):
+        """
+        Cancel all active dues schedules for deceased member
+        """
+        active_schedules = frappe.get_all("Membership Dues Schedule",
+            filters={"member": member_name, "status": "Active"})
+
+        for schedule in active_schedules:
+            schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
+            schedule_doc.status = "Cancelled"
+            schedule_doc.cancellation_date = today()
+            schedule_doc.cancellation_reason = f"Member deceased on {date_of_death}"
+            schedule_doc.auto_generate = 0  # Stop automatic invoice generation
+
+            # Add to modification history
+            schedule_doc.append("modification_history", {
+                "date": now_datetime(),
+                "user": frappe.session.user,
+                "change_type": "Cancelled - Deceased",
+                "old_value": "Active",
+                "new_value": "Cancelled",
+                "reason": f"Member deceased on {date_of_death}"
+            })
+
+            schedule_doc.save()
+            workflow_log["actions_taken"].append(f"Cancelled dues schedule: {schedule.name}")
+
+def is_member_deceased(member_name):
+    """
+    Check if member is marked as deceased
+    Used in scheduled jobs to prevent actions
+    """
+    member_status = frappe.db.get_value("Member", member_name, "status")
+    return member_status == "Deceased"
+```
+
+## 12. Enhanced Testing Framework
+
+### 12.1 Updated EnhancedTestCase for Dues System
+
+```python
+# Addition to verenigingen/tests/fixtures/enhanced_test_factory.py
+
+class EnhancedDuesTestFactory(EnhancedTestDataFactory):
+    """
+    Extended test factory specifically for dues system testing
+    """
+
+    def __init__(self, seed: int = 12345, use_faker: bool = True):
+        super().__init__(seed, use_faker)
+        self.dues_scenarios = {
+            "standard": {"amount": 50.0, "frequency": "Annual"},
+            "student": {"amount": 25.0, "frequency": "Annual"},
+            "hardship": {"amount": 15.0, "frequency": "Annual"},
+            "supporter": {"amount": 100.0, "frequency": "Annual"},
+            "patron": {"amount": 250.0, "frequency": "Annual"},
+            "monthly": {"amount": 5.0, "frequency": "Monthly"},
+            "quarterly": {"amount": 15.0, "frequency": "Quarterly"}
+        }
+
+def create_comprehensive_test_data(num_members: int = 500):
+    """
+    Create comprehensive test dataset with varied dues scenarios
+    """
+    factory = EnhancedDuesTestFactory(seed=42, use_faker=True)
+
+    # Create membership types
+    membership_types = []
+    for type_name in ["Standard", "Student", "Senior", "International"]:
+        mt = factory.create_membership_type_with_tiers(
+            f"Test {type_name} Membership",
+            minimum_annual_fee=20.0 if type_name == "Student" else 30.0,
+            standard_annual_fee=40.0 if type_name == "Student" else 60.0
+        )
+        membership_types.append(mt)
+
+    # Create members with varied scenarios
+    created_members = []
+    scenarios = ["standard", "student", "hardship", "supporter", "patron", "monthly", "quarterly"]
+
+    for i in range(num_members):
+        # Vary member characteristics
+        age_days = random.randint(6570, 25550)  # 18-70 years
+        birth_date = add_days(today(), -age_days)
+
+        # Select scenario based on member characteristics
+        if age_days < 9125:  # Under 25 - more likely student
+            scenario = random.choices(
+                ["student", "hardship", "standard"],
+                weights=[0.6, 0.2, 0.2]
+            )[0]
+        elif age_days > 20075:  # Over 55 - more likely supporter
+            scenario = random.choices(
+                ["standard", "supporter", "patron"],
+                weights=[0.5, 0.3, 0.2]
+            )[0]
+        else:  # Middle age - varied
+            scenario = random.choice(scenarios)
+
+        # Create member
+        member = factory.create_member(
+            first_name=f"Test{i+1:03d}",
+            last_name=f"Member",
+            birth_date=birth_date,
+            email=f"test{i+1:03d}@example.com"
+        )
+
+        # Create dues schedule
+        schedule = factory.create_dues_schedule(member.name, scenario)
+
+        created_members.append({
+            "member": member,
+            "schedule": schedule,
+            "scenario": scenario
+        })
+
+    return {
+        "members": created_members,
+        "membership_types": membership_types,
+        "total_created": num_members,
+        "scenarios_used": scenarios
+    }
+
+class DuesSystemTestCase(EnhancedTestCase):
+    """
+    Enhanced test case specifically for dues system testing
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.dues_factory = EnhancedDuesTestFactory(seed=12345, use_faker=True)
+
+    def create_test_member_with_dues(self, scenario="standard", **member_kwargs):
+        """Create member with dues schedule in one call"""
+        member = self.dues_factory.create_member(**member_kwargs)
+        schedule = self.dues_factory.create_dues_schedule(member.name, scenario)
+
+        return {
+            "member": member,
+            "schedule": schedule,
+            "membership": self.dues_factory.get_or_create_membership(member.name)
+        }
+
+    def assertDuesScheduleValid(self, schedule):
+        """Assert dues schedule meets business rules"""
+        self.assertIsNotNone(schedule.member)
+        self.assertIsNotNone(schedule.amount)
+        self.assertGreater(schedule.amount, 0)
+        self.assertIn(schedule.billing_frequency,
+                     ["Annual", "Semi-Annual", "Quarterly", "Monthly", "Custom"])
+```
+
+## 13. Internationalization and Localization
+
+### 13.1 Multi-Language Support
+
+```python
+def get_localized_dues_templates(language="en"):
+    """
+    Get localized email templates for dues notifications
+    """
+    templates = {
+        "en": {
+            "upcoming_dues": {
+                "subject": "Your membership dues will be due soon",
+                "greeting": "Dear {first_name}",
+                "body": "Your annual membership dues of €{amount} will be due on {due_date}."
+            },
+            "payment_confirmation": {
+                "subject": "Payment confirmation - Thank you",
+                "greeting": "Dear {first_name}",
+                "body": "We have received your payment of €{amount}. Thank you for your continued support!"
+            }
+        },
+        "nl": {
+            "upcoming_dues": {
+                "subject": "Uw lidmaatschapsbijdrage vervalt binnenkort",
+                "greeting": "Beste {first_name}",
+                "body": "Uw jaarlijkse lidmaatschapsbijdrage van €{amount} vervalt op {due_date}."
+            },
+            "payment_confirmation": {
+                "subject": "Betalingsbevestiging - Dank u wel",
+                "greeting": "Beste {first_name}",
+                "body": "Wij hebben uw betaling van €{amount} ontvangen. Dank u voor uw voortdurende steun!"
+            }
+        }
+    }
+
+    return templates.get(language, templates["en"])
+
+def get_localized_currency_format(amount, country="NL"):
+    """
+    Format currency amounts based on locale
+    """
+    currency_formats = {
+        "NL": {"symbol": "€", "position": "before", "separator": ",", "thousands": "."},
+        "DE": {"symbol": "€", "position": "after", "separator": ",", "thousands": "."},
+        "FR": {"symbol": "€", "position": "after", "separator": ",", "thousands": " "},
+        "US": {"symbol": "$", "position": "before", "separator": ".", "thousands": ","}
+    }
+
+    fmt = currency_formats.get(country, currency_formats["NL"])
+
+    if fmt["position"] == "before":
+        return f"{fmt['symbol']}{amount:,.2f}".replace(",", fmt["thousands"]).replace(".", fmt["separator"])
+    else:
+        return f"{amount:,.2f}{fmt['symbol']}".replace(",", fmt["thousands"]).replace(".", fmt["separator"])
+```
+
 ---
 
 ## 9. Access Control & Permissions
@@ -1978,26 +3242,83 @@ def get_my_financial_details():
 #### Enhanced Report Permissions
 
 ```python
-def apply_report_permissions(report_name, data, user):
+def get_report_query_conditions(report_name, user):
     """
-    Filter report data based on user permissions
+    Generate SQL WHERE conditions based on user permissions
+    Apply filtering at database level for performance
     """
     access_level = get_financial_access_level(user)
 
     if report_name == "Overdue Member Payments":
         if access_level == 'full':
             # No filtering needed
-            return data
+            return ""
 
         elif access_level == 'chapter':
-            # Filter to accessible chapters
+            # Get accessible chapters
             access_info = get_chapter_board_access(get_current_member())
+            if not access_info['chapters']:
+                return " AND 1=0"  # No access
+
+            chapter_list = "', '".join(access_info['chapters'])
+            return f"""
+                AND si.customer IN (
+                    SELECT DISTINCT m.name
+                    FROM `tabMember` m
+                    INNER JOIN `tabChapter Member` cm ON cm.member = m.name
+                    WHERE cm.parent IN ('{chapter_list}')
+                    AND cm.parenttype = 'Chapter'
+                )
+            """
+
+        elif access_level == 'limited':
+            # Limited access - same chapter filter but will remove amounts in formatter
+            access_info = get_chapter_board_access(get_current_member())
+            if not access_info['chapters']:
+                return " AND 1=0"  # No access
+
+            chapter_list = "', '".join(access_info['chapters'])
+            return f"""
+                AND si.customer IN (
+                    SELECT DISTINCT m.name
+                    FROM `tabMember` m
+                    INNER JOIN `tabChapter Member` cm ON cm.member = m.name
+                    WHERE cm.parent IN ('{chapter_list}')
+                    AND cm.parenttype = 'Chapter'
+                )
+            """
+        else:
+            # No access
+            return " AND 1=0"
+
+    return ""
+
+def apply_report_permissions(report_name, data, user):
+    """
+    Post-process report data for permissions (now only used for amount masking)
+    Main filtering moved to database level for performance
+    """
+    access_level = get_financial_access_level(user)
+
+    if report_name == "Overdue Member Payments":
+        if access_level == 'full' or access_level == 'chapter':
+            # Data already filtered at query level, no post-processing needed
+            return data
+
+        elif access_level == 'limited':
+            # Remove financial amounts for limited access
             filtered_data = []
 
             for row in data:
-                member_chapters = get_member_chapters(row['member_name'])
-                if any(ch in access_info['chapters'] for ch in member_chapters):
-                    filtered_data.append(row)
+                summary_row = {
+                    'member_name': row['member_name'],
+                    'member_full_name': row['member_full_name'],
+                    'chapter': row['chapter'],
+                    'status_indicator': row['status_indicator'],
+                    'days_overdue': row['days_overdue']
+                    # Exclude financial amounts
+                }
+                filtered_data.append(summary_row)
 
             return filtered_data
 

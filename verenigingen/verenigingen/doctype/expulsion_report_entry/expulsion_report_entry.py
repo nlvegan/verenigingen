@@ -245,7 +245,9 @@ def get_expulsion_statistics(filters=None):
             values["expulsion_type"] = filters["expulsion_type"]
 
     if conditions:
-        "WHERE " + " AND ".join(conditions)
+        where_clause = "WHERE " + " AND ".join(conditions)
+    else:
+        where_clause = ""
 
     # Get basic counts
     query = f"""
@@ -326,7 +328,9 @@ def generate_expulsion_governance_report(date_range=None, chapter=None):
         values["chapter"] = filters["chapter"]
 
     if conditions:
-        "WHERE " + " AND ".join(conditions)
+        where_clause = "WHERE " + " AND ".join(conditions)
+    else:
+        where_clause = ""
 
     detailed_query = f"""
         SELECT

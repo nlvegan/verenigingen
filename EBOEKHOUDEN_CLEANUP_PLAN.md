@@ -10,72 +10,102 @@ Based on comprehensive analysis of **280+ eBoekhouden-related files** (190 Pytho
 - Create clear API boundaries (reduce from 77 to ~20 endpoints)
 - Improve maintainability and testing
 
-## Current Status (December 2024)
+## Current Status (July 2025)
 - **Total Files**: 280+ (190 Python, 90+ JS/HTML/JSON/MD)
 - **Active Code**: ~75 critical files forming core functionality
-- **Missing Functions**: 3 API functions still missing, causing UI errors
+- **✅ Missing Functions**: All 7 missing API functions have been restored/created
+- **✅ F-String Issues**: Fixed 35+ f-string prefix issues app-wide
 - **API Status**: SOAP API still primary despite REST being available
 
-## Phase 0: Critical Fixes (URGENT)
+## Phase 0: Critical Fixes ✅ **COMPLETED**
 
-### 0.1 Fix Missing API Functions
-**Impact**: High - UI buttons currently broken
-**Timeline**: Immediate
+### 0.1 Fix Missing API Functions ✅ **COMPLETED**
+**Impact**: High - UI buttons were broken
+**Timeline**: Completed
 
-**Missing Functions to Implement**:
+**✅ Restored/Created Functions**:
 ```python
-# In e_boekhouden_migration.py
+# ✅ Restored in e_boekhouden_migration.py
 @frappe.whitelist()
 def update_account_type_mapping():
     """Update account type mappings for imported accounts"""
-    # Implementation needed - exists in backup at line 6361
+    # ✅ RESTORED from backup
 
-# In verenigingen/api/ (new file needed)
+# ✅ Created in verenigingen/api/test_eboekhouden_connection.py
 @frappe.whitelist()
 def test_eboekhouden_connection():
     """Test eBoekhouden API connection"""
-    # Implementation needed
+    # ✅ CREATED - Working endpoint
 
-# In vereinigen/utils/test_rest_migration.py (new file needed)
+# ✅ Created in verenigingen/utils/test_rest_migration.py
 @frappe.whitelist()
 def test_rest_mutation_fetch():
     """Test REST API mutation fetching"""
-    # Implementation needed
+    # ✅ CREATED - Working endpoint
 ```
 
-### 0.2 Fix JavaScript Typo
+### 0.2 Fix JavaScript Typo ✅ **COMPLETED**
 **File**: `e_boekhouden_migration.js` line 1639
-**Fix**: Change `vereiningen.api.test_eboekhouden_connection` to `verenigingen.api.test_eboekhouden_connection`
+**Fix**: Changed `vereiningen.api.test_eboekhouden_connection` to `verenigingen.api.test_eboekhouden_connection`
+
+### 0.3 Fix F-String Issues ✅ **COMPLETED**
+**Impact**: High - String formatting failures throughout app
+**Fixed**: 35+ f-string prefix issues across multiple files including:
+- SOAP API XML envelopes (5 instances)
+- Email notification templates (6 instances)
+- Application review notifications (2 instances)
+- Payment processing messages (1 instance)
+- And 20+ more files across the entire app
 
 ## Phase 1: Immediate Safe Cleanup (Low Risk)
 
-### 1.1 Remove Orphaned Debug Files (28 files)
+### 1.1 Remove Orphaned Debug Files (35+ files)
 **Impact**: None - these are not used in production
 
 **Files to Remove** (confirmed inactive from active code analysis):
 ```
-# One-off mutation fixes
-/utils/debug/debug_mutation_1345_direct.py
-/utils/debug/delete_latest_je_1345.py
-/utils/debug/test_mutation_1345_reimport.py
+# Opening Balance Fixes (One-off patches)
+/utils/debug/fix_opening_balance_approach.py       # ❌ INACTIVE - One-off fix
+/utils/debug/fix_opening_balance_logic.py          # ❌ INACTIVE - One-off fix
+/utils/debug/fix_opening_balance_and_mapping.py    # ❌ INACTIVE - Patch script (find/replace)
+/utils/debug/fix_opening_balance_issues.py         # ❌ INACTIVE - One-off fix
+/utils/debug/implement_proper_opening_balance.py   # ❌ INACTIVE - One-off fix
+/utils/debug/revert_to_simple_opening_balance.py   # ❌ INACTIVE - One-off fix
 
-# Redundant balance fixes
-/utils/debug/fix_opening_balance_approach.py
-/utils/debug/fix_opening_balance_logic.py
-/utils/debug/fix_9999_as_equity.py
-/utils/debug/fix_balancing_account.py
+# Account Fixes (One-off patches)
+/utils/debug/fix_balancing_account.py              # ❌ INACTIVE - One-off fix
+/utils/debug/fix_9999_as_equity.py                 # ❌ INACTIVE - One-off fix
+/utils/debug/fix_company_expense_account.py        # ❌ INACTIVE - One-off fix
+/utils/debug/fix_verrekeningen_account.py          # ❌ INACTIVE - One-off fix
+/utils/debug/check_and_fix_9999_account.py         # ❌ INACTIVE - One-off fix
 
-# Memorial booking test variants
-/utils/debug/test_memorial_fix.py
-/utils/debug/test_memorial_signed_amounts.py
-/utils/debug/test_memorial_specific.py
-/utils/debug/test_memorial_simple.py
-/utils/debug/test_memorial_with_fixes.py
+# Mutation-Specific Fixes (One-off patches)
+/utils/debug/debug_mutation_1345_direct.py         # ❌ INACTIVE - Specific mutation
+/utils/debug/delete_latest_je_1345.py              # ❌ INACTIVE - Specific mutation
+/utils/debug/test_mutation_1345_reimport.py        # ❌ INACTIVE - Specific mutation
+/utils/debug/check_mutation_1345_status.py         # ❌ INACTIVE - Specific mutation
+/utils/debug/trigger_mutation_1345_reimport.py     # ❌ INACTIVE - Specific mutation
+/utils/debug/verify_mutation_1345_fix.py           # ❌ INACTIVE - Specific mutation
 
-# Other orphaned debug files
-/utils/debug/test_non_opening_mutations.py
-/utils/debug/analyze_mutation_types.py
-# ... (17 more similar one-off debug files)
+# Memorial Booking Tests (One-off patches)
+/utils/debug/test_memorial_fix.py                  # ❌ INACTIVE - One-off test
+/utils/debug/test_memorial_signed_amounts.py       # ❌ INACTIVE - One-off test
+/utils/debug/test_memorial_specific.py             # ❌ INACTIVE - One-off test
+/utils/debug/debug_memorial_processing.py          # ❌ INACTIVE - One-off test
+
+# Payment Logic Fixes (One-off patches)
+/utils/debug/fix_payment_vs_journal_logic.py       # ❌ INACTIVE - One-off fix
+/utils/debug/fix_duplicate_and_logging.py          # ❌ INACTIVE - One-off fix
+/utils/debug/debug_duplicate.py                    # ❌ INACTIVE - One-off fix
+
+# Stock Account Fixes (One-off patches)
+/utils/debug/fix_stock_account_balancing.py        # ❌ INACTIVE - One-off fix
+/utils/debug/check_pinv_stock_account.py           # ❌ INACTIVE - One-off fix
+
+# Other Debug Files
+/utils/debug/test_non_opening_mutations.py         # ❌ INACTIVE - One-off test
+/utils/debug/analyze_mutation_types.py             # ❌ INACTIVE - One-off analysis
+... (additional mutation-specific and account-specific fixes)
 ```
 
 ### 1.2 Remove Root Directory Test Scripts (5 files)
@@ -140,7 +170,7 @@ console_test_quality.py
 /archived_unused/api_backups/20250710_222750/chapter_dashboard_api.py
 ```
 
-**Total Phase 1 Removal**: ~50 files (safe to remove)
+**Total Phase 1 Removal**: ~60 files (safe to remove)
 
 ## Phase 2: API Transition (High Risk)
 
@@ -345,14 +375,14 @@ party_enrichment_queue/         # Party enrichment queue
 
 ### File Count Reduction
 - **Before**: 280+ total files (190 Python files)
-- **After Phase 0**: Same count but functional UI
-- **After Phase 1**: ~240 files (50 files removed)
+- **After Phase 0**: Same count but functional UI and fixed f-strings
+- **After Phase 1**: ~220 files (60 files removed)
 - **After Phase 2**: Depends on SOAP transition timeline
 - **Final Target**: ~200 files (30% reduction)
 
 ### Functionality Metrics
-- **Before**: 3 broken UI functions, mixed SOAP/REST
-- **After Phase 0**: All UI functions working
+- **Before**: 7 broken UI functions, mixed SOAP/REST, 35+ f-string issues
+- **After Phase 0**: All UI functions working, all f-strings fixed
 - **After Full Implementation**: 100% REST API, no SOAP
 
 ### Code Quality Metrics
@@ -363,14 +393,15 @@ party_enrichment_queue/         # Party enrichment queue
 
 ## Implementation Status Tracking
 
-### Phase 0: Critical Fixes ⏳
-- [ ] Fix update_account_type_mapping() function
-- [ ] Create test_eboekhouden_connection() API endpoint
-- [ ] Create test_rest_mutation_fetch() function
-- [ ] Fix JavaScript typo 'verenigingen' → 'verenigingen'
+### Phase 0: Critical Fixes ✅ **COMPLETED**
+- [x] Fix update_account_type_mapping() function
+- [x] Create test_eboekhouden_connection() API endpoint
+- [x] Create test_rest_mutation_fetch() function
+- [x] Fix JavaScript typo 'verenigingen' → 'verenigingen'
+- [x] Fix 35+ f-string prefix issues app-wide
 
 ### Phase 1: Safe Cleanup ⏳
-- [ ] Remove 28 orphaned debug files
+- [ ] Remove 35+ orphaned debug files
 - [ ] Remove 5 root directory test scripts
 - [ ] Remove 15+ one-off utility scripts
 - [ ] Remove 1 archived file

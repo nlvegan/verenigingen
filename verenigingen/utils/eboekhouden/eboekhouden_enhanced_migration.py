@@ -19,6 +19,17 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, now_datetime
 
+from verenigingen.utils.migration.migration_audit_trail import AuditedMigrationOperation, MigrationAuditTrail
+from verenigingen.utils.migration.migration_date_chunking import DateRangeChunker, process_with_date_chunks
+from verenigingen.utils.migration.migration_dry_run import DryRunSimulator
+from verenigingen.utils.migration.migration_duplicate_detection import DuplicateDetector
+
+# Import all enhancement modules
+from verenigingen.utils.migration.migration_error_recovery import MigrationErrorRecovery, with_retry
+from verenigingen.utils.migration.migration_performance import BatchProcessor, PerformanceOptimizer
+from verenigingen.utils.migration.migration_pre_validation import PreImportValidator
+from verenigingen.utils.migration.migration_transaction_safety import MigrationTransaction
+
 from .eboekhouden_payment_mapping import get_payment_account_mappings
 from .eboekhouden_rest_full_migration import start_full_rest_import
 from .eboekhouden_soap_migration import (
@@ -28,16 +39,6 @@ from .eboekhouden_soap_migration import (
     get_meaningful_customer_name,
     get_meaningful_supplier_name,
 )
-from .migration_audit_trail import AuditedMigrationOperation, MigrationAuditTrail
-from .migration_date_chunking import DateRangeChunker, process_with_date_chunks
-from .migration_dry_run import DryRunSimulator
-from .migration_duplicate_detection import DuplicateDetector
-
-# Import all enhancement modules
-from .migration_error_recovery import MigrationErrorRecovery, with_retry
-from .migration_performance import BatchProcessor, PerformanceOptimizer
-from .migration_pre_validation import PreImportValidator
-from .migration_transaction_safety import MigrationTransaction
 
 
 class EnhancedEBoekhoudenMigration:
@@ -98,6 +99,20 @@ class EnhancedEBoekhoudenMigration:
 
         return cost_center
 
+    def _update_progress(self, operation, percentage):
+        """Update migration progress in the document"""
+        try:
+            self.migration_doc.db_set(
+                {
+                    "current_operation": operation,
+                    "progress_percentage": percentage,
+                }
+            )
+            frappe.db.commit()
+        except Exception as e:
+            # Don't fail migration if progress update fails
+            frappe.log_error(f"Failed to update progress: {str(e)}", "Migration Progress")
+
     def execute_migration(self):
         """Execute the enhanced migration"""
         self.audit_trail.log_event(
@@ -114,6 +129,7 @@ class EnhancedEBoekhoudenMigration:
         try:
             # Step 1: Pre-migration validation
             if not self.dry_run:
+                self._update_progress("Running pre-migration validation...", 5)
                 validation_result = self._run_pre_validation()
                 if not validation_result["can_proceed"]:
                     return {
@@ -124,25 +140,30 @@ class EnhancedEBoekhoudenMigration:
 
             # Step 2: Create pre-migration backup
             if not self.dry_run:
+                self._update_progress("Creating pre-migration backup...", 10)
                 with AuditedMigrationOperation(self.audit_trail, "create_backup"):
                     backup_path = self.transaction_manager.create_pre_migration_backup()
                     self.audit_trail.log_event("backup_created", {"path": backup_path})
 
             # Step 3: Fix account types
+            self._update_progress("Fixing account types for migration...", 15)
             with AuditedMigrationOperation(self.audit_trail, "fix_account_types"):
                 fix_account_types_for_migration(self.company)
 
             # Step 4: Process data using REST API (unlimited transactions, not SOAP's 500 limit)
+            self._update_progress("Starting transaction import via REST API...", 20)
             with AuditedMigrationOperation(self.audit_trail, "rest_api_migration"):
                 result = start_full_rest_import(self.migration_doc.name)
 
             # Step 5: Verify data integrity
             if not self.dry_run:
+                self._update_progress("Verifying data integrity...", 90)
                 with AuditedMigrationOperation(self.audit_trail, "verify_integrity"):
                     integrity_report = self.transaction_manager.verify_data_integrity()
                     result["integrity_report"] = integrity_report
 
             # Step 6: Generate audit summary
+            self._update_progress("Generating audit summary...", 95)
             audit_summary = self.audit_trail.generate_summary_report()
             result["audit_summary"] = audit_summary
 
@@ -151,6 +172,8 @@ class EnhancedEBoekhoudenMigration:
                 dry_run_report = self.dry_run_simulator.generate_dry_run_report()
                 result["dry_run_report"] = dry_run_report
 
+            # Step 8: Migration completed
+            self._update_progress("Migration completed successfully!", 100)
             return result
 
         except Exception as e:
@@ -159,6 +182,9 @@ class EnhancedEBoekhoudenMigration:
                 {"error": str(e), "traceback": frappe.get_traceback()},
                 severity="critical",
             )
+
+            # Update progress to show failure
+            self._update_progress(f"Migration failed: {str(e)}", 0)
 
             # Attempt rollback on failure
             if not self.dry_run:
@@ -503,7 +529,7 @@ class EnhancedEBoekhoudenMigration:
 @frappe.whitelist()
 def execute_enhanced_migration(migration_name):
     """Execute the enhanced migration"""
-    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     settings = frappe.get_single("E-Boekhouden Settings")
 
     # Check if enhanced mode is enabled
@@ -521,10 +547,10 @@ def execute_enhanced_migration(migration_name):
 @frappe.whitelist()
 def run_migration_dry_run(migration_name):
     """Run migration in dry-run mode"""
-    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     migration_doc.dry_run = True
 
-    settings = frappe.get_single("E Boekhouden Settings")
+    settings = frappe.get_single("E-Boekhouden Settings")
 
     enhanced_migration = EnhancedEBoekhoudenMigration(migration_doc, settings)
     return enhanced_migration.execute_migration()
@@ -533,8 +559,8 @@ def run_migration_dry_run(migration_name):
 @frappe.whitelist()
 def validate_migration_data(migration_name):
     """Validate migration data before import"""
-    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-    settings = frappe.get_single("E Boekhouden Settings")
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
+    settings = frappe.get_single("E-Boekhouden Settings")
 
     enhanced_migration = EnhancedEBoekhoudenMigration(migration_doc, settings)
     return enhanced_migration._run_pre_validation()

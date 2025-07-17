@@ -70,7 +70,9 @@ def get_data(filters):
         values["member"] = filters["member"]
 
     if conditions:
-        "WHERE " + " AND ".join(conditions)
+        where_clause = "WHERE " + " AND ".join(conditions)
+    else:
+        where_clause = ""
 
     # Main query to get termination requests
     query = f"""

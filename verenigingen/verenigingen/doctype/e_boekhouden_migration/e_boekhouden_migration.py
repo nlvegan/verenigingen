@@ -24,7 +24,41 @@ class EBoekhoudenMigration(Document):
         """Start migration process when document is submitted"""
         frappe.logger().debug(f"Migration submitted: {self.migration_name}, Status: {self.migration_status}")
         if self.migration_status == "Draft":
-            self.start_migration()
+            # Run migration in background to avoid timeouts
+            self.start_migration_background()
+
+    def start_migration_background(self):
+        """Start migration process in background to avoid timeouts"""
+        try:
+            # Set initial status
+            self.db_set(
+                {
+                    "migration_status": "In Progress",
+                    "start_time": frappe.utils.now_datetime(),
+                    "current_operation": "Queuing migration for background processing...",
+                    "progress_percentage": 0,
+                }
+            )
+            frappe.db.commit()
+
+            # Run migration in background with appropriate timeout
+            frappe.enqueue(
+                "verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.run_migration_background",
+                migration_name=self.name,
+                queue="long",
+                timeout=7200,  # 2 hours timeout
+            )
+
+        except Exception as e:
+            self.db_set(
+                {
+                    "migration_status": "Failed",
+                    "error_message": str(e),
+                    "end_time": frappe.utils.now_datetime(),
+                }
+            )
+            frappe.db.commit()
+            raise
 
     def start_migration(self):
         """Start the migration process"""
@@ -3035,19 +3069,6 @@ def start_migration(migration_name, setup_only=False):
         return {"success": False, "error": str(e)}
 
 
-def run_migration_background(migration_name, setup_only=False):
-    """Run migration in background"""
-    try:
-        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
-        migration.start_migration()
-    except Exception as e:
-        frappe.log_error(f"Background migration failed: {str(e)}")
-        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
-        migration.migration_status = "Failed"
-        migration.error_log = str(e)
-        migration.save()
-
-
 @frappe.whitelist()
 def cleanup_chart_of_accounts(company, delete_all_accounts=False):
     """Delegated to cleanup_utils for better organization"""
@@ -3406,4 +3427,26 @@ def update_account_type_mapping(account_name, new_account_type, company):
 
     except Exception as e:
         frappe.log_error(f"Error updating account type: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def run_migration_background(migration_name):
+    """Background function to run migration without timeout issues"""
+    try:
+        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        migration.start_migration()
+        return {"success": True}
+    except Exception as e:
+        frappe.log_error(f"Error in background migration: {str(e)}")
+        # Update migration status
+        migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+        migration.db_set(
+            {
+                "migration_status": "Failed",
+                "error_message": str(e),
+                "end_time": frappe.utils.now_datetime(),
+            }
+        )
+        frappe.db.commit()
         return {"success": False, "error": str(e)}

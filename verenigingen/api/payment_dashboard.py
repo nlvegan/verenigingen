@@ -158,6 +158,12 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         start=offset,
     )
 
+    # Pagination support
+    limit = frappe.utils.cint(kwargs.get("limit", 100))
+    offset = frappe.utils.cint(kwargs.get("offset", 0))
+    if limit > 1000:
+        limit = 1000  # Max limit for performance
+
     # Get sales invoices with membership info through subscription
     invoice_conditions = "si.customer = %(customer)s AND si.docstatus = 1"
     params = {"customer": member_doc.customer}
@@ -169,12 +175,6 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
 
     invoices = frappe.db.sql(
         """
-
-    # Pagination support
-    limit = frappe.utils.cint(kwargs.get('limit', 100))
-    offset = frappe.utils.cint(kwargs.get('offset', 0))
-    if limit > 1000:
-        limit = 1000  # Max limit for performance
         SELECT
             si.name,
             si.posting_date as date,
@@ -187,10 +187,11 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         LEFT JOIN `tabMembership` m ON m.subscription = sub.name
         WHERE {conditions}
         ORDER BY si.posting_date DESC
+        LIMIT %(limit)s OFFSET %(offset)s
     """.format(
             conditions=invoice_conditions
         ),
-        params,
+        {**params, "limit": limit, "offset": offset},
         as_dict=True,
     )
 

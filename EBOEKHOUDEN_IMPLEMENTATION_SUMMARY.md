@@ -59,20 +59,21 @@ def validate_migration_readiness()         # eboekhouden_migration_redesign.py
 def analyze_eboekhouden_data()              # update_prepare_system_button.py (already existed)
 ```
 
-### 2. F-String Issues (75+ Instances)
+### 2. F-String Issues (35+ Instances)
 **Status**: ✅ **COMPLETED**
 
 Fixed missing f-string prefixes across the entire application:
 
 ```python
 # Critical files fixed
-eboekhouden_rest_iterator.py      # 10+ instances
-eboekhouden_rest_client.py        # 6+ instances
-eboekhouden_rest_full_migration.py # 25+ instances
-termination_utils.py              # 15+ instances
-application_helpers.py            # 10+ instances
-e_boekhouden_dashboard.py         # 2+ instances
-# ... and 20+ more files
+eboekhouden_soap_api.py           # 5+ SOAP XML envelope instances
+application_notifications.py      # 6+ email template instances
+membership_application_review.py  # 2+ notification instances
+dd_batch_scheduler.py             # 1+ batch summary instance
+payment_processing.py             # 1+ payment reminder instance
+expulsion_report_entry.py         # 2+ governance notification instances
+member_contact_request.py         # 1+ contact request instance
+# ... and 20+ more files across the entire app
 ```
 
 ### 3. Import Path Issues (25+ Instances)

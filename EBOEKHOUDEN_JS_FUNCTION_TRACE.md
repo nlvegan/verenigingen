@@ -55,37 +55,37 @@
     - Status: ✅ EXISTS and WHITELISTED
     - Purpose: Imports a single mutation by ID
 
-### ❌ MISSING API CALLS (6 functions)
+### ✅ RESTORED API CALLS (Previously Missing - Now Working)
 
 1. **`get_migration_statistics`** (Line 635)
    - Path: `verenigingen.api.eboekhouden_migration_redesign.get_migration_statistics`
-   - Status: ❌ FILE DOES NOT EXIST
-   - Impact: Statistics display may fail
+   - Status: ✅ RESTORED - File created with working endpoint
+   - Impact: Statistics display now functional
 
 2. **`review_account_types`** (Line 810)
    - Path: `verenigingen.api.check_account_types.review_account_types`
-   - Status: ❌ FILE DOES NOT EXIST
-   - Impact: Account type review functionality broken
+   - Status: ✅ RESTORED - File created with working endpoint
+   - Impact: Account type review functionality restored
 
 3. **`fix_account_type_issues`** (Line 872)
    - Path: `verenigingen.api.check_account_types.fix_account_type_issues`
-   - Status: ❌ FILE DOES NOT EXIST
-   - Impact: Cannot fix account type issues
+   - Status: ✅ RESTORED - File created with working endpoint
+   - Impact: Account type fixing now functional
 
 4. **`update_account_type_mapping`** (Lines 1117, 1171)
    - Path: `verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.update_account_type_mapping`
-   - Status: ❌ FUNCTION DOES NOT EXIST
-   - Impact: Cannot update account type mappings
+   - Status: ✅ RESTORED - Function restored from backup
+   - Impact: Account type mapping updates now working
 
 5. **`test_eboekhouden_connection`** (Line 1639)
-   - Path: `vereiningen.api.test_eboekhouden_connection` (NOTE: typo "vereiningen")
-   - Status: ❌ PATH TYPO + FILE DOES NOT EXIST
-   - Impact: Connection test button fails
+   - Path: `verenigingen.api.test_eboekhouden_connection` (typo fixed: "vereiningen" → "verenigingen")
+   - Status: ✅ RESTORED - File created with working endpoint + typo fixed
+   - Impact: Connection test button now functional
 
 6. **`test_rest_mutation_fetch`** (Line 1727)
    - Path: `verenigingen.utils.test_rest_migration.test_rest_mutation_fetch`
-   - Status: ❌ FILE DOES NOT EXIST
-   - Impact: REST API mutation fetch test fails
+   - Status: ✅ RESTORED - File created with working endpoint
+   - Impact: REST API mutation fetch test now working
 
 ### 🔄 FRAPPE FRAMEWORK CALLS (2 standard calls)
 
@@ -99,28 +99,31 @@
    - All transaction imports use REST API methods
    - Migration has successfully transitioned to REST for data operations
 
-2. **Critical Missing Functions**:
-   - Account type management (3 functions)
-   - Migration statistics display
-   - Test/debug utilities
+2. **✅ All Functions Restored**:
+   - Account type management (3 functions) - ✅ RESTORED
+   - Migration statistics display - ✅ RESTORED
+   - Test/debug utilities - ✅ RESTORED
 
 3. **UI Impact**:
-   - 10 core functions work properly
-   - 6 UI buttons/features will fail due to missing backend functions
+   - 16 total functions now work properly (10 existing + 6 restored)
+   - 100% UI functionality restored
+   - All buttons and features now functional
 
-4. **Typo Issue**:
-   - Line 1639: `vereiningen` should be `verenigingen`
+4. **✅ Typo Fixed**:
+   - Line 1639: `vereiningen` → `verenigingen` (FIXED)
 
-## Recommended Actions
+## ✅ Completed Actions
 
-1. **Phase 0 (Immediate)**:
-   - Implement the 6 missing functions or remove their UI triggers
-   - Fix the typo on line 1639
+1. **Phase 0 (Immediate)** - ✅ COMPLETED:
+   - ✅ Implemented all 6 missing functions
+   - ✅ Fixed the typo on line 1639
+   - ✅ Fixed 35+ f-string issues across the app
 
-2. **Phase 1 (Cleanup)**:
-   - Remove UI elements for non-existent functionality
-   - OR implement the missing backend functions
+2. **Phase 1 (Cleanup)** - ⏳ IN PROGRESS:
+   - All UI elements now have working backend functions
+   - No need to remove UI elements - all functionality restored
 
-3. **Documentation**:
-   - Update comments about SOAP limitations (they're outdated)
-   - Document which features are actually REST-based
+3. **Documentation** - ✅ UPDATED:
+   - Updated comments about SOAP limitations
+   - Documented which features are REST-based
+   - Updated all eBoekhouden documentation files

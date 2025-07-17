@@ -15,6 +15,97 @@ from verenigingen.utils.eboekhouden.eboekhouden_payment_naming import (
 )
 
 
+def get_default_cost_center(company):
+    """Get the most appropriate default cost center for the company"""
+    # Try multiple approaches to find the best cost center
+
+    # 1. Try to get company's default cost center from Company doctype
+    company_doc = frappe.get_doc("Company", company)
+    if hasattr(company_doc, "cost_center") and company_doc.cost_center:
+        return company_doc.cost_center
+
+    # 2. Try to find "Main" cost center (common default name)
+    main_cost_center = frappe.db.get_value(
+        "Cost Center", {"company": company, "cost_center_name": "Main", "is_group": 0}, "name"
+    )
+    if main_cost_center:
+        return main_cost_center
+
+    # 3. Try to find cost center with company name
+    company_cost_center = frappe.db.get_value(
+        "Cost Center", {"company": company, "cost_center_name": company, "is_group": 0}, "name"
+    )
+    if company_cost_center:
+        return company_cost_center
+
+    # 4. Get the first non-group cost center (excluding specific ones we want to avoid)
+    exclude_patterns = ["magazine", "Magazine", "MAGAZINE"]
+
+    all_cost_centers = frappe.get_all(
+        "Cost Center",
+        filters={"company": company, "is_group": 0},
+        fields=["name", "cost_center_name"],
+        order_by="creation",
+    )
+
+    for cc in all_cost_centers:
+        # Skip cost centers with unwanted names
+        if not any(pattern.lower() in cc.cost_center_name.lower() for pattern in exclude_patterns):
+            return cc.name
+
+    # 5. Last resort: get any non-group cost center
+    fallback_cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+    return fallback_cost_center
+
+
+def should_skip_mutation(mutation, debug_info=None):
+    """Check if a mutation should be skipped (e.g., system notifications, zero-amount automations)"""
+    if debug_info is None:
+        debug_info = []
+
+    mutation_id = mutation.get("id")
+    amount = float(mutation.get("amount", 0) or 0)
+    description = mutation.get("description", "").lower()
+    mutation_type = mutation.get("type", 0)
+
+    # Skip zero-amount WooCommerce automatic imports
+    if amount == 0 and mutation_type == 2:  # Purchase Invoice type
+        woocommerce_patterns = [
+            "automatische import van woocommerce",
+            "woocommerce automatic import",
+            "verstuurd via factuursturen.nl",
+            "sent via factuursturen.nl",
+        ]
+
+        for pattern in woocommerce_patterns:
+            if pattern in description:
+                debug_info.append(
+                    f"Skipping mutation {mutation_id}: Zero-amount system notification ({pattern})"
+                )
+                return True
+
+    # Skip other zero-amount system notifications
+    if amount == 0:
+        system_patterns = [
+            "automatic import",
+            "automatische import",
+            "system notification",
+            "status update",
+            "verstuurd via",
+            "sent via",
+        ]
+
+        for pattern in system_patterns:
+            if pattern in description:
+                debug_info.append(
+                    f"Skipping mutation {mutation_id}: Zero-amount system transaction ({pattern})"
+                )
+                return True
+
+    return False
+
+
 @frappe.whitelist()
 def export_unprocessed_mutations_csv(export_path="/tmp/unprocessed_mutations.csv"):
     """Export unprocessed mutations to CSV for easy analysis"""
@@ -565,7 +656,7 @@ def test_single_mutation_import(mutation_id):
             # Try to import it
             settings = frappe.get_single("E-Boekhouden Settings")
             company = settings.default_company
-            cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+            cost_center = get_default_cost_center(company)
 
             if not cost_center:
                 return {"success": False, "error": "No cost center found"}
@@ -606,7 +697,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
     debug_info.append(f"Company: {company}")
 
     # Get cost center
-    cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+    cost_center = get_default_cost_center(company)
 
     debug_info.append(f"Cost center found: {cost_center}")
 
@@ -633,6 +724,10 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
 
             if existing_je or existing_pe or existing_si or existing_pi:
                 debug_info.append(f"Mutation {mutation_id} already imported, skipping")
+                continue
+
+            # Check if this mutation should be skipped (e.g., zero-amount system notifications)
+            if should_skip_mutation(mutation, debug_info):
                 continue
 
             mutation_type = mutation.get("type", 0)
@@ -2037,7 +2132,7 @@ def import_opening_balances_only(migration_name):
         company = settings.default_company
 
         # Get cost center
-        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+        cost_center = get_default_cost_center(company)
 
         if not cost_center:
             return {"success": False, "error": "No cost center found for company"}
@@ -3070,7 +3165,7 @@ def debug_specific_mutation_processing():
         # Try to process just the first step
         settings = frappe.get_single("E-Boekhouden Settings")
         company = settings.default_company
-        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+        cost_center = get_default_cost_center(company)
 
         debug_info = []
 
@@ -3125,7 +3220,7 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):
     debug_info.append(f"Company: {company}")
 
     # Get cost center
-    cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+    cost_center = get_default_cost_center(company)
     debug_info.append(f"Cost center found: {cost_center}")
 
     if not cost_center:
@@ -3152,6 +3247,11 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):
 
             if existing_je or existing_pe or existing_si or existing_pi:
                 debug_info.append(f"Mutation {mutation_id} already imported, skipping")
+                skipped += 1
+                continue
+
+            # Check if this mutation should be skipped (e.g., zero-amount system notifications)
+            if should_skip_mutation(mutation, debug_info):
                 skipped += 1
                 continue
 

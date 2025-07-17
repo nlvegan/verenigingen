@@ -63,9 +63,11 @@ def get_data(filters):
         values["chapter"] = filters["chapter"]
 
     if conditions:
-        "WHERE " + " AND ".join(conditions)
+        where_clause = "WHERE " + " AND ".join(conditions)
+    else:
+        where_clause = ""
 
-    query = """
+    query = f"""
         SELECT
             mtr.name as request_id,
             mtr.member_name,

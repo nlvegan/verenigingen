@@ -604,7 +604,7 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
 
     item_code = get_or_create_item_improved(
         account_code=account_code,
-        company=company,
+        company=invoice.company,
         transaction_type="Sales" if transaction_type == "sales" else "Purchase",
         description=line_dict["description"],
     )

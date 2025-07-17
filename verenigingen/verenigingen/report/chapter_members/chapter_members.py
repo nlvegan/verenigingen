@@ -87,10 +87,10 @@ def execute(filters=None):
             where_conditions.append("cm.status = %(status)s")
         query_params["status"] = status_filter
 
-    " AND ".join(where_conditions)
+    where_clause = " AND ".join(where_conditions)
 
     data = frappe.db.sql(
-        """
+        f"""
         SELECT
             cm.member,
             m.full_name,

@@ -79,11 +79,14 @@ def get_data(filters):
         if filters.get("active_only"):
             conditions.append("m.status = 'Active'")
 
-    " AND ".join(conditions)
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+    else:
+        where_clause = ""
 
     # Main query
     data = frappe.db.sql(
-        """
+        f"""
         SELECT
             m.name,
             m.full_name,
@@ -95,7 +98,7 @@ def get_data(filters):
             v.status as volunteer_status
         FROM `tabMember` m
         LEFT JOIN `tabVolunteer` v ON v.member = m.name
-        WHERE {where_clause}
+        {where_clause}
         ORDER BY m.member_since DESC
     """,
         filters,
