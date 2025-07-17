@@ -95,6 +95,21 @@ class EBoekhoudenPartyResolver:
             if response.status_code == 200:
                 relation_data = response.json()
                 debug_info.append(f"Successfully fetched relation details for {relation_id}")
+
+                # Log what fields we actually received
+                important_fields = ["bedrijfsnaam", "voornaam", "achternaam", "email", "telefoon"]
+                received_fields = {
+                    field: relation_data.get(field) for field in important_fields if relation_data.get(field)
+                }
+                if received_fields:
+                    debug_info.append(f"Relation {relation_id} has fields: {list(received_fields.keys())}")
+                else:
+                    debug_info.append(f"WARNING: Relation {relation_id} has no name fields!")
+                    frappe.log_error(
+                        f"Empty relation data for {relation_id}: {json.dumps(relation_data, indent=2)}",
+                        "E-Boekhouden Empty Relation",
+                    )
+
                 return relation_data
             elif response.status_code == 404:
                 debug_info.append(f"Relation {relation_id} missing from e-boekhouden database")
@@ -124,8 +139,26 @@ class EBoekhoudenPartyResolver:
             )
             customer_type = "Individual"
 
-        if not customer_name:
-            customer_name = f"E-Boekhouden Relation {relation_details['id']}"
+        if not customer_name or customer_name.isspace():
+            # Try to extract name from description if available
+            if debug_info and len(debug_info) > 0:
+                # Look for description in debug info
+                from .eboekhouden_payment_naming import get_meaningful_description
+
+                for info in debug_info:
+                    if "description" in info.lower():
+                        try:
+                            meaningful_desc = get_meaningful_description({"description": info})
+                            if meaningful_desc and len(meaningful_desc) > 5:
+                                customer_name = f"{meaningful_desc[:40]} (eBoekhouden Import)"
+                                debug_info.append(f"Using description-based name: {customer_name}")
+                                break
+                        except:
+                            pass
+
+            # Final fallback
+            if not customer_name or customer_name.isspace():
+                customer_name = f"E-Boekhouden Relation {relation_details['id']}"
 
         customer.customer_name = customer_name
         customer.customer_type = customer_type
@@ -179,8 +212,26 @@ class EBoekhoudenPartyResolver:
             )
             supplier_type = "Individual"
 
-        if not supplier_name:
-            supplier_name = f"E-Boekhouden Relation {relation_details['id']}"
+        if not supplier_name or supplier_name.isspace():
+            # Try to extract name from description if available
+            if debug_info and len(debug_info) > 0:
+                # Look for description in debug info
+                from .eboekhouden_payment_naming import get_meaningful_description
+
+                for info in debug_info:
+                    if "description" in info.lower():
+                        try:
+                            meaningful_desc = get_meaningful_description({"description": info})
+                            if meaningful_desc and len(meaningful_desc) > 5:
+                                supplier_name = f"{meaningful_desc[:40]} (eBoekhouden Import)"
+                                debug_info.append(f"Using description-based name: {supplier_name}")
+                                break
+                        except:
+                            pass
+
+            # Final fallback
+            if not supplier_name or supplier_name.isspace():
+                supplier_name = f"E-Boekhouden Relation {relation_details['id']}"
 
         supplier.supplier_name = supplier_name
         supplier.supplier_type = supplier_type

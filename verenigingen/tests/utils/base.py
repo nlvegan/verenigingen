@@ -45,6 +45,9 @@ class VereningingenTestCase(FrappeTestCase):
         # Restore original session user
         frappe.session.user = self._original_session_user
 
+        # Clean up customers linked to members BEFORE deleting members
+        self._cleanup_member_customers()
+
         # Clean up test docs
         for doc_info in reversed(self._test_docs):
             try:
@@ -127,6 +130,72 @@ class VereningingenTestCase(FrappeTestCase):
     def track_doc(self, doctype, name):
         """Track a document for cleanup"""
         self._test_docs.append({"doctype": doctype, "name": name})
+    
+    def _cleanup_member_customers(self):
+        """Clean up customers created for tracked members"""
+        # Find all tracked members and their customers
+        customers_to_delete = set()
+        
+        for doc_info in self._test_docs:
+            if doc_info["doctype"] == "Member":
+                try:
+                    if frappe.db.exists("Member", doc_info["name"]):
+                        customer = frappe.db.get_value("Member", doc_info["name"], "customer")
+                        if customer:
+                            customers_to_delete.add(customer)
+                except Exception:
+                    pass
+            elif doc_info["doctype"] == "Membership Application":
+                try:
+                    if frappe.db.exists("Membership Application", doc_info["name"]):
+                        member = frappe.db.get_value("Membership Application", doc_info["name"], "member")
+                        if member and frappe.db.exists("Member", member):
+                            customer = frappe.db.get_value("Member", member, "customer")
+                            if customer:
+                                customers_to_delete.add(customer)
+                except Exception:
+                    pass
+        
+        # Clean up customer dependencies and then customers
+        for customer in customers_to_delete:
+            try:
+                if frappe.db.exists("Customer", customer):
+                    # Clean up related documents first
+                    self._cleanup_customer_dependencies(customer)
+                    # Delete customer
+                    frappe.delete_doc("Customer", customer, force=True, ignore_permissions=True)
+                    print(f"✅ Cleaned up customer: {customer}")
+            except Exception as e:
+                print(f"⚠️ Error cleaning up customer {customer}: {e}")
+    
+    def _cleanup_customer_dependencies(self, customer_name):
+        """Clean up documents that depend on a customer"""
+        # Cancel and delete Sales Invoices
+        for invoice in frappe.get_all("Sales Invoice", filters={"customer": customer_name}):
+            try:
+                doc = frappe.get_doc("Sales Invoice", invoice.name)
+                if doc.docstatus == 1:
+                    doc.cancel()
+                frappe.delete_doc("Sales Invoice", invoice.name, force=True, ignore_permissions=True)
+            except:
+                pass
+        
+        # Cancel and delete Payment Entries
+        for payment in frappe.get_all("Payment Entry", filters={"party": customer_name, "party_type": "Customer"}):
+            try:
+                doc = frappe.get_doc("Payment Entry", payment.name)
+                if doc.docstatus == 1:
+                    doc.cancel()
+                frappe.delete_doc("Payment Entry", payment.name, force=True, ignore_permissions=True)
+            except:
+                pass
+        
+        # Delete SEPA Mandates
+        for mandate in frappe.get_all("SEPA Mandate", filters={"customer": customer_name}):
+            try:
+                frappe.delete_doc("SEPA Mandate", mandate.name, force=True, ignore_permissions=True)
+            except:
+                pass
     
     @staticmethod
     def get_test_region_name():

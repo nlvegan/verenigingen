@@ -1,5 +1,31 @@
 # eBoekhouden Implementation Summary
 
+## Recent Updates (January 2025)
+
+### Critical Fixes Applied
+1. **Missing Field Error Fixed**: Added `use_enhanced_payment_processing` field to E-Boekhouden Settings DocType
+   - Location: `verenigingen/doctype/e_boekhouden_settings/e_boekhouden_settings.json`
+   - Field type: Check (boolean), Default: 1 (enabled)
+
+2. **Duplicate Detection Logic Fixed**: Properly returns None for skipped duplicates
+   - Fixed confusing "already imported, skipping" followed by "Successfully imported" messages
+   - Updated: `eboekhouden_rest_full_migration.py` lines 2273-2282 and 3364-3367
+
+3. **Zero-Amount Invoice Handling**: Now imports ALL zero-amount invoices
+   - Analysis confirmed ERPNext supports zero-amount invoices
+   - Only skips WooCommerce automatic imports
+   - Updated: `should_skip_mutation()` function
+
+4. **Dynamic Cash Account Resolution**: Replaced hardcoded "10000 - Kas - NVV"
+   - New `get_appropriate_cash_account()` function with intelligent fallbacks
+   - Checks: Company default → "Kas" accounts → Any cash account → Bank account → Creates new
+   - Updated: All hardcoded references in `eboekhouden_rest_full_migration.py`
+
+5. **Enhanced Party Naming**: Better handling when API returns empty relation data
+   - Added comprehensive logging for empty relations
+   - Fallback to transaction description extraction
+   - Updated: `party_resolver.py` with better logging and fallbacks
+
 ## Overview
 
 This document summarizes the comprehensive fixes and enhancements implemented to make the eBoekhouden system fully functional. The system now provides complete dual-API support (SOAP + REST) with intelligent transaction processing, robust error handling, and comprehensive data quality monitoring.
