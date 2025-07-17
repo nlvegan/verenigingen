@@ -1589,65 +1589,7 @@ This updated plan provides a robust foundation for SEPA-based membership billing
 
 ---
 
-## 9. Critical Analysis: ERPNext Core Functionality Gaps
-
-### 9.1 What We're Potentially Missing by Not Using ERPNext Subscriptions
-
-After analyzing ERPNext's core subscription and invoicing functionality, here are the critical gaps and concerns:
-
-#### **Built-in Validations We'd Bypass:**
-
-1. **Invoice Validations**
-   - Tax calculation and validation logic
-   - Inter-company transaction checks
-   - Accounting dimension validations
-   - Cost center and profit center checks
-   - Currency conversion handling
-   - Credit limit validation
-   - Payment terms enforcement
-   - Write-off account validation
-   - Deferred revenue accounting
-   - Loyalty points integration
-
-2. **Payment Entry Validations**
-   - Bank reconciliation integration
-   - Exchange rate calculations
-   - Multi-currency handling
-   - Payment reference validation
-   - Advance payment management
-   - Unallocated amount tracking
-   - Journal entry integration
-
-3. **Subscription Features**
-   - Automatic proration logic
-   - Trial period management
-   - Plan changes mid-cycle
-   - Upgrade/downgrade handling
-   - Multi-plan subscriptions
-   - Usage-based billing
-   - Tiered pricing support
-
 #### **Accounting Integration Risks:**
-
-1. **General Ledger Impact**
-   - Manual GL entry creation might miss validations
-   - Cost center allocation errors
-   - Incorrect account postings
-   - Missing dimension tagging
-   - Audit trail gaps
-
-2. **Financial Reporting**
-   - Revenue recognition timing
-   - Deferred revenue handling
-   - Tax reporting accuracy
-   - Aging report integration
-   - Cash flow impacts
-
-3. **Compliance Concerns**
-   - VAT/BTW calculations
-   - Tax withholding logic
-   - Cross-border transactions
-   - Regulatory reporting
 
 ### 9.2 Recommended Hybrid Approach
 
@@ -1697,11 +1639,6 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
        # - Reconciliation
    ```
 
-3. **Consider ERPNext Subscriptions For:**
-   - Use as the base, extend with custom fields
-   - Override only the invoice generation timing
-   - Keep their proration and accounting logic
-
 #### **Custom Implementation Only For:**
 
 1. **SEPA Batch Processing**
@@ -1717,12 +1654,6 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
    - Custom permission model
 
 ### 9.3 Implementation Recommendations
-
-1. **Phase 1: Minimal Custom Development**
-   - Use ERPNext Subscription as base
-   - Add custom fields for SEPA tracking
-   - Override only the batch generation logic
-   - Keep all accounting through ERPNext
 
 2. **Phase 2: Gradual Enhancement**
    - Add application payment flow
@@ -1756,14 +1687,6 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
    - Monitor unreconciled payments
    - Track invoice aging
    - Watch for orphaned transactions
-
-3. **Fallback Plan**
-   - Keep manual override capability
-   - Document all customizations
-   - Maintain upgrade path
-   - Plan for ERPNext updates
-
-This hybrid approach gives us the SEPA functionality we need while preserving ERPNext's battle-tested accounting logic.
 
 ---
 
