@@ -1,0 +1,146 @@
+# Additional Zabbix items for Dues Schedule Monitoring
+# Add these to your existing template
+
+# Overdue Invoices Count
+- uuid: 8d4998541d2642849f760c76fd621fd5
+  name: Overdue Invoices Count
+  type: HTTP_AGENT
+  key: frappe.invoices.overdue
+  delay: 5m
+  history: 30d
+  trends: 365d
+  value_type: UNSIGNED
+  units: invoices
+  url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+  headers:
+    - name: Authorization
+      value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+  preprocessing:
+    - type: JSONPATH
+      parameters:
+        - $.message.metrics["frappe.invoices.overdue"]
+  triggers:
+    - uuid: 9cf127bac955446397d9147b57ede0be
+      expression: 'last(/Template Frappe Cloud Monitoring/frappe.invoices.overdue)>10'
+      name: 'Too many overdue invoices'
+      priority: WARNING
+      manual_close: 'YES'
+      tags:
+        - tag: scope
+          value: finance
+
+# Outstanding Amount
+- uuid: 8d5998541d2642849f760c76fd621fd6
+  name: Outstanding Invoice Amount
+  type: HTTP_AGENT
+  key: frappe.invoices.outstanding_amount
+  delay: 5m
+  history: 30d
+  trends: 365d
+  value_type: FLOAT
+  units: EUR
+  url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+  headers:
+    - name: Authorization
+      value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+  preprocessing:
+    - type: JSONPATH
+      parameters:
+        - $.message.metrics["frappe.invoices.outstanding_amount"]
+  triggers:
+    - uuid: 9cf127bac955446397d9147b57ede0bf
+      expression: 'last(/Template Frappe Cloud Monitoring/frappe.invoices.outstanding_amount)>50000'
+      name: 'High outstanding invoice amount'
+      priority: HIGH
+      manual_close: 'YES'
+      tags:
+        - tag: scope
+          value: finance
+
+# Payment Success Rate
+- uuid: 8d6998541d2642849f760c76fd621fd7
+  name: Payment Success Rate
+  type: HTTP_AGENT
+  key: frappe.invoices.payment_success_rate
+  delay: 5m
+  history: 30d
+  trends: 365d
+  value_type: FLOAT
+  units: '%'
+  url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+  headers:
+    - name: Authorization
+      value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+  preprocessing:
+    - type: JSONPATH
+      parameters:
+        - $.message.metrics["frappe.invoices.payment_success_rate"]
+  triggers:
+    - uuid: 9cf127bac955446397d9147b57ede0c0
+      expression: 'last(/Template Frappe Cloud Monitoring/frappe.invoices.payment_success_rate)<80'
+      name: 'Low payment success rate'
+      priority: WARNING
+      manual_close: 'YES'
+      tags:
+        - tag: scope
+          value: finance
+
+# Dues Schedule Frequency Distribution
+- uuid: 8d7998541d2642849f760c76fd621fd8
+  name: Monthly Dues Schedules
+  type: HTTP_AGENT
+  key: frappe.dues_schedules.frequency.monthly
+  delay: 5m
+  history: 30d
+  trends: 365d
+  value_type: UNSIGNED
+  units: schedules
+  url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+  headers:
+    - name: Authorization
+      value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+  preprocessing:
+    - type: JSONPATH
+      parameters:
+        - $.message.metrics["frappe.dues_schedules.frequency.monthly"]
+      error_handler: CUSTOM_VALUE
+      error_handler_params: '0'
+
+- uuid: 8d8998541d2642849f760c76fd621fd9
+  name: Annual Dues Schedules
+  type: HTTP_AGENT
+  key: frappe.dues_schedules.frequency.annual
+  delay: 5m
+  history: 30d
+  trends: 365d
+  value_type: UNSIGNED
+  units: schedules
+  url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+  headers:
+    - name: Authorization
+      value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+  preprocessing:
+    - type: JSONPATH
+      parameters:
+        - $.message.metrics["frappe.dues_schedules.frequency.annual"]
+      error_handler: CUSTOM_VALUE
+      error_handler_params: '0'
+
+# Macros for the new monitoring
+- name: macros
+  macros:
+    - macro: '{$INVOICE_DELAY_WARN}'
+      value: '24'
+      description: 'Warning threshold for invoice generation delay (hours)'
+    - macro: '{$INVOICE_DELAY_HIGH}'
+      value: '48'
+      description: 'High threshold for invoice generation delay (hours)'
+    - macro: '{$PAYMENT_SUCCESS_RATE_WARN}'
+      value: '80'
+      description: 'Warning threshold for payment success rate (%)'
+    - macro: '{$OUTSTANDING_AMOUNT_WARN}'
+      value: '25000'
+      description: 'Warning threshold for outstanding amount (EUR)'
+    - macro: '{$OUTSTANDING_AMOUNT_HIGH}'
+      value: '50000'
+      description: 'High threshold for outstanding amount (EUR)'

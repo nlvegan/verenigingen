@@ -54,8 +54,8 @@ QUnit.test("test: Membership", function (assert) {
 	]);
 });
 
-// Test for subscription and payment section
-QUnit.test("test: Membership - Subscription", function (assert) {
+// Test for dues schedule and payment section
+QUnit.test("test: Membership - Dues Schedule", function (assert) {
 	let done = assert.async();
 
 	// number of asserts
@@ -64,9 +64,9 @@ QUnit.test("test: Membership - Subscription", function (assert) {
 	frappe.run_serially([
 		// Create test member first (needed for membership)
 		() => frappe.tests.make('Member', [
-			{first_name: 'Subscription'},
+			{first_name: 'Dues'},
 			{last_name: 'Test'},
-			{email: 'subscription.test@example.com'}
+			{email: 'dues.test@example.com'}
 		]),
 
 		// Insert and submit a membership
@@ -84,13 +84,13 @@ QUnit.test("test: Membership - Subscription", function (assert) {
 			// After submission, status should be Active
 			assert.equal(cur_frm.doc.status, 'Active', "Status should be Active after submission");
 
-			// Check if subscription was created
-			let subscriptionField = cur_frm.get_field('subscription');
-			assert.ok(cur_frm.doc.subscription, "Subscription should be created automatically");
+			// Check if dues schedule was created
+			let duesScheduleField = cur_frm.get_field('dues_schedule');
+			assert.ok(cur_frm.doc.dues_schedule, "Dues schedule should be created automatically");
 
-			// Check if View Subscription button exists
-			let viewButton = $(cur_frm.fields_dict.view_subscription.input);
-			assert.ok(viewButton.is(':visible'), "View Subscription button should be visible");
+			// Check if View Dues Schedule button exists
+			let viewButton = $(cur_frm.fields_dict.view_dues_schedule.input);
+			assert.ok(viewButton.is(':visible'), "View Dues Schedule button should be visible");
 		},
 		() => done()
 	]);

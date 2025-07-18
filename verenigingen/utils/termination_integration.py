@@ -27,9 +27,9 @@ def cancel_membership_safe(
         membership.cancellation_reason = cancellation_reason or "Membership cancelled"
         membership.cancellation_type = cancellation_type
 
-        # Cancel associated subscription if exists
-        if membership.subscription:
-            cancel_subscription_safe(membership.subscription)
+        # Cancel associated dues schedule if exists
+        if hasattr(membership, "dues_schedule") and membership.dues_schedule:
+            cancel_dues_schedule_safe(membership.dues_schedule)
 
         # Save with proper flags
         membership.flags.ignore_validate_update_after_submit = True
@@ -44,64 +44,65 @@ def cancel_membership_safe(
         return False
 
 
-def cancel_subscription_safe(subscription_name):
+def cancel_dues_schedule_safe(dues_schedule_name):
     """
-    Cancel subscription safely without modifying ERPNext core
+    Cancel dues schedule safely
     Handles edge cases with docstatus and data integrity issues
     """
     try:
-        subscription = frappe.get_doc("Subscription", subscription_name)
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedule_name)
 
         # Check if already cancelled
-        if subscription.status == "Cancelled":
-            frappe.logger().info(f"Subscription {subscription_name} already cancelled")
+        if dues_schedule.status == "Cancelled":
+            frappe.logger().info(f"Dues schedule {dues_schedule_name} already cancelled")
             return True
 
         # Handle edge case: docstatus=2 but status=Active (data inconsistency)
-        if subscription.docstatus == 2:
+        if dues_schedule.docstatus == 2:
             frappe.logger().warning(
-                f"Subscription {subscription_name} has docstatus=2 but status={subscription.status}, updating status"
+                f"Dues schedule {dues_schedule_name} has docstatus=2 but status={dues_schedule.status}, updating status"
             )
             # Direct update to fix inconsistency
-            frappe.db.set_value("Subscription", subscription_name, "status", "Cancelled")
+            frappe.db.set_value("Membership Dues Schedule", dues_schedule_name, "status", "Cancelled")
             frappe.db.commit()
             return True
 
         # Normal cancellation process
-        subscription.flags.ignore_permissions = True
-        subscription.flags.ignore_validate_update_after_submit = True
+        dues_schedule.flags.ignore_permissions = True
+        dues_schedule.flags.ignore_validate_update_after_submit = True
 
         try:
-            # Try ERPNext's standard cancellation method
-            subscription.cancel_subscription()
-            frappe.logger().info(f"Cancelled subscription {subscription_name} using standard method")
+            # Update dues schedule status directly
+            dues_schedule.status = "Cancelled"
+            dues_schedule.save()
+            frappe.logger().info(f"Cancelled dues schedule {dues_schedule_name} using standard method")
             return True
 
         except Exception as cancel_error:
             frappe.logger().warning(
-                f"Standard cancellation failed for {subscription_name}: {str(cancel_error)}"
+                f"Standard cancellation failed for {dues_schedule_name}: {str(cancel_error)}"
             )
 
             # Fallback: manual status update (safer approach)
             try:
                 # Update status directly through database to avoid validation issues
                 frappe.db.set_value(
-                    "Subscription",
-                    subscription_name,
+                    "Membership Dues Schedule",
+                    dues_schedule_name,
                     {"status": "Cancelled", "end_date": frappe.utils.today()},
                 )
                 frappe.db.commit()
-                frappe.logger().info(f"Cancelled subscription {subscription_name} using fallback method")
+                frappe.logger().info(f"Cancelled dues schedule {dues_schedule_name} using fallback method")
                 return True
 
             except Exception as fallback_error:
                 frappe.logger().error(
-                    f"Fallback cancellation also failed for {subscription_name}: {str(fallback_error)}"
+                    f"Fallback cancellation also failed for {dues_schedule_name}: {str(fallback_error)}"
                 )
                 return False
 
     except Exception as e:
-        frappe.logger().error(f"Failed to cancel subscription {subscription_name}: {str(e)}")
+        frappe.logger().error(f"Failed to cancel dues schedule {dues_schedule_name}: {str(e)}")
         return False
 
 

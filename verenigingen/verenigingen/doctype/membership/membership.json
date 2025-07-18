@@ -1,7 +1,7 @@
 {
  "actions": [],
-
- "app": "verenigingen","autoname": "format:MEMB-{YY}-{MM}-{####}",
+ "app": "verenigingen",
+ "autoname": "format:MEMB-{YY}-{MM}-{####}",
  "creation": "2023-01-01 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -32,13 +32,13 @@
   "sepa_mandate",
   "mandate_reference",
   "mandate_status",
-  "subscription_section",
+  "dues_schedule_section",
   "allow_multiple_memberships",
-  "subscription",
-  "subscription_plan",
+  "dues_schedule",
+  "dues_schedule_status",
   "column_break_24",
-  "create_subscription",
-  "view_subscription",
+  "create_dues_schedule",
+  "view_dues_schedule",
   "view_payments",
   "amended_from"
  ],
@@ -64,11 +64,11 @@
    "read_only": 1
   },
   {
-  "fieldname": "allow_multiple_memberships",
-  "fieldtype": "Check",
-  "label": "Allow Multiple Memberships",
-  "default": 0,
-  "hidden": 1
+   "fieldname": "allow_multiple_memberships",
+   "fieldtype": "Check",
+   "label": "Allow Multiple Memberships",
+   "default": 0,
+   "hidden": 1
   },
   {
    "fetch_from": "member.email",
@@ -214,67 +214,25 @@
    "read_only": 1
   },
   {
-   "fieldname": "subscription_section",
+   "fieldname": "dues_schedule_section",
    "fieldtype": "Section Break",
-   "label": "Subscription Details"
+   "label": "Dues Schedule Details"
   },
   {
-   "fieldname": "subscription",
+   "fieldname": "dues_schedule",
    "fieldtype": "Link",
-   "label": "Subscription",
-   "options": "Subscription",
-   "get_query": "verenigingen.verenigingen.doctype.membership.membership.get_subscription_query"
+   "label": "Dues Schedule",
+   "options": "Membership Dues Schedule",
+   "description": "Associated dues schedule for this membership",
+   "read_only": 1
   },
   {
-   "fieldname": "subscription_plan",
-   "fieldtype": "Link",
-   "label": "Subscription Plan",
-   "options": "Subscription Plan",
-   "fetch_from": "membership_type.subscription_plan"
-  },
-  {
-   "fieldname": "custom_amount_section",
-   "fieldtype": "Section Break",
-   "label": "Custom Amount",
-   "insert_after": "subscription_plan",
-   "collapsible": 1
-  },
-  {
-   "fieldname": "uses_custom_amount",
-   "fieldtype": "Check",
-   "label": "Uses Custom Amount",
-   "insert_after": "custom_amount_section",
-   "description": "Check if this membership uses a custom amount different from the membership type default"
-  },
-  {
-   "fieldname": "custom_amount",
-   "fieldtype": "Currency",
-   "label": "Custom Amount",
-   "insert_after": "uses_custom_amount",
-   "depends_on": "eval:doc.uses_custom_amount",
-   "mandatory_depends_on": "eval:doc.uses_custom_amount",
-   "description": "Custom amount for this specific membership"
-  },
-  {
-   "fieldname": "amount_reason",
-   "fieldtype": "Small Text",
-   "label": "Reason for Custom Amount",
-   "insert_after": "custom_amount",
-   "depends_on": "eval:doc.uses_custom_amount",
-   "description": "Optional reason for the custom amount (e.g., 'Student discount', 'Supporter contribution')"
-  },
-  {
-   "fieldname": "column_break_custom",
-   "fieldtype": "Column Break",
-   "insert_after": "amount_reason"
-  },
-  {
-   "fieldname": "effective_amount",
-   "fieldtype": "Currency",
-   "label": "Effective Amount",
-   "insert_after": "column_break_custom",
+   "fieldname": "dues_schedule_status",
+   "fieldtype": "Data",
+   "label": "Dues Schedule Status",
    "read_only": 1,
-   "description": "The actual amount used for this membership (custom amount or membership type amount)"
+   "fetch_from": "dues_schedule.status",
+   "description": "Status of the associated dues schedule"
   },
   {
    "fieldname": "amount_difference",
@@ -289,22 +247,22 @@
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:!doc.subscription && doc.docstatus==1",
-   "fieldname": "create_subscription",
+   "depends_on": "eval:!doc.dues_schedule && doc.docstatus==1",
+   "fieldname": "create_dues_schedule",
    "fieldtype": "Button",
-   "label": "Create Subscription"
+   "label": "Create Dues Schedule"
   },
   {
-   "depends_on": "eval:doc.subscription",
-   "fieldname": "view_subscription",
+   "depends_on": "eval:doc.dues_schedule",
+   "fieldname": "view_dues_schedule",
    "fieldtype": "Button",
-   "label": "View Subscription"
+   "label": "View Dues Schedule"
   },
   {
    "fieldname": "view_payments",
    "fieldtype": "Button",
    "label": "View Payment History",
-   "depends_on": "eval:doc.docstatus==1 && doc.subscription"
+   "depends_on": "eval:doc.docstatus==1 && doc.dues_schedule"
   },
   {
    "fieldname": "amended_from",

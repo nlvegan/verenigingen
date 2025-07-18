@@ -1,78 +1,135 @@
 #!/usr/bin/env python3
 """
-Test fee override change functionality
+Test enhanced dues amendment system integration
 """
 import frappe
 from frappe.utils import now, today
 
 
-def test_fee_override():
-    """Test fee override change functionality"""
+def test_enhanced_dues_amendment():
+    """Test enhanced dues amendment system integration"""
 
-    # Get the member
-    member = frappe.get_doc("Member", "Assoc-Member-2025-05-0009")
-    print(f"Member: {member.full_name}")
-    print(f"Current override: {member.membership_fee_override}")
-    print(f"Override reason: {member.fee_override_reason}")
+    # Get a member with active membership
+    member = frappe.db.get_value("Member", {"status": "Active"}, ["name", "email"], as_dict=True)
+    if not member:
+        print("❌ No active member found")
+        return
 
-    # Store original values
-    original_amount = member.membership_fee_override
-    original_reason = member.fee_override_reason
+    member_doc = frappe.get_doc("Member", member.name)
+    print(f"Member: {member_doc.full_name}")
+    print(f"Current override: {member_doc.membership_fee_override}")
+    print(f"Override reason: {member_doc.fee_override_reason}")
 
-    # Test the handle_fee_override_changes method
-    member.membership_fee_override = 99.99
-    member.fee_override_reason = "Test fee change flow"
+    # Get their membership
+    membership = frappe.db.get_value(
+        "Membership", 
+        {"member": member.name, "docstatus": 1},
+        ["name", "membership_type", "status"],
+        as_dict=True
+    )
+    
+    if not membership:
+        print("❌ No membership found")
+        return
 
-    print(f"\nTesting fee change: {original_amount} -> {member.membership_fee_override}")
+    print(f"Membership: {membership.name} ({membership.status})")
 
+    # Test 1: Create amendment using new enhanced system
+    print("\n=== Testing Enhanced Amendment System ===")
+    
+    amendment = frappe.get_doc({
+        "doctype": "Contribution Amendment Request",
+        "membership": membership.name,
+        "member": member.name,
+        "amendment_type": "Fee Change",
+        "requested_amount": 35.00,
+        "reason": "Testing enhanced dues amendment system",
+        "effective_date": today()
+    })
+    
     try:
-        # Test the handle_fee_override_changes method directly
-        member.handle_fee_override_changes()
-        print("handle_fee_override_changes() completed successfully")
-        print(f"Has pending amendment: {hasattr(member, '_pending_amendment')}")
-
-        if hasattr(member, "_pending_amendment"):
-            print(f"Pending amendment data: {member._pending_amendment}")
-
-        # Test save process
-        print("\nTesting save process...")
-        member.save()
-        print("Save completed successfully")
-
-        # Check for amendments
-        amendments = frappe.get_all(
-            "Contribution Amendment Request",
-            filters={"member": member.name},
-            fields=["name", "status", "amendment_type", "requested_amount", "creation"],
-        )
-        print(f"\nAmendments created: {len(amendments)}")
-        for amend in amendments:
-            print(
-                f"  {amend.name}: {amend.status} - {amend.amendment_type} - {amend.requested_amount} - {amend.creation}"
-            )
-
-        # Check fee change history
-        member.reload()
-        print(f"\nFee change history entries: {len(member.fee_change_history)}")
-        for history in member.fee_change_history:
-            print(f"  {history.change_date}: {history.old_amount} -> {history.new_amount} - {history.reason}")
-
+        # Test validation and insertion
+        amendment.insert()
+        print(f"✓ Amendment created: {amendment.name}")
+        print(f"  Status: {amendment.status}")
+        print(f"  Current amount detected: €{amendment.current_amount}")
+        
+        # Test current dues schedule detection
+        if amendment.current_dues_schedule:
+            print(f"  Current dues schedule: {amendment.current_dues_schedule}")
+        else:
+            print("  No current dues schedule (may be legacy override)")
+            
+        # Test approval workflow
+        if amendment.status == "Pending Approval":
+            print("  Amendment requires manual approval")
+            amendment.approve_amendment("Test approval for enhanced system")
+            
+        # Test application with dues schedule creation
+        print("\n=== Testing Amendment Application ===")
+        result = amendment.apply_amendment()
+        
+        if result["status"] == "success":
+            print("✓ Amendment applied successfully")
+            
+            # Check if dues schedule was created
+            if amendment.new_dues_schedule:
+                print(f"✓ New dues schedule created: {amendment.new_dues_schedule}")
+                
+                # Verify the dues schedule
+                dues_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
+                print(f"  Amount: €{dues_schedule.amount}")
+                print(f"  Mode: {dues_schedule.contribution_mode}")
+                print(f"  Status: {dues_schedule.status}")
+                print(f"  Custom amount: {dues_schedule.uses_custom_amount}")
+                
+                # Test fee calculation priority
+                print("\n=== Testing Fee Calculation Priority ===")
+                from verenigingen.templates.pages.membership_fee_adjustment import get_effective_fee_for_member
+                
+                effective_fee = get_effective_fee_for_member(member_doc, membership)
+                print(f"✓ Effective fee calculation:")
+                print(f"  Amount: €{effective_fee.get('amount', 'N/A')}")
+                print(f"  Source: {effective_fee.get('source', 'N/A')}")
+                print(f"  Reason: {effective_fee.get('reason', 'N/A')}")
+                
+                # Verify legacy compatibility
+                print("\n=== Testing Legacy Compatibility ===")
+                member_doc.reload()
+                print(f"✓ Legacy override updated: €{member_doc.membership_fee_override}")
+                print(f"✓ Legacy reason: {member_doc.fee_override_reason}")
+                
+                # Clean up test data
+                print("\n=== Cleaning Up Test Data ===")
+                frappe.delete_doc("Membership Dues Schedule", amendment.new_dues_schedule)
+                print("✓ Test dues schedule deleted")
+                
+        else:
+            print(f"❌ Amendment application failed: {result.get('message', 'Unknown error')}")
+            
+        # Clean up amendment
+        frappe.delete_doc("Contribution Amendment Request", amendment.name)
+        print("✓ Test amendment deleted")
+        
     except Exception as e:
-        print(f"Error during testing: {str(e)}")
+        print(f"❌ Error during enhanced testing: {str(e)}")
         import traceback
-
         traceback.print_exc()
-
-    finally:
-        # Restore original values
+        
+        # Clean up on error
         try:
-            member.membership_fee_override = original_amount
-            member.fee_override_reason = original_reason
-            member.save()
-            print(f"\nRestored original values: {original_amount}, {original_reason}")
-        except Exception as e:
-            print(f"Error restoring values: {str(e)}")
+            if amendment.name:
+                frappe.delete_doc("Contribution Amendment Request", amendment.name, force=True)
+        except:
+            pass
+    
+    print("\n=== Enhanced Dues Amendment Test Complete ===")
+
+
+def test_fee_override():
+    """Backward compatibility wrapper"""
+    test_enhanced_dues_amendment()
 
 
 if __name__ == "__main__":
-    test_fee_override()
+    test_enhanced_dues_amendment()

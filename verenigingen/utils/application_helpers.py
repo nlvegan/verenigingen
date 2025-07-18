@@ -68,7 +68,7 @@ def get_form_data():
                     "description",
                     "amount",
                     "currency",
-                    "subscription_period",
+                    "billing_period",  # Updated from subscription_period
                 ],
                 order_by="amount",
             )
@@ -486,7 +486,11 @@ def get_membership_fee_info(membership_type):
             "standard_amount": membership_type_doc.amount,
             "currency": membership_type_doc.currency or "EUR",
             "description": membership_type_doc.description,
-            "subscription_period": membership_type_doc.subscription_period,
+            "billing_period": getattr(
+                membership_type_doc,
+                "billing_period",
+                getattr(membership_type_doc, "subscription_period", "Annual"),
+            ),
         }
 
     except Exception as e:
@@ -524,7 +528,11 @@ def get_membership_type_details(membership_type):
             "description": membership_type_doc.description,
             "amount": membership_type_doc.amount,
             "currency": membership_type_doc.currency or "EUR",
-            "subscription_period": membership_type_doc.subscription_period,
+            "billing_period": getattr(
+                membership_type_doc,
+                "billing_period",
+                getattr(membership_type_doc, "subscription_period", "Annual"),
+            ),
             "allow_custom_amount": True,  # Enable custom amounts for all membership types
             "minimum_amount": membership_type_doc.amount * 0.5,  # 50% of standard amount
             "maximum_amount": membership_type_doc.amount * 5,  # 5x standard amount

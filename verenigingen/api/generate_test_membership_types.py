@@ -1,5 +1,5 @@
 """
-Generate proper test membership types with linked subscription plans
+Generate proper test membership types with linked dues schedule templates
 """
 
 
@@ -10,7 +10,7 @@ import frappe
 def generate_test_membership_types():
     """
     Generate comprehensive test membership types for testing
-    Includes subscription plans and proper item setup
+    Includes dues schedule templates and proper billing frequency setup
     """
 
     # Ensure we have the membership item group
@@ -21,7 +21,7 @@ def generate_test_membership_types():
         {
             "membership_type_name": "TEST - Daily Membership",
             "description": "Test membership type with daily billing for short cycle testing",
-            "subscription_period": "Daily",
+            "billing_frequency": "Daily",
             "amount": 25.00,
             "currency": "EUR",
             "allow_auto_renewal": 1,
@@ -31,7 +31,7 @@ def generate_test_membership_types():
         {
             "membership_type_name": "TEST - Regular Monthly",
             "description": "Standard monthly membership for regular members",
-            "subscription_period": "Monthly",
+            "billing_frequency": "Monthly",
             "amount": 100.00,
             "currency": "EUR",
             "allow_auto_renewal": 1,
@@ -41,7 +41,7 @@ def generate_test_membership_types():
         {
             "membership_type_name": "TEST - Student Monthly",
             "description": "Discounted monthly membership for students",
-            "subscription_period": "Monthly",
+            "billing_frequency": "Monthly",
             "amount": 50.00,
             "currency": "EUR",
             "allow_auto_renewal": 1,
@@ -51,7 +51,7 @@ def generate_test_membership_types():
         {
             "membership_type_name": "TEST - Quarterly Premium",
             "description": "Premium quarterly membership with additional benefits",
-            "subscription_period": "Quarterly",
+            "billing_frequency": "Quarterly",
             "amount": 275.00,
             "currency": "EUR",
             "allow_auto_renewal": 1,
@@ -61,7 +61,7 @@ def generate_test_membership_types():
         {
             "membership_type_name": "TEST - Annual Corporate",
             "description": "Annual corporate membership for organizations",
-            "subscription_period": "Annual",
+            "billing_frequency": "Annual",
             "amount": 1200.00,
             "currency": "EUR",
             "allow_auto_renewal": 1,
@@ -71,7 +71,7 @@ def generate_test_membership_types():
         {
             "membership_type_name": "TEST - Lifetime Honorary",
             "description": "Lifetime honorary membership (no recurring fees)",
-            "subscription_period": "Lifetime",
+            "billing_frequency": "Lifetime",
             "amount": 0.00,
             "currency": "EUR",
             "allow_auto_renewal": 0,
@@ -81,8 +81,8 @@ def generate_test_membership_types():
         {
             "membership_type_name": "TEST - Custom 2-Month",
             "description": "Custom 2-month membership for testing custom periods",
-            "subscription_period": "Custom",
-            "subscription_period_in_months": 2,
+            "billing_frequency": "Custom",
+            "billing_frequency_months": 2,
             "amount": 180.00,
             "currency": "EUR",
             "allow_auto_renewal": 1,
@@ -112,25 +112,25 @@ def generate_test_membership_types():
                 membership_type.insert(ignore_permissions=True)
                 action = "created"
 
-            # Create subscription plan if not already linked
-            if not membership_type.subscription_plan:
+            # Create dues schedule template if not already linked
+            if not getattr(membership_type, "dues_schedule_template", None):
                 try:
-                    plan_name = create_subscription_plan_for_membership_type(membership_type)
-                    if plan_name:
-                        membership_type.subscription_plan = plan_name
+                    template_name = create_dues_schedule_template_for_membership_type(membership_type)
+                    if template_name:
+                        membership_type.dues_schedule_template = template_name
                         membership_type.save(ignore_permissions=True)
                 except Exception as e:
                     # Log error but continue
                     frappe.log_error(
-                        f"Failed to create subscription plan for {membership_type.name}: {str(e)}"
+                        f"Failed to create dues schedule template for {membership_type.name}: {str(e)}"
                     )
 
             created_types.append(
                 {
                     "name": membership_type.name,
-                    "subscription_period": membership_type.subscription_period,
+                    "billing_frequency": membership_type.billing_frequency,
                     "amount": membership_type.amount,
-                    "subscription_plan": membership_type.subscription_plan,
+                    "dues_schedule_template": getattr(membership_type, "dues_schedule_template", None),
                     "action": action,
                 }
             )
@@ -159,99 +159,42 @@ def ensure_membership_item_group():
         frappe.db.commit()
 
 
-def create_subscription_plan_for_membership_type(membership_type):
+def create_dues_schedule_template_for_membership_type(membership_type):
     """
-    Create a subscription plan for a membership type with proper item setup
+    Create a dues schedule template for a membership type
     """
     try:
-        # Get or create membership item
-        item_name = get_or_create_membership_item(membership_type)
-        if not item_name:
-            return None
+        # Create dues schedule template
+        template = frappe.new_doc("Membership Dues Schedule Template")
+        template.template_name = f"{membership_type.membership_type_name} - Template"
+        template.membership_type = membership_type.name
+        template.billing_frequency = membership_type.billing_frequency
+        template.monthly_amount = membership_type.amount
+        template.currency = membership_type.currency
+        template.contribution_mode = "Membership Fee"
+        template.is_active = 1
 
-        # Determine billing interval and count based on subscription period
-        interval_config = get_billing_interval_config(membership_type)
+        # Handle custom billing frequency
+        if membership_type.billing_frequency == "Custom" and hasattr(
+            membership_type, "billing_frequency_months"
+        ):
+            template.custom_months = membership_type.billing_frequency_months
 
-        # Create subscription plan
-        plan = frappe.new_doc("Subscription Plan")
-        plan.plan_name = f"{membership_type.membership_type_name} - Plan"
-        plan.currency = membership_type.currency
-
-        # Add plan details
-        plan.append("plans", {"item": item_name, "qty": 1, "rate": membership_type.amount})
-
-        # Set billing interval
-        plan.billing_interval = interval_config["interval"]
-        plan.billing_interval_count = interval_config["count"]
-
-        # Additional settings
-        plan.price_determination = "Fixed Rate"
-
-        plan.insert(ignore_permissions=True)
+        template.insert(ignore_permissions=True)
         frappe.db.commit()
 
-        return plan.name
+        return template.name
 
     except Exception as e:
-        frappe.log_error(f"Error creating subscription plan: {str(e)}")
+        frappe.log_error(f"Error creating dues schedule template: {str(e)}")
         return None
 
 
-def get_or_create_membership_item(membership_type):
-    """Get or create an item for the membership type"""
-    try:
-        item_code = f"MEM-{membership_type.membership_type_name}".upper().replace(" ", "-")
-
-        # Check if item exists
-        if frappe.db.exists("Item", item_code):
-            return item_code
-
-        # Get default company
-        company = frappe.defaults.get_global_default("company")
-        if not company:
-            companies = frappe.get_all("Company", limit=1)
-            if companies:
-                company = companies[0].name
-
-        # Create new item
-        item = frappe.new_doc("Item")
-        item.item_code = item_code
-        item.item_name = f"{membership_type.membership_type_name} Membership"
-        item.item_group = "Membership"
-        item.stock_uom = "Nos"
-        item.is_stock_item = 0
-        item.include_item_in_manufacturing = 0
-        item.is_sales_item = 1
-        item.is_service_item = 1
-
-        # Set item defaults if company exists
-        if company:
-            item.append("item_defaults", {"company": company, "default_warehouse": None})
-
-        item.insert(ignore_permissions=True)
-        frappe.db.commit()
-
-        return item.name
-
-    except Exception as e:
-        frappe.log_error(f"Error creating membership item: {str(e)}")
-        return None
+# Item creation is no longer needed for dues schedule system
+# Dues schedules work directly with membership types
 
 
-def get_billing_interval_config(membership_type):
-    """Get billing interval configuration based on membership type"""
-    # Map subscription periods to ERPNext billing intervals
-    config_map = {
-        "Daily": {"interval": "Day", "count": 1},
-        "Monthly": {"interval": "Month", "count": 1},
-        "Quarterly": {"interval": "Month", "count": 3},
-        "Biannual": {"interval": "Month", "count": 6},
-        "Annual": {"interval": "Year", "count": 1},
-        "Lifetime": {"interval": "Year", "count": 1},
-        "Custom": {"interval": "Month", "count": membership_type.subscription_period_in_months or 1},
-    }
-
-    return config_map.get(membership_type.subscription_period, {"interval": "Month", "count": 1})
+# Billing interval configuration is now handled directly in dues schedule templates
 
 
 @frappe.whitelist()
@@ -260,32 +203,22 @@ def cleanup_test_membership_types():
     test_types = frappe.get_all(
         "Membership Type",
         filters={"membership_type_name": ["like", "TEST - %"]},
-        fields=["name", "subscription_plan"],
+        fields=["name", "dues_schedule_template"],
     )
 
     deleted_count = 0
-    deleted_plans = 0
-    deleted_items = 0
+    deleted_templates = 0
 
     for mt in test_types:
         try:
-            # Delete subscription plan if exists
-            if mt.subscription_plan:
-                if frappe.db.exists("Subscription Plan", mt.subscription_plan):
-                    # Get item from plan before deleting
-                    plan_items = frappe.get_all(
-                        "Subscription Plan Detail", filters={"parent": mt.subscription_plan}, fields=["item"]
+            # Delete dues schedule template if exists
+            template_name = getattr(mt, "dues_schedule_template", None)
+            if template_name:
+                if frappe.db.exists("Membership Dues Schedule Template", template_name):
+                    frappe.delete_doc(
+                        "Membership Dues Schedule Template", template_name, ignore_permissions=True
                     )
-
-                    frappe.delete_doc("Subscription Plan", mt.subscription_plan, ignore_permissions=True)
-                    deleted_plans += 1
-
-                    # Delete associated items
-                    for plan_item in plan_items:
-                        if plan_item.item and plan_item.item.startswith("MEM-TEST"):
-                            if frappe.db.exists("Item", plan_item.item):
-                                frappe.delete_doc("Item", plan_item.item, ignore_permissions=True)
-                                deleted_items += 1
+                    deleted_templates += 1
 
             # Delete membership type
             frappe.delete_doc("Membership Type", mt.name, ignore_permissions=True)
@@ -299,8 +232,7 @@ def cleanup_test_membership_types():
     return {
         "success": True,
         "deleted_membership_types": deleted_count,
-        "deleted_subscription_plans": deleted_plans,
-        "deleted_items": deleted_items,
+        "deleted_dues_schedule_templates": deleted_templates,
     }
 
 
@@ -310,25 +242,25 @@ def get_test_membership_types_status():
     test_types = frappe.get_all(
         "Membership Type",
         filters={"membership_type_name": ["like", "TEST - %"]},
-        fields=["name", "subscription_period", "amount", "subscription_plan", "currency"],
+        fields=["name", "billing_frequency", "amount", "dues_schedule_template", "currency"],
     )
 
-    # Group by subscription period
-    by_period = {}
+    # Group by billing frequency
+    by_frequency = {}
     for mt in test_types:
-        period = mt.subscription_period
-        if period not in by_period:
-            by_period[period] = []
-        by_period[period].append(mt)
+        frequency = mt.billing_frequency
+        if frequency not in by_frequency:
+            by_frequency[frequency] = []
+        by_frequency[frequency].append(mt)
 
-    # Check linked subscription plans
-    with_plans = len([mt for mt in test_types if mt.subscription_plan])
-    without_plans = len(test_types) - with_plans
+    # Check linked dues schedule templates
+    with_templates = len([mt for mt in test_types if getattr(mt, "dues_schedule_template", None)])
+    without_templates = len(test_types) - with_templates
 
     return {
         "total": len(test_types),
-        "by_period": by_period,
-        "with_subscription_plans": with_plans,
-        "without_subscription_plans": without_plans,
+        "by_frequency": by_frequency,
+        "with_dues_schedule_templates": with_templates,
+        "without_dues_schedule_templates": without_templates,
         "membership_types": test_types,
     }

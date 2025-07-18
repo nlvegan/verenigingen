@@ -1,6 +1,7 @@
 /**
  * Refactored Membership Application JavaScript
  * Uses modular components and services for better maintainability
+ * Updated to use the Membership Dues Schedule system.
  */
 
 // Form Validator class - needed by BaseStep
@@ -1833,18 +1834,19 @@ class MembershipApplication {
 		const membershipTypes = this.state.get('membershipTypes') || this.membershipTypes || [];
 		console.log('Available membership types:', membershipTypes.length, membershipTypes);
 
-		// Define direct subscription period mapping (most reliable method)
-		const subscriptionPeriodMapping = {
+		// Updated to use billing_period mapping
+		const billingPeriodMapping = {
 			'monthly': 'Monthly',
 			'quarterly': 'Quarterly',
 			'annually': 'Annual'
 		};
 
-		// First try: Match by subscription_period field (most reliable)
-		const targetPeriod = subscriptionPeriodMapping[paymentInterval];
+		// Updated to use billing_period instead of subscription_period
+		const targetPeriod = billingPeriodMapping[paymentInterval];
 		if (targetPeriod) {
 			for (const membershipType of membershipTypes) {
-				const subscriptionPeriod = membershipType.subscription_period;
+				// Updated to use billing_period
+				const billingPeriod = membershipType.billing_period || membershipType.subscription_period;
 				if (subscriptionPeriod && subscriptionPeriod.toLowerCase() === targetPeriod.toLowerCase()) {
 					console.log('Found matching membership type by subscription_period:', membershipType);
 					return membershipType;

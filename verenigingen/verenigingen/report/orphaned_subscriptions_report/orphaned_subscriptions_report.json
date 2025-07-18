@@ -7,14 +7,14 @@
     "doctype": "Report",
     "idx": 0,
     "is_standard": "Yes",
-    "modified": "2025-05-16 12:00:00.000000",
+    "modified": "2025-07-18 12:00:00.000000",
     "modified_by": "Administrator",
     "module": "Verenigingen",
     "name": "Orphaned Subscriptions Report",
     "owner": "Administrator",
     "prepared_report": 0,
-    "ref_doctype": "Membership",
-    "report_name": "Orphaned Subscriptions Report",
+    "ref_doctype": "Membership Dues Schedule",
+    "report_name": "Orphaned Dues Schedule Report",
     "report_type": "Script Report",
     "roles": [
         {

@@ -29,6 +29,10 @@
   "calculator_description",
   "maximum_fee_multiplier",
   "membership_settings_section",
+  "system_migration_section",
+  "enable_subscription_system",
+  "column_break_migration",
+  "migration_notes",
   "dutch_btw_section",
   "tax_exempt_for_contributions",
   "default_tax_exemption_type",
@@ -40,6 +44,7 @@
   "company",
   "membership_debit_account",
   "membership_payment_account",
+  "default_receivable_account",
   "column_break_9",
   "send_email",
   "send_invoice",
@@ -220,6 +225,13 @@
    "fieldtype": "Link",
    "label": "Membership Payment To",
    "mandatory_depends_on": "eval:doc.automate_membership_payment_entries",
+   "options": "Account"
+  },
+  {
+   "description": "Default receivable account for payment plans and member transactions",
+   "fieldname": "default_receivable_account",
+   "fieldtype": "Link",
+   "label": "Default Receivable Account",
    "options": "Account"
   },
   {
@@ -484,6 +496,28 @@
    "fieldtype": "Int",
    "label": "Maximum Fee Multiplier",
    "min_value": 1
+  },
+  {
+   "fieldname": "system_migration_section",
+   "fieldtype": "Section Break",
+   "label": "System Migration"
+  },
+  {
+   "default": "0",
+   "description": "Enable legacy subscription system (not recommended - use Membership Dues Schedule instead)",
+   "fieldname": "enable_subscription_system",
+   "fieldtype": "Check",
+   "label": "Enable Subscription System"
+  },
+  {
+   "fieldname": "column_break_migration",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "migration_notes",
+   "fieldtype": "HTML",
+   "label": "Migration Notes",
+   "options": "<div class='alert alert-warning'>\n<strong>Note:</strong> The subscription system is deprecated. All new implementations should use the Membership Dues Schedule system.\n<br><br>\nEnabling the subscription system is only recommended for backward compatibility during migration.\n</div>"
   }
  ],
  "index_web_pages_for_search": 1,

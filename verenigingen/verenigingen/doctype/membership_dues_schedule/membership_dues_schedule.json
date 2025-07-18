@@ -24,7 +24,34 @@
         "currency",
         "payment_terms_template",
         "section_notes",
-        "notes"
+        "notes",
+        "section_contribution",
+        "contribution_mode",
+        "selected_tier",
+        "base_multiplier",
+        "column_break_contrib",
+        "minimum_amount",
+        "suggested_amount",
+        "uses_custom_amount",
+        "section_custom_amount",
+        "custom_amount_reason",
+        "custom_amount_approved",
+        "custom_amount_approved_by",
+        "column_break_custom",
+        "custom_amount_approved_date",
+        "section_sepa",
+        "payment_method",
+        "active_mandate",
+        "next_sequence_type",
+        "column_break_sepa",
+        "billing_day",
+        "section_coverage",
+        "current_coverage_start",
+        "current_coverage_end",
+        "column_break_coverage",
+        "grace_period_until",
+        "last_payment_date",
+        "consecutive_failures"
     ],
     "fields": [
         {
@@ -158,12 +185,174 @@
             "fieldname": "notes",
             "fieldtype": "Text",
             "label": "Notes"
+        },
+        {
+            "fieldname": "section_contribution",
+            "fieldtype": "Section Break",
+            "label": "Contribution Configuration"
+        },
+        {
+            "default": "Calculator",
+            "fieldname": "contribution_mode",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Contribution Mode",
+            "options": "Tier\nCalculator\nCustom",
+            "reqd": 1
+        },
+        {
+            "depends_on": "eval:doc.contribution_mode == 'Tier'",
+            "fieldname": "selected_tier",
+            "fieldtype": "Link",
+            "label": "Selected Tier",
+            "options": "Membership Tier"
+        },
+        {
+            "default": 1.0,
+            "depends_on": "eval:doc.contribution_mode == 'Calculator'",
+            "description": "Multiplier applied to suggested amount (e.g., 1.5 = 150% of suggested)",
+            "fieldname": "base_multiplier",
+            "fieldtype": "Float",
+            "label": "Base Multiplier",
+            "precision": "2"
+        },
+        {
+            "fieldname": "column_break_contrib",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "minimum_amount",
+            "fieldtype": "Currency",
+            "label": "Minimum Amount",
+            "read_only": 1
+        },
+        {
+            "fieldname": "suggested_amount",
+            "fieldtype": "Currency",
+            "label": "Suggested Amount",
+            "read_only": 1
+        },
+        {
+            "default": "0",
+            "fieldname": "uses_custom_amount",
+            "fieldtype": "Check",
+            "label": "Uses Custom Amount"
+        },
+        {
+            "depends_on": "eval:doc.uses_custom_amount",
+            "fieldname": "section_custom_amount",
+            "fieldtype": "Section Break",
+            "label": "Custom Amount Details"
+        },
+        {
+            "depends_on": "eval:doc.uses_custom_amount",
+            "fieldname": "custom_amount_reason",
+            "fieldtype": "Text",
+            "label": "Custom Amount Reason"
+        },
+        {
+            "default": "0",
+            "depends_on": "eval:doc.uses_custom_amount",
+            "fieldname": "custom_amount_approved",
+            "fieldtype": "Check",
+            "label": "Custom Amount Approved"
+        },
+        {
+            "depends_on": "eval:doc.custom_amount_approved",
+            "fieldname": "custom_amount_approved_by",
+            "fieldtype": "Link",
+            "label": "Custom Amount Approved By",
+            "options": "User"
+        },
+        {
+            "fieldname": "column_break_custom",
+            "fieldtype": "Column Break"
+        },
+        {
+            "depends_on": "eval:doc.custom_amount_approved",
+            "fieldname": "custom_amount_approved_date",
+            "fieldtype": "Date",
+            "label": "Custom Amount Approved Date"
+        },
+        {
+            "fieldname": "section_sepa",
+            "fieldtype": "Section Break",
+            "label": "Payment Configuration"
+        },
+        {
+            "default": "SEPA Direct Debit",
+            "fieldname": "payment_method",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Payment Method",
+            "options": "SEPA Direct Debit\nBank Transfer\nPSP",
+            "reqd": 1
+        },
+        {
+            "depends_on": "eval:doc.payment_method == 'SEPA Direct Debit'",
+            "fieldname": "active_mandate",
+            "fieldtype": "Link",
+            "label": "Active SEPA Mandate",
+            "options": "SEPA Mandate"
+        },
+        {
+            "default": "FRST",
+            "depends_on": "eval:doc.payment_method == 'SEPA Direct Debit'",
+            "fieldname": "next_sequence_type",
+            "fieldtype": "Select",
+            "label": "Next Sequence Type",
+            "options": "FRST\nRCUR"
+        },
+        {
+            "fieldname": "column_break_sepa",
+            "fieldtype": "Column Break"
+        },
+        {
+            "description": "Day of month for anniversary billing",
+            "fieldname": "billing_day",
+            "fieldtype": "Int",
+            "label": "Billing Day"
+        },
+        {
+            "fieldname": "section_coverage",
+            "fieldtype": "Section Break",
+            "label": "Coverage & Status"
+        },
+        {
+            "fieldname": "current_coverage_start",
+            "fieldtype": "Date",
+            "label": "Current Coverage Start"
+        },
+        {
+            "fieldname": "current_coverage_end",
+            "fieldtype": "Date",
+            "label": "Current Coverage End"
+        },
+        {
+            "fieldname": "column_break_coverage",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "grace_period_until",
+            "fieldtype": "Date",
+            "label": "Grace Period Until"
+        },
+        {
+            "fieldname": "last_payment_date",
+            "fieldtype": "Date",
+            "label": "Last Payment Date"
+        },
+        {
+            "default": "0",
+            "fieldname": "consecutive_failures",
+            "fieldtype": "Int",
+            "label": "Consecutive Failures"
         }
     ],
     "links": [],
     "modified": "2025-07-16 10:00:00.000000",
     "modified_by": "Administrator",
-    "module": "Vereinigingen",
+    "module": "Verenigingen",
     "name": "Membership Dues Schedule",
     "naming_rule": "Expression",
     "owner": "Administrator",

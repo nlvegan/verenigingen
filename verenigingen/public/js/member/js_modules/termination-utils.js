@@ -1,4 +1,5 @@
 // Termination-related utility functions for Member doctype
+// Updated to use the Membership Dues Schedule system.
 
 function show_termination_dialog(member_id, member_name) {
 	get_termination_impact(member_id, function(impact_data) {
@@ -78,13 +79,16 @@ function show_termination_dialog(member_id, member_name) {
 						__('No outstanding invoices found')
 				},
 				{
-					fieldname: 'cancel_subscriptions',
+					// Updated to use dues schedule system
+					fieldname: 'cancel_dues_schedules',
 					fieldtype: 'Check',
 					label: __('Cancel Subscriptions'),
-					default: impact_data.subscriptions > 0 ? 1 : 0,
-					description: impact_data.subscriptions > 0 ?
-						__('Will cancel {0} active subscription(s)', [impact_data.subscriptions]) :
-						__('No active subscriptions found')
+					// Updated to use dues schedule system
+					default: impact_data.dues_schedules > 0 ? 1 : 0,
+					// Updated to use dues schedule system
+					description: impact_data.dues_schedules > 0 ?
+						__('Will cancel {0} active dues schedule(s)', [impact_data.dues_schedules]) :
+						__('No active dues schedules found')
 				},
 				{
 					fieldtype: 'Section Break',

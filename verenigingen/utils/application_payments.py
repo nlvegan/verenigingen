@@ -13,14 +13,14 @@ def create_membership_invoice_with_amount(member, membership, amount):
     except ImportError:
         DutchTaxExemptionHandler = None
 
-    try:
-        from verenigingen.utils.subscription_period_calculator import (
-            format_subscription_period_description,
-            get_aligned_subscription_dates,
-        )
-    except ImportError:
-        get_aligned_subscription_dates = None
-        format_subscription_period_description = None
+    # DEPRECATED: Subscription period calculator has been replaced by dues schedule system
+    # try:
+    #     from verenigingen.utils.subscription_period_calculator import (
+    #         format_subscription_period_description,
+    #         get_aligned_subscription_dates,
+    #     )
+    # except ImportError:
+    # Variables would be used if subscription utilities were imported
 
     settings = frappe.get_single("Verenigingen Settings")
 
@@ -31,14 +31,14 @@ def create_membership_invoice_with_amount(member, membership, amount):
 
     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
 
-    # Calculate subscription period dates for alignment
-    subscription_dates = None
-    if get_aligned_subscription_dates and membership.start_date:
-        subscription_dates = get_aligned_subscription_dates(
-            membership.start_date, membership_type, has_application_invoice=True
-        )
+    # DEPRECATED: Subscription period calculation replaced by dues schedule system
+    # subscription_dates = None
+    # if get_aligned_subscription_dates and membership.start_date:
+    #     subscription_dates = get_aligned_subscription_dates(
+    #         membership.start_date, membership_type, has_application_invoice=True
+    #     )
 
-    # Determine invoice description based on amount type and subscription period
+    # Determine invoice description based on amount type and dues schedule
     description = f"Membership Fee - {membership_type.membership_type_name}"
     if hasattr(membership, "uses_custom_amount") and membership.uses_custom_amount:
         if amount > membership_type.amount:
@@ -46,16 +46,15 @@ def create_membership_invoice_with_amount(member, membership, amount):
         elif amount < membership_type.amount:
             description += " (Reduced Rate)"
 
-    # Add subscription period to description if available
-    if subscription_dates and format_subscription_period_description:
-        period_desc = format_subscription_period_description(
-            subscription_dates["application_invoice_period"]["start"],
-            subscription_dates["application_invoice_period"]["end"],
-            membership_type.subscription_period,
-        )
-        description = period_desc
+    # DEPRECATED: Subscription period description replaced by dues schedule system
+    # Add billing period to description if available
+    billing_period = getattr(
+        membership_type, "billing_period", getattr(membership_type, "subscription_period", "Annual")
+    )
+    if billing_period and billing_period != "Annual":
+        description += f" - {billing_period} Billing"
 
-    # Create invoice with subscription period dates
+    # Create invoice with dues schedule system
     invoice_data = {
         "doctype": "Sales Invoice",
         "customer": member.customer,
@@ -74,10 +73,9 @@ def create_membership_invoice_with_amount(member, membership, amount):
         "remarks": f"Membership application invoice for {member.full_name}",
     }
 
-    # Add subscription period dates if calculated
-    if subscription_dates:
-        invoice_data["subscription_period_start"] = subscription_dates["application_invoice_period"]["start"]
-        invoice_data["subscription_period_end"] = subscription_dates["application_invoice_period"]["end"]
+    # DEPRECATED: Subscription period dates replaced by dues schedule system
+    # The dues schedule system handles billing periods automatically
+    # No need to set subscription_period_start/end fields
 
     invoice = frappe.get_doc(invoice_data)
 

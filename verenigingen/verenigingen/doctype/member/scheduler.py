@@ -7,7 +7,7 @@ from frappe.utils.background_jobs import enqueue
 
 def refresh_all_member_financial_histories():
     """
-    Scheduled task to refresh payment, subscription, and invoice histories for all members.
+    Scheduled task to refresh payment, dues schedule, and invoice histories for all members.
     Runs twice daily (morning and evening) to keep member financial data up-to-date.
 
     This replicates the functionality of the "Refresh Financial History" button

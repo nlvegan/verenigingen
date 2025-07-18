@@ -68,52 +68,63 @@ class ContributionAmendmentRequest(Document):
             )
 
     def set_current_details(self):
-        """Set current membership details"""
+        """Set current membership details using new dues schedule approach"""
         if not self.membership:
             return
 
         membership = frappe.get_doc("Membership", self.membership)
+        member_doc = frappe.get_doc("Member", self.member)
 
-        # Set current amount
-        self.current_amount = membership.get_billing_amount()
+        # PRIORITY 1: Get current amount from active dues schedule
+        active_dues_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": self.member, "status": "Active"},
+            ["name", "amount", "billing_frequency"],
+            as_dict=True,
+        )
 
-        # Set current subscription details
-        if membership.subscription:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            self.current_subscription = subscription.name
-
-            # Get billing interval info (handle different ERPNext versions)
+        if active_dues_schedule:
+            self.current_amount = active_dues_schedule.amount
+            self.current_billing_interval = active_dues_schedule.billing_frequency or "Monthly"
+            self.current_dues_schedule = active_dues_schedule.name
+        else:
+            # PRIORITY 2: Fall back to legacy fee calculation
             try:
-                if hasattr(subscription, "billing_interval_count"):
-                    self.current_billing_interval = (
-                        f"{subscription.billing_interval_count} {subscription.billing_interval}(s)"
-                    )
-                elif hasattr(subscription, "billing_interval"):
-                    self.current_billing_interval = subscription.billing_interval
-                else:
-                    self.current_billing_interval = "Unknown"
+                current_fee = member_doc.get_current_membership_fee()
+                self.current_amount = current_fee.get("amount", 0)
             except Exception:
-                self.current_billing_interval = "Unknown"
+                self.current_amount = (
+                    membership.get_billing_amount() if hasattr(membership, "get_billing_amount") else 0
+                )
 
-            # Get current plan name
-            if subscription.plans:
-                plan_name = subscription.plans[0].plan
-                self.current_plan = plan_name
+        # Set current billing interval from dues schedule or membership type
+        if active_dues_schedule:
+            # Already set above from dues schedule
+            pass
+        elif membership.membership_type:
+            # Get billing interval from membership type
+            membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+            self.current_billing_interval = getattr(membership_type, "billing_period", "Monthly")
+        else:
+            self.current_billing_interval = "Monthly"
 
     def set_default_effective_date(self):
         """Set default effective date to next billing period"""
         if not self.effective_date and self.membership:
             try:
-                membership = frappe.get_doc("Membership", self.membership)
-                if membership.subscription:
-                    subscription = frappe.get_doc("Subscription", membership.subscription)
-                    if hasattr(subscription, "current_invoice_end") and subscription.current_invoice_end:
-                        # Set to next billing period
-                        self.effective_date = add_days(subscription.current_invoice_end, 1)
-                    else:
-                        # Fallback to next month
-                        self.effective_date = add_days(today(), 30)
+                # Check if there's an active dues schedule
+                active_dues_schedule = frappe.db.get_value(
+                    "Membership Dues Schedule",
+                    {"member": self.member, "status": "Active"},
+                    ["name", "current_coverage_end"],
+                    as_dict=True,
+                )
+
+                if active_dues_schedule and active_dues_schedule.current_coverage_end:
+                    # Set to next billing period
+                    self.effective_date = add_days(active_dues_schedule.current_coverage_end, 1)
                 else:
+                    # Fallback to next month
                     self.effective_date = add_days(today(), 30)
             except Exception:
                 self.effective_date = add_days(today(), 30)
@@ -124,19 +135,57 @@ class ContributionAmendmentRequest(Document):
             self.requested_by = frappe.session.user
 
     def before_insert(self):
-        """Set auto-approval for certain cases"""
-        # Auto-approve fee increases by current member
-        if (
-            self.amendment_type == "Fee Change"
-            and self.requested_amount
-            and self.current_amount
-            and self.requested_amount > self.current_amount
-        ):
+        """Set auto-approval for certain cases with enhanced rules"""
+        # Enhanced auto-approval logic
+        if self.amendment_type == "Fee Change" and self.requested_amount and self.current_amount:
             member = frappe.get_doc("Member", self.member)
-            if frappe.session.user == member.user:
+
+            # Get approval settings from Verenigingen Settings
+            settings = frappe.get_single("Verenigingen Settings")
+            auto_approve_increases = getattr(settings, "auto_approve_fee_increases", 1)
+            auto_approve_member_requests = getattr(settings, "auto_approve_member_requests", 1)
+            max_auto_approve_amount = getattr(settings, "max_auto_approve_amount", 1000)
+
+            # Check if this is a member self-request
+            is_member_request = frappe.session.user == member.user or frappe.session.user == member.email
+
+            # Auto-approve fee increases by current member (with limits)
+            if (
+                auto_approve_increases
+                and is_member_request
+                and self.requested_amount > self.current_amount
+                and self.requested_amount <= max_auto_approve_amount
+            ):
                 self.status = "Approved"
                 self.approved_by = frappe.session.user
                 self.approved_date = now_datetime()
+                self.internal_notes = "Auto-approved: Fee increase by member within limits"
+
+            # Auto-approve small adjustments (less than 5% change)
+            elif (
+                auto_approve_member_requests
+                and is_member_request
+                and abs(self.requested_amount - self.current_amount) <= (self.current_amount * 0.05)
+            ):
+                self.status = "Approved"
+                self.approved_by = frappe.session.user
+                self.approved_date = now_datetime()
+                self.internal_notes = "Auto-approved: Small adjustment within 5% threshold"
+
+            # Otherwise require manual approval
+            else:
+                self.status = "Pending Approval"
+                approval_reason = []
+                if not auto_approve_increases:
+                    approval_reason.append("fee increases require approval")
+                if not is_member_request:
+                    approval_reason.append("non-member request")
+                if self.requested_amount > max_auto_approve_amount:
+                    approval_reason.append(f"amount exceeds limit (€{max_auto_approve_amount})")
+                if self.requested_amount < self.current_amount:
+                    approval_reason.append("fee decrease")
+
+                self.internal_notes = f"Requires approval: {', '.join(approval_reason)}"
 
     def after_insert(self):
         """Handle post-insertion tasks"""
@@ -220,57 +269,100 @@ class ContributionAmendmentRequest(Document):
             return {"status": "error", "message": f"Error applying amendment: {error_msg}"}
 
     def apply_fee_change(self, membership):
-        """Apply fee change to membership"""
-        # Update membership with new amount
-        membership.uses_custom_amount = 1
-        membership.custom_amount = self.requested_amount
-        membership.amount_reason = self.reason
+        """Apply fee change to membership using new dues schedule approach"""
+        try:
+            # Create new dues schedule with the requested amount
+            dues_schedule_name = self.create_dues_schedule_for_amendment()
+            self.new_dues_schedule = dues_schedule_name
 
-        # Save current subscription reference
-        old_subscription = membership.subscription
+            # Update legacy override fields for backward compatibility
+            member_doc = frappe.get_doc("Member", self.member)
+            member_doc.reload()  # Refresh to avoid timestamp mismatch
+            member_doc.membership_fee_override = self.requested_amount
+            member_doc.fee_override_reason = f"Amendment: {self.reason}"
+            member_doc.fee_override_date = today()
+            member_doc.fee_override_by = frappe.session.user
+            member_doc.save(ignore_permissions=True)
 
-        # Clear subscription to create new one
-        membership.subscription = None
-        membership.flags.ignore_validate_update_after_submit = True
-        membership.save()
+            # Updated to use dues schedule system
+            self.processing_notes = f"Dues schedule {dues_schedule_name} created for fee change."
 
-        # Create new subscription with new amount
-        new_subscription_name = membership.create_subscription_from_membership()
-        self.new_subscription = new_subscription_name
+        except Exception as e:
+            frappe.throw(_("Error applying fee change: {0}").format(str(e)))
 
-        # Handle old subscription - try to cancel, but don't fail if it has linked documents
-        if old_subscription:
-            try:
-                old_sub = frappe.get_doc("Subscription", old_subscription)
+    def create_dues_schedule_for_amendment(self):
+        """Create a new dues schedule for this amendment"""
+        try:
+            # Get current active membership
+            membership = frappe.db.get_value(
+                "Membership",
+                {"member": self.member, "status": "Active", "docstatus": 1},
+                ["name", "membership_type"],
+                as_dict=True,
+            )
 
-                # Check if subscription has linked invoices before attempting to cancel
-                linked_invoices = frappe.get_all(
-                    "Sales Invoice", filters={"subscription": old_subscription, "docstatus": 1}
+            if not membership:
+                frappe.throw(_("No active membership found for creating dues schedule"))
+
+            # Deactivate existing active dues schedule
+            existing_schedule = frappe.db.get_value(
+                "Membership Dues Schedule", {"member": self.member, "status": "Active"}, "name"
+            )
+
+            if existing_schedule:
+                existing_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+                existing_doc.status = "Cancelled"
+                existing_doc.add_comment(
+                    text=f"Cancelled and replaced by amendment {self.name}: €{self.requested_amount:.2f}"
                 )
+                existing_doc.save(ignore_permissions=True)
 
-                if linked_invoices:
-                    # Cannot cancel due to linked invoices - just disable it
-                    old_sub.status = "Cancelled"  # Mark as cancelled but don't use .cancel()
-                    old_sub.flags.ignore_validate_update_after_submit = True
-                    old_sub.save()
-                    self.old_subscription_cancelled = 0
+            # Create new dues schedule
+            dues_schedule = frappe.new_doc("Membership Dues Schedule")
+            dues_schedule.member = self.member
+            dues_schedule.membership = membership.name
+            dues_schedule.membership_type = membership.membership_type
+            dues_schedule.contribution_mode = "Custom"
+            dues_schedule.amount = self.requested_amount
+            dues_schedule.uses_custom_amount = 1
+            dues_schedule.custom_amount_approved = 1  # Amendment already approved
+            dues_schedule.custom_amount_reason = f"Amendment Request: {self.reason}"
 
-                    self.processing_notes = f"New subscription {new_subscription_name} created. Old subscription {old_subscription} marked as cancelled (has {len(linked_invoices)} linked invoices)"
-                else:
-                    # Safe to cancel normally
-                    old_sub.cancel()
-                    self.old_subscription_cancelled = 1
-                    self.processing_notes = f"Old subscription {old_subscription} cancelled, new subscription {new_subscription_name} created"
+            # Handle zero amounts specially
+            if self.requested_amount == 0:
+                dues_schedule.custom_amount_reason = f"Free membership via amendment: {self.reason}"
 
-            except Exception as e:
-                # Log with shorter message to avoid length issues
-                error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)
-                frappe.logger().error(f"Error handling old subscription {old_subscription}: {error_msg}")
-                self.processing_notes = f"New subscription {new_subscription_name} created. Old subscription {old_subscription} could not be cancelled: {error_msg}"
+            dues_schedule.billing_frequency = "Monthly"  # Default
+            dues_schedule.payment_method = "Bank Transfer"  # Default
+            dues_schedule.status = "Active"
+            dues_schedule.auto_generate = 1
+            dues_schedule.test_mode = 0
+            dues_schedule.effective_date = self.effective_date or today()
+            dues_schedule.current_coverage_start = self.effective_date or today()
+
+            # Add amendment metadata in notes
+            dues_schedule.notes = (
+                f"Created from amendment request {self.name} by {frappe.session.user} on {today()}"
+            )
+
+            dues_schedule.save(ignore_permissions=True)
+
+            # Add comment about the amendment
+            dues_schedule.add_comment(
+                text=f"Created from amendment request {self.name}. Amount: €{self.requested_amount:.2f}. Reason: {self.reason}"
+            )
+
+            return dues_schedule.name
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error creating dues schedule for amendment: {str(e)}", "Amendment Dues Schedule Error"
+            )
+            frappe.throw(_("Error creating dues schedule: {0}").format(str(e)))
 
     def apply_billing_change(self, membership):
         """Apply billing interval change"""
-        # This would involve creating a new subscription plan with different billing interval
+        # This would involve creating a new dues schedule with different billing interval
         # Implementation depends on specific requirements
         frappe.throw(_("Billing interval changes are not yet implemented"))
 
@@ -368,106 +460,62 @@ class ContributionAmendmentRequest(Document):
             # )
             "increase" if difference > 0 else "decrease" if difference < 0 else "no change"
 
-            # Get billing interval information from subscription
-            billing_interval_display = "per month"  # Better default than "per period"
+            # Get billing interval information from dues schedule or membership type
+            billing_interval_display = "per month"  # Default
             annual_multiplier = 12  # Default fallback for monthly
 
-            # Always try to get the most accurate data from the subscription first
-            # The stored current_billing_interval might be outdated or in a different format
-            if membership.subscription:
+            # Try to get billing interval from current dues schedule
+            if self.current_dues_schedule:
                 try:
-                    subscription = frappe.get_doc("Subscription", membership.subscription)
+                    dues_schedule = frappe.get_doc("Membership Dues Schedule", self.current_dues_schedule)
+                    billing_frequency = getattr(dues_schedule, "billing_frequency", "Monthly")
 
-                    # Get billing interval from subscription plans
-                    if hasattr(subscription, "plans") and subscription.plans:
-                        # Get the first plan (typically there's only one)
-                        plan_detail = subscription.plans[0]
-                        plan_name = plan_detail.plan if hasattr(plan_detail, "plan") else None
+                    # Map billing frequency to display text and multiplier
+                    freq_mapping = {
+                        "Monthly": ("per month", 12.0),
+                        "Quarterly": ("per quarter", 4.0),
+                        "Annual": ("per year", 1.0),
+                        "Biannual": ("per 6 months", 2.0),
+                        "Weekly": ("per week", 52.0),
+                        "Daily": ("per day", 365.0),
+                    }
 
-                        if plan_name:
-                            # Get the subscription plan document
-                            plan = frappe.get_doc("Subscription Plan", plan_name)
-
-                            count = getattr(plan, "billing_interval_count", 1) or 1
-                            interval = getattr(plan, "billing_interval", "Month").lower()
-
-                            # Create proper display text
-                            if count == 1:
-                                billing_interval_display = f"per {interval}"
-                            else:
-                                billing_interval_display = f"per {count} {interval}s"
-
-                            # Calculate annual multiplier based on billing interval
-                            # For months: if billing every 12 months, that's 1 time per year
-                            # For months: if billing every 1 month, that's 12 times per year
-                            if interval == "month":
-                                annual_multiplier = 12.0 / count
-                            elif interval == "year":
-                                annual_multiplier = 1.0 / count
-                            elif interval == "week":
-                                annual_multiplier = 52.0 / count
-                            elif interval == "day":
-                                annual_multiplier = 365.0 / count
-                            else:
-                                annual_multiplier = 12.0 / count  # Default to monthly calculation
+                    if billing_frequency in freq_mapping:
+                        billing_interval_display, annual_multiplier = freq_mapping[billing_frequency]
+                    else:
+                        billing_interval_display = f"per {billing_frequency.lower()}"
+                        annual_multiplier = 12.0  # Default fallback
 
                 except Exception as e:
-                    frappe.log_error(
-                        f"Error getting billing interval for subscription {membership.subscription}: {str(e)}"
-                    )
-                    # If subscription fails, try the stored value as fallback
-                    if self.current_billing_interval and self.current_billing_interval != "Unknown":
-                        try:
-                            # Parse stored billing interval (e.g., "1 Month(s)", "3 Month(s)", "1 Year(s)")
-                            import re
+                    frappe.log_error(f"Error getting billing interval from dues schedule: {str(e)}")
 
-                            match = re.match(r"(\d+)\s*([a-zA-Z]+)", self.current_billing_interval)
-                            if match:
-                                count = int(match.group(1))
-                                interval = (
-                                    match.group(2).lower().rstrip("s()")
-                                )  # Remove trailing 's' and '()'
+            # If no dues schedule, try membership type
+            elif self.membership:
+                try:
+                    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+                    billing_period = getattr(membership_type, "billing_period", "Monthly")
 
-                                # Create display text
-                                if count == 1:
-                                    billing_interval_display = f"per {interval}"
-                                else:
-                                    billing_interval_display = f"per {count} {interval}s"
+                    # Map billing period to display text and multiplier
+                    period_mapping = {
+                        "Monthly": ("per month", 12.0),
+                        "Quarterly": ("per quarter", 4.0),
+                        "Annual": ("per year", 1.0),
+                        "Biannual": ("per 6 months", 2.0),
+                        "Weekly": ("per week", 52.0),
+                        "Daily": ("per day", 365.0),
+                        "Lifetime": ("lifetime", 1.0),
+                    }
 
-                                # Calculate annual multiplier
-                                # For months: if billing every 12 months, that's 1 time per year
-                                # For months: if billing every 1 month, that's 12 times per year
-                                if interval == "month":
-                                    annual_multiplier = 12.0 / count
-                                elif interval == "year":
-                                    annual_multiplier = 1.0 / count
-                                elif interval == "week":
-                                    annual_multiplier = 52.0 / count
-                                elif interval == "day":
-                                    annual_multiplier = 365.0 / count
-                                else:
-                                    annual_multiplier = 12.0 / count  # Default to monthly
-                            else:
-                                # Fallback parsing for different formats
-                                interval_lower = self.current_billing_interval.lower()
-                                if "month" in interval_lower:
-                                    billing_interval_display = "per month"
-                                    annual_multiplier = 12.0
-                                elif "year" in interval_lower:
-                                    billing_interval_display = "per year"
-                                    annual_multiplier = 1.0
-                                elif "week" in interval_lower:
-                                    billing_interval_display = "per week"
-                                    annual_multiplier = 52.0
-                                else:
-                                    billing_interval_display = f"per {self.current_billing_interval.lower()}"
-                                    annual_multiplier = 12.0  # Default fallback
-                        except Exception as e:
-                            frappe.log_error(
-                                f"Error parsing stored billing interval '{self.current_billing_interval}': {str(e)}"
-                            )
+                    if billing_period in period_mapping:
+                        billing_interval_display, annual_multiplier = period_mapping[billing_period]
+                    else:
+                        billing_interval_display = f"per {billing_period.lower()}"
+                        annual_multiplier = 12.0  # Default fallback
 
-            # If no subscription or all parsing failed, keep defaults
+                except Exception as e:
+                    frappe.log_error(f"Error getting billing interval from membership type: {str(e)}")
+
+            # If all parsing failed, keep defaults
             # (billing_interval_display = "per month", annual_multiplier = 12)
 
             # Calculate annual impact based on proper billing interval
@@ -571,12 +619,16 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
     if not effective_date:
         # Default to next billing period or next month
         try:
-            if membership.subscription:
-                subscription = frappe.get_doc("Subscription", membership.subscription)
-                if hasattr(subscription, "current_invoice_end") and subscription.current_invoice_end:
-                    effective_date = add_days(subscription.current_invoice_end, 1)
-                else:
-                    effective_date = add_days(today(), 30)
+            # Check if there's an active dues schedule
+            active_dues_schedule = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"member": member.name, "status": "Active"},
+                ["current_coverage_end"],
+                as_dict=True,
+            )
+
+            if active_dues_schedule and active_dues_schedule.current_coverage_end:
+                effective_date = add_days(active_dues_schedule.current_coverage_end, 1)
             else:
                 effective_date = add_days(today(), 30)
         except Exception:
@@ -620,3 +672,421 @@ def get_member_pending_contribution_amendments(member_name):
     )
 
     return amendments
+
+
+@frappe.whitelist()
+def test_enhanced_approval_workflows():
+    """Test function for enhanced approval workflows"""
+    try:
+        print("=== Testing Enhanced Approval Workflows ===")
+
+        results = []
+
+        # Test 1: Check if our enhanced methods exist in the class
+        methods_to_check = ["create_dues_schedule_for_amendment", "set_current_details", "apply_fee_change"]
+
+        for method in methods_to_check:
+            if hasattr(ContributionAmendmentRequest, method):
+                results.append(f"✓ Method {method} exists in ContributionAmendmentRequest class")
+            else:
+                results.append(f"❌ Method {method} missing from ContributionAmendmentRequest class")
+
+        # Test 2: Check if we can create an amendment request document
+        try:
+            test_amendment = frappe.new_doc("Contribution Amendment Request")
+            test_amendment.amendment_type = "Fee Change"
+            test_amendment.requested_amount = 25.00
+            test_amendment.reason = "Test enhancement"
+
+            # Test if methods are available on the instance
+            for method in methods_to_check:
+                if hasattr(test_amendment, method):
+                    results.append(f"✓ Method {method} available on instance")
+                else:
+                    results.append(f"❌ Method {method} not available on instance")
+
+            results.append("✓ Amendment document creation successful")
+        except Exception as e:
+            results.append(f"❌ Error creating amendment document: {str(e)}")
+
+        # Test 3: Test enhanced validation logic exists
+        try:
+            test_amendment = frappe.new_doc("Contribution Amendment Request")
+            if hasattr(test_amendment, "before_insert"):
+                results.append("✓ Enhanced before_insert method exists")
+            else:
+                results.append("❌ Enhanced before_insert method missing")
+        except Exception as e:
+            results.append(f"❌ Error testing before_insert: {str(e)}")
+
+        # Test 4: Check if new fields exist in the DocType
+        try:
+            doctype = frappe.get_doc("DocType", "Contribution Amendment Request")
+            new_fields = ["new_dues_schedule", "current_dues_schedule"]
+
+            existing_fields = [field.fieldname for field in doctype.fields]
+
+            for field in new_fields:
+                if field in existing_fields:
+                    results.append(f"✓ New field {field} exists in DocType")
+                else:
+                    results.append(f"❌ New field {field} missing from DocType")
+
+        except Exception as e:
+            results.append(f"❌ Error checking DocType fields: {str(e)}")
+
+        print("\n".join(results))
+
+        return {"success": True, "message": "Enhanced approval workflows test completed", "results": results}
+
+    except Exception as e:
+        return {"success": False, "message": f"Error during test: {str(e)}"}
+
+
+@frappe.whitelist()
+def reload_amendment_doctype():
+    """Reload the Contribution Amendment Request DocType"""
+    try:
+        frappe.reload_doc("verenigingen", "doctype", "contribution_amendment_request")
+        return {"success": True, "message": "DocType reloaded successfully"}
+    except Exception as e:
+        return {"success": False, "message": f"Error reloading DocType: {str(e)}"}
+
+
+@frappe.whitelist()
+def test_dues_amendment_integration():
+    """Test integration between dues schedules and amendment system"""
+    try:
+        print("=== Testing Dues Amendment Integration ===")
+
+        # Get an existing member
+        member = frappe.db.get_value("Member", {"status": "Active"}, ["name", "email"], as_dict=True)
+        if not member:
+            return {"success": False, "message": "No active member found"}
+
+        print(f"✓ Using member: {member.name}")
+
+        # Get their membership
+        membership = frappe.db.get_value(
+            "Membership",
+            {"member": member.name, "docstatus": 1},
+            ["name", "membership_type", "status"],
+            as_dict=True,
+        )
+
+        if not membership:
+            return {"success": False, "message": "No membership found"}
+
+        print(f"✓ Using membership: {membership.name} ({membership.status})")
+
+        # Create test amendment
+        amendment = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "membership": membership.name,
+                "member": member.name,
+                "amendment_type": "Fee Change",
+                "requested_amount": 35.00,
+                "reason": "Testing integration",
+                "effective_date": frappe.utils.add_days(frappe.utils.today(), 30),
+            }
+        )
+
+        # Test validation
+        amendment.validate()
+        print("✓ Amendment validation successful")
+
+        # Test insertion
+        amendment.insert()
+        print(f"✓ Amendment created with status: {amendment.status}")
+
+        results = []
+
+        # Test new fields exist
+        if hasattr(amendment, "new_dues_schedule"):
+            results.append("✓ new_dues_schedule field exists")
+        else:
+            results.append("❌ new_dues_schedule field missing")
+
+        if hasattr(amendment, "current_dues_schedule"):
+            results.append("✓ current_dues_schedule field exists")
+        else:
+            results.append("❌ current_dues_schedule field missing")
+
+        # Test current details detection
+        if amendment.current_amount:
+            results.append(f"✓ Current amount detected: €{amendment.current_amount}")
+        else:
+            results.append("! Current amount not detected (may be normal)")
+
+        # Test dues schedule creation method exists
+        if hasattr(amendment, "create_dues_schedule_for_amendment"):
+            results.append("✓ create_dues_schedule_for_amendment method exists")
+        else:
+            results.append("❌ create_dues_schedule_for_amendment method missing")
+
+        # Test enhanced set_current_details
+        if hasattr(amendment, "set_current_details"):
+            results.append("✓ Enhanced set_current_details method exists")
+        else:
+            results.append("❌ Enhanced set_current_details method missing")
+
+        # Test approval functionality
+        if amendment.status == "Pending Approval":
+            results.append("✓ Amendment requires approval (as expected)")
+        elif amendment.status == "Approved":
+            results.append("✓ Amendment was auto-approved")
+        else:
+            results.append(f"! Amendment status: {amendment.status}")
+
+        # Clean up
+        amendment.delete()
+        results.append("✓ Test cleanup completed")
+
+        print("\n".join(results))
+
+        return {
+            "success": True,
+            "message": "Dues amendment integration test completed successfully",
+            "results": results,
+        }
+
+    except Exception as e:
+        return {"success": False, "message": f"Error during test: {str(e)}"}
+
+
+@frappe.whitelist()
+def test_real_world_amendment_scenarios():
+    """Test real-world scenarios for dues amendment system"""
+    try:
+        print("=== Testing Real-World Amendment Scenarios ===")
+
+        # Get a member with active membership
+        member = frappe.db.get_value("Member", {"status": "Active"}, ["name", "email"], as_dict=True)
+        if not member:
+            return {"success": False, "message": "No active member found"}
+
+        member_doc = frappe.get_doc("Member", member.name)
+        print(f"Member: {member_doc.full_name}")
+
+        # Get their membership
+        membership = frappe.db.get_value(
+            "Membership",
+            {"member": member.name, "docstatus": 1},
+            ["name", "membership_type", "status"],
+            as_dict=True,
+        )
+
+        if not membership:
+            return {"success": False, "message": "No membership found"}
+
+        print(f"Membership: {membership.name} ({membership.status})")
+
+        results = []
+
+        # Test 1: Young Professional Fee Increase Scenario
+        print("\n--- Testing Fee Increase Scenario ---")
+        amendment1 = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "membership": membership.name,
+                "member": member.name,
+                "amendment_type": "Fee Change",
+                "requested_amount": 25.00,
+                "reason": "Got a promotion and want to support the organization more",
+                "effective_date": frappe.utils.add_days(frappe.utils.today(), 30),
+            }
+        )
+
+        amendment1.insert()
+        results.append(f"✓ Fee increase amendment created: {amendment1.name}")
+        results.append(f"  Status: {amendment1.status}")
+        results.append(f"  Should be auto-approved: {amendment1.status == 'Approved'}")
+
+        # Clean up
+        amendment1.delete()
+
+        # Test 2: Financial Hardship Scenario
+        print("\n--- Testing Financial Hardship Scenario ---")
+        amendment2 = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "membership": membership.name,
+                "member": member.name,
+                "amendment_type": "Fee Change",
+                "requested_amount": 8.00,
+                "reason": "Temporary financial hardship due to job loss",
+                "effective_date": frappe.utils.add_days(frappe.utils.today(), 7),
+            }
+        )
+
+        amendment2.insert()
+        results.append(f"✓ Financial hardship amendment created: {amendment2.name}")
+        results.append(f"  Status: {amendment2.status}")
+        results.append(f"  Should require approval: {amendment2.status == 'Pending Approval'}")
+
+        # Test approval
+        amendment2.approve_amendment("Approved due to documented financial hardship")
+        results.append(f"  After approval: {amendment2.status}")
+
+        # Test application
+        if amendment2.status == "Approved":
+            result = amendment2.apply_amendment()
+            if result["status"] == "success":
+                results.append("✓ Amendment applied successfully")
+                if amendment2.new_dues_schedule:
+                    results.append(f"  New dues schedule created: {amendment2.new_dues_schedule}")
+                    # Clean up dues schedule
+                    frappe.delete_doc("Membership Dues Schedule", amendment2.new_dues_schedule)
+
+        # Clean up
+        amendment2.delete()
+
+        print("\n".join(results))
+
+        return {
+            "success": True,
+            "message": "Real-world amendment scenarios tested successfully",
+            "results": results,
+        }
+
+    except Exception as e:
+        return {"success": False, "message": f"Error during real-world testing: {str(e)}"}
+
+
+@frappe.whitelist()
+def validate_production_schema():
+    """Comprehensive validation of production schema readiness"""
+
+    print("=== Production Schema Validation ===")
+
+    results = []
+    errors = []
+
+    try:
+        # 1. Validate Contribution Amendment Request DocType
+        print("\n--- Validating Contribution Amendment Request DocType ---")
+
+        doctype = frappe.get_doc("DocType", "Contribution Amendment Request")
+
+        # Check required new fields
+        required_fields = [
+            "new_dues_schedule",
+            "current_dues_schedule",
+            "current_amount",
+            "current_billing_interval",
+            "old_subscription_cancelled",
+            "processing_notes",
+        ]
+
+        existing_fields = [field.fieldname for field in doctype.fields]
+
+        for field in required_fields:
+            if field in existing_fields:
+                results.append(f"✓ Field '{field}' exists in Contribution Amendment Request")
+            else:
+                errors.append(f"❌ Field '{field}' missing from Contribution Amendment Request")
+
+        # Check field properties
+        for field in doctype.fields:
+            if field.fieldname == "new_dues_schedule":
+                if field.fieldtype == "Link" and field.options == "Membership Dues Schedule":
+                    results.append("✓ new_dues_schedule field properly configured")
+                else:
+                    errors.append(
+                        f"❌ new_dues_schedule field configuration incorrect: {field.fieldtype}, {field.options}"
+                    )
+
+            if field.fieldname == "current_dues_schedule":
+                if field.fieldtype == "Link" and field.options == "Membership Dues Schedule":
+                    results.append("✓ current_dues_schedule field properly configured")
+                else:
+                    errors.append(
+                        f"❌ current_dues_schedule field configuration incorrect: {field.fieldtype}, {field.options}"
+                    )
+
+        # 2. Validate Membership Dues Schedule DocType
+        print("\n--- Validating Membership Dues Schedule DocType ---")
+
+        if frappe.db.exists("DocType", "Membership Dues Schedule"):
+            results.append("✓ Membership Dues Schedule DocType exists")
+        else:
+            errors.append("❌ Membership Dues Schedule DocType does not exist")
+
+        # 3. Validate Database Tables
+        print("\n--- Validating Database Tables ---")
+
+        # Check if tables exist
+        tables_to_check = ["tabContribution Amendment Request", "tabMembership Dues Schedule"]
+
+        for table in tables_to_check:
+            if frappe.db.table_exists(table):
+                results.append(f"✓ Database table '{table}' exists")
+            else:
+                errors.append(f"❌ Database table '{table}' does not exist")
+
+        # 4. Validate Custom Methods
+        print("\n--- Validating Custom Methods ---")
+
+        # Check if custom methods exist on the class
+        test_doc = frappe.new_doc("Contribution Amendment Request")
+
+        methods_to_check = [
+            "create_dues_schedule_for_amendment",
+            "set_current_details",
+            "apply_fee_change",
+            "get_current_amount",
+        ]
+
+        for method in methods_to_check:
+            if hasattr(test_doc, method):
+                results.append(f"✓ Method '{method}' exists on Contribution Amendment Request")
+            else:
+                errors.append(f"❌ Method '{method}' missing from Contribution Amendment Request")
+
+        # 5. Validate API Endpoints
+        print("\n--- Validating API Endpoints ---")
+
+        # Check if whitelisted functions exist
+        whitelisted_functions = [
+            "test_enhanced_approval_workflows",
+            "process_pending_amendments",
+            "create_fee_change_amendment",
+        ]
+
+        for func in whitelisted_functions:
+            if hasattr(ContributionAmendmentRequest, func) or func in globals():
+                results.append(f"✓ Whitelisted function '{func}' exists")
+            else:
+                errors.append(f"❌ Whitelisted function '{func}' missing")
+
+        # 6. Summary
+        print("\n=== Validation Summary ===")
+
+        print(f"✅ Successful validations: {len(results)}")
+        print(f"❌ Errors found: {len(errors)}")
+
+        if errors:
+            print("\n🚨 ERRORS THAT MUST BE FIXED:")
+            for error in errors:
+                print(f"  {error}")
+
+        print("\n✅ SUCCESSFUL VALIDATIONS:")
+        for result in results:
+            print(f"  {result}")
+
+        # Return results
+        return {
+            "success": len(errors) == 0,
+            "total_checks": len(results) + len(errors),
+            "successful_checks": len(results),
+            "errors": len(errors),
+            "error_details": errors,
+            "results": results,
+            "ready_for_production": len(errors) == 0,
+        }
+
+    except Exception as e:
+        error_msg = f"Fatal error during validation: {str(e)}"
+        print(f"❌ {error_msg}")
+        return {"success": False, "error": error_msg, "ready_for_production": False}

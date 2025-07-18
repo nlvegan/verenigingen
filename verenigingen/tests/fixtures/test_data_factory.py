@@ -9,7 +9,7 @@ from datetime import datetime
 import frappe
 from frappe.utils import add_days, random_string, today
 
-from .test_membership_utilities import MembershipTestUtilities
+# Import removed - using direct frappe operations for membership creation
 
 
 class TestDataFactory:
@@ -60,8 +60,8 @@ class TestDataFactory:
         print(f"✅ Created {count} test chapters")
         return chapters
 
-    def create_test_membership_types(self, count=3, with_subscriptions=True):
-        """Create test membership types with proper subscription plans"""
+    def create_test_membership_types(self, count=3, with_dues_schedules=True):
+        """Create test membership types with proper dues schedule configuration"""
         membership_types = []
 
         # Different configurations for variety
@@ -75,26 +75,27 @@ class TestDataFactory:
 
         for i in range(min(count, len(type_configs))):
             config = type_configs[i]
-            result = MembershipTestUtilities.create_membership_type_with_subscription(
-                name=config["name"],
-                period=config["period"],
-                amount=config["amount"],
-                create_subscription_plan=with_subscriptions,
-                create_item=with_subscriptions,
-            )
-
-            membership_type = result["membership_type"]
+            
+            # Create membership type directly
+            membership_type = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": config["name"],
+                "amount": config["amount"],
+                "billing_frequency": config["period"],
+                "is_active": 1,
+                # Enhanced dues system fields
+                "contribution_mode": "Calculator",
+                "minimum_contribution": config["amount"] * 0.5,
+                "suggested_contribution": config["amount"],
+                "maximum_contribution": config["amount"] * 5,
+                "enable_income_calculator": 1,
+                "income_percentage_rate": 0.75
+            })
+            membership_type.insert(ignore_permissions=True)
             self._track_record("Membership Type", membership_type.name)
-
-            # Track related records
-            if "subscription_plan" in result:
-                self._track_record("Subscription Plan", result["subscription_plan"].name)
-            if "item" in result:
-                self._track_record("Item", result["item"].name)
-
             membership_types.append(membership_type)
 
-        print(f"✅ Created {len(membership_types)} membership types with subscriptions")
+        print(f"✅ Created {len(membership_types)} membership types")
         return membership_types
 
     def create_test_members(self, chapters, count=100, status_distribution=None):
@@ -152,45 +153,28 @@ class TestDataFactory:
         print(f"✅ Created {count} test members")
         return members
 
-    def create_test_memberships(self, members, membership_types, coverage_ratio=0.9, with_subscriptions=True):
-        """Create memberships for members with proper subscription linkage"""
+    def create_test_memberships(self, members, membership_types, coverage_ratio=0.9, with_dues_schedules=True):
+        """Create memberships for members"""
         memberships = []
         member_sample = random.sample(members, int(len(members) * coverage_ratio))
 
         for member in member_sample:
             membership_type = random.choice(membership_types)
-
-            # Use the utility to create membership with subscription
             start_date = member.join_date or today()
 
-            try:
-                result = MembershipTestUtilities.create_membership_with_subscription(
-                    member=member, membership_type=membership_type, start_date=start_date
-                )
+            # Create membership directly
+            membership = frappe.get_doc({
+                "doctype": "Membership",
+                "member": member.name,
+                "membership_type": membership_type.name,
+                "start_date": start_date,
+                "status": "Active" if member.status == "Active" else "Inactive",
+            })
+            membership.insert(ignore_permissions=True)
+            self._track_record("Membership", membership.name)
+            memberships.append(membership)
 
-                membership = result["membership"]
-                self._track_record("Membership", membership.name)
-
-                if "subscription" in result:
-                    self._track_record("Subscription", result["subscription"].name)
-
-                memberships.append(membership)
-            except Exception:
-                # Fallback to simple membership creation if subscription fails
-                membership = frappe.get_doc(
-                    {
-                        "doctype": "Membership",
-                        "member": member.name,
-                        "membership_type": membership_type.name,
-                        "start_date": start_date,
-                        "status": "Active" if member.status == "Active" else "Inactive",
-                    }
-                )
-                membership.insert(ignore_permissions=True)
-                self._track_record("Membership", membership.name)
-                memberships.append(membership)
-
-        print(f"✅ Created {len(memberships)} memberships with subscriptions")
+        print(f"✅ Created {len(memberships)} memberships")
         return memberships
 
     def create_test_volunteers(self, members, volunteer_ratio=0.3):

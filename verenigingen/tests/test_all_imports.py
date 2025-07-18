@@ -15,31 +15,40 @@ class TestAllImports(FrappeTestCase):
     
     def test_api_imports(self):
         """Test all API module imports"""
-        # Main API modules
-        import verenigingen.api.member
-        import verenigingen.api.volunteer  
-        import verenigingen.api.chapter_dashboard
-        import verenigingen.api.volunteer_management
-        import verenigingen.api.team_assignment
-        import verenigingen.api.board_management
-        import verenigingen.api.member_portal
-        import verenigingen.api.reports
+        # Main API modules (existing)
+        import verenigingen.api.member_management
+        import verenigingen.api.chapter_dashboard_api
+        import verenigingen.api.membership_application
+        import verenigingen.api.membership_application_review
+        import verenigingen.api.payment_dashboard
+        import verenigingen.api.payment_processing
+        import verenigingen.api.suspension_api
+        import verenigingen.api.termination_api
+        import verenigingen.api.volunteer_skills
         
         # E-Boekhouden API modules
         import verenigingen.api.eboekhouden_clean_reimport
+        import verenigingen.api.eboekhouden_migration
+        
+        # SEPA API modules
+        import verenigingen.api.sepa_batch_ui
+        import verenigingen.api.sepa_reconciliation
+        import verenigingen.api.sepa_mandate_management
         
         self.assertTrue(True, "All API imports successful")
         
     def test_utils_imports(self):
         """Test all utility module imports"""
-        # Core utils
-        import verenigingen.utils.address_utils
-        import verenigingen.utils.email_utils
-        import verenigingen.utils.export_utils
-        import verenigingen.utils.iban_validator
-        import verenigingen.utils.permissions
-        import verenigingen.utils.sepa_utils
+        # Core utils (existing)
+        import verenigingen.utils.validation.iban_validator
         import verenigingen.utils.termination_utils
+        import verenigingen.utils.termination_integration
+        import verenigingen.utils.application_helpers
+        import verenigingen.utils.application_payments
+        import verenigingen.utils.donation_emails
+        import verenigingen.utils.expense_permissions
+        import verenigingen.utils.sepa_notifications
+        import verenigingen.utils.sepa_reconciliation
         
         # E-Boekhouden utils
         import verenigingen.utils.eboekhouden.eboekhouden_rest_client
@@ -52,7 +61,6 @@ class TestAllImports(FrappeTestCase):
         
         # Payment processing
         import verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler
-        import verenigingen.utils.eboekhouden.payment_processing.simple_party_handler
         
         # Enhanced features
         import verenigingen.utils.eboekhouden.enhanced_payment_import
@@ -75,8 +83,7 @@ class TestAllImports(FrappeTestCase):
         # Volunteer system
         import verenigingen.verenigingen.doctype.volunteer.volunteer
         import verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense
-        import verenigingen.verenigingen.doctype.volunteer_team.volunteer_team
-        import verenigingen.verenigingen.doctype.volunteer_team_assignment.volunteer_team_assignment
+        import verenigingen.verenigingen.doctype.volunteer_assignment.volunteer_assignment
         
         # Financial
         import verenigingen.verenigingen.doctype.sepa_mandate.sepa_mandate
@@ -92,7 +99,7 @@ class TestAllImports(FrappeTestCase):
         """Test configuration file imports"""
         import verenigingen.hooks
         import verenigingen.permissions
-        import verenigingen.install
+        import verenigingen.validations
         
         self.assertTrue(True, "All configuration imports successful")
         
@@ -104,8 +111,8 @@ class TestAllImports(FrappeTestCase):
         
         # Specific test modules that have utilities
         import verenigingen.tests.test_iban_validator
-        import verenigingen.tests.test_member_creation
-        import verenigingen.tests.test_volunteer_portal
+        import verenigingen.tests.fixtures.test_data_factory
+        import verenigingen.tests.utils.base
         
         self.assertTrue(True, "All test utility imports successful")
         

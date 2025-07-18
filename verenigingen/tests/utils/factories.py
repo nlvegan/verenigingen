@@ -514,7 +514,7 @@ class TestDataBuilder:
                     "membership_type_name": name,
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
+                    "billing_frequency": "Annual",
                 }
             )
             membership_type.insert(ignore_permissions=True)

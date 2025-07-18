@@ -1564,18 +1564,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                     },
                 )
 
-                # Add balancing entry
-                balancing_account = "9999 - Verrekeningen - NVV"  # Default balancing account
-                je.append(
-                    "accounts",
-                    {
-                        "account": balancing_account,
-                        "debit_in_account_currency": frappe.utils.flt(-amount if amount < 0 else 0, 2),
-                        "credit_in_account_currency": frappe.utils.flt(amount if amount > 0 else 0, 2),
-                        "cost_center": cost_center,
-                        "user_remark": f"Balancing entry for {description}",
-                    },
-                )
+                # No automatic balancing - let journal entry validation handle unbalanced entries
 
                 try:
                     je.save()
@@ -1923,6 +1912,24 @@ def get_mutation_gap_report():
 def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
     """Import opening balances from eBoekhouden using REST API"""
     try:
+        # Check if opening balances have already been imported
+        existing_opening_balance = frappe.db.exists(
+            "Journal Entry",
+            {
+                "company": company,
+                "eboekhouden_mutation_nr": "OPENING_BALANCE",
+                "voucher_type": "Opening Entry",
+            },
+        )
+
+        if existing_opening_balance:
+            debug_info.append(f"Opening balances already imported: {existing_opening_balance}")
+            return {
+                "success": True,
+                "message": "Opening balances already imported",
+                "journal_entry": existing_opening_balance,
+            }
+
         from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
@@ -1963,6 +1970,7 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
         je.voucher_type = "Opening Entry"
         je.title = "eBoekhouden Opening Balances"
         je.user_remark = "Opening balances imported from eBoekhouden"
+        je.eboekhouden_mutation_nr = "OPENING_BALANCE"  # Mark as opening balance import
 
         total_debit = 0
         total_credit = 0
@@ -2038,11 +2046,23 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
                 party_type = "Supplier"
                 party = _get_or_create_company_as_supplier(company, debug_info)
 
-            # Create journal entry line
+            # Create journal entry line with proper debit/credit based on account type
+            # For balance sheet accounts, respect the natural balance:
+            # - Asset accounts: positive balance = debit, negative balance = credit
+            # - Liability/Equity accounts: positive balance = credit, negative balance = debit
+            if root_type == "Asset":
+                # Assets have natural debit balance
+                debit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
+                credit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
+            else:  # Liability or Equity
+                # Liabilities and Equity have natural credit balance
+                debit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
+                credit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
+
             entry_line = {
                 "account": account,
-                "debit_in_account_currency": frappe.utils.flt(amount if amount > 0 else 0, 2),
-                "credit_in_account_currency": frappe.utils.flt(-amount if amount < 0 else 0, 2),
+                "debit_in_account_currency": debit_amount,
+                "credit_in_account_currency": credit_amount,
                 "cost_center": cost_center,
                 "user_remark": f"Opening balance: {description}",
             }
@@ -2061,73 +2081,21 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
                 f"Added opening balance entry: {account}, Debit: {entry_line['debit_in_account_currency']}, Credit: {entry_line['credit_in_account_currency']}"
             )
 
-        # Add balancing entry if needed
+        # Check if entries balance - fail if they don't
         balance_difference = total_debit - total_credit
         if abs(balance_difference) > 0.01:
-            debug_info.append(f"Adding balancing entry for difference: {balance_difference}")
-
-            # Use Temporary Opening account for balancing
-            balancing_account = None
-
-            # Try to find existing Temporary Opening account
-            temp_opening_accounts = frappe.get_all(
-                "Account",
-                filters={"company": company, "account_name": ["like", "%Temporary Opening%"]},
-                fields=["name", "is_group"],
-            )
-
-            for acc in temp_opening_accounts:
-                if not acc.is_group:  # Must be a ledger account
-                    balancing_account = acc.name
-                    break
-
-            # If no Temporary Opening account found, use Verrekeningen
-            if not balancing_account:
-                verrekeningen_accounts = frappe.get_all(
-                    "Account",
-                    filters={"company": company, "account_name": ["like", "%Verrekeningen%"], "is_group": 0},
-                    fields=["name"],
-                )
-
-                if verrekeningen_accounts:
-                    balancing_account = verrekeningen_accounts[0].name
-                else:
-                    # Create the Verrekeningen account if it doesn't exist
-                    # Find or create the parent account
-                    parent_account = frappe.db.get_value(
-                        "Account", {"company": company, "root_type": "Equity", "is_group": 1}, "name"
-                    )
-
-                    if not parent_account:
-                        debug_info.append("No Equity parent account found, using company default")
-                        parent_account = company
-
-                    balancing_acc = frappe.new_doc("Account")
-                    balancing_acc.account_name = "Verrekeningen"
-                    balancing_acc.parent_account = parent_account
-                    balancing_acc.company = company
-                    balancing_acc.account_type = "Equity"
-                    balancing_acc.root_type = "Equity"
-                    balancing_acc.account_number = "9999"
-                    balancing_acc.save()
-                    balancing_account = balancing_acc.name
-                    debug_info.append(f"Created balancing account: {balancing_account}")
-
-            # Add balancing entry
-            balancing_line = {
-                "account": balancing_account,
-                "debit_in_account_currency": frappe.utils.flt(
-                    -balance_difference if balance_difference < 0 else 0, 2
-                ),
-                "credit_in_account_currency": frappe.utils.flt(
-                    balance_difference if balance_difference > 0 else 0, 2
-                ),
-                "cost_center": cost_center,
-                "user_remark": "Automatic balancing entry for opening balances",
+            error_msg = f"Opening balance entries do not balance! Total debit: {total_debit}, Total credit: {total_credit}, Difference: {balance_difference}"
+            debug_info.append(error_msg)
+            debug_info.append("This indicates a data issue in eBoekhouden or mapping problems.")
+            debug_info.append("Review the ledger mappings and eBoekhouden data before retrying.")
+            return {
+                "success": False,
+                "error": error_msg,
+                "debug_info": debug_info,
+                "total_debit": total_debit,
+                "total_credit": total_credit,
+                "balance_difference": balance_difference,
             }
-
-            je.append("accounts", balancing_line)
-            debug_info.append(f"Added balancing entry: {balancing_account}, difference: {balance_difference}")
 
         # Save and submit journal entry (unless dry run)
         if dry_run:
@@ -2721,23 +2689,18 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
             },
         )
 
-        # Add balancing entry
-        balancing_account = "9999 - Verrekeningen - NVV"
-        je.append(
-            "accounts",
-            {
-                "account": balancing_account,
-                "debit_in_account_currency": frappe.utils.flt(-amount if amount < 0 else 0, 2),
-                "credit_in_account_currency": frappe.utils.flt(amount if amount > 0 else 0, 2),
-                "cost_center": cost_center,
-                "user_remark": "Balancing entry for {description}",
-            },
-        )
+        # No automatic balancing - let journal entry validation handle unbalanced entries
 
-    je.save()
-    je.submit()
-    debug_info.append(f"Created Journal Entry {je.name}")
-    return je
+    try:
+        je.save()
+        je.submit()
+        debug_info.append(f"Created Journal Entry {je.name}")
+        return je
+    except Exception as e:
+        error_msg = f"Failed to create Journal Entry: {str(e)}"
+        debug_info.append(error_msg)
+        debug_info.append("This may indicate unbalanced entries or other data issues.")
+        raise Exception(error_msg)
 
 
 def _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, debug_info):

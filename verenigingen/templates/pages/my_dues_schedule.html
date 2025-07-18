@@ -1,0 +1,735 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("My Dues Schedule") }}{% endblock %}
+
+{% block head_include %}
+<link href="/assets/verenigingen/css/mobile_dues_schedule.css" rel="stylesheet">
+<script src="/assets/verenigingen/js/mobile_dues_schedule.js"></script>
+{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>
+/* Calendar styling */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background-color: #e5e7eb;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.calendar-header {
+    background-color: #f3f4f6;
+    padding: 0.75rem;
+    text-align: center;
+    font-weight: 500;
+    font-size: 0.875rem;
+    color: #374151;
+}
+
+.calendar-day {
+    background-color: white;
+    min-height: 2.5rem;
+    padding: 0.5rem;
+    position: relative;
+    border: 1px solid transparent;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.calendar-day:hover {
+    background-color: #f9fafb;
+    border-color: #d1d5db;
+}
+
+.calendar-day.other-month {
+    background-color: #f9fafb;
+    color: #9ca3af;
+}
+
+.calendar-day.has-payment {
+    background-color: #dcfce7;
+    border-color: #16a34a;
+}
+
+.calendar-day.has-payment.due {
+    background-color: #fef3c7;
+    border-color: #f59e0b;
+}
+
+.calendar-day.has-payment.overdue {
+    background-color: #fee2e2;
+    border-color: #ef4444;
+}
+
+.calendar-day.has-payment.paid {
+    background-color: #dcfce7;
+    border-color: #16a34a;
+}
+
+.payment-dot {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+}
+
+.payment-dot.paid {
+    background-color: #16a34a;
+}
+
+.payment-dot.due {
+    background-color: #f59e0b;
+}
+
+.payment-dot.overdue {
+    background-color: #ef4444;
+}
+
+/* Timeline styling */
+.timeline-item {
+    position: relative;
+    padding-left: 2rem;
+    margin-bottom: 1.5rem;
+}
+
+.timeline-item:before {
+    content: '';
+    position: absolute;
+    left: 0.5rem;
+    top: 0.5rem;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+    background-color: #e5e7eb;
+    border: 2px solid white;
+    box-shadow: 0 0 0 2px #e5e7eb;
+}
+
+.timeline-item.paid:before {
+    background-color: #16a34a;
+    box-shadow: 0 0 0 2px #16a34a;
+}
+
+.timeline-item.due:before {
+    background-color: #f59e0b;
+    box-shadow: 0 0 0 2px #f59e0b;
+}
+
+.timeline-item.overdue:before {
+    background-color: #ef4444;
+    box-shadow: 0 0 0 2px #ef4444;
+}
+
+.timeline-item:not(:last-child):after {
+    content: '';
+    position: absolute;
+    left: 0.75rem;
+    top: 1.25rem;
+    width: 0.125rem;
+    height: calc(100% + 0.5rem);
+    background-color: #e5e7eb;
+}
+
+/* Progress bar styling */
+.progress-bar {
+    height: 0.75rem;
+    background-color: #f3f4f6;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(to right, var(--brand-primary), var(--brand-secondary));
+    transition: width 0.3s ease;
+    border-radius: 0.375rem;
+}
+
+.progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #374151;
+}
+
+/* Status badges */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.status-badge.active {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.status-badge.pending {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.status-badge.expired {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+.status-badge.draft {
+    background-color: #f3f4f6;
+    color: #374151;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .calendar-grid {
+        font-size: 0.75rem;
+    }
+
+    .calendar-day {
+        min-height: 2rem;
+        padding: 0.25rem;
+    }
+
+    .timeline-item {
+        padding-left: 1.5rem;
+        margin-bottom: 1rem;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8" id="main-content">
+    <!-- Header -->
+    <div class="mb-8 header-section flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">{{ _("My Dues Schedule") }}</h1>
+            <p class="text-gray-600">{{ _("Manage your membership dues and payment schedule") }}</p>
+        </div>
+        <div class="header-actions">
+            <a href="/financial_dashboard" class="text-primary-600 hover:text-primary-700 font-medium">
+                <i class="fas fa-tachometer-alt mr-2"></i>{{ _("Full Dashboard") }}
+            </a>
+        </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="financial-cards-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-500">{{ _("Current Schedule") }}</p>
+                    <p class="text-2xl font-bold text-gray-800">
+                        {% if current_schedule %}
+                            <span class="status-badge {{ current_schedule.status|lower }}">{{ _(current_schedule.status) }}</span>
+                        {% else %}
+                            <span class="text-gray-400">{{ _("None") }}</span>
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="p-3 bg-primary-50 rounded-full">
+                    <i class="fas fa-calendar-alt text-primary-600"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-500">{{ _("Monthly Amount") }}</p>
+                    <p class="text-2xl font-bold text-gray-800">
+                        {% if current_schedule %}
+                            {{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"}) }}
+                        {% else %}
+                            <span class="text-gray-400">--</span>
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="p-3 bg-secondary-50 rounded-full">
+                    <i class="fas fa-euro-sign text-secondary-600"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-500">{{ _("Next Payment") }}</p>
+                    <p class="text-2xl font-bold text-gray-800">
+                        {% if next_payment %}
+                            {{ frappe.format_value(next_payment.due_date, {"fieldtype": "Date"}) }}
+                        {% else %}
+                            <span class="text-gray-400">{{ _("None") }}</span>
+                        {% endif %}
+                    </p>
+                </div>
+                <div class="p-3 bg-accent-50 rounded-full">
+                    <i class="fas fa-clock text-accent-600"></i>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm font-medium text-gray-500">{{ _("Coverage") }}</p>
+                    <p class="text-2xl font-bold text-gray-800">{{ coverage_percentage }}%</p>
+                </div>
+                <div class="p-3 bg-green-50 rounded-full">
+                    <i class="fas fa-shield-alt text-green-600"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <!-- Left Column - Schedule Overview -->
+        <div class="lg:col-span-2">
+            <!-- Current Schedule Details -->
+            {% if current_schedule %}
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Current Schedule Details") }}</h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <p class="text-sm text-gray-500 mb-1">{{ _("Contribution Mode") }}</p>
+                        <p class="font-medium text-gray-800">{{ _(current_schedule.contribution_mode) }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500 mb-1">{{ _("Billing Frequency") }}</p>
+                        <p class="font-medium text-gray-800">{{ _(current_schedule.billing_frequency) }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500 mb-1">{{ _("Start Date") }}</p>
+                        <p class="font-medium text-gray-800">{{ frappe.format_value(current_schedule.start_date, {"fieldtype": "Date"}) }}</p>
+                    </div>
+                    <div>
+                        <p class="text-sm text-gray-500 mb-1">{{ _("End Date") }}</p>
+                        <p class="font-medium text-gray-800">
+                            {% if current_schedule.end_date %}
+                                {{ frappe.format_value(current_schedule.end_date, {"fieldtype": "Date"}) }}
+                            {% else %}
+                                {{ _("Ongoing") }}
+                            {% endif %}
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Coverage Progress -->
+                <div class="mb-6">
+                    <div class="flex justify-between items-center mb-2">
+                        <p class="text-sm font-medium text-gray-700">{{ _("Coverage Progress") }}</p>
+                        <p class="text-sm text-gray-500">{{ coverage_percentage }}%</p>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{ coverage_percentage }}%"></div>
+                        <div class="progress-text">{{ covered_months }} / {{ total_months }} {{ _("months") }}</div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex flex-wrap gap-3">
+                    <a href="/membership_fee_adjustment" class="inline-flex items-center px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors duration-200">
+                        <i class="fas fa-edit mr-2"></i>
+                        {{ _("Adjust Fee") }}
+                    </a>
+                    <a href="/payment_dashboard" class="inline-flex items-center px-4 py-2 bg-secondary-600 text-white rounded-lg hover:bg-secondary-700 transition-colors duration-200">
+                        <i class="fas fa-credit-card mr-2"></i>
+                        {{ _("Payment Dashboard") }}
+                    </a>
+                    <button id="export-schedule" class="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200">
+                        <i class="fas fa-download mr-2"></i>
+                        {{ _("Export Schedule") }}
+                    </button>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- Payment Calendar -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-800">{{ _("Payment Calendar") }}</h3>
+                    <div class="flex items-center space-x-2">
+                        <button id="prev-month" class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
+                            <i class="fas fa-chevron-left"></i>
+                        </button>
+                        <span id="current-month" class="font-medium text-gray-800 min-w-[120px] text-center">
+                            {{ calendar_month }} {{ calendar_year }}
+                        </span>
+                        <button id="next-month" class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded">
+                            <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Calendar Legend -->
+                <div class="flex flex-wrap gap-4 mb-4 text-sm">
+                    <div class="flex items-center">
+                        <div class="w-4 h-4 bg-green-200 border border-green-500 rounded mr-2"></div>
+                        <span class="text-gray-600">{{ _("Paid") }}</span>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-4 h-4 bg-yellow-200 border border-yellow-500 rounded mr-2"></div>
+                        <span class="text-gray-600">{{ _("Due") }}</span>
+                    </div>
+                    <div class="flex items-center">
+                        <div class="w-4 h-4 bg-red-200 border border-red-500 rounded mr-2"></div>
+                        <span class="text-gray-600">{{ _("Overdue") }}</span>
+                    </div>
+                </div>
+
+                <!-- Calendar Grid -->
+                <div class="calendar-grid" id="calendar-grid">
+                    <!-- Calendar headers -->
+                    <div class="calendar-header">{{ _("Sun") }}</div>
+                    <div class="calendar-header">{{ _("Mon") }}</div>
+                    <div class="calendar-header">{{ _("Tue") }}</div>
+                    <div class="calendar-header">{{ _("Wed") }}</div>
+                    <div class="calendar-header">{{ _("Thu") }}</div>
+                    <div class="calendar-header">{{ _("Fri") }}</div>
+                    <div class="calendar-header">{{ _("Sat") }}</div>
+
+                    <!-- Calendar days will be populated by JavaScript -->
+                </div>
+            </div>
+
+            <!-- Payment Timeline -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h3 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Payment Timeline") }}</h3>
+
+                <div class="timeline" id="payment-timeline">
+                    {% for payment in payment_timeline %}
+                    <div class="timeline-item {{ payment.status|lower }}">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="font-medium text-gray-800">
+                                    {{ frappe.format_value(payment.amount, {"fieldtype": "Currency"}) }}
+                                </p>
+                                <p class="text-sm text-gray-500">
+                                    {{ frappe.format_value(payment.due_date, {"fieldtype": "Date"}) }}
+                                </p>
+                            </div>
+                            <div class="text-right">
+                                <span class="status-badge {{ payment.status|lower }}">{{ _(payment.status) }}</span>
+                                {% if payment.invoice_link %}
+                                <a href="{{ payment.invoice_link }}" class="block text-sm text-primary-600 hover:text-primary-700 mt-1">
+                                    {{ _("View Invoice") }}
+                                </a>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% if payment.description %}
+                        <p class="text-sm text-gray-600 mt-1">{{ payment.description }}</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column - Quick Actions & Information -->
+        <div class="lg:col-span-1">
+            <!-- Quick Actions -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Quick Actions") }}</h4>
+                <div class="space-y-3">
+                    <a href="/membership_fee_adjustment" class="quick-action touch-friendly flex items-center p-3 bg-primary-50 text-primary-700 rounded-lg hover:bg-primary-100 transition-colors duration-200">
+                        <i class="fas fa-edit mr-3"></i>
+                        <span>{{ _("Adjust My Fee") }}</span>
+                    </a>
+                    <a href="/payment_dashboard" class="quick-action touch-friendly flex items-center p-3 bg-secondary-50 text-secondary-700 rounded-lg hover:bg-secondary-100 transition-colors duration-200">
+                        <i class="fas fa-credit-card mr-3"></i>
+                        <span>{{ _("Payment Methods") }}</span>
+                    </a>
+                    <a href="/bank_details" class="quick-action touch-friendly flex items-center p-3 bg-accent-50 text-accent-700 rounded-lg hover:bg-accent-100 transition-colors duration-200">
+                        <i class="fas fa-university mr-3"></i>
+                        <span>{{ _("Bank Details") }}</span>
+                    </a>
+                    <button id="view-history" class="quick-action touch-friendly flex items-center p-3 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors duration-200 w-full">
+                        <i class="fas fa-history mr-3"></i>
+                        <span>{{ _("Payment History") }}</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Schedule Information -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Schedule Information") }}</h4>
+                <div class="space-y-3">
+                    {% if current_schedule %}
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500">{{ _("Payment Method") }}</span>
+                        <span class="text-sm font-medium text-gray-800">
+                            {% if current_schedule.payment_method %}
+                                {{ _(current_schedule.payment_method) }}
+                            {% else %}
+                                {{ _("Not Set") }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500">{{ _("Auto-Renewal") }}</span>
+                        <span class="text-sm font-medium text-gray-800">
+                            {% if current_schedule.auto_renewal %}
+                                <i class="fas fa-check text-green-600"></i> {{ _("Enabled") }}
+                            {% else %}
+                                <i class="fas fa-times text-red-600"></i> {{ _("Disabled") }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    <div class="flex justify-between items-center">
+                        <span class="text-sm text-gray-500">{{ _("Notification") }}</span>
+                        <span class="text-sm font-medium text-gray-800">
+                            {% if current_schedule.email_notifications %}
+                                <i class="fas fa-check text-green-600"></i> {{ _("Enabled") }}
+                            {% else %}
+                                <i class="fas fa-times text-red-600"></i> {{ _("Disabled") }}
+                            {% endif %}
+                        </span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Help & Support -->
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+                <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Need Help?") }}</h4>
+                <p class="text-sm text-gray-600 mb-4">{{ _("Questions about your dues schedule or payment options?") }}</p>
+                <div class="space-y-3">
+                    <a href="mailto:{{ member_contact_email }}" class="flex items-center p-3 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition-colors duration-200">
+                        <i class="fas fa-envelope mr-3"></i>
+                        <span>{{ _("Contact Support") }}</span>
+                    </a>
+                    <a href="/help/dues-schedule" class="flex items-center p-3 bg-gray-50 text-gray-700 rounded-lg hover:bg-gray-100 transition-colors duration-200">
+                        <i class="fas fa-question-circle mr-3"></i>
+                        <span>{{ _("Help Center") }}</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Payment Detail Modal -->
+<div id="payment-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h5 class="text-lg font-semibold text-gray-800">{{ _("Payment Details") }}</h5>
+                <button id="close-modal" class="text-gray-500 hover:text-gray-700">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="modal-content">
+                <!-- Content will be populated by JavaScript -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Success/Error Messages -->
+<div id="message-container" style="position: fixed; top: 20px; right: 20px; z-index: 1000;"></div>
+{% endblock %}
+
+{% block script %}
+<script>
+$(document).ready(function() {
+    // Current calendar state
+    let currentMonth = {{ calendar_month_num }};
+    let currentYear = {{ calendar_year }};
+
+    // Payment data
+    const paymentData = {{ payment_data|safe }};
+
+    // Initialize calendar
+    renderCalendar();
+
+    // Calendar navigation
+    $('#prev-month').on('click', function() {
+        currentMonth--;
+        if (currentMonth < 1) {
+            currentMonth = 12;
+            currentYear--;
+        }
+        renderCalendar();
+    });
+
+    $('#next-month').on('click', function() {
+        currentMonth++;
+        if (currentMonth > 12) {
+            currentMonth = 1;
+            currentYear++;
+        }
+        renderCalendar();
+    });
+
+    // Render calendar for current month
+    function renderCalendar() {
+        const monthNames = [
+            '{{ _("January") }}', '{{ _("February") }}', '{{ _("March") }}', '{{ _("April") }}',
+            '{{ _("May") }}', '{{ _("June") }}', '{{ _("July") }}', '{{ _("August") }}',
+            '{{ _("September") }}', '{{ _("October") }}', '{{ _("November") }}', '{{ _("December") }}'
+        ];
+
+        $('#current-month').text(monthNames[currentMonth - 1] + ' ' + currentYear);
+
+        // Get first day of month and number of days
+        const firstDay = new Date(currentYear, currentMonth - 1, 1);
+        const lastDay = new Date(currentYear, currentMonth, 0);
+        const daysInMonth = lastDay.getDate();
+        const startDate = firstDay.getDay();
+
+        // Get previous month's last days
+        const prevMonth = new Date(currentYear, currentMonth - 1, 0);
+        const prevMonthDays = prevMonth.getDate();
+
+        // Clear existing calendar
+        const calendarGrid = $('#calendar-grid');
+        calendarGrid.find('.calendar-day').remove();
+
+        // Add previous month's trailing days
+        for (let i = startDate - 1; i >= 0; i--) {
+            const day = prevMonthDays - i;
+            const dayElement = $('<div class="calendar-day other-month">' + day + '</div>');
+            calendarGrid.append(dayElement);
+        }
+
+        // Add current month's days
+        for (let day = 1; day <= daysInMonth; day++) {
+            const dateString = currentYear + '-' +
+                String(currentMonth).padStart(2, '0') + '-' +
+                String(day).padStart(2, '0');
+
+            const dayElement = $('<div class="calendar-day" data-date="' + dateString + '">' + day + '</div>');
+
+            // Check if this day has payments
+            const payment = paymentData.find(p => p.date === dateString);
+            if (payment) {
+                dayElement.addClass('has-payment ' + payment.status.toLowerCase());
+                dayElement.append('<div class="payment-dot ' + payment.status.toLowerCase() + '"></div>');
+            }
+
+            calendarGrid.append(dayElement);
+        }
+
+        // Add next month's leading days
+        const remainingCells = 42 - (startDate + daysInMonth);
+        for (let day = 1; day <= remainingCells; day++) {
+            const dayElement = $('<div class="calendar-day other-month">' + day + '</div>');
+            calendarGrid.append(dayElement);
+        }
+    }
+
+    // Calendar day click handler
+    $(document).on('click', '.calendar-day:not(.other-month)', function() {
+        const date = $(this).data('date');
+        const payment = paymentData.find(p => p.date === date);
+
+        if (payment) {
+            showPaymentModal(payment);
+        }
+    });
+
+    // Show payment modal
+    function showPaymentModal(payment) {
+        const statusColors = {
+            'paid': 'text-green-600',
+            'due': 'text-yellow-600',
+            'overdue': 'text-red-600'
+        };
+
+        const modalContent = `
+            <div class="space-y-4">
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-gray-500">{{ _("Amount") }}</span>
+                    <span class="font-medium text-gray-800">€${payment.amount}</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-gray-500">{{ _("Due Date") }}</span>
+                    <span class="font-medium text-gray-800">${payment.date}</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-sm text-gray-500">{{ _("Status") }}</span>
+                    <span class="font-medium ${statusColors[payment.status.toLowerCase()]}">${payment.status}</span>
+                </div>
+                ${payment.description ? `<div><span class="text-sm text-gray-500">{{ _("Description") }}</span><p class="text-sm text-gray-800 mt-1">${payment.description}</p></div>` : ''}
+                ${payment.invoice_link ? `<div class="pt-4 border-t border-gray-200"><a href="${payment.invoice_link}" class="w-full bg-primary-600 text-white py-2 px-4 rounded-lg hover:bg-primary-700 transition-colors duration-200 inline-block text-center">{{ _("View Invoice") }}</a></div>` : ''}
+            </div>
+        `;
+
+        $('#modal-content').html(modalContent);
+        $('#payment-modal').removeClass('hidden');
+    }
+
+    // Close modal
+    $('#close-modal, #payment-modal').on('click', function(e) {
+        if (e.target === this) {
+            $('#payment-modal').addClass('hidden');
+        }
+    });
+
+    // Export schedule
+    $('#export-schedule').on('click', function() {
+        frappe.call({
+            method: 'verenigingen.templates.pages.my_dues_schedule.export_schedule',
+            callback: function(r) {
+                if (r.message) {
+                    // Download the exported file
+                    const link = document.createElement('a');
+                    link.href = r.message.url;
+                    link.download = r.message.filename;
+                    link.click();
+
+                    showMessage('{{ _("Schedule exported successfully") }}', 'success');
+                } else {
+                    showMessage('{{ _("Failed to export schedule") }}', 'danger');
+                }
+            }
+        });
+    });
+
+    // View payment history
+    $('#view-history').on('click', function() {
+        window.location.href = '/payment_dashboard';
+    });
+
+    // Utility function to show messages
+    function showMessage(message, type) {
+        const alertClass = 'alert-' + type;
+        const messageHtml = `
+            <div class="alert ${alertClass} alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="close" data-dismiss="alert">
+                    <span>&times;</span>
+                </button>
+            </div>
+        `;
+
+        $('#message-container').html(messageHtml);
+
+        // Auto-dismiss after 5 seconds
+        setTimeout(function() {
+            $('.alert').alert('close');
+        }, 5000);
+    }
+});
+</script>
+{% endblock %}

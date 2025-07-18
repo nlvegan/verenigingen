@@ -1,14 +1,36 @@
-// Membership form controller with improved maintainability and custom amount handling
+// Membership form controller with dues schedule integration
 frappe.ui.form.on('Membership', {
 	refresh: function(frm) {
-		// Basic form setup would go here
-		// Remove calls to undefined functions for now
+		// Set up dues schedule buttons
+		if (frm.doc.docstatus === 1) {
+			frm.add_custom_button(__('Sync Payment Details'), function() {
+				frm.call('sync_payment_details_from_dues_schedule');
+			});
+
+			if (frm.doc.dues_schedule) {
+				frm.add_custom_button(__('View Dues Schedule'), function() {
+					frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule);
+				});
+			}
+		}
+
+		// Add custom button for creating dues schedule if not exists
+		if (frm.doc.docstatus === 1 && !frm.doc.dues_schedule) {
+			frm.add_custom_button(__('Create Dues Schedule'), function() {
+				frm.call('create_dues_schedule_from_membership');
+			});
+		}
 	},
 
 	membership_type: function(frm) {
 		// Handle membership type change
 		if (frm.doc.membership_type) {
-			// Add any membership type specific logic here
+			// Fetch membership type details for dues schedule creation
+			frappe.db.get_doc('Membership Type', frm.doc.membership_type).then(function(doc) {
+				if (doc.amount) {
+					frm.set_value('membership_fee', doc.amount);
+				}
+			});
 		}
 	},
 
@@ -16,16 +38,50 @@ frappe.ui.form.on('Membership', {
 		frm.trigger('calculate_renewal_date');
 	},
 
-	uses_custom_amount: function(frm) {
-		// Clear custom amount fields if unchecked
-		if (!frm.doc.uses_custom_amount) {
-			frm.set_value('custom_amount', null);
-			frm.set_value('amount_reason', '');
+	// Button handlers for dues schedule integration
+	create_dues_schedule: function(frm) {
+		if (frm.doc.docstatus === 1) {
+			frm.call('create_dues_schedule_from_membership').then(function(r) {
+				if (r.message) {
+					frappe.msgprint(__('Dues schedule created successfully'));
+					frm.reload_doc();
+				}
+			});
 		}
 	},
 
-	custom_amount: function(frm) {
-		// Custom amount validation would go here
+	view_dues_schedule: function(frm) {
+		if (frm.doc.dues_schedule) {
+			frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule);
+		}
+	},
+
+	view_payments: function(frm) {
+		if (frm.doc.dues_schedule) {
+			frm.call('show_payment_history').then(function(r) {
+				if (r.message) {
+					// Display payment history in a dialog
+					let d = new frappe.ui.Dialog({
+						title: __('Payment History'),
+						fields: [
+							{
+								fieldname: 'payment_history',
+								fieldtype: 'HTML'
+							}
+						]
+					});
+
+					let html = '<table class="table table-striped"><tr><th>Invoice</th><th>Date</th><th>Amount</th><th>Status</th></tr>';
+					r.message.forEach(function(payment) {
+						html += `<tr><td>${payment.invoice}</td><td>${payment.date}</td><td>${payment.amount}</td><td>${payment.status}</td></tr>`;
+					});
+					html += '</table>';
+
+					d.fields_dict.payment_history.$wrapper.html(html);
+					d.show();
+				}
+			});
+		}
 	},
 
 	payment_method: function(frm) {

@@ -51,57 +51,20 @@ class TestMembership(FrappeTestCase):
 
         self.membership_type = frappe.new_doc("Membership Type")
         self.membership_type.membership_type_name = self.membership_type_name
-        self.membership_type.subscription_period = "Annual"
+        self.membership_type.billing_period = "Annual"
         self.membership_type.amount = 120
         self.membership_type.currency = "EUR"
         self.membership_type.is_active = 1
         self.membership_type.allow_auto_renewal = 1
         self.membership_type.insert()
 
-        # Create subscription plan without creating an item
-        # We'll use a more test-friendly approach
-        self.create_test_subscription_plan()
+        # No longer creating subscription plans - using dues schedule system instead
+        # self.create_test_subscription_plan()
 
-    def create_test_subscription_plan(self):
-        """Create a subscription plan for testing without the item dependency"""
-        plan_name = f"Test Plan - {self.membership_type_name}"
-
-        # Delete existing plan if it exists
-        if frappe.db.exists("Subscription Plan", plan_name):
-            frappe.delete_doc("Subscription Plan", plan_name)
-
-        # Create a test item for the plan if it doesn't exist
-        item_code = "TEST-MEMBERSHIP-ITEM"
-        if not frappe.db.exists("Item", item_code):
-            item = frappe.new_doc("Item")
-            item.item_code = item_code
-            item.item_name = "Test Membership Item"
-            item.item_group = "Membership"
-            item.is_stock_item = 0
-            item.include_item_in_manufacturing = 0
-            item.is_service_item = 1
-            item.is_subscription_item = 1
-
-            # Default warehouse
-            item.append(
-                "item_defaults", {"company": frappe.defaults.get_global_default("company") or "_Test Company"}
-            )
-
-            item.insert(ignore_permissions=True)
-
-        # Create subscription plan
-        plan = frappe.new_doc("Subscription Plan")
-        plan.plan_name = plan_name
-        plan.item = item_code
-        plan.price_determination = "Fixed Rate"
-        plan.cost = self.membership_type.amount
-        plan.billing_interval = "Year"
-        plan.billing_interval_count = 1
-        plan.insert(ignore_permissions=True)
-
-        # Link plan to membership type
-        self.membership_type.subscription_plan = plan.name
-        self.membership_type.save()
+    # Updated to use dues schedule system
+    # def create_test_subscription_plan(self):
+    #     """Create a subscription plan for testing without the item dependency"""
+    #     pass
 
     def cleanup_test_data(self):
         # Clean up memberships
@@ -125,15 +88,15 @@ class TestMembership(FrappeTestCase):
         if frappe.db.exists("Membership Type", self.membership_type_name):
             frappe.delete_doc("Membership Type", self.membership_type_name, force=True)
 
-        # Clean up subscription plan
-        plan_name = f"Test Plan - {self.membership_type_name}"
-        if frappe.db.exists("Subscription Plan", plan_name):
-            frappe.delete_doc("Subscription Plan", plan_name, force=True)
-
-        # Clean up test item
-        item_code = "TEST-MEMBERSHIP-ITEM"
-        if frappe.db.exists("Item", item_code):
-            frappe.delete_doc("Item", item_code, force=True)
+        # Updated to use dues schedule system
+        # plan_name = f"Test Plan - {self.membership_type_name}"
+        # if frappe.db.exists("Subscription Plan", plan_name):
+        #     frappe.delete_doc("Subscription Plan", plan_name, force=True)
+        #
+        # # Clean up test item
+        # item_code = "TEST-MEMBERSHIP-ITEM"
+        # if frappe.db.exists("Item", item_code):
+        #     frappe.delete_doc("Item", item_code, force=True)
 
         # We don't delete the Item Group as it might be used by other tests
 
@@ -178,13 +141,13 @@ class TestMembership(FrappeTestCase):
         self.assertEqual(membership.status, "Active")
         self.assertEqual(membership.docstatus, 1)
 
-        # Check if subscription was created
-        self.assertTrue(membership.subscription, "Subscription should be created")
+        # Check if dues schedule was created
+        self.assertTrue(membership.dues_schedule, "Dues schedule should be created")
 
-        # Verify subscription exists
-        subscription = frappe.get_doc("Subscription", membership.subscription)
-        self.assertEqual(subscription.party, self.member.customer)
-        self.assertEqual(getdate(subscription.start_date), getdate(membership.start_date))
+        # Verify dues schedule exists
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)
+        self.assertEqual(dues_schedule.member, self.member.name)
+        self.assertEqual(getdate(dues_schedule.start_date), getdate(membership.start_date))
 
     def test_membership_with_existing_invoice_no_duplicates(self):
         """Test that submitting membership with existing invoice doesn't create duplicates"""
@@ -239,23 +202,18 @@ class TestMembership(FrappeTestCase):
             f"Invoice should have custom amount €75.00, got €{invoice_after.grand_total}",
         )
 
-        # Check subscription was created but configured to avoid duplicates
-        self.assertIsNotNone(membership.subscription, "Subscription should be created")
-        subscription = frappe.get_doc("Subscription", membership.subscription)
+        # Check dues schedule was created
+        self.assertIsNotNone(membership.dues_schedule, "Dues schedule should be created")
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)
 
-        # Subscription should either start in future or be configured to not generate immediate invoices
-        from frappe.utils import getdate
-
-        if subscription.start_date > getdate(membership.start_date):
-            print(f"   ✅ Subscription start delayed to {subscription.start_date} to avoid overlap")
-        else:
-            # Check that subscription won't generate immediate invoice
-            print("   ✅ Subscription configured to prevent immediate invoice generation")
+        # Dues schedule should be properly configured
+        self.assertEqual(dues_schedule.member, self.member.name)
+        self.assertEqual(dues_schedule.status, "Active")
 
         print("✅ Membership submission with existing invoice successful")
         print(f"   Membership: {membership.name}")
         print(f"   Single invoice: {invoice_after.name} (€{invoice_after.grand_total})")
-        print(f"   Subscription: {subscription.name}")
+        print(f"   Dues schedule: {dues_schedule.name}")
         print("   No duplicate invoices created")
 
     def test_renew_membership(self):
@@ -299,14 +257,14 @@ class TestMembership(FrappeTestCase):
         membership.insert()
         membership.submit()
 
-        # Move subscription to after the 1-year period to allow cancellation
-        if membership.subscription:
-            try:
-                subscription = frappe.get_doc("Subscription", membership.subscription)
-                # Update the creation date to match start_date
-                subscription.db_set("creation", add_months(today(), -13))
-            except Exception as e:
-                print(f"Failed to update subscription date: {str(e)}")
+        # No longer need to move subscription dates - dues schedule system handles this differently
+        # if membership.dues_schedule:
+        #     try:
+        #         dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)
+        #         # Update the creation date if needed
+        #         dues_schedule.db_set("creation", add_months(today(), -13))
+        #     except Exception as e:
+        #         print(f"Failed to update dues schedule date: {str(e)}")
 
         # Direct approach to cancel membership
         try:
@@ -365,7 +323,7 @@ class TestMembership(FrappeTestCase):
         self.assertEqual(getdate(membership.start_date), getdate(add_months(today(), -6)))
 
     def test_payment_sync(self):
-        """Test payment synchronization from subscription"""
+        """Test payment synchronization from dues schedule"""
         # Create and submit membership
         membership = frappe.new_doc("Membership")
         membership.member = self.member.name
@@ -374,8 +332,8 @@ class TestMembership(FrappeTestCase):
         membership.insert()
         membership.submit()
 
-        # Verify subscription exists
-        self.assertTrue(membership.subscription)
+        # Verify dues schedule exists
+        self.assertTrue(membership.dues_schedule)
 
         # Manually set next billing date using db_set to bypass validation
         next_billing_date = add_months(today(), 1)

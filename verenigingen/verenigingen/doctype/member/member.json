@@ -31,13 +31,10 @@
   "notes_section",
   "notes",
   "membership_tab",
-  "subscription_section",
   "current_membership_details",
   "current_membership_type",
   "current_membership_start",
   "current_membership_end",
-  "current_subscription_summary_section",
-  "current_subscription_summary",
   "fee_management_section",
   "membership_fee_override",
   "fee_override_reason",
@@ -61,8 +58,6 @@
   "membership_status",
   "sepa_mandates_section",
   "sepa_mandates",
-  "subscription_history_section",
-  "subscription_history",
   "payment_history_tab",
   "payment_history_section",
   "payment_history",
@@ -534,11 +529,6 @@
    "read_only": 1
   },
   {
-   "fieldname": "subscription_section",
-   "fieldtype": "Section Break",
-   "label": "Membership Information"
-  },
-  {
    "fieldname": "current_membership_details",
    "fieldtype": "Link",
    "label": "Current Membership",
@@ -788,31 +778,6 @@
    "label": "Fee Change History",
    "options": "Member Fee Change History",
    "read_only": 1
-  },
-  {
-   "depends_on": "eval:doc.customer",
-   "fieldname": "subscription_history_section",
-   "fieldtype": "Section Break",
-   "label": "Subscription History"
-  },
-  {
-   "fieldname": "subscription_history",
-   "fieldtype": "Table",
-   "label": "Subscription History",
-   "options": "Member Subscription History",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:doc.customer",
-   "fieldname": "current_subscription_summary_section",
-   "fieldtype": "Section Break",
-   "label": "Current Subscription Details"
-  },
-  {
-   "fieldname": "current_subscription_summary",
-   "fieldtype": "HTML",
-   "label": "Current Subscription Summary",
-   "options": "<div id=\"subscription-summary-placeholder\">Loading subscription details...</div>"
   },
   {
    "fieldname": "payment_history_tab",

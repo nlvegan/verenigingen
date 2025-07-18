@@ -16,9 +16,9 @@ def setup_membership_scheduler_events():
 
 
 def notify_about_orphaned_records():
-    """Send email notifications about orphaned subscriptions and memberships"""
+    """Send email notifications about orphaned memberships and dues schedules"""
     try:
-        from verenigingen.verenigingen.report.orphaned_subscriptions_report.orphaned_subscriptions_report import (
+        from verenigingen.verenigingen.report.orphaned_dues_schedules_report.orphaned_dues_schedules_report import (
             get_data,
         )
 
@@ -28,7 +28,7 @@ def notify_about_orphaned_records():
             return
 
         # Prepare the email content
-        email_content = "<h3>Orphaned Memberships and Subscriptions Report</h3>"
+        email_content = "<h3>Orphaned Memberships and Dues Schedules Report</h3>"
         email_content += "<p>The following issues were detected in the system:</p>"
 
         email_content += "<table border='1' cellpadding='5' style='border-collapse: collapse;'>"
@@ -67,14 +67,14 @@ def notify_about_orphaned_records():
         if recipients:
             frappe.sendmail(
                 recipients=recipients,
-                subject="Orphaned Memberships and Subscriptions Report",
+                subject="Orphaned Memberships and Dues Schedules Report",
                 message=email_content,
                 reference_doctype="Membership",
                 reference_name="Report",
             )
     except ImportError as e:
         frappe.log_error(
-            f"Could not import orphaned subscriptions report: {str(e)}", "Scheduler Import Error"
+            f"Could not import orphaned dues schedules report: {str(e)}", "Scheduler Import Error"
         )
         return
     except Exception as e:
@@ -182,7 +182,7 @@ def process_auto_renewals():
     # Get memberships that are set to auto-renew and expiring today
     memberships = frappe.get_all(
         "Membership",
-        filters={"status": "Active", "renenwal_date": today(), "auto_renew": 1, "docstatus": 1},
+        filters={"status": "Active", "renewal_date": today(), "auto_renew": 1, "docstatus": 1},
         fields=["name"],
     )
 
@@ -200,14 +200,14 @@ def process_auto_renewals():
                 new_membership.docstatus = 1
                 new_membership.save()
 
-                # Process subscription if one exists
-                if doc.subscription:
-                    subscription = frappe.get_doc("Subscription", doc.subscription)
+                # Process dues schedule if one exists
+                if doc.dues_schedule:
+                    dues_schedule = frappe.get_doc("Membership Dues Schedule", doc.dues_schedule)
 
-                    # Check if subscription is still active
-                    if subscription.status == "Active":
-                        # Link the new membership to the existing subscription
-                        new_membership.subscription = doc.subscription
+                    # Check if dues schedule is still active
+                    if dues_schedule.status == "Active":
+                        # Create new dues schedule for the renewed membership
+                        new_membership.create_dues_schedule_from_membership()
                         new_membership.save()
 
                 # Log the renewal

@@ -119,19 +119,34 @@ def get_context(context):
 def get_effective_fee_for_member(member, membership):
     """Get the actual effective fee considering billing frequency and custom amounts"""
     try:
-        # First try to get the fee from the membership record if it uses custom amount
-        if membership:
-            membership_doc = frappe.get_doc("Membership", membership.name)
-            if getattr(membership_doc, "uses_custom_amount", False):
-                custom_amount = getattr(membership_doc, "custom_amount", 0)
-                if custom_amount:
-                    return {
-                        "amount": custom_amount,
-                        "source": "custom_membership_amount",
-                        "reason": "Custom amount from membership record",
-                    }
+        # PRIORITY 1: Check for active dues schedule (new approach)
+        active_dues_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "status": "Active"},
+            ["name", "amount", "contribution_mode", "billing_frequency"],
+            as_dict=True,
+        )
 
-        # Fall back to member's get_current_membership_fee method
+        if active_dues_schedule:
+            return {
+                "amount": active_dues_schedule.amount,
+                "source": "dues_schedule",
+                "reason": f"Active dues schedule ({active_dues_schedule.contribution_mode})",
+                "schedule_name": active_dues_schedule.name,
+            }
+
+        # PRIORITY 2: Check membership record for custom amount (Updated to use dues schedule system)
+        # This priority slot is reserved for future membership-level customizations
+
+        # PRIORITY 3: Fall back to member's override fields (legacy support)
+        if hasattr(member, "membership_fee_override") and member.membership_fee_override:
+            return {
+                "amount": member.membership_fee_override,
+                "source": "member_override",
+                "reason": "Legacy fee override (consider migrating to dues schedule)",
+            }
+
+        # PRIORITY 4: Fall back to member's get_current_membership_fee method
         return member.get_current_membership_fee()
 
     except Exception as e:
@@ -350,16 +365,13 @@ def submit_fee_adjustment_request(new_amount, reason=""):
 
     # If no approval needed, apply immediately
     if not needs_approval:
-        # Apply the fee change
-        member_doc.membership_fee_override = new_amount
-        member_doc.fee_override_reason = f"Member self-adjustment: {reason}"
-        member_doc.fee_override_date = today()
-        member_doc.fee_override_by = frappe.session.user
-        member_doc.save(ignore_permissions=True)
+        # Apply the fee change using new dues schedule approach
+        dues_schedule_name = create_new_dues_schedule(member_doc, new_amount, reason)
 
         # Update amendment status
         amendment.status = "Applied"
         amendment.applied_date = today()
+        amendment.dues_schedule = dues_schedule_name  # Link to new schedule
         amendment.save(ignore_permissions=True)
 
         return {
@@ -375,6 +387,78 @@ def submit_fee_adjustment_request(new_amount, reason=""):
             "amendment_id": amendment.name,
             "needs_approval": True,
         }
+
+
+def create_new_dues_schedule(member, new_amount, reason):
+    """Create a new dues schedule for fee adjustment"""
+    try:
+        # Get current active membership
+        membership = frappe.db.get_value(
+            "Membership",
+            {"member": member.name, "status": "Active", "docstatus": 1},
+            ["name", "membership_type"],
+            as_dict=True,
+        )
+
+        if not membership:
+            frappe.throw(_("No active membership found for creating dues schedule"))
+
+        # Deactivate existing active dues schedule
+        existing_schedule = frappe.db.get_value(
+            "Membership Dues Schedule", {"member": member.name, "status": "Active"}, "name"
+        )
+
+        if existing_schedule:
+            existing_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+            existing_doc.status = "Cancelled"
+            existing_doc.add_comment(text=f"Cancelled and replaced by new fee adjustment: €{new_amount:.2f}")
+            existing_doc.save(ignore_permissions=True)
+
+        # Create new dues schedule
+        dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        dues_schedule.member = member.name
+        dues_schedule.membership = membership.name
+        dues_schedule.membership_type = membership.membership_type
+        dues_schedule.contribution_mode = "Custom"
+        dues_schedule.amount = new_amount
+        dues_schedule.uses_custom_amount = 1
+        dues_schedule.custom_amount_approved = 1  # Auto-approve for self-adjustments
+        dues_schedule.custom_amount_reason = f"Member self-adjustment: {reason}"
+
+        # Handle zero amounts specially
+        if new_amount == 0:
+            dues_schedule.custom_amount_reason = f"Free membership: {reason}"
+        dues_schedule.billing_frequency = "Monthly"  # Default
+        dues_schedule.payment_method = "Bank Transfer"  # Default
+        dues_schedule.status = "Active"
+        dues_schedule.auto_generate = 1
+        dues_schedule.test_mode = 0
+        dues_schedule.effective_date = today()
+        dues_schedule.current_coverage_start = today()
+
+        # Add portal adjustment metadata in notes
+        dues_schedule.notes = f"Created from member portal by {frappe.session.user} on {today()}"
+
+        dues_schedule.save(ignore_permissions=True)
+
+        # Add comment about the adjustment
+        dues_schedule.add_comment(
+            text=f"Created from member portal fee adjustment. Amount: €{new_amount:.2f}. Reason: {reason}"
+        )
+
+        # Also maintain legacy override fields temporarily for backward compatibility
+        member.reload()  # Refresh to avoid timestamp mismatch
+        member.membership_fee_override = new_amount
+        member.fee_override_reason = f"Member self-adjustment: {reason}"
+        member.fee_override_date = today()
+        member.fee_override_by = frappe.session.user
+        member.save(ignore_permissions=True)
+
+        return dues_schedule.name
+
+    except Exception as e:
+        frappe.log_error(f"Error creating dues schedule: {str(e)}", "Fee Adjustment Error")
+        frappe.throw(_("Error creating dues schedule: {0}").format(str(e)))
 
 
 @frappe.whitelist()
@@ -395,23 +479,109 @@ def get_fee_calculation_info():
 
     # Get membership type
     membership = frappe.db.get_value(
-        "Membership", {"member": member, "status": "Active", "docstatus": 1}, "membership_type"
+        "Membership",
+        {"member": member, "status": "Active", "docstatus": 1},
+        ["name", "membership_type"],
+        as_dict=True,
     )
 
     if not membership:
         frappe.throw(_("No active membership found"))
 
-    membership_type = frappe.get_doc("Membership Type", membership)
+    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
 
-    # Calculate fees
+    # Calculate fees using new priority system
     standard_fee = membership_type.amount
     minimum_fee = get_minimum_fee(member_doc, membership_type)
-    current_fee = member_doc.get_current_membership_fee()
+    current_fee = get_effective_fee_for_member(member_doc, membership)
+
+    # Get historical fee information
+    fee_history = get_member_fee_history(member)
 
     return {
         "standard_fee": standard_fee,
         "minimum_fee": minimum_fee,
         "current_fee": current_fee.get("amount", standard_fee),
         "current_source": current_fee.get("source", "membership_type"),
+        "current_reason": current_fee.get("reason", "Standard membership fee"),
         "membership_type": membership_type.membership_type_name,
+        "fee_history": fee_history,
+        "active_dues_schedule": current_fee.get("schedule_name"),
     }
+
+
+def get_member_fee_history(member_name):
+    """Get historical fee information for a member"""
+    try:
+        # Get all dues schedules for the member (active and historical)
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name},
+            fields=[
+                "name",
+                "amount",
+                "contribution_mode",
+                "status",
+                "effective_date",
+                "custom_amount_reason",
+                "creation",
+            ],
+            order_by="creation desc",
+        )
+
+        # Get amendment requests
+        amendment_requests = frappe.get_all(
+            "Contribution Amendment Request",
+            filters={"member": member_name, "amendment_type": "Fee Change"},
+            fields=[
+                "name",
+                "current_amount",
+                "requested_amount",
+                "status",
+                "requested_date",
+                "reason",
+                "applied_date",
+            ],
+            order_by="requested_date desc",
+        )
+
+        # Combine and format history
+        history = []
+
+        # Add dues schedules
+        for schedule in dues_schedules:
+            history.append(
+                {
+                    "date": schedule.effective_date or schedule.creation,
+                    "type": "Dues Schedule",
+                    "amount": schedule.amount,
+                    "status": schedule.status,
+                    "reason": schedule.custom_amount_reason or f"{schedule.contribution_mode} contribution",
+                    "source": "dues_schedule",
+                    "reference": schedule.name,
+                }
+            )
+
+        # Add amendment requests
+        for request in amendment_requests:
+            history.append(
+                {
+                    "date": request.applied_date or request.requested_date,
+                    "type": "Amendment Request",
+                    "amount": request.requested_amount,
+                    "status": request.status,
+                    "reason": request.reason,
+                    "source": "amendment_request",
+                    "reference": request.name,
+                    "previous_amount": request.current_amount,
+                }
+            )
+
+        # Sort by date descending
+        history.sort(key=lambda x: x["date"], reverse=True)
+
+        return history[:10]  # Return last 10 entries
+
+    except Exception as e:
+        frappe.log_error(f"Error getting fee history for {member_name}: {str(e)}", "Fee History Error")
+        return []

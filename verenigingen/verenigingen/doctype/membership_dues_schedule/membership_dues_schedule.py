@@ -1,7 +1,7 @@
 # Copyright (c) 2025, Verenigingen and contributors
 # For license information, please see license.txt
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import frappe
 from frappe.model.document import Document
@@ -12,7 +12,10 @@ class MembershipDuesSchedule(Document):
     def validate(self):
         self.validate_member_membership()
         self.validate_dates()
-        self.set_amount_from_membership_type()
+        self.set_amount_from_membership_type()  # Set default before validation
+        self.validate_amount_configuration()
+        self.set_billing_day()
+        self.calculate_coverage_dates()
 
     def validate_member_membership(self):
         """Ensure the membership belongs to the member"""
@@ -26,6 +29,83 @@ class MembershipDuesSchedule(Document):
         if self.last_invoice_date and self.next_invoice_date:
             if getdate(self.last_invoice_date) >= getdate(self.next_invoice_date):
                 frappe.throw("Next Invoice Date must be after Last Invoice Date")
+
+    def validate_amount_configuration(self):
+        """Validate amount based on contribution mode"""
+        if not self.membership_type:
+            return
+
+        membership_type = frappe.get_doc("Membership Type", self.membership_type)
+
+        if self.contribution_mode == "Tier" and self.selected_tier:
+            tier = frappe.get_doc("Membership Tier", self.selected_tier)
+            self.amount = tier.amount
+        elif self.contribution_mode == "Calculator":
+            self.amount = membership_type.suggested_contribution * (self.base_multiplier or 1.0)
+        elif self.contribution_mode == "Custom":
+            if not self.uses_custom_amount:
+                frappe.throw("Custom amount must be enabled for custom contribution mode")
+
+        # Validate negative amounts (zero is allowed for free memberships)
+        if self.amount < 0:
+            frappe.throw("Amount cannot be negative")
+
+        # Validate against minimum contribution from membership type
+        if hasattr(membership_type, "minimum_contribution") and membership_type.minimum_contribution:
+            if self.amount < membership_type.minimum_contribution:
+                # Allow zero amounts and custom amounts with approval
+                if self.amount == 0:
+                    # Zero amount is allowed but requires special handling
+                    if not self.custom_amount_reason:
+                        frappe.throw("Zero amount memberships require a reason")
+                elif not (self.uses_custom_amount and self.custom_amount_approved):
+                    frappe.throw(
+                        f"Amount cannot be less than minimum: €{membership_type.minimum_contribution:.2f} (requires custom amount approval)"
+                    )
+
+        # Check maximum contribution from Verenigingen Settings
+        settings = frappe.get_single("Verenigingen Settings")
+        if settings.maximum_fee_multiplier:
+            max_amount = membership_type.amount * settings.maximum_fee_multiplier
+            if self.amount > max_amount:
+                if not self.uses_custom_amount or not self.custom_amount_approved:
+                    frappe.throw(
+                        f"Amount cannot exceed maximum: €{max_amount:.2f} ({settings.maximum_fee_multiplier}x base fee - requires custom amount approval)"
+                    )
+
+        # Ensure currency precision (2 decimal places)
+        self.amount = flt(self.amount, 2)
+
+    def set_billing_day(self):
+        """Set billing day based on member's approval anniversary"""
+        if not self.billing_day:
+            member = frappe.get_doc("Member", self.member)
+            if member.member_since:
+                self.billing_day = getdate(member.member_since).day
+            else:
+                self.billing_day = 1
+
+    def calculate_coverage_dates(self):
+        """Calculate coverage periods for clear invoicing"""
+        if not self.current_coverage_start:
+            self.current_coverage_start = today()
+
+        from frappe.utils import add_days, getdate
+
+        start_date = getdate(self.current_coverage_start)
+
+        if self.billing_frequency == "Monthly":
+            end_date = getdate(add_months(start_date, 1))
+            self.current_coverage_end = add_days(end_date, -1)
+            self.next_invoice_date = end_date
+        elif self.billing_frequency == "Quarterly":
+            end_date = getdate(add_months(start_date, 3))
+            self.current_coverage_end = add_days(end_date, -1)
+            self.next_invoice_date = end_date
+        elif self.billing_frequency == "Annual":
+            end_date = getdate(add_months(start_date, 12))
+            self.current_coverage_end = add_days(end_date, -1)
+            self.next_invoice_date = end_date
 
     def set_amount_from_membership_type(self):
         """Set amount based on membership type if not already set"""
@@ -90,8 +170,7 @@ class MembershipDuesSchedule(Document):
 
     def create_sales_invoice(self):
         """Create a sales invoice for membership dues"""
-        # Get member details
-        member = frappe.get_doc("Member", self.member)
+        # Member document would be used if needed for additional invoice details
 
         # Create invoice
         invoice = frappe.new_doc("Sales Invoice")

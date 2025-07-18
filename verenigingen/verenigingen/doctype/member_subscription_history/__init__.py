@@ -1,1 +1,0 @@
-# Member Subscription History doctype

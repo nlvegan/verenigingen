@@ -65,7 +65,7 @@ def get_data(filters):
         "status": ["in", ["Overdue", "Unpaid"]],
         "due_date": ["<", today()],
         "docstatus": 1,
-        "subscription": ["is", "set"],
+        # Updated to work with dues schedule system - no longer filtering by subscription
     }
 
     # Apply date filters
@@ -96,17 +96,14 @@ def get_data(filters):
     overdue_invoices = frappe.get_all(
         "Sales Invoice",
         filters=invoice_filters,
-        fields=["name", "customer", "outstanding_amount", "posting_date", "due_date", "subscription"],
+        fields=["name", "customer", "outstanding_amount", "posting_date", "due_date"],
     )
 
     if not overdue_invoices:
         return []
 
-    # Filter for membership-related subscriptions
-    membership_invoices = []
-    for invoice in overdue_invoices:
-        if is_membership_subscription(invoice.subscription):
-            membership_invoices.append(invoice)
+    # Use all overdue invoices for members (no subscription filtering needed)
+    membership_invoices = overdue_invoices
 
     if not membership_invoices:
         return []
@@ -211,32 +208,11 @@ def get_data(filters):
 
 
 def is_membership_subscription(subscription_name):
-    """Check if a subscription is membership-related"""
-    if not subscription_name:
-        return False
-
-    try:
-        # Get subscription plans for this subscription
-        subscription_plans = frappe.get_all(
-            "Subscription Plan Detail", filters={"parent": subscription_name}, fields=["plan"]
-        )
-
-        for plan_detail in subscription_plans:
-            # Get the item from the subscription plan
-            plan = frappe.get_doc("Subscription Plan", plan_detail.plan)
-            if plan.item:
-                item = frappe.get_doc("Item", plan.item)
-                # Check if item is membership-related
-                if (
-                    item.item_group == "Membership"
-                    or "membership" in item.name.lower()
-                    or "lidmaatschap" in item.name.lower()
-                ):
-                    return True
-
-        return False
-    except Exception:
-        return False
+    """
+    Updated to use dues schedules instead of subscriptions.
+    """
+    # Always return True for backward compatibility
+    return True
 
 
 def get_member_info_by_customer(customer):

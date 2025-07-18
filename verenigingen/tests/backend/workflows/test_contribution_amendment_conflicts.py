@@ -51,12 +51,24 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "membership_type": test_membership_type,
                 "status": "Active",
                 "start_date": today(),
-                "uses_custom_amount": 1,
-                "custom_amount": 50.0,
             }
         )
         self.test_membership.insert(ignore_permissions=True)
         self.test_membership_name = self.test_membership.name
+        
+        # Create initial dues schedule for testing
+        self.test_dues_schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "member": self.test_member_name,
+            "membership": self.test_membership_name,
+            "membership_type": test_membership_type,
+            "amount": 50.0,
+            "contribution_mode": "Custom",
+            "uses_custom_amount": 1,
+            "custom_amount_approved": 1,
+            "status": "Active"
+        })
+        self.test_dues_schedule.insert(ignore_permissions=True)
 
     def tearDown(self):
         """Clean up test data"""
@@ -65,6 +77,10 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
             for amendment_name in self.test_amendments:
                 if frappe.db.exists("Contribution Amendment Request", amendment_name):
                     frappe.delete_doc("Contribution Amendment Request", amendment_name, force=True)
+
+            # Clean up test dues schedule
+            if hasattr(self, 'test_dues_schedule') and frappe.db.exists("Membership Dues Schedule", self.test_dues_schedule.name):
+                frappe.delete_doc("Membership Dues Schedule", self.test_dues_schedule.name, force=True)
 
             # Clean up test membership
             if self.test_membership_name and frappe.db.exists("Membership", self.test_membership_name):

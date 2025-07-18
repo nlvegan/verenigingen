@@ -8,7 +8,7 @@
 - **Related**: `Membership`, `Membership Type`, `Membership Application`
 - **Key Fields**: `customer` (links to ERPNext Customer), `employee` (links to Employee), `total_membership_days`, `cumulative_membership_duration`
 
-### 2. Chapter System  
+### 2. Chapter System
 - **Primary DocType**: `Chapter` (`verenigingen/doctype/chapter/`)
 - **Managers**: BoardManager, MemberManager, CommunicationManager, VolunteerIntegrationManager
 - **Related**: `Chapter Member`, `Chapter Board Member`
@@ -53,7 +53,7 @@
 
 ### Portal Pages (`templates/pages/`)
 - `member_portal.py` - Member dashboard
-- `volunteer/dashboard.py` - Volunteer portal  
+- `volunteer/dashboard.py` - Volunteer portal
 - `brand_management.py` - Admin brand configuration
 - `system_health_dashboard/` - System monitoring UI
 

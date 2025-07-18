@@ -1,3 +1,5 @@
+// Updated to use the Membership Dues Schedule system.
+
 frappe.pages['system-health-dashboard'].on_page_load = function(wrapper) {
 	var page = frappe.ui.make_app_page({
 		parent: wrapper,
@@ -271,9 +273,9 @@ class SystemHealthDashboard {
 				details += `<br><small class="text-muted">${result.message}</small>`;
 			}
 
-			// Special handling for subscription and scheduler metrics
-			if (check === 'subscription_processing' && result.active_subscriptions !== undefined) {
-				details += `<br><small>Active: ${result.active_subscriptions}, Today: ${result.invoices_today}</small>`;
+			// Updated to use dues schedule system
+			if (check === 'dues_schedule_processing' && result.active_dues_schedules !== undefined) {
+				details += `<br><small>Active: ${result.active_dues_schedules}, Today: ${result.invoices_today}</small>`;
 			}
 			if (check === 'scheduler' && result.stuck_jobs !== undefined) {
 				details += `<br><small>Stuck: ${result.stuck_jobs}, Recent: ${result.recent_activity}</small>`;

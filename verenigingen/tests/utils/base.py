@@ -248,6 +248,108 @@ class VereningingenTestCase(FrappeTestCase):
             message = f"Expected {doctype} to not exist with filters {filters}"
         self.assertFalse(exists, message)
 
+    def create_test_member(self, **kwargs):
+        """Create a test member with default values"""
+        defaults = {
+            "first_name": "Test",
+            "last_name": "Member",
+            "email": f"test.member.{frappe.generate_hash(length=6)}@example.com",
+            "member_since": frappe.utils.today(),
+            "address_line1": "123 Test Street",
+            "postal_code": "1234AB",
+            "city": "Test City",
+            "country": "Netherlands"
+        }
+        defaults.update(kwargs)
+        
+        member = frappe.new_doc("Member")
+        for key, value in defaults.items():
+            setattr(member, key, value)
+        
+        member.save()
+        self.track_doc("Member", member.name)
+        return member
+
+    def create_test_membership_type(self, **kwargs):
+        """Create a test membership type with default values"""
+        defaults = {
+            "membership_type_name": f"Test Type {frappe.generate_hash(length=6)}",
+            "amount": 25.0,
+            "billing_frequency": "Monthly",
+            "is_active": 1,
+            "contribution_mode": "Calculator",
+            "minimum_contribution": 5.0,
+            "suggested_contribution": 25.0,
+            "maximum_contribution": 250.0,
+            "enable_income_calculator": 1,
+            "income_percentage_rate": 0.75
+        }
+        defaults.update(kwargs)
+        
+        membership_type = frappe.new_doc("Membership Type")
+        for key, value in defaults.items():
+            setattr(membership_type, key, value)
+        
+        membership_type.save()
+        self.track_doc("Membership Type", membership_type.name)
+        return membership_type
+
+    def create_test_membership(self, **kwargs):
+        """Create a test membership with default values"""
+        # Get a test membership type
+        membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
+        if not membership_type:
+            membership_type = frappe.db.get_value("Membership Type", {}, "name")
+        
+        defaults = {
+            "membership_type": membership_type,
+            "status": "Active",
+            "docstatus": 1,
+            "start_date": frappe.utils.today(),
+            "from_date": frappe.utils.today(),
+            "to_date": frappe.utils.add_months(frappe.utils.today(), 12)
+        }
+        defaults.update(kwargs)
+        
+        membership = frappe.new_doc("Membership")
+        for key, value in defaults.items():
+            setattr(membership, key, value)
+        
+        membership.save()
+        if membership.docstatus == 0:
+            membership.submit()
+        self.track_doc("Membership", membership.name)
+        return membership
+
+    def create_test_dues_schedule(self, **kwargs):
+        """Create a test dues schedule with default values"""
+        # Get a test membership type
+        membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
+        if not membership_type:
+            membership_type = frappe.db.get_value("Membership Type", {}, "name")
+        
+        defaults = {
+            "membership_type": membership_type,
+            "amount": 15.00,
+            "contribution_mode": "Tiers",
+            "billing_frequency": "Monthly",
+            "payment_method": "Bank Transfer",
+            "status": "Active",
+            "auto_generate": 1,
+            "test_mode": 0,
+            "effective_date": frappe.utils.today(),
+            "current_coverage_start": frappe.utils.today()
+        }
+        defaults.update(kwargs)
+        
+        dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        for key, value in defaults.items():
+            setattr(dues_schedule, key, value)
+        
+        dues_schedule.save()
+        self.track_doc("Membership Dues Schedule", dues_schedule.name)
+        return dues_schedule
+
     def create_test_user(self, email, roles=None, password="test123"):
         """Create a test user with specified roles"""
         if frappe.db.exists("User", email):

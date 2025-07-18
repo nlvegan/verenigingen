@@ -466,7 +466,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             )
             # Don't fail the approval if chapter membership activation fails
 
-        # Create membership - this should trigger the subscription logic
+        # Create membership - this should trigger the dues schedule logic
         return self.create_membership_on_approval()
 
     def create_membership_on_approval(self):
@@ -1066,7 +1066,9 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
                 "new_amount": change_data["new_amount"],
                 "reason": change_data["reason"],
                 "changed_by": change_data["changed_by"],
-                "subscription_action": change_data.get("subscription_action", "Pending subscription update"),
+                "dues_schedule_action": change_data.get(
+                    "dues_schedule_action", "Pending dues schedule update"
+                ),
             },
         )
         # Note: Don't save here to avoid recursive save during validation
@@ -1291,271 +1293,13 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             "reason": current_fee.get("reason"),
         }
 
-    @frappe.whitelist()
-    def refresh_subscription_history(self):
-        """Refresh the subscription history table with current data"""
-        if not self.customer:
-            return {"message": "No customer linked to this member"}
+    # Subscription history methods removed - use dues schedule system instead
 
-        # Clear existing history
-        self.subscription_history = []
+    # Subscription history update methods removed - use dues schedule system instead
 
-        # Get all subscriptions for this customer
-        subscriptions = frappe.get_all(
-            "Subscription",
-            filters={"party": self.customer, "party_type": "Customer"},
-            fields=["name", "status", "start_date", "end_date", "modified"],
-            order_by="start_date desc",
-        )
+    # Subscription management methods removed - use dues schedule system instead
 
-        for sub_data in subscriptions:
-            try:
-                subscription = frappe.get_doc("Subscription", sub_data.name)
-
-                # Calculate total amount from plans
-                total_amount = 0
-                plan_details = []
-                for plan in subscription.plans:
-                    plan_doc = frappe.get_doc("Subscription Plan", plan.plan)
-                    amount = plan_doc.cost * plan.qty
-                    total_amount += amount
-                    plan_details.append(
-                        f"{plan_doc.plan_name}: {frappe.format_value(amount, 'Currency')} x {plan.qty}"
-                    )
-
-                # Add to history
-                self.append(
-                    "subscription_history",
-                    {
-                        "subscription_name": sub_data.name,
-                        "status": sub_data.status,
-                        "amount": total_amount,
-                        "start_date": sub_data.start_date,
-                        "end_date": sub_data.end_date,
-                        "last_update": sub_data.modified,
-                        "plan_details": "; ".join(plan_details),
-                        "cancellation_reason": "",  # Will need to check subscription doc for this field
-                    },
-                )
-
-            except Exception as e:
-                frappe.log_error(f"Error processing subscription {sub_data.name}: {str(e)}")
-                continue
-
-        self.save(ignore_permissions=True)
-        return {"message": f"Refreshed {len(self.subscription_history)} subscription records"}
-
-    def update_subscription_history_entry(self, subscription_name, action="updated"):
-        """Update or add a specific subscription to the history"""
-        if not self.customer:
-            return
-
-        try:
-            subscription = frappe.get_doc("Subscription", subscription_name)
-
-            # Calculate total amount from plans
-            total_amount = 0
-            plan_details = []
-            for plan in subscription.plans:
-                plan_doc = frappe.get_doc("Subscription Plan", plan.plan)
-                amount = plan_doc.cost * plan.qty
-                total_amount += amount
-                plan_details.append(
-                    f"{plan_doc.plan_name}: {frappe.format_value(amount, 'Currency')} x {plan.qty}"
-                )
-
-            # Find existing entry or create new one
-            existing_entry = None
-            for entry in self.subscription_history:
-                if entry.subscription_name == subscription_name:
-                    existing_entry = entry
-                    break
-
-            if existing_entry:
-                # Update existing entry
-                existing_entry.status = subscription.status
-                existing_entry.amount = total_amount
-                existing_entry.end_date = subscription.end_date
-                existing_entry.last_update = subscription.modified
-                existing_entry.plan_details = "; ".join(plan_details)
-                existing_entry.cancellation_reason = ""
-            else:
-                # Add new entry
-                self.append(
-                    "subscription_history",
-                    {
-                        "subscription_name": subscription_name,
-                        "status": subscription.status,
-                        "amount": total_amount,
-                        "start_date": subscription.start_date,
-                        "end_date": subscription.end_date,
-                        "last_update": subscription.modified,
-                        "plan_details": "; ".join(plan_details),
-                        "cancellation_reason": "",
-                    },
-                )
-
-            self.save(ignore_permissions=True)
-
-        except Exception as e:
-            frappe.log_error(f"Error updating subscription history for {subscription_name}: {str(e)}")
-
-    def update_active_subscriptions(self):
-        """Update existing subscription plans based on current fee override with better atomicity"""
-        if not self.customer:
-            return {"message": "No customer linked to member"}
-
-        try:
-            # Use database transaction for atomicity
-            with frappe.db.transaction():
-                current_fee = self.get_current_membership_fee()
-
-                if current_fee["amount"] <= 0:
-                    return {"message": "No fee amount set, skipping subscription update"}
-
-                # Find existing active subscriptions with row lock
-                active_subscriptions = frappe.db.sql(
-                    """
-                    SELECT name, status
-                    FROM `tabSubscription`
-                    WHERE party = %s
-                    AND party_type = 'Customer'
-                    AND status = 'Active'
-                    AND docstatus = 1
-                    FOR UPDATE
-                """,
-                    (self.customer,),
-                    as_dict=True,
-                )
-
-                updated_subscriptions = []
-
-                # Process each subscription atomically
-                for sub_data in active_subscriptions:
-                    try:
-                        subscription = frappe.get_doc("Subscription", sub_data.name)
-
-                        # Cancel the existing subscription
-                        subscription.cancel()
-                        frappe.logger().info(f"Cancelled subscription {subscription.name}")
-
-                        # Create a new subscription with the updated fee
-                        active_membership = self.get_active_membership()
-                        if active_membership:
-                            new_subscription = self.get_or_create_subscription_for_membership(
-                                active_membership, current_fee["amount"]
-                            )
-                            if new_subscription:
-                                updated_subscriptions.append(new_subscription.name)
-                                frappe.logger().info(
-                                    f"Created new subscription {new_subscription.name} with fee {current_fee['amount']}"
-                                )
-
-                                # Update subscription history
-                                self.update_subscription_history_entry(new_subscription.name, "created")
-
-                    except Exception as e:
-                        frappe.logger().error(f"Error replacing subscription {sub_data.name}: {str(e)}")
-                        # Continue with other subscriptions
-                        continue
-
-                # If no active subscriptions exist, create one
-                if not active_subscriptions:
-                    active_membership = self.get_active_membership()
-                    if active_membership:
-                        new_subscription = self.get_or_create_subscription_for_membership(
-                            active_membership, current_fee["amount"]
-                        )
-
-                        if new_subscription:
-                            updated_subscriptions.append(new_subscription.name)
-                            self.update_subscription_history_entry(new_subscription.name, "created")
-                            return {
-                                "message": f"Created new subscription {new_subscription.name}",
-                                "updated_subscriptions": updated_subscriptions,
-                            }
-
-                # Commit the transaction
-                frappe.db.commit()
-
-                return {
-                    "message": f"Updated {len(updated_subscriptions)} subscription(s)",
-                    "updated_subscriptions": updated_subscriptions,
-                }
-
-        except Exception as e:
-            frappe.logger().error(f"Error in update_active_subscriptions for member {self.name}: {str(e)}")
-            frappe.db.rollback()
-            return {"error": str(e)}
-
-    def get_or_create_subscription_for_membership(self, membership, fee_amount):
-        """Get or create a subscription for the given membership"""
-        if not self.customer:
-            return None
-
-        try:
-            # Get or create subscription plan for this fee amount
-            plan = self.get_or_create_subscription_plan(fee_amount)
-            if not plan:
-                return None
-
-            # Create new subscription
-            subscription = frappe.get_doc(
-                {
-                    "doctype": "Subscription",
-                    "party_type": "Customer",
-                    "party": self.customer,
-                    "start_date": membership.start_date or today(),
-                    "end_date": membership.renewal_date,
-                    "plans": [{"plan": plan.name, "qty": 1}],
-                }
-            )
-
-            subscription.insert(ignore_permissions=True)
-            subscription.submit()
-
-            frappe.log_error(f"Created subscription {subscription.name} for member {self.name}")
-            return subscription
-
-        except Exception as e:
-            frappe.log_error(f"Error creating subscription for member {self.name}: {str(e)}")
-            return None
-
-    def get_or_create_subscription_plan(self, fee_amount):
-        """Get or create a subscription plan for the given fee amount"""
-        try:
-            # Look for existing plan with this amount
-            plan_name = f"Membership Fee - {frappe.format_value(fee_amount, 'Currency')}"
-
-            existing_plan = frappe.db.exists("Subscription Plan", {"plan_name": plan_name})
-            if existing_plan:
-                return frappe.get_doc("Subscription Plan", existing_plan)
-
-            # Get or create membership fee item
-            item = self.get_or_create_membership_item()
-            if not item:
-                return None
-
-            # Create new subscription plan
-            plan = frappe.get_doc(
-                {
-                    "doctype": "Subscription Plan",
-                    "plan_name": plan_name,
-                    "item": item.name,
-                    "price_determination": "Fixed Rate",
-                    "cost": fee_amount,
-                    "billing_interval": "Month",
-                    "enabled": 1,
-                }
-            )
-
-            plan.insert(ignore_permissions=True)
-            frappe.log_error(f"Created subscription plan {plan.name}")
-            return plan
-
-        except Exception as e:
-            frappe.log_error(f"Error creating subscription plan: {str(e)}")
-            return None
+    # Subscription plan creation methods removed - use dues schedule system instead
 
     def get_or_create_membership_item(self):
         """Get or create the membership fee item"""
@@ -1827,11 +1571,11 @@ def handle_fee_override_after_save(doc, method=None):
                         reason=doc._pending_fee_change["reason"],
                     )
 
-                    subscription_action = f"Amendment request created: {amendment.name}"
+                    dues_schedule_action = f"Amendment request created: {amendment.name}"
 
                 except Exception as e:
                     frappe.logger().warning(f"Could not create amendment request: {str(e)}")
-                    subscription_action = "Amendment creation failed, direct subscription update"
+                    dues_schedule_action = "Amendment creation failed, direct dues schedule update"
 
                 # Record the change in history (using direct SQL to avoid recursion)
                 history_entry = {
@@ -1840,7 +1584,7 @@ def handle_fee_override_after_save(doc, method=None):
                     "new_amount": doc._pending_fee_change["new_amount"],
                     "reason": doc._pending_fee_change["reason"],
                     "changed_by": doc._pending_fee_change["changed_by"],
-                    "subscription_action": subscription_action,
+                    "dues_schedule_action": dues_schedule_action,
                 }
 
                 # Get current fee change history
@@ -1882,78 +1626,7 @@ def handle_fee_override_after_save(doc, method=None):
         frappe.logger().debug(f"No pending fee change found for member {doc.name}")
 
 
-@frappe.whitelist()
-def get_current_subscription_details(member):
-    """Get current active subscription details including billing interval for a member"""
-    member_doc = frappe.get_doc("Member", member)
-
-    if not member_doc.customer:
-        return {"error": "No customer linked to this member"}
-
-    try:
-        # Get active subscriptions for this customer
-        active_subscriptions = frappe.get_all(
-            "Subscription",
-            filters={
-                "party": member_doc.customer,
-                "party_type": "Customer",
-                "status": "Active",
-                "docstatus": 1,
-            },
-            fields=["name", "start_date", "end_date", "status"],
-        )
-
-        if not active_subscriptions:
-            return {"has_subscription": False, "message": "No active subscriptions found"}
-
-        subscription_details = []
-        for sub_data in active_subscriptions:
-            try:
-                subscription = frappe.get_doc("Subscription", sub_data.name)
-
-                # Get subscription plan details
-                plan_details = []
-                total_amount = 0
-
-                for plan in subscription.plans:
-                    plan_doc = frappe.get_doc("Subscription Plan", plan.plan)
-                    plan_details.append(
-                        {
-                            "plan_name": plan_doc.plan_name,
-                            "price": plan_doc.cost,
-                            "billing_interval": plan_doc.billing_interval,
-                            "billing_interval_count": plan_doc.billing_interval_count,
-                            "currency": plan_doc.currency,
-                        }
-                    )
-                    total_amount += plan_doc.cost
-
-                subscription_details.append(
-                    {
-                        "name": subscription.name,
-                        "status": subscription.status,
-                        "start_date": subscription.start_date,
-                        "end_date": subscription.end_date,
-                        "current_invoice_start": subscription.current_invoice_start,
-                        "current_invoice_end": subscription.current_invoice_end,
-                        "total_amount": total_amount,
-                        "plans": plan_details,
-                    }
-                )
-
-            except Exception as e:
-                frappe.log_error(f"Error getting subscription details for {sub_data.name}: {str(e)}")
-                continue
-
-        return {
-            "has_subscription": True,
-            "subscriptions": subscription_details,
-            "count": len(subscription_details),
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error getting subscription details for member {member}: {str(e)}")
-        return {"error": str(e)}
+# Subscription details function removed - use dues schedule system instead
 
 
 @frappe.whitelist()
@@ -2781,29 +2454,7 @@ def create_donor_from_member(member_name):
         except Exception:
             return []
 
-    def get_subscription_details(self):
-        """Get current subscription details"""
-        try:
-            # Get active membership
-            membership = frappe.get_value(
-                "Membership",
-                {"member": self.name, "status": "Active"},
-                ["name", "membership_type", "from_date", "to_date", "amount"],
-                as_dict=True,
-            )
-
-            if membership:
-                return {
-                    "has_subscription": True,
-                    "membership_type": membership.membership_type,
-                    "from_date": membership.from_date,
-                    "to_date": membership.to_date,
-                    "amount": membership.amount,
-                }
-            else:
-                return {"has_subscription": False}
-        except Exception:
-            return {"has_subscription": False}
+    # Subscription details method removed - use dues schedule system instead
 
 
 # Global functions that were missing from current version

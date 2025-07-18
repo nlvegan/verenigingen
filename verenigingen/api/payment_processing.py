@@ -567,7 +567,7 @@ def process_application_refund(member_name, reason):
 @handle_api_error
 @require_roles(["System Manager", "Verenigingen Administrator"])
 def check_scheduler_logs():
-    """Check subscription scheduler error logs in the last 7 days"""
+    """Check dues schedule scheduler error logs in the last 7 days"""
     from datetime import datetime, timedelta
 
     # Calculate date 7 days ago
@@ -576,19 +576,47 @@ def check_scheduler_logs():
     results = {
         "error_logs": [],
         "scheduled_jobs": [],
-        "start_date_errors": [],
+        "dues_schedule_errors": [],
+        "payment_errors": [],
         "job_stats": {},
         "detailed_errors": [],
     }
 
-    # Check Error Log for subscription-related errors
+    # Check Error Log for dues schedule-related errors
     error_logs = frappe.get_all(
         "Error Log",
-        filters={"error": ["like", "%subscription%"], "creation": [">", seven_days_ago.strftime("%Y-%m-%d")]},
+        filters={
+            "error": ["like", "%dues%schedule%"],
+            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+        },
         fields=["name", "error", "creation", "method"],
         order_by="creation desc",
         limit=10,
     )
+
+    # Also check for membership-related errors
+    membership_error_logs = frappe.get_all(
+        "Error Log",
+        filters={
+            "error": ["like", "%membership%dues%"],
+            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+        },
+        fields=["name", "error", "creation", "method"],
+        order_by="creation desc",
+        limit=10,
+    )
+
+    # Combine error logs
+    all_error_logs = error_logs + membership_error_logs
+    # Remove duplicates and sort
+    seen = set()
+    unique_error_logs = []
+    for log in all_error_logs:
+        if log["name"] not in seen:
+            seen.add(log["name"])
+            unique_error_logs.append(log)
+    unique_error_logs.sort(key=lambda x: x["creation"], reverse=True)
+    error_logs = unique_error_logs[:10]  # Keep only top 10
 
     results["error_logs"] = error_logs
 
@@ -621,15 +649,21 @@ def check_scheduler_logs():
         limit=50,
     )
 
-    # Filter subscription-related jobs
-    subscription_jobs = [job for job in scheduled_jobs if "subscription" in job.scheduled_job_type.lower()]
-    results["scheduled_jobs"] = subscription_jobs
+    # Filter dues schedule and membership-related jobs
+    dues_schedule_jobs = [
+        job
+        for job in scheduled_jobs
+        if "dues" in job.scheduled_job_type.lower()
+        or "membership" in job.scheduled_job_type.lower()
+        or "payment" in job.scheduled_job_type.lower()
+    ]
+    results["scheduled_jobs"] = dues_schedule_jobs
 
-    # Check for "Current Invoice Start Date" errors
-    start_date_errors = frappe.get_all(
+    # Check for dues schedule-related errors
+    dues_schedule_errors = frappe.get_all(
         "Error Log",
         filters={
-            "error": ["like", "%Current Invoice Start Date%"],
+            "error": ["like", "%dues%schedule%"],
             "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
         },
         fields=["name", "error", "creation", "method", "reference_name"],
@@ -637,7 +671,23 @@ def check_scheduler_logs():
         limit=5,
     )
 
-    results["start_date_errors"] = start_date_errors
+    # Check for payment processing errors
+    payment_errors = frappe.get_all(
+        "Error Log",
+        filters={
+            "error": ["like", "%payment%processing%"],
+            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+        },
+        fields=["name", "error", "creation", "method", "reference_name"],
+        order_by="creation desc",
+        limit=5,
+    )
+
+    # Combine schedule and payment errors
+    all_schedule_errors = dues_schedule_errors + payment_errors
+    start_date_errors = all_schedule_errors[:5]  # Keep only top 5
+
+    results["dues_schedule_errors"] = start_date_errors
 
     # Group jobs by type and status
     job_stats = {}

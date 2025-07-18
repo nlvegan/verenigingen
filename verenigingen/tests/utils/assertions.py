@@ -5,6 +5,8 @@
 """
 Custom assertion utilities for Verenigingen tests
 Provides enhanced assertions for complex test scenarios
+
+Updated to use the new Membership Dues Schedule system.
 """
 
 from datetime import datetime
@@ -132,8 +134,8 @@ class AssertionHelpers:
             raise AssertionError(message)
 
     @staticmethod
-    def assert_subscription_active(member_name):
-        """Assert that a member has an active subscription"""
+    def assert_dues_schedule_active(member_name):
+        """Assert that a member has an active dues schedule"""
         subscriptions = frappe.get_all(
             "Subscription",
             filters={

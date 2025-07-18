@@ -1,4 +1,5 @@
 // Payment-related utility functions for Member doctype
+// Updated to use the Membership Dues Schedule system.
 
 function process_payment(frm) {
 	if (!frm.doc.name) {
@@ -75,12 +76,13 @@ function refresh_financial_history(frm) {
 		callback: function(r) {
 			frm.refresh_field('payment_history');
 
-			// Also refresh subscription history
+			// Updated to refresh dues schedule summary
 			frappe.call({
-				method: 'refresh_subscription_history',
+				method: 'refresh_dues_schedule_summary',
 				doc: frm.doc,
 				callback: function(r) {
-					frm.refresh_field('subscription_history');
+					// Updated to use dues schedule system
+					frm.refresh_field('dues_schedule_summary');
 				}
 			});
 

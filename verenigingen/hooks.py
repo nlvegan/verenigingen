@@ -15,7 +15,8 @@ required_apps = ["erpnext", "payments", "hrms", "alyf-de/banking"]
 
 # Includes in <head>
 # ------------------
-on_app_init = ["verenigingen.setup.doctype_overrides.setup_subscription_override"]
+# Updated to use dues schedule system
+# on_app_init = ["verenigingen.setup.doctype_overrides.setup_subscription_override"]
 
 # Boot session - runs when user session starts
 boot_session = "verenigingen.boot.boot_session"
@@ -55,11 +56,12 @@ doc_events = {
         "on_submit": "verenigingen.verenigingen.doctype.membership.membership.on_submit",
         "on_cancel": "verenigingen.verenigingen.doctype.membership.membership.on_cancel",
     },
-    "Subscription": {
-        "on_update": [
-            "verenigingen.verenigingen.doctype.membership.membership.update_membership_from_subscription",
-        ]
-    },
+    # Updated to use dues schedule system
+    # "Subscription": {
+    #     "on_update": [
+    #         "verenigingen.verenigingen.doctype.membership.membership.update_membership_from_subscription",
+    #     ]
+    # },
     "Chapter": {
         "validate": "verenigingen.verenigingen.doctype.chapter.chapter.validate_chapter_access",
     },
@@ -134,7 +136,7 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships",
         "verenigingen.verenigingen.doctype.membership.scheduler.send_renewal_reminders",
         "verenigingen.verenigingen.doctype.membership.scheduler.process_auto_renewals",
-        "verenigingen.utils.subscription_processing.process_all_subscriptions",
+        # Updated to use dues schedule system instead
         "verenigingen.verenigingen.doctype.membership.scheduler.notify_about_orphaned_records",
         "verenigingen.api.membership_application_review.send_overdue_notifications",
         # Amendment system processing
@@ -164,6 +166,10 @@ scheduler_events = {
         "verenigingen.utils.native_expense_helpers.refresh_all_expense_approvers",
         # Create daily analytics snapshots
         "verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_scheduled_snapshots",
+        # Enhanced membership dues collection processing
+        "verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor.create_monthly_dues_collection_batch",
+        # Payment plan processing
+        "verenigingen.verenigingen.doctype.payment_plan.payment_plan.process_overdue_installments",
     ],
     "hourly": [
         # Check analytics alert rules
@@ -370,11 +376,11 @@ fixtures = [
         "doctype": "Item",
         "filters": [["item_code", "=", "MEMBERSHIP"]],
     },
-    # Subscription Plans
-    {
-        "doctype": "Subscription Plan",
-        "filters": [["name", "in", ["Monthly Membership Plan", "Annual Membership Plan"]]],
-    },
+    # Updated to use dues schedule system instead
+    # {
+    #     "doctype": "Subscription Plan",
+    #     "filters": [["name", "in", ["Monthly Membership Plan", "Annual Membership Plan"]]],
+    # },
     # Workspaces
     {
         "doctype": "Workspace",

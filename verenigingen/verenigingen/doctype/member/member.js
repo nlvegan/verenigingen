@@ -101,8 +101,8 @@ frappe.ui.form.on('Member', {
 			}
 		}, 1000);
 
-		// Load and display current subscription details
-		load_subscription_summary(frm);
+		// Load and display current dues schedule details
+		load_dues_schedule_summary(frm);
 
 		// Update address members display if address is present
 		if (frm.doc.primary_address && window.update_other_members_at_address) {
@@ -395,11 +395,11 @@ function add_administrative_buttons(frm) {
 
 		if (frm.doc.customer) {
 			frm.add_custom_button(__('Refresh Subscription History'), function() {
-				refresh_subscription_history(frm);
+				refresh_dues_schedule_history(frm);
 			}, __('Fee Management'));
 
 			frm.add_custom_button(__('Refresh Subscription Summary'), function() {
-				load_subscription_summary(frm);
+				load_dues_schedule_summary(frm);
 			}, __('Fee Management'));
 		}
 
@@ -920,11 +920,11 @@ function add_fee_management_buttons(frm) {
 		// Add button to refresh subscription history
 		if (frm.doc.customer) {
 			frm.add_custom_button(__('Refresh Subscription History'), function() {
-				refresh_subscription_history(frm);
+				refresh_dues_schedule_history(frm);
 			}, __('Fee Management'));
 
 			frm.add_custom_button(__('Refresh Subscription Summary'), function() {
-				load_subscription_summary(frm);
+				load_dues_schedule_summary(frm);
 			}, __('Fee Management'));
 		}
 	}
@@ -1082,9 +1082,19 @@ function get_fee_source_label(source) {
 	return labels[source] || source;
 }
 
-function refresh_subscription_history(frm) {
+function refresh_dues_schedule_history(frm) {
+	// Updated to use dues schedule system
+	frappe.show_alert({
+		message: 'Subscription history has been deprecated. Use dues schedule system instead.',
+		indicator: 'orange'
+	});
+	return;
+}
+
+function refresh_dues_schedule_summary(frm) {
+	// Updated to use dues schedule system
 	frappe.call({
-		method: 'refresh_subscription_history',
+		method: 'get_dues_schedule_summary',
 		doc: frm.doc,
 		callback: function(r) {
 			if (r.message) {
@@ -1204,15 +1214,17 @@ function add_termination_dashboard_indicators(frm, status) {
 	}
 }
 
-// ==================== SUBSCRIPTION SUMMARY FUNCTIONS ====================
+// ==================== DUES SCHEDULE FUNCTIONS ====================
+// Updated to use dues schedule system instead of legacy subscriptions.
 
-function load_subscription_summary(frm) {
+function load_dues_schedule_summary(frm) {
+	// Updated to use dues schedule system
 	if (!frm.doc.customer || !frm.doc.name) {
 		return;
 	}
 
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.member.member.get_current_subscription_details',
+		method: 'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details',
 		args: {
 			member: frm.doc.name
 		},
@@ -1224,8 +1236,9 @@ function load_subscription_summary(frm) {
 	});
 }
 
-function update_subscription_summary_display(frm, subscription_data) {
-	let html = '<div class="subscription-summary-display">';
+function update_dues_schedule_summary_display(frm, dues_schedule_data) {
+	// Updated to use dues schedule system
+	let html = '<div class="dues-schedule-summary-display">';
 
 	if (subscription_data.error) {
 		html += `

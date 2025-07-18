@@ -1,0 +1,1127 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Financial Dashboard") }}{% endblock %}
+
+{% block head_include %}
+<link href="/assets/verenigingen/css/dues_schedule_calendar.css" rel="stylesheet">
+<link href="/assets/verenigingen/css/mobile_dues_schedule.css" rel="stylesheet">
+<script src="/assets/verenigingen/js/dues_schedule_calendar.js"></script>
+<script src="/assets/verenigingen/js/mobile_dues_schedule.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+/* Enhanced Financial Dashboard Styles */
+.financial-card {
+    background: white;
+    border-radius: 1rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    border: 1px solid #e5e7eb;
+    transition: all 0.3s ease;
+}
+
+.financial-card:hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    transform: translateY(-2px);
+}
+
+.financial-metric {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.5rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.financial-metric:last-child {
+    border-bottom: none;
+}
+
+.metric-icon {
+    width: 3rem;
+    height: 3rem;
+    border-radius: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+}
+
+.metric-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.metric-label {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+}
+
+.metric-change {
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-top: 0.25rem;
+}
+
+.metric-change.positive {
+    color: #059669;
+}
+
+.metric-change.negative {
+    color: #dc2626;
+}
+
+.metric-change.neutral {
+    color: #6b7280;
+}
+
+/* Enhanced Tab System */
+.tab-nav {
+    display: flex;
+    border-bottom: 2px solid #f3f4f6;
+    margin-bottom: 2rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.tab-button {
+    flex: 1;
+    min-width: 120px;
+    padding: 1rem 1.5rem;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-bottom: 2px solid transparent;
+    position: relative;
+}
+
+.tab-button.active {
+    color: var(--brand-primary);
+    border-bottom-color: var(--brand-primary);
+}
+
+.tab-button:hover {
+    color: var(--brand-primary);
+    background: rgba(207, 49, 49, 0.05);
+}
+
+.tab-button .icon {
+    margin-right: 0.5rem;
+}
+
+.tab-content {
+    display: none;
+    animation: fadeIn 0.3s ease-in;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* Enhanced Progress Bars */
+.progress-container {
+    background: #f3f4f6;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    position: relative;
+    height: 0.75rem;
+}
+
+.progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--brand-primary), var(--brand-secondary));
+    border-radius: 0.5rem;
+    transition: width 0.6s ease;
+    position: relative;
+}
+
+.progress-bar::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+/* Payment Timeline */
+.payment-timeline {
+    position: relative;
+    padding-left: 2rem;
+}
+
+.timeline-item {
+    position: relative;
+    padding-bottom: 2rem;
+    border-left: 2px solid #e5e7eb;
+    margin-left: 0.5rem;
+}
+
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -0.5rem;
+    top: 0.5rem;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid #e5e7eb;
+}
+
+.timeline-item.paid::before {
+    background: #10b981;
+    border-color: #10b981;
+}
+
+.timeline-item.due::before {
+    background: #f59e0b;
+    border-color: #f59e0b;
+}
+
+.timeline-item.overdue::before {
+    background: #ef4444;
+    border-color: #ef4444;
+}
+
+.timeline-item.upcoming::before {
+    background: #3b82f6;
+    border-color: #3b82f6;
+}
+
+.timeline-item:last-child {
+    border-left: none;
+}
+
+.timeline-content {
+    background: white;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    margin-left: 1rem;
+}
+
+/* Quick Actions */
+.quick-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+}
+
+.quick-action {
+    background: white;
+    border-radius: 0.75rem;
+    padding: 1rem;
+    border: 1px solid #e5e7eb;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    color: inherit;
+}
+
+.quick-action:hover {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    transform: translateY(-1px);
+    text-decoration: none;
+    color: inherit;
+}
+
+.quick-action-icon {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.75rem;
+}
+
+.quick-action-title {
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 0.25rem;
+}
+
+.quick-action-description {
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+/* Enhanced Mobile Responsiveness */
+@media (max-width: 768px) {
+    .financial-card {
+        margin-bottom: 1rem;
+    }
+
+    .tab-nav {
+        border-bottom: 1px solid #e5e7eb;
+    }
+
+    .tab-button {
+        min-width: 100px;
+        padding: 0.75rem 1rem;
+        font-size: 0.875rem;
+    }
+
+    .metric-value {
+        font-size: 1.25rem;
+    }
+
+    .quick-actions {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+    }
+
+    .timeline-content {
+        margin-left: 0.5rem;
+        padding: 0.75rem;
+    }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+    .financial-card {
+        background: #1f2937;
+        border-color: #374151;
+    }
+
+    .metric-value {
+        color: #f9fafb;
+    }
+
+    .timeline-content {
+        background: #1f2937;
+        border-color: #374151;
+    }
+
+    .quick-action {
+        background: #1f2937;
+        border-color: #374151;
+    }
+
+    .quick-action-title {
+        color: #f9fafb;
+    }
+}
+
+/* Print Styles */
+@media print {
+    .tab-nav,
+    .quick-actions {
+        display: none;
+    }
+
+    .tab-content {
+        display: block !important;
+    }
+
+    .financial-card {
+        box-shadow: none;
+        border: 1px solid #000;
+        break-inside: avoid;
+    }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8" id="main-content">
+    <!-- Header -->
+    <div class="header-section flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">{{ _("Financial Dashboard") }}</h1>
+            <p class="text-gray-600">{{ _("Complete overview of your membership dues and payments") }}</p>
+        </div>
+        <div class="header-actions flex items-center space-x-4 mt-4 sm:mt-0">
+            <a href="/my_dues_schedule" class="text-primary-600 hover:text-primary-700 font-medium">
+                <i class="fas fa-calendar-alt mr-2"></i>{{ _("View Full Schedule") }}
+            </a>
+            <button id="export-financial-data" class="btn bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors">
+                <i class="fas fa-download mr-2"></i>{{ _("Export") }}
+            </button>
+        </div>
+    </div>
+
+    <!-- Financial Overview Cards -->
+    <div class="financial-cards-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <!-- Current Schedule Status -->
+        <div class="financial-card">
+            <div class="financial-metric">
+                <div>
+                    <div class="metric-label">{{ _("Current Schedule") }}</div>
+                    <div class="metric-value">{{ current_schedule.status if current_schedule else _("None") }}</div>
+                    <div class="metric-change neutral">
+                        {{ current_schedule.billing_frequency if current_schedule else _("No active schedule") }}
+                    </div>
+                </div>
+                <div class="metric-icon bg-primary-50 text-primary-600">
+                    <i class="fas fa-calendar-check"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Monthly Contribution -->
+        <div class="financial-card">
+            <div class="financial-metric">
+                <div>
+                    <div class="metric-label">{{ _("Monthly Contribution") }}</div>
+                    <div class="metric-value">
+                        {% if current_schedule %}
+                            {{ frappe.format_value(current_schedule.monthly_amount, {"fieldtype": "Currency"}) }}
+                        {% else %}
+                            €0.00
+                        {% endif %}
+                    </div>
+                    <div class="metric-change {{ monthly_change_class }}">
+                        {{ monthly_change_text }}
+                    </div>
+                </div>
+                <div class="metric-icon bg-secondary-50 text-secondary-600">
+                    <i class="fas fa-euro-sign"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Next Payment -->
+        <div class="financial-card">
+            <div class="financial-metric">
+                <div>
+                    <div class="metric-label">{{ _("Next Payment") }}</div>
+                    <div class="metric-value">
+                        {% if next_payment %}
+                            {{ frappe.format_value(next_payment.amount, {"fieldtype": "Currency"}) }}
+                        {% else %}
+                            {{ _("None") }}
+                        {% endif %}
+                    </div>
+                    <div class="metric-change neutral">
+                        {% if next_payment %}
+                            {{ frappe.format_value(next_payment.due_date, {"fieldtype": "Date"}) }}
+                        {% else %}
+                            {{ _("No upcoming payments") }}
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="metric-icon bg-accent-50 text-accent-600">
+                    <i class="fas fa-clock"></i>
+                </div>
+            </div>
+        </div>
+
+        <!-- Total Paid This Year -->
+        <div class="financial-card">
+            <div class="financial-metric">
+                <div>
+                    <div class="metric-label">{{ _("Paid This Year") }}</div>
+                    <div class="metric-value">{{ frappe.format_value(total_paid_year, {"fieldtype": "Currency"}) }}</div>
+                    <div class="metric-change positive">
+                        {{ yearly_progress }}% {{ _("of annual goal") }}
+                    </div>
+                </div>
+                <div class="metric-icon bg-green-50 text-green-600">
+                    <i class="fas fa-chart-line"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Annual Progress -->
+    <div class="financial-card mb-8">
+        <div class="p-6">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-gray-800">{{ _("Annual Contribution Progress") }}</h3>
+                <span class="text-sm text-gray-600">{{ frappe.format_value(total_paid_year, {"fieldtype": "Currency"}) }} / {{ frappe.format_value(annual_target, {"fieldtype": "Currency"}) }}</span>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar" style="width: {{ yearly_progress }}%"></div>
+            </div>
+            <div class="flex justify-between text-sm text-gray-600 mt-2">
+                <span>{{ _("Start of Year") }}</span>
+                <span>{{ _("Current: {0}%").format(yearly_progress) }}</span>
+                <span>{{ _("Target") }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="quick-actions mb-8">
+        <a href="/membership_fee_adjustment" class="quick-action">
+            <div class="quick-action-icon bg-primary-50 text-primary-600">
+                <i class="fas fa-sliders-h"></i>
+            </div>
+            <div class="quick-action-title">{{ _("Adjust Fee") }}</div>
+            <div class="quick-action-description">{{ _("Modify your membership contribution amount") }}</div>
+        </a>
+
+        <a href="/bank_details" class="quick-action">
+            <div class="quick-action-icon bg-secondary-50 text-secondary-600">
+                <i class="fas fa-university"></i>
+            </div>
+            <div class="quick-action-title">{{ _("Bank Details") }}</div>
+            <div class="quick-action-description">{{ _("Update your SEPA Direct Debit information") }}</div>
+        </a>
+
+        <a href="/payment_dashboard" class="quick-action">
+            <div class="quick-action-icon bg-accent-50 text-accent-600">
+                <i class="fas fa-history"></i>
+            </div>
+            <div class="quick-action-title">{{ _("Payment History") }}</div>
+            <div class="quick-action-description">{{ _("View detailed payment records and receipts") }}</div>
+        </a>
+
+        <button id="schedule-consultation" class="quick-action text-left">
+            <div class="quick-action-icon bg-blue-50 text-blue-600">
+                <i class="fas fa-calendar-plus"></i>
+            </div>
+            <div class="quick-action-title">{{ _("Schedule Consultation") }}</div>
+            <div class="quick-action-description">{{ _("Get personalized advice on your contribution plan") }}</div>
+        </button>
+    </div>
+
+    <!-- Enhanced Tab Navigation -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="tab-nav">
+            <button class="tab-button active" data-tab="overview">
+                <i class="fas fa-tachometer-alt icon"></i>{{ _("Overview") }}
+            </button>
+            <button class="tab-button" data-tab="schedule">
+                <i class="fas fa-calendar icon"></i>{{ _("Schedule") }}
+            </button>
+            <button class="tab-button" data-tab="payments">
+                <i class="fas fa-credit-card icon"></i>{{ _("Payments") }}
+            </button>
+            <button class="tab-button" data-tab="analytics">
+                <i class="fas fa-chart-bar icon"></i>{{ _("Analytics") }}
+            </button>
+            <button class="tab-button" data-tab="settings">
+                <i class="fas fa-cog icon"></i>{{ _("Settings") }}
+            </button>
+        </div>
+
+        <div class="p-6">
+            <!-- Overview Tab -->
+            <div id="overview-tab" class="tab-content active">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <!-- Payment Timeline -->
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Recent Activity") }}</h4>
+                        <div class="payment-timeline">
+                            {% for item in recent_activity %}
+                            <div class="timeline-item {{ item.status|lower }}">
+                                <div class="timeline-content">
+                                    <div class="flex justify-between items-start">
+                                        <div>
+                                            <h5 class="font-medium text-gray-800">{{ item.title }}</h5>
+                                            <p class="text-sm text-gray-600">{{ item.description }}</p>
+                                            <p class="text-xs text-gray-500 mt-1">{{ frappe.format_value(item.date, {"fieldtype": "Date"}) }}</p>
+                                        </div>
+                                        <div class="text-right">
+                                            <span class="font-semibold text-gray-800">
+                                                {{ frappe.format_value(item.amount, {"fieldtype": "Currency"}) }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Current Schedule Details -->
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Current Schedule Details") }}</h4>
+                        {% if current_schedule %}
+                        <div class="bg-gray-50 rounded-lg p-4 space-y-3">
+                            <div class="flex justify-between">
+                                <span class="text-sm text-gray-600">{{ _("Contribution Mode") }}</span>
+                                <span class="text-sm font-medium">{{ _(current_schedule.contribution_mode) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm text-gray-600">{{ _("Billing Frequency") }}</span>
+                                <span class="text-sm font-medium">{{ _(current_schedule.billing_frequency) }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm text-gray-600">{{ _("Payment Method") }}</span>
+                                <span class="text-sm font-medium">{{ _(current_schedule.payment_method) if current_schedule.payment_method else _("Not Set") }}</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm text-gray-600">{{ _("Auto-Renewal") }}</span>
+                                <span class="text-sm font-medium">
+                                    {% if current_schedule.auto_renewal %}
+                                        <i class="fas fa-check text-green-600"></i> {{ _("Enabled") }}
+                                    {% else %}
+                                        <i class="fas fa-times text-red-600"></i> {{ _("Disabled") }}
+                                    {% endif %}
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm text-gray-600">{{ _("Valid Until") }}</span>
+                                <span class="text-sm font-medium">
+                                    {% if current_schedule.end_date %}
+                                        {{ frappe.format_value(current_schedule.end_date, {"fieldtype": "Date"}) }}
+                                    {% else %}
+                                        {{ _("Ongoing") }}
+                                    {% endif %}
+                                </span>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                            <div class="flex items-center">
+                                <i class="fas fa-exclamation-triangle text-yellow-600 mr-3"></i>
+                                <div>
+                                    <p class="text-sm font-medium text-yellow-800">{{ _("No Active Schedule") }}</p>
+                                    <p class="text-sm text-yellow-700">{{ _("You don't have an active dues schedule.") }}</p>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <a href="/membership_fee_adjustment" class="bg-yellow-600 text-white px-4 py-2 rounded-md hover:bg-yellow-700 transition-colors text-sm">
+                                    {{ _("Set Up Schedule") }}
+                                </a>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Schedule Tab -->
+            <div id="schedule-tab" class="tab-content">
+                <div class="mb-6">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Payment Schedule Calendar") }}</h4>
+                    <div id="financial-calendar-container"></div>
+                </div>
+
+                <!-- Upcoming Payments -->
+                <div class="mt-8">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Upcoming Payments") }}</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {% for payment in upcoming_payments %}
+                        <div class="bg-white border rounded-lg p-4 hover:shadow-md transition-shadow">
+                            <div class="flex justify-between items-start mb-2">
+                                <span class="text-sm font-medium text-gray-800">
+                                    {{ frappe.format_value(payment.due_date, {"fieldtype": "Date"}) }}
+                                </span>
+                                <span class="px-2 py-1 text-xs rounded-full bg-blue-100 text-blue-800">
+                                    {{ _(payment.status) }}
+                                </span>
+                            </div>
+                            <div class="text-lg font-semibold text-gray-800">
+                                {{ frappe.format_value(payment.amount, {"fieldtype": "Currency"}) }}
+                            </div>
+                            <div class="text-sm text-gray-600 mt-1">
+                                {{ payment.description }}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Payments Tab -->
+            <div id="payments-tab" class="tab-content">
+                <div class="flex justify-between items-center mb-6">
+                    <h4 class="text-lg font-semibold text-gray-800">{{ _("Payment History") }}</h4>
+                    <div class="flex items-center space-x-4">
+                        <select id="payment-filter-year" class="form-select rounded-md border-gray-300">
+                            <option value="">{{ _("All Years") }}</option>
+                            {% for year in payment_years %}
+                            <option value="{{ year }}">{{ year }}</option>
+                            {% endfor %}
+                        </select>
+                        <button id="export-payments" class="bg-gray-600 text-white px-4 py-2 rounded-md hover:bg-gray-700 transition-colors">
+                            <i class="fas fa-download mr-2"></i>{{ _("Export") }}
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Payment History Table -->
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ _("Date") }}</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ _("Description") }}</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ _("Amount") }}</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ _("Status") }}</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">{{ _("Actions") }}</th>
+                            </tr>
+                        </thead>
+                        <tbody id="payment-history-tbody" class="bg-white divide-y divide-gray-200">
+                            {% for payment in payment_history %}
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ frappe.format_value(payment.date, {"fieldtype": "Date"}) }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ payment.description }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ frappe.format_value(payment.amount, {"fieldtype": "Currency"}) }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full
+                                        {% if payment.status == 'Paid' %}bg-green-100 text-green-800{% elif payment.status == 'Failed' %}bg-red-100 text-red-800{% elif payment.status == 'Pending' %}bg-yellow-100 text-yellow-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                                        {{ _(payment.status) }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    {% if payment.status == 'Paid' %}
+                                    <a href="#" class="text-primary-600 hover:text-primary-900">{{ _("Receipt") }}</a>
+                                    {% elif payment.status == 'Failed' %}
+                                    <a href="#" class="text-primary-600 hover:text-primary-900">{{ _("Retry") }}</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Analytics Tab -->
+            <div id="analytics-tab" class="tab-content">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <!-- Contribution Trends -->
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Contribution Trends") }}</h4>
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <div id="contribution-chart" class="h-64 flex items-center justify-center text-gray-500">
+                                <div class="text-center">
+                                    <i class="fas fa-chart-line text-3xl mb-2"></i>
+                                    <p>{{ _("Chart will be implemented here") }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Payment Method Analysis -->
+                    <div>
+                        <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Payment Method Performance") }}</h4>
+                        <div class="space-y-4">
+                            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                <div class="flex items-center">
+                                    <i class="fas fa-university text-blue-600 mr-3"></i>
+                                    <span class="text-sm font-medium">{{ _("SEPA Direct Debit") }}</span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm font-semibold text-green-600">{{ sepa_success_rate }}%</div>
+                                    <div class="text-xs text-gray-500">{{ _("Success Rate") }}</div>
+                                </div>
+                            </div>
+                            <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                                <div class="flex items-center">
+                                    <i class="fas fa-clock text-orange-600 mr-3"></i>
+                                    <span class="text-sm font-medium">{{ _("Average Payment Time") }}</span>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-sm font-semibold text-gray-800">{{ avg_payment_time }} {{ _("days") }}</div>
+                                    <div class="text-xs text-gray-500">{{ _("From Due Date") }}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="settings-tab" class="tab-content">
+                <div class="max-w-2xl">
+                    <h4 class="text-lg font-semibold text-gray-800 mb-6">{{ _("Financial Settings") }}</h4>
+
+                    <div class="space-y-6">
+                        <!-- Notification Settings -->
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h5 class="font-medium text-gray-800 mb-3">{{ _("Notification Preferences") }}</h5>
+                            <div class="space-y-3">
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="email-notifications" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" {{ 'checked' if notification_settings.email_enabled else '' }}>
+                                    <span class="ml-2 text-sm text-gray-700">{{ _("Email notifications for due payments") }}</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="reminder-notifications" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" {{ 'checked' if notification_settings.reminders_enabled else '' }}>
+                                    <span class="ml-2 text-sm text-gray-700">{{ _("Payment reminders (3 days before due)") }}</span>
+                                </label>
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="failure-notifications" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" {{ 'checked' if notification_settings.failure_enabled else '' }}>
+                                    <span class="ml-2 text-sm text-gray-700">{{ _("Failed payment notifications") }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Auto-Renewal Settings -->
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h5 class="font-medium text-gray-800 mb-3">{{ _("Auto-Renewal Settings") }}</h5>
+                            <div class="space-y-3">
+                                <label class="flex items-center">
+                                    <input type="checkbox" id="auto-renewal" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" {{ 'checked' if current_schedule.auto_renewal if current_schedule else '' }}>
+                                    <span class="ml-2 text-sm text-gray-700">{{ _("Automatically renew dues schedule") }}</span>
+                                </label>
+                                <div class="text-sm text-gray-600">
+                                    {{ _("When enabled, your dues schedule will automatically renew at the end of each period.") }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Data Export Settings -->
+                        <div class="bg-gray-50 rounded-lg p-4">
+                            <h5 class="font-medium text-gray-800 mb-3">{{ _("Data Export") }}</h5>
+                            <div class="space-y-3">
+                                <button id="export-all-data" class="w-full bg-gray-600 text-white py-2 px-4 rounded-md hover:bg-gray-700 transition-colors">
+                                    <i class="fas fa-download mr-2"></i>{{ _("Export All Financial Data") }}
+                                </button>
+                                <div class="text-sm text-gray-600">
+                                    {{ _("Download a complete export of your financial data including payment history, schedules, and settings.") }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Save Settings -->
+                        <div class="flex justify-end">
+                            <button id="save-settings" class="bg-primary-600 text-white px-6 py-2 rounded-md hover:bg-primary-700 transition-colors">
+                                {{ _("Save Settings") }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Success/Error Messages -->
+<div id="message-container" style="position: fixed; top: 20px; right: 20px; z-index: 1000;"></div>
+{% endblock %}
+
+{% block script %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize enhanced financial dashboard
+    initializeFinancialDashboard();
+
+    // Initialize calendar in schedule tab
+    initializeScheduleCalendar();
+
+    // Bind event listeners
+    bindEventListeners();
+});
+
+function initializeFinancialDashboard() {
+    // Initialize tab switching
+    const tabButtons = document.querySelectorAll('.tab-button');
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const tabName = this.dataset.tab;
+            switchTab(tabName);
+        });
+    });
+
+    // Load initial data
+    loadFinancialData();
+}
+
+function initializeScheduleCalendar() {
+    // Initialize the dues schedule calendar
+    const calendarContainer = document.getElementById('financial-calendar-container');
+    if (calendarContainer) {
+        const calendar = new DuesScheduleCalendar('financial-calendar-container', {
+            paymentData: {{ payment_data|safe }},
+            onDayClick: handleCalendarDayClick,
+            onMonthChange: handleCalendarMonthChange,
+            showLegend: true,
+            showNavigation: true
+        });
+    }
+}
+
+function bindEventListeners() {
+    // Export buttons
+    document.getElementById('export-financial-data')?.addEventListener('click', exportFinancialData);
+    document.getElementById('export-payments')?.addEventListener('click', exportPayments);
+    document.getElementById('export-all-data')?.addEventListener('click', exportAllData);
+
+    // Schedule consultation
+    document.getElementById('schedule-consultation')?.addEventListener('click', scheduleConsultation);
+
+    // Settings save
+    document.getElementById('save-settings')?.addEventListener('click', saveSettings);
+
+    // Payment filter
+    document.getElementById('payment-filter-year')?.addEventListener('change', filterPayments);
+}
+
+function switchTab(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.tab-button').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+
+    // Update tab content
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+    });
+    document.getElementById(`${tabName}-tab`).classList.add('active');
+
+    // Load tab-specific data
+    loadTabData(tabName);
+}
+
+function loadFinancialData() {
+    // Load dashboard data
+    frappe.call({
+        method: 'verenigingen.templates.pages.financial_dashboard.get_dashboard_data',
+        callback: function(r) {
+            if (r.message) {
+                updateDashboardData(r.message);
+            }
+        }
+    });
+}
+
+function loadTabData(tabName) {
+    switch(tabName) {
+        case 'analytics':
+            loadAnalyticsData();
+            break;
+        case 'payments':
+            loadPaymentHistory();
+            break;
+        // Add other tab-specific data loading
+    }
+}
+
+function loadAnalyticsData() {
+    // Load analytics data and render charts
+    frappe.call({
+        method: 'verenigingen.templates.pages.financial_dashboard.get_analytics_data',
+        callback: function(r) {
+            if (r.message) {
+                renderAnalyticsCharts(r.message);
+            }
+        }
+    });
+}
+
+function loadPaymentHistory() {
+    // Load payment history
+    frappe.call({
+        method: 'verenigingen.templates.pages.financial_dashboard.get_payment_history',
+        callback: function(r) {
+            if (r.message) {
+                renderPaymentHistory(r.message);
+            }
+        }
+    });
+}
+
+function handleCalendarDayClick(dateString, payment) {
+    if (payment) {
+        // Show payment details modal or navigate to payment details
+        showPaymentDetails(payment);
+    }
+}
+
+function handleCalendarMonthChange(date) {
+    // Load data for the new month
+    loadMonthData(date);
+}
+
+function showPaymentDetails(payment) {
+    // Show payment details in a modal or navigate to details page
+    const details = `
+        <div class="p-4">
+            <h5 class="font-semibold mb-2">{{ _("Payment Details") }}</h5>
+            <div class="space-y-2">
+                <div class="flex justify-between">
+                    <span>{{ _("Date") }}:</span>
+                    <span>${payment.date}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>{{ _("Amount") }}:</span>
+                    <span>€${payment.amount}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span>{{ _("Status") }}:</span>
+                    <span>${payment.status}</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    showMessage(details, 'info');
+}
+
+function exportFinancialData() {
+    frappe.call({
+        method: 'verenigingen.templates.pages.financial_dashboard.export_financial_data',
+        callback: function(r) {
+            if (r.message) {
+                // Download the exported file
+                const link = document.createElement('a');
+                link.href = r.message.url;
+                link.download = r.message.filename;
+                link.click();
+
+                showMessage('{{ _("Financial data exported successfully") }}', 'success');
+            }
+        }
+    });
+}
+
+function exportPayments() {
+    const year = document.getElementById('payment-filter-year').value;
+    frappe.call({
+        method: 'verenigingen.templates.pages.financial_dashboard.export_payments',
+        args: { year: year },
+        callback: function(r) {
+            if (r.message) {
+                const link = document.createElement('a');
+                link.href = r.message.url;
+                link.download = r.message.filename;
+                link.click();
+
+                showMessage('{{ _("Payment history exported successfully") }}', 'success');
+            }
+        }
+    });
+}
+
+function exportAllData() {
+    frappe.call({
+        method: 'verenigingen.templates.pages.financial_dashboard.export_all_data',
+        callback: function(r) {
+            if (r.message) {
+                const link = document.createElement('a');
+                link.href = r.message.url;
+                link.download = r.message.filename;
+                link.click();
+
+                showMessage('{{ _("All financial data exported successfully") }}', 'success');
+            }
+        }
+    });
+}
+
+function scheduleConsultation() {
+    // Open consultation scheduling modal or redirect to booking page
+    frappe.msgprint({
+        title: '{{ _("Schedule Consultation") }}',
+        message: '{{ _("This feature will allow you to schedule a consultation with our financial advisors.") }}',
+        primary_action: {
+            label: '{{ _("Contact Support") }}',
+            action: function() {
+                window.location.href = 'mailto:{{ member_contact_email }}';
+            }
+        }
+    });
+}
+
+function saveSettings() {
+    const settings = {
+        email_notifications: document.getElementById('email-notifications').checked,
+        reminder_notifications: document.getElementById('reminder-notifications').checked,
+        failure_notifications: document.getElementById('failure-notifications').checked,
+        auto_renewal: document.getElementById('auto-renewal').checked
+    };
+
+    frappe.call({
+        method: 'verenigingen.templates.pages.financial_dashboard.save_settings',
+        args: { settings: settings },
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                showMessage('{{ _("Settings saved successfully") }}', 'success');
+            } else {
+                showMessage('{{ _("Failed to save settings") }}', 'error');
+            }
+        }
+    });
+}
+
+function filterPayments() {
+    const year = document.getElementById('payment-filter-year').value;
+    // Reload payment history with filter
+    loadPaymentHistory();
+}
+
+function updateDashboardData(data) {
+    // Update dashboard metrics and charts
+    // This will be implemented based on the data structure
+}
+
+function renderAnalyticsCharts(data) {
+    // Render charts using a charting library like Chart.js
+    // This will be implemented based on requirements
+}
+
+function renderPaymentHistory(payments) {
+    // Render payment history table
+    const tbody = document.getElementById('payment-history-tbody');
+    if (tbody) {
+        // Update table with new data
+        // This will be implemented based on the data structure
+    }
+}
+
+function loadMonthData(date) {
+    // Load data for the specified month
+    frappe.call({
+        method: 'verenigingen.templates.pages.financial_dashboard.get_month_data',
+        args: {
+            year: date.getFullYear(),
+            month: date.getMonth() + 1
+        },
+        callback: function(r) {
+            if (r.message) {
+                // Update calendar with new data
+            }
+        }
+    });
+}
+
+function showMessage(message, type) {
+    const alertClass = {
+        'success': 'bg-green-100 border-green-400 text-green-700',
+        'error': 'bg-red-100 border-red-400 text-red-700',
+        'info': 'bg-blue-100 border-blue-400 text-blue-700',
+        'warning': 'bg-yellow-100 border-yellow-400 text-yellow-700'
+    }[type] || 'bg-gray-100 border-gray-400 text-gray-700';
+
+    const messageHtml = `
+        <div class="border px-4 py-3 rounded relative mb-4 ${alertClass}">
+            <span class="block sm:inline">${message}</span>
+            <button class="absolute top-0 bottom-0 right-0 px-4 py-3" onclick="this.parentElement.remove()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `;
+
+    document.getElementById('message-container').innerHTML = messageHtml;
+
+    // Auto-dismiss after 5 seconds
+    setTimeout(function() {
+        const messageElement = document.getElementById('message-container').firstElementChild;
+        if (messageElement) {
+            messageElement.remove();
+        }
+    }, 5000);
+}
+</script>
+{% endblock %}
