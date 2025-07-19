@@ -206,7 +206,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         membership_type.membership_type_name = f"Ñoël & André's Café Membership {frappe.generate_hash(length=6)}"
         membership_type.description = "Membership with spëcial chäractersß and émojis 🎉"
         membership_type.amount = 25.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.minimum_contribution = 5.0
@@ -449,7 +449,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         membership_type.membership_type_name = f"Edge Case Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Membership type for edge case testing"
         membership_type.amount = 25.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.minimum_contribution = 5.0

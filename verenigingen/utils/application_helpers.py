@@ -289,7 +289,7 @@ def create_member_from_application(data, application_id, address=None):
 
             # Set fee override fields if custom amount is specified
             if custom_contribution_fee > 0:
-                member.membership_fee_override = custom_contribution_fee
+                member.dues_rate = custom_contribution_fee
                 member.fee_override_reason = f"Custom amount selected during application: {data.get('custom_amount_reason', 'Member-specified contribution level')}"
                 member.fee_override_date = today()
                 # Also store in the application-specific field
@@ -321,23 +321,11 @@ def create_member_from_application(data, application_id, address=None):
                     frappe.log_error(
                         "No valid user found for fee_override_by field", "Fee Override User Error"
                     )
-                    member.membership_fee_override = None
+                    member.dues_rate = None
                     member.fee_override_reason = None
                     member.fee_override_date = None
 
-            # Store legacy data in notes for audit purposes
-            custom_amount_data = {
-                "custom_contribution_fee": custom_contribution_fee,
-                "uses_custom_amount": bool(data.get("uses_custom_amount", False)),
-            }
-
-            # Only store if there's actually custom amount data
-            if custom_contribution_fee > 0 or custom_amount_data["uses_custom_amount"]:
-                existing_notes = member.notes or ""
-                if existing_notes:
-                    existing_notes += "\n\n"
-
-                member.notes = existing_notes + f"Custom Amount Data: {json.dumps(custom_amount_data)}"
+            # Legacy JSON storage in notes removed - data now stored in proper fields
         except Exception as e:
             # Log the error for debugging but don't fail the submission
             frappe.log_error(f"Error storing custom amount data: {str(e)}", "Custom Amount Storage Error")
@@ -489,7 +477,7 @@ def get_membership_fee_info(membership_type):
             "billing_period": getattr(
                 membership_type_doc,
                 "billing_period",
-                getattr(membership_type_doc, "subscription_period", "Annual"),
+                getattr(membership_type_doc, "billing_frequency", "Annual"),
             ),
         }
 
@@ -531,7 +519,7 @@ def get_membership_type_details(membership_type):
             "billing_period": getattr(
                 membership_type_doc,
                 "billing_period",
-                getattr(membership_type_doc, "subscription_period", "Annual"),
+                getattr(membership_type_doc, "billing_frequency", "Annual"),
             ),
             "allow_custom_amount": True,  # Enable custom amounts for all membership types
             "minimum_amount": membership_type_doc.amount * 0.5,  # 50% of standard amount
@@ -544,27 +532,7 @@ def get_membership_type_details(membership_type):
         return {"success": False, "error": str(e), "message": "Error retrieving membership type details"}
 
 
-def get_member_custom_amount_data(member):
-    """Extract custom amount data from member notes"""
-    try:
-        import re
-
-        if not hasattr(member, "notes") or not member.notes:
-            return None
-
-        # Look for JSON data in notes - make pattern more specific
-        pattern = r"Custom Amount Data: (\{[^}]*\})"
-        match = re.search(pattern, member.notes, re.DOTALL)
-
-        if match:
-            json_str = match.group(1)
-            return json.loads(json_str)
-
-        return None
-    except Exception as e:
-        # Log error for debugging but don't fail
-        frappe.log_error(f"Error parsing custom amount data: {str(e)}", "Custom Amount Parse Error")
-        return None
+# Legacy get_member_custom_amount_data function removed - use contribution system instead
 
 
 def get_amount_impact_message(selected_amount, standard_amount, percentage):

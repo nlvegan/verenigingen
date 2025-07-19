@@ -15,6 +15,9 @@
   "membership_type",
   "auto_renew",
   "status",
+  "grace_period_status",
+  "grace_period_expiry_date",
+  "grace_period_reason",
   "details_section",
   "start_date",
   "renewal_date",
@@ -110,6 +113,28 @@
    "label": "Status",
    "options": "Draft\nActive\nPending\nInactive\nExpired\nCancelled",
    "read_only": 1
+  },
+  {
+   "fieldname": "grace_period_status",
+   "fieldtype": "Select",
+   "label": "Grace Period Status",
+   "options": "\nGrace Period\nCurrent\nQuit\nExpelled\nHonorary",
+   "description": "Additional status for membership grace periods and special statuses",
+   "depends_on": "eval:doc.status == 'Active'"
+  },
+  {
+   "fieldname": "grace_period_expiry_date",
+   "fieldtype": "Date",
+   "label": "Grace Period Expiry Date",
+   "description": "Date when grace period expires",
+   "depends_on": "eval:doc.grace_period_status == 'Grace Period'"
+  },
+  {
+   "fieldname": "grace_period_reason",
+   "fieldtype": "Small Text",
+   "label": "Grace Period Reason",
+   "description": "Reason for grace period or special status",
+   "depends_on": "eval:doc.grace_period_status"
   },
   {
    "fieldname": "details_section",

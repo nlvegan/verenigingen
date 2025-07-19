@@ -175,30 +175,6 @@
   },
   {
     "file": "membership_application_review.py",
-    "function": "debug_membership_subscription",
-    "description": "Debug a specific membership and its subscription",
-    "path": "/api/method/verenigingen.api.membership_application_review.debug_membership_subscription"
-  },
-  {
-    "file": "membership_application_review.py",
-    "function": "debug_subscription_plan",
-    "description": "Debug a subscription plan",
-    "path": "/api/method/verenigingen.api.membership_application_review.debug_subscription_plan"
-  },
-  {
-    "file": "membership_application_review.py",
-    "function": "test_fix_custom_amount_subscription",
-    "description": "Test fix for custom amount subscription issue",
-    "path": "/api/method/verenigingen.api.membership_application_review.test_fix_custom_amount_subscription"
-  },
-  {
-    "file": "membership_application_review.py",
-    "function": "check_subscription_invoice",
-    "description": "Check subscription invoice details",
-    "path": "/api/method/verenigingen.api.membership_application_review.check_subscription_invoice"
-  },
-  {
-    "file": "membership_application_review.py",
     "function": "send_overdue_notifications",
     "description": "Send notifications for overdue applications (> 2 weeks)",
     "path": "/api/method/verenigingen.api.membership_application_review.send_overdue_notifications"
@@ -208,6 +184,18 @@
     "function": "create_default_email_templates",
     "description": "Create default email templates for membership application management",
     "path": "/api/method/verenigingen.api.membership_application_review.create_default_email_templates"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "debug_membership_dues_schedule",
+    "description": "Debug a specific membership and its dues schedule",
+    "path": "/api/method/verenigingen.api.membership_application_review.debug_membership_dues_schedule"
+  },
+  {
+    "file": "membership_application_review.py",
+    "function": "check_dues_schedule_invoice_relationship",
+    "description": "Check dues schedule invoice relationships",
+    "path": "/api/method/verenigingen.api.membership_application_review.check_dues_schedule_invoice_relationship"
   },
   {
     "file": "chapter_dashboard_api.py",
@@ -1264,18 +1252,6 @@
     "function": "get_test_membership_types_status",
     "description": "Get status of test membership types",
     "path": "/api/method/verenigingen.api.generate_test_membership_types.get_test_membership_types_status"
-  },
-  {
-    "file": "fix_subscription.py",
-    "function": "fix_subscription_dates",
-    "description": "Fix subscription date update issues",
-    "path": "/api/method/verenigingen.api.fix_subscription.fix_subscription_dates"
-  },
-  {
-    "file": "fix_subscription.py",
-    "function": "fix_all_subscription_dates",
-    "description": "Fix all subscriptions with date issues",
-    "path": "/api/method/verenigingen.api.fix_subscription.fix_all_subscription_dates"
   },
   {
     "file": "onboarding_info.py",

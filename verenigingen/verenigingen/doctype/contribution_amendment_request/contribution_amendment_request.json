@@ -37,7 +37,6 @@
   "applied_date",
   "applied_by",
   "column_break_5",
-  "old_subscription_cancelled",
   "new_dues_schedule",
   "notes_section",
   "internal_notes",
@@ -239,14 +238,6 @@
   {
    "fieldname": "column_break_5",
    "fieldtype": "Column Break"
-  },
-  {
-   "default": "0",
-   "fieldname": "old_subscription_cancelled",
-   "fieldtype": "Check",
-   "label": "Old Subscription Cancelled (Legacy)",
-   "read_only": 1,
-   "description": "Updated to use dues schedule system"
   },
   {
    "fieldname": "new_dues_schedule",

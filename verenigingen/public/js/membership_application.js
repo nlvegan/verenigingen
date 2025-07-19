@@ -1841,14 +1841,14 @@ class MembershipApplication {
 			'annually': 'Annual'
 		};
 
-		// Updated to use billing_period instead of subscription_period
+		// Uses billing_period instead of legacy subscription_period
 		const targetPeriod = billingPeriodMapping[paymentInterval];
 		if (targetPeriod) {
 			for (const membershipType of membershipTypes) {
 				// Updated to use billing_period
-				const billingPeriod = membershipType.billing_period || membershipType.subscription_period;
-				if (subscriptionPeriod && subscriptionPeriod.toLowerCase() === targetPeriod.toLowerCase()) {
-					console.log('Found matching membership type by subscription_period:', membershipType);
+				const billingPeriod = membershipType.billing_period || membershipType.legacy_period;
+				if (billingPeriod && billingPeriod.toLowerCase() === targetPeriod.toLowerCase()) {
+					console.log('Found matching membership type by billing_period:', membershipType);
 					return membershipType;
 				}
 			}
@@ -2040,7 +2040,7 @@ class MembershipApplication {
 
 				// Format amount with billing period
 				const amount = data.custom_contribution_fee || membershipType.amount;
-				const period = membershipType.subscription_period || 'year';
+				const period = membershipType.billing_period || 'year';
 				// Use simple currency formatting to avoid HTML structure issues
 				const currency = membershipType.currency || 'EUR';
 				const formattedAmount = `${currency} ${parseFloat(amount).toFixed(2)}`;
@@ -2234,14 +2234,14 @@ class MembershipApplication {
 		// Ensure we have a valid amount
 		const amount = type.amount || 0;
 		const membershipTypeName = type.membership_type_name || type.name || 'Unknown';
-		const subscriptionPeriod = type.subscription_period || 'year';
+		const billingPeriod = type.billing_period || 'year';
 
 		console.log('Creating membership card for:', { name: type.name, amount, type });
 
 		let cardHTML = '<div class="membership-type-card" data-type="' + (type.name || '') + '" data-amount="' + amount + '">';
 		cardHTML += '<h5>' + membershipTypeName + '</h5>';
 		cardHTML += '<div class="membership-price">';
-		cardHTML += frappe.format(amount, {fieldtype: 'Currency'}) + ' / ' + subscriptionPeriod;
+		cardHTML += frappe.format(amount, {fieldtype: 'Currency'}) + ' / ' + billingPeriod;
 		cardHTML += '</div>';
 		cardHTML += '<p class="membership-description">' + (type.description || '') + '</p>';
 
@@ -2515,11 +2515,11 @@ class MembershipApplication {
 			(membershipTypeDetails.membership_type_name || membershipTypeDetails.name) :
 			membershipType;
 
-		const subscriptionPeriod = membershipTypeDetails ?
-			(membershipTypeDetails.subscription_period || 'year') :
+		const billingPeriod = membershipTypeDetails ?
+			(membershipTypeDetails.billing_period || 'year') :
 			'year';
 
-		const periodText = subscriptionPeriod.toLowerCase() === 'quarterly' ? 'Quarterly' : `per ${subscriptionPeriod}`;
+		const periodText = billingPeriod.toLowerCase() === 'quarterly' ? 'Quarterly' : `per ${billingPeriod}`;
 
 		// Format the amount
 		const formattedAmount = `EUR ${parseFloat(amount).toFixed(2)}`;

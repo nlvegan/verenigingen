@@ -10,8 +10,9 @@ class Membership(Document):
         self.validate_membership_type()
         self.validate_existing_memberships()
         self.set_renewal_date()  # Calculate renewal date based on start date and membership type
+        self.set_grace_period_expiry()  # Set default grace period expiry if needed
         self.set_status()
-        # Now uses dues schedule system instead of subscriptions
+        # Uses dues schedule system
 
     def validate_existing_memberships(self):
         """Check if there are any existing active memberships for this member"""
@@ -229,6 +230,58 @@ class Membership(Document):
         else:
             # All good - active membership
             self.status = "Active"
+
+    def set_grace_period_expiry(self):
+        """Set grace period expiry date based on settings if grace period status is set"""
+        if self.grace_period_status == "Grace Period" and not self.grace_period_expiry_date:
+            # Get default grace period days from settings
+            settings = frappe.get_single("Verenigingen Settings")
+            default_days = getattr(settings, "default_grace_period_days", 30)
+
+            # Set expiry date to default days from today
+            self.grace_period_expiry_date = add_to_date(today(), days=default_days)
+
+            # Optional: Log the auto-setting of grace period
+            if not frappe.flags.get("suppress_grace_period_message"):
+                frappe.msgprint(
+                    _("Grace period expiry date automatically set to {0} days from today ({1})").format(
+                        default_days, frappe.format(self.grace_period_expiry_date, {"fieldtype": "Date"})
+                    ),
+                    indicator="info",
+                    alert=True,
+                )
+
+    @staticmethod
+    def auto_apply_grace_period_if_enabled(member_name):
+        """Apply grace period automatically if enabled in settings"""
+        settings = frappe.get_single("Verenigingen Settings")
+
+        if not getattr(settings, "grace_period_auto_apply", False):
+            return False
+
+        # Find active membership for this member
+        membership = frappe.get_value("Membership", {"member": member_name, "status": "Active"}, "name")
+
+        if not membership:
+            return False
+
+        # Get membership document
+        membership_doc = frappe.get_doc("Membership", membership)
+
+        # Check if already in grace period
+        if membership_doc.grace_period_status == "Grace Period":
+            return False
+
+        # Apply grace period
+        membership_doc.grace_period_status = "Grace Period"
+        membership_doc.grace_period_reason = "Automatically applied due to overdue payments"
+
+        # The set_grace_period_expiry method will set the expiry date
+        frappe.flags.suppress_grace_period_message = True
+        membership_doc.save()
+        frappe.flags.suppress_grace_period_message = False
+
+        return True
 
     # DEPRECATED: Legacy fee calculation method - use dues schedule system instead
     def calculate_effective_amount(self):
@@ -519,14 +572,14 @@ def sync_membership_payments(membership_name=None):
     """
     if membership_name:
         frappe.msgprint(
-            _("Payment sync from subscription is deprecated. Use dues schedule system instead."),
+            _("Payment sync from legacy system is deprecated. Use dues schedule system instead."),
             indicator="orange",
             alert=True,
         )
         return True
     else:
         frappe.msgprint(
-            _("Payment sync from subscription is deprecated. Use dues schedule system instead."),
+            _("Payment sync from legacy system is deprecated. Use dues schedule system instead."),
             indicator="orange",
             alert=True,
         )
@@ -810,12 +863,6 @@ def get_member_sepa_mandates(doctype, txt, searchfield, start, page_len, filters
     )
 
 
-# DEPRECATED: Subscription update handler removed - use dues schedule system instead
-
-
-# DEPRECATED: set_custom_amount function removed - use Membership Dues Schedule instead
-
-
 @frappe.whitelist()
 def revert_to_standard_amount(membership_name, reason=None):
     """Revert membership to use standard membership type amount"""
@@ -850,16 +897,6 @@ def revert_to_standard_amount(membership_name, reason=None):
             frappe.format_value(standard_amount, {"fieldtype": "Currency"})
         ),
     }
-
-
-# DEPRECATED: subscription amount utilities removed - use dues schedule system instead
-# DEPRECATED: Subscription amount checking function removed - use dues schedule system instead
-
-
-# DEPRECATED: Subscription amount fixing function removed - use dues schedule system instead
-
-
-# DEPRECATED: Subscription creation testing function removed - use dues schedule system instead
 
 
 @frappe.whitelist()

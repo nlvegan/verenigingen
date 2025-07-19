@@ -153,7 +153,7 @@ class TestDirectDebitBatch(FrappeTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = type_name
         membership_type.description = "Test membership type for unit tests"
-        membership_type.subscription_period = "Annual"
+        membership_type.billing_period = "Annual"
         membership_type.amount = 120
         membership_type.currency = "EUR"
         membership_type.is_active = 1

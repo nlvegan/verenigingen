@@ -611,12 +611,12 @@ function handle_start_migration(frm) {
 
 function test_api_connection() {
 	frappe.call({
-		method: 'verenigingen.utils.eboekhouden_soap_api.test_connection',
+		method: 'verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection',
 		callback: function(r) {
 			if (r.message && r.message.success) {
 				frappe.msgprint({
 					title: __('Connection Successful'),
-					message: __('Successfully connected to E-Boekhouden SOAP API!'),
+					message: r.message.message,
 					indicator: 'green'
 				});
 			} else {

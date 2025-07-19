@@ -492,7 +492,7 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
         membership_type.membership_type_name = f"Performance Test {suffix} {self.stress_test_prefix}"
         membership_type.description = f"Performance testing membership type {suffix}"
         membership_type.amount = 50.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.minimum_contribution = 10.0

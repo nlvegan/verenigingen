@@ -9,49 +9,6 @@ from collections import defaultdict
 import frappe
 
 
-@frappe.whitelist()
-def analyze_accounts_for_mapping():
-    """
-    Analyze E-Boekhouden chart of accounts to suggest account mappings
-
-    Returns:
-        Dictionary with analysis results and mapping suggestions
-    """
-    from .eboekhouden_soap_api import EBoekhoudenSOAPAPI
-
-    # Get settings
-    settings = frappe.get_single("E-Boekhouden Settings")
-    if not settings:
-        frappe.throw("E-Boekhouden Settings not configured")
-
-    # Initialize API
-    api = EBoekhoudenSOAPAPI(settings)
-
-    # Get chart of accounts
-    result = api.get_grootboekrekeningen()
-
-    if not result["success"]:
-        frappe.throw(f"Failed to fetch accounts: {result.get('error', 'Unknown error')}")
-
-    accounts = result["accounts"]
-
-    # Analyze accounts
-    analysis = analyze_account_patterns(accounts)
-
-    # Generate suggestions
-    suggestions = generate_account_mapping_suggestions(analysis)
-
-    # Check existing mappings
-    existing_mappings = get_existing_mappings()
-
-    return {
-        "analysis": analysis,
-        "suggestions": suggestions,
-        "existing_mappings": existing_mappings,
-        "accounts_analyzed": len(accounts),
-    }
-
-
 def analyze_account_patterns(accounts):
     """Analyze patterns in account names and codes"""
     categorized_accounts = {

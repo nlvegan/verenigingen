@@ -127,25 +127,6 @@ def get_transaction_type_mapping():
     }
 
 
-@frappe.whitelist()
-def test_transaction_type_detection(transaction_type):
-    """
-    Test function to check what document type a transaction would map to
-    """
-    doc_type = get_erpnext_document_type(transaction_type)
-
-    result = {
-        "input": transaction_type,
-        "document_type": doc_type,
-        "is_payment_entry": doc_type == "Payment Entry",
-    }
-
-    if doc_type == "Payment Entry":
-        result["reference_type"] = get_payment_entry_reference_type(transaction_type)
-
-    return result
-
-
 def simplify_migration_process(mutation_data):
     """
     Simplified migration process using native transaction types

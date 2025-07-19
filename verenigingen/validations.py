@@ -38,6 +38,60 @@ def validate_termination_request(doc, method):
             frappe.throw(_("Grace period end cannot be before termination date"))
 
 
+def validate_verenigingen_settings(doc, method):
+    """Validation function for Verenigingen Settings"""
+
+    # Validate grace period settings
+    if doc.default_grace_period_days:
+        if doc.default_grace_period_days < 1 or doc.default_grace_period_days > 180:
+            frappe.throw(_("Default grace period days must be between 1 and 180 days"))
+
+    if doc.grace_period_notification_days:
+        if doc.grace_period_notification_days < 1 or doc.grace_period_notification_days > 30:
+            frappe.throw(_("Grace period notification days must be between 1 and 30 days"))
+
+        # Ensure notification days is less than grace period days
+        if (
+            doc.default_grace_period_days
+            and doc.grace_period_notification_days >= doc.default_grace_period_days
+        ):
+            frappe.throw(_("Grace period notification days must be less than default grace period days"))
+
+
+def validate_membership_grace_period(doc, method):
+    """Validation function for Membership grace period fields"""
+
+    # Validate grace period expiry date
+    if doc.grace_period_status == "Grace Period":
+        if not doc.grace_period_expiry_date:
+            frappe.throw(_("Grace period expiry date is required when grace period status is set"))
+
+        # Ensure grace period expiry is in the future (allow same day)
+        if getdate(doc.grace_period_expiry_date) < getdate(today()):
+            frappe.throw(_("Grace period expiry date cannot be in the past"))
+
+        # Optional: Validate grace period is reasonable (not too long)
+        max_grace_days = (
+            frappe.db.get_single_value("Verenigingen Settings", "default_grace_period_days") or 30
+        )
+        max_grace_days = max_grace_days * 2  # Allow up to 2x the default
+
+        days_from_today = (getdate(doc.grace_period_expiry_date) - getdate(today())).days
+        if days_from_today > max_grace_days:
+            frappe.msgprint(
+                _(
+                    "Warning: Grace period is set for {0} days, which is longer than the recommended maximum of {1} days"
+                ).format(days_from_today, max_grace_days),
+                indicator="orange",
+                alert=True,
+            )
+
+    elif doc.grace_period_expiry_date:
+        # If grace period expiry date is set but status is not "Grace Period", clear it
+        doc.grace_period_expiry_date = None
+        doc.grace_period_reason = None
+
+
 def validate_approver_permissions(approver_user):
     """Validate that the approver has the required permissions"""
     approver_roles = frappe.get_roles(approver_user)

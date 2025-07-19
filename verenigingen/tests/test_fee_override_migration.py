@@ -35,7 +35,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         self.assertEqual(fee_info["amount"], 25.0)
         
         # Test 3: Legacy override should be lower priority
-        self.test_member.membership_fee_override = 30.0
+        self.test_member.dues_rate = 30.0
         self.test_member.save()
         
         fee_info = get_effective_fee_for_member(self.test_member, membership)
@@ -74,7 +74,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         
         # Verify legacy fields are also updated for backward compatibility
         self.test_member.reload()
-        self.assertEqual(self.test_member.membership_fee_override, 35.0)
+        self.assertEqual(self.test_member.dues_rate, 35.0)
         
     def test_supersede_existing_schedule(self):
         """Test that creating new schedule supersedes existing one"""
@@ -134,7 +134,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
     def test_migration_data_integrity(self):
         """Test that migration preserves data integrity"""
         # Create member with override
-        self.test_member.membership_fee_override = 45.0
+        self.test_member.dues_rate = 45.0
         self.test_member.fee_override_reason = "Special case"
         self.test_member.fee_override_date = today()
         self.test_member.save()
@@ -147,7 +147,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         member_data = {
             "name": self.test_member.name,
             "full_name": self.test_member.full_name,
-            "membership_fee_override": 45.0,
+            "dues_rate": 45.0,
             "fee_override_reason": "Special case",
             "fee_override_date": today()
         }
@@ -208,7 +208,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         
         # Set only legacy override (no dues schedule)
         self.test_member.reload()  # Refresh to avoid timestamp mismatch
-        self.test_member.membership_fee_override = 40.0
+        self.test_member.dues_rate = 40.0
         self.test_member.save()
         
         # Should fall back to legacy override
@@ -295,7 +295,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Migration Type {frappe.generate_hash(length=6)}"
         membership_type.amount = 20.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.minimum_contribution = 5.0

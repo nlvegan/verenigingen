@@ -58,14 +58,6 @@ class TestMembership(FrappeTestCase):
         self.membership_type.allow_auto_renewal = 1
         self.membership_type.insert()
 
-        # No longer creating subscription plans - using dues schedule system instead
-        # self.create_test_subscription_plan()
-
-    # Updated to use dues schedule system
-    # def create_test_subscription_plan(self):
-    #     """Create a subscription plan for testing without the item dependency"""
-    #     pass
-
     def cleanup_test_data(self):
         # Clean up memberships
         for m in frappe.get_all("Membership", filters={"member": self.member.name}):
@@ -257,7 +249,6 @@ class TestMembership(FrappeTestCase):
         membership.insert()
         membership.submit()
 
-        # No longer need to move subscription dates - dues schedule system handles this differently
         # if membership.dues_schedule:
         #     try:
         #         dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)

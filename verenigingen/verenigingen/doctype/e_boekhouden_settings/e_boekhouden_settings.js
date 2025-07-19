@@ -29,33 +29,6 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 			});
 		}).addClass('btn-primary');
 
-		// Add SOAP connection test button
-		frm.add_custom_button(__('Test SOAP Connection'), function() {
-			if (!frm.doc.soap_username) {
-				frappe.msgprint(__('Please enter SOAP credentials first.'));
-				return;
-			}
-
-			// Save the form first to ensure passwords are stored
-			frm.save().then(() => {
-				frappe.call({
-					method: 'verenigingen.utils.eboekhouden_soap_api.test_connection',
-					callback: function(r) {
-						if (r.message && r.message.success) {
-							frappe.show_alert({
-								message: __('SOAP connection test successful!'),
-								indicator: 'green'
-							});
-						} else {
-							frappe.show_alert({
-								message: __('SOAP connection test failed: ' + (r.message.error || 'Unknown error')),
-								indicator: 'red'
-							});
-						}
-					}
-				});
-			});
-		});
 
 		// Add test API call buttons
 		if (frm.doc.connection_status && frm.doc.connection_status.includes('✅')) {

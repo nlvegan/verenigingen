@@ -34,7 +34,7 @@ class OpeningBalanceProcessor(BaseTransactionProcessor):
         return _import_opening_balances(self.company, self.cost_center, self.debug_info, dry_run=dry_run)
 
     def validate_opening_balance(self, mutation: Dict[str, Any]) -> bool:
-        """Validate if opening balance data is complete"""
+        """Validate if opening balance data is complete and allowed"""
         # Check required fields
         if not mutation.get("ledgerId"):
             self.add_debug_info("Opening balance missing ledgerId")
@@ -45,7 +45,21 @@ class OpeningBalanceProcessor(BaseTransactionProcessor):
             self.add_debug_info("Opening balance has zero amount")
             return False
 
+        # Check if account is a stock account (should be skipped)
+        account = self.get_opening_balance_account(mutation)
+        if account and self.is_stock_account(account):
+            self.add_debug_info(f"Skipping stock account {account} - not allowed in opening balances")
+            return False
+
         return True
+
+    def is_stock_account(self, account_name: str) -> bool:
+        """Check if an account is a stock account"""
+        try:
+            account_type = frappe.db.get_value("Account", account_name, "account_type")
+            return account_type == "Stock"
+        except:
+            return False
 
     def get_opening_balance_account(self, mutation: Dict[str, Any]) -> Optional[str]:
         """Get the ERPNext account for the opening balance"""

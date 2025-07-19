@@ -394,11 +394,11 @@ function add_administrative_buttons(frm) {
 		}, __('Fee Management'));
 
 		if (frm.doc.customer) {
-			frm.add_custom_button(__('Refresh Subscription History'), function() {
+			frm.add_custom_button(__('Refresh Dues Schedule History'), function() {
 				refresh_dues_schedule_history(frm);
 			}, __('Fee Management'));
 
-			frm.add_custom_button(__('Refresh Subscription Summary'), function() {
+			frm.add_custom_button(__('Refresh Dues Schedule Summary'), function() {
 				load_dues_schedule_summary(frm);
 			}, __('Fee Management'));
 		}
@@ -917,13 +917,13 @@ function add_fee_management_buttons(frm) {
 		}
 
 
-		// Add button to refresh subscription history
+		// Subscription history functionality removed - use dues schedule system instead
 		if (frm.doc.customer) {
-			frm.add_custom_button(__('Refresh Subscription History'), function() {
+			frm.add_custom_button(__('Refresh Dues Schedule History'), function() {
 				refresh_dues_schedule_history(frm);
 			}, __('Fee Management'));
 
-			frm.add_custom_button(__('Refresh Subscription Summary'), function() {
+			frm.add_custom_button(__('Refresh Dues Schedule Summary'), function() {
 				load_dues_schedule_summary(frm);
 			}, __('Fee Management'));
 		}
@@ -939,7 +939,7 @@ function ensure_fee_management_section_visibility(frm) {
 		// Force show the section and all related fields
 		frm.set_df_property('fee_management_section', 'hidden', 0);
 		frm.set_df_property('fee_management_section', 'depends_on', '');
-		frm.set_df_property('membership_fee_override', 'hidden', 0);
+		frm.set_df_property('dues_rate', 'hidden', 0);
 		frm.set_df_property('fee_override_reason', 'hidden', 0);
 		frm.set_df_property('fee_override_date', 'hidden', 0);
 		frm.set_df_property('fee_override_by', 'hidden', 0);
@@ -948,7 +948,7 @@ function ensure_fee_management_section_visibility(frm) {
 
 		// Also use toggle_display as backup
 		frm.toggle_display('fee_management_section', true);
-		frm.toggle_display('membership_fee_override', true);
+		frm.toggle_display('dues_rate', true);
 		frm.toggle_display('fee_override_reason', true);
 		frm.toggle_display('fee_override_date', true);
 		frm.toggle_display('fee_override_by', true);
@@ -956,7 +956,7 @@ function ensure_fee_management_section_visibility(frm) {
 		frm.toggle_display('fee_change_history', true);
 
 		// Force refresh the fields
-		frm.refresh_field('membership_fee_override');
+		frm.refresh_field('dues_rate');
 		frm.refresh_field('fee_override_reason');
 		frm.refresh_field('fee_override_date');
 		frm.refresh_field('fee_override_by');
@@ -965,7 +965,7 @@ function ensure_fee_management_section_visibility(frm) {
 		// Direct DOM manipulation to ensure visibility
 		setTimeout(() => {
 			$('[data-fieldname="fee_management_section"]').show();
-			$('[data-fieldname="membership_fee_override"]').show();
+			$('[data-fieldname="dues_rate"]').show();
 			$('[data-fieldname="fee_override_reason"]').show();
 			$('[data-fieldname="fee_override_date"]').show();
 			$('[data-fieldname="fee_override_by"]').show();
@@ -1042,9 +1042,9 @@ function show_fee_override_dialog(frm) {
                     <div class="alert alert-info">
                         <h5>Important Notes:</h5>
                         <ul>
-                            <li>This will update the member's subscription with the new amount</li>
+                            <li>This will update the member's dues schedule with the new amount</li>
                             <li>The change will be recorded in the fee change history</li>
-                            <li>Active subscriptions will be cancelled and recreated</li>
+                            <li>Active dues schedules will be updated</li>
                         </ul>
                     </div>
                 `
@@ -1055,7 +1055,7 @@ function show_fee_override_dialog(frm) {
 			frappe.confirm(
 				__('Are you sure you want to override the membership fee to {0}?', [format_currency(values.new_fee_amount)]),
 				function() {
-					frm.set_value('membership_fee_override', values.new_fee_amount);
+					frm.set_value('dues_rate', values.new_fee_amount);
 					frm.set_value('fee_override_reason', values.override_reason);
 
 					frm.save().then(() => {
@@ -1085,7 +1085,7 @@ function get_fee_source_label(source) {
 function refresh_dues_schedule_history(frm) {
 	// Updated to use dues schedule system
 	frappe.show_alert({
-		message: 'Subscription history has been deprecated. Use dues schedule system instead.',
+		message: 'Dues schedule history functionality is not yet implemented.',
 		indicator: 'orange'
 	});
 	return;
@@ -1100,7 +1100,7 @@ function refresh_dues_schedule_summary(frm) {
 			if (r.message) {
 				frm.reload_doc();
 				frappe.show_alert({
-					message: r.message.message || 'Subscription history refreshed',
+					message: r.message.message || 'Dues schedule summary refreshed',
 					indicator: 'green'
 				}, 3);
 			}
@@ -1215,7 +1215,7 @@ function add_termination_dashboard_indicators(frm, status) {
 }
 
 // ==================== DUES SCHEDULE FUNCTIONS ====================
-// Updated to use dues schedule system instead of legacy subscriptions.
+// Uses dues schedule system
 
 function load_dues_schedule_summary(frm) {
 	// Updated to use dues schedule system
@@ -1230,108 +1230,23 @@ function load_dues_schedule_summary(frm) {
 		},
 		callback: function(r) {
 			if (r.message) {
-				update_subscription_summary_display(frm, r.message);
+				// Subscription display removed - using dues schedule system
 			}
 		}
 	});
 }
 
+// Subscription display functions removed - using dues schedule system
 function update_dues_schedule_summary_display(frm, dues_schedule_data) {
-	// Updated to use dues schedule system
-	let html = '<div class="dues-schedule-summary-display">';
+	// Dues schedule system implementation
+	let html = '<div class="alert alert-info">Membership Dues Schedule system is active.</div>';
 
-	if (subscription_data.error) {
-		html += `
-            <div class="alert alert-warning">
-                <h6><i class="fa fa-exclamation-triangle"></i> Error Loading Subscriptions</h6>
-                <p>${subscription_data.error}</p>
-            </div>
-        `;
-	} else if (!subscription_data.has_subscription) {
-		html += `
-            <div class="alert alert-info">
-                <h6><i class="fa fa-info-circle"></i> No Active Subscriptions</h6>
-                <p>${subscription_data.message || 'This member has no active subscription plans.'}</p>
-            </div>
-        `;
-	} else {
-		html += `
-            <div class="alert alert-success">
-                <h6><i class="fa fa-check-circle"></i> Active Subscriptions (${subscription_data.count})</h6>
-            </div>
-        `;
-
-		subscription_data.subscriptions.forEach(function(subscription) {
-			html += `
-                <div class="card mb-3">
-                    <div class="card-header">
-                        <h6 class="mb-0">
-                            <a href="/app/subscription/${subscription.name}">${subscription.name}</a>
-                            <span class="badge badge-success float-right">${subscription.status}</span>
-                        </h6>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-6">
-                                <p><strong>Period:</strong> ${frappe.datetime.str_to_user(subscription.start_date)} - ${subscription.end_date ? frappe.datetime.str_to_user(subscription.end_date) : 'Ongoing'}</p>
-                                <p><strong>Current Billing:</strong> ${frappe.datetime.str_to_user(subscription.current_invoice_start)} - ${frappe.datetime.str_to_user(subscription.current_invoice_end)}</p>
-                            </div>
-                            <div class="col-md-6">
-                                <p><strong>Total Amount:</strong> ${format_currency(subscription.total_amount)}</p>
-                            </div>
-                        </div>
-            `;
-
-			if (subscription.plans && subscription.plans.length > 0) {
-				html += `
-                    <h6>Subscription Plans:</h6>
-                    <div class="table-responsive">
-                        <table class="table table-sm table-bordered">
-                            <thead>
-                                <tr>
-                                    <th>Plan</th>
-                                    <th>Amount</th>
-                                    <th>Billing Frequency</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                `;
-
-				subscription.plans.forEach(function(plan) {
-					let billing_text = plan.billing_interval_count > 1
-						? `Every ${plan.billing_interval_count} ${plan.billing_interval}s`
-						: `${plan.billing_interval}ly`;
-
-					html += `
-                        <tr>
-                            <td>${plan.plan_name}</td>
-                            <td>${format_currency(plan.price, plan.currency)}</td>
-                            <td>${billing_text}</td>
-                        </tr>
-                    `;
-				});
-
-				html += `
-                            </tbody>
-                        </table>
-                    </div>
-                `;
-			}
-
-			html += `
-                    </div>
-                </div>
-            `;
-		});
-	}
-
-	html += '</div>';
-
-	// Update the HTML field
-	if (frm.fields_dict.current_subscription_summary) {
-		frm.fields_dict.current_subscription_summary.html(html);
+	// Update any remaining legacy summary fields
+	if (frm.fields_dict.current_legacy_summary) {
+		frm.fields_dict.current_legacy_summary.html(html);
 	}
 }
+
 
 // ==================== NAME HANDLING FUNCTIONS ====================
 

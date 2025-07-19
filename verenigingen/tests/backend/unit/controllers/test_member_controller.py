@@ -55,7 +55,7 @@ class TestMemberController(VereningingenUnitTestCase):
                     "membership_type_name": f"Test Membership Type {frappe.utils.random_string(8)}",
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
+                    "billing_frequency": "Annual",
                 }
             )
             mt.insert(ignore_permissions=True)
@@ -271,7 +271,7 @@ class TestMemberController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Active Membership",
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
+                    "billing_frequency": "Annual",
                 }
             )
             mt.insert(ignore_permissions=True)
@@ -562,7 +562,7 @@ class TestMemberController(VereningingenUnitTestCase):
         """Test fee override permission validation"""
         # Create member with fee override
         test_data = self.builder.with_member(
-            membership_fee_override=50.00, fee_override_reason="Test discount for validation"
+            dues_rate=50.00, fee_override_reason="Test discount for validation"
         ).build()
 
         member = test_data["member"]
@@ -571,7 +571,7 @@ class TestMemberController(VereningingenUnitTestCase):
         with self.as_user("test.member@example.com"):
             # Should raise permission error
             with self.assertRaises(frappe.PermissionError):
-                member.membership_fee_override = 75.00
+                member.dues_rate = 75.00
                 member.validate_fee_override_permissions()
 
     def test_debug_methods(self):

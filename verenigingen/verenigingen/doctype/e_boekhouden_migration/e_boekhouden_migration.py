@@ -3349,10 +3349,12 @@ def import_opening_balances_only(migration_name):
 
         # Update migration record with results
         if result.get("success"):
+            imported_count = 1 if result.get("journal_entry") else 0
             migration.db_set(
                 {
                     "migration_status": "Completed",
-                    "imported_records": 1 if result.get("journal_entry") else 0,
+                    "imported_records": imported_count,
+                    "total_records": imported_count,  # For opening balances, total = imported
                     "migration_summary": f"Opening balances imported. Journal Entry: {result.get('journal_entry', 'None')}",
                 }
             )

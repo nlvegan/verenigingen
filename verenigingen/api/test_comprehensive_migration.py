@@ -22,7 +22,7 @@ def test_complete_migration_workflow():
         member.postal_code = "1234AB"
         member.city = "Migration City"
         member.country = "Netherlands"
-        member.membership_fee_override = 45.0
+        member.dues_rate = 45.0
         member.fee_override_reason = "Legacy override"
         member.fee_override_date = today()
         member.save()

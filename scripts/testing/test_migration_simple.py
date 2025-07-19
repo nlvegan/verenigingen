@@ -26,7 +26,7 @@ def test_fee_priority_system():
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Type {frappe.generate_hash(length=6)}"
         membership_type.amount = 20.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.save()
         
@@ -49,7 +49,7 @@ def test_fee_priority_system():
         print(f"✓ No overrides - Source: {fee_info['source']}, Amount: {fee_info['amount']}")
         
         # Test 2: Add legacy override
-        member.membership_fee_override = 30.0
+        member.dues_rate = 30.0
         member.save()
         
         fee_info = get_effective_fee_for_member(member, membership)

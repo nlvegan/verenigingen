@@ -190,12 +190,18 @@ class VereningingenTestCase(FrappeTestCase):
             except:
                 pass
         
-        # Delete SEPA Mandates
-        for mandate in frappe.get_all("SEPA Mandate", filters={"customer": customer_name}):
-            try:
-                frappe.delete_doc("SEPA Mandate", mandate.name, force=True, ignore_permissions=True)
-            except:
-                pass
+        # Delete SEPA Mandates (linked to members, not customers directly)
+        # Find member linked to this customer and delete their SEPA Mandates
+        try:
+            member = frappe.db.get_value("Member", {"customer": customer_name}, "name")
+            if member:
+                for mandate in frappe.get_all("SEPA Mandate", filters={"member": member}):
+                    try:
+                        frappe.delete_doc("SEPA Mandate", mandate.name, force=True, ignore_permissions=True)
+                    except:
+                        pass
+        except:
+            pass
     
     @staticmethod
     def get_test_region_name():

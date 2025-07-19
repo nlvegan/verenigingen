@@ -29,8 +29,10 @@
   "calculator_description",
   "maximum_fee_multiplier",
   "membership_settings_section",
+  "default_grace_period_days",
+  "grace_period_auto_apply",
+  "grace_period_notification_days",
   "system_migration_section",
-  "enable_subscription_system",
   "column_break_migration",
   "migration_notes",
   "dutch_btw_section",
@@ -498,26 +500,44 @@
    "min_value": 1
   },
   {
+   "fieldname": "membership_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Grace Period Settings"
+  },
+  {
+   "fieldname": "default_grace_period_days",
+   "fieldtype": "Int",
+   "label": "Default Grace Period Days",
+   "description": "Number of days to automatically extend membership grace periods",
+   "default": 30,
+   "min_value": 1,
+   "max_value": 180
+  },
+  {
+   "fieldname": "grace_period_auto_apply",
+   "fieldtype": "Check",
+   "label": "Automatically Apply Grace Period",
+   "description": "Automatically place members in grace period when payments are overdue",
+   "default": 0
+  },
+  {
+   "fieldname": "grace_period_notification_days",
+   "fieldtype": "Int",
+   "label": "Grace Period Notification Days",
+   "description": "Days before grace period expiry to send warning notifications",
+   "default": 7,
+   "min_value": 1,
+   "max_value": 30,
+   "depends_on": "eval:doc.grace_period_auto_apply"
+  },
+  {
    "fieldname": "system_migration_section",
    "fieldtype": "Section Break",
    "label": "System Migration"
   },
   {
-   "default": "0",
-   "description": "Enable legacy subscription system (not recommended - use Membership Dues Schedule instead)",
-   "fieldname": "enable_subscription_system",
-   "fieldtype": "Check",
-   "label": "Enable Subscription System"
-  },
-  {
    "fieldname": "column_break_migration",
    "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "migration_notes",
-   "fieldtype": "HTML",
-   "label": "Migration Notes",
-   "options": "<div class='alert alert-warning'>\n<strong>Note:</strong> The subscription system is deprecated. All new implementations should use the Membership Dues Schedule system.\n<br><br>\nEnabling the subscription system is only recommended for backward compatibility during migration.\n</div>"
   }
  ],
  "index_web_pages_for_search": 1,

@@ -101,7 +101,7 @@ class MembershipGoal(Document):
             # Get the membership fee
             member = frappe.db.get_value("Membership", membership.name, "member")
             if member:
-                fee_override = frappe.db.get_value("Member", member, "membership_fee_override")
+                fee_override = frappe.db.get_value("Member", member, "dues_rate")
                 if fee_override:
                     total_revenue += fee_override
                 else:

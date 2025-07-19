@@ -361,11 +361,11 @@ class TestOverduePaymentsReport(unittest.TestCase):
 
         sql_call = mock_sql.call_args[0][0]
 
-        # Verify subscription filtering
-        self.assertIn("si.subscription IS NOT NULL", sql_call)
+        # Verify dues schedule filtering
+        self.assertIn("mds.status = 'Active'", sql_call)
         self.assertIn("EXISTS", sql_call)
-        self.assertIn("tabSubscription", sql_call)
-        self.assertIn("reference_doctype = 'Membership Type'", sql_call)
+        self.assertIn("tabMembership Dues Schedule", sql_call)
+        self.assertIn("mds.membership = m.name", sql_call)
 
     def test_performance_considerations(self):
         """Test query performance considerations"""

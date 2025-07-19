@@ -216,7 +216,7 @@ describe('Workflow Transitions', () => {
 			const previewTerminationImpact = (member) => {
 				const impact = {
 					memberships: [],
-					subscriptions: [],
+					dues_schedules: [],
 					teams: [],
 					mandates: [],
 					financialImpact: 0

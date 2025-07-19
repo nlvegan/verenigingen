@@ -131,7 +131,7 @@ class TestAllImports(FrappeTestCase):
         # Test that patches can be imported
         try:
             import verenigingen.patches.v1_0.update_member_statuses
-            import verenigingen.patches.v1_0.migrate_subscription_data
+            # migrate_subscription_data patch removed - now using dues schedule system
             self.assertTrue(True, "Migration patches imported")
         except ImportError:
             # Patches might not exist yet

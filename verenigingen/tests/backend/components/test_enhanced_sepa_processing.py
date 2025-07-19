@@ -450,7 +450,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Enhanced SEPA Type {frappe.generate_hash(length=6)}"
         membership_type.amount = 20.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         
         membership_type.save()
@@ -463,7 +463,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             membership_type = frappe.new_doc("Membership Type")
             membership_type.membership_type_name = f"Test Tier Type {frappe.generate_hash(length=6)}"
             membership_type.amount = 25.0
-            membership_type.subscription_period = "Monthly"
+            membership_type.billing_frequency = "Monthly"
             membership_type.is_active = 1
             membership_type.contribution_mode = "Tiers"
             

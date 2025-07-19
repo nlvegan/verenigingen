@@ -17,7 +17,7 @@ def test_enhanced_dues_amendment():
 
     member_doc = frappe.get_doc("Member", member.name)
     print(f"Member: {member_doc.full_name}")
-    print(f"Current override: {member_doc.membership_fee_override}")
+    print(f"Current override: {member_doc.dues_rate}")
     print(f"Override reason: {member_doc.fee_override_reason}")
 
     # Get their membership
@@ -96,7 +96,7 @@ def test_enhanced_dues_amendment():
                 # Verify legacy compatibility
                 print("\n=== Testing Legacy Compatibility ===")
                 member_doc.reload()
-                print(f"✓ Legacy override updated: €{member_doc.membership_fee_override}")
+                print(f"✓ Legacy override updated: €{member_doc.dues_rate}")
                 print(f"✓ Legacy reason: {member_doc.fee_override_reason}")
                 
                 # Clean up test data

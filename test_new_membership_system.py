@@ -21,7 +21,7 @@ def test_membership_type_enhancements():
         membership_type.membership_type_name = membership_type_name
         membership_type.description = "Test membership type for flexible contribution system"
         membership_type.amount = 15.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
 
     # Set the new contribution fields

@@ -1,6 +1,6 @@
 """
 Financial Integration Edge Cases Test Suite
-Tests for payment processing, subscription management, and financial data integrity
+Tests for payment processing, dues schedule management, and financial data integrity
 """
 
 import unittest
@@ -259,10 +259,10 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
         # Clean up
         membership.delete()
 
-    # ===== SUBSCRIPTION OVERRIDE EDGE CASES =====
+    # ===== DUES SCHEDULE OVERRIDE EDGE CASES =====
 
-    def test_subscription_override_conflicts(self):
-        """Test conflicting subscription overrides"""
+    def test_dues_schedule_override_conflicts(self):
+        """Test conflicting dues schedule overrides"""
         membership = frappe.get_doc(
             {
                 "doctype": "Membership",
@@ -276,7 +276,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
 
         # Test creating conflicting overrides
         try:
-            # This should be implemented in the actual subscription override system
+            # This should be implemented in the actual dues schedule override system
             override1 = {
                 "membership": membership.name,
                 "override_amount": 50.00,
@@ -290,8 +290,8 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
         finally:
             membership.delete()
 
-    def test_orphaned_subscription_cleanup(self):
-        """Test orphaned subscription detection and cleanup"""
+    def test_orphaned_dues_schedule_cleanup(self):
+        """Test orphaned dues schedule detection and cleanup"""
         # Create membership
         membership = frappe.get_doc(
             {
@@ -308,11 +308,11 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
         self.member.name
         self.member.delete()
 
-        # Run orphaned subscription cleanup
+        # Run orphaned dues schedule cleanup
         try:
-            from verenigingen.utils.subscription_override import cleanup_orphaned_subscriptions
+            from verenigingen.utils.membership_dues_integration import cleanup_orphaned_dues_schedules
 
-            cleanup_orphaned_subscriptions()
+            cleanup_orphaned_dues_schedules()
 
             # Membership should be marked as orphaned or deleted
             orphaned_membership = frappe.db.exists("Membership", membership.name)

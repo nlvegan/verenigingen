@@ -64,7 +64,7 @@ def get_membership_types_with_contributions():
             "membership_type_name",
             "description",
             "amount",
-            "subscription_period",
+            "billing_frequency",
             "contribution_mode",
             "minimum_contribution",
             "suggested_contribution",
@@ -107,7 +107,7 @@ def get_membership_types_with_contributions():
             "membership_type_name": mt.membership_type_name,
             "description": mt.description,
             "amount": mt.amount,
-            "subscription_period": mt.subscription_period,
+            "billing_frequency": mt.billing_frequency,
             "contribution_options": contribution_options,
         }
 
@@ -131,7 +131,7 @@ def get_membership_type_details(membership_type_name):
                 "membership_type_name": mt_doc.membership_type_name,
                 "description": mt_doc.description,
                 "amount": mt_doc.amount,
-                "subscription_period": mt_doc.subscription_period,
+                "billing_frequency": mt_doc.billing_frequency,
                 "contribution_options": mt_doc.get_contribution_options(),
             },
         }

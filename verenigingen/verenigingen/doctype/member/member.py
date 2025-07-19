@@ -68,13 +68,13 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
     def validate_fee_override_permissions(self):
         """Validate that only authorized users can set fee overrides"""
         # Skip validation for new documents or if no override is set
-        if self.is_new() or not self.membership_fee_override:
+        if self.is_new() or not self.dues_rate:
             return
 
         # Check if fee override value has changed
         if self.name:
-            old_amount = frappe.db.get_value("Member", self.name, "membership_fee_override")
-            if old_amount == self.membership_fee_override:
+            old_amount = frappe.db.get_value("Member", self.name, "dues_rate")
+            if old_amount == self.dues_rate:
                 return  # No change, no validation needed
 
         # Check user permissions for fee override
@@ -92,7 +92,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         # Log the fee override action for audit purposes
         frappe.logger().info(
             f"Fee override set by {frappe.session.user} for member {self.name}: "
-            f"Amount: {self.membership_fee_override}, Reason: {self.fee_override_reason}"
+            f"Amount: {self.dues_rate}, Reason: {self.fee_override_reason}"
         )
 
     def before_insert(self):
@@ -984,8 +984,8 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         # Applications should set initial fee amounts without triggering change tracking
         if not self.name or self.is_new():
             # For new documents, validate and set audit fields but no change tracking
-            if self.membership_fee_override:
-                if self.membership_fee_override <= 0:
+            if self.dues_rate:
+                if self.dues_rate <= 0:
                     frappe.throw(_("Membership fee override must be greater than 0"))
                 if not self.fee_override_reason:
                     frappe.throw(_("Please provide a reason for the fee override"))
@@ -998,7 +998,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             return
 
         # Get current and old values for existing documents with better error handling
-        new_amount = self.membership_fee_override
+        new_amount = self.dues_rate
         old_amount = None
 
         try:
@@ -1007,7 +1007,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
                 # Get current value from database with row lock
                 db_result = frappe.db.sql(
                     """
-                    SELECT membership_fee_override
+                    SELECT dues_rate
                     FROM `tabMember`
                     WHERE name = %s
                     FOR UPDATE
@@ -1017,7 +1017,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
                 )
 
                 if db_result:
-                    old_amount = db_result[0].membership_fee_override
+                    old_amount = db_result[0].dues_rate
 
                 # Check if values are actually different
                 if old_amount == new_amount:
@@ -1235,9 +1235,9 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
     @frappe.whitelist()
     def get_current_membership_fee(self):
         """Get current effective membership fee for this member"""
-        if self.membership_fee_override:
+        if self.dues_rate:
             return {
-                "amount": self.membership_fee_override,
+                "amount": self.dues_rate,
                 "source": "custom_override",
                 "reason": self.fee_override_reason,
             }
@@ -1292,14 +1292,6 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             "source": current_fee["source"],
             "reason": current_fee.get("reason"),
         }
-
-    # Subscription history methods removed - use dues schedule system instead
-
-    # Subscription history update methods removed - use dues schedule system instead
-
-    # Subscription management methods removed - use dues schedule system instead
-
-    # Subscription plan creation methods removed - use dues schedule system instead
 
     def get_or_create_membership_item(self):
         """Get or create the membership fee item"""
@@ -1602,14 +1594,14 @@ def handle_fee_override_after_save(doc, method=None):
                     (frappe.as_json(history_list), doc.name),
                 )
 
-                # Update subscriptions if needed
+                # Update dues schedules if needed
                 try:
                     # Create a temporary member object to avoid modifying the original
                     temp_member = frappe.get_doc("Member", doc.name)
-                    result = temp_member.update_active_subscriptions()
-                    frappe.logger().info(f"Subscription update result: {result}")
+                    result = temp_member.update_active_dues_schedules()
+                    frappe.logger().info(f"Dues schedule update result: {result}")
                 except Exception as e:
-                    frappe.logger().error(f"Error updating subscriptions: {str(e)}")
+                    frappe.logger().error(f"Error updating dues schedules: {str(e)}")
 
                 # Commit the transaction
                 frappe.db.commit()
@@ -1624,9 +1616,6 @@ def handle_fee_override_after_save(doc, method=None):
                 delattr(doc, "_pending_fee_change")
     else:
         frappe.logger().debug(f"No pending fee change found for member {doc.name}")
-
-
-# Subscription details function removed - use dues schedule system instead
 
 
 @frappe.whitelist()
@@ -2453,8 +2442,6 @@ def create_donor_from_member(member_name):
             )
         except Exception:
             return []
-
-    # Subscription details method removed - use dues schedule system instead
 
 
 # Global functions that were missing from current version

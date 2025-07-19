@@ -15,8 +15,7 @@ required_apps = ["erpnext", "payments", "hrms", "alyf-de/banking"]
 
 # Includes in <head>
 # ------------------
-# Updated to use dues schedule system
-# on_app_init = ["verenigingen.setup.doctype_overrides.setup_subscription_override"]
+# Updated to use dues schedule system instead of subscription overrides
 
 # Boot session - runs when user session starts
 boot_session = "verenigingen.boot.boot_session"
@@ -53,19 +52,16 @@ doctype_js = {
 doc_events = {
     # Core membership system events
     "Membership": {
+        "validate": "verenigingen.validations.validate_membership_grace_period",
         "on_submit": "verenigingen.verenigingen.doctype.membership.membership.on_submit",
         "on_cancel": "verenigingen.verenigingen.doctype.membership.membership.on_cancel",
     },
-    # Updated to use dues schedule system
-    # "Subscription": {
-    #     "on_update": [
-    #         "verenigingen.verenigingen.doctype.membership.membership.update_membership_from_subscription",
-    #     ]
-    # },
+    # Updated to use dues schedule system instead of subscription hooks
     "Chapter": {
         "validate": "verenigingen.verenigingen.doctype.chapter.chapter.validate_chapter_access",
     },
     "Verenigingen Settings": {
+        "validate": "verenigingen.validations.validate_verenigingen_settings",
         "on_update": "verenigingen.verenigingen.doctype.member.member_utils.sync_member_counter_with_settings",
     },
     "Payment Entry": {
@@ -376,11 +372,7 @@ fixtures = [
         "doctype": "Item",
         "filters": [["item_code", "=", "MEMBERSHIP"]],
     },
-    # Updated to use dues schedule system instead
-    # {
-    #     "doctype": "Subscription Plan",
-    #     "filters": [["name", "in", ["Monthly Membership Plan", "Annual Membership Plan"]]],
-    # },
+    # Updated to use dues schedule system instead of subscription plans
     # Workspaces
     {
         "doctype": "Workspace",

@@ -40,7 +40,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         traditional_type = frappe.new_doc("Membership Type")
         traditional_type.membership_type_name = f"Traditional Fixed {frappe.generate_hash(length=6)}"
         traditional_type.amount = 50.0  # Fixed amount
-        traditional_type.subscription_period = "Annual"
+        traditional_type.billing_frequency = "Annual"
         traditional_type.is_active = 1
         # Old system - no contribution mode fields
         traditional_type.save()
@@ -136,7 +136,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         lifecycle_type = frappe.new_doc("Membership Type")
         lifecycle_type.membership_type_name = f"Lifecycle Type {frappe.generate_hash(length=6)}"
         lifecycle_type.amount = 50.0
-        lifecycle_type.subscription_period = "Annual"
+        lifecycle_type.billing_frequency = "Annual"
         lifecycle_type.is_active = 1
         lifecycle_type.contribution_mode = "Tiers"
         lifecycle_type.minimum_contribution = 15.0
@@ -236,7 +236,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         hardship_type = frappe.new_doc("Membership Type")
         hardship_type.membership_type_name = f"Hardship Support Type {frappe.generate_hash(length=6)}"
         hardship_type.amount = 60.0
-        hardship_type.subscription_period = "Monthly"
+        hardship_type.billing_frequency = "Monthly"
         hardship_type.is_active = 1
         hardship_type.contribution_mode = "Calculator"
         hardship_type.minimum_contribution = 5.0  # Very low minimum for hardship cases
@@ -344,7 +344,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         family_type = frappe.new_doc("Membership Type")
         family_type.membership_type_name = f"Family Membership {frappe.generate_hash(length=6)}"
         family_type.amount = 120.0  # Higher base for family
-        family_type.subscription_period = "Annual"
+        family_type.billing_frequency = "Annual"
         family_type.is_active = 1
         family_type.contribution_mode = "Both"
         family_type.minimum_contribution = 80.0
@@ -477,7 +477,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         board_type = frappe.new_doc("Membership Type")
         board_type.membership_type_name = f"Board Member Type {frappe.generate_hash(length=6)}"
         board_type.amount = 100.0
-        board_type.subscription_period = "Annual"
+        board_type.billing_frequency = "Annual"
         board_type.is_active = 1
         board_type.contribution_mode = "Tiers"
         board_type.minimum_contribution = 25.0

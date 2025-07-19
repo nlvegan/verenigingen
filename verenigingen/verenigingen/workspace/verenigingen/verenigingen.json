@@ -528,16 +528,6 @@
   {
    "hidden": 0,
    "is_query_report": 1,
-   "label": "Orphaned Subscriptions Report",
-   "link_count": 0,
-   "link_to": "Orphaned Subscriptions Report",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
    "label": "Chapter Expense Report",
    "link_count": 0,
    "link_to": "Chapter Expense Report",

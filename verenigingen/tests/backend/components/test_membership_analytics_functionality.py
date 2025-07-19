@@ -75,7 +75,7 @@ class TestMembershipAnalyticsFunctionality(BaseTestCase):
                 "member_since": add_months(getdate(), -months_ago),
                 "birth_date": add_months(getdate(), -(20 + i) * 12),  # Various ages
                 "payment_method": ["Bank Transfer", "Direct Debit", "Credit Card"][i % 3],
-                "membership_fee_override": 120 if i % 5 == 0 else None  # Some with overrides
+                "dues_rate": 120 if i % 5 == 0 else None  # Some with overrides
             })
             member.insert(ignore_permissions=True)
             self.test_members.append(member.name)

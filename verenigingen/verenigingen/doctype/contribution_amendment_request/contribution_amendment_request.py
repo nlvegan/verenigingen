@@ -278,7 +278,7 @@ class ContributionAmendmentRequest(Document):
             # Update legacy override fields for backward compatibility
             member_doc = frappe.get_doc("Member", self.member)
             member_doc.reload()  # Refresh to avoid timestamp mismatch
-            member_doc.membership_fee_override = self.requested_amount
+            member_doc.dues_rate = self.requested_amount
             member_doc.fee_override_reason = f"Amendment: {self.reason}"
             member_doc.fee_override_date = today()
             member_doc.fee_override_by = frappe.session.user
@@ -975,7 +975,7 @@ def validate_production_schema():
             "current_dues_schedule",
             "current_amount",
             "current_billing_interval",
-            "old_subscription_cancelled",
+            "old_legacy_system_cancelled",
             "processing_notes",
         ]
 

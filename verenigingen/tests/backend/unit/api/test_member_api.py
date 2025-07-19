@@ -52,7 +52,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                     "membership_type_name": f"Test Type {random_string(8)}",
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
+                    "billing_frequency": "Annual",
                 }
             )
             mt.insert(ignore_permissions=True)
@@ -218,7 +218,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
     def test_get_display_membership_fee_whitelist(self):
         """Test get_display_membership_fee method with override"""
         test_data = self.builder.with_member(
-            membership_fee_override=75.00, fee_override_reason="Special discount"
+            dues_rate=75.00, fee_override_reason="Special discount"
         ).build()
 
         member = test_data["member"]
@@ -402,9 +402,9 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
         # Submit membership
         membership.submit()
 
-        # Test getting current subscription details
+        # Test getting current dues schedule details
         details = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.get_current_subscription_details",
+            "verenigingen.verenigingen.doctype.member.member.Member.get_current_dues_schedule_details",
             doc=member.as_dict(),
         )
 

@@ -16,7 +16,7 @@
 ## 1. System Architecture Details
 
 ### Core Philosophy
-The system treats memberships as **perpetual relationships** with **periodic financial obligations**, not commercial subscriptions. Members pay dues based on their approval date anniversary, collected via monthly SEPA batches.
+The system treats memberships as **perpetual relationships** with **periodic financial obligations**, using a custom dues schedule system. Members pay dues based on their approval date anniversary, collected via monthly SEPA batches.
 
 ### Key Design Principles
 
@@ -28,6 +28,12 @@ The system treats memberships as **perpetual relationships** with **periodic fin
 
 2. **Coverage Period Clarity**
    - Membership starts on approval date
+
+3. **Critical Member Status Validation** ⚠️
+   - **MUST validate member status** before including in DD batches
+   - **MUST exclude terminated members** (quit, expelled, deceased)
+   - **MUST check membership status** in addition to dues schedule status
+   - **MUST implement independent validation** beyond automatic schedule updates
    - No proration - full period payment
    - Clear invoice coverage dates
 
@@ -1182,7 +1188,13 @@ async function processFirstPaymentAndSubmit() {
 def generate_membership_invoice(member, dues_schedule):
     """
     Generate invoice with clear coverage period information
+    ⚠️ CRITICAL: Must validate member status before invoice creation
     """
+    # ⚠️ CRITICAL VALIDATION: Check member status before creating invoice
+    if not validate_member_eligibility_for_billing(member):
+        frappe.log_error(f"Attempted to bill terminated member: {member.name}")
+        return None
+
     # Calculate coverage period
     coverage_start, coverage_end = dues_schedule.get_invoice_coverage_period(today())
 
@@ -1225,10 +1237,94 @@ def generate_membership_invoice(member, dues_schedule):
         "amount": dues_schedule.amount,
         "coverage_start": coverage_start,
         "coverage_end": coverage_end,
-        "notes": f"Generated for {dues_schedule.billing_frequency} billing cycle"
     }).insert()
 
     return invoice
+
+def validate_member_eligibility_for_billing(member):
+    """
+    ⚠️ CRITICAL VALIDATION: Check if member is eligible for billing
+    This function MUST be called before creating any invoice or DD batch entry
+    """
+    # Check member status
+    if member.status in ["Terminated", "Expelled", "Deceased", "Suspended"]:
+        return False
+
+    # Check if member quit recently (after last batch creation)
+    if member.status == "Quit":
+        return False
+
+    # Check if member has active membership
+    active_memberships = frappe.get_all(
+        "Membership",
+        filters={"member": member.name, "status": "Active"},
+        limit=1
+    )
+
+    if not active_memberships:
+        return False
+
+    # Check if member has valid payment method
+    if member.payment_method == "SEPA Direct Debit":
+        mandates = frappe.get_all(
+            "SEPA Mandate",
+            filters={"member": member.name, "status": "Active"},
+            limit=1
+        )
+        if not mandates:
+            return False
+
+    return True
+```
+
+### 6.2 Test Requirements for Member Status Validation
+
+**Critical Test Cases:**
+1. **Member quits after batch creation but before processing** - Must not be charged
+2. **Member expelled after dues schedule created** - Must not be charged
+3. **Member marked deceased** - Must not be charged
+4. **Member suspended** - Must not be charged
+5. **Member with cancelled SEPA mandate** - Must not be included in DD batch
+6. **Member with no active membership** - Must not be charged
+7. **Timeline validation** - Member status changes between batch creation and execution
+
+**Test Implementation:**
+```python
+def test_terminated_member_exclusion_from_batch():
+    """Test that terminated members are excluded from DD batches"""
+    # Create member with active dues schedule
+    member = create_test_member()
+    dues_schedule = create_test_dues_schedule(member)
+
+    # Terminate member AFTER schedule is active
+    member.status = "Expelled"
+    member.save()
+
+    # Create batch - should exclude terminated member
+    batch = create_dues_collection_batch()
+
+    # Assert member is not included
+    assert member.name not in [inv.member for inv in batch.invoices]
+
+def test_post_batch_creation_termination():
+    """Test member terminated after batch created but before processed"""
+    # Create batch with active member
+    member = create_test_member()
+    batch = create_dues_collection_batch()
+
+    # Verify member is in batch
+    assert member.name in [inv.member for inv in batch.invoices]
+
+    # Terminate member before processing
+    member.status = "Quit"
+    member.save()
+
+    # Process batch - should skip terminated member
+    process_batch(batch)
+
+    # Verify no charge was processed
+    assert no_payment_entry_created_for_member(member)
+```
 ```
 
 ### 6.2 SEPA Batch File Generation
@@ -1589,11 +1685,13 @@ This updated plan provides a robust foundation for SEPA-based membership billing
 
 ---
 
-## 9. Critical Analysis: ERPNext Core Functionality Gaps
+## 9. Historical Analysis: ERPNext Functionality Comparison
 
-### 9.1 What We're Potentially Missing by Not Using ERPNext Subscriptions
+### 9.1 Comparison with ERPNext Standard Features (HISTORICAL REFERENCE)
 
-After analyzing ERPNext's core subscription and invoicing functionality, here are the critical gaps and concerns:
+**Note: This section is kept for historical reference. The system now uses a custom dues schedule system.**
+
+When we originally analyzed ERPNext's core functionality, here were the considerations:
 
 #### **Built-in Validations We'd Bypass:**
 

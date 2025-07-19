@@ -53,6 +53,13 @@ def get_columns():
         {"label": _("Days Overdue"), "fieldname": "days_overdue", "fieldtype": "Int", "width": 100},
         {"label": _("Membership Type"), "fieldname": "membership_type", "fieldtype": "Data", "width": 120},
         {"label": _("Status"), "fieldname": "status_indicator", "fieldtype": "HTML", "width": 100},
+        {"label": _("Grace Period"), "fieldname": "grace_period_status", "fieldtype": "Data", "width": 120},
+        {
+            "label": _("Grace Period Expiry"),
+            "fieldname": "grace_period_expiry",
+            "fieldtype": "Date",
+            "width": 120,
+        },
         {"label": _("Last Payment"), "fieldname": "last_payment_date", "fieldtype": "Date", "width": 120},
     ]
 
@@ -186,11 +193,30 @@ def get_data(filters):
             "oldest_invoice_date": agg_data["oldest_invoice_date"],
             "days_overdue": days_overdue,
             "membership_type": member_info.get("membership_type"),
+            "grace_period_status": member_info.get("grace_period_status"),
+            "grace_period_expiry": member_info.get("grace_period_expiry_date"),
             "last_payment_date": last_payment_date,
         }
 
-        # Add status indicator with color coding
-        if days_overdue > 60:
+        # Add status indicator with color coding (enhanced with grace period logic)
+        grace_period_status = member_info.get("grace_period_status")
+        grace_period_expiry = member_info.get("grace_period_expiry_date")
+
+        if grace_period_status == "Grace Period":
+            # Check if grace period is expiring soon
+            if grace_period_expiry:
+                from frappe.utils import getdate, today
+
+                days_until_expiry = (getdate(grace_period_expiry) - getdate(today())).days
+                if days_until_expiry <= 0:
+                    row["status_indicator"] = '<span class="indicator red">Grace Period Expired</span>'
+                elif days_until_expiry <= 7:
+                    row["status_indicator"] = '<span class="indicator orange">Grace Period Expiring</span>'
+                else:
+                    row["status_indicator"] = '<span class="indicator blue">Grace Period</span>'
+            else:
+                row["status_indicator"] = '<span class="indicator blue">Grace Period</span>'
+        elif days_overdue > 60:
             row["status_indicator"] = '<span class="indicator red">Critical</span>'
         elif days_overdue > 30:
             row["status_indicator"] = '<span class="indicator orange">Urgent</span>'
@@ -207,9 +233,10 @@ def get_data(filters):
     return data
 
 
-def is_membership_subscription(subscription_name):
+def is_membership_related(document_name):
     """
     Updated to use dues schedules instead of subscriptions.
+    Always returns True for membership-related payments.
     """
     # Always return True for backward compatibility
     return True
@@ -223,11 +250,22 @@ def get_member_info_by_customer(customer):
         )
 
         if member:
-            # Get active membership type
+            # Get active membership with grace period info
             membership = frappe.get_value(
-                "Membership", {"member": member.name, "status": "Active"}, "membership_type"
+                "Membership",
+                {"member": member.name, "status": "Active"},
+                ["membership_type", "grace_period_status", "grace_period_expiry_date"],
+                as_dict=True,
             )
-            member["membership_type"] = membership
+
+            if membership:
+                member["membership_type"] = membership.membership_type
+                member["grace_period_status"] = membership.grace_period_status
+                member["grace_period_expiry_date"] = membership.grace_period_expiry_date
+            else:
+                member["membership_type"] = None
+                member["grace_period_status"] = None
+                member["grace_period_expiry_date"] = None
 
         return member
     except Exception:

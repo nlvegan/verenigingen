@@ -36,7 +36,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Annual",
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
+                    "billing_frequency": "Annual",
                     "payment_interval": "Yearly",
                 }
             )
@@ -53,7 +53,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Quarterly",
                     "amount": 30,
                     "currency": "EUR",
-                    "subscription_period": "Quarterly",
+                    "billing_frequency": "Quarterly",
                     "payment_interval": "Quarterly",
                 }
             )
@@ -70,7 +70,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Monthly",
                     "amount": 10,
                     "currency": "EUR",
-                    "subscription_period": "Monthly",
+                    "billing_frequency": "Monthly",
                     "payment_interval": "Monthly",
                 }
             )
@@ -87,7 +87,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Daily",
                     "amount": 1,
                     "currency": "EUR",
-                    "subscription_period": "Daily",
+                    "billing_frequency": "Daily",
                     "payment_interval": "Daily",
                 }
             )
@@ -143,7 +143,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "membership_type_name": "Test Enforced Annual",
                 "amount": 100,
                 "currency": "EUR",
-                "subscription_period": "Monthly",  # Monthly but enforced to 1 year
+                "billing_frequency": "Monthly",  # Monthly but enforced to 1 year
                 "enforce_minimum_period": 1,
             }
         )
@@ -178,7 +178,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "membership_type_name": "Test Monthly No Minimum",
                 "amount": 10,
                 "currency": "EUR",
-                "subscription_period": "Monthly",
+                "billing_frequency": "Monthly",
                 "enforce_minimum_period": 0,
             }
         )
@@ -198,7 +198,7 @@ class TestMembershipController(VereningingenUnitTestCase):
             }
         )
 
-        # Set renewal date should follow subscription period (1 month)
+        # Set renewal date should follow billing frequency (1 month)
         membership.set_renewal_date()
 
         expected_renewal_date = add_months(today(), 1)
@@ -227,8 +227,8 @@ class TestMembershipController(VereningingenUnitTestCase):
             expected_renewal_date = add_days(today(), 1)
             self.assertEqual(getdate(membership.renewal_date), getdate(expected_renewal_date))
 
-    def test_create_subscription_method(self):
-        """Test subscription creation from membership"""
+    def test_create_dues_schedule_method(self):
+        """Test dues schedule creation from membership"""
         # Create member with membership
         test_data = (
             self.builder.with_member()
@@ -239,13 +239,13 @@ class TestMembershipController(VereningingenUnitTestCase):
         test_data["member"]
         test_data["membership"]
 
-        # Test subscription creation
-        # This would test the actual subscription creation logic
-        # Implementation depends on ERPNext subscription setup
+        # Test dues schedule creation
+        # This would test the actual dues schedule creation logic
+        # Implementation uses the new dues schedule system
 
-    def test_sync_payment_details_from_subscription(self):
-        """Test payment details sync from subscription"""
-        # Create member with membership and subscription
+    def test_sync_payment_details_from_dues_schedule(self):
+        """Test payment details sync from dues schedule"""
+        # Create member with membership and dues schedule
         test_data = (
             self.builder.with_member()
             .with_membership(membership_type=self.test_env["membership_types"][0].name)
@@ -255,10 +255,10 @@ class TestMembershipController(VereningingenUnitTestCase):
         test_data["membership"]
 
         # Test payment sync
-        # This would test syncing payment status from subscription
+        # This would test syncing payment status from dues schedule
 
-    def test_cancel_subscription_method(self):
-        """Test subscription cancellation"""
+    def test_cancel_dues_schedule_method(self):
+        """Test dues schedule cancellation"""
         # Create member with active membership
         test_data = (
             self.builder.with_member()
@@ -269,7 +269,7 @@ class TestMembershipController(VereningingenUnitTestCase):
         test_data["membership"]
 
         # Test cancellation
-        # This would test the subscription cancellation logic
+        # This would test the dues schedule cancellation logic
 
     def test_on_cancel_with_minimum_period(self):
         """Test membership cancellation respects minimum period"""
@@ -505,7 +505,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Membership Type",
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
+                    "billing_frequency": "Annual",
                 }
             )
             membership_type.insert(ignore_permissions=True)
@@ -531,7 +531,7 @@ class TestMembershipController(VereningingenUnitTestCase):
         self.assertEqual(amount, expected)
 
         # Test with fee override on member
-        member.membership_fee_override = 50
+        member.dues_rate = 50
         member.save(ignore_permissions=True)
         # Re-set member reference to trigger calculation with override
         membership.member = member.name

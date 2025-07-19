@@ -457,33 +457,6 @@ class TestMember(FrappeTestCase):
         self.assertEqual(member.bank_account_name, f"Test{unique_id} Member")
         self.assertEqual(member.payment_method, "SEPA Direct Debit")
 
-    def test_subscription_details_retrieval(self):
-        """Test that subscription details are retrieved correctly"""
-        unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
-        member_data = {
-            "first_name": f"Test{unique_id}",
-            "last_name": "Member",
-            "email": f"testmember{unique_id}@example.com",
-            "contact_number": "+31612345678",
-            "payment_method": "Bank Transfer",
-        }
-
-        member = frappe.new_doc("Member")
-        member.update(member_data)
-        member.insert()
-
-        # Test get_subscription_details method exists and works
-        self.assertTrue(hasattr(member, "get_subscription_details"))
-        self.assertTrue(callable(getattr(member, "get_subscription_details")))
-
-        # Should not error even with no subscriptions
-        try:
-            details = member.get_subscription_details()
-            # Should return empty data structure or None
-            self.assertTrue(details is None or isinstance(details, dict))
-        except Exception as e:
-            self.fail(f"get_subscription_details raised {type(e).__name__} unexpectedly!")
-
     def test_linked_donations_retrieval(self):
         """Test that linked donations are retrieved correctly"""
         unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))

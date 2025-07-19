@@ -109,8 +109,8 @@ def calculate_projected_revenue(year):
     for membership in active_memberships:
         # Check for fee override
         member_doc = frappe.get_doc("Member", membership.member)
-        if member_doc.membership_fee_override:
-            annual_fee = member_doc.membership_fee_override
+        if member_doc.dues_rate:
+            annual_fee = member_doc.dues_rate
         else:
             # Get standard fee
             membership_type = frappe.get_doc("Membership Type", membership.membership_type)
@@ -167,7 +167,7 @@ def get_revenue_projection(year, filters=None):
         member_count = frappe.db.sql(
             """
             SELECT COUNT(DISTINCT m.member) as count,
-                   SUM(COALESCE(mem.membership_fee_override, mt.amount)) as revenue
+                   SUM(COALESCE(mem.dues_rate, mt.amount)) as revenue
             FROM `tabMembership` m
             JOIN `tabMember` mem ON m.member = mem.name
             JOIN `tabMembership Type` mt ON m.membership_type = mt.name
@@ -199,7 +199,7 @@ def get_membership_breakdown(year, filters=None):
         SELECT
             m.membership_type,
             COUNT(DISTINCT m.member) as count,
-            SUM(COALESCE(mem.membership_fee_override, mt.amount)) as revenue
+            SUM(COALESCE(mem.dues_rate, mt.amount)) as revenue
         FROM `tabMembership` m
         JOIN `tabMember` mem ON m.member = mem.name
         JOIN `tabMembership Type` mt ON m.membership_type = mt.name
@@ -427,7 +427,7 @@ def get_chapter_segmentation(year, filter_conditions):
             COALESCE(current_chapter_display, 'No Chapter') as name,
             COUNT(*) as total_members,
             SUM(CASE WHEN YEAR(member_since) = {year} THEN 1 ELSE 0 END) as new_members,
-            AVG(COALESCE(membership_fee_override,
+            AVG(COALESCE(dues_rate,
                 (SELECT amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'
@@ -483,7 +483,7 @@ def get_age_segmentation(year, filter_conditions):
                 ELSE 'Unknown'
             END as name,
             COUNT(*) as total_members,
-            AVG(COALESCE(membership_fee_override,
+            AVG(COALESCE(dues_rate,
                 (SELECT amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'
@@ -520,7 +520,7 @@ def get_join_year_segmentation(year, filter_conditions):
             YEAR(member_since) as name,
             COUNT(*) as total_members,
             AVG(total_membership_days) as avg_tenure_days,
-            AVG(COALESCE(membership_fee_override,
+            AVG(COALESCE(dues_rate,
                 (SELECT amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'

@@ -11,7 +11,7 @@ class MembershipType(Document):
         self.validate_contribution_system()
 
     def validate_billing_period(self):
-        # Legacy subscription_period fields have been removed
+        # Legacy period fields have been removed
         # All references now use billing_period and billing_period_in_months directly
 
         # Skip validation during migration if new fields are not available
@@ -70,7 +70,7 @@ class MembershipType(Document):
         item.is_stock_item = 0
         item.include_item_in_manufacturing = 0
         item.is_service_item = 1
-        # Removed: item.is_subscription_item = 1  # Not needed with dues schedule system
+        # Removed: item.is_legacy_item = 1  # Not needed with dues schedule system
 
         # Set item defaults
         item.append(

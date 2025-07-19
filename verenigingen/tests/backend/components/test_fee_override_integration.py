@@ -33,7 +33,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
                 "last_name": "FeeTest" + random_string(4),
                 "email": f"newapp.feetest.{random_string(6)}@example.com",
                 "birth_date": "1992-01-01",
-                "membership_fee_override": 75.0,
+                "dues_rate": 75.0,
                 "fee_override_reason": "Custom contribution during application",
                 "status": "Pending",
                 "application_status": "Pending",
@@ -49,13 +49,13 @@ class TestFeeOverrideLogic(unittest.TestCase):
         )
 
         # Verify fee override fields are set correctly
-        self.assertEqual(member.membership_fee_override, 75.0)
+        self.assertEqual(member.dues_rate, 75.0)
         self.assertEqual(member.fee_override_reason, "Custom contribution during application")
         self.assertIsNotNone(member.fee_override_date)
         self.assertIsNotNone(member.fee_override_by)
 
         print(f"✅ New member {member.name} correctly skips fee change tracking")
-        print(f"   Fee override: €{member.membership_fee_override}")
+        print(f"   Fee override: €{member.dues_rate}")
         print(f"   Reason: {member.fee_override_reason}")
 
     def test_existing_member_fee_change_triggers_tracking(self):
@@ -76,11 +76,11 @@ class TestFeeOverrideLogic(unittest.TestCase):
         member.insert(ignore_permissions=True)
 
         # Initially no fee override
-        self.assertIsNone(member.membership_fee_override)
+        self.assertIsNone(member.dues_rate)
         print(f"✅ Created existing member {member.name} without fee override")
 
         # Now set a fee override (this should trigger change tracking)
-        member.membership_fee_override = 125.0
+        member.dues_rate = 125.0
         member.fee_override_reason = "Backend adjustment - Premium supporter"
         member.save(ignore_permissions=True)
 
@@ -136,7 +136,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
         member = create_member_from_application(application_data, app_id)
 
         # Verify the member was created correctly
-        self.assertEqual(member.membership_fee_override, 65.0)
+        self.assertEqual(member.dues_rate, 65.0)
         self.assertIn("Supporter contribution", member.fee_override_reason)
         self.assertEqual(member.application_status, "Pending")
 
@@ -147,7 +147,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
         )
 
         print(f"✅ Application simulation successful for {member.name}")
-        print(f"   Custom fee: €{member.membership_fee_override}")
+        print(f"   Custom fee: €{member.dues_rate}")
         print(f"   Application ID: {member.application_id}")
         print("   No fee change tracking triggered (correct)")
 
@@ -169,10 +169,10 @@ class TestFeeOverrideLogic(unittest.TestCase):
         member.insert(ignore_permissions=True)
 
         # Verify initially no fee override
-        self.assertIsNone(member.membership_fee_override)
+        self.assertIsNone(member.dues_rate)
 
         # Set fee override for first time
-        member.membership_fee_override = 99.0
+        member.dues_rate = 99.0
         member.fee_override_reason = "First-time fee override"
         member.save(ignore_permissions=True)
 
@@ -198,7 +198,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
                 "email": f"amountchange.feetest.{random_string(6)}@example.com",
                 "birth_date": "1975-01-01",
                 "status": "Active",
-                "membership_fee_override": 50.0,
+                "dues_rate": 50.0,
                 "fee_override_reason": "Initial custom amount",
             }
         )
@@ -209,7 +209,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
             delattr(member, "_pending_fee_change")
 
         # Now change the fee amount
-        member.membership_fee_override = 150.0
+        member.dues_rate = 150.0
         member.fee_override_reason = "Upgraded to premium supporter"
         member.save(ignore_permissions=True)
 
@@ -234,7 +234,7 @@ def test_fee_override_integration():
         members = frappe.get_all(
             "Member",
             filters={"customer": ["!=", ""]},
-            fields=["name", "full_name", "customer", "membership_fee_override"],
+            fields=["name", "full_name", "customer", "dues_rate"],
             limit=1,
         )
 
@@ -253,20 +253,20 @@ def test_fee_override_integration():
         initial_fee = member.get_current_membership_fee()
         print(f"   Current fee: {initial_fee}")
 
-        initial_subscriptions = frappe.get_all(
-            "Subscription",
-            filters={"party": member.customer, "party_type": "Customer"},
-            fields=["name", "status"],
+        initial_dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member.name, "status": "Active"},
+            fields=["name", "status", "amount"],
         )
-        print(f"   Existing subscriptions: {len(initial_subscriptions)}")
-        for sub in initial_subscriptions:
-            print(f"     - {sub.name}: {sub.status}")
+        print(f"   Existing dues schedules: {len(initial_dues_schedules)}")
+        for schedule in initial_dues_schedules:
+            print(f"     - {schedule.name}: {schedule.status} - €{schedule.amount}")
 
         # Apply fee override
         new_fee_amount = 99.99
         print(f"\n2. Applying fee override: €{new_fee_amount}")
 
-        member.membership_fee_override = new_fee_amount
+        member.dues_rate = new_fee_amount
         member.fee_override_reason = "Integration test - automated fee override"
         member.save()
 
@@ -276,24 +276,22 @@ def test_fee_override_integration():
         updated_fee = member.get_current_membership_fee()
         print(f"   Updated fee info: {updated_fee}")
 
-        # Check if hook was triggered and subscriptions updated
-        updated_subscriptions = frappe.get_all(
-            "Subscription",
-            filters={"party": member.customer, "party_type": "Customer"},
-            fields=["name", "status", "modified"],
+        # Check if dues schedule was updated/created
+        updated_dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member.name},
+            fields=["name", "status", "amount", "modified"],
             order_by="modified desc",
         )
 
         print("\n3. After fee override:")
-        print(f"   Subscriptions count: {len(updated_subscriptions)}")
-        for sub in updated_subscriptions:
-            print(f"     - {sub.name}: {sub.status} (modified: {sub.modified})")
+        print(f"   Dues schedules count: {len(updated_dues_schedules)}")
+        for schedule in updated_dues_schedules:
+            print(f"     - {schedule.name}: {schedule.status} - €{schedule.amount} (modified: {schedule.modified})")
 
-            # Check subscription plan details
-            sub_doc = frappe.get_doc("Subscription", sub.name)
-            for plan in sub_doc.plans:
-                plan_doc = frappe.get_doc("Subscription Plan", plan.plan)
-                print(f"       Plan: {plan_doc.plan_name} - Cost: €{plan_doc.cost}")
+            # Check schedule details
+            schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
+            print(f"       Mode: {schedule_doc.contribution_mode} - Uses custom: {schedule_doc.uses_custom_amount}")
 
         # Check fee change history
         member.reload()
@@ -304,19 +302,25 @@ def test_fee_override_integration():
             print(f"       Reason: {entry.reason}")
             print(f"       Changed by: {entry.changed_by}")
 
-        # Check subscription history
-        print("\n5. Subscription history:")
-        print(f"   History entries: {len(member.subscription_history)}")
-        for entry in member.subscription_history:
-            print(f"     - {entry.subscription_name}: {entry.status} - €{entry.amount}")
+        # Check dues schedule history
+        print("\n5. Dues schedule history:")
+        dues_history = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member.name},
+            fields=["name", "status", "amount", "effective_date", "contribution_mode"],
+            order_by="effective_date desc"
+        )
+        print(f"   History entries: {len(dues_history)}")
+        for entry in dues_history:
+            print(f"     - {entry.name}: {entry.status} - €{entry.amount} ({entry.contribution_mode})")
 
-        # Test subscription history refresh
-        print("\n6. Testing subscription history refresh:")
-        refresh_result = member.refresh_subscription_history()
-        print(f"   Refresh result: {refresh_result}")
-
-        member.reload()
-        print(f"   Updated history entries: {len(member.subscription_history)}")
+        # Test dues schedule integration
+        print("\n6. Testing dues schedule integration:")
+        current_schedule = member.get_current_dues_schedule()
+        if current_schedule:
+            print(f"   Current schedule: {current_schedule.name} - €{current_schedule.amount}")
+        else:
+            print("   No current dues schedule found (using legacy override)")
 
         print("\n" + "=" * 60)
         print("✅ FEE OVERRIDE INTEGRATION TEST COMPLETED SUCCESSFULLY")
@@ -327,8 +331,8 @@ def test_fee_override_integration():
             "member": member_data.name,
             "initial_fee": initial_fee,
             "final_fee": updated_fee,
-            "initial_subscriptions": len(initial_subscriptions),
-            "final_subscriptions": len(updated_subscriptions),
+            "initial_dues_schedules": len(initial_dues_schedules),
+            "final_dues_schedules": len(updated_dues_schedules),
         }
 
     except Exception as e:

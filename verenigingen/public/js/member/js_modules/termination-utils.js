@@ -139,7 +139,7 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 		end_board_positions: values.end_board_positions,
 		cancel_memberships: values.cancel_memberships,
 		process_invoices: values.process_invoices,
-		cancel_subscriptions: values.cancel_subscriptions
+		cancel_dues_schedules: values.cancel_dues_schedules
 	};
 
 	// Add disciplinary fields if applicable
@@ -198,7 +198,7 @@ function create_confirmation_message(values, termination_data) {
 	if (values.end_board_positions) actions.push(__('End board positions'));
 	if (values.cancel_memberships) actions.push(__('Cancel memberships'));
 	if (values.process_invoices) actions.push(__('Process outstanding invoices'));
-	if (values.cancel_subscriptions) actions.push(__('Cancel subscriptions'));
+	if (values.cancel_dues_schedules) actions.push(__('Cancel dues schedules'));
 
 	if (actions.length > 0) {
 		msg += '• ' + actions.join('<br>• ');
@@ -286,7 +286,7 @@ function generate_impact_assessment_html(impact_data) {
 		{ label: 'Active Memberships', count: impact_data.active_memberships, icon: '📝' },
 		{ label: 'Board Positions', count: impact_data.board_positions, icon: '👔' },
 		{ label: 'Outstanding Invoices', count: impact_data.outstanding_invoices, icon: '💰' },
-		{ label: 'Active Subscriptions', count: impact_data.subscriptions, icon: '🔄' },
+		{ label: 'Active Dues Schedules', count: impact_data.dues_schedules, icon: '🔄' },
 		{ label: 'Volunteer Records', count: impact_data.volunteer_records || 0, icon: '🤝' },
 		{ label: 'Pending Volunteer Expenses', count: impact_data.pending_volunteer_expenses || 0, icon: '💸' },
 		{ label: 'Employee Records', count: impact_data.employee_records || 0, icon: '👥' },

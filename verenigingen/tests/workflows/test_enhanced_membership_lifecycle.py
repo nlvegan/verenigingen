@@ -451,7 +451,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         membership_type.membership_type_name = f"Workflow Tier Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Tier-based membership for workflow testing"
         membership_type.amount = 25.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Tiers"
         membership_type.minimum_contribution = 10.0
@@ -483,7 +483,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         membership_type.membership_type_name = f"Workflow Calculator Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Calculator-based membership for workflow testing"
         membership_type.amount = 20.0
-        membership_type.subscription_period = "Monthly"
+        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.minimum_contribution = 8.0

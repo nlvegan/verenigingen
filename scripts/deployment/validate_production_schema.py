@@ -29,7 +29,7 @@ def validate_production_schema():
             "current_dues_schedule",
             "current_amount",
             "current_billing_interval",
-            "legacy_subscription_cancelled",
+            "legacy_data_migrated",
             "processing_notes"
         ]
         
@@ -361,7 +361,7 @@ def validate_production_data():
         members_with_overrides = frappe.db.sql("""
             SELECT COUNT(*) as count
             FROM `tabMember`
-            WHERE membership_fee_override IS NOT NULL AND membership_fee_override > 0
+            WHERE dues_rate IS NOT NULL AND dues_rate > 0
         """, as_dict=True)
         
         results.append(f"✓ Found {members_with_overrides[0]['count']} members with legacy override fields (deprecated system)")

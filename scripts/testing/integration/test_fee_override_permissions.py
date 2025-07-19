@@ -66,7 +66,7 @@ def test_fee_override_permissions():
         # Try to set fee override as regular user (should fail)
         try:
             member_doc = frappe.get_doc("Member", test_member.name)
-            member_doc.membership_fee_override = 25.00
+            member_doc.dues_rate = 25.00
             member_doc.fee_override_reason = "Testing unauthorized access"
             member_doc.save()
             print("❌ FAIL: Regular member was able to set fee override!")
@@ -83,14 +83,14 @@ def test_fee_override_permissions():
 
         try:
             member_doc = frappe.get_doc("Member", test_member.name)
-            member_doc.membership_fee_override = 30.00
+            member_doc.dues_rate = 30.00
             member_doc.fee_override_reason = "Test administrator override"
             member_doc.save()
 
             # Reload to check saved values
             member_doc.reload()
 
-            if member_doc.membership_fee_override == 30.00:
+            if member_doc.dues_rate == 30.00:
                 print("✅ PASS: Administrator successfully set fee override")
 
                 # Check that override_by is set to Administrator (not member)
@@ -118,7 +118,7 @@ def test_fee_override_permissions():
         try:
             member_doc = frappe.get_doc("Member", test_member.name)
             # Regular user should not be able to see permlevel 1 fields
-            if hasattr(member_doc, "membership_fee_override"):
+            if hasattr(member_doc, "dues_rate"):
                 # This check might vary based on permission implementation
                 print(
                     "ℹ️  Regular user can read fee override field (may be expected depending on permission setup)"

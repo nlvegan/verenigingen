@@ -11,7 +11,7 @@ membership_type = frappe.new_doc("Membership Type")
 membership_type.membership_type_name = "Test Flexible System"
 membership_type.description = "Test for flexible contribution system"
 membership_type.amount = 15.0
-membership_type.subscription_period = "Monthly"
+membership_type.billing_frequency = "Monthly"
 membership_type.is_active = 1
 
 # Set contribution fields

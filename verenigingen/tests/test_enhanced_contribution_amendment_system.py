@@ -4,7 +4,7 @@ Test enhanced contribution amendment system with dues schedule integration.
 This test suite validates:
 1. Enhanced auto-approval logic with configurable settings
 2. Dues schedule integration for fee changes
-3. Migration from subscription system to dues schedule system
+3. Migration from legacy system to dues schedule system
 4. New field tracking (new_dues_schedule, current_dues_schedule)
 5. Integration with member portal fee adjustment
 
@@ -216,7 +216,7 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         
         # Check that legacy override fields are updated
         self.test_member.reload()
-        self.assertEqual(self.test_member.membership_fee_override, 40.00)
+        self.assertEqual(self.test_member.dues_rate, 40.00)
         self.assertIn("Amendment:", self.test_member.fee_override_reason)
         self.assertEqual(self.test_member.fee_override_date, today())
         
@@ -251,19 +251,15 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         """Test integration with dues schedule system"""
         
         # Create a test dues schedule for the membership
-        dues_schedule = frappe.get_doc({
-            "doctype": "Subscription",
-            "party_type": "Member",
-            "party": self.test_member.name,
-            "start_date": today(),
-            "status": "Active"
-        })
-        subscription.insert()
-        self.track_doc("Subscription", subscription.name)
+        dues_schedule = self.create_test_dues_schedule(
+            member=self.test_member.name,
+            amount=30.00,
+            status="Active"
+        )
         
-        # Link subscription to membership
+        # Link dues schedule to membership
         self.test_membership.reload()
-        self.test_membership.subscription = subscription.name
+        self.test_membership.dues_schedule = dues_schedule.name
         self.test_membership.save()
         
         # Create and apply amendment
@@ -273,7 +269,7 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
             "member": self.test_member.name,
             "amendment_type": "Fee Change",
             "requested_amount": 50.00,
-            "reason": "Testing subscription integration",
+            "reason": "Testing dues schedule integration",
             "effective_date": today()
         })
         
@@ -284,12 +280,12 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         amendment.approve_amendment("Test approval")
         amendment.apply_amendment()
         
-        # Check that old subscription was handled
-        self.assertTrue(amendment.old_subscription_cancelled)
+        # Check that old dues schedule was handled
+        self.assertTrue(amendment.old_dues_schedule_cancelled)
         
-        # Check subscription status
-        subscription.reload()
-        self.assertEqual(subscription.status, "Cancelled")
+        # Check dues schedule status
+        dues_schedule.reload()
+        self.assertEqual(dues_schedule.status, "Cancelled")
         
     def test_small_adjustment_auto_approval(self):
         """Test auto-approval for small adjustments (< 5% change)"""

@@ -10,7 +10,7 @@ class FinancialMixin:
         try:
             results = {
                 "payment_history": False,
-                "subscription_history": False,
+                "dues_schedule_history": False,
                 "sepa_mandates": False,
                 "errors": [],
             }
@@ -22,12 +22,12 @@ class FinancialMixin:
             except Exception as e:
                 results["errors"].append(f"Payment history: {str(e)}")
 
-            # Refresh subscription history
+            # Refresh dues schedule history
             try:
-                self.refresh_subscription_history()
-                results["subscription_history"] = True
+                self.refresh_dues_schedule_history()
+                results["dues_schedule_history"] = True
             except Exception as e:
-                results["errors"].append(f"Subscription history: {str(e)}")
+                results["errors"].append(f"Dues schedule history: {str(e)}")
 
             # Refresh SEPA mandates
             try:

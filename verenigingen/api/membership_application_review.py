@@ -128,21 +128,11 @@ def approve_membership_application(member_name, membership_type=None, chapter=No
         }
     )
 
-    # Handle custom amount if member selected one during application or has fee override
-    from verenigingen.utils.application_helpers import get_member_custom_amount_data
-
-    custom_amount_data = get_member_custom_amount_data(member)
-
-    # Check for custom amount from application data
-    if custom_amount_data and custom_amount_data.get("uses_custom_amount"):
+    # Handle custom amount if member has fee override
+    # Legacy JSON parsing removed - use direct fee override field
+    if hasattr(member, "dues_rate") and member.dues_rate:
         membership.uses_custom_amount = 1
-        if custom_amount_data.get("membership_amount"):
-            membership.custom_amount = custom_amount_data.get("membership_amount")
-
-    # Also check for direct fee override on member
-    elif hasattr(member, "membership_fee_override") and member.membership_fee_override:
-        membership.uses_custom_amount = 1
-        membership.custom_amount = member.membership_fee_override
+        membership.custom_amount = member.dues_rate
 
     membership.insert()
 
@@ -986,16 +976,10 @@ def debug_custom_amount_flow(member_name):
             "error": None,
         }
 
-        # Test custom amount extraction
-        from verenigingen.utils.application_helpers import get_member_custom_amount_data
-
-        custom_data = get_member_custom_amount_data(member)
-
-        result["custom_amount_data"] = custom_data
-
-        if custom_data:
-            result["uses_custom_amount"] = custom_data.get("uses_custom_amount")
-            result["membership_amount"] = custom_data.get("membership_amount")
+        # Legacy JSON parsing removed - check direct fee override field
+        result["dues_rate"] = getattr(member, "dues_rate", None)
+        result["uses_custom_amount"] = bool(getattr(member, "dues_rate", None))
+        result["membership_amount"] = getattr(member, "dues_rate", None)
 
         # Check existing memberships
         memberships = frappe.get_all(

@@ -139,9 +139,9 @@ def get_effective_fee_for_member(member, membership):
         # This priority slot is reserved for future membership-level customizations
 
         # PRIORITY 3: Fall back to member's override fields (legacy support)
-        if hasattr(member, "membership_fee_override") and member.membership_fee_override:
+        if hasattr(member, "dues_rate") and member.dues_rate:
             return {
-                "amount": member.membership_fee_override,
+                "amount": member.dues_rate,
                 "source": "member_override",
                 "reason": "Legacy fee override (consider migrating to dues schedule)",
             }
@@ -448,7 +448,7 @@ def create_new_dues_schedule(member, new_amount, reason):
 
         # Also maintain legacy override fields temporarily for backward compatibility
         member.reload()  # Refresh to avoid timestamp mismatch
-        member.membership_fee_override = new_amount
+        member.dues_rate = new_amount
         member.fee_override_reason = f"Member self-adjustment: {reason}"
         member.fee_override_date = today()
         member.fee_override_by = frappe.session.user

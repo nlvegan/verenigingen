@@ -499,7 +499,7 @@ class SystemHealthDashboard {
 		const businessMetrics = [
 			{
 				label: 'Active Subscriptions',
-				value: metrics.active_subscriptions || 0,
+				value: metrics.active_dues_schedules || 0,
 				color: 'blue'
 			},
 			{
@@ -509,7 +509,7 @@ class SystemHealthDashboard {
 			},
 			{
 				label: 'Subscription Invoices Today',
-				value: metrics.subscription_invoices_today || 0,
+				value: metrics.dues_schedule_invoices_today || 0,
 				color: 'orange'
 			},
 			{
@@ -519,8 +519,8 @@ class SystemHealthDashboard {
 			},
 			{
 				label: 'Hours Since Last Subscription Run',
-				value: metrics.last_subscription_run || 0,
-				color: metrics.last_subscription_run > 25 ? 'red' : metrics.last_subscription_run > 4 ? 'orange' : 'green'
+				value: metrics.last_dues_schedule_run || 0,
+				color: metrics.last_dues_schedule_run > 25 ? 'red' : metrics.last_dues_schedule_run > 4 ? 'orange' : 'green'
 			},
 			{
 				label: 'Stuck Scheduler Jobs',
@@ -544,7 +544,7 @@ class SystemHealthDashboard {
 			<div class="card">
 				<div class="card-header">
 					<h5>Business & System Metrics</h5>
-					<small class="text-muted">Real-time subscription and invoice tracking</small>
+					<small class="text-muted">Real-time dues schedule and invoice tracking</small>
 				</div>
 				<div class="card-body">
 					<div class="row">

@@ -28,14 +28,35 @@ def get_context(context):
     # Get member chapters
     context.member_chapters = get_member_chapters(member)
 
-    # Get active membership
+    # Get active membership with grace period information
     membership = frappe.db.get_value(
         "Membership",
         {"member": member, "status": "Active", "docstatus": 1},
-        ["name", "membership_type", "start_date", "renewal_date", "status", "auto_renew"],
+        [
+            "name",
+            "membership_type",
+            "start_date",
+            "renewal_date",
+            "status",
+            "auto_renew",
+            "grace_period_status",
+            "grace_period_expiry_date",
+            "grace_period_reason",
+        ],
         as_dict=True,
     )
     context.membership = membership
+
+    # Add grace period status helpers
+    if membership:
+        context.in_grace_period = membership.grace_period_status == "Grace Period"
+        if context.in_grace_period and membership.grace_period_expiry_date:
+            days_until_expiry = (getdate(membership.grace_period_expiry_date) - getdate(today())).days
+            context.grace_period_days_remaining = max(0, days_until_expiry)
+            context.grace_period_expiring_soon = days_until_expiry <= 7
+        else:
+            context.grace_period_days_remaining = 0
+            context.grace_period_expiring_soon = False
 
     # Get volunteer record if exists
     volunteer = frappe.db.get_value("Volunteer", {"member": member})

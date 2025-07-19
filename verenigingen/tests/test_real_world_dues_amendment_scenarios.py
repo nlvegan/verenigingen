@@ -126,7 +126,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         
         # Legacy member - has override fields instead of dues schedule
         self.legacy_member.reload()
-        self.legacy_member.membership_fee_override = 20.00
+        self.legacy_member.dues_rate = 20.00
         self.legacy_member.fee_override_reason = "Long-term member discount"
         self.legacy_member.fee_override_date = add_days(today(), -365)
         self.legacy_member.save()
@@ -185,7 +185,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         
         # Verify legacy fields are maintained
         self.young_professional.reload()
-        self.assertEqual(self.young_professional.membership_fee_override, 25.00)
+        self.assertEqual(self.young_professional.dues_rate, 25.00)
         self.assertIn("Amendment:", self.young_professional.fee_override_reason)
         
     def test_student_graduation_scenario(self):
@@ -274,7 +274,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         print("\\n=== Testing: Legacy Member Migration Scenario ===")
         
         # Legacy member has override fields but no dues schedule
-        self.assertIsNotNone(self.legacy_member.membership_fee_override)
+        self.assertIsNotNone(self.legacy_member.dues_rate)
         
         # Member requests small adjustment to trigger migration
         amendment = frappe.get_doc({
@@ -476,7 +476,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         )
         
         # Set legacy override
-        member_with_both.membership_fee_override = 18.00
+        member_with_both.dues_rate = 18.00
         member_with_both.fee_override_reason = "Legacy override"
         member_with_both.save()
         
