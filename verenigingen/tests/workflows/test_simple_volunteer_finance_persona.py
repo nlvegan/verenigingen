@@ -29,52 +29,22 @@ class TestSimpleVolunteerFinancePersona(VereningingenTestCase):
         # === SETUP: Create test infrastructure ===
         print("\n📋 SETUP: Creating test infrastructure...")
         
-        # Create unique test chapter
+        # Create unique test chapter using factory method
         unique_suffix = frappe.generate_hash(length=6)
-        # Create or get a test region first
-        existing_regions = frappe.get_all("Region", limit=1, pluck="name")
-        
-        if existing_regions:
-            # Use existing region if available
-            region_name = existing_regions[0]
-        else:
-            # Create new region
-            region_name = f"Test-Region-{unique_suffix}"
-            if not frappe.db.exists("Region", region_name):
-                try:
-                    region = frappe.new_doc("Region")
-                    region.region_name = region_name
-                    region.country = "Netherlands"
-                    region.insert()
-                    self.track_doc("Region", region.name)
-                except Exception as e:
-                    # Fallback approach - direct DB insert
-                    print(f"Region creation failed: {e}, using direct approach")
-                    frappe.db.sql(f"INSERT IGNORE INTO `tabRegion` (name, region_name, country) VALUES ('{region_name}', '{region_name}', 'Netherlands')")
-                    frappe.db.commit()
-        
-        chapter = frappe.new_doc("Chapter")
-        chapter.name = f"Alex-Test-Chapter-{unique_suffix}"
-        chapter.chapter_name = f"Alex Test Chapter {unique_suffix}"
-        chapter.city = "Finance City"
-        chapter.region = region_name
-        chapter.introduction = "Test chapter for Alex persona testing"
-        chapter.status = "Active"
-        chapter.establishment_date = today()
-        chapter.insert()
-        self.track_doc("Chapter", chapter.name)
+        chapter = self.create_test_chapter(
+            chapter_name=f"Alex Test Chapter {unique_suffix}",
+            city="Finance City",
+            introduction="Test chapter for Alex persona testing"
+        )
         
         print(f"✓ Created test chapter: {chapter.chapter_name}")
         
-        # Create finance board role
-        finance_role = frappe.new_doc("Chapter Role")
-        finance_role.role_name = f"Finance Manager {unique_suffix}"
-        finance_role.description = "Board member with financial approval authority"
-        finance_role.permissions_level = "Financial"
-        finance_role.can_approve_expenses = 1
-        finance_role.is_board_role = 1
-        finance_role.insert()
-        self.track_doc("Chapter Role", finance_role.name)
+        # Create finance board role using factory method
+        finance_role = self.create_test_chapter_role(
+            role_name=f"Finance Manager {unique_suffix}",
+            description="Board member with financial approval authority",
+            permissions_level="Financial"
+        )
         
         print(f"✓ Created finance role: {finance_role.role_name}")
         
@@ -91,29 +61,28 @@ class TestSimpleVolunteerFinancePersona(VereningingenTestCase):
         
         print(f"✓ Alex created as member: {alex_member.full_name}")
         
-        # Create Alex as volunteer (basic version)
-        alex_volunteer = frappe.new_doc("Volunteer")
-        alex_volunteer.member = alex_member.name
-        alex_volunteer.volunteer_name = "Alex Financier"
-        alex_volunteer.email = alex_member.email
-        alex_volunteer.status = "Active"
-        alex_volunteer.start_date = today()
-        alex_volunteer.insert()
-        self.track_doc("Volunteer", alex_volunteer.name)
+        # Create Alex as volunteer using factory method
+        alex_volunteer = self.create_test_volunteer(
+            member=alex_member.name,
+            volunteer_name="Alex Financier",
+            email=alex_member.email,
+            status="Active",
+            start_date=today()
+        )
         
         print(f"✓ Alex registered as volunteer: {alex_volunteer.name}")
         
         # === PHASE 2: ALEX BECOMES BOARD MEMBER WITH FINANCE ACCESS ===
         print("\n👔 PHASE 2: Alex promoted to finance board member...")
         
-        # Add Alex to chapter board with finance role
-        chapter.append("board_members", {
-            "volunteer": alex_volunteer.name,  # Board members are linked to volunteers, not members
-            "chapter_role": finance_role.name,
-            "from_date": today(),  # Use from_date instead of start_date
-            "is_active": 1
-        })
-        chapter.save()
+        # Add Alex to chapter board with finance role using factory method
+        chapter = self.add_board_member_to_chapter(
+            chapter=chapter,
+            volunteer=alex_volunteer,
+            chapter_role=finance_role,
+            from_date=today(),
+            is_active=1
+        )
         
         # Verify board membership
         alex_board_member = None
@@ -138,13 +107,12 @@ class TestSimpleVolunteerFinancePersona(VereningingenTestCase):
             chapter=chapter.name
         )
         
-        expense_volunteer = frappe.new_doc("Volunteer")
-        expense_volunteer.member = tom_member.name
-        expense_volunteer.volunteer_name = "Tom Volunteer"
-        expense_volunteer.email = f"tom.volunteer.{unique_suffix}@example.com"
-        expense_volunteer.status = "Active"
-        expense_volunteer.insert()
-        self.track_doc("Volunteer", expense_volunteer.name)
+        expense_volunteer = self.create_test_volunteer(
+            member=tom_member.name,
+            volunteer_name="Tom Volunteer",
+            email=f"tom.volunteer.{unique_suffix}@example.com",
+            status="Active"
+        )
         
         # Add Tom's member to the chapter's members list (required for expense validation)
         chapter.append("members", {

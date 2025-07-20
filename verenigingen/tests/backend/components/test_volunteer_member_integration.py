@@ -21,32 +21,26 @@ class TestVolunteerMemberIntegration(VereningingenTestCase):
         self.create_test_volunteer_teams()
         
     def create_test_member_with_volunteer_setup(self):
-        """Create test member with volunteer capabilities"""
-        member = frappe.new_doc("Member")
-        member.first_name = "Volunteer"
-        member.last_name = "TestMember"
-        member.email = f"volunteer.{frappe.generate_hash(length=6)}@example.com"
-        member.member_since = today()
-        member.address_line1 = "123 Volunteer Street"
-        member.postal_code = "1234AB"
-        member.city = "Amsterdam"
-        member.country = "Netherlands"
-        member.status = "Active"
-        member.interested_in_volunteering = 1
-        member.save()
-        self.track_doc("Member", member.name)
+        """Create test member with volunteer capabilities using factory methods"""
+        member = self.create_test_member(
+            first_name="Volunteer",
+            last_name="TestMember",
+            email=f"volunteer.{frappe.generate_hash(length=6)}@example.com",
+            address_line1="123 Volunteer Street",
+            postal_code="1234AB",
+            city="Amsterdam",
+            status="Active",
+            interested_in_volunteering=1
+        )
         
-        # Create volunteer record
-        volunteer = frappe.new_doc("Volunteer")
-        volunteer.volunteer_name = f"{member.first_name} {member.last_name}"
-        volunteer.email = member.email
-        volunteer.member = member.name
-        volunteer.volunteer_status = "Active"
-        volunteer.date_joined = today()
-        volunteer.skills = "Event Planning, Communication, Finance"
-        volunteer.availability = "Weekends"
-        volunteer.save()
-        self.track_doc("Volunteer", volunteer.name)
+        # Create volunteer record using factory method
+        volunteer = self.create_test_volunteer(
+            member=member.name,
+            volunteer_name=f"{member.first_name} {member.last_name}",
+            email=f"volunteer.org.{frappe.generate_hash(length=6)}@example.com",  # Use different email for org
+            status="Active",
+            start_date=today()
+        )
         
         return member
         
@@ -54,7 +48,7 @@ class TestVolunteerMemberIntegration(VereningingenTestCase):
         """Create test volunteer teams for assignment testing"""
         self.teams = {}
         
-        # Event Planning Team
+        # Event Planning Team - using manual creation since no factory method exists yet
         event_team = frappe.new_doc("Volunteer Team")
         event_team.team_name = "Event Planning Team"
         event_team.team_code = "EVT"
@@ -67,7 +61,7 @@ class TestVolunteerMemberIntegration(VereningingenTestCase):
         self.track_doc("Volunteer Team", event_team.name)
         self.teams["event"] = event_team
         
-        # Finance Team (higher requirements)
+        # Finance Team (higher requirements) - using manual creation since no factory method exists yet
         finance_team = frappe.new_doc("Volunteer Team")
         finance_team.team_name = "Finance Team"
         finance_team.team_code = "FIN"
@@ -81,7 +75,7 @@ class TestVolunteerMemberIntegration(VereningingenTestCase):
         self.track_doc("Volunteer Team", finance_team.name)
         self.teams["finance"] = finance_team
         
-        # Community Outreach Team
+        # Community Outreach Team - using manual creation since no factory method exists yet
         outreach_team = frappe.new_doc("Volunteer Team")
         outreach_team.team_name = "Community Outreach Team" 
         outreach_team.team_code = "OUT"
@@ -284,6 +278,7 @@ class TestVolunteerMemberIntegration(VereningingenTestCase):
         # Create expense when member is active
         assignment = self.create_volunteer_assignment(volunteer.name, self.teams["event"].name, "Event work")
         
+        # Create volunteer expense - manual creation since no factory method exists yet
         expense = frappe.new_doc("Volunteer Expense")
         expense.volunteer = volunteer.name
         expense.assignment = assignment.get("id")

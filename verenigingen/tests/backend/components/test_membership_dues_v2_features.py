@@ -20,20 +20,16 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         self.test_member = self.create_simple_test_member()
         
     def create_simple_test_member(self):
-        """Create a simple test member for testing"""
-        member = frappe.new_doc("Member")
-        member.first_name = "V2Test"
-        member.last_name = "Member"
-        member.email = f"v2test.{frappe.generate_hash(length=6)}@example.com"
-        member.member_since = today()
-        member.address_line1 = "123 V2 Street"
-        member.postal_code = "1234AB"
-        member.city = "Amsterdam"
-        member.country = "Netherlands"
-        member.status = "Active"  # Explicitly set to Active
-        member.save()
-        self.track_doc("Member", member.name)
-        return member
+        """Create a simple test member for testing using factory method"""
+        return self.create_test_member(
+            first_name="V2Test",
+            last_name="Member",
+            email=f"v2test.{frappe.generate_hash(length=6)}@example.com",
+            address_line1="123 V2 Street",
+            postal_code="1234AB",
+            city="Amsterdam",
+            status="Active"
+        )
         
     # Payment-First Application Flow Tests
     
@@ -49,35 +45,36 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
             "iban": "NL91ABNA0417164300",
             "account_holder_name": "PayFirst Applicant"}
         
-        application = frappe.new_doc("Membership Application")
-        for key, value in application_data.items():
-            if hasattr(application, key):
-                setattr(application, key, value)
-        application.save()
-        self.track_doc("Membership Application", application.name)
+        application = self.create_test_membership_application(
+            first_name="PayFirst",
+            last_name="Applicant",
+            email=f"payfirst.{frappe.generate_hash(length=6)}@example.com",
+            membership_type="Test Membership",
+            sepa_mandate_consent=1,
+            iban="NL91ABNA0417164300",
+            account_holder_name="PayFirst Applicant"
+        )
         
-        # Step 2: Create draft SEPA mandate (before payment)
-        draft_mandate = frappe.new_doc("SEPA Mandate")
-        draft_mandate.party_type = "Customer"
-        draft_mandate.party = None  # No customer yet
-        draft_mandate.iban = application_data["iban"]
-        draft_mandate.account_holder = application_data["account_holder_name"]
-        draft_mandate.mandate_type = "RCUR"
-        draft_mandate.status = "Draft"
-        draft_mandate.consent_date = today()
-        draft_mandate.consent_method = "Online Application"
-        draft_mandate.application = application.name
-        draft_mandate.save()
-        self.track_doc("SEPA Mandate", draft_mandate.name)
+        # Step 2: Create draft SEPA mandate (before payment) using factory method
+        draft_mandate = self.create_test_sepa_mandate(
+            party_type="Customer",
+            party=None,  # No customer yet
+            iban="NL91ABNA0417164300",
+            account_holder="PayFirst Applicant",
+            status="Draft",
+            consent_method="Online Application",
+            application=application.name
+        )
         
-        # Step 3: Create draft invoice for first payment
-        invoice = frappe.new_doc("Sales Invoice")
-        invoice.naming_series = "APP-INV-"
-        invoice.applicant_name = f"{application_data['first_name']} {application_data['last_name']}"
-        invoice.applicant_email = application_data["email"]
-        invoice.posting_date = today()
-        invoice.due_date = today()
-        invoice.is_membership_invoice = 1
+        # Step 3: Create draft invoice for first payment using factory method
+        invoice = self.create_test_sales_invoice(
+            naming_series="APP-INV-",
+            applicant_name="PayFirst Applicant",
+            applicant_email=f"payfirst.{frappe.generate_hash(length=6)}@example.com",
+            posting_date=today(),
+            due_date=today(),
+            is_membership_invoice=1
+        )
         invoice.membership_application = application.name
         
         # Add membership item

@@ -18,48 +18,41 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         self.test_member = self.create_simple_test_member()
         
     def create_simple_test_member(self):
-        """Create a simple test member for testing"""
-        member = frappe.new_doc("Member")
-        member.first_name = "Real"
-        member.last_name = "World"
-        member.email = f"real.world.{frappe.generate_hash(length=6)}@example.com"
-        member.member_since = today()
-        member.address_line1 = "123 Real Street"
-        member.postal_code = "1234AB"
-        member.city = "Amsterdam"
-        member.country = "Netherlands"
-        member.save()
-        self.track_doc("Member", member.name)
-        return member
+        """Create a simple test member for testing using factory method"""
+        return self.create_test_member(
+            first_name="Real",
+            last_name="World",
+            email=f"real.world.{frappe.generate_hash(length=6)}@example.com",
+            address_line1="123 Real Street",
+            postal_code="1234AB",
+            city="Amsterdam"
+        )
         
     # Organization Migration Scenarios
     
     def test_organization_switching_from_fixed_to_flexible_dues(self):
         """Test organization switching from fixed amounts to flexible contribution system"""
         # Stage 1: Traditional fixed-amount organization
-        traditional_type = frappe.new_doc("Membership Type")
-        traditional_type.membership_type_name = f"Traditional Fixed {frappe.generate_hash(length=6)}"
-        traditional_type.amount = 50.0  # Fixed amount
-        traditional_type.billing_frequency = "Annual"
-        traditional_type.is_active = 1
-        # Old system - no contribution mode fields
-        traditional_type.save()
-        self.track_doc("Membership Type", traditional_type.name)
+        traditional_type = self.create_test_membership_type(
+            membership_type_name=f"Traditional Fixed {frappe.generate_hash(length=6)}",
+            amount=50.0,  # Fixed amount
+            billing_frequency="Annual",
+            is_active=1
+            # Old system - no contribution mode fields
+        )
         
-        # Create existing members with fixed amounts
+        # Create existing members with fixed amounts using factory method
         existing_members = []
         for i in range(5):
-            member = frappe.new_doc("Member")
-            member.first_name = f"Existing{i}"
-            member.last_name = "Member"
-            member.email = f"existing{i}.{frappe.generate_hash(length=4)}@example.com"
-            member.member_since = add_days(today(), -365)  # 1 year ago
-            member.address_line1 = f"{i} Existing Street"
-            member.postal_code = f"{2000+i:04d}AB"
-            member.city = "Existing City"
-            member.country = "Netherlands"
-            member.save()
-            self.track_doc("Member", member.name)
+            member = self.create_test_member(
+                first_name=f"Existing{i}",
+                last_name="Member",
+                email=f"existing{i}.{frappe.generate_hash(length=4)}@example.com",
+                member_since=add_days(today(), -365),  # 1 year ago
+                address_line1=f"{i} Existing Street",
+                postal_code=f"{2000+i:04d}AB",
+                city="Existing City"
+            )
             existing_members.append(member)
             
         # Stage 2: Organization decides to switch to flexible contribution system
@@ -164,40 +157,33 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         lifecycle_type.save()
         self.track_doc("Membership Type", lifecycle_type.name)
         
-        # Student member starts with student rate
-        student_member = frappe.new_doc("Member")
-        student_member.first_name = "Student"
-        student_member.last_name = "Member"
-        student_member.email = f"student.{frappe.generate_hash(length=6)}@university.edu"
-        student_member.member_since = add_days(today(), -180)  # 6 months ago
-        student_member.address_line1 = "University Campus"
-        student_member.postal_code = "1234ST"
-        student_member.city = "University City"
-        student_member.country = "Netherlands"
-        student_member.save()
-        self.track_doc("Member", student_member.name)
+        # Student member starts with student rate using factory method
+        student_member = self.create_test_member(
+            first_name="Student",
+            last_name="Member",
+            email=f"student.{frappe.generate_hash(length=6)}@university.edu",
+            member_since=add_days(today(), -180),  # 6 months ago
+            address_line1="University Campus",
+            postal_code="1234ST",
+            city="University City"
+        )
         
-        # Initial membership with student rate
-        student_membership = frappe.new_doc("Membership")
-        student_membership.member = student_member.name
-        student_membership.membership_type = lifecycle_type.name
-        student_membership.start_date = add_days(today(), -180)
-        student_membership.status = "Active"
-        student_membership.save()
-        self.track_doc("Membership", student_membership.name)
+        # Initial membership with student rate using factory method
+        student_membership = self.create_test_membership(
+            member=student_member.name,
+            membership_type=lifecycle_type.name,
+            start_date=add_days(today(), -180),
+            status="Active"
+        )
         
-        student_dues = frappe.new_doc("Membership Dues Schedule")
-        student_dues.member = student_member.name
-        student_dues.membership = student_membership.name
-        student_dues.membership_type = lifecycle_type.name
-        student_dues.contribution_mode = "Tier"
-        student_dues.selected_tier = student_tier.name
-        student_dues.amount = 15.0
-        student_dues.billing_frequency = "Annual"
-        student_dues.status = "Active"
-        student_dues.custom_amount_reason = "Student verification on file"
-        student_dues.save()
-        self.track_doc("Membership Dues Schedule", student_dues.name)
+        student_dues = self.create_test_dues_schedule(
+            member=student_member.name,
+            membership_type=lifecycle_type.name,
+            contribution_mode="Tier",
+            amount=15.0,
+            billing_frequency="Annual",
+            status="Active"
+        )
         
         # Student graduates and gets job - transitions to professional rate
         # Simulate 6 months later

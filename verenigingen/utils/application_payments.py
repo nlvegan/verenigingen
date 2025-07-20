@@ -88,6 +88,7 @@ def create_customer_for_member(member):
             "territory": frappe.db.get_single_value("Selling Settings", "territory") or "All Territories",
             "email_id": member.email,
             "mobile_no": member.contact_number or "",
+            "member": member.name,  # Direct link to member record
         }
     )
     customer.insert(ignore_permissions=True)

@@ -20,40 +20,22 @@ class TestMemberPortalIntegration(VereningingenTestCase):
         self.test_member = self.create_test_member_with_portal_setup()
         
     def create_test_member_with_portal_setup(self):
-        """Create a test member with full portal setup"""
-        member = frappe.new_doc("Member")
-        member.first_name = "Portal"
-        member.last_name = "TestUser"
-        member.email = f"portal.{frappe.generate_hash(length=6)}@example.com"
-        member.member_since = today()
-        member.address_line1 = "123 Portal Street"
-        member.postal_code = "1234AB"
-        member.city = "Amsterdam"
-        member.country = "Netherlands"
-        member.status = "Active"
-        member.save()
-        self.track_doc("Member", member.name)
+        """Create a test member with full portal setup using factory methods"""
+        member = self.create_test_member(
+            first_name="Portal",
+            last_name="TestUser",
+            email=f"portal.{frappe.generate_hash(length=6)}@example.com",
+            address_line1="123 Portal Street",
+            postal_code="1234AB",
+            city="Amsterdam",
+            status="Active"
+        )
         
-        # Create customer for member
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = f"{member.first_name} {member.last_name}"
-        customer.customer_type = "Individual"
-        customer.save()
-        self.track_doc("Customer", customer.name)
-        
-        member.customer = customer.name
-        member.save()
-        
-        # Create portal user
-        user = frappe.new_doc("User")
-        user.email = member.email
-        user.first_name = member.first_name
-        user.last_name = member.last_name
-        user.enabled = 1
-        user.user_type = "Website User"
-        user.append("roles", {"role": "Verenigingen Member"})
-        user.save()
-        self.track_doc("User", user.name)
+        # Create portal user using base test method
+        user = self.create_test_user(
+            email=member.email,
+            roles=["Verenigingen Member"]
+        )
         
         return member
         
@@ -529,6 +511,7 @@ class TestMemberPortalIntegration(VereningingenTestCase):
         
     def create_test_event(self):
         """Create a test event for registration testing"""
+        # Manual creation since no factory method exists yet
         event = frappe.new_doc("Event")
         event.subject = "Test Member Event"
         event.event_type = "Public"
@@ -556,14 +539,13 @@ class TestMemberPortalIntegration(VereningingenTestCase):
         return result
         
     def create_test_volunteer_for_member(self, member):
-        """Create volunteer record for member"""
-        volunteer = frappe.new_doc("Volunteer")
-        volunteer.volunteer_name = f"{member.first_name} {member.last_name}"
-        volunteer.email = member.email
-        volunteer.member = member.name
-        volunteer.save()
-        self.track_doc("Volunteer", volunteer.name)
-        return volunteer
+        """Create volunteer record for member using factory method"""
+        return self.create_test_volunteer(
+            member=member.name,
+            volunteer_name=f"{member.first_name} {member.last_name}",
+            email=f"volunteer.{frappe.generate_hash(length=6)}@example.com",  # Use different email for volunteer
+            status="Active"
+        )
         
     def get_volunteer_portal_access(self, member):
         """Get volunteer portal access permissions"""
@@ -652,20 +634,19 @@ class TestMemberPortalIntegration(VereningingenTestCase):
         return self.simulate_portal_session_start(member)
         
     def create_test_dues_schedule_for_member(self, member):
-        """Create test dues schedule for member"""
-        dues_schedule = frappe.new_doc("Membership Dues Schedule")
-        dues_schedule.member = member.name
-        dues_schedule.billing_frequency = "Monthly"
-        dues_schedule.dues_rate = 25.0
-        dues_schedule.status = "Active"
-        dues_schedule.save()
-        self.track_doc("Membership Dues Schedule", dues_schedule.name)
-        return dues_schedule
+        """Create test dues schedule for member using factory method"""
+        return self.create_test_dues_schedule(
+            member=member.name,
+            billing_frequency="Monthly",
+            dues_rate=25.0,
+            status="Active"
+        )
         
     def create_test_invoice_data_for_member(self, member):
         """Create test invoice data for member"""
+        # Manual creation since no factory method exists yet for Sales Invoice
         invoice = frappe.new_doc("Sales Invoice")
-        invoice.customer = member.customer
+        invoice.customer = member.customer if hasattr(member, 'customer') and member.customer else "Test Customer"
         invoice.member = member.name
         invoice.posting_date = today()
         invoice.is_membership_invoice = 1
@@ -717,12 +698,10 @@ class TestMemberPortalIntegration(VereningingenTestCase):
         return None
     
     def create_test_membership_for_member(self, member):
-        """Create test membership for member"""
-        membership = frappe.new_doc("Membership")
-        membership.member = member.name
-        membership.membership_type = "Monthly Membership"
-        membership.start_date = today()
-        membership.status = "Active"
-        membership.save()
-        self.track_doc("Membership", membership.name)
-        return membership
+        """Create test membership for member using factory method"""
+        return self.create_test_membership(
+            member=member.name,
+            membership_type="Test Membership",  # Use existing test membership type
+            start_date=today(),
+            status="Active"
+        )

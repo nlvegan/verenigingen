@@ -41,6 +41,14 @@ def add_customer_to_member_link():
 @frappe.whitelist()
 def get_member_from_customer(customer):
     """Get member associated with a customer"""
+    # First try the new direct customer.member field
+    member_name = frappe.db.get_value("Customer", customer, "member")
+    if member_name:
+        member = frappe.db.get_value("Member", member_name, ["name", "full_name", "status"], as_dict=True)
+        if member:
+            return member
+
+    # Fallback to old method: search Member table for customer field
     member = frappe.db.get_value(
         "Member", {"customer": customer}, ["name", "full_name", "status"], as_dict=True
     )

@@ -13,15 +13,16 @@ class TestCustomBillingFrequency(VereningingenTestCase):
 
     def test_daily_billing_frequency(self):
         """Test daily billing frequency"""
-        # Create a test dues schedule with daily billing
-        schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.schedule_name = "Test-Daily-Schedule"
-        schedule.is_template = 1
-        schedule.membership_type = "Standard Member"
-        schedule.billing_frequency = "Daily"
-        schedule.dues_rate = 1.00  # €1 per day for testing
-        schedule.auto_generate = 1
-        schedule.status = "Active"
+        # Create a test dues schedule with daily billing using factory method
+        schedule = self.create_test_dues_schedule(
+            schedule_name="Test-Daily-Schedule",
+            is_template=1,
+            membership_type="Test Membership",
+            billing_frequency="Daily",
+            dues_rate=1.00,  # €1 per day for testing
+            auto_generate=1,
+            status="Active"
+        )
         
         # Set a specific start date for predictable testing
         start_date = getdate("2025-01-01")
@@ -35,16 +36,17 @@ class TestCustomBillingFrequency(VereningingenTestCase):
 
     def test_custom_frequency_weeks(self):
         """Test custom frequency with weeks"""
-        schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.schedule_name = "Test-Custom-Weeks-Schedule"
-        schedule.is_template = 1
-        schedule.membership_type = "Standard Member"
-        schedule.billing_frequency = "Custom"
-        schedule.custom_frequency_number = 2
-        schedule.custom_frequency_unit = "Weeks"
-        schedule.dues_rate = 10.00
-        schedule.auto_generate = 1
-        schedule.status = "Active"
+        schedule = self.create_test_dues_schedule(
+            schedule_name="Test-Custom-Weeks-Schedule",
+            is_template=1,
+            membership_type="Test Membership",
+            billing_frequency="Custom",
+            custom_frequency_number=2,
+            custom_frequency_unit="Weeks",
+            dues_rate=10.00,
+            auto_generate=1,
+            status="Active"
+        )
         
         start_date = getdate("2025-01-01")
         
@@ -57,16 +59,17 @@ class TestCustomBillingFrequency(VereningingenTestCase):
 
     def test_custom_frequency_months(self):
         """Test custom frequency with months"""
-        schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.schedule_name = "Test-Custom-Months-Schedule"
-        schedule.is_template = 1
-        schedule.membership_type = "Standard Member"
-        schedule.billing_frequency = "Custom"
-        schedule.custom_frequency_number = 3
-        schedule.custom_frequency_unit = "Months"
-        schedule.dues_rate = 30.00
-        schedule.auto_generate = 1
-        schedule.status = "Active"
+        schedule = self.create_test_dues_schedule(
+            schedule_name="Test-Custom-Months-Schedule",
+            is_template=1,
+            membership_type="Test Membership",
+            billing_frequency="Custom",
+            custom_frequency_number=3,
+            custom_frequency_unit="Months",
+            dues_rate=30.00,
+            auto_generate=1,
+            status="Active"
+        )
         
         start_date = getdate("2025-01-01")
         
