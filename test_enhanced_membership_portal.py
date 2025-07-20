@@ -16,57 +16,73 @@ def test_create_tier_based_membership():
     membership_type.membership_type_name = "Tier-Based Test Membership"
     membership_type.description = "Test membership type with predefined contribution tiers"
     membership_type.amount = 25.0
-    membership_type.billing_frequency = "Annual"
+    membership_type.billing_period = "Annual"
     membership_type.is_active = 1
-
-    # Set contribution system fields
-    membership_type.contribution_mode = "Tiers"
-    membership_type.minimum_contribution = 10.0
-    membership_type.suggested_contribution = 25.0
-    membership_type.maximum_contribution = 100.0
-    membership_type.fee_slider_max_multiplier = 4.0
-    membership_type.allow_custom_amounts = 1
-    membership_type.enable_income_calculator = 0  # Disabled for tier-based
-
-    # Add predefined tiers
-    student_tier = membership_type.append("predefined_tiers", {})
-    student_tier.tier_name = "Student"
-    student_tier.display_name = "Student Membership"
-    student_tier.amount = 15.0
-    student_tier.description = "Discounted rate for students with valid student ID"
-    student_tier.requires_verification = 1
-    student_tier.is_default = 0
-    student_tier.display_order = 1
-
-    standard_tier = membership_type.append("predefined_tiers", {})
-    standard_tier.tier_name = "Standard"
-    standard_tier.display_name = "Standard Membership"
-    standard_tier.amount = 25.0
-    standard_tier.description = "Standard membership rate"
-    standard_tier.requires_verification = 0
-    standard_tier.is_default = 1
-    standard_tier.display_order = 2
-
-    supporter_tier = membership_type.append("predefined_tiers", {})
-    supporter_tier.tier_name = "Supporter"
-    supporter_tier.display_name = "Supporter Membership"
-    supporter_tier.amount = 50.0
-    supporter_tier.description = "Higher contribution to support our mission"
-    supporter_tier.requires_verification = 0
-    supporter_tier.is_default = 0
-    supporter_tier.display_order = 3
-
-    patron_tier = membership_type.append("predefined_tiers", {})
-    patron_tier.tier_name = "Patron"
-    patron_tier.display_name = "Patron Membership"
-    patron_tier.amount = 100.0
-    patron_tier.description = "Premium membership with exclusive benefits"
-    patron_tier.requires_verification = 0
-    patron_tier.is_default = 0
-    patron_tier.display_order = 4
 
     try:
         membership_type.save()
+
+        # Create dues schedule template with contribution settings
+        template = frappe.new_doc("Membership Dues Schedule")
+        template.is_template = 1
+        template.schedule_name = f"Template-{membership_type.name}"
+        template.membership_type = membership_type.name
+        template.status = "Active"
+        template.billing_frequency = "Annual"
+        template.contribution_mode = "Tier"  # Changed from "Tiers"
+        template.minimum_amount = 10.0
+        template.suggested_amount = 25.0
+        template.maximum_amount = 100.0
+        template.fee_slider_max_multiplier = 4.0
+        template.uses_custom_amount = 1
+        template.enable_income_calculator = 0
+        template.invoice_days_before = 30
+        template.auto_generate = 1
+        template.amount = template.suggested_amount
+
+        # Add predefined tiers to template
+        student_tier = template.append("predefined_tiers", {})
+        student_tier.tier_name = "Student"
+        student_tier.display_name = "Student Membership"
+        student_tier.amount = 15.0
+        student_tier.description = "Discounted rate for students with valid student ID"
+        student_tier.requires_verification = 1
+        student_tier.is_default = 0
+        student_tier.display_order = 1
+
+        standard_tier = template.append("predefined_tiers", {})
+        standard_tier.tier_name = "Standard"
+        standard_tier.display_name = "Standard Membership"
+        standard_tier.amount = 25.0
+        standard_tier.description = "Standard membership rate"
+        standard_tier.requires_verification = 0
+        standard_tier.is_default = 1
+        standard_tier.display_order = 2
+
+        supporter_tier = template.append("predefined_tiers", {})
+        supporter_tier.tier_name = "Supporter"
+        supporter_tier.display_name = "Supporter Membership"
+        supporter_tier.amount = 50.0
+        supporter_tier.description = "Higher contribution to support our mission"
+        supporter_tier.requires_verification = 0
+        supporter_tier.is_default = 0
+        supporter_tier.display_order = 3
+
+        patron_tier = template.append("predefined_tiers", {})
+        patron_tier.tier_name = "Patron"
+        patron_tier.display_name = "Patron Membership"
+        patron_tier.amount = 100.0
+        patron_tier.description = "Premium membership with exclusive benefits"
+        patron_tier.requires_verification = 0
+        patron_tier.is_default = 0
+        patron_tier.display_order = 4
+
+        template.insert()
+
+        # Link template to membership type
+        membership_type.dues_schedule_template = template.name
+        membership_type.save()
+
         print(f"✓ Created tier-based membership type: {membership_type.name}")
 
         # Test the contribution options
@@ -93,24 +109,37 @@ def test_create_calculator_based_membership():
     membership_type.membership_type_name = "Calculator-Based Test Membership"
     membership_type.description = "Test membership type with income-based calculator"
     membership_type.amount = 15.0
-    membership_type.billing_frequency = "Monthly"
+    membership_type.billing_period = "Monthly"
     membership_type.is_active = 1
-
-    # Set contribution system fields
-    membership_type.contribution_mode = "Calculator"
-    membership_type.minimum_contribution = 5.0
-    membership_type.suggested_contribution = 15.0
-    membership_type.maximum_contribution = 150.0
-    membership_type.fee_slider_max_multiplier = 10.0
-    membership_type.allow_custom_amounts = 1
-    membership_type.enable_income_calculator = 1
-    membership_type.income_percentage_rate = 0.75  # 0.75% of monthly income
-    membership_type.calculator_description = (
-        "We suggest 0.75% of your monthly net income as a fair contribution"
-    )
 
     try:
         membership_type.save()
+
+        # Create dues schedule template with contribution settings
+        template = frappe.new_doc("Membership Dues Schedule")
+        template.is_template = 1
+        template.schedule_name = f"Template-{membership_type.name}"
+        template.membership_type = membership_type.name
+        template.status = "Active"
+        template.billing_frequency = "Monthly"
+        template.contribution_mode = "Calculator"
+        template.minimum_amount = 5.0
+        template.suggested_amount = 15.0
+        template.maximum_amount = 150.0
+        template.fee_slider_max_multiplier = 10.0
+        template.uses_custom_amount = 1
+        template.enable_income_calculator = 1
+        template.income_percentage_rate = 0.75
+        template.calculator_description = "We suggest 0.75% of your monthly net income as a fair contribution"
+        template.invoice_days_before = 30
+        template.auto_generate = 1
+        template.amount = template.suggested_amount
+        template.insert()
+
+        # Link template to membership type
+        membership_type.dues_schedule_template = template.name
+        membership_type.save()
+
         print(f"✓ Created calculator-based membership type: {membership_type.name}")
 
         # Test the contribution options
@@ -138,52 +167,66 @@ def test_create_flexible_membership():
     membership_type.membership_type_name = "Flexible Test Membership"
     membership_type.description = "Test membership type with both tiers and calculator options"
     membership_type.amount = 20.0
-    membership_type.billing_frequency = "Monthly"
+    membership_type.billing_period = "Monthly"
     membership_type.is_active = 1
-
-    # Set contribution system fields
-    membership_type.contribution_mode = "Both"
-    membership_type.minimum_contribution = 8.0
-    membership_type.suggested_contribution = 20.0
-    membership_type.maximum_contribution = 200.0
-    membership_type.fee_slider_max_multiplier = 10.0
-    membership_type.allow_custom_amounts = 1
-    membership_type.enable_income_calculator = 1
-    membership_type.income_percentage_rate = 0.6
-    membership_type.calculator_description = (
-        "Calculate 0.6% of monthly income or choose from predefined tiers"
-    )
-
-    # Add a few tiers
-    basic_tier = membership_type.append("predefined_tiers", {})
-    basic_tier.tier_name = "Basic"
-    basic_tier.display_name = "Basic Membership"
-    basic_tier.amount = 15.0
-    basic_tier.description = "Basic membership level"
-    basic_tier.requires_verification = 0
-    basic_tier.is_default = 0
-    basic_tier.display_order = 1
-
-    plus_tier = membership_type.append("predefined_tiers", {})
-    plus_tier.tier_name = "Plus"
-    plus_tier.display_name = "Plus Membership"
-    plus_tier.amount = 20.0
-    plus_tier.description = "Standard membership level"
-    plus_tier.requires_verification = 0
-    plus_tier.is_default = 1
-    plus_tier.display_order = 2
-
-    premium_tier = membership_type.append("predefined_tiers", {})
-    premium_tier.tier_name = "Premium"
-    premium_tier.display_name = "Premium Membership"
-    premium_tier.amount = 35.0
-    premium_tier.description = "Premium membership with extra benefits"
-    premium_tier.requires_verification = 0
-    premium_tier.is_default = 0
-    premium_tier.display_order = 3
 
     try:
         membership_type.save()
+
+        # Create dues schedule template with contribution settings
+        template = frappe.new_doc("Membership Dues Schedule")
+        template.is_template = 1
+        template.schedule_name = f"Template-{membership_type.name}"
+        template.membership_type = membership_type.name
+        template.status = "Active"
+        template.billing_frequency = "Monthly"
+        template.contribution_mode = "Calculator"  # Changed from "Both"
+        template.minimum_amount = 8.0
+        template.suggested_amount = 20.0
+        template.maximum_amount = 200.0
+        template.fee_slider_max_multiplier = 10.0
+        template.uses_custom_amount = 1
+        template.enable_income_calculator = 1
+        template.income_percentage_rate = 0.6
+        template.calculator_description = "Calculate 0.6% of monthly income or choose from predefined tiers"
+        template.invoice_days_before = 30
+        template.auto_generate = 1
+        template.amount = template.suggested_amount
+
+        # Add a few tiers
+        basic_tier = template.append("predefined_tiers", {})
+        basic_tier.tier_name = "Basic"
+        basic_tier.display_name = "Basic Membership"
+        basic_tier.amount = 15.0
+        basic_tier.description = "Basic membership level"
+        basic_tier.requires_verification = 0
+        basic_tier.is_default = 0
+        basic_tier.display_order = 1
+
+        plus_tier = template.append("predefined_tiers", {})
+        plus_tier.tier_name = "Plus"
+        plus_tier.display_name = "Plus Membership"
+        plus_tier.amount = 20.0
+        plus_tier.description = "Standard membership level"
+        plus_tier.requires_verification = 0
+        plus_tier.is_default = 1
+        plus_tier.display_order = 2
+
+        premium_tier = template.append("predefined_tiers", {})
+        premium_tier.tier_name = "Premium"
+        premium_tier.display_name = "Premium Membership"
+        premium_tier.amount = 35.0
+        premium_tier.description = "Premium membership with extra benefits"
+        premium_tier.requires_verification = 0
+        premium_tier.is_default = 0
+        premium_tier.display_order = 3
+
+        template.insert()
+
+        # Link template to membership type
+        membership_type.dues_schedule_template = template.name
+        membership_type.save()
+
         print(f"✓ Created flexible membership type: {membership_type.name}")
 
         # Test the contribution options

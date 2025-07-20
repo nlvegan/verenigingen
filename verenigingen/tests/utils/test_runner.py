@@ -55,8 +55,7 @@ class TestRunner:
             "suite_name": suite_name,
             "start_time": datetime.now().isoformat(),
             "tests": {},
-            "summary": {"total": 0, "passed": 0, "failed": 0, "errors": 0},
-        }
+            "summary": {"total": 0, "passed": 0, "failed": 0, "errors": 0}}
 
         for test_path in test_list:
             module_name, function_name = test_path.rsplit(".", 1)

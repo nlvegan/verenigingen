@@ -32,8 +32,7 @@ def test_employee_creation():
                 "success": True,
                 "message": f"Successfully created employee: {employee_id}",
                 "volunteer": volunteer.name,
-                "employee_id": employee_id,
-            }
+                "employee_id": employee_id}
         else:
             return {"success": False, "message": "Employee creation returned None"}
 

@@ -66,8 +66,7 @@ def test_expense_form_complete():
                 "chapter": None,
                 "team": None,
                 "notes": "Test expense for API validation",
-                "receipt_attachment": None,
-            }
+                "receipt_attachment": None}
         ]
 
         response = frappe.call(
@@ -129,8 +128,7 @@ def test_expense_form_complete():
                 "chapter": None,
                 "team": None,
                 "notes": "",
-                "receipt_attachment": None,
-            }
+                "receipt_attachment": None}
         ]
 
         response = frappe.call(

@@ -74,8 +74,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "doctype": "Item Group",
                     "item_group_name": "Membership",
                     "parent_item_group": "All Item Groups",
-                    "is_group": 0,
-                }
+                    "is_group": 0}
             )
             item_group.insert(ignore_permissions=True)
 
@@ -89,8 +88,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "region_name": "Test Region",
                     "region_code": "TR",
                     "country": "Netherlands",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             region.insert(ignore_permissions=True)
             # Store the actual name that was generated
@@ -107,8 +105,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "membership_type_name": "Test Membership",
                     "payment_interval": "Monthly",
                     "amount": 10.00,
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             membership_type.insert(ignore_permissions=True)
 
@@ -122,8 +119,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "name": "Test Chapter",  # Set name explicitly for prompt autoname
                     "chapter_name": "Test Chapter",
                     "region": region_name,
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             chapter.insert(ignore_permissions=True)
 
@@ -281,12 +277,8 @@ class VereningingenTestCase(FrappeTestCase):
         defaults = {
             "membership_type_name": f"Test Type {frappe.generate_hash(length=6)}",
             "amount": 25.0,
-            "billing_frequency": "Monthly",
             "is_active": 1,
             "contribution_mode": "Calculator",
-            "minimum_contribution": 5.0,
-            "suggested_contribution": 25.0,
-            "maximum_contribution": 250.0,
             "enable_income_calculator": 1,
             "income_percentage_rate": 0.75
         }
@@ -351,13 +343,10 @@ class VereningingenTestCase(FrappeTestCase):
             "membership_type": membership_type,
             "amount": 15.00,
             "contribution_mode": "Calculator",
-            "billing_frequency": "Monthly",
             "status": "Active",
             "auto_generate": 1,
             "minimum_amount": 5.00,
-            "suggested_amount": 15.00,
-            "invoice_days_before": 30
-        }
+            "suggested_amount": 15.00}
         defaults.update(kwargs)
         
         # Remove deprecated fields if they were passed
@@ -385,8 +374,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "first_name": "Test",
                     "last_name": "User",
                     "enabled": 1,
-                    "new_password": password,
-                }
+                    "new_password": password}
             )
             user.insert(ignore_permissions=True)
             self.track_doc("User", email)
@@ -491,8 +479,7 @@ class VereningingenIntegrationTestCase(VereningingenTestCase):
                     "doctype": "Company",
                     "company_name": "Test Company",
                     "default_currency": "EUR",
-                    "country": "Netherlands",
-                }
+                    "country": "Netherlands"}
             )
             company.insert(ignore_permissions=True)
 

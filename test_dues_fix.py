@@ -42,7 +42,7 @@ def test_membership_submission():
             # Get the membership type details
             membership_type = frappe.get_doc("Membership Type", membership.membership_type)
             print(f"Membership type: {membership.membership_type}")
-            print(f"Suggested contribution: {getattr(membership_type, 'suggested_contribution', 'None')}")
+            print(f"Suggested contribution: {getattr(template, 'suggested_amount', 15.0)}")
             print(f"Amount: {getattr(membership_type, 'amount', 'None')}")
 
             # Test the validation logic (simulate what happens during save)

@@ -33,8 +33,7 @@ def test_fee_override_permissions():
                 "last_name": "User",
                 "email": "test.fee@example.com",
                 "application_status": "Active",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         test_member.insert(ignore_permissions=True)
         print(f"Created test member: {test_member.name}")
@@ -49,8 +48,7 @@ def test_fee_override_permissions():
                 "email": "test.fee@example.com",
                 "first_name": "Test",
                 "last_name": "User",
-                "user_type": "Website User",
-            }
+                "user_type": "Website User"}
         )
         test_user.insert(ignore_permissions=True)
 

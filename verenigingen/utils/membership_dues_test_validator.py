@@ -142,17 +142,26 @@ def run_quick_membership_dues_tests():
         membership_type.amount = 25.0
         membership_type.billing_period = "Monthly"
         membership_type.is_active = 1
-        membership_type.contribution_mode = "Tiers"
-        membership_type.minimum_contribution = 10.0
-        membership_type.suggested_contribution = 25.0
 
-        # Add tier
-        tier = membership_type.append("predefined_tiers", {})
-        tier.tier_name = "Standard"
-        tier.display_name = "Standard Membership"
-        tier.amount = 25.0
-        tier.display_order = 1
+        membership_type.save()
 
+        # Create dues schedule template with tier configuration
+        template = frappe.new_doc("Membership Dues Schedule")
+        template.is_template = 1
+        template.schedule_name = f"Template-{membership_type.name}"
+        template.membership_type = membership_type.name
+        template.status = "Active"
+        template.billing_frequency = "Monthly"
+        template.contribution_mode = "Tier"
+        template.minimum_amount = 10.0
+        template.suggested_amount = 25.0
+        template.invoice_days_before = 30
+        template.auto_generate = 1
+        template.amount = template.suggested_amount
+        template.insert()
+
+        # Link template to membership type
+        membership_type.dues_schedule_template = template.name
         membership_type.save()
         results.append("  ✅ Membership type with tiers created successfully")
 

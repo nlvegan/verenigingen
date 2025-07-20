@@ -199,7 +199,17 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             dues_schedule.membership = member.membership_name
             dues_schedule.membership_type = member.membership_type
             dues_schedule.status = "Active"
-            dues_schedule.billing_frequency = getattr(membership_type_doc, "billing_frequency", "Monthly")
+            # Get billing frequency from template if available
+            billing_frequency = "Annual"  # Default
+            if membership_type_doc.dues_schedule_template:
+                try:
+                    template = frappe.get_doc(
+                        "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                    )
+                    billing_frequency = template.billing_frequency or "Annual"
+                except Exception:
+                    pass
+            dues_schedule.billing_frequency = billing_frequency
             dues_schedule.dues_rate = getattr(membership_type_doc, "amount", 0) or getattr(
                 membership_type_doc, "dues_rate", 0
             )

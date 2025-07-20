@@ -40,8 +40,7 @@ class TestSuspensionMemberMixin(unittest.TestCase):
             "member_status": "Suspended",
             "user_suspended": True,
             "active_teams": 1,
-            "can_unsuspend": True,
-        }
+            "can_unsuspend": True}
         mock_get_status.return_value = expected_status
 
         # Call mixin method
@@ -61,8 +60,7 @@ class TestSuspensionMemberMixin(unittest.TestCase):
             "actions_taken": ["Member suspended", "User account disabled"],
             "member_suspended": True,
             "user_suspended": True,
-            "teams_suspended": 2,
-        }
+            "teams_suspended": 2}
         mock_suspend_safe.return_value = expected_result
 
         # Call mixin method
@@ -108,8 +106,7 @@ class TestSuspensionMemberMixin(unittest.TestCase):
             "success": True,
             "actions_taken": ["Member restored", "User account reactivated"],
             "member_unsuspended": True,
-            "user_unsuspended": True,
-        }
+            "user_unsuspended": True}
         mock_unsuspend_safe.return_value = expected_result
 
         # Call mixin method
@@ -174,8 +171,7 @@ class TestSuspensionMemberMixin(unittest.TestCase):
             "success": False,
             "error": "Database connection failed",
             "actions_taken": [],
-            "errors": ["Database connection failed"],
-        }
+            "errors": ["Database connection failed"]}
         mock_suspend_safe.return_value = expected_result
 
         # Call mixin method
@@ -195,8 +191,7 @@ class TestSuspensionMemberMixin(unittest.TestCase):
             "success": False,
             "error": "Member is not suspended",
             "actions_taken": [],
-            "errors": ["Member is not suspended"],
-        }
+            "errors": ["Member is not suspended"]}
         mock_unsuspend_safe.return_value = expected_result
 
         # Call mixin method

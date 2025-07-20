@@ -69,8 +69,7 @@ class TestChapterMemberStatus(unittest.TestCase):
                 "first_name": "Status",
                 "last_name": "TestUser",
                 "email": self.test_member_email,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -99,8 +98,7 @@ class TestChapterMemberStatus(unittest.TestCase):
                 "first_name": "Status",
                 "last_name": "TestUser",
                 "email": self.test_member_email,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -120,8 +118,7 @@ class TestChapterMemberStatus(unittest.TestCase):
                 "first_name": "Status",
                 "last_name": "TestUser",
                 "email": self.test_member_email,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -190,8 +187,7 @@ class TestChapterMemberStatus(unittest.TestCase):
                 "first_name": "Status",
                 "last_name": "TestUser",
                 "email": self.test_member_email,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name

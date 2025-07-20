@@ -37,8 +37,7 @@ def test_application_submission():
             "bic": "ABNANL2A",
             "bank_account_name": "Test Application User",
             "terms": True,
-            "newsletter": True,
-        }
+            "newsletter": True}
 
         print(f"📝 Submitting application for: {form_data['first_name']} {form_data['last_name']}")
         print(f"   Email: {form_data['email']}")
@@ -119,8 +118,7 @@ def test_backend_fee_adjustment():
                 "email": f"backend.test.{random_string(6)}@example.com",
                 "birth_date": "1985-03-10",
                 "status": "Active",
-                "application_status": "Active",
-            }
+                "application_status": "Active"}
         )
         existing_member.insert(ignore_permissions=True)
 

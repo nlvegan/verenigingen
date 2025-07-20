@@ -68,8 +68,7 @@ def test_member_creation_performance():
                 "first_name": "Test",
                 "last_name": "Performance" + random_string(5),
                 "email": f"test.performance.{random_string(5)}@example.com",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
 
         member.insert(ignore_permissions=True)

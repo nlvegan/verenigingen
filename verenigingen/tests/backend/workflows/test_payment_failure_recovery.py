@@ -44,33 +44,27 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             {
                 "name": "Stage 1: Create Member with SEPA Mandate",
                 "function": self._stage_1_create_member_sepa,
-                "validations": [self._validate_member_sepa_created],
-            },
+                "validations": [self._validate_member_sepa_created]},
             {
                 "name": "Stage 2: Simulate Payment Failure",
                 "function": self._stage_2_simulate_failure,
-                "validations": [self._validate_payment_failed],
-            },
+                "validations": [self._validate_payment_failed]},
             {
                 "name": "Stage 3: Send Notifications",
                 "function": self._stage_3_send_notifications,
-                "validations": [self._validate_notifications_sent],
-            },
+                "validations": [self._validate_notifications_sent]},
             {
                 "name": "Stage 4: Retry Payment",
                 "function": self._stage_4_retry_payment,
-                "validations": [self._validate_payment_retried],
-            },
+                "validations": [self._validate_payment_retried]},
             {
                 "name": "Stage 5: Multiple Failures - Suspension",
                 "function": self._stage_5_multiple_failures_suspension,
-                "validations": [self._validate_member_suspended],
-            },
+                "validations": [self._validate_member_suspended]},
             {
                 "name": "Stage 6: Payment Recovery - Reactivation",
                 "function": self._stage_6_payment_recovery,
-                "validations": [self._validate_member_reactivated],
-            },
+                "validations": [self._validate_member_reactivated]},
         ]
 
         self.define_workflow(stages)
@@ -89,8 +83,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "name": "Payment Test Chapter",
                 "region": "Test Region",
                 "postal_codes": "3000-7999",
-                "introduction": "Test chapter for payment failure testing",
-            }
+                "introduction": "Test chapter for payment failure testing"}
         )
         chapter.insert(ignore_permissions=True)
         self.track_doc("Chapter", chapter.name)
@@ -109,8 +102,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "contact_number": "+31698765432",
                 "payment_method": "SEPA Direct Debit",
                 "status": "Active",
-                "primary_chapter": self.test_chapter.name,
-            }
+                "primary_chapter": self.test_chapter.name}
         )
         member.insert(ignore_permissions=True)
 
@@ -121,8 +113,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "chapter": self.test_chapter.name,
                 "chapter_join_date": today(),
                 "enabled": 1,
-                "status": "Active",
-            },
+                "status": "Active"},
         )
         member.save(ignore_permissions=True)
 
@@ -137,8 +128,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "mandate_date": today(),
                 "mandate_reference": f"MANDATE{member.name}",
                 "status": "Active",
-                "mandate_type": "Recurring",
-            }
+                "mandate_type": "Recurring"}
         )
         sepa_mandate.insert(ignore_permissions=True)
 
@@ -149,8 +139,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "customer_name": f"{member.first_name} {member.last_name}",
                 "customer_type": "Individual",
                 "customer_group": "All Customer Groups",
-                "territory": "Netherlands",
-            }
+                "territory": "Netherlands"}
         )
         customer.insert(ignore_permissions=True)
 
@@ -166,8 +155,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "membership_type": "Annual",
                 "start_date": today(),
                 "end_date": add_months(today(), 12),
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         membership.insert(ignore_permissions=True)
 
@@ -179,8 +167,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             "member_name": member.name,
             "sepa_mandate_name": sepa_mandate.name,
             "customer_name": customer.name,
-            "membership_name": membership.name,
-        }
+            "membership_name": membership.name}
 
     def _validate_member_sepa_created(self, context):
         """Validate member and SEPA mandate were created"""
@@ -218,10 +205,8 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                             "description": "Annual Membership Fee",
                             "qty": 1,
                             "rate": 100.00,
-                            "amount": 100.00,
-                        }
-                    ],
-                }
+                            "amount": 100.00}
+                    ]}
             )
             invoice.insert(ignore_permissions=True)
             invoice.submit()
@@ -245,10 +230,8 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                         {
                             "reference_doctype": "Sales Invoice",
                             "reference_name": invoice.name,
-                            "allocated_amount": 100.00,
-                        }
-                    ],
-                }
+                            "allocated_amount": 100.00}
+                    ]}
             )
 
             try:
@@ -269,8 +252,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                         "failure_date": today(),
                         "failure_reason": "Insufficient funds",
                         "amount": 100.00,
-                        "retry_count": 0,
-                    }
+                        "retry_count": 0}
                 )
                 failure_log.insert(ignore_permissions=True)
                 failure_recorded = True
@@ -321,8 +303,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                         "status": "Sent",
                         "sent_or_received": "Sent",
                         "reference_doctype": "Member",
-                        "reference_name": member_name,
-                    }
+                        "reference_name": member_name}
                 )
                 communication.insert(ignore_permissions=True)
                 notifications_sent.append("fallback_notification")
@@ -338,8 +319,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                         "status": "Sent",
                         "sent_or_received": "Sent",
                         "reference_doctype": "Member",
-                        "reference_name": member_name,
-                    }
+                        "reference_name": member_name}
                 )
                 admin_communication.insert(ignore_permissions=True)
                 notifications_sent.append("admin_notification")
@@ -402,10 +382,8 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                             {
                                 "reference_doctype": "Sales Invoice",
                                 "reference_name": invoice_name,
-                                "allocated_amount": 100.00,
-                            }
-                        ],
-                    }
+                                "allocated_amount": 100.00}
+                        ]}
                 )
 
                 try:
@@ -450,8 +428,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                             "failure_date": add_days(today(), i),
                             "failure_reason": f"Payment failure attempt {i + 1}",
                             "amount": 100.00,
-                            "retry_count": i,
-                        }
+                            "retry_count": i}
                     )
                     failure_log.insert(ignore_permissions=True)
                 except Exception:
@@ -521,10 +498,8 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                             {
                                 "reference_doctype": "Sales Invoice",
                                 "reference_name": invoice_name,
-                                "allocated_amount": 100.00,
-                            }
-                        ],
-                    }
+                                "allocated_amount": 100.00}
+                        ]}
                 )
                 recovery_payment.insert(ignore_permissions=True)
                 recovery_payment.submit()

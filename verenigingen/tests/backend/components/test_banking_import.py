@@ -203,7 +203,7 @@ class TestBankingImport(FrappeTestCase):
         
         # Test invoice number extraction
         import re
-        invoice_pattern = r'INV-\d{4}-\d{3,}'
+        invoice_pattern = r'INV-\d{4}-\d{3}'
         match = re.search(invoice_pattern, bank_transaction["description"])
         
         if match:
@@ -211,7 +211,7 @@ class TestBankingImport(FrappeTestCase):
             self.assertEqual(invoice_number, "INV-2025-001")
             
         # Test name extraction
-        name_pattern = r'(?:INV-\d{4}-\d{3,}\s+)(.+)'
+        name_pattern = r'(?:INV-\d{4}-\d{3}\s+)(.+)'
         name_match = re.search(name_pattern, bank_transaction["description"])
         
         if name_match:

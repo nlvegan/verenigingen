@@ -101,13 +101,26 @@ def validate_contribution_amount(
         amount = flt(amount)
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
 
-        # Get minimum and maximum constraints
-        min_amount = getattr(mt_doc, "minimum_contribution", None) or (
+        # Get minimum and maximum constraints from template
+        template_values = {}
+        if mt_doc.dues_schedule_template:
+            try:
+                template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
+                template_values = {
+                    "minimum_contribution": template.minimum_amount or 0,
+                    "suggested_contribution": template.suggested_amount or mt_doc.amount or 0,
+                    "fee_slider_max_multiplier": 10.0,
+                    "maximum_contribution": 0,
+                }
+            except Exception:
+                pass
+
+        min_amount = template_values.get("minimum_contribution", 0) or (
             mt_doc.amount * 0.3 if mt_doc.amount else 5.0
         )
-        suggested_amount = getattr(mt_doc, "suggested_contribution", None) or mt_doc.amount or 15.0
-        max_multiplier = getattr(mt_doc, "fee_slider_max_multiplier", None) or 10.0
-        max_amount = getattr(mt_doc, "maximum_contribution", None) or (suggested_amount * max_multiplier)
+        suggested_amount = template_values.get("suggested_contribution", mt_doc.amount or 15.0)
+        max_multiplier = template_values.get("fee_slider_max_multiplier", 10.0)
+        max_amount = template_values.get("maximum_contribution", 0) or (suggested_amount * max_multiplier)
 
         # Validate against constraints
         if amount < min_amount:
@@ -433,7 +446,7 @@ def get_membership_types_for_application():
         membership_types = frappe.get_all(
             "Membership Type",
             filters={"is_active": 1},
-            fields=["name", "membership_type_name", "description", "amount", "billing_frequency"],
+            fields=["name", "membership_type_name", "description", "amount", "dues_schedule_template"],
             order_by="membership_type_name",
         )
 
@@ -449,7 +462,7 @@ def get_membership_types_for_application():
                     "membership_type_name": mt.membership_type_name,
                     "description": mt.description,
                     "amount": mt.amount,
-                    "billing_frequency": getattr(mt, "billing_frequency", "Monthly"),
+                    "billing_frequency": "Annual",  # Default, actual value comes from dues schedule
                     "contribution_options": contribution_options,
                 }
 
@@ -462,7 +475,7 @@ def get_membership_types_for_application():
                     "membership_type_name": mt.membership_type_name,
                     "description": mt.description,
                     "amount": mt.amount,
-                    "billing_frequency": getattr(mt, "billing_frequency", "Monthly"),
+                    "billing_frequency": "Annual",  # Default, actual value comes from dues schedule
                     "contribution_options": {
                         "mode": "Calculator",
                         "minimum": mt.amount * 0.5 if mt.amount else 5.0,

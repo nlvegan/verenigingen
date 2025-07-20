@@ -48,53 +48,43 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
             {
                 "name": "Stage 1: Submit Application",
                 "function": self._stage_1_submit_application,
-                "validations": [self._validate_application_submitted],
-            },
+                "validations": [self._validate_application_submitted]},
             {
                 "name": "Stage 2: Review & Approve Application",
                 "function": self._stage_2_review_approve,
-                "validations": [self._validate_application_approved],
-            },
+                "validations": [self._validate_application_approved]},
             {
                 "name": "Stage 3: Create Member & User Account",
                 "function": self._stage_3_create_member_user,
-                "validations": [self._validate_member_created, self._validate_user_created],
-            },
+                "validations": [self._validate_member_created, self._validate_user_created]},
             {
                 "name": "Stage 4: Process Initial Payment",
                 "function": self._stage_4_process_payment,
-                "validations": [self._validate_payment_processed],
-            },
+                "validations": [self._validate_payment_processed]},
             {
                 "name": "Stage 5: Create/Activate Membership",
                 "function": self._stage_5_activate_membership,
-                "validations": [self._validate_membership_active],
-            },
+                "validations": [self._validate_membership_active]},
             {
                 "name": "Stage 6: Create Volunteer Record",
                 "function": self._stage_6_create_volunteer,
-                "validations": [self._validate_volunteer_created],
-            },
+                "validations": [self._validate_volunteer_created]},
             {
                 "name": "Stage 7: Member Activities",
                 "function": self._stage_7_member_activities,
-                "validations": [self._validate_activities_completed],
-            },
+                "validations": [self._validate_activities_completed]},
             {
                 "name": "Stage 8: Membership Renewal",
                 "function": self._stage_8_membership_renewal,
-                "validations": [self._validate_membership_renewed],
-            },
+                "validations": [self._validate_membership_renewed]},
             {
                 "name": "Stage 9: Suspension & Reactivation",
                 "function": self._stage_9_suspension_reactivation,
-                "validations": [self._validate_suspension_reactivation],
-            },
+                "validations": [self._validate_suspension_reactivation]},
             {
                 "name": "Stage 10: Termination Process",
                 "function": self._stage_10_termination,
-                "validations": [self._validate_termination_completed],
-            },
+                "validations": [self._validate_termination_completed]},
         ]
 
         self.define_workflow(stages)
@@ -127,8 +117,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                 "name": chapter_name,
                 "region": test_region,
                 "postal_codes": "1000-9999",
-                "introduction": "Test chapter for lifecycle testing",
-            }
+                "introduction": "Test chapter for lifecycle testing"}
         )
         chapter.insert(ignore_permissions=True)
         self.track_doc("Chapter", chapter.name)
@@ -154,8 +143,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
             "payment_method": "SEPA Direct Debit",
             "iban": "NL91ABNA0417164300",
             "bank_account_name": "TestLifecycle Member",
-            "chapter_preference": self.test_chapter.name,
-        }
+            "chapter_preference": self.test_chapter.name}
 
         # Submit application using API
         from verenigingen.api.membership_application import submit_application
@@ -261,8 +249,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                             "last_name": member.last_name,
                             "enabled": 1,
                             "new_password": frappe.utils.random_string(10),
-                            "send_welcome_email": 0,
-                        }
+                            "send_welcome_email": 0}
                     )
                     user.append("roles", {"role": "Verenigingen Member"})
                     user.insert(ignore_permissions=True)
@@ -360,10 +347,8 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                             {
                                 "reference_doctype": "Sales Invoice",
                                 "reference_name": invoice.name,
-                                "allocated_amount": invoice.grand_total,
-                            }
-                        ],
-                    }
+                                "allocated_amount": invoice.grand_total}
+                        ]}
                 )
                 payment_entry.insert(ignore_permissions=True)
                 payment_entry.submit()
@@ -408,8 +393,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "membership_type": "Annual",
                     "start_date": today(),
                     "renewal_date": add_months(today(), 12),
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             membership.insert(ignore_permissions=True)
             membership.submit()
@@ -446,8 +430,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "member": member_name,
                     "status": "Active",
                     "start_date": today(),
-                    "skills": "Event Organization, Community Outreach",
-                }
+                    "skills": "Event Organization, Community Outreach"}
             )
             volunteer.insert(ignore_permissions=True)
 
@@ -484,8 +467,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "chapter": self.test_chapter.name,
                     "status": "Active",
                     "team_type": "Project Team",
-                    "start_date": today(),
-                }
+                    "start_date": today()}
             )
             team.insert(ignore_permissions=True)
             self.track_doc("Team", team.name)
@@ -500,8 +482,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "role_type": "Team Leader",
                     "from_date": today(),
                     "is_active": 1,
-                    "status": "Active",
-                },
+                    "status": "Active"},
             )
             team.save(ignore_permissions=True)
 
@@ -516,8 +497,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "doctype": "Chapter Role",
                     "role_name": role_name,
                     "permissions_level": "Admin",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             board_role.insert(ignore_permissions=True)
             self.track_doc("Chapter Role", board_role.name)
@@ -563,8 +543,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                         {
                             "doctype": "Expense Category",
                             "category_name": category_name,
-                            "expense_account": expense_account[0].name,
-                        }
+                            "expense_account": expense_account[0].name}
                     )
                     expense_cat.insert(ignore_permissions=True)
                     self.track_doc("Expense Category", expense_cat.name)
@@ -584,8 +563,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                         "status": "Draft",
                         "organization_type": "Chapter",
                         "chapter": self.test_chapter.name,
-                        "category": expense_category,
-                    }
+                        "category": expense_category}
                 )
                 expense.insert(ignore_permissions=True)
                 self.track_doc("Volunteer Expense", expense.name)
@@ -628,8 +606,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "membership_type": old_membership.membership_type,
                     "start_date": add_days(old_membership.renewal_date, 1),
                     "renewal_date": add_months(old_membership.renewal_date, 12),
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             new_membership_doc.insert(ignore_permissions=True)
             new_membership_doc.submit()

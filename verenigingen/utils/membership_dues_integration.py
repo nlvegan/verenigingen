@@ -24,8 +24,15 @@ def create_dues_schedule_from_application(membership_application):
     # Get membership type details
     membership_type = frappe.get_doc("Membership Type", membership_application.membership_type)
 
-    # Determine billing frequency (default to annual for associations)
-    billing_frequency = getattr(membership_type, "billing_frequency", "Annual")
+    # Determine billing frequency from template or default to annual
+    billing_frequency = "Annual"  # Default
+
+    if membership_type.dues_schedule_template:
+        try:
+            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+            billing_frequency = template.billing_frequency or "Annual"
+        except Exception:
+            pass
 
     # Calculate first invoice date
     # For new members, typically invoice immediately
@@ -41,7 +48,9 @@ def create_dues_schedule_from_application(membership_application):
     dues_schedule.billing_frequency = billing_frequency
     dues_schedule.dues_rate = amount
     dues_schedule.next_invoice_date = first_invoice_date
-    dues_schedule.invoice_days_before = 0  # Invoice immediately for new members
+    dues_schedule.invoice_days_before = (
+        0  # Invoice immediately for new members, will use template value for renewals
+    )
     dues_schedule.auto_generate = 1
     dues_schedule.status = "Active"
     dues_schedule.notes = f"Created from application {membership_application.name}"

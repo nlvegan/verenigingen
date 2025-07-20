@@ -31,8 +31,7 @@ TEST_FUNCTIONS = {
         "verenigingen.tests.utils.test_runner_wrappers.run_performance_tests",
         "verenigingen.tests.utils.test_runner_wrappers.run_payment_failure_tests",
         "verenigingen.tests.utils.test_runner_wrappers.run_financial_tests",
-    ],
-}
+    ]}
 
 
 def run_test_suite(test_category, suite_name):
@@ -45,8 +44,7 @@ def run_test_suite(test_category, suite_name):
         "suite_name": suite_name,
         "start_time": start_time.isoformat(),
         "tests": {},
-        "summary": {"total": 0, "passed": 0, "failed": 0, "errors": 0},
-    }
+        "summary": {"total": 0, "passed": 0, "failed": 0, "errors": 0}}
 
     test_list = TEST_FUNCTIONS.get(test_category, [])
 

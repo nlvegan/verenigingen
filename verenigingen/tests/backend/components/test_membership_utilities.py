@@ -44,14 +44,11 @@ class MembershipTestUtilities:
                 "membership_type_name": unique_name,
                 "description": f"Test membership type - {name} ({period})",
                 "is_active": 1,
-                "billing_frequency": period,
                 "amount": amount,
                 "currency": "EUR",
-                "allow_auto_renewal": allow_auto_renewal,
                 "require_approval": require_approval,
                 "default_for_new_members": 0,
-                "enforce_minimum_period": enforce_minimum_period,
-            }
+                "enforce_minimum_period": enforce_minimum_period}
         )
 
         # Handle custom period
@@ -81,8 +78,7 @@ class MembershipTestUtilities:
                 {
                     "doctype": "Item Group",
                     "item_group_name": "Membership",
-                    "parent_item_group": "All Item Groups",
-                }
+                    "parent_item_group": "All Item Groups"}
             )
             item_group.insert(ignore_permissions=True)
 
@@ -99,8 +95,7 @@ class MembershipTestUtilities:
                 "is_gift_item": 0,
                 "has_variants": 0,
                 "stock_uom": "Nos",
-                "is_service_item": 1,
-            }
+                "is_service_item": 1}
         )
 
         # Add item defaults
@@ -121,46 +116,38 @@ class MembershipTestUtilities:
                 "name": "Daily Test",
                 "period": "Daily",
                 "amount": 5.0,
-                "description": "Daily membership for short-term testing",
-            },
+                "description": "Daily membership for short-term testing"},
             {
                 "name": "Monthly Basic",
                 "period": "Monthly",
                 "amount": 25.0,
-                "description": "Basic monthly membership",
-            },
+                "description": "Basic monthly membership"},
             {
                 "name": "Monthly Premium",
                 "period": "Monthly",
                 "amount": 50.0,
-                "description": "Premium monthly membership with benefits",
-            },
+                "description": "Premium monthly membership with benefits"},
             {
                 "name": "Quarterly Standard",
                 "period": "Quarterly",
                 "amount": 70.0,
-                "description": "Standard quarterly membership",
-            },
+                "description": "Standard quarterly membership"},
             {
                 "name": "Annual Regular",
                 "period": "Annual",
                 "amount": 250.0,
-                "description": "Regular annual membership",
-            },
+                "description": "Regular annual membership"},
             {
                 "name": "Annual Student",
                 "period": "Annual",
                 "amount": 100.0,
-                "description": "Discounted annual student membership",
-            },
+                "description": "Discounted annual student membership"},
             {
                 "name": "Lifetime Honorary",
                 "period": "Lifetime",
                 "amount": 0.0,
                 "description": "Honorary lifetime membership",
-                "require_approval": True,
-                "allow_auto_renewal": False,
-            },
+                "require_approval": True},
         ]
 
         created_types = []
@@ -207,8 +194,7 @@ class MembershipTestUtilities:
             "member": member.name,
             "membership_type": membership_type.name,
             "start_date": start_date,
-            "auto_renew": 1 if membership_type.allow_auto_renewal else 0,
-        }
+            "auto_renew": 1 if membership_type.allow_auto_renewal else 0}
 
         # Add custom amount if provided
         if custom_amount is not None:
@@ -216,8 +202,7 @@ class MembershipTestUtilities:
                 {
                     "uses_custom_amount": 1,
                     "custom_amount": custom_amount,
-                    "amount_reason": "Test custom amount",
-                }
+                    "amount_reason": "Test custom amount"}
             )
 
         # Create membership
@@ -314,8 +299,7 @@ class MembershipTestUtilities:
                     "member": member.name,
                     "membership_type": membership_type.name
                     if isinstance(membership_type, frappe.model.document.Document)
-                    else membership_type,
-                },
+                    else membership_type},
             )
 
             response = {"membership": membership, "approval_result": result}

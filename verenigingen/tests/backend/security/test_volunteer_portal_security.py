@@ -36,8 +36,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                         "first_name": name.split()[0],
                         "last_name": name.split()[-1],
                         "full_name": name,
-                        "enabled": 1,
-                    }
+                        "enabled": 1}
                 )
                 user.insert(ignore_permissions=True)
 
@@ -49,8 +48,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                     "doctype": "Chapter",
                     "chapter_name": cls.test_chapter,
                     "city": "Security City",
-                    "enabled": 1,
-                }
+                    "enabled": 1}
             )
             chapter.insert()
 
@@ -65,8 +63,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                     "last_name": "Volunteer",
                     "full_name": "Security Volunteer",
                     "email": cls.volunteer_email,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             member.insert()
 
@@ -79,8 +76,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                     "volunteer_name": "Security Volunteer",
                     "member": cls.test_member,
                     "email": cls.volunteer_email,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             volunteer.insert()
 
@@ -154,8 +150,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                 "amount": 50.00,
                 "expense_date": today(),
                 "organization_type": "Chapter",
-                "chapter": self.test_chapter,
-            }
+                "chapter": self.test_chapter}
         )
         expense.insert()
         expense.submit()
@@ -187,8 +182,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                     "doctype": "Chapter",
                     "chapter_name": unauthorized_chapter,
                     "city": "Unauthorized City",
-                    "enabled": 1,
-                }
+                    "enabled": 1}
             )
             chapter.insert()
 
@@ -200,8 +194,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
             "amount": 50.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": unauthorized_chapter,
-        }
+            "chapter": unauthorized_chapter}
 
         result = submit_expense(expense_data)
 
@@ -223,8 +216,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
             "amount": 50.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.test_chapter,
-        }
+            "chapter": self.test_chapter}
 
         result = submit_expense(expense_data)
 
@@ -255,8 +247,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": self.test_chapter,
-            "notes": xss_notes,
-        }
+            "notes": xss_notes}
 
         result = submit_expense(expense_data)
 
@@ -347,8 +338,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                     "doctype": "Volunteer",
                     "name": other_volunteer,
                     "volunteer_name": "Other Volunteer",
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             volunteer.insert()
 
@@ -360,8 +350,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                 "amount": 100.00,
                 "expense_date": today(),
                 "organization_type": "Chapter",
-                "chapter": self.test_chapter,
-            }
+                "chapter": self.test_chapter}
         )
         other_expense.insert()
         other_expense.submit()
@@ -400,8 +389,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                     "amount": 10.00,
                     "expense_date": today(),
                     "organization_type": "Chapter",
-                    "chapter": self.test_chapter,
-                }
+                    "chapter": self.test_chapter}
 
                 result = submit_expense(expense_data)
                 if result["success"]:
@@ -452,8 +440,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
             "amount": 50.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.test_chapter,
-        }
+            "chapter": self.test_chapter}
 
         # Multiple submissions should work independently
         results = []
@@ -501,8 +488,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                 "amount": 50.00,
                 "expense_date": today(),
                 "organization_type": "Chapter",
-                "chapter": self.test_chapter,
-            }
+                "chapter": self.test_chapter}
 
             result = submit_expense(expense_data)
 
@@ -523,8 +509,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
             "amount": 50.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.test_chapter,
-        }
+            "chapter": self.test_chapter}
 
         result = submit_expense(expense_data)
 

@@ -492,15 +492,10 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
         membership_type.membership_type_name = f"Performance Test {suffix} {self.stress_test_prefix}"
         membership_type.description = f"Performance testing membership type {suffix}"
         membership_type.amount = 50.0
-        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
-        membership_type.minimum_contribution = 10.0
-        membership_type.suggested_contribution = 50.0
-        membership_type.maximum_contribution = 500.0
         membership_type.enable_income_calculator = 1
         membership_type.income_percentage_rate = 0.75
-        membership_type.allow_custom_amounts = 1
         membership_type.save()
         self.track_doc("Membership Type", membership_type.name)
         return membership_type

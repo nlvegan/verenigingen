@@ -22,8 +22,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "doctype": "Chapter",
                 "chapter_name": "Test Chapter 1",
                 "short_name": "TC1",
-                "country": "Netherlands",
-            }
+                "country": "Netherlands"}
         )
         cls.chapter1.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter1)
@@ -33,8 +32,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "doctype": "Chapter",
                 "chapter_name": "Test Chapter 2",
                 "short_name": "TC2",
-                "country": "Netherlands",
-            }
+                "country": "Netherlands"}
         )
         cls.chapter2.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter2)
@@ -54,8 +52,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "last_name": "Member1",
                 "email": "member1@test.com",
                 "status": "Active",
-                "chapter": cls.chapter1.name,
-            }
+                "chapter": cls.chapter1.name}
         )
         cls.member1.insert(ignore_permissions=True)
         cls.test_records.append(cls.member1)
@@ -67,8 +64,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "last_name": "Member2",
                 "email": "member2@test.com",
                 "status": "Active",
-                "chapter": cls.chapter2.name,
-            }
+                "chapter": cls.chapter2.name}
         )
         cls.member2.insert(ignore_permissions=True)
         cls.test_records.append(cls.member2)
@@ -80,8 +76,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "volunteer_name": "Test Volunteer 1",
                 "email": "volunteer1@test.com",
                 "member": cls.member1.name,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         cls.volunteer1.insert(ignore_permissions=True)
         cls.test_records.append(cls.volunteer1)
@@ -93,8 +88,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "member": cls.member1.name,
                 "membership_type": "Regular",
                 "status": "Active",
-                "annual_fee": 50.00,
-            }
+                "annual_fee": 50.00}
         )
         cls.membership1.insert(ignore_permissions=True)
         cls.test_records.append(cls.membership1)
@@ -217,8 +211,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "description": "Test expense",
                 "amount": 100.00,
                 "currency": "EUR",
-                "expense_date": frappe.utils.today(),
-            }
+                "expense_date": frappe.utils.today()}
         )
 
         # Attempt to manipulate amount after creation
@@ -245,8 +238,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "doctype": "SEPA Mandate",
                 "member": self.member1.name,
                 "iban": "NL91ABNA0417164300",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         mandate.insert(ignore_permissions=True)
 
@@ -279,8 +271,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                         "doctype": "Member",
                         "first_name": malicious_input,
                         "last_name": "Test",
-                        "email": "test@test.com",
-                    }
+                        "email": "test@test.com"}
                 ).insert()
 
     def test_xss_prevention(self):
@@ -299,8 +290,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                         "doctype": "Member",
                         "first_name": payload,
                         "last_name": "Test",
-                        "email": "xsstest@test.com",
-                    }
+                        "email": "xsstest@test.com"}
                 )
                 member.insert()
 
@@ -382,8 +372,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                     "doctype": "Volunteer Expense",
                     "volunteer": self.volunteer1.name,
                     "amount": -100.00,  # Negative amount
-                    "description": "Test",
-                }
+                    "description": "Test"}
             ).insert()
 
         # Test extreme values
@@ -393,8 +382,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                     "doctype": "Volunteer Expense",
                     "volunteer": self.volunteer1.name,
                     "amount": 999999999.99,  # Extremely large amount
-                    "description": "Test",
-                }
+                    "description": "Test"}
             ).insert()
 
     def test_data_type_confusion(self):
@@ -429,8 +417,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                     "doctype": "Member",
                     "first_name": malicious_content,
                     "last_name": "Test",
-                    "email": "logtest@test.com",
-                }
+                    "email": "logtest@test.com"}
             ).insert()
         except Exception:
             # Any exception is acceptable - the important thing is no log injection

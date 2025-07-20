@@ -19,8 +19,7 @@ def run_chapter_assignment_comprehensive_tests():
         return {
             "success": success,
             "message": "Comprehensive tests completed successfully" if success else "Some tests failed",
-            "test_type": "comprehensive_chapter_assignment",
-        }
+            "test_type": "comprehensive_chapter_assignment"}
 
     except Exception as e:
         import traceback
@@ -32,8 +31,7 @@ def run_chapter_assignment_comprehensive_tests():
             "success": False,
             "message": str(e),
             "error_details": error_details,
-            "test_type": "comprehensive_chapter_assignment",
-        }
+            "test_type": "comprehensive_chapter_assignment"}
 
 
 @frappe.whitelist()
@@ -59,8 +57,7 @@ def quick_chapter_assignment_test():
             "message": "Quick test passed - function is accessible",
             "test_member": test_member,
             "test_chapters": [c.name for c in test_chapters],
-            "function_available": True,
-        }
+            "function_available": True}
 
         return result
 

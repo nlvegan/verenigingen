@@ -11,34 +11,12 @@
   "column_break_4",
   "billing_period",
   "billing_period_in_months",
+  "default_for_new_members",
+  "enforce_minimum_period",
   "pricing_section",
   "amount",
-  "currency",
   "billing_settings_section",
-  "dues_schedule_template",
-  "billing_frequency",
-  "invoice_days_before",
-  "require_approval",
-  "column_break_14",
-  "allow_auto_renewal",
-  "default_for_new_members",
-  "contribution_system_section",
-  "contribution_mode",
-  "minimum_contribution",
-  "suggested_contribution",
-  "column_break_contrib_1",
-  "maximum_contribution",
-  "fee_slider_max_multiplier",
-  "allow_custom_amounts",
-  "income_calculator_section",
-  "enable_income_calculator",
-  "income_percentage_rate",
-  "column_break_calc_1",
-  "calculator_description",
-  "predefined_tiers_section",
-  "predefined_tiers",
-  "custom_amount_settings_section",
-  "custom_amount_requires_approval"
+  "dues_schedule_template"
  ],
  "fields": [
   {
@@ -82,70 +60,6 @@
    "mandatory_depends_on": "eval:doc.billing_period=='Custom'"
   },
   {
-   "fieldname": "pricing_section",
-   "fieldtype": "Section Break",
-   "label": "Pricing"
-  },
-  {
-   "fieldname": "amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Amount",
-   "options": "currency",
-   "reqd": 1
-  },
-  {
-   "default": "EUR",
-   "fieldname": "currency",
-   "fieldtype": "Link",
-   "label": "Currency",
-   "options": "Currency",
-   "reqd": 1
-  },
-  {
-   "fieldname": "billing_settings_section",
-   "fieldtype": "Section Break",
-   "label": "Billing Settings"
-  },
-  {
-   "fieldname": "dues_schedule_template",
-   "fieldtype": "Link",
-   "label": "Dues Schedule Template",
-   "options": "Membership Dues Schedule",
-   "get_query": "verenigingen.verenigingen.doctype.membership_type.membership_type.get_template_query"
-  },
-  {
-   "default": "Annual",
-   "depends_on": "eval:!doc.dues_schedule_template",
-   "fieldname": "billing_frequency",
-   "fieldtype": "Select",
-   "label": "Default Billing Frequency",
-   "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nCustom"
-  },
-  {
-   "default": "30",
-   "description": "Generate invoice this many days before due date",
-   "fieldname": "invoice_days_before",
-   "fieldtype": "Int",
-   "label": "Invoice Days Before Due"
-  },
-  {
-   "default": "0",
-   "fieldname": "require_approval",
-   "fieldtype": "Check",
-   "label": "Require Approval"
-  },
-  {
-   "fieldname": "column_break_14",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "fieldname": "allow_auto_renewal",
-   "fieldtype": "Check",
-   "label": "Allow Auto Renewal"
-  },
-  {
    "default": "0",
    "fieldname": "default_for_new_members",
    "fieldtype": "Check",
@@ -159,114 +73,31 @@
    "description": "When enabled, memberships of this type must be at least 1 year in duration. When disabled, memberships follow the billing period (e.g., daily, monthly)."
   },
   {
-   "fieldname": "contribution_system_section",
+   "fieldname": "pricing_section",
    "fieldtype": "Section Break",
-   "label": "Contribution System"
+   "label": "Default Pricing"
   },
   {
-   "default": "Calculator",
-   "fieldname": "contribution_mode",
-   "fieldtype": "Select",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Contribution Mode",
-   "options": "Tiers\nCalculator\nBoth"
+   "label": "Default Amount",
+   "options": "currency",
+   "reqd": 1,
+   "description": "Default amount for new dues schedules"
   },
   {
-   "default": 5.0,
-   "fieldname": "minimum_contribution",
-   "fieldtype": "Currency",
-   "label": "Minimum Contribution",
-   "options": "currency"
-  },
-  {
-   "default": 15.0,
-   "fieldname": "suggested_contribution",
-   "fieldtype": "Currency",
-   "label": "Suggested Contribution",
-   "options": "currency"
-  },
-  {
-   "fieldname": "column_break_contrib_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": 0,
-   "description": "Maximum contribution allowed (0 = no limit)",
-   "fieldname": "maximum_contribution",
-   "fieldtype": "Currency",
-   "label": "Maximum Contribution",
-   "options": "currency"
-  },
-  {
-   "default": 10.0,
-   "description": "Maximum multiplier for fee slider (e.g., 10 = 10x suggested amount)",
-   "fieldname": "fee_slider_max_multiplier",
-   "fieldtype": "Float",
-   "label": "Fee Slider Max Multiplier"
-  },
-  {
-   "default": "1",
-   "fieldname": "allow_custom_amounts",
-   "fieldtype": "Check",
-   "label": "Allow Custom Amounts"
-  },
-  {
-   "depends_on": "eval:doc.contribution_mode == 'Calculator' || doc.contribution_mode == 'Both'",
-   "fieldname": "income_calculator_section",
+   "fieldname": "billing_settings_section",
    "fieldtype": "Section Break",
-   "label": "Income Calculator"
+   "label": "Dues Schedule Template"
   },
   {
-   "default": "1",
-   "depends_on": "eval:doc.contribution_mode == 'Calculator' || doc.contribution_mode == 'Both'",
-   "fieldname": "enable_income_calculator",
-   "fieldtype": "Check",
-   "label": "Enable Income Calculator"
-  },
-  {
-   "default": 0.5,
-   "depends_on": "eval:doc.enable_income_calculator",
-   "description": "Percentage of monthly net income (e.g., 0.5 = 0.5%)",
-   "fieldname": "income_percentage_rate",
-   "fieldtype": "Float",
-   "label": "Income Percentage Rate",
-   "precision": "2"
-  },
-  {
-   "fieldname": "column_break_calc_1",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.",
-   "depends_on": "eval:doc.enable_income_calculator",
-   "fieldname": "calculator_description",
-   "fieldtype": "Text",
-   "label": "Calculator Description"
-  },
-  {
-   "depends_on": "eval:doc.contribution_mode == 'Tiers' || doc.contribution_mode == 'Both'",
-   "fieldname": "predefined_tiers_section",
-   "fieldtype": "Section Break",
-   "label": "Predefined Tiers"
-  },
-  {
-   "depends_on": "eval:doc.contribution_mode == 'Tiers' || doc.contribution_mode == 'Both'",
-   "fieldname": "predefined_tiers",
-   "fieldtype": "Table",
-   "label": "Predefined Tiers",
-   "options": "Membership Tier"
-  },
-  {
-   "fieldname": "custom_amount_settings_section",
-   "fieldtype": "Section Break",
-   "label": "Custom Amount Settings"
-  },
-  {
-   "default": "0",
-   "depends_on": "eval:doc.allow_custom_amounts",
-   "fieldname": "custom_amount_requires_approval",
-   "fieldtype": "Check",
-   "label": "Custom Amount Requires Approval"
+   "fieldname": "dues_schedule_template",
+   "fieldtype": "Link",
+   "label": "Default Dues Schedule Template",
+   "options": "Membership Dues Schedule",
+   "get_query": "verenigingen.verenigingen.doctype.membership_type.membership_type.get_template_query",
+   "description": "Template dues schedule to use for new memberships of this type"
   }
  ],
  "modified": "2023-01-01 00:00:00.000000",

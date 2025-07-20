@@ -41,8 +41,7 @@ class TestMembershipApplication(unittest.TestCase):
                     "doctype": "Item Group",
                     "item_group_name": "Membership",
                     "parent_item_group": "All Item Groups",
-                    "is_group": 0,
-                }
+                    "is_group": 0}
             )
             item_group.insert()
 
@@ -58,9 +57,7 @@ class TestMembershipApplication(unittest.TestCase):
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
                     "dues_rate": 100,
-                    "currency": "EUR",
-                    "billing_frequency": "Annual",
-                }
+                    "currency": "EUR"}
             )
             membership_type.insert()
             # Dues schedule system handles payment processing automatically
@@ -74,8 +71,7 @@ class TestMembershipApplication(unittest.TestCase):
                     "region": "Test Region",
                     "postal_codes": "1000-1999",
                     "published": 1,
-                    "introduction": "Test chapter for basic functionality",
-                }
+                    "introduction": "Test chapter for basic functionality"}
             )
             chapter.insert()
 
@@ -104,8 +100,7 @@ class TestMembershipApplication(unittest.TestCase):
             "volunteer_interests": ["Event Planning", "Technical Support"],
             "volunteer_skills": "Project management, Python programming",
             "newsletter_opt_in": 1,
-            "application_source": "Website",
-        }
+            "application_source": "Website"}
 
     def tearDown(self):
         """Clean up after each test"""
@@ -304,8 +299,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             "volunteer_interests": ["Event Planning", "Technical Support"],
             "volunteer_skills": "Project management, Python programming",
             "newsletter_opt_in": 1,
-            "application_source": "Website",
-        }
+            "application_source": "Website"}
 
     def test_concurrent_applications(self):
         """Test handling of multiple concurrent applications"""
@@ -325,8 +319,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                     "city": "Amsterdam",
                     "postal_code": "1234",
                     "country": "Netherlands",
-                    "selected_membership_type": "Test Membership",
-                }
+                    "selected_membership_type": "Test Membership"}
                 result = submit_application(data)
                 results.append(result)
             except Exception as e:
@@ -1606,9 +1599,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                     "doctype": "Membership Type",
                     "membership_type_name": "Premium Test Membership",
                     "dues_rate": 200,
-                    "currency": "EUR",
-                    "billing_frequency": "Annual",
-                }
+                    "currency": "EUR"}
             )
             premium_type.insert()
 
@@ -1835,9 +1826,7 @@ class TestChapterSelection(unittest.TestCase):
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
                     "dues_rate": 100,
-                    "currency": "EUR",
-                    "billing_frequency": "Annual",
-                }
+                    "currency": "EUR"}
             )
             membership_type.insert()
             # Dues schedule system handles payment processing automatically
@@ -1849,29 +1838,25 @@ class TestChapterSelection(unittest.TestCase):
                 "region": "Noord-Holland",
                 "postal_codes": "1000-1199",
                 "published": 1,
-                "introduction": "Test chapter for Amsterdam region",
-            },
+                "introduction": "Test chapter for Amsterdam region"},
             {
                 "name": "Test Chapter Utrecht",
                 "region": "Utrecht",
                 "postal_codes": "3500-3599",
                 "published": 1,
-                "introduction": "Test chapter for Utrecht region",
-            },
+                "introduction": "Test chapter for Utrecht region"},
             {
                 "name": "Test Chapter Rotterdam",
                 "region": "Zuid-Holland",
                 "postal_codes": "3000-3099",
                 "published": 1,
-                "introduction": "Test chapter for Rotterdam region",
-            },
+                "introduction": "Test chapter for Rotterdam region"},
             {
                 "name": "Unpublished Chapter",
                 "region": "Limburg",
                 "postal_codes": "6000-6199",
                 "published": 0,  # Not published
-                "introduction": "Test unpublished chapter",
-            },
+                "introduction": "Test unpublished chapter"},
         ]
 
         for chapter_data in test_chapters:
@@ -1895,8 +1880,7 @@ class TestChapterSelection(unittest.TestCase):
             "contact_number": "+31612345678",
             "interested_in_volunteering": 0,
             "newsletter_opt_in": 1,
-            "application_source": "Website",
-        }
+            "application_source": "Website"}
 
     def tearDown(self):
         """Clean up after each test"""
@@ -2174,8 +2158,7 @@ class TestChapterSelection(unittest.TestCase):
                     "name": additional_chapter_name,
                     "region": "Noord-Holland",  # Same as Amsterdam
                     "postal_codes": "1200-1299",
-                    "published": 1,
-                }
+                    "published": 1}
             )
             additional_chapter.insert()
 
@@ -2287,8 +2270,7 @@ class TestChapterSelection(unittest.TestCase):
                         "name": chapter_name,
                         "region": f"Test Region {i}",
                         "postal_codes": f"{4000 + i * 100}-{4099 + i * 100}",
-                        "published": 1,
-                    }
+                        "published": 1}
                 )
                 chapter.insert()
                 temp_chapters.append(chapter_name)
@@ -2331,8 +2313,7 @@ class TestChapterSelection(unittest.TestCase):
                     "name": intl_chapter_name,
                     "region": "International-Test",
                     "postal_codes": "9000-9099",
-                    "published": 1,
-                }
+                    "published": 1}
             )
             intl_chapter.insert()
 
@@ -2371,9 +2352,7 @@ class TestMembershipApplicationEdgeCases(unittest.TestCase):
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
                     "dues_rate": 100,
-                    "currency": "EUR",
-                    "billing_frequency": "Annual",
-                }
+                    "currency": "EUR"}
             )
             membership_type.insert()
 
@@ -2386,8 +2365,7 @@ class TestMembershipApplicationEdgeCases(unittest.TestCase):
             "city": "Amsterdam",
             "postal_code": "1012",
             "country": "Netherlands",
-            "selected_membership_type": "Test Membership",
-        }
+            "selected_membership_type": "Test Membership"}
 
     def tearDown(self):
         """Clean up after each test"""

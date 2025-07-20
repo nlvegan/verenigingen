@@ -47,9 +47,7 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
             "membership_type": "Test Membership",
             "sepa_mandate_consent": 1,
             "iban": "NL91ABNA0417164300",
-            "account_holder_name": "PayFirst Applicant",
-            "billing_frequency": "Monthly"
-        }
+            "account_holder_name": "PayFirst Applicant"}
         
         application = frappe.new_doc("Membership Application")
         for key, value in application_data.items():

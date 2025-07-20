@@ -40,8 +40,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                 "last_donation": add_days(today(), -10),
                 "reportable": 1,
                 "agreements": None,
-                "agreement_numbers": None,
-            },
+                "agreement_numbers": None},
             {
                 "donor": "DON-002", 
                 "donor_name": "Test Organization",
@@ -54,8 +53,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                 "last_donation": add_days(today(), -5),
                 "reportable": 1,
                 "agreements": "PDA-001",
-                "agreement_numbers": "ANBI-2024-001",
-            },
+                "agreement_numbers": "ANBI-2024-001"},
         ]
 
     def test_regression_field_name_fix(self):
@@ -184,8 +182,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                         "last_donation": today(),
                         "reportable": 1,
                         "agreements": None,
-                        "agreement_numbers": None,
-                    },
+                        "agreement_numbers": None},
                     {
                         "donor": "DON-002",
                         "donor_name": "Test Organization", 
@@ -198,8 +195,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                         "last_donation": today(),
                         "reportable": 1,
                         "agreements": None,
-                        "agreement_numbers": None,
-                    }
+                        "agreement_numbers": None}
                 ]
 
                 result = get_data({})
@@ -240,8 +236,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                             "last_donation": today(),
                             "reportable": 1,
                             "agreements": "PDA-001",
-                            "agreement_numbers": None,
-                        }
+                            "agreement_numbers": None}
                     ]
 
                     result = get_data({})
@@ -270,8 +265,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                         "last_donation": today(),
                         "reportable": 0,  # Not flagged as reportable
                         "agreements": None,
-                        "agreement_numbers": None,
-                    },
+                        "agreement_numbers": None},
                     {
                         "donor": "DON-002",
                         "donor_name": "Above Threshold",
@@ -284,8 +278,7 @@ class TestANBIDonationSummaryReport(VereningingenTestCase):
                         "last_donation": today(),
                         "reportable": 0,  # Not flagged, but should be due to amount
                         "agreements": None,
-                        "agreement_numbers": None,
-                    }
+                        "agreement_numbers": None}
                 ]
 
                 result = get_data({})

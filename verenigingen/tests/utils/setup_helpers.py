@@ -94,8 +94,7 @@ class TestEnvironmentSetup:
                     "start_date": today(),
                     "objectives": "Organize and execute association events",
                     "is_association_wide": 0 if chapter else 1,
-                    "chapter": chapter.name if chapter else None,
-                }
+                    "chapter": chapter.name if chapter else None}
             )
             events_team.insert(ignore_permissions=True)
             teams.append(events_team)
@@ -111,8 +110,7 @@ class TestEnvironmentSetup:
                     "team_type": "Operational Team",
                     "start_date": today(),
                     "objectives": "Manage association communications and PR",
-                    "is_association_wide": 1,
-                }
+                    "is_association_wide": 1}
             )
             comm_team.insert(ignore_permissions=True)
             teams.append(comm_team)
@@ -155,15 +153,13 @@ class TestEnvironmentSetup:
                 "name": "Test Regular Membership",
                 "period": "Annual",
                 "amount": 100.00,
-                "enforce_minimum": True,
-            },
+                "enforce_minimum": True},
             {"name": "Test Student Membership", "period": "Annual", "amount": 50.00, "enforce_minimum": True},
             {
                 "name": "Test Monthly Membership",
                 "period": "Monthly",
                 "amount": 10.00,
-                "enforce_minimum": False,
-            },
+                "enforce_minimum": False},
             {"name": "Test Daily Membership", "period": "Daily", "amount": 2.00, "enforce_minimum": False},
             # Add simplified names that personas expect
             {"name": "Annual", "period": "Annual", "amount": 100.00, "enforce_minimum": True},
@@ -179,8 +175,7 @@ class TestEnvironmentSetup:
                         "amount": config["amount"],
                         "currency": "EUR",
                         "subscription_period": config["period"],
-                        "enforce_minimum_period": config["enforce_minimum"],
-                    }
+                        "enforce_minimum_period": config["enforce_minimum"]}
                 )
                 membership_type.insert(ignore_permissions=True)
                 types.append(membership_type)

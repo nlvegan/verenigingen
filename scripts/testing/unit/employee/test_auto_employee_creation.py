@@ -113,8 +113,7 @@ def test_expense_submission_workflow():
         "organization_type": "Chapter",
         "chapter": chapter,
         "category": category,
-        "notes": "Testing automatic employee creation during expense submission",
-    }
+        "notes": "Testing automatic employee creation during expense submission"}
 
     try:
         # Mock session user as the volunteer's member

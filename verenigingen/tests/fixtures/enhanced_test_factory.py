@@ -448,7 +448,6 @@ class EnhancedTestDataFactory:
             "membership_type_name": type_name,
             "amount": attributes.get("amount", 50.00) if attributes else 50.00,
             "currency": attributes.get("currency", "EUR") if attributes else "EUR",
-            "billing_frequency": attributes.get("billing_frequency", "Annual") if attributes else "Annual",
             "is_active": attributes.get("is_active", 1) if attributes else 1,
             "membership_fee": attributes.get("amount", 50.00) if attributes else 50.00  # Some systems use this field
         }

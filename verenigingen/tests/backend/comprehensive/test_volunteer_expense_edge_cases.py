@@ -46,8 +46,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
             "expense_date": today(),
             "category": "test",
             "organization_type": "Chapter",
-            "chapter": "test",
-        }
+            "chapter": "test"}
 
         result = submit_expense(expense_data)
         self.assertFalse(result["success"])
@@ -66,8 +65,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                     "expense_date": today(),
                     "category": "test",
                     "organization_type": "Chapter",
-                    "chapter": "test",
-                }
+                    "chapter": "test"}
 
                 result = submit_expense(expense_data)
                 self.assertFalse(result["success"])
@@ -114,8 +112,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                 "expense_date": today(),
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name,
-            }
+                "chapter": test_chapter.name}
 
             result = submit_expense(expense_data)
             if amount == "0.01":
@@ -150,8 +147,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                 "expense_date": today(),
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name,
-            }
+                "chapter": test_chapter.name}
 
             result = submit_expense(expense_data)
             if desc == "":
@@ -178,8 +174,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                 "expense_date": today(),
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name,
-            }
+                "chapter": test_chapter.name}
 
             result = submit_expense(expense_data)
             results.append(result)
@@ -219,8 +214,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                 "expense_date": test_date,
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name,
-            }
+                "chapter": test_chapter.name}
 
             result = submit_expense(expense_data)
 
@@ -257,8 +251,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                 "expense_date": today(),
                 "category": "test",
                 "organization_type": "Chapter",
-                "chapter": "test",
-            }
+                "chapter": "test"}
 
             result = submit_expense(expense_data)
             self.assertFalse(result["success"])
@@ -289,8 +282,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                 "expense_date": today(),
                 "category": test_category.name,
                 "organization_type": "Chapter",
-                "chapter": test_chapter.name,
-            }
+                "chapter": test_chapter.name}
 
             result = submit_expense(expense_data)
             self.assertTrue(result["success"])
@@ -307,8 +299,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                     "doctype": "Volunteer",
                     "volunteer_name": "Edge Test Volunteer",
                     "email": self.test_user,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             ).insert()
         return frappe.get_doc("Volunteer", {"email": self.test_user})
 
@@ -320,8 +311,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
                     "doctype": "Expense Category",
                     "category_name": "Edge Test Category",
                     "description": "Test category for edge cases",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             ).insert()
         return frappe.get_doc("Expense Category", "Edge Test Category")
 

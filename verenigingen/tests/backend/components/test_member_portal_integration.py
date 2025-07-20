@@ -455,8 +455,7 @@ class TestMemberPortalIntegration(VereningingenTestCase):
             "dashboard": ["Active", "Suspended"],
             "profile": ["Active", "Suspended"],
             "payments": ["Active"],
-            "events": ["Active"],
-        }
+            "events": ["Active"]}
         
         allowed_statuses = access_matrix.get(feature, [])
         return member.status in allowed_statuses
@@ -464,8 +463,7 @@ class TestMemberPortalIntegration(VereningingenTestCase):
     def get_member_dashboard_content(self, member):
         """Get dashboard content based on member status"""
         content = {
-            "membership_status": member.status,
-        }
+            "membership_status": member.status}
         
         if member.status == "Active":
             content.update({

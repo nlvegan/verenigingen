@@ -32,8 +32,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "first_name": "Edge",
                 "last_name": "Case One",
                 "email": "edge1@example.com",
-                "join_date": today(),
-            }
+                "join_date": today()}
         )
         cls.test_data["member_1"].insert(ignore_permissions=True)
 
@@ -44,8 +43,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "email": "edge1@example.com",
                 "member": "EDGE-MEMBER-1",
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         cls.test_data["volunteer_1"].insert(ignore_permissions=True)
 
@@ -56,8 +54,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "volunteer_name": "Edge Case Volunteer 2",
                 "email": "edge2@example.com",
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         cls.test_data["volunteer_2"].insert(ignore_permissions=True)
 
@@ -69,8 +66,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "first_name": "Edge",
                 "last_name": "Case Three",
                 "email": "edge3@example.com",
-                "join_date": today(),
-            }
+                "join_date": today()}
         )
         cls.test_data["member_3"].insert(ignore_permissions=True)
 
@@ -80,8 +76,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "name": "EDGE-CHAPTER-1",
                 "chapter_name": "Edge Case Chapter 1",
-                "region": "Test Region 1",
-            }
+                "region": "Test Region 1"}
         )
         cls.test_data["chapter_1"].insert(ignore_permissions=True)
 
@@ -90,8 +85,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "name": "EDGE-CHAPTER-2",
                 "chapter_name": "Edge Case Chapter 2",
-                "region": "Test Region 2",
-            }
+                "region": "Test Region 2"}
         )
         cls.test_data["chapter_2"].insert(ignore_permissions=True)
 
@@ -108,8 +102,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                     "doctype": "Expense Category",
                     "name": "EDGE-CATEGORY",
                     "category_name": "Edge Case Category",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             cls.test_data["category"].insert(ignore_permissions=True)
 
@@ -132,8 +125,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-1",
             "category": "EDGE-CATEGORY",
-            "notes": "Testing valid membership",
-        }
+            "notes": "Testing valid membership"}
 
         with patch("frappe.session.user", "edge1@example.com"):
             result = submit_expense(expense_data)
@@ -153,8 +145,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-2",  # Volunteer not member of this chapter
             "category": "EDGE-CATEGORY",
-            "notes": "Testing invalid membership",
-        }
+            "notes": "Testing invalid membership"}
 
         with patch("frappe.session.user", "edge1@example.com"):
             result = submit_expense(expense_data)
@@ -186,8 +177,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-1",
             "category": "EDGE-CATEGORY",
-            "notes": "Testing volunteer without member link",
-        }
+            "notes": "Testing volunteer without member link"}
 
         with patch("frappe.session.user", "edge2@example.com"):
             result = submit_expense(expense_data)
@@ -213,8 +203,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "name": "EDGE-CHAPTER-DISABLED",
                 "chapter_name": "Edge Case Disabled Chapter",
-                "region": "Test Region Disabled",
-            }
+                "region": "Test Region Disabled"}
         )
         test_chapter.insert(ignore_permissions=True)
 
@@ -235,8 +224,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-DISABLED",
             "category": "EDGE-CATEGORY",
-            "notes": "Testing disabled membership",
-        }
+            "notes": "Testing disabled membership"}
 
         with patch("frappe.session.user", "edge1@example.com"):
             submit_expense(expense_data)
@@ -268,8 +256,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "EDGE-CHAPTER-1",
             "category": "EDGE-CATEGORY",
-            "notes": "Testing multiple memberships edge case",
-        }
+            "notes": "Testing multiple memberships edge case"}
 
         with patch("frappe.session.user", "edge1@example.com"):
             result = submit_expense(expense_data)
@@ -287,8 +274,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "edge-chapter-1",  # Wrong case
             "category": "EDGE-CATEGORY",
-            "notes": "Testing case sensitivity",
-        }
+            "notes": "Testing case sensitivity"}
 
         with patch("frappe.session.user", "edge1@example.com"):
             result = submit_expense(expense_data)
@@ -306,8 +292,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "NONEXISTENT-CHAPTER",
             "category": "EDGE-CATEGORY",
-            "notes": "Testing nonexistent chapter",
-        }
+            "notes": "Testing nonexistent chapter"}
 
         with patch("frappe.session.user", "edge1@example.com"):
             result = submit_expense(expense_data)
@@ -326,8 +311,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "email": "empty@example.com",
                 "member": "",  # Empty string instead of None
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         volunteer_empty.insert(ignore_permissions=True)
 

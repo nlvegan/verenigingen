@@ -33,22 +33,19 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                 "region": "Test Region Alpha",
                 "postal_codes": "1000-1999",
                 "published": 1,
-                "introduction": "Test chapter Alpha",
-            },
+                "introduction": "Test chapter Alpha"},
             {
                 "name": "Test Chapter Beta",
                 "region": "Test Region Beta",
                 "postal_codes": "2000-2999",
                 "published": 1,
-                "introduction": "Test chapter Beta",
-            },
+                "introduction": "Test chapter Beta"},
             {
                 "name": "Unpublished Test Chapter",
                 "region": "Test Region Gamma",
                 "postal_codes": "3000-3999",
                 "published": 0,  # Unpublished
-                "introduction": "Unpublished test chapter",
-            },
+                "introduction": "Unpublished test chapter"},
         ]
 
         for chapter_data in test_chapters:
@@ -64,8 +61,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "membership_type_name": "Test Membership",
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "subscription_period": "Annual"}
             )
             membership_type.insert()
 
@@ -89,8 +85,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "email": self.test_email,
                     "status": "Active",
                     "birth_date": "1990-01-01",
-                    "application_status": "Approved",
-                }
+                    "application_status": "Approved"}
             )
             member.insert()
 
@@ -372,8 +367,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "region": "Special-Ñieuwe Test",
                     "postal_codes": "8000-8999",
                     "published": 1,
-                    "introduction": "Special chapter with international characters",
-                }
+                    "introduction": "Special chapter with international characters"}
             )
             special_chapter.insert()
 
@@ -419,8 +413,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "email": special_email,
                     "status": "Active",
                     "birth_date": "1990-01-01",
-                    "application_status": "Approved",
-                }
+                    "application_status": "Approved"}
             )
             special_member.insert()
 
@@ -465,8 +458,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "region": "Performance Test Region",
                     "postal_codes": "9000-9999",
                     "published": 1,
-                    "introduction": "Chapter for performance testing",
-                }
+                    "introduction": "Chapter for performance testing"}
             )
             perf_chapter.insert()
 

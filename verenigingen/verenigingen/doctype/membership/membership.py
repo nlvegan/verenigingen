@@ -36,10 +36,14 @@ class Membership(Document):
             schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule)
             if schedule.membership_type != self.membership_type:
                 schedule.membership_type = self.membership_type
-                # Update amounts from new membership type
+                # Get template from membership type if available
                 membership_type_doc = frappe.get_doc("Membership Type", self.membership_type)
-                schedule.minimum_amount = getattr(membership_type_doc, "minimum_contribution", 0)
-                schedule.suggested_amount = getattr(membership_type_doc, "suggested_contribution", 0)
+                if membership_type_doc.dues_schedule_template:
+                    template = frappe.get_doc(
+                        "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                    )
+                    schedule.minimum_amount = template.minimum_amount or 0
+                    schedule.suggested_amount = template.suggested_amount or 0
                 schedule.save()
         else:
             # Create new dues schedule from template
@@ -413,11 +417,15 @@ class Membership(Document):
         if billing_amount:
             dues_schedule.dues_rate = billing_amount
         else:
-            # Fallback to membership type amount
+            # Fallback to membership type amount or template
             membership_type = frappe.get_doc("Membership Type", self.membership_type)
-            dues_schedule.dues_rate = getattr(membership_type, "suggested_contribution", None) or getattr(
-                membership_type, "amount", 0
-            )
+            if membership_type.dues_schedule_template:
+                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+                dues_schedule.dues_rate = (
+                    template.suggested_amount or template.dues_rate or membership_type.amount
+                )
+            else:
+                dues_schedule.dues_rate = membership_type.amount or 0
 
         # Set billing frequency based on membership type
         if self.membership_type:

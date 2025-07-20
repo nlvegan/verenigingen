@@ -101,8 +101,7 @@ def test_policy_covered_expenses():
         "expense_date": "2025-01-14",
         "organization_type": "National",
         "category": policy_category,
-        "notes": "Testing policy-covered expense for non-board member",
-    }
+        "notes": "Testing policy-covered expense for non-board member"}
 
     print(f"   Test expense: €{expense_data['amount']} for {policy_category}")
 

@@ -38,8 +38,6 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
     def test_minimum_contribution_boundary_validation(self):
         """Test validation at minimum contribution boundaries"""
         membership_type = self.create_edge_case_membership_type()
-        membership_type.minimum_contribution = 0.01  # 1 cent minimum
-        membership_type.suggested_contribution = 10.00
         membership_type.save()
         
         # Test exactly at minimum - should pass
@@ -51,16 +49,12 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
             self.create_test_dues_schedule(membership_type, amount=0.00)
             
         # Test edge case: negative minimum (should auto-correct)
-        membership_type.minimum_contribution = -5.00
         membership_type.save()
         self.assertGreaterEqual(membership_type.minimum_contribution, 0)
         
     def test_maximum_contribution_boundary_validation(self):
         """Test validation at maximum contribution boundaries"""
         membership_type = self.create_edge_case_membership_type()
-        membership_type.minimum_contribution = 5.00
-        membership_type.suggested_contribution = 25.00
-        membership_type.maximum_contribution = 1000.00
         membership_type.save()
         
         # Test exactly at maximum - should pass
@@ -76,9 +70,6 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         membership_type = self.create_edge_case_membership_type()
         
         # Test very large amounts (millionaire scenario)
-        membership_type.minimum_contribution = 1.00
-        membership_type.suggested_contribution = 50000.00
-        membership_type.maximum_contribution = 999999.99
         membership_type.save()
         
         # Should handle large amounts gracefully
@@ -86,7 +77,6 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         self.assertEqual(dues_schedule.dues_rate, 50000.00)
         
         # Test precision with many decimal places
-        membership_type.suggested_contribution = 25.999999
         membership_type.save()
         
         # Should round appropriately for currency
@@ -206,11 +196,8 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         membership_type.membership_type_name = f"Ñoël & André's Café Membership {frappe.generate_hash(length=6)}"
         membership_type.description = "Membership with spëcial chäractersß and émojis 🎉"
         membership_type.amount = 25.0
-        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
-        membership_type.minimum_contribution = 5.0
-        membership_type.suggested_contribution = 25.0
         membership_type.enable_income_calculator = 1
         membership_type.income_percentage_rate = 0.75
         membership_type.calculator_description = "Ñós sugerimos 0,75% de sú ingreso mensual neto"
@@ -372,8 +359,6 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
     def test_zero_amount_dues_schedule(self):
         """Test handling of zero-amount dues (free membership)"""
         membership_type = self.create_edge_case_membership_type()
-        membership_type.minimum_contribution = 0.0
-        membership_type.suggested_contribution = 0.0
         membership_type.save()
         
         # Create zero-amount dues schedule
@@ -449,12 +434,8 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         membership_type.membership_type_name = f"Edge Case Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Membership type for edge case testing"
         membership_type.amount = 25.0
-        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
-        membership_type.minimum_contribution = 5.0
-        membership_type.suggested_contribution = 25.0
-        membership_type.maximum_contribution = 500.0
         membership_type.enable_income_calculator = 1
         membership_type.income_percentage_rate = 0.75
         membership_type.save()
@@ -486,7 +467,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
                     dues_schedule.custom_amount_reason = "Test scenario requiring large amount"
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.dues_rate = membership_type.suggested_contribution
+            dues_schedule.dues_rate = membership_type.suggested_contribution  # TODO: Update to use dues schedule template
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"
         dues_schedule.status = "Active"
@@ -521,7 +502,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
                     dues_schedule.custom_amount_reason = "Test scenario requiring large amount"
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.dues_rate = membership_type.suggested_contribution
+            dues_schedule.dues_rate = membership_type.suggested_contribution  # TODO: Update to use dues schedule template
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"
         dues_schedule.status = "Active"

@@ -17,8 +17,7 @@ def test_team_member_removal():
                 "team_name": f"Removal Test Team {frappe.utils.random_string(5)}",
                 "status": "Active",
                 "team_type": "Project Team",
-                "start_date": frappe.utils.today(),
-            }
+                "start_date": frappe.utils.today()}
         )
         test_team.insert()
 
@@ -35,8 +34,7 @@ def test_team_member_removal():
                 "role_type": "Team Member",
                 "from_date": frappe.utils.today(),
                 "is_active": 1,
-                "status": "Active",
-            },
+                "status": "Active"},
         )
 
         print(f"1. Adding {volunteer_name} to team {test_team.name}")

@@ -62,8 +62,7 @@ class TestChapterMatching(VereningingenTestCase):
             "name": name,
             "region": region,
             "introduction": f"Test chapter for {name}",
-            "published": 1,
-        }
+            "published": 1}
 
         if postal_codes:
             chapter_data["postal_codes"] = postal_codes
@@ -87,8 +86,7 @@ class TestChapterMatching(VereningingenTestCase):
                 "state": "Noord-Holland",
                 "country": "Netherlands",
                 "pincode": "1001",  # Should match Amsterdam chapter
-                "links": [{"link_doctype": "Member", "link_name": self.test_member.name}],
-            }
+                "links": [{"link_doctype": "Member", "link_name": self.test_member.name}]}
         )
         address.insert(ignore_permissions=True)
         return address
@@ -135,8 +133,7 @@ class TestChapterMatching(VereningingenTestCase):
                 "state": "No Match Region",
                 "country": "Netherlands",
                 "pincode": "9999",  # Doesn't match any chapter
-                "links": [{"link_doctype": "Member", "link_name": self.test_member.name}],
-            }
+                "links": [{"link_doctype": "Member", "link_name": self.test_member.name}]}
         )
         address.insert(ignore_permissions=True)
 
@@ -181,8 +178,7 @@ class TestChapterMatching(VereningingenTestCase):
                 "state": "Test Region",  # Matches the chapter
                 "country": "Netherlands",
                 "pincode": "9999",  # Doesn't match any chapter
-                "links": [{"link_doctype": "Member", "link_name": self.test_member.name}],
-            }
+                "links": [{"link_doctype": "Member", "link_name": self.test_member.name}]}
         )
         address.insert(ignore_permissions=True)
 

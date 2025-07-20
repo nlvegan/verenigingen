@@ -539,12 +539,8 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         membership_type.membership_type_name = f"Workflow Tier Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Tier-based membership for workflow testing"
         membership_type.amount = 25.0
-        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Tiers"
-        membership_type.minimum_contribution = 10.0
-        membership_type.suggested_contribution = 25.0
-        membership_type.maximum_contribution = 100.0
         
         # Add tiers
         tiers_data = [
@@ -571,12 +567,8 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         membership_type.membership_type_name = f"Workflow Calculator Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Calculator-based membership for workflow testing"
         membership_type.amount = 20.0
-        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
-        membership_type.minimum_contribution = 8.0
-        membership_type.suggested_contribution = 20.0
-        membership_type.maximum_contribution = 200.0
         membership_type.enable_income_calculator = 1
         membership_type.income_percentage_rate = 0.6
         
@@ -606,7 +598,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         dues_schedule.membership_type = self.calculator_membership_type.name
         dues_schedule.contribution_mode = "Calculator"
         dues_schedule.base_multiplier = 1.0
-        dues_schedule.dues_rate = self.calculator_membership_type.suggested_contribution
+        dues_schedule.dues_rate = self.calculator_membership_type.suggested_contribution  # TODO: Update to use dues schedule template
         dues_schedule.billing_frequency = "Monthly"
         dues_schedule.status = "Active"
         

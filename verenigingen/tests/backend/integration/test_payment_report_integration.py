@@ -20,15 +20,13 @@ class TestPaymentReportIntegration(unittest.TestCase):
                     "full_name": "John Doe",
                     "email": "john@example.com",
                     "primary_chapter": "Amsterdam",
-                    "customer": "CUST-001",
-                },
+                    "customer": "CUST-001"},
                 {
                     "name": "MEM-002",
                     "full_name": "Jane Smith",
                     "email": "jane@example.com",
                     "primary_chapter": "Rotterdam",
-                    "customer": "CUST-002",
-                },
+                    "customer": "CUST-002"},
             ],
             "invoices": [
                 {
@@ -39,8 +37,7 @@ class TestPaymentReportIntegration(unittest.TestCase):
                     "posting_date": add_days(today(), -75),
                     "outstanding_amount": 150.00,
                     "subscription": "SUB-001",
-                    "docstatus": 1,
-                },
+                    "docstatus": 1},
                 {
                     "name": "SINV-002",
                     "customer": "CUST-002",
@@ -49,8 +46,7 @@ class TestPaymentReportIntegration(unittest.TestCase):
                     "posting_date": add_days(today(), -100),
                     "outstanding_amount": 75.00,
                     "subscription": "SUB-002",
-                    "docstatus": 1,
-                },
+                    "docstatus": 1},
             ],
             "subscriptions": [
                 {"name": "SUB-001", "reference_doctype": "Membership Type"},
@@ -59,8 +55,7 @@ class TestPaymentReportIntegration(unittest.TestCase):
             "memberships": [
                 {"member": "MEM-001", "membership_type": "Regular", "status": "Active"},
                 {"member": "MEM-002", "membership_type": "Student", "status": "Active"},
-            ],
-        }
+            ]}
 
     @patch("verenigingen.verenigingen.report.overdue_member_payments.overdue_member_payments.frappe.db.sql")
     @patch(
@@ -85,8 +80,7 @@ class TestPaymentReportIntegration(unittest.TestCase):
                 "oldest_invoice_date": add_days(today(), -75),
                 "days_overdue": 45,
                 "membership_type": "Regular",
-                "last_payment_date": add_days(today(), -60),
-            },
+                "last_payment_date": add_days(today(), -60)},
             {
                 "member_name": "MEM-002",
                 "member_full_name": "Jane Smith",
@@ -97,8 +91,7 @@ class TestPaymentReportIntegration(unittest.TestCase):
                 "oldest_invoice_date": add_days(today(), -100),
                 "days_overdue": 70,
                 "membership_type": "Student",
-                "last_payment_date": add_days(today(), -90),
-            },
+                "last_payment_date": add_days(today(), -90)},
         ]
 
         # Execute report
@@ -149,8 +142,7 @@ class TestPaymentReportIntegration(unittest.TestCase):
                 "oldest_invoice_date": add_days(today(), -75),
                 "days_overdue": 45,
                 "membership_type": "Regular",
-                "last_payment_date": add_days(today(), -60),
-            }
+                "last_payment_date": add_days(today(), -60)}
         ]
 
         # Execute report
@@ -180,8 +172,7 @@ class TestPaymentReportIntegration(unittest.TestCase):
                 "chapter": "Amsterdam",
                 "total_overdue": 150.00,
                 "overdue_count": 2,
-                "days_overdue": 45,
-            }
+                "days_overdue": 45}
         ]
 
         # Mock successful email sending
@@ -221,8 +212,7 @@ class TestPaymentReportIntegration(unittest.TestCase):
                 "oldest_invoice_date": add_days(today(), -75),
                 "days_overdue": 45,
                 "membership_type": "Regular",
-                "last_payment_date": add_days(today(), -60),
-            }
+                "last_payment_date": add_days(today(), -60)}
         ]
 
         # Mock file operations

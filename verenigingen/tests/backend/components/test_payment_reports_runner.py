@@ -98,8 +98,7 @@ def run_specific_test_class(class_name):
         "overdue_report": "verenigingen.tests.test_overdue_payments_report.TestOverduePaymentsReport",
         "overdue_integration": "verenigingen.tests.test_overdue_payments_report.TestOverduePaymentsReportIntegration",
         "payment_api": "verenigingen.tests.test_payment_processing_api.TestPaymentProcessingAPI",
-        "email_templates": "verenigingen.tests.test_payment_processing_api.TestPaymentProcessingEmailTemplates",
-    }
+        "email_templates": "verenigingen.tests.test_payment_processing_api.TestPaymentProcessingEmailTemplates"}
 
     if class_name not in test_mapping:
         print(f"❌ Unknown test class: {class_name}")
@@ -261,8 +260,7 @@ def run_all_payment_tests():
         success = run_payment_report_tests()
         return {
             "success": success,
-            "message": "All payment reporting tests passed" if success else "Some payment tests failed",
-        }
+            "message": "All payment reporting tests passed" if success else "Some payment tests failed"}
     except Exception as e:
         return {"success": False, "message": f"Test execution failed: {str(e)}"}
 
@@ -274,8 +272,7 @@ def run_payment_smoke_tests():
         success = run_smoke_tests()
         return {
             "success": success,
-            "message": "All smoke tests passed" if success else "Some smoke tests failed",
-        }
+            "message": "All smoke tests passed" if success else "Some smoke tests failed"}
     except Exception as e:
         return {"success": False, "message": f"Smoke test execution failed: {str(e)}"}
 

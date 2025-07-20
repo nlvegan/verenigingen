@@ -27,10 +27,8 @@ def setup_test_environment():
                 "name": "Standard",
                 "amount": 50.0,
                 "currency": "EUR",
-                "billing_frequency": "year",
                 "is_active": 1,
-                "description": "Standard membership for testing",
-            }
+                "description": "Standard membership for testing"}
         )
         membership_type.insert(ignore_permissions=True)
         # Create dues schedule plan for the membership type
@@ -63,8 +61,7 @@ def test_new_application_with_custom_amount():
                 "uses_custom_amount": True,
                 "custom_amount_reason": "Supporter contribution",
                 "payment_method": "SEPA Direct Debit",
-                "terms": True,
-            }
+                "terms": True}
 
             print(f"📝 Creating member with custom amount: €{application_data['membership_amount']}")
 
@@ -137,8 +134,7 @@ def test_existing_member_fee_adjustment():
                     "last_name": "Member" + random_string(4),
                     "email": f"existing.member.{random_string(6)}@example.com",
                     "birth_date": "1985-06-15",
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             member.insert(ignore_permissions=True)
             print(f"✅ Created existing member: {member.name} ({member.full_name})")
@@ -210,8 +206,7 @@ def test_api_submission():
             "bic": "ABNANL2A",
             "bank_account_name": "API Test User",
             "terms": True,
-            "newsletter": True,
-        }
+            "newsletter": True}
 
         print(f"📝 Submitting via API with custom amount: €{form_data['membership_amount']}")
 

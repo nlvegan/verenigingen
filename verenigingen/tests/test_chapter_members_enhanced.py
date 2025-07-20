@@ -186,8 +186,7 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
                 "email": self.test_volunteer1.email,
                 "chapter_role": self.role.name,
                 "from_date": today(),
-                "is_active": 1,
-            },
+                "is_active": 1},
         )
         
         # Use server function to automatically add member
@@ -266,8 +265,7 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
                 "email": self.test_volunteer1.email,
                 "chapter_role": self.role.name,
                 "from_date": today(),
-                "is_active": 1,
-            },
+                "is_active": 1},
         )
         
         # Use server function to automatically add member
@@ -309,8 +307,7 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
                 "email": self.test_volunteer1.email,
                 "chapter_role": self.role.name,
                 "from_date": today(),
-                "is_active": 1,
-            },
+                "is_active": 1},
         )
         
         # Add member to chapter members
@@ -334,8 +331,7 @@ class TestChapterMemberEnhanced(EnhancedTestCase):
                 "email": self.test_volunteer1.email,
                 "chapter_role": another_role.name,
                 "from_date": today(),
-                "is_active": 1,
-            },
+                "is_active": 1},
         )
         
         # Save and reload chapter

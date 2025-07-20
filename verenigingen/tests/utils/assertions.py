@@ -75,8 +75,7 @@ class AssertionHelpers:
             "Payment Entry",
             filters={
                 "party_type": "Customer",
-                "references": [["Payment Entry Reference", "reference_doctype", "=", "Sales Invoice"]],
-            },
+                "references": [["Payment Entry Reference", "reference_doctype", "=", "Sales Invoice"]]},
             fields=["name", "paid_amount", "party"],
         )
 
@@ -140,8 +139,7 @@ class AssertionHelpers:
             "Membership Dues Schedule",
             filters={
                 "member": member_name,
-                "status": "Active",
-            },
+                "status": "Active"},
         )
 
         if not dues_schedules:

@@ -215,8 +215,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "member": self.member.name,
                 "amendment_type": "Fee Change",
                 "creation": [">=", date_365_days_ago],
-                "requested_by_member": 1,
-            },
+                "requested_by_member": 1},
         )
         
         # Should count both (200 and 100 days ago are within 365 days)
@@ -270,8 +269,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "member": self.member.name,
                 "amendment_type": "Fee Change",
                 "creation": [">=", date_365_days_ago],
-                "requested_by_member": 1,
-            },
+                "requested_by_member": 1},
         )
         
         # Should not count the old adjustment
@@ -474,7 +472,6 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             "membership": membership,
             "membership_type": membership_type,
             "dues_rate": amount,
-            "billing_frequency": "Monthly",
             "status": "Active",
             "effective_date": today(),
             "next_invoice_date": today(),
@@ -503,7 +500,6 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             "membership": request.membership,
             "membership_type": self.membership_type.name,
             "dues_rate": request.requested_amount,
-            "billing_frequency": "Monthly",
             "status": "Active",
             "effective_date": request.effective_date,
             "contribution_mode": "Custom",

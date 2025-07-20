@@ -392,7 +392,6 @@ class TestMembershipTypeChange(BaseTestCase):
             "uses_custom_amount": 1,
             "custom_amount_approved": 1,
             "custom_amount_reason": "Test amount",
-            "billing_frequency": "Monthly",
             "status": "Active",
             "effective_date": today(),
             "next_invoice_date": today()
@@ -428,7 +427,6 @@ class TestMembershipTypeChange(BaseTestCase):
             "uses_custom_amount": 1,
             "custom_amount_approved": 1,
             "custom_amount_reason": "Membership type change",
-            "billing_frequency": "Monthly",
             "status": "Active",
             "effective_date": request.effective_date,
             "next_invoice_date": request.effective_date

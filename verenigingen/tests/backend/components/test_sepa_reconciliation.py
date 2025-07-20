@@ -19,8 +19,7 @@ class TestSEPAReconciliation(unittest.TestCase):
                     "doctype": "Customer",
                     "customer_name": "Test Reconciliation Customer",
                     "customer_type": "Individual",
-                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
-                }
+                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name")}
             ).insert()
         else:
             cls.test_customer = frappe.get_doc("Customer", "TEST-RECON-CUSTOMER")
@@ -32,8 +31,7 @@ class TestSEPAReconciliation(unittest.TestCase):
                     "doctype": "Member",
                     "member_name": "Test Recon Member",
                     "email": "recon-test@example.com",
-                    "customer": cls.test_customer.name,
-                }
+                    "customer": cls.test_customer.name}
             ).insert()
         else:
             cls.test_member = frappe.get_doc("Member", {"email": "recon-test@example.com"})
@@ -49,8 +47,7 @@ class TestSEPAReconciliation(unittest.TestCase):
                 "account_holder_name": "Test Recon Holder",
                 "sign_date": today(),
                 "status": "Active",
-                "is_active": 1,
-            }
+                "is_active": 1}
         ).insert()
 
         # Create test bank account
@@ -62,8 +59,7 @@ class TestSEPAReconciliation(unittest.TestCase):
                     "bank": frappe.db.get_value("Bank", {"name": ["!=", ""]}, "name") or "Test Bank",
                     "account": frappe.db.get_value(
                         "Account", {"account_type": "Bank", "is_group": 0}, "name"
-                    ),
-                }
+                    )}
             ).insert()
         else:
             cls.test_bank_account = frappe.get_doc("Bank Account", "TEST-RECON-BANK")
@@ -99,8 +95,7 @@ class TestSEPAReconciliation(unittest.TestCase):
                 "batch_date": today(),
                 "batch_type": "FRST",
                 "total_amount": 100,
-                "status": "Submitted",
-            }
+                "status": "Submitted"}
         )
         self.test_batch.insert()
 
@@ -114,10 +109,8 @@ class TestSEPAReconciliation(unittest.TestCase):
                     {
                         "item_code": frappe.db.get_value("Item", {"item_group": {"!=": ""}}, "name"),
                         "qty": 1,
-                        "rate": 100,
-                    }
-                ],
-            }
+                        "rate": 100}
+                ]}
         ).insert()
         self.test_invoice.submit()
 
@@ -129,8 +122,7 @@ class TestSEPAReconciliation(unittest.TestCase):
                 "customer": self.test_customer.name,
                 "amount": 100,
                 "iban": self.test_mandate.iban,
-                "mandate_reference": self.test_mandate.mandate_id,
-            },
+                "mandate_reference": self.test_mandate.mandate_id},
         )
         self.test_batch.save()
 
@@ -167,8 +159,7 @@ class TestSEPAReconciliation(unittest.TestCase):
                 "description": description,
                 "bank_account": self.test_bank_account.name,
                 "party_iban": iban or self.test_mandate.iban,
-                "status": "Pending",
-            }
+                "status": "Pending"}
         ).insert()
 
     def test_match_by_batch_reference(self):

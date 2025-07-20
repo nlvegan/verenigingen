@@ -54,6 +54,44 @@ def get_context(context):
     return context
 
 
+def get_dues_schedule_template_values(membership_type_name):
+    """Get billing and contribution values from dues schedule template"""
+    try:
+        mt_doc = frappe.get_doc("Membership Type", membership_type_name)
+
+        # Default values
+        values = {
+            "billing_frequency": "Annual",
+            "minimum_contribution": 0,
+            "suggested_contribution": mt_doc.amount or 0,
+            "maximum_contribution": 0,
+            "fee_slider_max_multiplier": 10.0,
+            "allow_custom_amounts": True,
+            "custom_amount_requires_approval": False,
+            "invoice_days_before": 30,
+        }
+
+        # Get values from template if available
+        if mt_doc.dues_schedule_template:
+            try:
+                template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
+                values.update(
+                    {
+                        "billing_frequency": template.billing_frequency or "Annual",
+                        "minimum_contribution": template.minimum_amount or 0,
+                        "suggested_contribution": template.suggested_amount or mt_doc.amount or 0,
+                        "invoice_days_before": template.invoice_days_before or 30,
+                        "allow_custom_amounts": template.uses_custom_amount or True,
+                    }
+                )
+            except Exception:
+                pass
+
+        return values
+    except Exception:
+        return {}
+
+
 def get_membership_types_with_contributions():
     """Get all active membership types with their contribution options"""
     membership_types = frappe.get_all(
@@ -64,17 +102,11 @@ def get_membership_types_with_contributions():
             "membership_type_name",
             "description",
             "amount",
-            "billing_frequency",
             "contribution_mode",
-            "minimum_contribution",
-            "suggested_contribution",
-            "maximum_contribution",
-            "fee_slider_max_multiplier",
             "enable_income_calculator",
             "income_percentage_rate",
             "calculator_description",
-            "allow_custom_amounts",
-            "custom_amount_requires_approval",
+            "dues_schedule_template",
         ],
         order_by="membership_type_name",
     )
@@ -102,12 +134,15 @@ def get_membership_types_with_contributions():
                 "quick_amounts": [],
             }
 
+        # Get billing values from template
+        template_values = get_dues_schedule_template_values(mt.name)
+
         enhanced_mt = {
             "name": mt.name,
             "membership_type_name": mt.membership_type_name,
             "description": mt.description,
             "amount": mt.amount,
-            "billing_frequency": mt.billing_frequency,
+            "billing_frequency": template_values.get("billing_frequency", "Annual"),
             "contribution_options": contribution_options,
         }
 
@@ -124,6 +159,8 @@ def get_membership_type_details(membership_type_name):
 
     try:
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
+        template_values = get_dues_schedule_template_values(membership_type_name)
+
         return {
             "success": True,
             "membership_type": {
@@ -131,8 +168,10 @@ def get_membership_type_details(membership_type_name):
                 "membership_type_name": mt_doc.membership_type_name,
                 "description": mt_doc.description,
                 "amount": mt_doc.amount,
-                "billing_frequency": mt_doc.billing_frequency,
-                "contribution_options": mt_doc.get_contribution_options(),
+                "billing_frequency": template_values.get("billing_frequency", "Annual"),
+                "contribution_options": mt_doc.get_contribution_options()
+                if hasattr(mt_doc, "get_contribution_options")
+                else {},
             },
         }
     except frappe.DoesNotExistError:
@@ -154,11 +193,14 @@ def validate_contribution_amount(
         amount = flt(amount)
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
 
-        # Get minimum and maximum constraints
-        min_amount = mt_doc.minimum_contribution or (mt_doc.amount * 0.3 if mt_doc.amount else 5.0)
-        max_amount = mt_doc.maximum_contribution or (
-            mt_doc.suggested_contribution or mt_doc.amount or 15.0
-        ) * (mt_doc.fee_slider_max_multiplier or 10.0)
+        # Get minimum and maximum constraints from template
+        template_values = get_dues_schedule_template_values(membership_type_name)
+        min_amount = template_values.get("minimum_contribution", 0) or (
+            mt_doc.amount * 0.3 if mt_doc.amount else 5.0
+        )
+        max_amount = template_values.get("maximum_contribution", 0) or (
+            template_values.get("suggested_contribution", mt_doc.amount or 15.0)
+        ) * (template_values.get("fee_slider_max_multiplier", 10.0))
 
         # Validate against constraints
         if amount < min_amount:
@@ -180,7 +222,8 @@ def validate_contribution_amount(
         # Determine if approval is needed for custom amounts
         needs_approval = False
         if contribution_mode == "Custom" or (
-            amount != mt_doc.suggested_contribution and mt_doc.custom_amount_requires_approval
+            amount != template_values.get("suggested_contribution", mt_doc.amount)
+            and template_values.get("custom_amount_requires_approval", False)
         ):
             needs_approval = True
 
@@ -226,8 +269,9 @@ def calculate_suggested_contribution(membership_type_name, monthly_income, payme
         multiplier = interval_multipliers.get(payment_interval, 1)
         calculated_amount = base_amount * multiplier
 
-        # Ensure minimum amount
-        min_amount = mt_doc.minimum_contribution or 5.0
+        # Ensure minimum amount from template
+        template_values = get_dues_schedule_template_values(membership_type_name)
+        min_amount = template_values.get("minimum_contribution", 0) or 5.0
         if payment_interval == "quarterly":
             min_amount = min_amount * 3
         elif payment_interval == "annually":

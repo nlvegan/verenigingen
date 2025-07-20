@@ -30,7 +30,6 @@ class TestMembershipApplicationIntegration(VereningingenTestCase):
             "name": "Test Integration Type",
             "membership_type_name": "Test Integration Type",
             "amount": 25.0,
-            "minimum_contribution": 5.0,
             "is_active": 1,
             "is_published": 1
         })

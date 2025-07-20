@@ -23,8 +23,7 @@ def test_per_type_minimum_period():
             "email": "test_per_type@example.com",
             "first_name": "Test",
             "last_name": "PerType",
-            "status": "Active",
-        }
+            "status": "Active"}
     )
     member.insert(ignore_permissions=True)
     print(f"\n✓ Created test member: {member.email}")
@@ -69,8 +68,7 @@ def test_per_type_minimum_period():
             "doctype": "Membership",
             "member": member.name,
             "membership_type": mt_enforced.name,
-            "start_date": today(),
-        }
+            "start_date": today()}
     )
     membership1.insert()
 
@@ -92,8 +90,7 @@ def test_per_type_minimum_period():
             "email": "test_per_type2@example.com",
             "first_name": "Test2",
             "last_name": "PerType2",
-            "status": "Active",
-        }
+            "status": "Active"}
     )
     member2.insert(ignore_permissions=True)
 
@@ -102,8 +99,7 @@ def test_per_type_minimum_period():
             "doctype": "Membership",
             "member": member2.name,
             "membership_type": mt_not_enforced.name,
-            "start_date": today(),
-        }
+            "start_date": today()}
     )
     membership2.insert()
 

@@ -21,8 +21,7 @@ class TestPaymentRetryManager(unittest.TestCase):
                     "doctype": "Customer",
                     "customer_name": "Test Retry Customer",
                     "customer_type": "Individual",
-                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
-                }
+                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name")}
             ).insert()
         else:
             cls.test_customer = frappe.get_doc("Customer", "TEST-RETRY-CUSTOMER")
@@ -34,8 +33,7 @@ class TestPaymentRetryManager(unittest.TestCase):
                     "doctype": "Member",
                     "member_name": "Test Retry Member",
                     "email": "retry-test@example.com",
-                    "customer": cls.test_customer.name,
-                }
+                    "customer": cls.test_customer.name}
             ).insert()
         else:
             cls.test_member = frappe.get_doc("Member", {"email": "retry-test@example.com"})
@@ -48,8 +46,7 @@ class TestPaymentRetryManager(unittest.TestCase):
                 "membership_type": frappe.db.get_value("Membership Type", {"name": ["!=", ""]}, "name"),
                 "from_date": today(),
                 "to_date": add_days(today(), 365),
-                "paid": 0,
-            }
+                "paid": 0}
         ).insert()
 
     @classmethod
@@ -83,10 +80,8 @@ class TestPaymentRetryManager(unittest.TestCase):
                     {
                         "item_code": frappe.db.get_value("Item", {"item_group": {"!=": ""}}, "name"),
                         "qty": 1,
-                        "rate": 100,
-                    }
-                ],
-            }
+                        "rate": 100}
+                ]}
         ).insert()
         self.test_invoice.submit()
 
@@ -156,8 +151,7 @@ class TestPaymentRetryManager(unittest.TestCase):
                 "member": self.test_member.name,
                 "original_amount": 100,
                 "retry_count": 0,
-                "status": "Pending",
-            }
+                "status": "Pending"}
         ).insert()
 
         # Test first retry (3 days)
@@ -217,8 +211,7 @@ class TestPaymentRetryManager(unittest.TestCase):
                 "member": self.test_member.name,
                 "original_amount": 100,
                 "retry_count": 3,  # Already at max
-                "status": "Failed",
-            }
+                "status": "Failed"}
         ).insert()
 
         # Try to schedule another retry
@@ -274,8 +267,7 @@ class TestPaymentRetryManager(unittest.TestCase):
                 "member": self.test_member.name,
                 "original_amount": 100,
                 "next_retry_date": add_days(today(), 3),
-                "status": "Scheduled",
-            }
+                "status": "Scheduled"}
         ).insert()
 
         # Create job
@@ -303,8 +295,7 @@ class TestPaymentRetryManager(unittest.TestCase):
                 "member": self.test_member.name,
                 "original_amount": 100,
                 "retry_count": 2,
-                "status": "Failed",
-            }
+                "status": "Failed"}
         ).insert()
 
         # Escalate
@@ -321,8 +312,7 @@ class TestPaymentRetryManager(unittest.TestCase):
             filters={
                 "reference_doctype": "Sales Invoice",
                 "reference_name": self.test_invoice.name,
-                "comment_type": "Comment",
-            },
+                "comment_type": "Comment"},
             fields=["content"],
         )
 

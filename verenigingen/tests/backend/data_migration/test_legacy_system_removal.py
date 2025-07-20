@@ -120,8 +120,7 @@ class TestLegacySystemRemoval(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing ERPNext backend",
-        }
+            "notes": "Testing ERPNext backend"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.name = "TEST-VOL-001"
@@ -357,8 +356,7 @@ class TestERPNextMigrationCompliance(unittest.TestCase):
             "amount": 100.00,
             "expense_date": "2024-12-14",
             "organization_type": "National",
-            "category": "Travel",
-        }
+            "category": "Travel"}
 
         with patch(
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
@@ -395,8 +393,7 @@ class TestERPNextMigrationCompliance(unittest.TestCase):
             "amount": 50.00,
             "expense_date": "2024-12-14",
             "organization_type": "National",
-            "category": "Travel",
-        }
+            "category": "Travel"}
 
         with patch(
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",

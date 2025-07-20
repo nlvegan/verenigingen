@@ -23,8 +23,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "chapter_name": "SEPA Test Chapter",
                 "short_name": "STC",
-                "country": "Netherlands",
-            }
+                "country": "Netherlands"}
         )
         cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
@@ -37,8 +36,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "last_name": "Testmember",
                 "email": "sepa.test@test.com",
                 "status": "Active",
-                "chapter": cls.chapter.name,
-            }
+                "chapter": cls.chapter.name}
         )
         cls.member.insert(ignore_permissions=True)
         cls.test_records.append(cls.member)
@@ -89,8 +87,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                     "member": self.member.name,
                     "iban": iban,
                     "status": "Active",
-                    "mandate_date": today(),
-                }
+                    "mandate_date": today()}
             )
 
             try:
@@ -110,8 +107,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                         "member": self.member.name,
                         "iban": iban,
                         "status": "Active",
-                        "mandate_date": today(),
-                    }
+                        "mandate_date": today()}
                 )
                 mandate.insert()
 
@@ -131,8 +127,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                     "member": self.member.name,
                     "iban": input_iban,
                     "status": "Active",
-                    "mandate_date": today(),
-                }
+                    "mandate_date": today()}
             )
             mandate.insert()
 
@@ -155,8 +150,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                     "member": self.member.name,
                     "iban": wrong_checksum_iban,
                     "status": "Active",
-                    "mandate_date": today(),
-                }
+                    "mandate_date": today()}
             )
             mandate.insert()
 
@@ -174,8 +168,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
                 "mandate_date": past_date,
-                "expiry_date": past_date,
-            }
+                "expiry_date": past_date}
         )
 
         # Should either reject or auto-expire
@@ -197,8 +190,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         mandate.insert()
 
@@ -222,8 +214,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         mandate1.insert()
 
@@ -235,8 +226,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                     "member": self.member.name,
                     "iban": "DE89370400440532013000",  # Different IBAN
                     "status": "Active",
-                    "mandate_date": today(),
-                }
+                    "mandate_date": today()}
             )
             mandate2.insert()
 
@@ -268,8 +258,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                         "mandate": mandate.name,
                         "usage_date": today(),
                         "amount": 100.00,
-                        "description": f"Usage {i + 1}",
-                    }
+                        "description": f"Usage {i + 1}"}
                 )
 
                 if i < 3:  # First 3 should succeed
@@ -304,8 +293,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                     "mandate": mandate.name,
                     "usage_date": today(),
                     "amount": 300.00,
-                    "description": "First usage",
-                }
+                    "description": "First usage"}
             )
             usage1.insert()
 
@@ -317,8 +305,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                         "mandate": mandate.name,
                         "usage_date": today(),
                         "amount": 250.00,  # 300 + 250 = 550 > 500 limit
-                        "description": "Second usage",
-                    }
+                        "description": "Second usage"}
                 )
                 usage2.insert()
         finally:
@@ -336,8 +323,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         mandate.insert()
 
@@ -354,8 +340,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "parent": batch.name,
                 "mandate": mandate.name,
                 "amount": 100.00,
-                "currency": "EUR",
-            }
+                "currency": "EUR"}
         )
         batch_invoice.insert()
 
@@ -405,8 +390,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         mandate.insert()
 
@@ -430,8 +414,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                         "mandate": mandate.name,
                         "status": response_type,
                         "message": response_message,
-                        "amount": 100.00,
-                    }
+                        "amount": 100.00}
 
                     result = process_bank_response(response_data)
 
@@ -457,8 +440,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         mandate.insert()
 
@@ -472,8 +454,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                     "doctype": "SEPA Direct Debit Batch",
                     "batch_date": today(),
                     "execution_date": debit_date,  # Too soon
-                    "status": "Draft",
-                }
+                    "status": "Draft"}
             )
             batch.insert()
 
@@ -530,8 +511,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                         "member": self.member.name,
                         "iban": iban,
                         "status": "Active",
-                        "mandate_date": today(),
-                    }
+                        "mandate_date": today()}
                 )
 
                 if should_be_valid:
@@ -552,8 +532,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         mandate.insert()
 
@@ -570,8 +549,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                             "usage_date": today(),
                             "amount": 100.00,
                             "currency": currency,  # Non-EUR currency
-                            "description": f"Test {currency}",
-                        }
+                            "description": f"Test {currency}"}
                     )
                     usage.insert()
 
@@ -598,8 +576,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                             "member": self.member.name,
                             "iban": "NL91ABNA0417164300",
                             "status": "Active",
-                            "mandate_date": today(),
-                        }
+                            "mandate_date": today()}
                     )
                     mandate.insert()
 
@@ -612,8 +589,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                                     "mandate": mandate.name,
                                     "usage_date": today(),
                                     "amount": 100.00,
-                                    "description": f"Rapid transaction {i + 1}",
-                                }
+                                    "description": f"Rapid transaction {i + 1}"}
                             )
                             usage.insert()
                         except frappe.ValidationError:

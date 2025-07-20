@@ -27,8 +27,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                     "first_name": "Unit",
                     "last_name": "Test",
                     "email": "unit.test@example.com",
-                    "join_date": today(),
-                }
+                    "join_date": today()}
             )
             cls.test_member.insert(ignore_permissions=True)
         else:
@@ -44,8 +43,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                     "email": "unit.test@example.com",
                     "member": cls.test_member.name,
                     "status": "Active",
-                    "start_date": today(),
-                }
+                    "start_date": today()}
             )
             cls.test_volunteer.insert(ignore_permissions=True)
         else:
@@ -81,8 +79,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                     {  # Second call: volunteer lookup
                         "name": self.test_volunteer.name,
                         "volunteer_name": self.test_volunteer.volunteer_name,
-                        "member": self.test_member.name,
-                    }
+                        "member": self.test_member.name}
                 ),
             ]
 
@@ -115,8 +112,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                     {  # Second call: direct volunteer lookup
                         "name": self.test_volunteer.name,
                         "volunteer_name": self.test_volunteer.volunteer_name,
-                        "member": self.test_member.name,
-                    }
+                        "member": self.test_member.name}
                 ),
             ]
 
@@ -147,8 +143,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                 "volunteer_name": "Volunteer Without Member",
                 "email": "no.member@example.com",
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         volunteer_no_member.insert(ignore_permissions=True)
 
@@ -211,8 +206,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                     {
                         "name": self.test_volunteer.name,
                         "volunteer_name": self.test_volunteer.volunteer_name,
-                        "member": self.test_member.name,
-                    }
+                        "member": self.test_member.name}
                 ),
             ]
 

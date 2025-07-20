@@ -34,8 +34,7 @@ class TestOverduePaymentsReport(VereningingenTestCase):
                 "oldest_invoice_date": add_days(today(), -45),
                 "days_overdue": 45,
                 "membership_type": "Regular",
-                "last_payment_date": add_days(today(), -60),
-            },
+                "last_payment_date": add_days(today(), -60)},
             {
                 "member_name": "MEM-002",
                 "member_full_name": "Jane Smith",
@@ -46,8 +45,7 @@ class TestOverduePaymentsReport(VereningingenTestCase):
                 "oldest_invoice_date": add_days(today(), -70),
                 "days_overdue": 70,
                 "membership_type": "Student",
-                "last_payment_date": add_days(today(), -90),
-            },
+                "last_payment_date": add_days(today(), -90)},
             {
                 "member_name": "MEM-003",
                 "member_full_name": "Bob Wilson",
@@ -58,8 +56,7 @@ class TestOverduePaymentsReport(VereningingenTestCase):
                 "oldest_invoice_date": add_days(today(), -20),
                 "days_overdue": 20,
                 "membership_type": "Regular",
-                "last_payment_date": add_days(today(), -30),
-            },
+                "last_payment_date": add_days(today(), -30)},
         ]
 
     def test_regression_today_function_import_bug(self):
@@ -168,8 +165,7 @@ class TestOverduePaymentsReport(VereningingenTestCase):
             "membership_type": "Regular",
             "days_overdue": 30,
             "critical_only": True,
-            "urgent_only": False,
-        }
+            "urgent_only": False}
 
         get_data(filters)
 
@@ -459,8 +455,7 @@ class TestOverduePaymentsReportIntegration(VereningingenTestCase):
                     "overdue_count": 1,
                     "total_overdue": 100.00,
                     "days_overdue": 35,
-                    "membership_type": "Test",
-                }
+                    "membership_type": "Test"}
             ]
 
             columns, data, message, chart, summary = execute({"chapter": "Test Chapter"})

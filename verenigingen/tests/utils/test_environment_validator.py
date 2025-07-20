@@ -62,8 +62,7 @@ class TestEnvironmentValidator:
                 return {
                     "status": "fail",
                     "message": "Not running in Frappe context",
-                    "errors": ["Frappe context not initialized"],
-                }
+                    "errors": ["Frappe context not initialized"]}
 
             # Check site configuration
             site_name = frappe.local.site
@@ -76,8 +75,7 @@ class TestEnvironmentValidator:
                 return {
                     "status": "fail",
                     "message": "Verenigingen app not installed",
-                    "errors": ["Verenigingen not in installed apps"],
-                }
+                    "errors": ["Verenigingen not in installed apps"]}
 
             return {
                 "status": "pass",
@@ -85,16 +83,13 @@ class TestEnvironmentValidator:
                 "details": {
                     "site": site_name,
                     "installed_apps": len(installed_apps),
-                    "frappe_version": frappe.__version__,
-                },
-            }
+                    "frappe_version": frappe.__version__}}
 
         except Exception as e:
             return {
                 "status": "fail",
                 "message": f"Frappe environment check failed: {str(e)}",
-                "errors": [str(e)],
-            }
+                "errors": [str(e)]}
 
     def validate_database_connection(self):
         """Validate database connectivity and permissions"""
@@ -105,8 +100,7 @@ class TestEnvironmentValidator:
                 return {
                     "status": "fail",
                     "message": "Database connectivity test failed",
-                    "errors": ["Basic SQL query failed"],
-                }
+                    "errors": ["Basic SQL query failed"]}
 
             # Test write permissions
             test_table = "`tabSystem Settings`"
@@ -126,8 +120,7 @@ class TestEnvironmentValidator:
             return {
                 "status": "pass",
                 "message": f"Database connection healthy (size: {db_size_mb}MB)",
-                "details": {"db_size_mb": db_size_mb, "isolation_level": isolation_level},
-            }
+                "details": {"db_size_mb": db_size_mb, "isolation_level": isolation_level}}
 
         except Exception as e:
             return {"status": "fail", "message": f"Database validation failed: {str(e)}", "errors": [str(e)]}
@@ -169,14 +162,12 @@ class TestEnvironmentValidator:
                 return {
                     "status": "fail",
                     "message": f"{len(missing_doctypes)} required doctypes missing",
-                    "errors": missing_doctypes,
-                }
+                    "errors": missing_doctypes}
 
             return {
                 "status": "pass",
                 "message": f"All {len(required_doctypes)} required doctypes present",
-                "details": {"doctypes_checked": len(required_doctypes)},
-            }
+                "details": {"doctypes_checked": len(required_doctypes)}}
 
         except Exception as e:
             return {"status": "fail", "message": f"Doctype validation failed: {str(e)}", "errors": [str(e)]}
@@ -231,9 +222,7 @@ class TestEnvironmentValidator:
                     "cpu_count": cpu_count,
                     "cpu_percent": cpu_percent,
                     "disk_free_gb": disk_free_gb,
-                    "disk_percent_used": disk_percent_used,
-                },
-            }
+                    "disk_percent_used": disk_percent_used}}
 
             if errors:
                 result["errors"] = errors
@@ -246,8 +235,7 @@ class TestEnvironmentValidator:
             return {
                 "status": "fail",
                 "message": f"System resource check failed: {str(e)}",
-                "errors": [str(e)],
-            }
+                "errors": [str(e)]}
 
     def validate_python_dependencies(self):
         """Validate Python dependencies"""
@@ -271,28 +259,24 @@ class TestEnvironmentValidator:
                 return {
                     "status": "fail",
                     "message": f"Python version too old: {python_version} (minimum 3.8 required)",
-                    "errors": [f"Python {python_version} not supported"],
-                }
+                    "errors": [f"Python {python_version} not supported"]}
 
             if missing_packages:
                 return {
                     "status": "fail",
                     "message": f"{len(missing_packages)} required packages missing",
-                    "errors": [f"Missing package: {pkg}" for pkg in missing_packages],
-                }
+                    "errors": [f"Missing package: {pkg}" for pkg in missing_packages]}
 
             return {
                 "status": "pass",
                 "message": f"Python {python_version} with all required packages",
-                "details": {"python_version": python_version, "packages": package_versions},
-            }
+                "details": {"python_version": python_version, "packages": package_versions}}
 
         except Exception as e:
             return {
                 "status": "fail",
                 "message": f"Python dependency check failed: {str(e)}",
-                "errors": [str(e)],
-            }
+                "errors": [str(e)]}
 
     def validate_file_permissions(self):
         """Validate file system permissions"""
@@ -326,21 +310,18 @@ class TestEnvironmentValidator:
                 return {
                     "status": "fail",
                     "message": f"{len(issues)} permission issues found",
-                    "errors": issues,
-                }
+                    "errors": issues}
 
             return {
                 "status": "pass",
                 "message": "File permissions validated",
-                "details": {"checks_passed": 4},
-            }
+                "details": {"checks_passed": 4}}
 
         except Exception as e:
             return {
                 "status": "fail",
                 "message": f"File permission check failed: {str(e)}",
-                "errors": [str(e)],
-            }
+                "errors": [str(e)]}
 
     def validate_test_data_setup(self):
         """Validate test data setup capabilities"""
@@ -356,8 +337,7 @@ class TestEnvironmentValidator:
                         "doctype": "Chapter",
                         "chapter_name": "Test Environment Validation Chapter",
                         "short_name": "TEVC",
-                        "country": "Netherlands",
-                    }
+                        "country": "Netherlands"}
                 )
                 test_chapter.insert(ignore_permissions=True)
                 test_doc_created = True
@@ -369,8 +349,7 @@ class TestEnvironmentValidator:
                 return {
                     "status": "fail",
                     "message": f"Cannot create test data: {str(e)}",
-                    "errors": [f"Test record creation failed: {str(e)}"],
-                }
+                    "errors": [f"Test record creation failed: {str(e)}"]}
 
             # Check test data factory
             try:
@@ -401,9 +380,7 @@ class TestEnvironmentValidator:
                 "message": "Test data setup validated",
                 "details": {
                     "can_create_records": test_doc_created,
-                    "existing_test_records": len(existing_test_records),
-                },
-            }
+                    "existing_test_records": len(existing_test_records)}}
 
             if warnings:
                 result["warnings"] = warnings

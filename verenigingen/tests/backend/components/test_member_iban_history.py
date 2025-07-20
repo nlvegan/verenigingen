@@ -28,8 +28,7 @@ class TestMemberIBANHistory(unittest.TestCase):
             "doctype": "Member",
             "first_name": kwargs.get("first_name", "Test"),
             "last_name": kwargs.get("last_name", "Member"),
-            "email": kwargs.get("email", f"test{frappe.utils.random_string(5)}@example.com"),
-        }
+            "email": kwargs.get("email", f"test{frappe.utils.random_string(5)}@example.com")}
         # Add optional fields
         for field in ["iban", "bic", "bank_account_name", "payment_method"]:
             if field in kwargs:
@@ -66,8 +65,7 @@ class TestMemberIBANHistory(unittest.TestCase):
                     "from_date": today(),
                     "is_active": 1,
                     "changed_by": frappe.session.user,
-                    "change_reason": "Other",
-                }
+                    "change_reason": "Other"}
             ).insert(ignore_permissions=True)
 
         # Check IBAN history via direct database query
@@ -110,8 +108,7 @@ class TestMemberIBANHistory(unittest.TestCase):
                 "from_date": today(),
                 "is_active": 1,
                 "changed_by": frappe.session.user,
-                "change_reason": "Other",
-            }
+                "change_reason": "Other"}
         ).insert(ignore_permissions=True)
 
         # Change IBAN
@@ -225,8 +222,7 @@ class TestMemberIBANHistory(unittest.TestCase):
                 "from_date": today(),
                 "is_active": 1,
                 "changed_by": frappe.session.user,
-                "change_reason": "Other",
-            }
+                "change_reason": "Other"}
         ).insert(ignore_permissions=True)
 
         # Get the history record

@@ -48,8 +48,7 @@ class TestChapterWhitelistMethods(VereningingenUnitTestCase):
                 "doctype": "Chapter",
                 "chapter_name": f"Test Chapter {random_string(8)}",
                 "chapter_code": random_string(4).upper(),
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         chapter.insert(ignore_permissions=True)
         self.track_doc("Chapter", chapter.name)
@@ -120,8 +119,7 @@ class TestChapterWhitelistMethods(VereningingenUnitTestCase):
                 "member": member.name,
                 "role": "Board Member",
                 "start_date": add_days(today(), -90),
-                "status": "Active",
-            },
+                "status": "Active"},
         )
         chapter.save(ignore_permissions=True)
 
@@ -313,8 +311,7 @@ class TestChapterWhitelistMethods(VereningingenUnitTestCase):
                     "role": "Board Member",
                     "start_date": add_days(today(), -365 + i * 30),
                     "end_date": add_days(today(), -335 + i * 30) if i < 2 else None,
-                    "status": "Inactive" if i < 2 else "Active",
-                },
+                    "status": "Inactive" if i < 2 else "Active"},
             )
         chapter.save(ignore_permissions=True)
 
@@ -346,8 +343,7 @@ class TestChapterWhitelistMethods(VereningingenUnitTestCase):
                         "member": member.name,
                         "role": "Board Member",
                         "start_date": today(),
-                        "status": "Active",
-                    },
+                        "status": "Active"},
                 )
 
         chapter.save(ignore_permissions=True)
@@ -481,8 +477,7 @@ class TestChapterWhitelistMethods(VereningingenUnitTestCase):
                 "first_name": "Test",
                 "last_name": "User",
                 "enabled": 1,
-                "roles": [{"role": "Verenigingen Member"}],
-            }
+                "roles": [{"role": "Verenigingen Member"}]}
         )
         test_user.insert(ignore_permissions=True)
         self.track_doc("User", test_user.name)

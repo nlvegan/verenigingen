@@ -49,43 +49,35 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
             {
                 "name": "Stage 1: Member Becomes Volunteer",
                 "function": self._stage_1_become_volunteer,
-                "validations": [self._validate_volunteer_created],
-            },
+                "validations": [self._validate_volunteer_created]},
             {
                 "name": "Stage 2: Complete Volunteer Profile",
                 "function": self._stage_2_complete_profile,
-                "validations": [self._validate_profile_completed],
-            },
+                "validations": [self._validate_profile_completed]},
             {
                 "name": "Stage 3: Join Teams/Assignments",
                 "function": self._stage_3_join_teams,
-                "validations": [self._validate_team_assignments],
-            },
+                "validations": [self._validate_team_assignments]},
             {
                 "name": "Stage 4: Submit Expenses",
                 "function": self._stage_4_submit_expenses,
-                "validations": [self._validate_expenses_submitted],
-            },
+                "validations": [self._validate_expenses_submitted]},
             {
                 "name": "Stage 5: Expense Approval Workflow",
                 "function": self._stage_5_expense_approval,
-                "validations": [self._validate_expenses_approved],
-            },
+                "validations": [self._validate_expenses_approved]},
             {
                 "name": "Stage 6: Track Volunteer Hours",
                 "function": self._stage_6_track_hours,
-                "validations": [self._validate_hours_tracked],
-            },
+                "validations": [self._validate_hours_tracked]},
             {
                 "name": "Stage 7: Generate Reports",
                 "function": self._stage_7_generate_reports,
-                "validations": [self._validate_reports_generated],
-            },
+                "validations": [self._validate_reports_generated]},
             {
                 "name": "Stage 8: Deactivate Volunteer Status",
                 "function": self._stage_8_deactivate_volunteer,
-                "validations": [self._validate_volunteer_deactivated],
-            },
+                "validations": [self._validate_volunteer_deactivated]},
         ]
 
         self.define_workflow(stages)
@@ -104,8 +96,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                 "name": "Volunteer Test Chapter",
                 "region": "Test Region",
                 "postal_codes": "2000-8999",
-                "introduction": "Test chapter for volunteer journey testing",
-            }
+                "introduction": "Test chapter for volunteer journey testing"}
         )
         chapter.insert(ignore_permissions=True)
         self.track_doc("Chapter", chapter.name)
@@ -122,8 +113,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                 "contact_number": "+31687654321",
                 "payment_method": "Bank Transfer",
                 "status": "Active",
-                "primary_chapter": self.test_chapter.name,
-            }
+                "primary_chapter": self.test_chapter.name}
         )
         member.insert(ignore_permissions=True)
 
@@ -134,8 +124,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                 "chapter": self.test_chapter.name,
                 "chapter_join_date": today(),
                 "enabled": 1,
-                "status": "Active",
-            },
+                "status": "Active"},
         )
         member.save(ignore_permissions=True)
 
@@ -165,8 +154,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                     "member": member_name,
                     "status": "Active",
                     "start_date": today(),
-                    "motivation": "I want to help the community and contribute to our organization's mission.",
-                }
+                    "motivation": "I want to help the community and contribute to our organization's mission."}
             )
             volunteer.insert(ignore_permissions=True)
 
@@ -244,20 +232,17 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                     "team_name": "Events Team",
                     "team_type": "Project Team",
                     "volunteer_role": "Event Coordinator",
-                    "role_type": "Team Leader",
-                },
+                    "role_type": "Team Leader"},
                 {
                     "team_name": "Outreach Team",
                     "team_type": "Standing Committee",
                     "volunteer_role": "Community Liaison",
-                    "role_type": "Team Member",
-                },
+                    "role_type": "Team Member"},
                 {
                     "team_name": "Social Media Team",
                     "team_type": "Working Group",
                     "volunteer_role": "Content Creator",
-                    "role_type": "Specialist",
-                },
+                    "role_type": "Specialist"},
             ]
 
             for config in team_configs:
@@ -270,8 +255,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                         "status": "Active",
                         "team_type": config["team_type"],
                         "start_date": today(),
-                        "description": f"Test team for {config['team_name']}",
-                    }
+                        "description": f"Test team for {config['team_name']}"}
                 )
                 team.insert(ignore_permissions=True)
 
@@ -285,8 +269,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                         "role_type": config["role_type"],
                         "from_date": today(),
                         "is_active": 1,
-                        "status": "Active",
-                    },
+                        "status": "Active"},
                 )
                 team.save(ignore_permissions=True)
 
@@ -330,20 +313,17 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                     "description": "Travel to community event",
                     "amount": 25.50,
                     "expense_type": "Travel",
-                    "receipt_required": True,
-                },
+                    "receipt_required": True},
                 {
                     "description": "Event supplies and materials",
                     "amount": 75.00,
                     "expense_type": "Materials",
-                    "receipt_required": True,
-                },
+                    "receipt_required": True},
                 {
                     "description": "Parking fees for volunteer activities",
                     "amount": 15.00,
                     "expense_type": "Parking",
-                    "receipt_required": False,
-                },
+                    "receipt_required": False},
             ]
 
             for config in expense_configs:
@@ -355,8 +335,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                         "description": config["description"],
                         "expense_date": today(),
                         "expense_type": config.get("expense_type", "General"),
-                        "status": "Draft",
-                    }
+                        "status": "Draft"}
                 )
                 expense.insert(ignore_permissions=True)
 
@@ -440,14 +419,12 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                     "activity_name": "Community Event Organization",
                     "hours": 4.5,
                     "activity_date": today(),
-                    "team": teams_joined[0]["team_name"] if teams_joined else None,
-                },
+                    "team": teams_joined[0]["team_name"] if teams_joined else None},
                 {
                     "activity_name": "Social Media Content Creation",
                     "hours": 2.0,
                     "activity_date": add_days(today(), -1),
-                    "team": teams_joined[-1]["team_name"] if len(teams_joined) > 1 else None,
-                },
+                    "team": teams_joined[-1]["team_name"] if len(teams_joined) > 1 else None},
                 {
                     "activity_name": "Volunteer Training Session",
                     "hours": 3.0,
@@ -466,8 +443,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                         "activity_date": config["activity_date"],
                         "team": config.get("team"),
                         "status": "Completed",
-                        "description": f"Test activity: {config['activity_name']}",
-                    }
+                        "description": f"Test activity: {config['activity_name']}"}
                 )
                 activity.insert(ignore_permissions=True)
 

@@ -34,8 +34,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
                 "expense_date": "2024-12-14",
                 "organization_type": "National",
                 "category": "Travel",
-                "notes": "Testing JSON parsing",
-            }
+                "notes": "Testing JSON parsing"}
         )
 
         mock_volunteer = MagicMock()
@@ -69,8 +68,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing zero amount",
-        }
+            "notes": "Testing zero amount"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -95,8 +93,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing negative amount",
-        }
+            "notes": "Testing negative amount"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -121,8 +118,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "expense_date": "invalid-date-format",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing invalid date",
-        }
+            "notes": "Testing invalid date"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -183,8 +179,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "amount": 50.00,
             "expense_date": "2024-12-14",
             "organization_type": "National",
-            "category": "Travel",
-        }
+            "category": "Travel"}
 
         with patch(
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
@@ -263,8 +258,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "receipt_attachment": "/files/receipt.pdf",
-        }
+            "receipt_attachment": "/files/receipt.pdf"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -297,8 +291,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "currency": "INVALID",
-        }
+            "currency": "INVALID"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -334,8 +327,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
                 "amount": 50.00,
                 "expense_date": "2024-12-14",
                 "organization_type": "National",
-                "category": "Travel",
-            }
+                "category": "Travel"}
 
             with patch(
                 "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
@@ -359,8 +351,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "amount": 50.00,
             "expense_date": "2024-12-14",
             "organization_type": "National",
-            "category": "Travel",
-        }
+            "category": "Travel"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -388,8 +379,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "amount": 50.00,
             "expense_date": "2024-12-14",
             "organization_type": "National",
-            "category": "Travel",
-        }
+            "category": "Travel"}
 
         with patch(
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
@@ -419,8 +409,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "amount": 50.00,
             "expense_date": "2024-12-14",
             "organization_type": "National",
-            "category": "Travel",
-        }
+            "category": "Travel"}
 
         mock_expense_claim = MagicMock()
         mock_expense_claim.name = "EXP-SUCCESS-001"
@@ -474,8 +463,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "amount": 50.00,
             "expense_date": "2024-12-14",
             "organization_type": "National",
-            "category": "Travel",
-        }
+            "category": "Travel"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -500,8 +488,7 @@ class TestERPNextExpenseIntegrationEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "Chapter",
             "chapter": "Test Chapter",
-            "category": "Complex Category With Spaces & Special Characters!",
-        }
+            "category": "Complex Category With Spaces & Special Characters!"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"

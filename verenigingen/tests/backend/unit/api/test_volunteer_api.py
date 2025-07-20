@@ -55,8 +55,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "first_name": member.first_name,
                 "last_name": member.last_name,
                 "email": member.email,
-                "volunteer_status": "Active",
-            }
+                "volunteer_status": "Active"}
         )
         volunteer.insert(ignore_permissions=True)
         self.track_doc("Volunteer", volunteer.name)
@@ -181,16 +180,14 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
             {
                 "skill_name": "Python Programming",
                 "skill_category": "Technical",
-                "proficiency_level": "Expert",
-            },
+                "proficiency_level": "Expert"},
         )
         volunteer.append(
             "skills",
             {
                 "skill_name": "Event Planning",
                 "skill_category": "Administrative",
-                "proficiency_level": "Intermediate",
-            },
+                "proficiency_level": "Intermediate"},
         )
         volunteer.save(ignore_permissions=True)
 
@@ -224,8 +221,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "description": f"Activity {status}",
                 "date": today(),
                 "hours": hours,
-                "status": status,
-            }
+                "status": status}
             volunteer.append("activities", activity)
 
         volunteer.save(ignore_permissions=True)
@@ -305,8 +301,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                     "member": member_data["member"].name,
                     "role": "Board Member",
                     "start_date": today(),
-                    "status": "Active",
-                },
+                    "status": "Active"},
             )
 
         chapter.insert(ignore_permissions=True)
@@ -340,8 +335,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "team": "IT Support",
                 "role": "Developer",
                 "start_date": add_days(today(), -180),
-                "status": "Active",
-            },
+                "status": "Active"},
         )
         volunteer.append(
             "team_assignments",
@@ -350,8 +344,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "role": "Coordinator",
                 "start_date": add_days(today(), -90),
                 "end_date": add_days(today(), -30),
-                "status": "Completed",
-            },
+                "status": "Completed"},
         )
         volunteer.save(ignore_permissions=True)
 
@@ -380,8 +373,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "first_name": "Test",
                 "last_name": "User",
                 "enabled": 1,
-                "roles": [{"role": "Verenigingen Member"}],
-            }
+                "roles": [{"role": "Verenigingen Member"}]}
         )
         test_user.insert(ignore_permissions=True)
         self.track_doc("User", test_user.name)

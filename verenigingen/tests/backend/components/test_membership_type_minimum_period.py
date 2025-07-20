@@ -52,8 +52,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "amount": 100.0,
                 "currency": "EUR",
                 "subscription_period": "Monthly",
-                "is_active": 1,
-            }
+                "is_active": 1}
         )
         mt.insert(ignore_permissions=True)
 
@@ -73,8 +72,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": mt.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership.insert()
 
@@ -95,8 +93,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": mt.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership.insert()
 
@@ -115,8 +112,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": mt.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership.insert()
 
@@ -135,8 +131,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": mt.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership.insert()
 
@@ -158,8 +153,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": mt_enforced.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership1.insert()
 
@@ -174,8 +168,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": member2.name,
                 "membership_type": mt_not_enforced.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership2.insert()
 
@@ -196,8 +189,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": mt_enforced.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership1.insert()
 
@@ -216,8 +208,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": member2.name,
                 "membership_type": mt_not_enforced.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership2.insert()
 
@@ -271,8 +262,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": mt.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership.insert()
         membership.submit()
@@ -303,8 +293,7 @@ class TestMembershipTypeMinimumPeriod(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": mt.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership.insert()
         membership.submit()

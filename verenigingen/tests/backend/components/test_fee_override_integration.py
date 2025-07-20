@@ -36,8 +36,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
                 "dues_rate": 75.0,
                 "fee_override_reason": "Custom contribution during application",
                 "status": "Pending",
-                "application_status": "Pending",
-            }
+                "application_status": "Pending"}
         )
 
         # Insert member (this triggers validation including handle_fee_override_changes)
@@ -70,8 +69,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
                 "last_name": "FeeTest" + random_string(4),
                 "email": f"existing.feetest.{random_string(6)}@example.com",
                 "birth_date": "1985-01-01",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         member.insert(ignore_permissions=True)
 
@@ -123,8 +121,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
             "payment_method": "SEPA Direct Debit",
             "iban": "NL91ABNA0417164300",
             "bic": "ABNANL2A",
-            "bank_account_name": "Test Application User",
-        }
+            "bank_account_name": "Test Application User"}
 
         # Use the application helper to create member (like real form submission)
         from verenigingen.utils.application_helpers import (
@@ -163,8 +160,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
                 "last_name": "FeeTest" + random_string(4),
                 "email": f"changetest.feetest.{random_string(6)}@example.com",
                 "birth_date": "1980-01-01",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         member.insert(ignore_permissions=True)
 
@@ -199,8 +195,7 @@ class TestFeeOverrideLogic(unittest.TestCase):
                 "birth_date": "1975-01-01",
                 "status": "Active",
                 "dues_rate": 50.0,
-                "fee_override_reason": "Initial custom amount",
-            }
+                "fee_override_reason": "Initial custom amount"}
         )
         member.insert(ignore_permissions=True)
 
@@ -332,8 +327,7 @@ def test_fee_override_integration():
             "initial_fee": initial_fee,
             "final_fee": updated_fee,
             "initial_dues_schedules": len(initial_dues_schedules),
-            "final_dues_schedules": len(updated_dues_schedules),
-        }
+            "final_dues_schedules": len(updated_dues_schedules)}
 
     except Exception as e:
         print(f"\n❌ INTEGRATION TEST FAILED: {str(e)}")

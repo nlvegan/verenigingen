@@ -295,11 +295,8 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Migration Type {frappe.generate_hash(length=6)}"
         membership_type.amount = 20.0
-        membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
-        membership_type.minimum_contribution = 5.0
-        membership_type.suggested_contribution = 20.0
         membership_type.save()
         self.track_doc("Membership Type", membership_type.name)
         return membership_type

@@ -567,8 +567,7 @@ class TestMembershipStatusComprehensive(VereningingenTestCase):
             "Senior": 0.7,
             "Honorary": 0.0,
             "Corporate": 2.0,
-            "Family": 1.5,
-        }
+            "Family": 1.5}
         modifier = status_modifiers.get(member.status, 1.0)
         return base_amount * modifier
         

@@ -542,7 +542,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         dues_schedule.contribution_mode = "Calculator"
         dues_schedule.selected_tier = None
         dues_schedule.base_multiplier = 2.0  # Earning more now
-        dues_schedule.dues_rate = membership_type.suggested_contribution * 2.0
+        dues_schedule.dues_rate = membership_type.suggested_contribution * 2.0  # TODO: Update to use dues schedule template
         dues_schedule.save()
         
         # Stage 3: Member becomes senior, switches to professional tier
@@ -785,19 +785,11 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         defaults = {
             "membership_type_name": f"Enhanced Type {frappe.generate_hash(length=6)}",
             "amount": 25.0,
-            "billing_frequency": "Monthly",
             "is_active": 1,
             "contribution_mode": "Calculator",
-            "minimum_contribution": 5.0,
-            "suggested_contribution": 25.0,
-            "maximum_contribution": 250.0,
             "enable_income_calculator": 1,
             "income_percentage_rate": 0.75,
-            "calculator_description": "We suggest 0.75% of your monthly net income",
-            "allow_custom_amounts": 1,
-            "custom_amount_requires_approval": 0,
-            "fee_slider_max_multiplier": 10.0
-        }
+            "calculator_description": "We suggest 0.75% of your monthly net income"}
         defaults.update(kwargs)
         
         membership_type = frappe.new_doc("Membership Type")
@@ -871,7 +863,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
             dues_schedule.uses_custom_amount = 1
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.dues_rate = membership_type.suggested_contribution
+            dues_schedule.dues_rate = membership_type.suggested_contribution  # TODO: Update to use dues schedule template
             
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = payment_method
@@ -908,7 +900,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
             dues_schedule.uses_custom_amount = 1
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.dues_rate = membership_type.suggested_contribution
+            dues_schedule.dues_rate = membership_type.suggested_contribution  # TODO: Update to use dues schedule template
             
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"

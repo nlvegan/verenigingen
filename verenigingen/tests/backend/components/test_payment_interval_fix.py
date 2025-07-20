@@ -37,8 +37,7 @@ def test_payment_interval_mapping():
             "target_period": target_period,
             "found_match": matching_type is not None,
             "matching_type": matching_type["name"] if matching_type else None,
-            "subscription_period": matching_type["subscription_period"] if matching_type else None,
-        }
+            "subscription_period": matching_type["subscription_period"] if matching_type else None}
 
         print(f"\n{interval.upper()} -> {target_period}:")
         if matching_type:
@@ -65,8 +64,7 @@ def test_payment_interval_mapping():
         "issues": issues,
         "message": "All payment intervals work correctly"
         if len(issues) == 0
-        else f'Issues found: {"; ".join(issues)}',
-    }
+        else f'Issues found: {"; ".join(issues)}'}
 
 
 if __name__ == "__main__":

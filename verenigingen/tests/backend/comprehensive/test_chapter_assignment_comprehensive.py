@@ -29,8 +29,7 @@ class TestChapterAssignmentComprehensive(unittest.TestCase):
                         "region": "Test Region",
                         "published": 1,
                         "postal_codes": f"{1000 + i}-{1999 + i}",
-                        "introduction": f"Test chapter {i + 1} for assignment testing",
-                    }
+                        "introduction": f"Test chapter {i + 1} for assignment testing"}
                 )
                 chapter.insert()
             cls.test_chapters.append(chapter_name)
@@ -48,8 +47,7 @@ class TestChapterAssignmentComprehensive(unittest.TestCase):
                         "last_name": "Member",
                         "email": f"test{i + 1}@example.com",
                         "birth_date": "1990-01-01",
-                        "status": "Active",
-                    }
+                        "status": "Active"}
                 )
                 member.insert()
                 member.submit()
@@ -114,8 +112,7 @@ class TestChapterAssignmentComprehensive(unittest.TestCase):
                     "chapter": chapter,
                     "role": role,
                     "start_date": today(),
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             board_member.insert()
             return board_member.name

@@ -50,8 +50,7 @@ class TestDataFactory:
                     "name": chapter_name,
                     "region": f"Test Region {i + 1}",
                     "postal_codes": f"{1000 + i:04d}",
-                    "introduction": f"Automated test chapter {i + 1} - {self.test_run_id}",
-                }
+                    "introduction": f"Automated test chapter {i + 1} - {self.test_run_id}"}
             )
             chapter.insert(ignore_permissions=True)
             self._track_record("Chapter", chapter.name)
@@ -81,13 +80,9 @@ class TestDataFactory:
                 "doctype": "Membership Type",
                 "membership_type_name": config["name"],
                 "amount": config["amount"],
-                "billing_frequency": config["period"],
                 "is_active": 1,
                 # Enhanced dues system fields
                 "contribution_mode": "Calculator",
-                "minimum_contribution": config["amount"] * 0.5,
-                "suggested_contribution": config["amount"],
-                "maximum_contribution": config["amount"] * 5,
                 "enable_income_calculator": 1,
                 "income_percentage_rate": 0.75
             })
@@ -207,8 +202,7 @@ class TestDataFactory:
                 "member": member.name,
                 "membership_type": membership_type.name,
                 "start_date": start_date,
-                "status": "Active" if member.status == "Active" else "Inactive",
-            })
+                "status": "Active" if member.status == "Active" else "Inactive"})
             membership.insert(ignore_permissions=True)
             
             # Submit membership to make it active
@@ -262,8 +256,7 @@ class TestDataFactory:
                             "Photography",
                             "Translation",
                         ]
-                    ),
-                }
+                    )}
             )
             volunteer.insert(ignore_permissions=True)
             self._track_record("Volunteer", volunteer.name)
@@ -291,13 +284,13 @@ class TestDataFactory:
             "schedule_name": f"Template-{membership_type_name}",
             "membership_type": membership_type_name,
             "status": "Active",
-            "billing_frequency": kwargs.get("billing_frequency", "Annual"),
             "contribution_mode": kwargs.get("contribution_mode", "Calculator"),
             "minimum_amount": kwargs.get("minimum_amount", 5.0),
             "suggested_amount": kwargs.get("suggested_amount", 15.0),
-            "invoice_days_before": kwargs.get("invoice_days_before", 30),
             "auto_generate": kwargs.get("auto_generate", 1),
-            "amount": kwargs.get("amount", 15.0)
+            "amount": kwargs.get("amount", 15.0),
+            "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
+            "invoice_days_before": kwargs.get("invoice_days_before", 30)
         })
         
         template.insert(ignore_permissions=True)
@@ -384,8 +377,7 @@ class TestDataFactory:
                     "iban": iban,
                     "status": "Active",
                     "mandate_date": add_days(member.join_date, random.randint(0, 30)),
-                    "mandate_reference": f"MANDT{random.randint(100000, 999999)}",
-                }
+                    "mandate_reference": f"MANDT{random.randint(100000, 999999)}"}
             )
             mandate.insert(ignore_permissions=True)
             self._track_record("SEPA Mandate", mandate.name)
@@ -426,8 +418,7 @@ class TestDataFactory:
                         "currency": "EUR",
                         "expense_date": add_days(today(), -random.randint(1, 180)),
                         "status": random.choice(["Draft", "Submitted", "Approved", "Reimbursed"]),
-                        "category": random.choice(expense_categories),
-                    }
+                        "category": random.choice(expense_categories)}
                 )
                 expense.insert(ignore_permissions=True)
                 self._track_record("Volunteer Expense", expense.name)
@@ -460,8 +451,7 @@ class TestDataFactory:
             "memberships": memberships,
             "volunteers": volunteers,
             "sepa_mandates": mandates,
-            "expenses": expenses,
-        }
+            "expenses": expenses}
 
         print("✅ Stress test dataset complete:")
         for key, items in dataset.items():
@@ -488,8 +478,7 @@ class TestDataFactory:
                 "last_name": "VeryLongLastNameThatTestsFieldLimitsAndDatabaseConstraints",
                 "email": f"longnametest.{self.test_run_id}@test.com",
                 "status": "Active",
-                "chapter": chapters[0].name,
-            }
+                "chapter": chapters[0].name}
         )
         long_name_member.insert(ignore_permissions=True)
         self._track_record("Member", long_name_member.name)
@@ -503,8 +492,7 @@ class TestDataFactory:
                 "last_name": "González-Pérez",
                 "email": f"specialchars.{self.test_run_id}@test.com",
                 "status": "Active",
-                "chapter": chapters[0].name,
-            }
+                "chapter": chapters[0].name}
         )
         special_char_member.insert(ignore_permissions=True)
         self._track_record("Member", special_char_member.name)
@@ -547,8 +535,7 @@ class TestDataFactory:
         return {
             "chapters": chapters,
             "membership_types": membership_types,
-            "edge_case_members": edge_case_members,
-        }
+            "edge_case_members": edge_case_members}
 
 
 # Convenience functions for quick test data creation
@@ -564,8 +551,7 @@ def create_minimal_test_data():
         "factory": factory,
         "chapters": chapters,
         "membership_types": membership_types,
-        "members": members,
-    }
+        "members": members}
 
 
 def create_performance_test_data(member_count=1000):

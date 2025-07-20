@@ -22,8 +22,7 @@ class TestTeamAssignmentHistory(unittest.TestCase):
                     "doctype": "Member",
                     "first_name": "Test",
                     "last_name": "Volunteer",
-                    "email": "test.volunteer@example.com",
-                }
+                    "email": "test.volunteer@example.com"}
             ).insert()
 
             volunteer = frappe.get_doc(
@@ -31,8 +30,7 @@ class TestTeamAssignmentHistory(unittest.TestCase):
                     "doctype": "Volunteer",
                     "volunteer_name": "Test Volunteer",
                     "member": member.name,
-                    "email": "test.volunteer@example.com",
-                }
+                    "email": "test.volunteer@example.com"}
             ).insert()
 
             self.volunteer_id = volunteer.name
@@ -52,8 +50,7 @@ class TestTeamAssignmentHistory(unittest.TestCase):
                 "team_name": f"Assignment Test Team {frappe.utils.random_string(5)}",
                 "status": "Active",
                 "team_type": "Project Team",
-                "start_date": today(),
-            }
+                "start_date": today()}
         ).insert()
 
         # Test adding assignment
@@ -147,10 +144,8 @@ class TestTeamAssignmentHistory(unittest.TestCase):
                         "role_type": "Team Member",
                         "from_date": today(),
                         "is_active": 1,
-                        "status": "Active",
-                    }
-                ],
-            }
+                        "status": "Active"}
+                ]}
         )
 
         # Save the team - this should trigger assignment history

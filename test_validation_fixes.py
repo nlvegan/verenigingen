@@ -37,8 +37,15 @@ def test_validation_fixes():
 
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
         print(f"   Using membership type: {membership_type}")
-        print(f"   Suggested contribution: €{membership_type_doc.suggested_contribution}")
-        print(f"   Minimum contribution: €{getattr(membership_type_doc, 'minimum_contribution', 'Not set')}")
+
+        # Get contribution info from template
+        if membership_type_doc.dues_schedule_template:
+            template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
+            print(f"   Suggested contribution: €{getattr(template, 'suggested_amount', 'Not set')}")
+            print(f"   Minimum contribution: €{getattr(template, 'minimum_amount', 'Not set')}")
+        else:
+            print(f"   Default amount: €{membership_type_doc.amount}")
+            print(f"   No dues schedule template configured")
 
         # Test 2: Create a dues schedule and verify validation works
         print("\n2. Testing Validation Logic")
@@ -79,9 +86,13 @@ def test_validation_fixes():
         # Test 3: Test minimum value enforcement
         print("\n3. Testing Minimum Value Enforcement")
 
-        if hasattr(membership_type_doc, "minimum_contribution") and membership_type_doc.minimum_contribution:
-            min_contribution = membership_type_doc.minimum_contribution
+        # Get minimum contribution from template
+        min_contribution = None
+        if membership_type_doc.dues_schedule_template:
+            template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
+            min_contribution = getattr(template, "minimum_amount", None)
 
+        if min_contribution:
             # Test with value below minimum
             dues_schedule.dues_rate = min_contribution - 1.0
             print(
@@ -121,7 +132,13 @@ def test_validation_fixes():
         max_multiplier = getattr(settings, "maximum_fee_multiplier", None)
 
         if max_multiplier:
-            base_amount = membership_type_doc.suggested_contribution or membership_type_doc.amount
+            # Get base amount from template or membership type default
+            base_amount = membership_type_doc.amount
+            if membership_type_doc.dues_schedule_template:
+                template = frappe.get_doc(
+                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                )
+                base_amount = getattr(template, "suggested_amount", membership_type_doc.amount)
             max_amount = base_amount * max_multiplier
             over_max_amount = max_amount + 10.0
 

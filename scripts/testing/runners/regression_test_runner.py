@@ -45,8 +45,7 @@ class RegressionTestRunner:
             "workflows": [],
             "security": [],
             "configuration": [],
-            "js_api_integration": [],
-        }
+            "js_api_integration": []}
 
         for file_path in self.changed_files:
             if "doctype" in file_path and file_path.endswith(".py"):
@@ -144,8 +143,7 @@ class RegressionTestRunner:
                     "success": success,
                     "stdout": result.stdout,
                     "stderr": result.stderr,
-                    "returncode": result.returncode,
-                }
+                    "returncode": result.returncode}
 
                 status = "✅ PASSED" if success else "❌ FAILED"
                 print(f"{status}: {cmd}")
@@ -173,9 +171,7 @@ class RegressionTestRunner:
             "summary": {
                 "total_tests": len(test_results),
                 "passed": sum(1 for r in test_results.values() if r["success"]),
-                "failed": sum(1 for r in test_results.values() if not r["success"]),
-            },
-        }
+                "failed": sum(1 for r in test_results.values() if not r["success"])}}
 
         # Save report
         report_file = self.app_path / f"regression_report_{now().replace(' ', '_').replace(':', '-')}.json"

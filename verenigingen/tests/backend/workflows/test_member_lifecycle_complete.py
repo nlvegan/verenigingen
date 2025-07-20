@@ -65,8 +65,7 @@ class TestMemberLifecycleComplete(FrappeTestCase):
                 "region_code": f"T{cls.test_id[:2].upper()}",
                 "country": "Netherlands",
                 "is_active": 1,
-                "postal_code_patterns": "1000-9999",
-            })
+                "postal_code_patterns": "1000-9999"})
             region.insert(ignore_permissions=True)
             env["region"] = region
             cls.created_docs.append(("Region", region.name))
@@ -83,8 +82,7 @@ class TestMemberLifecycleComplete(FrappeTestCase):
                 "postal_codes": "1000-1999",
                 "introduction": "Test chapter for lifecycle testing",
                 "published": 1,
-                "country": "Netherlands",
-            })
+                "country": "Netherlands"})
             chapter.insert(ignore_permissions=True)
             env["chapter"] = chapter
             cls.created_docs.append(("Chapter", chapter.name))
@@ -196,8 +194,7 @@ class TestMemberLifecycleComplete(FrappeTestCase):
             "address_line1": "Test Street 123",
             "postal_code": "1234AB",
             "city": "Amsterdam",
-            "country": "Netherlands",
-        }
+            "country": "Netherlands"}
         
         member = frappe.get_doc(member_data)
         member.insert(ignore_permissions=True)

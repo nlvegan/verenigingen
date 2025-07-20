@@ -93,8 +93,7 @@ def test_termination_impact():
                 filters={
                     "party_type": "Customer",
                     "party": member_doc.customer,
-                    "status": ["in", ["Active", "Past Due"]],
-                },
+                    "status": ["in", ["Active", "Past Due"]]},
                 fields=["name", "status"],
             )
             print(f"- Found {len(subscriptions)} active subscriptions:")
@@ -107,8 +106,7 @@ def test_termination_impact():
                 filters={
                     "customer": member_doc.customer,
                     "docstatus": 1,
-                    "status": ["in", ["Unpaid", "Overdue", "Partially Paid"]],
-                },
+                    "status": ["in", ["Unpaid", "Overdue", "Partially Paid"]]},
                 fields=["name", "status", "outstanding_amount"],
             )
             print(f"- Found {len(invoices)} outstanding invoices:")

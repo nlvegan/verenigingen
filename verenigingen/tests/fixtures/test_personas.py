@@ -126,8 +126,7 @@ class TestPersonas:
             "member": member.name,
             "membership": test_data["membership"].name,
             "membership_type": test_data["membership"].membership_type,
-            "amount": 15.00,  # Custom reduced amount
-            "billing_frequency": "Monthly",
+            "amount": 15.00,  # Custom reduced amount,
             "status": "Active",
             "contribution_mode": "Custom",
             "uses_custom_amount": 1,
@@ -408,8 +407,7 @@ class TestPersonas:
                     "member": test_data["member"].name,
                     "chapter_join_date": add_days(today(), -180),
                     "enabled": 1,
-                    "status": "Active",
-                },
+                    "status": "Active"},
             )
             rotterdam_chapter.save(ignore_permissions=True)
 
@@ -426,8 +424,7 @@ class TestPersonas:
             "suspended_susan": TestPersonas.create_suspended_susan(),
             "new_nancy": TestPersonas.create_new_member_nancy(),
             "board_bob": TestPersonas.create_board_member_bob(),
-            "multi_mary": TestPersonas.create_multi_chapter_mary(),
-        }
+            "multi_mary": TestPersonas.create_multi_chapter_mary()}
 
         return personas
 

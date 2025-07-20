@@ -24,18 +24,26 @@ def test_membership_type_enhancements():
         membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
 
-    # Set the new contribution fields
-    membership_type.contribution_mode = "Calculator"
-    membership_type.minimum_contribution = 5.0
-    membership_type.suggested_contribution = 15.0
-    membership_type.maximum_contribution = 150.0
-    membership_type.fee_slider_max_multiplier = 10.0
-    membership_type.allow_custom_amounts = 1
-    membership_type.enable_income_calculator = 1
-    membership_type.income_percentage_rate = 0.5
-    membership_type.calculator_description = "Our suggested contribution is 0.5% of your monthly net income"
-
     # Save the membership type
+    membership_type.save()
+
+    # Create dues schedule template
+    template = frappe.new_doc("Membership Dues Schedule")
+    template.is_template = 1
+    template.schedule_name = f"Template-{membership_type.name}"
+    template.membership_type = membership_type.name
+    template.status = "Active"
+    template.billing_frequency = getattr(membership_type, "billing_frequency", "Annual")
+    template.contribution_mode = "Calculator"
+    template.minimum_amount = 5.0
+    template.suggested_amount = membership_type.amount or 15.0
+    template.invoice_days_before = 30
+    template.auto_generate = 1
+    template.amount = template.suggested_amount
+    template.insert()
+
+    # Link template to membership type
+    membership_type.dues_schedule_template = template.name
     membership_type.save()
 
     print(f"✓ Created/Updated membership type: {membership_type.name}")
@@ -50,50 +58,6 @@ def test_membership_type_enhancements():
     print(f"  - Maximum: €{options['maximum']}")
     print(f"  - Calculator enabled: {options['calculator']['enabled']}")
     print(f"  - Quick amounts: {len(options.get('quick_amounts', []))} options")
-
-    # Test tier-based system
-    membership_type.contribution_mode = "Tiers"
-    membership_type.predefined_tiers = []
-
-    # Add some test tiers
-    tier1 = membership_type.append("predefined_tiers", {})
-    tier1.tier_name = "Student"
-    tier1.display_name = "Student Membership"
-    tier1.amount = 8.0
-    tier1.description = "Discounted rate for students"
-    tier1.requires_verification = 1
-    tier1.is_default = 0
-    tier1.display_order = 1
-
-    tier2 = membership_type.append("predefined_tiers", {})
-    tier2.tier_name = "Standard"
-    tier2.display_name = "Standard Membership"
-    tier2.amount = 15.0
-    tier2.description = "Standard membership rate"
-    tier2.requires_verification = 0
-    tier2.is_default = 1
-    tier2.display_order = 2
-
-    tier3 = membership_type.append("predefined_tiers", {})
-    tier3.tier_name = "Supporter"
-    tier3.display_name = "Supporter Membership"
-    tier3.amount = 25.0
-    tier3.description = "Higher contribution to support our mission"
-    tier3.requires_verification = 0
-    tier3.is_default = 0
-    tier3.display_order = 3
-
-    membership_type.save()
-
-    print(f"✓ Added {len(membership_type.predefined_tiers)} predefined tiers")
-
-    # Test tier-based contribution options
-    tier_options = membership_type.get_contribution_options()
-    print(f"✓ Tier-based options:")
-    print(f"  - Mode: {tier_options['mode']}")
-    print(f"  - Tiers: {len(tier_options.get('tiers', []))}")
-    for tier in tier_options.get("tiers", []):
-        print(f"    - {tier['display_name']}: €{tier['amount']}")
 
     return membership_type
 
@@ -131,7 +95,6 @@ def test_membership_dues_schedule():
     dues_schedule.minimum_amount = 5.0
     dues_schedule.suggested_amount = 15.0
     dues_schedule.uses_custom_amount = 0
-    # Payment method will be determined dynamically based on member's payment setup
 
     # Save the dues schedule
     dues_schedule.save()

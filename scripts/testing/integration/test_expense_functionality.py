@@ -117,8 +117,7 @@ def test_volunteer_expense_submission():
             "description": "Test expense for ERPNext integration",
             "amount": 25.50,
             "expense_type": "Travel",
-            "notes": "Testing expense submission after account setup",
-        }
+            "notes": "Testing expense submission after account setup"}
 
         print("   💰 Submitting test expense...")
 
@@ -193,8 +192,7 @@ def test_expense_claim_creation():
                 "company": default_company,
                 "title": "Test ERPNext Integration",
                 "remark": "Testing direct expense claim creation",
-                "status": "Draft",
-            }
+                "status": "Draft"}
         )
 
         expense_claim.insert(ignore_permissions=True)

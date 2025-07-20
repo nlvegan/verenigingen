@@ -55,8 +55,7 @@ class StandaloneMemberIdentityValidator:
             "name_similarity": 0.4,
             "email_similarity": 0.3,
             "iban_match": 0.2,
-            "birth_date_match": 0.1,
-        }
+            "birth_date_match": 0.1}
 
         score = 0.0
         for factor, value in factors.items():
@@ -93,8 +92,7 @@ class StandaloneMemberIdentityValidator:
                     "name2": name2,
                     "similarity": similarity,
                     "expected_range": expected_range,
-                    "passed": passed,
-                }
+                    "passed": passed}
             )
 
             status = "✅" if passed else "❌"
@@ -134,8 +132,7 @@ class StandaloneMemberIdentityValidator:
                     "name_similarity": 1.0,
                     "email_similarity": 1.0,
                     "iban_match": True,
-                    "birth_date_match": True,
-                },
+                    "birth_date_match": True},
                 (0.9, 1.0),
             ),  # Very high risk
             (
@@ -143,8 +140,7 @@ class StandaloneMemberIdentityValidator:
                     "name_similarity": 0.8,
                     "email_similarity": 0.0,
                     "iban_match": False,
-                    "birth_date_match": False,
-                },
+                    "birth_date_match": False},
                 (0.3, 0.4),
             ),  # Medium risk
             (
@@ -152,8 +148,7 @@ class StandaloneMemberIdentityValidator:
                     "name_similarity": 0.0,
                     "email_similarity": 0.0,
                     "iban_match": False,
-                    "birth_date_match": False,
-                },
+                    "birth_date_match": False},
                 (0.0, 0.1),
             ),  # Low risk
             (
@@ -161,8 +156,7 @@ class StandaloneMemberIdentityValidator:
                     "name_similarity": 0.5,
                     "email_similarity": 0.8,
                     "iban_match": True,
-                    "birth_date_match": False,
-                },
+                    "birth_date_match": False},
                 (0.6, 0.7),
             ),  # High risk due to IBAN match
         ]
@@ -211,8 +205,7 @@ class StandaloneAnomalyDetector:
         return {
             "anomalies": anomalies,
             "total_payments": len(payments),
-            "anomaly_rate": len(anomalies) / max(1, len(payments)),
-        }
+            "anomaly_rate": len(anomalies) / max(1, len(payments))}
 
     def test_amount_anomaly_detection(self):
         """Test payment amount anomaly detection"""
@@ -318,15 +311,13 @@ def test_edge_case_scenarios():
         "first_name": "John",
         "last_name": "Smith",
         "email": "john.amsterdam@test.com",
-        "iban": "NL43INGB1234567890",
-    }
+        "iban": "NL43INGB1234567890"}
 
     john_rotterdam = {
         "first_name": "John",
         "last_name": "Smith",
         "email": "john.rotterdam@test.com",
-        "iban": "NL43ABNA0987654321",
-    }
+        "iban": "NL43ABNA0987654321"}
 
     name_similarity = validator._calculate_name_similarity(
         f"{john_amsterdam['first_name']} {john_amsterdam['last_name']}",
@@ -344,8 +335,7 @@ def test_edge_case_scenarios():
             "name_similarity": name_similarity,
             "email_similarity": email_similarity,
             "iban_match": iban_match,
-            "birth_date_match": False,
-        }
+            "birth_date_match": False}
     )
 
     print(f"   Name similarity: {name_similarity:.3f}")
@@ -364,8 +354,7 @@ def test_edge_case_scenarios():
         "first_name": "John",
         "last_name": "Doe",
         "email": "john.doe@family.com",
-        "iban": "NL43INGB1111111111",
-    }
+        "iban": "NL43INGB1111111111"}
 
     wife = {
         "first_name": "Jane",
@@ -387,8 +376,7 @@ def test_edge_case_scenarios():
             "name_similarity": family_name_similarity,
             "email_similarity": family_email_similarity,
             "iban_match": family_iban_match,
-            "birth_date_match": False,
-        }
+            "birth_date_match": False}
     )
 
     print(f"   Name similarity: {family_name_similarity:.3f}")

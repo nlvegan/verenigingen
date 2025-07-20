@@ -26,8 +26,7 @@ class TestPaymentProcessingAPI(unittest.TestCase):
             "overdue_count": 2,
             "total_overdue": 150.00,
             "days_overdue": 45,
-            "membership_type": "Regular",
-        }
+            "membership_type": "Regular"}
 
         self.sample_overdue_data = [self.sample_payment_info]
 
@@ -101,8 +100,7 @@ class TestPaymentProcessingAPI(unittest.TestCase):
                 "overdue_count": 1,
                 "total_overdue": 75.00,
                 "days_overdue": 30,
-                "membership_type": "Student",
-            },
+                "membership_type": "Student"},
         ]
 
         mock_get_data.return_value = multiple_data
@@ -373,8 +371,7 @@ class TestPaymentProcessingEmailTemplates(unittest.TestCase):
             "Friendly Reminder": get_reminder_subject("Friendly Reminder", payment_info),
             "Urgent Notice": get_reminder_subject("Urgent Notice", payment_info),
             "Final Notice": get_reminder_subject("Final Notice", payment_info),
-            "Unknown": get_reminder_subject("Unknown Type", payment_info),
-        }
+            "Unknown": get_reminder_subject("Unknown Type", payment_info)}
 
         # Verify different subjects
         self.assertIn("Payment Reminder", subjects["Friendly Reminder"])

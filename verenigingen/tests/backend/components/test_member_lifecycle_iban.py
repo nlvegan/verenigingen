@@ -33,8 +33,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
             "doctype": "Member",
             "first_name": kwargs.get("first_name", "Test"),
             "last_name": kwargs.get("last_name", "Member"),
-            "email": kwargs.get("email", f"test{frappe.utils.random_string(5)}@example.com"),
-        }
+            "email": kwargs.get("email", f"test{frappe.utils.random_string(5)}@example.com")}
         # Add optional fields
         for field in ["iban", "bic", "bank_account_name", "payment_method"]:
             if field in kwargs:
@@ -50,8 +49,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
             "doctype": "Membership",
             "member": kwargs.get("member"),
             "membership_type": kwargs.get("membership_type", "Regular"),
-            "start_date": kwargs.get("start_date", today()),
-        }
+            "start_date": kwargs.get("start_date", today())}
         membership = frappe.get_doc(membership_data)
         membership.insert()
         return membership
@@ -65,8 +63,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
             "email": "test.application.iban@example.com",
             "payment_method": "SEPA Direct Debit",
             "iban": "NL91ABNA0417164300",
-            "bank_account_name": "Test Application",
-        }
+            "bank_account_name": "Test Application"}
 
         # Submit application
         application = frappe.get_doc({"doctype": "Membership Application", **application_data})
@@ -160,8 +157,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
                 "sign_date": today(),
                 "used_for_memberships": 1,
                 "status": "Active",
-                "is_active": 1,
-            }
+                "is_active": 1}
         )
         mandate.insert()
         mandate.submit()
@@ -174,8 +170,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
                 "mandate_reference": mandate.mandate_id,
                 "is_current": 1,
                 "status": "Active",
-                "valid_from": today(),
-            },
+                "valid_from": today()},
         )
         member.save()
 
@@ -228,8 +223,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
                 "membership": membership.name,
                 "reason": "Member Request",
                 "termination_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         termination.insert()
 

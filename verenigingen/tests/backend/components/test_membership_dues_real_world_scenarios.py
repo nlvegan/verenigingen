@@ -726,9 +726,6 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
             "subscription_period": "Monthly",
             "is_active": 1,
             "contribution_mode": "Calculator",
-            "minimum_contribution": 10.0,
-            "suggested_contribution": 50.0,
-            "maximum_contribution": 500.0,
             "enable_income_calculator": 1,
             "income_percentage_rate": 0.75
         }

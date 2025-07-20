@@ -63,8 +63,7 @@ class TestChapterExpenseReport(unittest.TestCase):
                 "employee_name": "Test Employee",
                 "remark": "Test expense claim",
                 "company": "Test Company",
-                "cost_center": None,
-            }
+                "cost_center": None}
         ]
 
         mock_expense_details = [
@@ -72,8 +71,7 @@ class TestChapterExpenseReport(unittest.TestCase):
                 "expense_type": "Travel",
                 "description": "Business travel",
                 "amount": 100.00,
-                "expense_date": "2024-06-15",
-            }
+                "expense_date": "2024-06-15"}
         ]
 
         with patch("frappe.get_all") as mock_get_all:
@@ -102,8 +100,7 @@ class TestChapterExpenseReport(unittest.TestCase):
                 "employee_name": "Another Employee",
                 "remark": "Simple expense claim",
                 "company": "Test Company",
-                "cost_center": None,
-            }
+                "cost_center": None}
         ]
 
         with patch("frappe.get_all") as mock_get_all:
@@ -130,8 +127,7 @@ class TestChapterExpenseReport(unittest.TestCase):
                 "employee_name": "Employee Name",
                 "remark": "Reimbursed expense",
                 "company": "Test Company",
-                "cost_center": None,
-            }
+                "cost_center": None}
         ]
 
         mock_volunteer_record = {"name": "VOL-001", "volunteer_name": "John Volunteer"}
@@ -256,8 +252,7 @@ class TestChapterExpenseReport(unittest.TestCase):
                 "amount": 250.00,
                 "status": "Submitted",
                 "days_to_approval": None,
-                "approval_level": "Financial",
-            },
+                "approval_level": "Financial"},
             {"amount": 50.00, "status": "Rejected", "days_to_approval": None, "approval_level": "Basic"},
             {"amount": 750.00, "status": "Reimbursed", "days_to_approval": 5, "approval_level": "Admin"},
         ]
@@ -321,8 +316,7 @@ class TestChapterExpenseReport(unittest.TestCase):
                 "amount": 100.00,
                 "status": "Approved",
                 "organization_type": "Chapter",
-                "chapter": "Test Chapter",
-            }
+                "chapter": "Test Chapter"}
         ]
 
         with patch(
@@ -427,8 +421,7 @@ class TestChapterExpenseReportIntegration(unittest.TestCase):
                 "employee_name": "Integration Test User",
                 "remark": "Integration test expense",
                 "company": "Test Company",
-                "cost_center": None,
-            }
+                "cost_center": None}
         ]
 
         mock_details = [
@@ -436,8 +429,7 @@ class TestChapterExpenseReportIntegration(unittest.TestCase):
                 "expense_type": "Travel",
                 "description": "Business trip",
                 "amount": 125.00,
-                "expense_date": "2024-06-15",
-            }
+                "expense_date": "2024-06-15"}
         ]
 
         with patch("frappe.get_all") as mock_get_all:

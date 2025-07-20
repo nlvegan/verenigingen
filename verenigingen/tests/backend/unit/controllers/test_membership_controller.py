@@ -36,9 +36,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Annual",
                     "amount": 100,
                     "currency": "EUR",
-                    "billing_frequency": "Annual",
-                    "payment_interval": "Yearly",
-                }
+                    "payment_interval": "Yearly"}
             )
             annual_type.insert(ignore_permissions=True)
             membership_types.append(annual_type)
@@ -53,9 +51,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Quarterly",
                     "amount": 30,
                     "currency": "EUR",
-                    "billing_frequency": "Quarterly",
-                    "payment_interval": "Quarterly",
-                }
+                    "payment_interval": "Quarterly"}
             )
             quarterly_type.insert(ignore_permissions=True)
             membership_types.append(quarterly_type)
@@ -70,9 +66,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Monthly",
                     "amount": 10,
                     "currency": "EUR",
-                    "billing_frequency": "Monthly",
-                    "payment_interval": "Monthly",
-                }
+                    "payment_interval": "Monthly"}
             )
             monthly_type.insert(ignore_permissions=True)
             membership_types.append(monthly_type)
@@ -87,9 +81,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "membership_type_name": "Test Daily",
                     "amount": 1,
                     "currency": "EUR",
-                    "billing_frequency": "Daily",
-                    "payment_interval": "Daily",
-                }
+                    "payment_interval": "Daily"}
             )
             daily_type.insert(ignore_permissions=True)
             membership_types.append(daily_type)
@@ -122,8 +114,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "member": member.name,
                 "membership_type": membership_type.name,
                 "start_date": today(),
-                "renewal_date": add_days(today(), 365),
-            }
+                "renewal_date": add_days(today(), 365)}
         )
 
         # Should not raise error
@@ -142,10 +133,8 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "doctype": "Membership Type",
                 "membership_type_name": "Test Enforced Annual",
                 "amount": 100,
-                "currency": "EUR",
-                "billing_frequency": "Monthly",  # Monthly but enforced to 1 year
-                "enforce_minimum_period": 1,
-            }
+                "currency": "EUR",  # Monthly but enforced to 1 year
+                "enforce_minimum_period": 1}
         )
         membership_type.insert(ignore_permissions=True)
         self.track_doc("Membership Type", membership_type.name)
@@ -159,8 +148,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "doctype": "Membership",
                 "member": member.name,
                 "membership_type": membership_type.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
 
         # Set renewal date should enforce minimum 1 year
@@ -178,9 +166,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "membership_type_name": "Test Monthly No Minimum",
                 "amount": 10,
                 "currency": "EUR",
-                "billing_frequency": "Monthly",
-                "enforce_minimum_period": 0,
-            }
+                "enforce_minimum_period": 0}
         )
         membership_type.insert(ignore_permissions=True)
         self.track_doc("Membership Type", membership_type.name)
@@ -194,8 +180,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "doctype": "Membership",
                 "member": member.name,
                 "membership_type": membership_type.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
 
         # Set renewal date should follow billing frequency (1 month)
@@ -217,8 +202,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "doctype": "Membership",
                     "member": member.name,
                     "membership_type": membership_type.name,
-                    "start_date": today(),
-                }
+                    "start_date": today()}
             )
 
             # Set renewal date for daily period
@@ -320,8 +304,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "doctype": "Membership",
                 "member": member.name,
                 "membership_type": membership_type.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
 
         # Insert should trigger hooks
@@ -421,8 +404,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "member": member.name,
                 "membership_type": self.test_env["membership_types"][0].name,
                 "start_date": today(),
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         # Insert first, then submit
         membership1.insert()
@@ -440,8 +422,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "member": member.name,
                     "membership_type": self.test_env["membership_types"][1].name,
                     "start_date": add_days(today(), 30),
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
 
             # Validate will set the renewal_date
@@ -504,9 +485,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership Type",
                     "amount": 100,
-                    "currency": "EUR",
-                    "billing_frequency": "Annual",
-                }
+                    "currency": "EUR"}
             )
             membership_type.insert(ignore_permissions=True)
             self.track_doc("Membership Type", membership_type.name)
@@ -516,8 +495,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "doctype": "Membership",
                 "member": member.name,
                 "membership_type": membership_type.name,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
 
         # Test normal amount
@@ -590,8 +568,7 @@ class TestMembershipController(VereningingenUnitTestCase):
                 "doctype": "Membership",
                 "member": member.name,
                 "membership_type": "Invalid Type",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
 
         with self.assert_validation_error("Membership Type"):

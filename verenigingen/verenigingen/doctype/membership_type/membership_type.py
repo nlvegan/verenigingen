@@ -8,7 +8,6 @@ class MembershipType(Document):
     def validate(self):
         self.validate_billing_period()
         self.validate_amount()
-        self.validate_contribution_system()
 
     def on_update(self):
         """Update template when membership type changes"""
@@ -21,12 +20,8 @@ class MembershipType(Document):
             try:
                 template = frappe.get_doc("Membership Dues Schedule", self.dues_schedule_template)
 
-                # Update template fields
-                template.billing_frequency = getattr(self, "billing_frequency", "Annual")
-                template.contribution_mode = getattr(self, "contribution_mode", "Calculator")
-                template.minimum_amount = getattr(self, "minimum_contribution", 0)
-                template.suggested_amount = getattr(self, "suggested_contribution", 0)
-                template.invoice_days_before = getattr(self, "invoice_days_before", 30)
+                # Update template with the basic amount from membership type
+                template.suggested_amount = self.amount or 0
 
                 template.save()
             except Exception as e:
@@ -56,16 +51,6 @@ class MembershipType(Document):
         # Round monetary amounts to 2 decimal places
         if hasattr(self, "amount"):
             self.amount = flt(self.amount, 2)
-        if hasattr(self, "minimum_contribution"):
-            self.minimum_contribution = flt(self.minimum_contribution, 2)
-        if hasattr(self, "suggested_contribution"):
-            self.suggested_contribution = flt(self.suggested_contribution, 2)
-        if hasattr(self, "maximum_contribution"):
-            self.maximum_contribution = flt(self.maximum_contribution, 2)
-
-        # Ensure minimum contribution is not negative
-        if hasattr(self, "minimum_contribution") and flt(self.minimum_contribution) < 0:
-            self.minimum_contribution = 0.0
 
     # Updated to use dues schedule system
 
@@ -106,134 +91,97 @@ class MembershipType(Document):
         frappe.msgprint(_("Item {0} created for membership type").format(item.name))
         return item.name
 
-    def validate_contribution_system(self):
-        """Validate the contribution system configuration"""
-        # Skip validation during migration or if new fields are not available
-        if (
-            frappe.flags.in_migrate
-            or not hasattr(self, "minimum_contribution")
-            or not hasattr(self, "suggested_contribution")
-        ):
-            return
-
-        # Set defaults for new fields if not set
-        if not self.minimum_contribution:
-            self.minimum_contribution = 5.0
-        if not self.suggested_contribution:
-            self.suggested_contribution = max(self.amount or 15.0, self.minimum_contribution or 5.0)
-        if not self.fee_slider_max_multiplier:
-            self.fee_slider_max_multiplier = 10.0
-        if not self.contribution_mode:
-            self.contribution_mode = "Calculator"
-        if not getattr(self, "billing_frequency", None):
-            self.billing_frequency = "Annual"
-        if not getattr(self, "invoice_days_before", None):
-            self.invoice_days_before = 30
-
-        # Only validate if we have all required fields
-        try:
-            # Ensure minimum and suggested amounts are reasonable
-            if flt(self.minimum_contribution) < 0:
-                frappe.throw(_("Minimum contribution cannot be negative"))
-
-            if flt(self.suggested_contribution) < flt(self.minimum_contribution):
-                # Auto-fix during migration
-                self.suggested_contribution = max(flt(self.minimum_contribution), flt(self.amount or 15.0))
-
-            # Validate maximum contribution if set
-            if self.maximum_contribution and flt(self.maximum_contribution) < flt(
-                self.suggested_contribution
-            ):
-                frappe.throw(_("Maximum contribution cannot be less than suggested contribution"))
-
-            # Validate fee slider multiplier
-            if flt(self.fee_slider_max_multiplier) <= 0:
-                self.fee_slider_max_multiplier = 10.0
-
-            # Validate income percentage rate
-            if self.enable_income_calculator and flt(self.income_percentage_rate) <= 0:
-                frappe.throw(_("Income percentage rate must be greater than 0"))
-
-            # Validate tiers if present
-            if self.contribution_mode in ["Tiers", "Both"] and self.predefined_tiers:
-                self.validate_predefined_tiers()
-        except Exception as e:
-            # Log error during migration but don't fail
-            if frappe.flags.in_migrate:
-                frappe.log_error(f"Validation error during migration: {str(e)}", "MembershipType Validation")
-            else:
-                raise
-
-    def validate_predefined_tiers(self):
-        """Validate predefined tiers configuration"""
-        tier_names = []
-        has_default = False
-
-        for tier in self.predefined_tiers:
-            # Check for duplicate tier names
-            if tier.tier_name in tier_names:
-                frappe.throw(_("Duplicate tier name: {0}").format(tier.tier_name))
-            tier_names.append(tier.tier_name)
-
-            # Check tier amount is reasonable
-            if flt(tier.amount) < flt(self.minimum_contribution):
-                frappe.throw(
-                    _("Tier '{0}' amount cannot be less than minimum contribution").format(tier.tier_name)
-                )
-
-            # Check for default tier
-            if tier.is_default:
-                if has_default:
-                    frappe.throw(_("Only one tier can be marked as default"))
-                has_default = True
-
     def get_contribution_options(self):
-        """Get contribution options based on organization configuration"""
-        options = {
-            "mode": self.contribution_mode,
-            "minimum": self.minimum_contribution,
-            "suggested": self.suggested_contribution,
-            "maximum": self.maximum_contribution
-            or (self.suggested_contribution * self.fee_slider_max_multiplier),
-            "calculator": {
-                "enabled": self.enable_income_calculator,
-                "percentage": self.income_percentage_rate,
-                "description": self.calculator_description,
-            },
-        }
+        """Get contribution options from the dues schedule template"""
+        if not self.dues_schedule_template:
+            # Return basic defaults if no template
+            return {
+                "mode": "Calculator",
+                "minimum": 5.0,
+                "suggested": self.amount or 15.0,
+                "maximum": (self.amount or 15.0) * 10,
+                "calculator": {
+                    "enabled": True,
+                    "percentage": 0.75,
+                    "description": "We suggest 0.75% of your monthly net income",
+                },
+                "tiers": [],
+                "quick_amounts": [],
+            }
 
-        if self.contribution_mode in ["Tiers", "Both"]:
-            options["tiers"] = []
-            for tier in self.predefined_tiers:
-                options["tiers"].append(
-                    {
-                        "name": tier.tier_name,
-                        "display_name": tier.display_name,
-                        "amount": tier.amount,
-                        "description": tier.description,
-                        "requires_verification": tier.requires_verification,
-                        "is_default": tier.is_default,
-                        "display_order": tier.display_order or 0,
-                    }
-                )
+        try:
+            template = frappe.get_doc("Membership Dues Schedule", self.dues_schedule_template)
 
-        if self.contribution_mode in ["Calculator", "Both"]:
-            # Generate fractional multipliers for calculator-based organizations
-            multipliers = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
-            options["quick_amounts"] = []
-            for multiplier in multipliers:
-                amount = self.suggested_contribution * multiplier
-                if amount >= self.minimum_contribution:
-                    options["quick_amounts"].append(
+            # Get all configuration from the template
+            options = {
+                "mode": template.contribution_mode or "Calculator",
+                "minimum": template.minimum_amount or 5.0,
+                "suggested": template.suggested_amount or self.amount or 15.0,
+                "maximum": template.maximum_amount
+                or ((template.suggested_amount or self.amount or 15.0) * 10),
+                "calculator": {
+                    "enabled": template.enable_income_calculator
+                    if hasattr(template, "enable_income_calculator")
+                    else True,
+                    "percentage": template.income_percentage_rate
+                    if hasattr(template, "income_percentage_rate")
+                    else 0.75,
+                    "description": template.calculator_description
+                    if hasattr(template, "calculator_description")
+                    else "",
+                },
+                "tiers": [],
+                "quick_amounts": [],
+            }
+
+            # Add tiers if available
+            if hasattr(template, "predefined_tiers") and template.predefined_tiers:
+                for tier in template.predefined_tiers:
+                    options["tiers"].append(
                         {
-                            "multiplier": multiplier,
-                            "amount": amount,
-                            "label": f"{int(multiplier * 100)}%" if multiplier != 1.0 else "Suggested",
-                            "is_default": multiplier == 1.0,
+                            "name": tier.tier_name,
+                            "display_name": tier.display_name,
+                            "amount": tier.amount,
+                            "description": tier.description,
+                            "requires_verification": getattr(tier, "requires_verification", 0),
+                            "is_default": getattr(tier, "is_default", 0),
+                            "display_order": getattr(tier, "display_order", 0) or 0,
                         }
                     )
 
-        return options
+            # Generate quick amounts for calculator mode
+            if options["mode"] in ["Calculator", "Both"]:
+                multipliers = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
+                for multiplier in multipliers:
+                    amount = options["suggested"] * multiplier
+                    if amount >= options["minimum"]:
+                        options["quick_amounts"].append(
+                            {
+                                "multiplier": multiplier,
+                                "amount": amount,
+                                "label": f"{int(multiplier * 100)}%" if multiplier != 1.0 else "Suggested",
+                                "is_default": multiplier == 1.0,
+                            }
+                        )
+
+            return options
+
+        except Exception as e:
+            frappe.log_error(f"Error getting contribution options: {str(e)}", "Membership Type")
+            # Return defaults on error
+            return {
+                "mode": "Calculator",
+                "minimum": 5.0,
+                "suggested": self.amount or 15.0,
+                "maximum": (self.amount or 15.0) * 10,
+                "calculator": {
+                    "enabled": True,
+                    "percentage": 0.75,
+                    "description": "We suggest 0.75% of your monthly net income",
+                },
+                "tiers": [],
+                "quick_amounts": [],
+            }
 
     def after_insert(self):
         """Create dues schedule template after membership type creation"""
@@ -261,17 +209,17 @@ class MembershipType(Document):
             # Set required fields to avoid validation errors during creation
             template.amount = 0.0
 
-        # Set/update template fields from membership type
-        template.billing_frequency = getattr(self, "billing_frequency", "Annual")
-        template.contribution_mode = getattr(self, "contribution_mode", "Calculator")
-        template.minimum_amount = getattr(self, "minimum_contribution", 0)
-        template.suggested_amount = getattr(self, "suggested_contribution", 0)
-        template.invoice_days_before = getattr(self, "invoice_days_before", 30)
+        # Set/update template fields with sensible defaults
+        template.billing_frequency = "Annual"  # Default billing frequency
+        template.contribution_mode = "Calculator"  # Default contribution mode
+        template.minimum_amount = 5.0  # Default minimum
+        template.suggested_amount = self.amount or 15.0  # Use membership type amount as suggested
+        template.invoice_days_before = 30  # Default invoice days
         template.auto_generate = 1
         template.status = "Active"
         # Ensure amount is set for templates
         if not template.amount:
-            template.amount = getattr(self, "suggested_contribution", 0) or getattr(self, "amount", 0)
+            template.amount = self.amount or 15.0
 
         if existing_template:
             template.save()

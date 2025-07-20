@@ -9,6 +9,39 @@ from frappe.utils import add_days, add_months, add_years, flt, getdate, today
 
 
 class MembershipDuesSchedule(Document):
+    def get_template_values(self):
+        """Get billing and contribution values from template if available"""
+        if not self.membership_type:
+            return {}
+
+        membership_type = frappe.get_doc("Membership Type", self.membership_type)
+        values = {
+            "minimum_amount": 0,
+            "suggested_amount": 0,
+            "billing_frequency": "Annual",
+            "invoice_days_before": 30,
+        }
+
+        # Get values from template if available
+        if membership_type.dues_schedule_template:
+            try:
+                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+                values.update(
+                    {
+                        "minimum_amount": template.minimum_amount or 0,
+                        "suggested_amount": template.suggested_amount or 0,
+                        "billing_frequency": template.billing_frequency or "Annual",
+                        "invoice_days_before": template.invoice_days_before or 30,
+                    }
+                )
+            except Exception:
+                pass
+
+        # Fallback to membership type defaults
+        values["suggested_amount"] = values["suggested_amount"] or membership_type.amount or 0
+
+        return values
+
     def validate(self):
         self.validate_permissions()
         self.validate_template_or_instance()
@@ -19,6 +52,10 @@ class MembershipDuesSchedule(Document):
         self.validate_custom_frequency()  # Validate custom frequency settings
         self.set_dues_rate_from_membership_type()  # Set default before validation
         self.validate_dues_rate_configuration()
+
+        # Initialize next invoice date for new schedules
+        if self.is_new() and not self.is_template and not self.next_invoice_date:
+            self.next_invoice_date = today()
 
         # Track old values for history
         if not self.is_new() and not self.is_template:
@@ -177,8 +214,8 @@ class MembershipDuesSchedule(Document):
         if not self.membership_type:
             return False
 
-        membership_type = frappe.get_doc("Membership Type", self.membership_type)
-        min_amount = getattr(membership_type, "minimum_contribution", 0) or 0
+        template_values = self.get_template_values()
+        min_amount = template_values.get("minimum_amount", 0)
 
         if self.dues_rate < min_amount:
             frappe.throw(f"Dues rate cannot be less than minimum contribution: €{min_amount:.2f}")
@@ -234,7 +271,8 @@ class MembershipDuesSchedule(Document):
                 tier = frappe.get_doc("Membership Tier", self.selected_tier)
                 self.dues_rate = tier.amount
             elif self.contribution_mode == "Calculator":
-                self.dues_rate = membership_type.suggested_contribution * (self.base_multiplier or 1.0)
+                template_values = self.get_template_values()
+                self.dues_rate = template_values.get("suggested_amount", 0) * (self.base_multiplier or 1.0)
             elif self.contribution_mode == "Custom":
                 if not self.uses_custom_amount:
                     frappe.throw("Custom dues rate must be enabled for custom contribution mode")
@@ -249,7 +287,9 @@ class MembershipDuesSchedule(Document):
             frappe.throw("Dues rate cannot be negative")
 
         # Single consolidated minimum validation
-        if membership_type.minimum_contribution and self.dues_rate < membership_type.minimum_contribution:
+        template_values = self.get_template_values()
+        min_contribution = template_values.get("minimum_amount", 0)
+        if min_contribution and self.dues_rate < min_contribution:
             # Zero dues rates are allowed with reason (free memberships)
             if self.dues_rate == 0:
                 if not self.custom_amount_reason:
@@ -261,13 +301,13 @@ class MembershipDuesSchedule(Document):
                 pass  # Allow approved custom amounts below minimum
             else:
                 # Auto-raise to minimum for non-custom amounts
-                self.dues_rate = membership_type.minimum_contribution
+                self.dues_rate = min_contribution
 
         # Check maximum contribution from Verenigingen Settings
         settings = frappe.get_single("Verenigingen Settings")
         if settings.maximum_fee_multiplier:
-            # Use suggested_contribution for consistency with Calculator mode
-            base_amount = membership_type.suggested_contribution or membership_type.amount
+            # Use suggested_amount from template for consistency with Calculator mode
+            base_amount = template_values.get("suggested_amount", 0) or membership_type.amount
             max_dues_rate = base_amount * settings.maximum_fee_multiplier
 
             if self.dues_rate > max_dues_rate:
@@ -313,10 +353,11 @@ class MembershipDuesSchedule(Document):
     def set_dues_rate_from_membership_type(self):
         """Set dues rate based on membership type if not already set"""
         if not self.dues_rate and self.membership_type:
-            # Get the fee from membership type - prefer suggested_contribution for consistency
+            # Get the fee from template values or membership type
+            template_values = self.get_template_values()
             membership_type_doc = frappe.get_doc("Membership Type", self.membership_type)
-            # Use suggested_contribution first (used by Calculator mode), fallback to amount
-            self.dues_rate = membership_type_doc.suggested_contribution or membership_type_doc.amount
+            # Use suggested_amount from template first, fallback to membership type amount
+            self.dues_rate = template_values.get("suggested_amount", 0) or membership_type_doc.amount
 
     def can_generate_invoice(self):
         """Check if invoice can be generated"""
@@ -791,11 +832,11 @@ def create_template_for_membership_type(membership_type, template_name=None):
     template.status = "Active"
 
     # Set defaults from membership type
-    template.billing_frequency = getattr(membership_type_doc, "billing_frequency", "Annual")
+    template.billing_frequency = "Annual"  # Default, since this is now owned by dues schedule
     template.contribution_mode = getattr(membership_type_doc, "contribution_mode", "Calculator")
-    template.minimum_amount = getattr(membership_type_doc, "minimum_contribution", 0)
-    template.suggested_amount = getattr(membership_type_doc, "suggested_contribution", 0)
-    template.invoice_days_before = getattr(membership_type_doc, "invoice_days_before", 30)
+    template.minimum_amount = 0  # Will be set per schedule
+    template.suggested_amount = membership_type_doc.amount or 0  # Use base amount from type
+    template.invoice_days_before = 30  # Default
     template.auto_generate = 1
 
     template.insert()

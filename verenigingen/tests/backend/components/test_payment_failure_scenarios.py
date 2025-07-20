@@ -24,8 +24,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Chapter",
                 "chapter_name": "Payment Test Chapter",
                 "short_name": "PTC",
-                "country": "Netherlands",
-            }
+                "country": "Netherlands"}
         )
         cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
@@ -36,8 +35,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Membership Type",
                 "membership_type": "Payment Test Type",
                 "annual_fee": 100.00,
-                "currency": "EUR",
-            }
+                "currency": "EUR"}
         )
         cls.membership_type.insert(ignore_permissions=True)
         cls.test_records.append(cls.membership_type)
@@ -50,8 +48,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "last_name": "Testmember",
                 "email": "payment.test@test.com",
                 "status": "Active",
-                "chapter": cls.chapter.name,
-            }
+                "chapter": cls.chapter.name}
         )
         cls.member.insert(ignore_permissions=True)
         cls.test_records.append(cls.member)
@@ -63,8 +60,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "member": cls.member.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         cls.mandate.insert(ignore_permissions=True)
         cls.test_records.append(cls.mandate)
@@ -76,8 +72,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "volunteer_name": "Payment Test Volunteer",
                 "email": "volunteer.payment@test.com",
                 "member": cls.member.name,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         cls.volunteer.insert(ignore_permissions=True)
         cls.test_records.append(cls.volunteer)
@@ -116,8 +111,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "success": False,
                 "error_code": "INSUFFICIENT_FUNDS",
                 "error_message": "Insufficient funds in account",
-                "retry_allowed": True,
-            }
+                "retry_allowed": True}
 
             # Attempt payment
             try:
@@ -151,8 +145,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         membership.insert()
 
@@ -175,8 +168,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         membership.insert()
 
@@ -240,8 +232,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "mandate": self.mandate.name,
                 "amount": 100.00,
                 "currency": "EUR",
-                "reference": "TEST-PAYMENT-001",
-            }
+                "reference": "TEST-PAYMENT-001"}
         )
         batch_invoice.insert()
 
@@ -281,8 +272,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "last_name": "Member",
                 "email": "second@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member2.insert()
 
@@ -292,8 +282,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "member": member2.name,
                 "iban": "DE89370400440532013000",  # Different valid IBAN
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         mandate2.insert()
 
@@ -304,8 +293,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "parent": batch.name,
                 "mandate": self.mandate.name,
                 "amount": 100.00,
-                "currency": "EUR",
-            }
+                "currency": "EUR"}
         )
         batch_invoice1.insert()
 
@@ -316,8 +304,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "parent": batch.name,
                 "mandate": mandate2.name,
                 "amount": -50.00,  # Invalid negative amount
-                "currency": "EUR",
-            }
+                "currency": "EUR"}
         )
 
         try:
@@ -355,8 +342,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "amount": 150.00,
                 "currency": "EUR",
                 "expense_date": today(),
-                "status": "Approved",
-            }
+                "status": "Approved"}
         )
         expense.insert()
 
@@ -365,8 +351,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
             mock_reimburse.return_value = {
                 "success": False,
                 "error_code": "INVALID_BANK_DETAILS",
-                "error_message": "Invalid bank account details",
-            }
+                "error_message": "Invalid bank account details"}
 
             try:
                 from verenigingen.api.financial import reimburse_expense
@@ -421,8 +406,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "amount": 100.00,
                 "currency": "USD",  # Different from base currency
                 "expense_date": today(),
-                "status": "Submitted",
-            }
+                "status": "Submitted"}
         )
 
         # Mock currency service failure
@@ -453,8 +437,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                     "amount": 100.00,
                     "currency": "GBP",
                     "expense_date": today(),
-                    "status": "Submitted",
-                }
+                    "status": "Submitted"}
             )
 
             # Should either use fallback rate or require manual rate
@@ -476,8 +459,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         membership.insert()
 
@@ -530,8 +512,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         membership.insert()
 
@@ -624,8 +605,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                                     "description": f"Rapid payment {i + 1}",
                                     "amount": 100.00,
                                     "currency": "EUR",
-                                    "expense_date": today(),
-                                }
+                                    "expense_date": today()}
                             )
                             expense.insert()
                             expense.delete()  # Clean up immediately
@@ -643,8 +623,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                                 "description": "Suspiciously large expense",
                                 "amount": pattern["amount"],
                                 "currency": "EUR",
-                                "expense_date": today(),
-                            }
+                                "expense_date": today()}
                         )
                         expense.insert()
 
@@ -658,8 +637,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         membership.insert()
 

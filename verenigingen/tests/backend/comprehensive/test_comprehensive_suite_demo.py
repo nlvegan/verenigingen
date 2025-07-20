@@ -52,18 +52,15 @@ class TestComprehensiveSuiteDemo(VereningingenWorkflowTestCase, PersonaTestMixin
             {
                 "name": "Demo Stage 1: Setup",
                 "function": self._demo_stage_setup,
-                "validations": [self._validate_demo_setup],
-            },
+                "validations": [self._validate_demo_setup]},
             {
                 "name": "Demo Stage 2: Process",
                 "function": self._demo_stage_process,
-                "validations": [self._validate_demo_process],
-            },
+                "validations": [self._validate_demo_process]},
             {
                 "name": "Demo Stage 3: Complete",
                 "function": self._demo_stage_complete,
-                "validations": [self._validate_demo_complete],
-            },
+                "validations": [self._validate_demo_complete]},
         ]
 
         self.define_workflow(stages)

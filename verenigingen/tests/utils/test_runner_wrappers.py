@@ -38,8 +38,7 @@ def run_special_character_tests():
             "tests_run": result.testsRun,
             "failures": len(result.failures),
             "errors": len(result.errors),
-            "message": f"{result.testsRun} tests run, {len(result.failures)} failures, {len(result.errors)} errors",
-        }
+            "message": f"{result.testsRun} tests run, {len(result.failures)} failures, {len(result.errors)} errors"}
     except Exception as e:
         return {"success": False, "message": f"Special character tests failed: {str(e)}"}
 
@@ -98,8 +97,7 @@ def run_expense_integration_tests():
             "tests_run": result.testsRun,
             "failures": len(result.failures),
             "errors": len(result.errors),
-            "message": f"Expense integration tests: {result.testsRun} run, {len(result.failures)} failures",
-        }
+            "message": f"Expense integration tests: {result.testsRun} run, {len(result.failures)} failures"}
     except Exception as e:
         return {"success": False, "message": f"Expense integration tests failed: {str(e)}"}
 
@@ -132,8 +130,7 @@ def run_all_portal_tests():
             "tests_run": result.testsRun,
             "failures": len(result.failures),
             "errors": len(result.errors),
-            "message": f"Portal tests: {result.testsRun} run, {len(result.failures)} failures",
-        }
+            "message": f"Portal tests: {result.testsRun} run, {len(result.failures)} failures"}
     except Exception as e:
         return {"success": False, "message": f"Portal tests failed: {str(e)}"}
 
@@ -166,8 +163,7 @@ def run_workflow_tests():
             "tests_run": result.testsRun,
             "failures": len(result.failures),
             "errors": len(result.errors),
-            "message": f"Workflow tests: {result.testsRun} run, {len(result.failures)} failures",
-        }
+            "message": f"Workflow tests: {result.testsRun} run, {len(result.failures)} failures"}
     except Exception as e:
         return {"success": False, "message": f"Workflow tests failed: {str(e)}"}
 
@@ -236,8 +232,7 @@ def run_report_regression_tests():
             "tests_run": result.testsRun,
             "failures": len(result.failures),
             "errors": len(result.errors),
-            "message": f"Report regression tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors",
-        }
+            "message": f"Report regression tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors"}
     except Exception as e:
         return {"success": False, "message": f"Report regression tests failed: {str(e)}"}
 
@@ -266,8 +261,7 @@ def run_anbi_report_tests():
             "tests_run": result.testsRun,
             "failures": len(result.failures),
             "errors": len(result.errors),
-            "message": f"ANBI report tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors",
-        }
+            "message": f"ANBI report tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors"}
     except Exception as e:
         return {"success": False, "message": f"ANBI report tests failed: {str(e)}"}
 
@@ -298,8 +292,7 @@ def run_all_report_tests():
             "tests_run": result.testsRun,
             "failures": len(result.failures),
             "errors": len(result.errors),
-            "message": f"All report tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors",
-        }
+            "message": f"All report tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors"}
     except Exception as e:
         return {"success": False, "message": f"All report tests failed: {str(e)}"}
 

@@ -17,8 +17,7 @@ def test_new_member_fee_logic():
             "dues_rate": 75.0,
             "fee_override_reason": "Custom contribution during application",
             "status": "Pending",
-            "application_status": "Pending",
-        }
+            "application_status": "Pending"}
     )
 
     # Insert (this will trigger validation including handle_fee_override_changes)
@@ -49,8 +48,7 @@ def test_existing_member_fee_change():
             "last_name": "ExistingMember" + random_string(4),
             "email": f"test.existing.{random_string(6)}@example.com",
             "birth_date": "1985-01-01",
-            "status": "Active",
-        }
+            "status": "Active"}
     )
     member.insert(ignore_permissions=True)
     print(f"✅ Created existing member: {member.name}")

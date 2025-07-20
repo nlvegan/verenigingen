@@ -15,14 +15,51 @@ membership_type.billing_frequency = "Monthly"
 membership_type.is_active = 1
 
 # Set contribution fields
-membership_type.contribution_mode = "Calculator"
-membership_type.minimum_contribution = 5.0
-membership_type.suggested_contribution = 15.0
-membership_type.fee_slider_max_multiplier = 10.0
-membership_type.enable_income_calculator = 1
-membership_type.income_percentage_rate = 0.5
+# contribution_mode moved to dues schedule template
+# minimum_contribution moved to dues schedule template
+# suggested_contribution moved to dues schedule template
+# fee_slider_max_multiplier moved to dues schedule template
+# enable_income_calculator moved to dues schedule template
+# income_percentage_rate moved to dues schedule template
 
 try:
+    membership_type.save()
+
+    # Create dues schedule template
+    template = frappe.new_doc("Membership Dues Schedule")
+    template.is_template = 1
+    template.schedule_name = f"Template-{membership_type.name}"
+    template.membership_type = membership_type.name
+    template.status = "Active"
+    template.billing_frequency = "Annual"
+    template.contribution_mode = "Calculator"
+    template.minimum_amount = 5.0
+    template.suggested_amount = membership_type.amount or 15.0
+    template.invoice_days_before = 30
+    template.auto_generate = 1
+    template.amount = template.suggested_amount
+    template.insert()
+
+    membership_type.dues_schedule_template = template.name
+    membership_type.save()
+
+    # Create dues schedule template with contribution settings
+    template = frappe.new_doc("Membership Dues Schedule")
+    template.is_template = 1
+    template.schedule_name = f"Template-{membership_type.name}"
+    template.membership_type = membership_type.name
+    template.status = "Active"
+    template.billing_frequency = "Annual"
+    template.contribution_mode = "Calculator"  # Update as needed
+    template.minimum_amount = 5.0  # Update with actual values
+    template.suggested_amount = membership_type.amount or 15.0
+    template.invoice_days_before = 30
+    template.auto_generate = 1
+    template.amount = template.suggested_amount
+    template.insert()
+
+    # Link template to membership type
+    membership_type.dues_schedule_template = template.name
     membership_type.save()
     print(f"✓ Created membership type: {membership_type.name}")
 

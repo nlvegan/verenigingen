@@ -28,8 +28,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                     "chapter_name": "Test Chapter Recent Changes",
                     "short_name": "TCRC",
                     "country": "Netherlands",
-                    "city": "Test City",
-                }
+                    "city": "Test City"}
             )
             cls.test_chapter.insert(ignore_permissions=True)
             cls.test_records.append(cls.test_chapter)
@@ -49,8 +48,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                     "address_line1": "123 Test Street",
                     "city": "Test City",
                     "country": "Netherlands",
-                    "pincode": "1234AB",
-                }
+                    "pincode": "1234AB"}
             )
             cls.test_address.insert(ignore_permissions=True)
             cls.test_records.append(cls.test_address)
@@ -70,8 +68,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                         "first_name": first_name,
                         "last_name": "Test",
                         "full_name": f"{first_name} Test",
-                        "enabled": 1,
-                    }
+                        "enabled": 1}
                 )
                 user.insert(ignore_permissions=True)
                 cls.test_records.append(user)
@@ -97,8 +94,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "last_name": "Member One",
                 "email": "test.member1@example.com",
                 "primary_address": self.test_address.name,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         member1.insert(ignore_permissions=True)
         self.test_records.append(member1)
@@ -111,8 +107,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "last_name": "Member Two",
                 "email": "test.member2@example.com",
                 "primary_address": self.test_address.name,
-                "birth_date": "1995-01-01",
-            }
+                "birth_date": "1995-01-01"}
         )
         member2.insert(ignore_permissions=True)
         self.test_records.append(member2)
@@ -163,8 +158,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "last_name": "Smith",
                 "email": "john.smith@example.com",
                 "primary_address": self.test_address.name,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         member1.insert(ignore_permissions=True)
         self.test_records.append(member1)
@@ -218,8 +212,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "doctype": "Volunteer",
                 "volunteer_name": "Test Expense Volunteer",
                 "email": "expense.volunteer@example.com",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         volunteer.insert(ignore_permissions=True)
         self.test_records.append(volunteer)
@@ -248,8 +241,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "doctype": "Volunteer",
                 "volunteer_name": "Treasurer Volunteer",
                 "email": self.treasurer_email,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         treasurer_volunteer.insert(ignore_permissions=True)
         self.test_records.append(treasurer_volunteer)
@@ -266,8 +258,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                     "parentfield": "board_members",
                     "volunteer": treasurer_volunteer.name,
                     "chapter_role": "Board Member",  # Use generic role to avoid validation issues
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             board_member.insert(ignore_permissions=True)
             self.test_records.append(board_member)
@@ -280,8 +271,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "doctype": "Volunteer",
                 "volunteer_name": "Test Settings Volunteer",
                 "email": "settings.volunteer@example.com",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         volunteer.insert(ignore_permissions=True)
         self.test_records.append(volunteer)
@@ -299,8 +289,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "doctype": "Volunteer",
                 "volunteer_name": "Query Test Volunteer",
                 "email": "query.test@example.com",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         volunteer.insert(ignore_permissions=True)
         self.test_records.append(volunteer)
@@ -345,8 +334,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "first_name": "Form",
                 "last_name": "Integration",
                 "email": "form.integration@example.com",
-                "primary_address": self.test_address.name,
-            }
+                "primary_address": self.test_address.name}
         )
         member.insert(ignore_permissions=True)
         self.test_records.append(member)
@@ -375,8 +363,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "doctype": "Member",
                 "first_name": "Volunteer",
                 "last_name": "Creation Test",
-                "email": "volunteer.creation@example.com",
-            }
+                "email": "volunteer.creation@example.com"}
         )
         member.insert(ignore_permissions=True)
         self.test_records.append(member)
@@ -388,8 +375,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "volunteer_name": "Volunteer Creation Test",
                 "email": "volunteer.creation@example.com",
                 "member": member.name,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         volunteer.insert(ignore_permissions=True)
         self.test_records.append(volunteer)
@@ -412,8 +398,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "doctype": "Member",
                 "first_name": "Debug",
                 "last_name": "Test",
-                "email": "debug.test@example.com",
-            }
+                "email": "debug.test@example.com"}
         )
         member.insert(ignore_permissions=True)
         self.test_records.append(member)

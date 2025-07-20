@@ -49,8 +49,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "email": f"volunteer.{frappe.utils.random_string(8)}@test.com",
                 "member": member.name,
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
 
         # Should not raise error
@@ -65,8 +64,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "email": f"volunteer.invalid.{frappe.utils.random_string(8)}@test.com",
                 "member": "INVALID-MEMBER",
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
 
         with self.assertRaises(frappe.DoesNotExistError):
@@ -112,8 +110,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "role": "Completed Role",
                 "start_date": add_days(today(), -90),
                 "end_date": add_days(today(), -30),
-                "status": "Completed",
-            },
+                "status": "Completed"},
         )
 
         volunteer.save()
@@ -138,8 +135,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "start_date": add_days(today(), -60),
                 "end_date": add_days(today(), -30),
                 "status": "Completed",
-                "actual_hours": 40,
-            },
+                "actual_hours": 40},
         )
 
         volunteer.append(
@@ -150,8 +146,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "start_date": add_days(today(), -20),
                 "end_date": add_days(today(), -10),
                 "status": "Completed",
-                "actual_hours": 20,
-            },
+                "actual_hours": 20},
         )
 
         volunteer.save()
@@ -171,18 +166,15 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
             {
                 "skill_category": "Technical",
                 "volunteer_skill": "Python Programming",
-                "proficiency_level": "4 - Advanced",
-            },
+                "proficiency_level": "4 - Advanced"},
             {
                 "skill_category": "Technical",
                 "volunteer_skill": "Database Design",
-                "proficiency_level": "3 - Intermediate",
-            },
+                "proficiency_level": "3 - Intermediate"},
             {
                 "skill_category": "Communication",
                 "volunteer_skill": "Public Speaking",
-                "proficiency_level": "4 - Advanced",
-            },
+                "proficiency_level": "4 - Advanced"},
         ]
 
         for skill in skills_data:
@@ -220,8 +212,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "role": "Project Coordinator",
                 "description": "Test activity",
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         activity.insert(ignore_permissions=True)
         self.track_doc("Volunteer Activity", activity.name)
@@ -251,8 +242,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "team_name": f"Test Team {frappe.utils.random_string(8)}",
                 "status": "Active",
                 "team_type": "Project Team",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         team_doc.insert(ignore_permissions=True)
         self.track_doc("Team", team_doc.name)
@@ -265,8 +255,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
                 "role_type": "Team Member",
                 "from_date": today(),
                 "is_active": 1,
-                "status": "Active",
-            },
+                "status": "Active"},
         )
         team_doc.save()
 

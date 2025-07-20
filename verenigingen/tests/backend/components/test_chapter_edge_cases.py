@@ -58,8 +58,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "last_name": f"Head {self.test_id}",
                 "email": f"testhead{self.test_id.lower()}@example.com",
                 "contact_number": "+31612345678",
-                "payment_method": "Bank Transfer",
-            }
+                "payment_method": "Bank Transfer"}
         )
         self.test_member.insert(ignore_permissions=True)
         self.docs_to_cleanup.append(("Member", self.test_member.name))
@@ -84,8 +83,7 @@ class TestChapterEdgeCases(FrappeTestCase):
             "name": f"Test Chapter {unique_suffix}",
             "region": f"Test Region {unique_suffix}",
             "introduction": f"Test chapter for edge case testing {unique_suffix}",
-            "published": 1,
-        }
+            "published": 1}
         defaults.update(kwargs)
 
         # Handle name override with uniqueness
@@ -182,8 +180,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                     "last_name": f"Roster {self.test_id}",
                     "email": f"member{i}.{self.test_id.lower()}@example.com",
                     "contact_number": f"+3161234{i:04d}",
-                    "payment_method": "Bank Transfer",
-                }
+                    "payment_method": "Bank Transfer"}
             )
             member.insert(ignore_permissions=True)
             members.append(member)
@@ -223,8 +220,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "last_name": f"Ñoël-O'Connor {self.test_id}",
                 "email": f"special.{self.test_id.lower()}@example.com",
                 "contact_number": "+31612340000",
-                "payment_method": "Bank Transfer",
-            }
+                "payment_method": "Bank Transfer"}
         )
         special_member.insert(ignore_permissions=True)
         self.docs_to_cleanup.append(("Member", special_member.name))
@@ -259,8 +255,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "email": f"board.volunteer.{self.test_id.lower()}@example.com",
                 "member": self.test_member.name,
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         volunteer.insert(ignore_permissions=True)
         self.docs_to_cleanup.append(("Volunteer", volunteer.name))
@@ -294,8 +289,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                     "volunteer": volunteer.name,
                     "chapter_role": "Test Role 2",
                     "is_active": 1,
-                    "start_date": today(),
-                },
+                    "start_date": today()},
             )
             chapter.save(ignore_permissions=True)
             chapter.reload()
@@ -475,8 +469,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "last_name": f"Member {self.test_id}",
                 "email": f"chapter.member.{self.test_id.lower()}@example.com",
                 "contact_number": "+31612345679",
-                "payment_method": "Bank Transfer",
-            }
+                "payment_method": "Bank Transfer"}
         )
         member_with_chapter.insert(ignore_permissions=True)
         self.docs_to_cleanup.append(("Member", member_with_chapter.name))
@@ -488,8 +481,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "member": member_with_chapter.name,
                 "member_name": member_with_chapter.full_name,
                 "enabled": 1,
-                "chapter_join_date": today(),
-            },
+                "chapter_join_date": today()},
         )
         chapter.save(ignore_permissions=True)
 
@@ -578,8 +570,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                     "doctype": "Chapter",
                     "name": f"Invalid {description} {self.test_id}",
                     "region": "Test Region",
-                    field: value,
-                }
+                    field: value}
                 invalid_chapter = frappe.get_doc(test_data)
                 invalid_chapter.insert(ignore_permissions=True)
                 self.docs_to_cleanup.append(("Chapter", invalid_chapter.name))

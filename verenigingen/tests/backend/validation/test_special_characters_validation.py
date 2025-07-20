@@ -72,8 +72,7 @@ class TestSpecialCharactersValidation(unittest.TestCase):
             "first_name": "José",
             "last_name": "García-López",
             "email": "jose.garcia.test@example.com",
-            "birth_date": "1990-01-01",
-        }
+            "birth_date": "1990-01-01"}
 
         application_id = generate_application_id()
 
@@ -132,8 +131,7 @@ def test_special_character_validation():
                     "actual": result["valid"],
                     "passed": passed,
                     "sanitized": result.get("sanitized", ""),
-                    "message": result.get("message", ""),
-                }
+                    "message": result.get("message", "")}
             )
 
         # Summary
@@ -146,8 +144,7 @@ def test_special_character_validation():
             "passed_tests": passed_tests,
             "failed_tests": total_tests - passed_tests,
             "results": results,
-            "message": f"Special character validation tests: {passed_tests}/{total_tests} passed",
-        }
+            "message": f"Special character validation tests: {passed_tests}/{total_tests} passed"}
 
     except Exception as e:
         return {"success": False, "error": str(e), "message": f"Test execution failed: {str(e)}"}

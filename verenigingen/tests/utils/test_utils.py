@@ -165,8 +165,7 @@ class TestDataFactory:
             "email": email,
             "status": kwargs.get("status", "Active"),
             "application_status": kwargs.get("application_status", "Approved"),
-            "member_since": kwargs.get("member_since", frappe.utils.today()),
-        }
+            "member_since": kwargs.get("member_since", frappe.utils.today())}
         member_data.update(kwargs)
         
         member = frappe.get_doc(member_data)

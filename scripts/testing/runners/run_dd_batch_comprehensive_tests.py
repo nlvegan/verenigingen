@@ -38,8 +38,7 @@ class DDComprehensiveTestRunner:
             ],
             "integration": [
                 "verenigingen.tests.test_dd_batch_edge_cases_comprehensive",
-            ],
-        }
+            ]}
 
         self.results = {"passed": 0, "failed": 0, "errors": 0, "skipped": 0, "total_time": 0, "details": []}
 
@@ -208,20 +207,17 @@ class DDComprehensiveTestRunner:
                 "name": "Member Identity Validator Import",
                 "test": lambda: __import__(
                     "verenigingen.utils.dd_security_enhancements", fromlist=["MemberIdentityValidator"]
-                ),
-            },
+                )},
             {
                 "name": "Security Audit Logger Import",
                 "test": lambda: __import__(
                     "verenigingen.utils.dd_security_enhancements", fromlist=["DDSecurityAuditLogger"]
-                ),
-            },
+                )},
             {
                 "name": "Conflict Resolution Manager Import",
                 "test": lambda: __import__(
                     "verenigingen.utils.dd_security_enhancements", fromlist=["DDConflictResolutionManager"]
-                ),
-            },
+                )},
         ]
 
         security_results = {"passed": 0, "failed": 0}
@@ -258,11 +254,9 @@ class DDComprehensiveTestRunner:
                     self.results["passed"]
                     / max(1, self.results["passed"] + self.results["failed"] + self.results["errors"])
                 )
-                * 100,
-            },
+                * 100},
             "test_suites": list(self.test_suites.keys()),
-            "details": self.results["details"],
-        }
+            "details": self.results["details"]}
 
         print("\\n" + "=" * 60)
         print("📋 DD BATCH COMPREHENSIVE TEST REPORT")
@@ -296,18 +290,15 @@ class DDComprehensiveTestRunner:
             {
                 "name": "Member Identity Validation (100 members)",
                 "target_time": 5.0,  # seconds
-                "description": "Validate duplicate detection with 100 existing members",
-            },
+                "description": "Validate duplicate detection with 100 existing members"},
             {
                 "name": "Batch Anomaly Detection (1000 payments)",
                 "target_time": 10.0,  # seconds
-                "description": "Analyze payment anomalies in large batch",
-            },
+                "description": "Analyze payment anomalies in large batch"},
             {
                 "name": "SEPA XML Generation (500 entries)",
                 "target_time": 15.0,  # seconds
-                "description": "Generate SEPA XML file for medium batch",
-            },
+                "description": "Generate SEPA XML file for medium batch"},
         ]
 
         print("📊 Performance Targets:")
@@ -333,8 +324,7 @@ class DDComprehensiveTestRunner:
                     "name": benchmark["name"],
                     "target_time": benchmark["target_time"],
                     "actual_time": actual_time,
-                    "passed": passed,
-                }
+                    "passed": passed}
             )
 
             status = "✅ PASS" if passed else "❌ FAIL"
