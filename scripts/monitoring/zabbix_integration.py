@@ -148,9 +148,8 @@ def get_financial_metrics():
         membership_invoices_today = frappe.db.sql("""
             SELECT COUNT(DISTINCT si.name)
             FROM `tabSales Invoice` si
-            INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = (
-                SELECT member FROM `tabMember` WHERE customer = si.customer LIMIT 1
-            )
+            INNER JOIN `tabMember` m ON m.customer = si.customer
+            INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name
             WHERE si.docstatus = 1 
             AND si.posting_date >= %s
             AND mds.status = 'Active'

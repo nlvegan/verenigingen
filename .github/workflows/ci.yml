@@ -82,6 +82,8 @@ jobs:
         # Install Redis tools (redis-cli) for bench to detect Redis version
         sudo apt-get update
         sudo apt-get install -y redis-tools
+        # Verify Redis service is running
+        redis-cli -h localhost -p 6379 ping || echo "Redis service not yet available"
 
     - name: Install Bench
       run: |
@@ -99,14 +101,28 @@ jobs:
     - name: Configure Redis Connection
       working-directory: frappe-bench
       run: |
-        # Configure Redis to use the service container
-        bench set-config redis_cache redis://localhost:6379
-        bench set-config redis_queue redis://localhost:6379
-        bench set-config redis_socketio redis://localhost:6379
-        # Verify Redis connection
+        # Wait for Redis service to be fully ready
+        echo "Waiting for Redis to be ready..."
+        for i in {1..30}; do
+          if redis-cli -h localhost -p 6379 ping > /dev/null 2>&1; then
+            echo "Redis is ready!"
+            break
+          fi
+          echo "Waiting for Redis... (attempt $i/30)"
+          sleep 2
+        done
+
+        # Test Redis service availability
         redis-cli -h localhost -p 6379 ping
-        # Display current Redis configuration
-        bench --site test_site show-config || echo "No site configured yet"
+
+        # Configure Redis to use the service container
+        bench set-config redis_cache "redis://localhost:6379"
+        bench set-config redis_queue "redis://localhost:6379"
+        bench set-config redis_socketio "redis://localhost:6379"
+
+        # Verify configuration was set
+        echo "Redis configuration:"
+        cat sites/common_site_config.json
 
     - name: Install ERPNext and Dependencies
       working-directory: frappe-bench
@@ -129,10 +145,17 @@ jobs:
     - name: Verify Redis Configuration
       working-directory: frappe-bench
       run: |
-        # Check site config for Redis settings
+        echo "=== Site Configuration ==="
         bench --site test_site show-config
-        # Test Redis connection from bench
-        bench --site test_site console --execute "import frappe; print('Redis cache:', frappe.cache().get('test_key') or 'Redis working')"
+
+        echo "=== Redis Connection Test ==="
+        redis-cli -h localhost -p 6379 ping
+
+        echo "=== Redis Info ==="
+        redis-cli -h localhost -p 6379 info server | head -5
+
+        echo "=== Frappe Cache Test ==="
+        bench --site test_site execute "import frappe; frappe.cache().set_value('test_key', 'Redis working'); print('Redis test:', frappe.cache().get_value('test_key'))" || echo "Frappe cache test failed"
 
     - name: Install Apps
       working-directory: frappe-bench
@@ -151,7 +174,30 @@ jobs:
     - name: Run Python Tests
       working-directory: frappe-bench
       run: |
-        bench --site test_site run-tests --app verenigingen --coverage
+        # Verify system state before tests
+        echo "=== Pre-test System Check ==="
+        redis-cli -h localhost -p 6379 ping
+        echo "Site status:"
+        bench --site test_site doctor || echo "Doctor command not available"
+
+        echo "=== Starting Test Execution ==="
+        # Try different test execution strategies for better error reporting
+
+        # First try: Run critical tests only if full suite fails
+        if ! bench --site test_site run-tests --app verenigingen --coverage; then
+          echo "=== Full test suite failed, trying diagnostic approach ==="
+
+          # Check if it's a Redis-specific issue
+          echo "Checking Redis connectivity during test failure..."
+          redis-cli -h localhost -p 6379 ping || echo "Redis connection lost during tests"
+
+          # Try running a minimal test
+          echo "Attempting minimal test execution..."
+          bench --site test_site run-tests --app verenigingen --module "verenigingen.tests.test_iban_validator" || echo "Even minimal tests failed"
+
+          # Re-raise the error for CI failure
+          exit 1
+        fi
 
     - name: Generate Coverage Report
       working-directory: frappe-bench

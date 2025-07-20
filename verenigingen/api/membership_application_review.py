@@ -636,31 +636,59 @@ def get_pending_applications(chapter=None, days_overdue=None):
         order_by="application_date desc",
     )
 
+    # Optimize chapter lookup by fetching all chapter memberships at once
+    member_names = [app.name for app in applications]
+
+    # Get all chapter memberships for these members in a single query
+    chapter_memberships = {}
+    if member_names:
+        all_memberships = frappe.db.sql(
+            """
+            SELECT member, parent as chapter_name
+            FROM `tabChapter Member`
+            WHERE member IN %(member_names)s AND enabled = 1
+            ORDER BY chapter_join_date DESC
+        """,
+            {"member_names": member_names},
+            as_dict=True,
+        )
+
+        # Group by member (taking the most recent chapter)
+        for membership in all_memberships:
+            if membership.member not in chapter_memberships:
+                chapter_memberships[membership.member] = membership.chapter_name
+
+    # Get all membership types in one query for amount lookup
+    membership_types = {app.selected_membership_type for app in applications if app.selected_membership_type}
+    membership_type_data = {}
+    if membership_types:
+        type_data = frappe.get_all(
+            "Membership Type",
+            filters={"name": ["in", list(membership_types)]},
+            fields=["name", "amount", "currency"],
+        )
+        membership_type_data = {mt.name: mt for mt in type_data}
+
     # Add additional info and apply chapter filtering
     filtered_applications = []
     for app in applications:
         app["days_pending"] = (getdate(today()) - getdate(app.application_date)).days
 
-        # Get membership type amount
-        if app.selected_membership_type:
-            mt = frappe.get_cached_doc("Membership Type", app.selected_membership_type)
+        # Get membership type amount from cached data
+        if app.selected_membership_type and app.selected_membership_type in membership_type_data:
+            mt = membership_type_data[app.selected_membership_type]
             app["membership_amount"] = mt.amount
             app["membership_currency"] = mt.currency
 
-        # Get chapter information from Chapter Member table
-        member_chapters = frappe.get_all(
-            "Chapter Member",
-            filters={"member": app.name, "enabled": 1},
-            fields=["parent"],
-            order_by="chapter_join_date desc",
-        )
-        app["current_chapter_display"] = member_chapters[0].parent if member_chapters else "Unassigned"
+        # Get chapter information from pre-loaded data
+        app["current_chapter_display"] = chapter_memberships.get(app.name, "Unassigned")
 
         # Apply chapter filter if specified
         if chapter:
-            if chapter == "Unassigned" and member_chapters:
+            member_chapter = chapter_memberships.get(app.name)
+            if chapter == "Unassigned" and member_chapter:
                 continue  # Skip if looking for unassigned but member has chapters
-            elif chapter != "Unassigned" and (not member_chapters or member_chapters[0].parent != chapter):
+            elif chapter != "Unassigned" and member_chapter != chapter:
                 continue  # Skip if doesn't match requested chapter
 
         filtered_applications.append(app)

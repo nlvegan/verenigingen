@@ -1,5 +1,5 @@
 [flake8]
-ignore = E501,W503,E203,F401,E722,F821,C901,E221,E222,E231,E272,E322,E241,E702,E201,E202,E713
+ignore = E501,W503,E203,F401,E722,F821,C901,E221,E222,E231,E272,E322,E241,E702,E201,E202
 exclude = .git,__pycache__,.pytest_cache,*.egg-info,build,dist,scripts,tests,debug_utils,dev_scripts,integration_tests,verenigingen/tests,scripts/testing,scripts/debug,scripts/validation,frontend_tests,node_modules
 max-line-length = 120
 max-complexity = 20
