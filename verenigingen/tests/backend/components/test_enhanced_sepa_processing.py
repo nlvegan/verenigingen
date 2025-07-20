@@ -169,34 +169,36 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         
         # Validate failure handling
         dues_schedule.reload()
-        self.assertGreaterEqual(dues_schedule.consecutive_failures, 1)
+        # Check that failure is recorded in notes or status
+        self.assertIn("Failed", dues_schedule.status)
         
     def test_grace_period_handling(self):
         """Test grace period handling for failed payments"""
         dues_schedule = self.create_test_dues_schedule_for_collection()
         
         # Set up failure scenario
-        dues_schedule.consecutive_failures = 1
         dues_schedule.status = "Grace Period"
         dues_schedule.grace_period_until = add_days(today(), 14)
+        dues_schedule.notes = "Payment failures: 1"
         dues_schedule.save()
         
         # Validate grace period status
         self.assertEqual(dues_schedule.status, "Grace Period")
         self.assertIsNotNone(dues_schedule.grace_period_until)
+        self.assertIn("Payment failures: 1", dues_schedule.notes)
         
     def test_suspension_after_consecutive_failures(self):
         """Test suspension after consecutive payment failures"""
         dues_schedule = self.create_test_dues_schedule_for_collection()
         
         # Simulate 3 consecutive failures
-        dues_schedule.consecutive_failures = 3
         dues_schedule.status = "Suspended"
+        dues_schedule.notes = "Payment failures: 3 - Suspended"
         dues_schedule.save()
         
         # Validate suspension
         self.assertEqual(dues_schedule.status, "Suspended")
-        self.assertEqual(dues_schedule.consecutive_failures, 3)
+        self.assertIn("Payment failures: 3", dues_schedule.notes)
         
     def test_upcoming_collections_api(self):
         """Test upcoming dues collections API"""

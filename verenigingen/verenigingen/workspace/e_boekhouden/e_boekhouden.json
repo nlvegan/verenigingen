@@ -64,16 +64,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Account Mapping",
-   "link_count": 0,
-   "link_to": "E-Boekhouden Account Mapping",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Ledger Mapping",
    "link_count": 0,
    "link_to": "E-Boekhouden Ledger Mapping",

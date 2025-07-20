@@ -1529,7 +1529,7 @@ function display_amendment_status(frm) {
 	if (!frm.doc.name) return;
 
 	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.membership_amendment_request.membership_amendment_request.get_member_pending_contribution_amendments',
+		method: 'verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.get_member_pending_contribution_amendments',
 		args: {
 			member_name: frm.doc.name
 		},

@@ -11,6 +11,7 @@ class ContributionAmendmentRequest(Document):
         self.validate_effective_date()
         self.validate_amount_changes()
         self.validate_no_conflicting_amendments()
+        self.validate_adjustment_frequency()
         self.set_current_details()
         self.set_default_effective_date()
         self.set_requested_by()
@@ -31,13 +32,40 @@ class ContributionAmendmentRequest(Document):
 
     def validate_amount_changes(self):
         """Validate amount changes are reasonable"""
-        if self.amendment_type == "Fee Change" and self.requested_amount:
+        # Validate membership type changes
+        if self.amendment_type == "Membership Type Change":
+            if self.current_membership_type and self.requested_membership_type:
+                if self.current_membership_type == self.requested_membership_type:
+                    frappe.throw(_("Cannot change to the same membership type"))
+
+        if self.amendment_type == "Fee Change" and self.requested_amount is not None:
             if self.requested_amount <= 0:
                 frappe.throw(_("Requested amount must be greater than 0"))
 
             # Check if amount is significantly different (to avoid accidental changes)
             if self.current_amount and abs(self.requested_amount - self.current_amount) < 0.01:
                 frappe.throw(_("Requested amount is the same as current amount"))
+
+            # Check minimum fee enforcement
+            if self.membership:
+                membership = frappe.get_doc("Membership", self.membership)
+                if membership.membership_type:
+                    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+                    base_amount = membership_type.amount
+
+                    # Calculate minimum fee (30% of base or €5, whichever is higher)
+                    minimum_fee = max(base_amount * 0.3, 5.0)
+
+                    # Check if member is a student (gets 50% minimum instead)
+                    if self.member:
+                        member = frappe.get_doc("Member", self.member)
+                        if getattr(member, "student_status", 0):
+                            minimum_fee = max(base_amount * 0.5, 5.0)
+
+                    if self.requested_amount < minimum_fee:
+                        frappe.throw(
+                            _("Requested amount is less than minimum fee of €{0}").format(minimum_fee)
+                        )
 
     def validate_no_conflicting_amendments(self):
         """Validate that there are no existing pending amendments for this member"""
@@ -67,6 +95,34 @@ class ContributionAmendmentRequest(Document):
                 ).format(self.member, ", ".join(amendment_details))
             )
 
+    def validate_adjustment_frequency(self):
+        """Validate that member hasn't exceeded adjustment frequency limits"""
+        if not self.member or not self.requested_by_member:
+            return  # Only check for member-requested adjustments
+
+        # Get settings
+        settings = frappe.get_single("Verenigingen Settings")
+        max_adjustments = getattr(settings, "max_adjustments_per_year", 2)
+
+        # Count adjustments in past 365 days
+        date_365_days_ago = add_days(today(), -365)
+        adjustments_past_year = frappe.db.count(
+            "Contribution Amendment Request",
+            filters={
+                "member": self.member,
+                "amendment_type": "Fee Change",
+                "creation": [">=", date_365_days_ago],
+                "requested_by_member": 1,
+            },
+        )
+
+        if adjustments_past_year >= max_adjustments:
+            frappe.throw(
+                _(
+                    "You have reached the maximum number of fee adjustments ({0}) allowed in a 365-day period"
+                ).format(max_adjustments)
+            )
+
     def set_current_details(self):
         """Set current membership details using new dues schedule approach"""
         if not self.membership:
@@ -74,6 +130,9 @@ class ContributionAmendmentRequest(Document):
 
         membership = frappe.get_doc("Membership", self.membership)
         member_doc = frappe.get_doc("Member", self.member)
+
+        # Set current membership type
+        self.current_membership_type = membership.membership_type
 
         # PRIORITY 1: Get current amount from active dues schedule
         active_dues_schedule = frappe.db.get_value(
@@ -116,13 +175,13 @@ class ContributionAmendmentRequest(Document):
                 active_dues_schedule = frappe.db.get_value(
                     "Membership Dues Schedule",
                     {"member": self.member, "status": "Active"},
-                    ["name", "current_coverage_end"],
+                    ["name", "next_invoice_date"],
                     as_dict=True,
                 )
 
-                if active_dues_schedule and active_dues_schedule.current_coverage_end:
+                if active_dues_schedule and active_dues_schedule.next_invoice_date:
                     # Set to next billing period
-                    self.effective_date = add_days(active_dues_schedule.current_coverage_end, 1)
+                    self.effective_date = active_dues_schedule.next_invoice_date
                 else:
                     # Fallback to next month
                     self.effective_date = add_days(today(), 30)
@@ -282,6 +341,8 @@ class ContributionAmendmentRequest(Document):
             member_doc.fee_override_reason = f"Amendment: {self.reason}"
             member_doc.fee_override_date = today()
             member_doc.fee_override_by = frappe.session.user
+            # Set flag to bypass permission check for system updates
+            member_doc._system_update = True
             member_doc.save(ignore_permissions=True)
 
             # Updated to use dues schedule system
@@ -315,15 +376,17 @@ class ContributionAmendmentRequest(Document):
                 existing_doc.add_comment(
                     text=f"Cancelled and replaced by amendment {self.name}: €{self.requested_amount:.2f}"
                 )
+                existing_doc._ignore_permissions = True
                 existing_doc.save(ignore_permissions=True)
 
             # Create new dues schedule
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
+            dues_schedule.schedule_name = f"Amendment {self.name} - {frappe.utils.random_string(6)}"
             dues_schedule.member = self.member
             dues_schedule.membership = membership.name
             dues_schedule.membership_type = membership.membership_type
             dues_schedule.contribution_mode = "Custom"
-            dues_schedule.amount = self.requested_amount
+            dues_schedule.dues_rate = self.requested_amount
             dues_schedule.uses_custom_amount = 1
             dues_schedule.custom_amount_approved = 1  # Amendment already approved
             dues_schedule.custom_amount_reason = f"Amendment Request: {self.reason}"
@@ -333,18 +396,20 @@ class ContributionAmendmentRequest(Document):
                 dues_schedule.custom_amount_reason = f"Free membership via amendment: {self.reason}"
 
             dues_schedule.billing_frequency = "Monthly"  # Default
-            dues_schedule.payment_method = "Bank Transfer"  # Default
+            # Payment method is determined dynamically based on member's payment setup
             dues_schedule.status = "Active"
             dues_schedule.auto_generate = 1
             dues_schedule.test_mode = 0
             dues_schedule.effective_date = self.effective_date or today()
-            dues_schedule.current_coverage_start = self.effective_date or today()
+            dues_schedule.next_invoice_date = self.effective_date or today()
 
             # Add amendment metadata in notes
             dues_schedule.notes = (
                 f"Created from amendment request {self.name} by {frappe.session.user} on {today()}"
             )
 
+            # Set flag to skip permission check and save with ignore_permissions
+            dues_schedule._ignore_permissions = True
             dues_schedule.save(ignore_permissions=True)
 
             # Add comment about the amendment
@@ -623,12 +688,12 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
             active_dues_schedule = frappe.db.get_value(
                 "Membership Dues Schedule",
                 {"member": member.name, "status": "Active"},
-                ["current_coverage_end"],
+                ["next_invoice_date"],
                 as_dict=True,
             )
 
-            if active_dues_schedule and active_dues_schedule.current_coverage_end:
-                effective_date = add_days(active_dues_schedule.current_coverage_end, 1)
+            if active_dues_schedule and active_dues_schedule.next_invoice_date:
+                effective_date = active_dues_schedule.next_invoice_date
             else:
                 effective_date = add_days(today(), 30)
         except Exception:

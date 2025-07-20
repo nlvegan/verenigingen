@@ -137,6 +137,8 @@ scheduler_events = {
         "verenigingen.api.membership_application_review.send_overdue_notifications",
         # Amendment system processing
         "verenigingen.verenigingen.doctype.membership_amendment_request.membership_amendment_request.process_pending_amendments",
+        # Auto-create missing dues schedules
+        "verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
         # Analytics and goals updates
         "verenigingen.verenigingen.doctype.membership_goal.membership_goal.update_all_goals",
         # Termination system maintenance

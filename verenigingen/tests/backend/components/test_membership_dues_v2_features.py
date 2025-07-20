@@ -517,8 +517,8 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         
         # Validate dues schedule update
         dues_schedule.reload()
-        self.assertEqual(dues_schedule.consecutive_failures, 1)
-        self.assertEqual(dues_schedule.last_failure_reason, return_data["description"])
+        # Check failure is recorded in notes
+        self.assertIn("Payment failure", dues_schedule.notes or "")
         self.assertTrue(dues_schedule.under_manual_review)
         
     def test_payment_failure_r_code_mapping(self):
@@ -757,14 +757,11 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
         dues_schedule.member = member.name
         dues_schedule.billing_frequency = "Monthly"
-        dues_schedule.billing_day = today().day
         dues_schedule.amount = 25.0
-        dues_schedule.payment_method = "SEPA Direct Debit"
+        # Payment method is determined dynamically based on member's payment setup
         dues_schedule.status = "Active"
-        dues_schedule.current_coverage_start = today()
-        dues_schedule.current_coverage_end = add_months(today(), 1) - timedelta(days=1)
+        # Coverage dates are calculated automatically
         dues_schedule.next_invoice_date = add_months(today(), 1)
-        dues_schedule.consecutive_failures = 0
         dues_schedule.under_manual_review = 0
         dues_schedule.save()
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
@@ -813,9 +810,9 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         
         if dues_schedule:
             dues_doc = frappe.get_doc("Membership Dues Schedule", dues_schedule)
-            dues_doc.consecutive_failures = (dues_doc.consecutive_failures or 0) + 1
-            dues_doc.last_failure_date = return_data["failure_date"]
-            dues_doc.last_failure_reason = return_data["description"]
+            # Record failure in notes
+            failure_count = (dues_doc.notes or "").count("Payment failure") + 1
+            dues_doc.notes = (dues_doc.notes or "") + f"\nPayment failure #{failure_count} on {return_data['failure_date']}: {return_data['description']}"
             dues_doc.under_manual_review = 1
             dues_doc.save()
         

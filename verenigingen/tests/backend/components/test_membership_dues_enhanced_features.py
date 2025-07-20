@@ -467,15 +467,15 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         dues_schedule = self.create_test_dues_schedule(membership_type)
         
         # Simulate payment failure
-        dues_schedule.consecutive_failures = 1
         dues_schedule.status = "Grace Period"
         dues_schedule.grace_period_until = add_days(today(), 14)  # 2 week grace
+        dues_schedule.notes = "Payment failures: 1"
         dues_schedule.save()
         
         # Validate grace period fields
         self.assertEqual(dues_schedule.status, "Grace Period")
         self.assertIsNotNone(dues_schedule.grace_period_until)
-        self.assertEqual(dues_schedule.consecutive_failures, 1)
+        self.assertIn("Payment failures: 1", dues_schedule.notes)
         
     def test_suspension_after_grace_period(self):
         """Test suspension after grace period expires"""
@@ -485,7 +485,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         # Set expired grace period
         dues_schedule.status = "Grace Period"
         dues_schedule.grace_period_until = add_days(today(), -1)  # Yesterday
-        dues_schedule.consecutive_failures = 3
+        dues_schedule.notes = "Payment failures: 3"
         dues_schedule.save()
         
         # Should be suspendable
@@ -496,18 +496,18 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         membership_type = self.create_test_membership_type()
         dues_schedule = self.create_test_dues_schedule(membership_type)
         
-        # Test failure increment
+        # Test failure tracking
         for i in range(1, 4):
-            dues_schedule.consecutive_failures = i
+            dues_schedule.notes = f"Payment failures: {i}"
             dues_schedule.save()
-            self.assertEqual(dues_schedule.consecutive_failures, i)
+            self.assertIn(f"Payment failures: {i}", dues_schedule.notes)
             
         # Test reset on successful payment
-        dues_schedule.consecutive_failures = 0
+        dues_schedule.notes = "Payment successful - failures reset"
         dues_schedule.last_payment_date = today()
         dues_schedule.save()
         
-        self.assertEqual(dues_schedule.consecutive_failures, 0)
+        self.assertIn("Payment successful", dues_schedule.notes)
         
     # Creative Test Scenarios (inspired by design document)
     

@@ -6,10 +6,14 @@
  "engine": "InnoDB",
  "field_order": [
   "change_date",
-  "old_amount",
-  "new_amount",
+  "dues_schedule",
+  "billing_frequency",
+  "old_dues_rate",
+  "new_dues_rate",
   "column_break_2",
+  "change_type",
   "reason",
+  "amendment_request",
   "changed_by"
  ],
  "fields": [
@@ -21,16 +25,29 @@
    "reqd": 1
   },
   {
-   "fieldname": "old_amount",
-   "fieldtype": "Currency",
+   "fieldname": "dues_schedule",
+   "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Previous Amount"
+   "label": "Dues Schedule",
+   "options": "Membership Dues Schedule"
   },
   {
-   "fieldname": "new_amount",
+   "fieldname": "billing_frequency",
+   "fieldtype": "Select",
+   "label": "Billing Frequency",
+   "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nCustom"
+  },
+  {
+   "fieldname": "old_dues_rate",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "New Amount",
+   "label": "Previous Dues Rate"
+  },
+  {
+   "fieldname": "new_dues_rate",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "New Dues Rate",
    "reqd": 1
   },
   {
@@ -38,11 +55,24 @@
    "fieldtype": "Column Break"
   },
   {
+   "fieldname": "change_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Change Type",
+   "options": "Fee Adjustment\nMembership Type Change\nBilling Frequency Change\nNew Schedule\nSchedule Cancelled",
+   "reqd": 1
+  },
+  {
    "fieldname": "reason",
    "fieldtype": "Small Text",
-   "in_list_view": 1,
    "label": "Reason for Change",
    "reqd": 1
+  },
+  {
+   "fieldname": "amendment_request",
+   "fieldtype": "Link",
+   "label": "Amendment Request",
+   "options": "Contribution Amendment Request"
   },
   {
    "fieldname": "changed_by",

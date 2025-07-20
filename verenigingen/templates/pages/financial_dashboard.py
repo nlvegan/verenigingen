@@ -24,6 +24,15 @@ def get_context(context):
     # Get current dues schedule
     current_schedule = get_current_dues_schedule(member)
 
+    # Get payment method dynamically
+    payment_method = None
+    if current_schedule:
+        # Check for active SEPA mandate
+        active_mandate = frappe.db.exists(
+            "SEPA Mandate", {"member": member, "status": "Active", "is_active": 1, "used_for_memberships": 1}
+        )
+        payment_method = "SEPA Direct Debit" if active_mandate else "Bank Transfer"
+
     # Get financial overview data
     financial_overview = get_financial_overview(member)
 
@@ -57,6 +66,7 @@ def get_context(context):
         {
             "member": member,
             "current_schedule": current_schedule,
+            "payment_method": payment_method,
             "next_payment": financial_overview.get("next_payment"),
             "total_paid_year": financial_overview.get("total_paid_year", 0),
             "annual_target": financial_overview.get("annual_target", 0),
@@ -88,15 +98,34 @@ def get_current_dues_schedule(member):
             "name",
             "contribution_mode",
             "billing_frequency",
-            "start_date",
-            "end_date",
-            "monthly_amount",
-            "payment_method",
-            "auto_renewal",
-            "email_notifications",
+            "next_invoice_date",
+            "last_invoice_date",
+            "amount",
+            "auto_generate",
+            "status",
+            "membership_type",
         ],
         as_dict=True,
     )
+
+    if schedule:
+        # Calculate monthly amount from billing frequency
+        if schedule.billing_frequency == "Monthly":
+            schedule["monthly_amount"] = schedule.amount
+        elif schedule.billing_frequency == "Quarterly":
+            schedule["monthly_amount"] = schedule.amount / 3
+        elif schedule.billing_frequency == "Semi-Annual":
+            schedule["monthly_amount"] = schedule.amount / 6
+        elif schedule.billing_frequency == "Annual":
+            schedule["monthly_amount"] = schedule.amount / 12
+        else:
+            schedule["monthly_amount"] = schedule.amount
+
+        # Set derived fields for backward compatibility
+        schedule["auto_renewal"] = schedule.auto_generate
+        schedule["email_notifications"] = True  # Default to true
+        schedule["start_date"] = schedule.last_invoice_date or schedule.next_invoice_date
+        schedule["end_date"] = schedule.next_invoice_date
 
     return schedule
 

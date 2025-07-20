@@ -16,6 +16,8 @@
   "currency",
   "billing_settings_section",
   "dues_schedule_template",
+  "billing_frequency",
+  "invoice_days_before",
   "require_approval",
   "column_break_14",
   "allow_auto_renewal",
@@ -109,7 +111,23 @@
    "fieldname": "dues_schedule_template",
    "fieldtype": "Link",
    "label": "Dues Schedule Template",
-   "options": "Membership Dues Schedule"
+   "options": "Membership Dues Schedule",
+   "get_query": "verenigingen.verenigingen.doctype.membership_type.membership_type.get_template_query"
+  },
+  {
+   "default": "Annual",
+   "depends_on": "eval:!doc.dues_schedule_template",
+   "fieldname": "billing_frequency",
+   "fieldtype": "Select",
+   "label": "Default Billing Frequency",
+   "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nCustom"
+  },
+  {
+   "default": "30",
+   "description": "Generate invoice this many days before due date",
+   "fieldname": "invoice_days_before",
+   "fieldtype": "Int",
+   "label": "Invoice Days Before Due"
   },
   {
    "default": "0",

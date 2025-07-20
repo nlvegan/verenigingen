@@ -329,24 +329,41 @@ class VereningingenTestCase(FrappeTestCase):
 
     def create_test_dues_schedule(self, **kwargs):
         """Create a test dues schedule with default values"""
-        # Get a test membership type
-        membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
-        if not membership_type:
-            membership_type = frappe.db.get_value("Membership Type", {}, "name")
+        # If member is provided, create instance from template
+        if "member" in kwargs:
+            member_name = kwargs["member"]
+            membership_type_name = kwargs.get("membership_type")
+            
+            # Use factory method to create from template
+            return self.factory.create_dues_schedule_for_member(member_name, membership_type_name)
         
+        # Otherwise create a template (for backward compatibility)
+        membership_type = kwargs.get("membership_type")
+        if not membership_type:
+            membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
+            if not membership_type:
+                membership_type = frappe.db.get_value("Membership Type", {}, "name")
+        
+        # Create template
         defaults = {
+            "is_template": 1,
+            "schedule_name": f"Test-Template-{membership_type}",
             "membership_type": membership_type,
             "amount": 15.00,
-            "contribution_mode": "Tiers",
+            "contribution_mode": "Calculator",
             "billing_frequency": "Monthly",
-            "payment_method": "Bank Transfer",
             "status": "Active",
             "auto_generate": 1,
-            "test_mode": 0,
-            "effective_date": frappe.utils.today(),
-            "current_coverage_start": frappe.utils.today()
+            "minimum_amount": 5.00,
+            "suggested_amount": 15.00,
+            "invoice_days_before": 30
         }
         defaults.update(kwargs)
+        
+        # Remove deprecated fields if they were passed
+        deprecated_fields = ["payment_method", "current_coverage_start", "effective_date", "test_mode"]
+        for field in deprecated_fields:
+            defaults.pop(field, None)
         
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
         for key, value in defaults.items():

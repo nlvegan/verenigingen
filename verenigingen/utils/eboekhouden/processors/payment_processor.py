@@ -38,7 +38,5 @@ class PaymentProcessor(BaseTransactionProcessor):
         return "Receive" if mutation_type == 3 else "Pay"
 
     def is_enhanced_processing_enabled(self) -> bool:
-        """Check if enhanced payment processing is enabled"""
-        use_enhanced = frappe.db.get_single_value("E-Boekhouden Settings", "use_enhanced_payment_processing")
-        # Default to True if setting doesn't exist
-        return use_enhanced if use_enhanced is not None else True
+        """Enhanced payment processing is always enabled for data quality"""
+        return True

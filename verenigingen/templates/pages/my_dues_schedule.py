@@ -22,6 +22,15 @@ def get_context(context):
     # Get current dues schedule
     current_schedule = get_current_dues_schedule(member)
 
+    # Get payment method dynamically
+    payment_method = None
+    if current_schedule:
+        # Check for active SEPA mandate
+        active_mandate = frappe.db.exists(
+            "SEPA Mandate", {"member": member, "status": "Active", "is_active": 1, "used_for_memberships": 1}
+        )
+        payment_method = "SEPA Direct Debit" if active_mandate else "Bank Transfer"
+
     # Get payment data
     payment_data = get_payment_data(member)
     payment_timeline = get_payment_timeline(member)
@@ -44,6 +53,7 @@ def get_context(context):
         {
             "member": member,
             "current_schedule": current_schedule,
+            "payment_method": payment_method,
             "payment_data": json.dumps(payment_data),
             "payment_timeline": payment_timeline,
             "next_payment": next_payment,

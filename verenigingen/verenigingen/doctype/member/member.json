@@ -37,10 +37,7 @@
   "current_membership_end",
   "fee_management_section",
   "dues_rate",
-  "fee_override_reason",
   "column_break_fee",
-  "fee_override_date",
-  "fee_override_by",
   "fee_change_history_section",
   "fee_change_history",
   "payments_tab",
@@ -56,6 +53,7 @@
   "iban_history_section",
   "iban_history",
   "membership_status",
+  "dues_schedule",
   "sepa_mandates_section",
   "sepa_mandates",
   "payment_history_tab",
@@ -171,12 +169,12 @@
    "label": "Bank Details"
   },
   {
+   "description": "International Bank Account Number (e.g., NL91ABNA0417164300)",
    "fieldname": "iban",
    "fieldtype": "Data",
    "label": "IBAN",
    "length": 34,
-   "mandatory_depends_on": "eval:doc.payment_method=='SEPA Direct Debit'",
-   "description": "International Bank Account Number (e.g., NL91ABNA0417164300)"
+   "mandatory_depends_on": "eval:doc.payment_method=='SEPA Direct Debit'"
   },
   {
    "fieldname": "payment_method",
@@ -262,6 +260,7 @@
    "label": "Review Notes"
   },
   {
+   "default": "0",
    "description": "Indicates if the member expressed interest in volunteering during application",
    "fieldname": "interested_in_volunteering",
    "fieldtype": "Check",
@@ -568,6 +567,14 @@
    "read_only": 1
   },
   {
+   "description": "Associated dues schedule for billing",
+   "fieldname": "dues_schedule",
+   "fieldtype": "Link",
+   "label": "Dues Schedule",
+   "options": "Membership Dues Schedule",
+   "read_only": 1
+  },
+  {
    "fieldname": "custom_fields_section",
    "fieldtype": "Section Break",
    "label": "Additional Information"
@@ -742,29 +749,8 @@
    "label": "Dues Rate"
   },
   {
-   "depends_on": "eval:doc.dues_rate",
-   "fieldname": "fee_override_reason",
-   "fieldtype": "Small Text",
-   "label": "Reason for Fee Override"
-  },
-  {
    "fieldname": "column_break_fee",
    "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.dues_rate",
-   "fieldname": "fee_override_date",
-   "fieldtype": "Date",
-   "label": "Override Date",
-   "read_only": 1
-  },
-  {
-   "depends_on": "eval:doc.dues_rate",
-   "fieldname": "fee_override_by",
-   "fieldtype": "Link",
-   "label": "Override Set By",
-   "options": "User",
-   "read_only": 1
   },
   {
    "depends_on": "eval:doc.fee_change_history && doc.fee_change_history.length > 0",
@@ -838,7 +824,7 @@
    "link_fieldname": "volunteer"
   }
  ],
- "modified": "2025-07-04 21:56:18.824987",
+ "modified": "2025-07-19 21:47:12.021269",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",

@@ -26,21 +26,11 @@
   "cancellation_date",
   "cancellation_reason",
   "cancellation_type",
-  "payment_details_section",
-  "last_payment_date",
-  "unpaid_amount",
-  "column_break_payment",
-  "membership_fee",
-  "mandate_section",
-  "sepa_mandate",
-  "mandate_reference",
-  "mandate_status",
   "dues_schedule_section",
   "allow_multiple_memberships",
-  "dues_schedule",
+  "member_dues_schedule",
   "dues_schedule_status",
   "column_break_24",
-  "create_dues_schedule",
   "view_dues_schedule",
   "view_payments",
   "amended_from"
@@ -97,7 +87,8 @@
    "in_list_view": 1,
    "label": "Membership Type",
    "options": "Membership Type",
-   "reqd": 1
+   "reqd": 1,
+   "allow_on_submit": 1
   },
   {
    "default": "0",
@@ -183,81 +174,26 @@
    "depends_on": "eval:doc.cancellation_date"
   },
   {
-   "fieldname": "payment_details_section",
-   "fieldtype": "Section Break",
-   "label": "Payment Details"
-  },
-  {
-   "fieldname": "last_payment_date",
-   "fieldtype": "Date",
-   "label": "Last Payment Date",
-   "read_only": 1
-  },
-  {
-   "fieldname": "unpaid_amount",
-   "fieldtype": "Currency",
-   "label": "Balance",
-   "read_only": 1,
-   "description": "Total amount of unpaid invoices"
-  },
-  {
-   "fieldname": "column_break_payment",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "membership_fee",
-   "fieldtype": "Currency",
-   "label": "Membership Fee",
-   "read_only": 1,
-   "description": "Current membership fee amount"
-  },
-  {
-   "fieldname": "mandate_section",
-   "fieldtype": "Section Break",
-   "label": "SEPA Mandate"
-  },
-  {
-   "fieldname": "sepa_mandate",
-   "fieldtype": "Link",
-   "label": "SEPA Mandate",
-   "options": "SEPA Mandate",
-   "get_query": "verenigingen.verenigingen.doctype.membership.membership.get_member_sepa_mandates",
-   "description": "Select from member's active SEPA mandates"
-  },
-  {
-   "fetch_from": "sepa_mandate.mandate_id",
-   "fieldname": "mandate_reference",
-   "fieldtype": "Data",
-   "label": "Mandate Reference",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "sepa_mandate.status",
-   "fieldname": "mandate_status",
-   "fieldtype": "Data",
-   "label": "Mandate Status",
-   "read_only": 1
-  },
-  {
    "fieldname": "dues_schedule_section",
    "fieldtype": "Section Break",
    "label": "Dues Schedule Details"
   },
   {
-   "fieldname": "dues_schedule",
+   "fieldname": "member_dues_schedule",
    "fieldtype": "Link",
-   "label": "Dues Schedule",
+   "label": "Member Dues Schedule",
    "options": "Membership Dues Schedule",
-   "description": "Associated dues schedule for this membership",
-   "read_only": 1
+   "description": "Member's dues schedule (shared across memberships)",
+   "read_only": 1,
+   "fetch_from": "member.dues_schedule"
   },
   {
    "fieldname": "dues_schedule_status",
    "fieldtype": "Data",
    "label": "Dues Schedule Status",
    "read_only": 1,
-   "fetch_from": "dues_schedule.status",
-   "description": "Status of the associated dues schedule"
+   "fetch_from": "member_dues_schedule.status",
+   "description": "Status of the member's dues schedule"
   },
   {
    "fieldname": "amount_difference",
@@ -272,13 +208,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:!doc.dues_schedule && doc.docstatus==1",
-   "fieldname": "create_dues_schedule",
-   "fieldtype": "Button",
-   "label": "Create Dues Schedule"
-  },
-  {
-   "depends_on": "eval:doc.dues_schedule",
+   "depends_on": "eval:doc.member_dues_schedule",
    "fieldname": "view_dues_schedule",
    "fieldtype": "Button",
    "label": "View Dues Schedule"
@@ -287,7 +217,7 @@
    "fieldname": "view_payments",
    "fieldtype": "Button",
    "label": "View Payment History",
-   "depends_on": "eval:doc.docstatus==1 && doc.dues_schedule"
+   "depends_on": "eval:doc.docstatus==1 && doc.member_dues_schedule"
   },
   {
    "fieldname": "amended_from",

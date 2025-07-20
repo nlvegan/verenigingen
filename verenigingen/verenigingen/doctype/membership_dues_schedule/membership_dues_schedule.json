@@ -1,18 +1,22 @@
 {
     "actions": [],
-    "autoname": "format:MDS-{YYYY}-{#####}",
+    "autoname": "field:schedule_name",
     "creation": "2025-07-16 10:00:00.000000",
     "doctype": "DocType",
     "engine": "InnoDB",
     "field_order": [
+        "schedule_name",
+        "is_template",
         "section_membership",
         "member",
         "member_name",
-        "membership",
         "membership_type",
+        "template_reference",
         "column_break_1",
         "status",
         "billing_frequency",
+        "custom_frequency_number",
+        "custom_frequency_unit",
         "auto_generate",
         "test_mode",
         "section_schedule",
@@ -20,7 +24,7 @@
         "last_invoice_date",
         "invoice_days_before",
         "column_break_2",
-        "amount",
+        "dues_rate",
         "currency",
         "payment_terms_template",
         "section_notes",
@@ -39,33 +43,47 @@
         "custom_amount_approved_by",
         "column_break_custom",
         "custom_amount_approved_date",
-        "section_sepa",
-        "payment_method",
-        "active_mandate",
-        "next_sequence_type",
-        "column_break_sepa",
-        "billing_day",
-        "section_coverage",
-        "current_coverage_start",
-        "current_coverage_end",
-        "column_break_coverage",
-        "grace_period_until",
-        "last_payment_date",
-        "consecutive_failures"
+        "section_billing_schedule",
+        "billing_schedule_notes"
     ],
     "fields": [
+        {
+            "fieldname": "schedule_name",
+            "fieldtype": "Data",
+            "in_list_view": 1,
+            "label": "Schedule Name",
+            "reqd": 1,
+            "unique": 1
+        },
+        {
+            "default": "0",
+            "fieldname": "is_template",
+            "fieldtype": "Check",
+            "in_list_view": 1,
+            "label": "Is Template"
+        },
         {
             "fieldname": "section_membership",
             "fieldtype": "Section Break",
             "label": "Membership Details"
         },
         {
+            "depends_on": "eval:!doc.is_template",
             "fieldname": "member",
             "fieldtype": "Link",
             "in_list_view": 1,
             "in_standard_filter": 1,
             "label": "Member",
-            "options": "Member",
+            "mandatory_depends_on": "eval:!doc.is_template",
+            "options": "Member"
+        },
+        {
+            "fieldname": "membership_type",
+            "fieldtype": "Link",
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "label": "Membership Type",
+            "options": "Membership Type",
             "reqd": 1
         },
         {
@@ -76,19 +94,11 @@
             "read_only": 1
         },
         {
-            "fieldname": "membership",
+            "depends_on": "eval:!doc.is_template",
+            "fieldname": "template_reference",
             "fieldtype": "Link",
-            "in_list_view": 1,
-            "label": "Membership",
-            "options": "Membership",
-            "reqd": 1
-        },
-        {
-            "fetch_from": "membership.membership_type",
-            "fieldname": "membership_type",
-            "fieldtype": "Link",
-            "label": "Membership Type",
-            "options": "Membership Type",
+            "label": "Created From Template",
+            "options": "Membership Dues Schedule",
             "read_only": 1
         },
         {
@@ -111,8 +121,23 @@
             "fieldtype": "Select",
             "in_list_view": 1,
             "label": "Billing Frequency",
-            "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nCustom",
+            "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nDaily\nCustom",
             "reqd": 1
+        },
+        {
+            "depends_on": "eval:doc.billing_frequency == 'Custom'",
+            "fieldname": "custom_frequency_number",
+            "fieldtype": "Int",
+            "label": "Custom Frequency Number",
+            "description": "Number of units for custom frequency (e.g., 2 for every 2 months)"
+        },
+        {
+            "depends_on": "eval:doc.billing_frequency == 'Custom'",
+            "fieldname": "custom_frequency_unit",
+            "fieldtype": "Select",
+            "label": "Custom Frequency Unit",
+            "options": "Days\nWeeks\nMonths\nYears",
+            "description": "Unit for custom frequency"
         },
         {
             "default": 1,
@@ -136,7 +161,7 @@
             "fieldtype": "Date",
             "in_list_view": 1,
             "label": "Next Invoice Date",
-            "reqd": 1
+            "mandatory_depends_on": "eval:!doc.is_template"
         },
         {
             "fieldname": "last_invoice_date",
@@ -156,11 +181,11 @@
             "fieldtype": "Column Break"
         },
         {
-            "fieldname": "amount",
+            "fieldname": "dues_rate",
             "fieldtype": "Currency",
             "in_list_view": 1,
-            "label": "Amount",
-            "reqd": 1
+            "label": "Dues Rate",
+            "mandatory_depends_on": "eval:!doc.is_template"
         },
         {
             "default": "EUR",
@@ -197,8 +222,7 @@
             "fieldtype": "Select",
             "in_list_view": 1,
             "label": "Contribution Mode",
-            "options": "Tier\nCalculator\nCustom",
-            "reqd": 1
+            "options": "Tier\nCalculator\nCustom"
         },
         {
             "depends_on": "eval:doc.contribution_mode == 'Tier'",
@@ -275,78 +299,15 @@
             "label": "Custom Amount Approved Date"
         },
         {
-            "fieldname": "section_sepa",
+            "fieldname": "section_billing_schedule",
             "fieldtype": "Section Break",
-            "label": "Payment Configuration"
+            "label": "Additional Configuration"
         },
         {
-            "default": "SEPA Direct Debit",
-            "fieldname": "payment_method",
-            "fieldtype": "Select",
-            "in_list_view": 1,
-            "label": "Payment Method",
-            "options": "SEPA Direct Debit\nBank Transfer\nPSP",
-            "reqd": 1
-        },
-        {
-            "depends_on": "eval:doc.payment_method == 'SEPA Direct Debit'",
-            "fieldname": "active_mandate",
-            "fieldtype": "Link",
-            "label": "Active SEPA Mandate",
-            "options": "SEPA Mandate"
-        },
-        {
-            "default": "FRST",
-            "depends_on": "eval:doc.payment_method == 'SEPA Direct Debit'",
-            "fieldname": "next_sequence_type",
-            "fieldtype": "Select",
-            "label": "Next Sequence Type",
-            "options": "FRST\nRCUR"
-        },
-        {
-            "fieldname": "column_break_sepa",
-            "fieldtype": "Column Break"
-        },
-        {
-            "description": "Day of month for anniversary billing",
-            "fieldname": "billing_day",
-            "fieldtype": "Int",
-            "label": "Billing Day"
-        },
-        {
-            "fieldname": "section_coverage",
-            "fieldtype": "Section Break",
-            "label": "Coverage & Status"
-        },
-        {
-            "fieldname": "current_coverage_start",
-            "fieldtype": "Date",
-            "label": "Current Coverage Start"
-        },
-        {
-            "fieldname": "current_coverage_end",
-            "fieldtype": "Date",
-            "label": "Current Coverage End"
-        },
-        {
-            "fieldname": "column_break_coverage",
-            "fieldtype": "Column Break"
-        },
-        {
-            "fieldname": "grace_period_until",
-            "fieldtype": "Date",
-            "label": "Grace Period Until"
-        },
-        {
-            "fieldname": "last_payment_date",
-            "fieldtype": "Date",
-            "label": "Last Payment Date"
-        },
-        {
-            "default": "0",
-            "fieldname": "consecutive_failures",
-            "fieldtype": "Int",
-            "label": "Consecutive Failures"
+            "fieldname": "billing_schedule_notes",
+            "fieldtype": "Text",
+            "label": "Billing Schedule Notes",
+            "description": "Additional notes about this billing schedule"
         }
     ],
     "links": [],
@@ -375,6 +336,26 @@
             "read": 1,
             "role": "Verenigingen Administrator",
             "share": 1,
+            "write": 1
+        },
+        {
+            "create": 0,
+            "delete": 0,
+            "email": 1,
+            "print": 1,
+            "read": 1,
+            "role": "Verenigingen Manager",
+            "share": 1,
+            "write": 1
+        },
+        {
+            "create": 0,
+            "delete": 0,
+            "email": 1,
+            "print": 1,
+            "read": 1,
+            "role": "Verenigingen Member",
+            "share": 0,
             "write": 1
         }
     ],

@@ -71,6 +71,10 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         if self.is_new() or not self.dues_rate:
             return
 
+        # Skip validation if this is a system update (e.g., from amendment request)
+        if getattr(self, "_system_update", False):
+            return
+
         # Check if fee override value has changed
         if self.name:
             old_amount = frappe.db.get_value("Member", self.name, "dues_rate")
@@ -92,7 +96,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         # Log the fee override action for audit purposes
         frappe.logger().info(
             f"Fee override set by {frappe.session.user} for member {self.name}: "
-            f"Amount: {self.dues_rate}, Reason: {self.fee_override_reason}"
+            f"Amount: {self.dues_rate}, Reason: {getattr(self, 'fee_override_reason', 'No reason provided')}"
         )
 
     def before_insert(self):
@@ -987,14 +991,14 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             if self.dues_rate:
                 if self.dues_rate <= 0:
                     frappe.throw(_("Membership fee override must be greater than 0"))
-                if not self.fee_override_reason:
+                if not getattr(self, "fee_override_reason", None):
                     frappe.throw(_("Please provide a reason for the fee override"))
 
                 # Set audit fields for new members (but no change tracking)
-                if not self.fee_override_date:
-                    self.fee_override_date = today()
-                if not self.fee_override_by:
-                    self.fee_override_by = frappe.session.user
+                if not getattr(self, "fee_override_date", None):
+                    setattr(self, "fee_override_date", today())
+                if not getattr(self, "fee_override_by", None):
+                    setattr(self, "fee_override_by", frappe.session.user)
             return
 
         # Get current and old values for existing documents with better error handling
@@ -1037,14 +1041,14 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
                 if new_amount:
                     if new_amount <= 0:
                         frappe.throw(_("Membership fee override must be greater than 0"))
-                    if not self.fee_override_reason:
+                    if not getattr(self, "fee_override_reason", None):
                         frappe.throw(_("Please provide a reason for the fee override"))
 
                 # Store change data for deferred processing to avoid save recursion
                 self._pending_fee_change = {
                     "old_amount": old_amount,
                     "new_amount": new_amount,
-                    "reason": self.fee_override_reason or "No reason provided",
+                    "reason": getattr(self, "fee_override_reason", None) or "No reason provided",
                     "change_date": now(),
                     "changed_by": frappe.session.user,
                 }
@@ -1239,7 +1243,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             return {
                 "amount": self.dues_rate,
                 "source": "custom_override",
-                "reason": self.fee_override_reason,
+                "reason": getattr(self, "fee_override_reason", None),
             }
 
         # Get from active membership
@@ -2510,3 +2514,46 @@ def get_member_chapter_display_html(member_name):
     except Exception as e:
         frappe.log_error(f"Error generating chapter display HTML: {str(e)}", "Member Chapter Display")
         return f"<div class='text-danger'>Error loading chapters: {str(e)}</div>"
+
+
+@frappe.whitelist()
+def get_current_dues_schedule_details(member):
+    """Get current dues schedule details for a member"""
+    try:
+        # Get active dues schedule
+        dues_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member, "status": "Active"},
+            ["name", "dues_rate", "billing_frequency", "next_invoice_date", "membership_type"],
+            as_dict=True,
+        )
+
+        if not dues_schedule:
+            return {"has_schedule": False, "message": "No active dues schedule found"}
+
+        # Get membership type details
+        membership_type = None
+        if dues_schedule.membership_type:
+            membership_type = frappe.db.get_value(
+                "Membership Type",
+                dues_schedule.membership_type,
+                ["membership_type_name", "description"],
+                as_dict=True,
+            )
+
+        return {
+            "has_schedule": True,
+            "schedule_name": dues_schedule.name,
+            "dues_rate": dues_schedule.dues_rate,
+            "billing_frequency": dues_schedule.billing_frequency,
+            "next_invoice_date": dues_schedule.next_invoice_date,
+            "membership_type": dues_schedule.membership_type,
+            "membership_type_name": membership_type.membership_type_name if membership_type else None,
+            "membership_type_description": membership_type.description if membership_type else None,
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting dues schedule details for member {member}: {str(e)}", "Dues Schedule Details"
+        )
+        return {"has_schedule": False, "error": str(e)}

@@ -12,7 +12,82 @@ class Membership(Document):
         self.set_renewal_date()  # Calculate renewal date based on start date and membership type
         self.set_grace_period_expiry()  # Set default grace period expiry if needed
         self.set_status()
-        # Uses dues schedule system
+
+    def on_submit(self):
+        """Create or update dues schedule when membership is submitted"""
+        self.create_or_update_dues_schedule()
+
+    def on_cancel(self):
+        """Handle dues schedule when membership is cancelled"""
+        self.pause_dues_schedule()
+
+    def create_or_update_dues_schedule(self):
+        """Create or update the member's dues schedule"""
+        if not self.member or self.status != "Active":
+            return
+
+        # Check if member already has a dues schedule
+        existing_schedule = frappe.db.get_value(
+            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
+        )
+
+        if existing_schedule:
+            # Update existing schedule with new membership type if changed
+            schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+            if schedule.membership_type != self.membership_type:
+                schedule.membership_type = self.membership_type
+                # Update amounts from new membership type
+                membership_type_doc = frappe.get_doc("Membership Type", self.membership_type)
+                schedule.minimum_amount = getattr(membership_type_doc, "minimum_contribution", 0)
+                schedule.suggested_amount = getattr(membership_type_doc, "suggested_contribution", 0)
+                schedule.save()
+        else:
+            # Create new dues schedule from template
+            try:
+                from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+                    MembershipDuesSchedule,
+                )
+
+                schedule_name = MembershipDuesSchedule.create_from_template(
+                    self.member, membership_type=self.membership_type
+                )
+
+                # Update member record with dues schedule link
+                member = frappe.get_doc("Member", self.member)
+                member.dues_schedule = schedule_name
+                member.save()
+
+            except Exception as e:
+                frappe.log_error(
+                    f"Error creating dues schedule for member {self.member}: {str(e)}",
+                    "Membership Dues Schedule Creation",
+                )
+                # Don't fail the membership creation if dues schedule fails
+                frappe.msgprint(
+                    f"Warning: Could not create dues schedule automatically. Error: {str(e)}", alert=True
+                )
+
+    def pause_dues_schedule(self):
+        """Pause the member's dues schedule when membership is cancelled"""
+        if not self.member:
+            return
+
+        existing_schedule = frappe.db.get_value(
+            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
+        )
+
+        if existing_schedule:
+            schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+            schedule.pause_schedule(f"Membership {self.name} cancelled on {today()}")
+
+    def get_dues_schedule(self):
+        """Get the member's dues schedule"""
+        if not self.member:
+            return None
+
+        return frappe.db.get_value(
+            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
+        )
 
     def validate_existing_memberships(self):
         """Check if there are any existing active memberships for this member"""
@@ -221,8 +296,9 @@ class Membership(Document):
         elif self.cancellation_date and getdate(self.cancellation_date) <= getdate(today()):
             # Membership is cancelled
             self.status = "Cancelled"
-        elif self.unpaid_amount and flt(self.unpaid_amount) > 0:
+        elif hasattr(self, "unpaid_amount") and self.unpaid_amount and flt(self.unpaid_amount) > 0:
             # Has unpaid invoices - membership inactive
+            # Note: This field may not exist in all installations
             self.status = "Inactive"
         elif self.renewal_date and getdate(self.renewal_date) < getdate(today()):
             # Past renewal date - membership expired
@@ -304,8 +380,9 @@ class Membership(Document):
     def get_billing_amount(self):
         """Get the billing amount for this membership"""
         # Return membership fee if set
-        if self.membership_fee:
-            return self.membership_fee
+        membership_fee = getattr(self, "membership_fee", None)
+        if membership_fee:
+            return membership_fee
 
         # Otherwise get from membership type
         if self.membership_type:
@@ -317,8 +394,9 @@ class Membership(Document):
     @frappe.whitelist()
     def create_dues_schedule_from_membership(self):
         """Create a Membership Dues Schedule for this membership"""
-        if self.dues_schedule:
-            return self.dues_schedule
+        dues_schedule = getattr(self, "dues_schedule", None)
+        if dues_schedule:
+            return dues_schedule
 
         # Get member document
         member = frappe.get_doc("Member", self.member)
@@ -368,7 +446,7 @@ class Membership(Document):
 
     def sync_payment_details_from_dues_schedule(self):
         """Sync payment details from linked dues schedule"""
-        if not self.dues_schedule:
+        if not getattr(self, "dues_schedule", None):
             return
 
         # Get invoices related to this member through the dues schedule
@@ -401,7 +479,7 @@ class Membership(Document):
             self.last_payment_date = payment_date
             self.db_set("last_payment_date", payment_date)
 
-    def on_submit(self):
+    def on_submit_legacy(self):  # Renamed to avoid duplicate definition
         import json
 
         import frappe
@@ -411,8 +489,8 @@ class Membership(Document):
         # Update member's current membership
         self.update_member_status()
 
-        # Make sure unpaid_amount is set if not already
-        if not self.unpaid_amount:
+        # Make sure unpaid_amount is set if field exists and not already set
+        if hasattr(self, "unpaid_amount") and not self.unpaid_amount:
             self.unpaid_amount = 0
 
         # Initialize next_billing_date to start_date if not set
@@ -430,7 +508,9 @@ class Membership(Document):
 
         # Force update to database
         self.db_set("status", self.status)
-        self.db_set("unpaid_amount", self.unpaid_amount)
+        unpaid_amount = getattr(self, "unpaid_amount", None)
+        if unpaid_amount is not None:
+            self.db_set("unpaid_amount", unpaid_amount)
         self.db_set("next_billing_date", self.next_billing_date)
         self.db_set("cancellation_date", None)
         self.db_set("cancellation_reason", None)
@@ -440,13 +520,15 @@ class Membership(Document):
         self.update_member_status()
 
         # Create dues schedule if not exists
-        if not self.dues_schedule:
-            self.create_dues_schedule_from_membership()
+        # Note: dues_schedule field doesn't exist in Membership doctype
+        # This functionality should be handled differently
+        # if not self.dues_schedule:
+        #     self.create_dues_schedule_from_membership()
 
         # Sync payment details from dues schedule
-        self.sync_payment_details_from_dues_schedule()
+        # self.sync_payment_details_from_dues_schedule()
 
-    def on_cancel(self):
+    def on_cancel_legacy(self):  # Renamed to avoid duplicate definition
         """Handle when membership is cancelled directly (not the same as member cancellation)"""
         from frappe.utils import add_months, getdate, nowdate, today
 

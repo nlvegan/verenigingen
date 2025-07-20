@@ -131,8 +131,7 @@ def test_membership_dues_schedule():
     dues_schedule.minimum_amount = 5.0
     dues_schedule.suggested_amount = 15.0
     dues_schedule.uses_custom_amount = 0
-    dues_schedule.payment_method = "SEPA Direct Debit"
-    dues_schedule.billing_day = 1
+    # Payment method will be determined dynamically based on member's payment setup
 
     # Save the dues schedule
     dues_schedule.save()

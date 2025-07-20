@@ -10,6 +10,28 @@ class MembershipType(Document):
         self.validate_amount()
         self.validate_contribution_system()
 
+    def on_update(self):
+        """Update template when membership type changes"""
+        if not frappe.flags.in_migrate:
+            self.update_dues_schedule_template()
+
+    def update_dues_schedule_template(self):
+        """Update the dues schedule template when membership type changes"""
+        if self.dues_schedule_template:
+            try:
+                template = frappe.get_doc("Membership Dues Schedule", self.dues_schedule_template)
+
+                # Update template fields
+                template.billing_frequency = getattr(self, "billing_frequency", "Annual")
+                template.contribution_mode = getattr(self, "contribution_mode", "Calculator")
+                template.minimum_amount = getattr(self, "minimum_contribution", 0)
+                template.suggested_amount = getattr(self, "suggested_contribution", 0)
+                template.invoice_days_before = getattr(self, "invoice_days_before", 30)
+
+                template.save()
+            except Exception as e:
+                frappe.log_error(f"Error updating dues schedule template: {str(e)}", "Membership Type Update")
+
     def validate_billing_period(self):
         # Legacy period fields have been removed
         # All references now use billing_period and billing_period_in_months directly
@@ -103,6 +125,10 @@ class MembershipType(Document):
             self.fee_slider_max_multiplier = 10.0
         if not self.contribution_mode:
             self.contribution_mode = "Calculator"
+        if not getattr(self, "billing_frequency", None):
+            self.billing_frequency = "Annual"
+        if not getattr(self, "invoice_days_before", None):
+            self.invoice_days_before = 30
 
         # Only validate if we have all required fields
         try:
@@ -209,6 +235,73 @@ class MembershipType(Document):
 
         return options
 
+    def after_insert(self):
+        """Create dues schedule template after membership type creation"""
+        # Skip during migration to avoid validation issues
+        if not frappe.flags.in_migrate:
+            self.create_dues_schedule_template()
+
+    def create_dues_schedule_template(self):
+        """Create or update the dues schedule template for this membership type"""
+        # Check if template already exists
+        existing_template = frappe.db.get_value(
+            "Membership Dues Schedule", {"membership_type": self.name, "is_template": 1}, "name"
+        )
+
+        if existing_template:
+            # Update existing template
+            template = frappe.get_doc("Membership Dues Schedule", existing_template)
+        else:
+            # Create new template
+            template = frappe.new_doc("Membership Dues Schedule")
+            template.is_template = 1
+            template.schedule_name = f"Template-{self.name}"
+            template.membership_type = self.name
+            template.status = "Active"
+            # Set required fields to avoid validation errors during creation
+            template.amount = 0.0
+
+        # Set/update template fields from membership type
+        template.billing_frequency = getattr(self, "billing_frequency", "Annual")
+        template.contribution_mode = getattr(self, "contribution_mode", "Calculator")
+        template.minimum_amount = getattr(self, "minimum_contribution", 0)
+        template.suggested_amount = getattr(self, "suggested_contribution", 0)
+        template.invoice_days_before = getattr(self, "invoice_days_before", 30)
+        template.auto_generate = 1
+        template.status = "Active"
+        # Ensure amount is set for templates
+        if not template.amount:
+            template.amount = getattr(self, "suggested_contribution", 0) or getattr(self, "amount", 0)
+
+        if existing_template:
+            template.save()
+        else:
+            template.insert()
+            # Link template back to membership type
+            self.dues_schedule_template = template.name
+            self.save()
+
+        return template.name
+
+    @frappe.whitelist()
+    def get_dues_schedule_template(self):
+        """Get the dues schedule template for this membership type"""
+        if self.dues_schedule_template:
+            return self.dues_schedule_template
+
+        # Try to find existing template
+        template_name = frappe.db.get_value(
+            "Membership Dues Schedule", {"membership_type": self.name, "is_template": 1}, "name"
+        )
+
+        if template_name:
+            self.dues_schedule_template = template_name
+            self.save()
+            return template_name
+
+        # Create new template
+        return self.create_dues_schedule_template()
+
 
 # Updated to use dues schedule system
 
@@ -218,3 +311,9 @@ def get_membership_contribution_options(membership_type_name):
     """Get contribution options for a specific membership type"""
     membership_type = frappe.get_doc("Membership Type", membership_type_name)
     return membership_type.get_contribution_options()
+
+
+@frappe.whitelist()
+def get_template_query():
+    """Query function for dues schedule template filter"""
+    return {"filters": [["Membership Dues Schedule", "is_template", "=", 1]]}

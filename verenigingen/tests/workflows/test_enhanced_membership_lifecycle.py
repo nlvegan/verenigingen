@@ -68,6 +68,9 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         # 6. Test contribution adjustment
         self.test_contribution_adjustment(dues_schedule, "Supporter")
         
+        # 7. Test membership type change
+        self.test_membership_type_change_workflow(member)
+        
     def test_calculator_based_membership_complete_workflow(self):
         """Test complete workflow for calculator-based membership"""
         
@@ -143,9 +146,10 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         dues_schedule = self.create_sepa_dues_schedule(member)
         
         # 2. Simulate first payment failure
-        dues_schedule.consecutive_failures = 1
+        # Track consecutive failures in notes or custom implementation
         dues_schedule.status = "Grace Period" 
         dues_schedule.grace_period_until = add_days(today(), 14)
+        dues_schedule.notes = "Payment failures: 1"
         dues_schedule.save()
         
         # Validate grace period
@@ -153,17 +157,17 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         self.assertIsNotNone(dues_schedule.grace_period_until)
         
         # 3. Simulate second failure
-        dues_schedule.consecutive_failures = 2
+        dues_schedule.notes = "Payment failures: 2"
         dues_schedule.save()
         
         # 4. Simulate third failure -> suspension
-        dues_schedule.consecutive_failures = 3
         dues_schedule.status = "Suspended"
+        dues_schedule.notes = "Payment failures: 3 - Suspended"
         dues_schedule.save()
         
         # Validate suspension
         self.assertEqual(dues_schedule.status, "Suspended")
-        self.assertEqual(dues_schedule.consecutive_failures, 3)
+        self.assertIn("Payment failures: 3", dues_schedule.notes)
         
         # 5. Recovery: Create payment plan
         payment_plan_data = {
@@ -194,6 +198,90 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         dues_schedule.reload()
         self.assertEqual(dues_schedule.status, "Payment Plan Active")
         
+    def test_membership_type_change_workflow(self, member):
+        """Test workflow for changing membership type through portal"""
+        
+        # Get member's current membership
+        membership = frappe.get_value(
+            "Membership",
+            {"member": member.name, "status": "Active"},
+            ["name", "membership_type"],
+            as_dict=True
+        )
+        
+        # Create a different membership type
+        new_membership_type = frappe.get_doc({
+            "doctype": "Membership Type",
+            "membership_type": "TEST-Premium-Type",
+            "membership_type_name": "Premium Membership",
+            "amount": 50.00,
+            "description": "Premium membership with extra benefits",
+            "is_published": 1
+        })
+        new_membership_type.insert()
+        self.track_doc("Membership Type", new_membership_type.name)
+        
+        # Create membership type change request
+        change_request = frappe.get_doc({
+            "doctype": "Contribution Amendment Request",
+            "member": member.name,
+            "membership": membership.name,
+            "amendment_type": "Membership Type Change",
+            "current_membership_type": membership.membership_type,
+            "requested_membership_type": new_membership_type.name,
+            "current_amount": self.tier_membership_type.predefined_tiers[1].amount,
+            "requested_amount": new_membership_type.amount,
+            "reason": "Want to upgrade to premium membership",
+            "status": "Pending Approval",
+            "requested_by_member": 1,
+            "effective_date": today()
+        })
+        change_request.insert()
+        self.track_doc("Contribution Amendment Request", change_request.name)
+        
+        # Approve the change request
+        change_request.status = "Approved"
+        change_request.approved_by = frappe.session.user
+        change_request.approved_date = frappe.utils.now_datetime()
+        change_request.save()
+        
+        # Apply the membership type change
+        membership_doc = frappe.get_doc("Membership", membership.name)
+        membership_doc.membership_type = new_membership_type.name
+        membership_doc.save()
+        
+        # Create new dues schedule with new membership type
+        new_dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        new_dues_schedule.member = member.name
+        new_dues_schedule.membership = membership.name
+        new_dues_schedule.membership_type = new_membership_type.name
+        new_dues_schedule.amount = new_membership_type.amount
+        new_dues_schedule.billing_frequency = "Monthly"
+        new_dues_schedule.status = "Active"
+        new_dues_schedule.effective_date = today()
+        new_dues_schedule.save()
+        self.track_doc("Membership Dues Schedule", new_dues_schedule.name)
+        
+        # Update the request with the new dues schedule
+        change_request.status = "Applied"
+        change_request.applied_date = frappe.utils.now_datetime()
+        change_request.new_dues_schedule = new_dues_schedule.name
+        change_request.save()
+        
+        # Validate the change
+        updated_membership = frappe.get_doc("Membership", membership.name)
+        self.assertEqual(updated_membership.membership_type, new_membership_type.name)
+        
+        # Validate new dues schedule is active
+        active_schedule = frappe.get_value(
+            "Membership Dues Schedule",
+            {"member": member.name, "status": "Active"},
+            ["name", "membership_type", "amount"],
+            as_dict=True
+        )
+        self.assertEqual(active_schedule.membership_type, new_membership_type.name)
+        self.assertEqual(active_schedule.amount, new_membership_type.amount)
+    
     def test_membership_type_migration_workflow(self):
         """Test workflow for migrating between membership types"""
         
@@ -209,7 +297,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         new_dues_schedule.selected_tier = self.tier_membership_type.predefined_tiers[0].name
         new_dues_schedule.amount = self.tier_membership_type.predefined_tiers[0].amount
         new_dues_schedule.billing_frequency = "Monthly"
-        new_dues_schedule.payment_method = "SEPA Direct Debit"
+        # Payment method is determined dynamically based on member's active mandates
         new_dues_schedule.status = "Active"
         new_dues_schedule.auto_generate = 1
         
@@ -367,7 +455,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
             dues_schedule.base_multiplier = application.base_multiplier
             
         dues_schedule.billing_frequency = "Monthly"
-        dues_schedule.payment_method = application.payment_method
+        # Payment method is determined dynamically from member's payment setup
         dues_schedule.status = "Active"
         dues_schedule.auto_generate = 1
         
@@ -528,7 +616,12 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         
     def create_sepa_dues_schedule(self, member):
         """Create SEPA-enabled dues schedule"""
+        # First ensure member has a SEPA mandate
+        from verenigingen.tests.test_data_factory import TestDataFactory
+        factory = TestDataFactory()
+        mandate = factory.create_sepa_mandate(member=member.name)
+        
         dues_schedule = self.create_calculator_dues_schedule(member)
-        dues_schedule.payment_method = "SEPA Direct Debit"
+        # Payment method will be automatically determined from active mandate
         dues_schedule.save()
         return dues_schedule

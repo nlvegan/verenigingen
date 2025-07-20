@@ -94,6 +94,17 @@ class TestDataFactory:
             membership_type.insert(ignore_permissions=True)
             self._track_record("Membership Type", membership_type.name)
             membership_types.append(membership_type)
+            
+            # The membership type creation should automatically create a template
+            # due to the after_insert hook, but let's verify and track it
+            if with_dues_schedules:
+                template_name = frappe.db.get_value(
+                    "Membership Dues Schedule",
+                    {"membership_type": membership_type.name, "is_template": 1},
+                    "name"
+                )
+                if template_name:
+                    self._track_record("Membership Dues Schedule", template_name)
 
         print(f"✅ Created {len(membership_types)} membership types")
         return membership_types
@@ -199,8 +210,31 @@ class TestDataFactory:
                 "status": "Active" if member.status == "Active" else "Inactive",
             })
             membership.insert(ignore_permissions=True)
+            
+            # Submit membership to make it active
+            if membership.status == "Active":
+                membership.submit()
+            
             self._track_record("Membership", membership.name)
             memberships.append(membership)
+            
+            # Create dues schedule from template if requested and membership is active
+            if with_dues_schedules and membership.status == "Active" and membership.docstatus == 1:
+                try:
+                    # The membership submission should trigger dues schedule creation
+                    # but let's verify and track it
+                    schedule_name = frappe.db.get_value(
+                        "Membership Dues Schedule",
+                        {"member": member.name, "is_template": 0},
+                        "name"
+                    )
+                    if schedule_name:
+                        self._track_record("Membership Dues Schedule", schedule_name)
+                    else:
+                        # If not created automatically, create it manually
+                        schedule = self.create_dues_schedule_for_member(member.name, membership_type.name)
+                except Exception as e:
+                    print(f"⚠️  Failed to create dues schedule for {member.name}: {e}")
 
         print(f"✅ Created {len(memberships)} memberships")
         return memberships
@@ -237,6 +271,88 @@ class TestDataFactory:
 
         print(f"✅ Created {len(volunteers)} volunteers")
         return volunteers
+    
+    def create_dues_schedule_template(self, membership_type_name, **kwargs):
+        """Create a dues schedule template for a membership type"""
+        # Check if template already exists
+        existing = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"membership_type": membership_type_name, "is_template": 1},
+            "name"
+        )
+        
+        if existing:
+            return frappe.get_doc("Membership Dues Schedule", existing)
+        
+        # Create template
+        template = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "is_template": 1,
+            "schedule_name": f"Template-{membership_type_name}",
+            "membership_type": membership_type_name,
+            "status": "Active",
+            "billing_frequency": kwargs.get("billing_frequency", "Annual"),
+            "contribution_mode": kwargs.get("contribution_mode", "Calculator"),
+            "minimum_amount": kwargs.get("minimum_amount", 5.0),
+            "suggested_amount": kwargs.get("suggested_amount", 15.0),
+            "invoice_days_before": kwargs.get("invoice_days_before", 30),
+            "auto_generate": kwargs.get("auto_generate", 1),
+            "amount": kwargs.get("amount", 15.0)
+        })
+        
+        template.insert(ignore_permissions=True)
+        self._track_record("Membership Dues Schedule", template.name)
+        
+        return template
+    
+    def create_dues_schedule_for_member(self, member_name, membership_type_name=None):
+        """Create a dues schedule instance for a member from template"""
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import MembershipDuesSchedule
+        
+        # Get membership type if not provided
+        if not membership_type_name:
+            membership = frappe.db.get_value(
+                "Membership",
+                {"member": member_name, "status": "Active"},
+                ["membership_type", "name"],
+                as_dict=True
+            )
+            if not membership:
+                # Create a test membership if none exists
+                test_membership_type = self.create_test_membership_types(1)[0]
+                membership_doc = frappe.get_doc({
+                    "doctype": "Membership",
+                    "member": member_name,
+                    "membership_type": test_membership_type.name,
+                    "start_date": today(),
+                    "status": "Active"
+                })
+                membership_doc.insert(ignore_permissions=True)
+                membership_doc.submit()
+                self._track_record("Membership", membership_doc.name)
+                membership_type_name = test_membership_type.name
+            else:
+                membership_type_name = membership.membership_type
+        
+        # Check if schedule already exists
+        existing = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "is_template": 0},
+            "name"
+        )
+        
+        if existing:
+            return frappe.get_doc("Membership Dues Schedule", existing)
+        
+        # Create from template
+        schedule_name = MembershipDuesSchedule.create_from_template(
+            member_name, 
+            membership_type=membership_type_name
+        )
+        
+        self._track_record("Membership Dues Schedule", schedule_name)
+        
+        return frappe.get_doc("Membership Dues Schedule", schedule_name)
 
     def create_test_sepa_mandates(self, members, mandate_ratio=0.6):
         """Create SEPA mandates for subset of members"""

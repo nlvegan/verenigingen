@@ -90,7 +90,7 @@ def migrate_member_override(member_data):
     dues_schedule.custom_amount_approved = 1  # Assume existing overrides were approved
     dues_schedule.custom_amount_reason = member_data.get("fee_override_reason") or "Migrated from legacy fee override"
     dues_schedule.billing_frequency = "Monthly"  # Default frequency
-    dues_schedule.payment_method = "Bank Transfer"  # Default method
+    # Payment method will be determined dynamically based on member's payment setup
     dues_schedule.status = "Active"
     dues_schedule.auto_generate = 1
     dues_schedule.test_mode = 0
@@ -98,10 +98,10 @@ def migrate_member_override(member_data):
     # Set historical dates if available
     if member_data.get("fee_override_date"):
         dues_schedule.effective_date = member_data["fee_override_date"]
-        dues_schedule.current_coverage_start = member_data["fee_override_date"]
+        dues_schedule.next_invoice_date = member_data["fee_override_date"]
     else:
         dues_schedule.effective_date = today()
-        dues_schedule.current_coverage_start = today()
+        dues_schedule.next_invoice_date = today()
     
     # Set migration metadata
     dues_schedule.migration_source = "fee_override_migration"

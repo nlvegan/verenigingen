@@ -11,3 +11,5 @@ verenigingen.patches.v1_0.cleanup_workspaces
 verenigingen.patches.fix_onboarding_visibility
 verenigingen.patches.add_national_board_member_role
 verenigingen.patches.v1_0.add_membership_analytics
+verenigingen.patches.remove_unique_constraint_member_dues_schedule
+verenigingen.patches.rename_amount_to_dues_rate

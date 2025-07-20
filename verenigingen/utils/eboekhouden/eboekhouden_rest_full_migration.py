@@ -1560,6 +1560,163 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
     return {"imported": imported, "failed": len(mutations) - imported, "errors": errors}
 
 
+def _process_money_transfer_with_mapping(mutation, company, cost_center, debug_info):
+    """Process money transfer with automatic account mapping resolution"""
+    mutation_id = mutation.get("id")
+    mutation_type = mutation.get("type")
+    ledger_id = mutation.get("ledgerId")
+    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
+
+    debug_info.append(f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}")
+
+    # Resolve the primary account from eBoekhouden ledger mapping
+    primary_account_mapping = _resolve_account_mapping(ledger_id, debug_info)
+    if not primary_account_mapping:
+        frappe.throw(f"Money transfer {mutation_id}: No account mapping found for ledger {ledger_id}")
+
+    # Determine transfer direction and resolve counterpart account
+    if mutation_type == 5:  # Money Received
+        # Money coming IN to the primary account (primary account is credited, source is debited)
+        to_account_mapping = primary_account_mapping
+        from_account_mapping = _resolve_money_source_account(mutation, company, debug_info)
+        debug_info.append(
+            f"Money Received: {amount} from {from_account_mapping['erpnext_account']} to {to_account_mapping['erpnext_account']}"
+        )
+    else:  # Type 6 - Money Paid/Sent
+        # Money going OUT of the primary account (primary account is debited, destination is credited)
+        from_account_mapping = primary_account_mapping
+        to_account_mapping = _resolve_money_destination_account(mutation, company, debug_info)
+        debug_info.append(
+            f"Money Paid: {amount} from {from_account_mapping['erpnext_account']} to {to_account_mapping['erpnext_account']}"
+        )
+
+    # Call the specialized money transfer function
+    return _process_money_transfer_mutation(
+        mutation, company, cost_center, from_account_mapping, to_account_mapping, debug_info
+    )
+
+
+def _resolve_account_mapping(ledger_id, debug_info):
+    """Resolve account mapping from eBoekhouden ledger ID"""
+    if not ledger_id:
+        return None
+
+    mapping_result = frappe.db.sql(
+        """SELECT erpnext_account, account_name FROM `tabE-Boekhouden Ledger Mapping`
+           WHERE ledger_id = %s LIMIT 1""",
+        ledger_id,
+    )
+
+    if mapping_result:
+        return {
+            "erpnext_account": mapping_result[0][0],
+            "account_name": mapping_result[0][1],
+            "ledger_id": ledger_id,
+        }
+
+    debug_info.append(f"No mapping found for ledger ID {ledger_id}")
+    return None
+
+
+def _resolve_money_source_account(mutation, company, debug_info):
+    """Resolve source account for money received (Type 5)"""
+    # For money received, we need to determine where the money came from
+    # This could be from various sources like cash, other banks, income, etc.
+
+    # Check if there's a relation (customer/supplier) that suggests the source
+    relation_id = mutation.get("relationId")
+    if relation_id:
+        # Money from a customer or external party - use appropriate receivable/income account
+        return _get_appropriate_income_account(company, debug_info)
+
+    # No relation - likely internal transfer from cash or other bank account
+    return _get_appropriate_cash_account(company, debug_info)
+
+
+def _resolve_money_destination_account(mutation, company, debug_info):
+    """Resolve destination account for money paid (Type 6)"""
+    # For money paid, we need to determine where the money went
+    # This could be to cash, other banks, expenses, etc.
+
+    # Check if there's a relation (supplier) that suggests the destination
+    relation_id = mutation.get("relationId")
+    if relation_id:
+        # Money to a supplier or external party - use appropriate payable/expense account
+        return _get_appropriate_expense_account(company, debug_info)
+
+    # No relation - likely internal transfer to cash or other bank account
+    return _get_appropriate_cash_account(company, debug_info)
+
+
+def _get_appropriate_income_account(company, debug_info):
+    """Get appropriate income account for money received from external sources"""
+    # Look for a general income account - try multiple account types
+    income_account = frappe.db.sql(
+        """SELECT name FROM `tabAccount`
+           WHERE company = %s AND account_type IN ('Income Account', 'Income') AND is_group = 0
+           ORDER BY name LIMIT 1""",
+        company,
+    )
+
+    if income_account:
+        account_name = income_account[0][0]
+        debug_info.append(f"Using income account: {account_name}")
+        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Income"}
+
+    debug_info.append("No income account found, using cash account fallback")
+    return _get_appropriate_cash_account(company, debug_info)
+
+
+def _get_appropriate_expense_account(company, debug_info):
+    """Get appropriate expense account for money paid to external sources"""
+    # Look for a general expense account - try multiple account types
+    expense_account = frappe.db.sql(
+        """SELECT name FROM `tabAccount`
+           WHERE company = %s AND account_type IN ('Expense Account', 'Expense') AND is_group = 0
+           ORDER BY name LIMIT 1""",
+        company,
+    )
+
+    if expense_account:
+        account_name = expense_account[0][0]
+        debug_info.append(f"Using expense account: {account_name}")
+        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Expense"}
+
+    debug_info.append("No expense account found, using cash account fallback")
+    return _get_appropriate_cash_account(company, debug_info)
+
+
+def _get_appropriate_cash_account(company, debug_info):
+    """Get appropriate cash account for internal transfers"""
+    # Look for cash account first
+    cash_account = frappe.db.sql(
+        """SELECT name FROM `tabAccount`
+           WHERE company = %s AND account_type = 'Cash' AND is_group = 0
+           ORDER BY name LIMIT 1""",
+        company,
+    )
+
+    if cash_account:
+        account_name = cash_account[0][0]
+        debug_info.append(f"Using cash account: {account_name}")
+        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Cash"}
+
+    # Fallback to bank account if no cash account
+    bank_account = frappe.db.sql(
+        """SELECT name FROM `tabAccount`
+           WHERE company = %s AND account_type = 'Bank' AND is_group = 0
+           ORDER BY name LIMIT 1""",
+        company,
+    )
+
+    if bank_account:
+        account_name = bank_account[0][0]
+        debug_info.append(f"Using bank account as cash fallback: {account_name}")
+        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Bank"}
+
+    frappe.throw(f"No cash or bank account found for company {company}")
+
+
 def _process_money_transfer_mutation(
     mutation, company, cost_center, from_account_mapping, to_account_mapping, debug_info
 ):
@@ -2571,8 +2728,10 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
             return _create_purchase_invoice(mutation_detail, company, cost_center, debug_info)
         elif mutation_type in [3, 4]:  # Payment types
             return _create_payment_entry(mutation_detail, company, cost_center, debug_info)
+        elif mutation_type in [5, 6]:  # Money transfers
+            return _process_money_transfer_with_mapping(mutation_detail, company, cost_center, debug_info)
         else:
-            # Create Journal Entry for other types
+            # Create Journal Entry for other types (7, 8, 9, 10, etc.)
             return _create_journal_entry(mutation_detail, company, cost_center, debug_info)
 
     except Exception as e:
@@ -2763,23 +2922,17 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
     - Multi-invoice payment support
     - Automatic payment reconciliation
     """
-    # Check if enhanced processing is enabled
-    use_enhanced = frappe.db.get_single_value("E-Boekhouden Settings", "use_enhanced_payment_processing")
-    if use_enhanced is None:
-        use_enhanced = True  # Default to enhanced if setting doesn't exist
+    # Use enhanced payment handler
+    from verenigingen.utils.eboekhouden.enhanced_payment_import import create_enhanced_payment_entry
 
-    if use_enhanced:
-        # Use enhanced payment handler
-        from verenigingen.utils.eboekhouden.enhanced_payment_import import create_enhanced_payment_entry
+    payment_name = create_enhanced_payment_entry(mutation, company, cost_center, debug_info)
+    if payment_name:
+        return frappe.get_doc("Payment Entry", payment_name)
+    else:
+        # Fall back to basic implementation if enhanced fails
+        debug_info.append("WARNING: Enhanced payment creation failed, using basic implementation")
 
-        payment_name = create_enhanced_payment_entry(mutation, company, cost_center, debug_info)
-        if payment_name:
-            return frappe.get_doc("Payment Entry", payment_name)
-        else:
-            # Fall back to basic implementation if enhanced fails
-            debug_info.append("WARNING: Enhanced payment creation failed, using basic implementation")
-
-    # Basic implementation (legacy)
+    # Basic implementation (legacy fallback)
     mutation_id = mutation.get("id")
     amount = frappe.utils.flt(mutation.get("amount", 0), 2)
     relation_id = mutation.get("relationId")

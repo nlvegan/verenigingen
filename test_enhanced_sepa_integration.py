@@ -117,11 +117,11 @@ def test_create_mock_dues_schedule():
         dues_schedule.contribution_mode = "Calculator"
         dues_schedule.amount = 15.0
         dues_schedule.billing_frequency = "Monthly"
-        dues_schedule.payment_method = "SEPA Direct Debit"
+        # Payment method will be determined dynamically based on member's payment setup
         dues_schedule.status = "Active"
         dues_schedule.auto_generate = 0  # Don't auto-generate for test
         dues_schedule.test_mode = 1
-        dues_schedule.current_coverage_start = today()
+        # Coverage dates are calculated automatically
         dues_schedule.next_invoice_date = add_months(today(), 1)
 
         dues_schedule.save(ignore_permissions=True)
