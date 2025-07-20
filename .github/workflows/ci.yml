@@ -17,6 +17,7 @@ jobs:
   test:
     name: Test Suite
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       matrix:
         python-version: ['3.10', '3.11']
@@ -126,11 +127,46 @@ jobs:
 
     - name: Install ERPNext and Dependencies
       working-directory: frappe-bench
+      timeout-minutes: 10
       run: |
-        bench get-app erpnext --branch $ERPNEXT_BRANCH
-        bench get-app payments
-        bench get-app hrms --branch $ERPNEXT_BRANCH
-        bench get-app banking https://github.com/alyf-de/banking.git
+        echo "=== Getting ERPNext ==="
+        timeout 300 bench get-app erpnext --branch $ERPNEXT_BRANCH || {
+          echo "Failed to get ERPNext"
+          exit 1
+        }
+
+        echo "=== Getting Payments ==="
+        timeout 300 bench get-app payments || {
+          echo "Failed to get Payments"
+          exit 1
+        }
+
+        echo "=== Getting HRMS ==="
+        timeout 300 bench get-app hrms --branch $ERPNEXT_BRANCH || {
+          echo "Failed to get HRMS"
+          exit 1
+        }
+
+        echo "=== Getting Banking ==="
+        timeout 300 bench get-app banking https://github.com/alyf-de/banking.git || {
+          echo "Failed to get Banking"
+          exit 1
+        }
+
+        echo "=== Apps Downloaded Successfully ==="
+        ls -la apps/
+
+    - name: Install App Dependencies
+      working-directory: frappe-bench
+      run: |
+        echo "=== Installing Python Dependencies ==="
+        # Install dependencies for all apps to avoid conflicts during app installation
+        pip install -e apps/frappe
+        pip install -e apps/erpnext
+        pip install -e apps/payments
+        pip install -e apps/hrms
+        pip install -e apps/banking
+        echo "✓ All app dependencies installed"
 
     - name: Clean Database
       working-directory: frappe-bench
@@ -139,8 +175,16 @@ jobs:
 
     - name: Setup Test Site
       working-directory: frappe-bench
+      timeout-minutes: 5
       run: |
+        echo "=== Creating Test Site ==="
         bench new-site test_site --db-name test_frappe --admin-password admin --mariadb-root-password travis
+
+        echo "=== Verifying Site Creation ==="
+        bench --site test_site list-apps
+        bench --site test_site doctor || echo "Doctor check had warnings"
+
+        echo "=== Site created successfully ==="
 
     - name: Verify Redis Configuration
       working-directory: frappe-bench
@@ -159,17 +203,73 @@ jobs:
 
     - name: Install Apps
       working-directory: frappe-bench
+      timeout-minutes: 15
       run: |
-        bench --site test_site install-app erpnext
-        bench --site test_site install-app payments
-        bench --site test_site install-app hrms
-        bench --site test_site install-app banking
+        echo "=== Pre-installation System Check ==="
+        echo "Memory usage:"
+        free -h
+        echo "Disk usage:"
+        df -h
+        echo "Active processes:"
+        ps aux | grep -E "(python|node|bench|redis|mysql)" | head -10
+
+        echo "=== Installing ERPNext ==="
+        # Install ERPNext with timeout and verbose output
+        timeout 600 bench --site test_site install-app erpnext --verbose || {
+          echo "ERPNext installation failed or timed out"
+          echo "Checking system status..."
+          redis-cli -h localhost -p 6379 ping || echo "Redis connection failed"
+          echo "Memory after failure:"
+          free -h
+          echo "Active processes after failure:"
+          ps aux | grep -E "(python|node|bench)" | head -10
+          echo "Checking for any stuck processes..."
+          pkill -f "bench\|python" || echo "No processes to kill"
+          exit 1
+        }
+        echo "✓ ERPNext installed successfully"
+
+        echo "=== Installing Payments ==="
+        timeout 300 bench --site test_site install-app payments --verbose || {
+          echo "Payments installation failed"
+          exit 1
+        }
+        echo "✓ Payments installed successfully"
+
+        echo "=== Installing HRMS ==="
+        timeout 300 bench --site test_site install-app hrms --verbose || {
+          echo "HRMS installation failed"
+          exit 1
+        }
+        echo "✓ HRMS installed successfully"
+
+        echo "=== Installing Banking ==="
+        timeout 300 bench --site test_site install-app banking --verbose || {
+          echo "Banking installation failed"
+          exit 1
+        }
+        echo "✓ Banking installed successfully"
 
     - name: Install Verenigingen
       working-directory: frappe-bench
+      timeout-minutes: 10
       run: |
+        echo "=== Getting Verenigingen App ==="
         bench get-app ${{ github.workspace }}/apps/verenigingen
-        bench --site test_site install-app verenigingen
+
+        echo "=== Installing Verenigingen ==="
+        timeout 600 bench --site test_site install-app verenigingen --verbose || {
+          echo "Verenigingen installation failed or timed out"
+          echo "Checking site status..."
+          bench --site test_site list-apps || echo "Cannot list apps"
+          echo "Checking for any errors..."
+          tail -50 sites/test_site/logs/worker.error.log 2>/dev/null || echo "No worker error log found"
+          exit 1
+        }
+        echo "✓ Verenigingen installed successfully"
+
+        echo "=== Final App List ==="
+        bench --site test_site list-apps
 
     - name: Run Python Tests
       working-directory: frappe-bench
