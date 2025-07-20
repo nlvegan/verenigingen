@@ -18,12 +18,13 @@
   "current_details_section",
   "current_amount",
   "current_billing_interval",
+  "current_membership_type",
   "column_break_2",
-  "current_subscription",
-  "current_plan",
+  "current_dues_schedule",
   "requested_changes_section",
   "requested_amount",
   "new_billing_interval",
+  "requested_membership_type",
   "column_break_3",
   "reason",
   "impact_preview",
@@ -38,8 +39,8 @@
   "applied_date",
   "applied_by",
   "column_break_5",
-  "new_subscription",
-  "old_subscription_cancelled",
+  "new_dues_schedule",
+  "dues_schedule",
   "notes_section",
   "internal_notes",
   "processing_notes"
@@ -84,7 +85,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Amendment Type",
-   "options": "Fee Change\nBilling Interval Change\nPlan Change\nSuspension\nReactivation",
+   "options": "Fee Change\nBilling Interval Change\nMembership Type Change\nPlan Change\nSuspension\nReactivation",
    "reqd": 1
   },
   {
@@ -128,20 +129,22 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.amendment_type == 'Membership Type Change'",
+   "fieldname": "current_membership_type",
+   "fieldtype": "Link",
+   "label": "Current Membership Type",
+   "options": "Membership Type",
+   "read_only": 1
+  },
+  {
    "fieldname": "column_break_2",
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "current_subscription",
+   "fieldname": "current_dues_schedule",
    "fieldtype": "Link",
-   "label": "Current Subscription",
-   "options": "Subscription",
-   "read_only": 1
-  },
-  {
-   "fieldname": "current_plan",
-   "fieldtype": "Data",
-   "label": "Current Plan",
+   "label": "Current Dues Schedule",
+   "options": "Membership Dues Schedule",
    "read_only": 1
   },
   {
@@ -150,7 +153,7 @@
    "label": "Requested Changes"
   },
   {
-   "depends_on": "eval:doc.amendment_type == 'Fee Change'",
+   "depends_on": "eval:doc.amendment_type == 'Fee Change' || doc.amendment_type == 'Membership Type Change'",
    "fieldname": "requested_amount",
    "fieldtype": "Currency",
    "label": "Requested Amount"
@@ -161,6 +164,13 @@
    "fieldtype": "Select",
    "label": "New Billing Interval",
    "options": "Monthly\nQuarterly\nAnnually"
+  },
+  {
+   "depends_on": "eval:doc.amendment_type == 'Membership Type Change'",
+   "fieldname": "requested_membership_type",
+   "fieldtype": "Link",
+   "label": "Requested Membership Type",
+   "options": "Membership Type"
   },
   {
    "fieldname": "column_break_3",
@@ -248,18 +258,19 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "new_subscription",
+   "fieldname": "new_dues_schedule",
    "fieldtype": "Link",
-   "label": "New Subscription",
-   "options": "Subscription",
+   "label": "New Dues Schedule",
+   "options": "Membership Dues Schedule",
    "read_only": 1
   },
   {
-   "default": "0",
-   "fieldname": "old_subscription_cancelled",
-   "fieldtype": "Check",
-   "label": "Old Subscription Cancelled",
-   "read_only": 1
+   "fieldname": "dues_schedule",
+   "fieldtype": "Link",
+   "label": "Dues Schedule",
+   "options": "Membership Dues Schedule",
+   "read_only": 1,
+   "description": "The dues schedule created for this amendment"
   },
   {
    "collapsible": 1,

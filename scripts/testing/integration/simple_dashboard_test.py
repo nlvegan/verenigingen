@@ -17,16 +17,14 @@ def create_simple_dashboard():
                 "doctype": "Dashboard",
                 "dashboard_name": "Chapter Board Dashboard",
                 "is_standard": 0,
-                "module": "Verenigingen",
-            }
+                "module": "Verenigingen"}
         )
         dashboard.insert()
 
         return {
             "success": True,
             "message": "Simple dashboard created successfully",
-            "dashboard_url": f"/app/dashboard-view/Chapter%20Board%20Dashboard",
-        }
+            "dashboard_url": f"/app/dashboard-view/Chapter%20Board%20Dashboard"}
 
     except Exception as e:
         return {"success": False, "error": str(e)}

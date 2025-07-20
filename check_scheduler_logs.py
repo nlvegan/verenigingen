@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Check subscription scheduler error logs
+Check dues schedule scheduler error logs
 """
 
 from datetime import datetime, timedelta
@@ -9,32 +9,35 @@ import frappe
 
 
 def check_error_logs():
-    """Check for subscription-related errors in the last 7 days"""
+    """Check for dues schedule-related errors in the last 7 days"""
 
     # Calculate date 7 days ago
     seven_days_ago = datetime.now() - timedelta(days=7)
 
-    print("=== SUBSCRIPTION ERROR LOGS (Last 7 days) ===")
+    print("=== DUES SCHEDULE ERROR LOGS (Last 7 days) ===")
     print(f"Checking errors since: {seven_days_ago.strftime('%Y-%m-%d')}")
     print()
 
-    # Check Error Log for subscription-related errors
+    # Check Error Log for dues schedule-related errors
     error_logs = frappe.get_all(
         "Error Log",
-        filters={"error": ["like", "%subscription%"], "creation": [">", seven_days_ago.strftime("%Y-%m-%d")]},
+        filters={
+            "error": ["like", "%dues schedule%"],
+            "creation": [">", seven_days_ago.strftime("%Y-%m-%d")],
+        },
         fields=["name", "error", "creation"],
         order_by="creation desc",
         limit=10,
     )
 
     if error_logs:
-        print(f"Found {len(error_logs)} subscription-related errors:")
+        print(f"Found {len(error_logs)} dues schedule-related errors:")
         for i, log in enumerate(error_logs, 1):
             print(f"\n{i}. Error Log: {log.name}")
             print(f"   Created: {log.creation}")
             print(f"   Error: {log.error[:200]}...")  # First 200 chars
     else:
-        print("No subscription-related errors found in Error Log")
+        print("No dues schedule-related errors found in Error Log")
 
     print("\n" + "=" * 50)
 
@@ -49,18 +52,18 @@ def check_error_logs():
         limit=20,
     )
 
-    subscription_jobs = [job for job in scheduled_jobs if "subscription" in job.scheduled_job_type.lower()]
+    dues_schedule_jobs = [job for job in scheduled_jobs if "dues_schedule" in job.scheduled_job_type.lower()]
 
-    if subscription_jobs:
-        print(f"Found {len(subscription_jobs)} subscription-related scheduled jobs:")
-        for i, job in enumerate(subscription_jobs, 1):
+    if dues_schedule_jobs:
+        print(f"Found {len(dues_schedule_jobs)} dues schedule-related scheduled jobs:")
+        for i, job in enumerate(dues_schedule_jobs, 1):
             print(f"\n{i}. Job: {job.scheduled_job_type}")
             print(f"   Status: {job.status}")
             print(f"   Created: {job.creation}")
             if job.details:
                 print(f"   Details: {job.details[:200]}...")
     else:
-        print("No subscription-related scheduled jobs found")
+        print("No dues schedule-related scheduled jobs found")
 
     print("\n" + "=" * 50)
 
@@ -113,7 +116,7 @@ def check_error_logs():
 
     print("Job Status Summary:")
     for job_type, statuses in job_stats.items():
-        if "subscription" in job_type.lower() or "process" in job_type.lower():
+        if "dues_schedule" in job_type.lower() or "process" in job_type.lower():
             print(f"\n{job_type}:")
             for status, count in statuses.items():
                 print(f"  {status}: {count}")

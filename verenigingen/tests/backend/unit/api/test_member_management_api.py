@@ -74,8 +74,7 @@ class TestMemberManagementAPI(VereningingenUnitTestCase):
             "house_number": "999",
             "postal_code": "5678",
             "city": "Rotterdam",
-            "newsletter_opt_in": 0,
-        }
+            "newsletter_opt_in": 0}
 
         member_management.update_member_information(member.name, update_data)
 
@@ -272,8 +271,7 @@ class TestMemberManagementAPI(VereningingenUnitTestCase):
                 "newsletter": False,
                 "event_notifications": True,
                 "volunteer_opportunities": True,
-                "preferred_language": "nl",
-            }
+                "preferred_language": "nl"}
 
             member_management.update_communication_preferences(member.name, preferences)
 

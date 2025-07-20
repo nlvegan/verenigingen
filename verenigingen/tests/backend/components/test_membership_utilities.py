@@ -9,31 +9,29 @@ class MembershipTestUtilities:
     """Utilities for creating proper membership types and related data for testing"""
 
     @staticmethod
-    def create_membership_type_with_subscription(
+    def create_membership_type_with_dues_schedule(
         name,
         period="Monthly",
         amount=100.0,
-        create_subscription_plan=True,
         create_item=True,
         allow_auto_renewal=True,
         require_approval=False,
         enforce_minimum_period=True,
     ):
         """
-        Create a properly configured membership type with linked subscription plan
+        Create a properly configured membership type for dues schedule system
 
         Args:
             name: Base name for the membership type
             period: One of Daily, Monthly, Quarterly, Biannual, Annual, Lifetime, Custom
             amount: Membership fee amount
-            create_subscription_plan: Whether to create linked subscription plan
             create_item: Whether to create linked item
             allow_auto_renewal: Whether to allow auto-renewal
             require_approval: Whether new memberships require approval
             enforce_minimum_period: Whether to enforce 1-year minimum period for this type
 
         Returns:
-            dict: Created membership type, subscription plan, and item (if created)
+            dict: Created membership type and item (if created)
         """
         # Generate unique names
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -46,19 +44,16 @@ class MembershipTestUtilities:
                 "membership_type_name": unique_name,
                 "description": f"Test membership type - {name} ({period})",
                 "is_active": 1,
-                "subscription_period": period,
                 "amount": amount,
                 "currency": "EUR",
-                "allow_auto_renewal": allow_auto_renewal,
                 "require_approval": require_approval,
                 "default_for_new_members": 0,
-                "enforce_minimum_period": enforce_minimum_period,
-            }
+                "enforce_minimum_period": enforce_minimum_period}
         )
 
         # Handle custom period
         if period == "Custom":
-            membership_type.subscription_period_in_months = random.choice([2, 4, 18, 24])
+            membership_type.billing_frequency_in_months = random.choice([2, 4, 18, 24])
 
         membership_type.insert(ignore_permissions=True)
 
@@ -69,17 +64,8 @@ class MembershipTestUtilities:
             item = MembershipTestUtilities._create_membership_item(membership_type)
             result["item"] = item
 
-        # Create subscription plan if requested
-        if create_subscription_plan:
-            subscription_plan = MembershipTestUtilities._create_subscription_plan(
-                membership_type, item.name if create_item else None
-            )
-
-            # Link subscription plan back to membership type
-            membership_type.subscription_plan = subscription_plan.name
-            membership_type.save(ignore_permissions=True)
-
-            result["subscription_plan"] = subscription_plan
+        # Dues schedule system handles payment processing automatically
+        # No need to create subscription plans - dues schedules are created on membership creation
 
         return result
 
@@ -92,8 +78,7 @@ class MembershipTestUtilities:
                 {
                     "doctype": "Item Group",
                     "item_group_name": "Membership",
-                    "parent_item_group": "All Item Groups",
-                }
+                    "parent_item_group": "All Item Groups"}
             )
             item_group.insert(ignore_permissions=True)
 
@@ -110,8 +95,7 @@ class MembershipTestUtilities:
                 "is_gift_item": 0,
                 "has_variants": 0,
                 "stock_uom": "Nos",
-                "is_subscription_item": 1,
-            }
+                "is_service_item": 1}
         )
 
         # Add item defaults
@@ -122,38 +106,7 @@ class MembershipTestUtilities:
         item.insert(ignore_permissions=True)
         return item
 
-    @staticmethod
-    def _create_subscription_plan(membership_type, item_name=None):
-        """Create a subscription plan matching the membership type"""
-        # Map membership periods to ERPNext intervals
-        interval_map = {
-            "Daily": ("Day", 1),
-            "Monthly": ("Month", 1),
-            "Quarterly": ("Month", 3),
-            "Biannual": ("Month", 6),
-            "Annual": ("Year", 1),
-            "Lifetime": ("Year", 50),  # Approximate lifetime as 50 years
-            "Custom": ("Month", membership_type.subscription_period_in_months or 1),
-        }
-
-        interval, count = interval_map.get(membership_type.subscription_period, ("Month", 1))
-
-        # Create subscription plan
-        plan = frappe.get_doc(
-            {
-                "doctype": "Subscription Plan",
-                "plan_name": membership_type.membership_type_name,
-                "item": item_name or membership_type.membership_type_name,
-                "price_determination": "Fixed Rate",
-                "cost": membership_type.amount,
-                "billing_interval": interval,
-                "billing_interval_count": count,
-                "currency": membership_type.currency or "EUR",
-            }
-        )
-
-        plan.insert(ignore_permissions=True)
-        return plan
+    # Subscription plan creation removed - dues schedule system handles payment processing
 
     @staticmethod
     def create_standard_membership_types():
@@ -163,46 +116,38 @@ class MembershipTestUtilities:
                 "name": "Daily Test",
                 "period": "Daily",
                 "amount": 5.0,
-                "description": "Daily membership for short-term testing",
-            },
+                "description": "Daily membership for short-term testing"},
             {
                 "name": "Monthly Basic",
                 "period": "Monthly",
                 "amount": 25.0,
-                "description": "Basic monthly membership",
-            },
+                "description": "Basic monthly membership"},
             {
                 "name": "Monthly Premium",
                 "period": "Monthly",
                 "amount": 50.0,
-                "description": "Premium monthly membership with benefits",
-            },
+                "description": "Premium monthly membership with benefits"},
             {
                 "name": "Quarterly Standard",
                 "period": "Quarterly",
                 "amount": 70.0,
-                "description": "Standard quarterly membership",
-            },
+                "description": "Standard quarterly membership"},
             {
                 "name": "Annual Regular",
                 "period": "Annual",
                 "amount": 250.0,
-                "description": "Regular annual membership",
-            },
+                "description": "Regular annual membership"},
             {
                 "name": "Annual Student",
                 "period": "Annual",
                 "amount": 100.0,
-                "description": "Discounted annual student membership",
-            },
+                "description": "Discounted annual student membership"},
             {
                 "name": "Lifetime Honorary",
                 "period": "Lifetime",
                 "amount": 0.0,
                 "description": "Honorary lifetime membership",
-                "require_approval": True,
-                "allow_auto_renewal": False,
-            },
+                "require_approval": True},
         ]
 
         created_types = []
@@ -219,7 +164,7 @@ class MembershipTestUtilities:
         return created_types
 
     @staticmethod
-    def create_membership_with_subscription(
+    def create_membership_with_dues_schedule(
         member, membership_type, start_date=None, submit=True, custom_amount=None
     ):
         """
@@ -229,11 +174,11 @@ class MembershipTestUtilities:
             member: Member document or member name
             membership_type: MembershipType document or name
             start_date: Start date for the membership (defaults to today)
-            submit: Whether to submit the membership (triggers subscription creation)
+            submit: Whether to submit the membership (triggers dues schedule creation)
             custom_amount: Optional custom membership amount
 
         Returns:
-            dict: Created membership and subscription (if created)
+            dict: Created membership and dues schedule (if created)
         """
         if isinstance(member, str):
             member = frappe.get_doc("Member", member)
@@ -249,8 +194,7 @@ class MembershipTestUtilities:
             "member": member.name,
             "membership_type": membership_type.name,
             "start_date": start_date,
-            "auto_renew": 1 if membership_type.allow_auto_renewal else 0,
-        }
+            "auto_renew": 1 if membership_type.allow_auto_renewal else 0}
 
         # Add custom amount if provided
         if custom_amount is not None:
@@ -258,8 +202,7 @@ class MembershipTestUtilities:
                 {
                     "uses_custom_amount": 1,
                     "custom_amount": custom_amount,
-                    "amount_reason": "Test custom amount",
-                }
+                    "amount_reason": "Test custom amount"}
             )
 
         # Create membership
@@ -277,11 +220,11 @@ class MembershipTestUtilities:
                 membership.submit()
                 frappe.db.commit()
 
-                # Reload to get the auto-created subscription
+                # Reload to get the auto-created dues schedule
                 membership.reload()
-                if membership.subscription:
-                    subscription = frappe.get_doc("Subscription", membership.subscription)
-                    result["subscription"] = subscription
+                if membership.dues_schedule:
+                    dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)
+                    result["dues_schedule"] = dues_schedule
             except Exception as e:
                 # Handle validation errors (e.g., minimum period constraint)
                 frappe.log_error(f"Error submitting membership: {str(e)}")
@@ -317,7 +260,7 @@ class MembershipTestUtilities:
         This mimics the real-world flow where:
         1. Member applies (already has application_status = "Pending")
         2. Application is approved
-        3. Membership is created with proper invoice and subscription
+        3. Membership is created with proper invoice and dues schedule
 
         Args:
             member: Member document with application_status = "Pending"
@@ -326,7 +269,7 @@ class MembershipTestUtilities:
             custom_amount: Optional custom membership amount
 
         Returns:
-            dict: Created membership, invoice, and subscription
+            dict: Created membership, invoice, and dues schedule
         """
         from verenigingen.verenigingen.doctype.membership_application_review import (
             membership_application_review,
@@ -356,16 +299,15 @@ class MembershipTestUtilities:
                     "member": member.name,
                     "membership_type": membership_type.name
                     if isinstance(membership_type, frappe.model.document.Document)
-                    else membership_type,
-                },
+                    else membership_type},
             )
 
             response = {"membership": membership, "approval_result": result}
 
             # Get linked invoice if created
-            if membership.subscription:
-                subscription = frappe.get_doc("Subscription", membership.subscription)
-                response["subscription"] = subscription
+            if membership.dues_schedule:
+                dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)
+                response["dues_schedule"] = dues_schedule
 
                 # Get latest invoice
                 invoices = frappe.get_all(

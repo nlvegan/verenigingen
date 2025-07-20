@@ -467,7 +467,7 @@ def generate_direct_debit_batch(date=None):
     This can be called via JS or scheduled jobs
     """
     try:
-        from verenigingen.verenigingen.doctype.membership.enhanced_subscription import (
+        from verenigingen.verenigingen.doctype.membership.enhanced_dues_schedule import (
             create_direct_debit_batch,
         )
 
@@ -539,7 +539,7 @@ def create_direct_debit_batch_for_unpaid_memberships():
     This is meant to be scheduled daily via hooks.py
     """
     try:
-        from verenigingen.verenigingen.doctype.membership.enhanced_subscription import (
+        from verenigingen.verenigingen.doctype.membership.enhanced_dues_schedule import (
             get_unpaid_membership_invoices,
         )
 
@@ -591,3 +591,60 @@ def create_direct_debit_batch_for_unpaid_memberships():
             "SEPA Direct Debit Batch Creation Error",
         )
         return None
+
+
+@frappe.whitelist()
+def create_enhanced_dues_batch(collection_date=None):
+    """
+    Create a direct debit batch using the enhanced processor for membership dues schedules
+    This is the new enhanced method that works with the flexible dues system
+    """
+    try:
+        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+            EnhancedSEPAProcessor,
+        )
+
+        processor = EnhancedSEPAProcessor()
+        batch = processor.create_dues_collection_batch(collection_date)
+
+        if batch:
+            frappe.msgprint(
+                _("Enhanced SEPA Dues Batch {0} created with {1} invoices totaling €{2}").format(
+                    batch.name, len(batch.invoices), batch.total_amount
+                )
+            )
+            return batch.name
+        else:
+            frappe.msgprint(_("No eligible dues schedules found for collection"))
+            return None
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating enhanced dues batch: {str(e)}", "Enhanced SEPA Dues Batch Creation Error"
+        )
+        frappe.throw(_("Error creating enhanced dues batch: {0}").format(str(e)))
+
+
+@frappe.whitelist()
+def get_dues_collection_preview(collection_date=None, days_ahead=30):
+    """
+    Get a preview of upcoming dues collections without creating batches
+    """
+    try:
+        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+            get_upcoming_dues_collections,
+        )
+
+        collections = get_upcoming_dues_collections(days_ahead)
+
+        return {
+            "success": True,
+            "collections": collections,
+            "total_dates": len(collections),
+            "total_schedules": sum(c["count"] for c in collections),
+            "total_amount": sum(c["total_amount"] for c in collections),
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error getting dues collection preview: {str(e)}", "Dues Collection Preview Error")
+        return {"success": False, "error": str(e)}

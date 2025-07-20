@@ -544,13 +544,13 @@ class PaymentMixin:
             # 1. Load payment history (invoices, payments, etc.)
             self.load_payment_history()
 
-            # 2. Refresh subscription history if the method exists
-            if hasattr(self, "refresh_subscription_history"):
-                self.refresh_subscription_history()
+            # 2. Refresh dues schedule history if the method exists
+            if hasattr(self, "refresh_dues_schedule_history"):
+                self.refresh_dues_schedule_history()
 
-            # 3. Update current subscription details if the method exists
-            if hasattr(self, "get_current_subscription_details"):
-                self.get_current_subscription_details()
+            # 3. Update current dues schedule details if the method exists
+            if hasattr(self, "get_current_dues_schedule_details"):
+                self.get_current_dues_schedule_details()
 
             return {
                 "success": True,

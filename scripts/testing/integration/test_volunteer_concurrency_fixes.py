@@ -135,8 +135,7 @@ def test_volunteer_activity_management():
                     "doctype": "Volunteer",
                     "volunteer_name": f"Test Volunteer {random_string(5)}",
                     "email": f"test.volunteer.{random_string(5)}@example.com",
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             volunteer_doc.insert(ignore_permissions=True)
 
@@ -183,8 +182,7 @@ def test_volunteer_performance_edge_cases():
                 "doctype": "Volunteer",
                 "volunteer_name": f"Empty Test Volunteer {random_string(5)}",
                 "email": f"empty.test.{random_string(5)}@example.com",
-                "status": "New",
-            }
+                "status": "New"}
         )
         volunteer_doc.insert(ignore_permissions=True)
 

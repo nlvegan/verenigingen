@@ -64,8 +64,8 @@ def get_metrics_for_zabbix():
     # System Health Metrics
     metrics.update(get_system_metrics())
     
-    # Subscription and Invoice Metrics (from main implementation)
-    metrics.update(get_subscription_metrics())
+    # Dues Schedule and Invoice Metrics (updated for new system)
+    metrics.update(get_dues_schedule_metrics())  # Renamed for clarity
     
     # Performance Metrics (from advanced implementation)
     if frappe.conf.get("enable_advanced_metrics", False):
@@ -143,18 +143,20 @@ def get_financial_metrics():
     })
     metrics["frappe.invoices.sales_today"] = sales_invoices_today
     
-    # Subscription invoices (identified by reference to subscription) - handle gracefully if column doesn't exist
+    # Membership dues invoices (identified by link to dues schedules) - handle gracefully if column doesn't exist
     try:
-        subscription_invoices_today = frappe.db.sql("""
-            SELECT COUNT(*) 
-            FROM `tabSales Invoice` 
-            WHERE docstatus = 1 
-            AND posting_date >= %s
-            AND subscription IS NOT NULL
+        membership_invoices_today = frappe.db.sql("""
+            SELECT COUNT(DISTINCT si.name)
+            FROM `tabSales Invoice` si
+            INNER JOIN `tabMember` m ON m.customer = si.customer
+            INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = m.name
+            WHERE si.docstatus = 1 
+            AND si.posting_date >= %s
+            AND mds.status = 'Active'
         """, (today_start.date(),))[0][0] or 0
-        metrics["frappe.invoices.subscription_today"] = subscription_invoices_today
+        metrics["frappe.invoices.membership_dues_today"] = membership_invoices_today
     except Exception:
-        metrics["frappe.invoices.subscription_today"] = 0
+        metrics["frappe.invoices.membership_dues_today"] = 0
     
     # Total invoices (both sales and purchase)
     total_invoices_today = sales_invoices_today + frappe.db.count("Purchase Invoice", {
@@ -217,47 +219,119 @@ def get_system_metrics():
     return metrics
 
 
-def get_subscription_metrics():
-    """Get subscription-related metrics"""
+def get_dues_schedule_metrics():
+    """Get dues schedule and invoicing metrics (replaces old subscription metrics)"""
     metrics = {}
     
-    # Active subscriptions - handle gracefully if Subscription table doesn't exist
+    # Active dues schedules
     try:
-        active_subscriptions = frappe.db.count("Subscription", {"status": "Active"})
-        metrics["frappe.subscriptions.active"] = active_subscriptions
-    except Exception:
-        metrics["frappe.subscriptions.active"] = 0
+        active_dues_schedules = frappe.db.count("Membership Dues Schedule", {"status": "Active"})
+        metrics["frappe.dues_schedules.active"] = active_dues_schedules
+        
+        # Total dues schedules
+        total_dues_schedules = frappe.db.count("Membership Dues Schedule")
+        metrics["frappe.dues_schedules.total"] = total_dues_schedules
+        
+        # Dues schedules by billing frequency
+        frequency_counts = frappe.db.sql("""
+            SELECT billing_frequency, COUNT(*) as count
+            FROM `tabMembership Dues Schedule`
+            WHERE status = 'Active'
+            GROUP BY billing_frequency
+        """, as_dict=True)
+        
+        for freq in frequency_counts:
+            safe_key = freq.billing_frequency.lower().replace(" ", "_")
+            metrics[f"frappe.dues_schedules.frequency.{safe_key}"] = freq.count
+            
+    except Exception as e:
+        frappe.log_error(f"Error getting dues schedule metrics: {str(e)}")
+        metrics["frappe.dues_schedules.active"] = 0
     
-    # Subscriptions processed today - check Sales Invoice records with subscription field
+    # Invoices generated today
     try:
         today_start = datetime.combine(datetime.now().date(), datetime.min.time())
-        processed_today = frappe.db.sql("""
-            SELECT COUNT(DISTINCT subscription) 
-            FROM `tabSales Invoice`
-            WHERE creation >= %s
-            AND subscription IS NOT NULL
-            AND subscription != ''
+        invoices_today = frappe.db.count("Sales Invoice", {
+            "creation": [">", today_start],
+            "docstatus": 1
+        })
+        metrics["frappe.invoices.generated_today"] = invoices_today
+        
+        # Membership invoices today (invoices linked to dues schedules)
+        membership_invoices_today = frappe.db.sql("""
+            SELECT COUNT(DISTINCT si.name)
+            FROM `tabSales Invoice` si
+            INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = (
+                SELECT member FROM `tabMember` WHERE customer = si.customer LIMIT 1
+            )
+            WHERE si.creation >= %s
+            AND si.docstatus = 1
+            AND mds.status = 'Active'
         """, (today_start,))[0][0] or 0
-        metrics["frappe.subscriptions.processed_today"] = processed_today
-    except Exception:
-        metrics["frappe.subscriptions.processed_today"] = 0
+        metrics["frappe.invoices.membership_today"] = membership_invoices_today
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting invoice metrics: {str(e)}")
+        metrics["frappe.invoices.generated_today"] = 0
+        metrics["frappe.invoices.membership_today"] = 0
     
-    # Last subscription processing time - handle gracefully if Scheduled Job Log doesn't exist
+    # Last invoice generation time
     try:
-        last_run = frappe.db.get_value(
-            "Scheduled Job Log",
-            {"scheduled_job_type": ["like", "%process_all_subscription%"]},
+        last_invoice = frappe.db.get_value(
+            "Sales Invoice",
+            {"docstatus": 1},
             "creation",
             order_by="creation desc"
         )
         
-        if last_run:
-            hours_since = (now_datetime() - get_datetime(last_run)).total_seconds() / 3600
-            metrics["frappe.scheduler.last_subscription_run"] = round(hours_since, 2)
+        if last_invoice:
+            hours_since = (now_datetime() - get_datetime(last_invoice)).total_seconds() / 3600
+            metrics["frappe.invoices.last_generated_hours_ago"] = round(hours_since, 2)
         else:
-            metrics["frappe.scheduler.last_subscription_run"] = 999  # Never run
+            metrics["frappe.invoices.last_generated_hours_ago"] = 999  # Never generated
     except Exception:
-        metrics["frappe.scheduler.last_subscription_run"] = 999  # No data available
+        metrics["frappe.invoices.last_generated_hours_ago"] = 999  # No data available
+    
+    # Payment processing metrics
+    try:
+        # Overdue invoices
+        overdue_invoices = frappe.db.count("Sales Invoice", {
+            "status": "Overdue",
+            "docstatus": 1
+        })
+        metrics["frappe.invoices.overdue"] = overdue_invoices
+        
+        # Total outstanding amount
+        outstanding_amount = frappe.db.sql("""
+            SELECT SUM(outstanding_amount)
+            FROM `tabSales Invoice`
+            WHERE docstatus = 1
+            AND outstanding_amount > 0
+        """)[0][0] or 0
+        metrics["frappe.invoices.outstanding_amount"] = float(outstanding_amount)
+        
+        # Payment success rate (last 30 days)
+        thirty_days_ago = add_days(now_datetime(), -30)
+        total_invoices = frappe.db.count("Sales Invoice", {
+            "creation": [">", thirty_days_ago],
+            "docstatus": 1
+        })
+        paid_invoices = frappe.db.count("Sales Invoice", {
+            "creation": [">", thirty_days_ago],
+            "docstatus": 1,
+            "status": "Paid"
+        })
+        
+        if total_invoices > 0:
+            metrics["frappe.invoices.payment_success_rate"] = round((paid_invoices / total_invoices) * 100, 2)
+        else:
+            metrics["frappe.invoices.payment_success_rate"] = 0
+            
+    except Exception as e:
+        frappe.log_error(f"Error getting payment metrics: {str(e)}")
+        metrics["frappe.invoices.overdue"] = 0
+        metrics["frappe.invoices.outstanding_amount"] = 0
+        metrics["frappe.invoices.payment_success_rate"] = 0
     
     return metrics
 
@@ -331,7 +405,7 @@ def health_check():
         "redis": check_redis_health(),
         "scheduler": check_scheduler_health(),
         "disk_space": check_disk_space(),
-        "subscriptions": check_subscription_health(),
+        "dues_schedules": check_dues_schedule_health(),
         "financial": check_financial_health()
     }
     
@@ -544,18 +618,30 @@ def check_disk_space():
     }
 
 
-def check_subscription_health():
-    """Check subscription processing health"""
-    # Check if subscriptions are being processed
+def check_dues_schedule_health():
+    """Check dues schedule processing health"""
+    # Check if dues schedules are being processed
     last_run = frappe.db.get_value(
         "Scheduled Job Log",
-        {"scheduled_job_type": ["like", "%process_all_subscription%"]},
+        {"scheduled_job_type": ["like", "%process_all_dues_schedule%"]},
         "creation",
         order_by="creation desc"
     )
     
+    # Also check for dues schedule specific processing
+    last_dues_run = frappe.db.get_value(
+        "Scheduled Job Log",
+        {"scheduled_job_type": ["like", "%dues_schedule%"]},
+        "creation",
+        order_by="creation desc"
+    )
+    
+    # Use the more recent of the two
+    if last_dues_run and (not last_run or get_datetime(last_dues_run) > get_datetime(last_run)):
+        last_run = last_dues_run
+    
     if not last_run:
-        return {"status": "unhealthy", "error": "Subscription processing never run"}
+        return {"status": "unhealthy", "error": "Dues schedule processing never run"}
     
     hours_since = (now_datetime() - get_datetime(last_run)).total_seconds() / 3600
     

@@ -1,6 +1,6 @@
 """
 Financial Integration Edge Cases Test Suite
-Tests for payment processing, subscription management, and financial data integrity
+Tests for payment processing, dues schedule management, and financial data integrity
 """
 
 import unittest
@@ -24,8 +24,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "chapter_name": "Financial Test Chapter",
                 "short_name": "FTC",
-                "country": "Netherlands",
-            }
+                "country": "Netherlands"}
         )
         cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
@@ -36,8 +35,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "doctype": "Membership Type",
                 "membership_type": "Test Premium",
                 "annual_fee": 100.00,
-                "currency": "EUR",
-            }
+                "currency": "EUR"}
         )
         cls.membership_type.insert(ignore_permissions=True)
         cls.test_records.append(cls.membership_type)
@@ -50,8 +48,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "last_name": "Testmember",
                 "email": "financial.test@test.com",
                 "status": "Active",
-                "chapter": cls.chapter.name,
-            }
+                "chapter": cls.chapter.name}
         )
         cls.member.insert(ignore_permissions=True)
         cls.test_records.append(cls.member)
@@ -63,8 +60,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "volunteer_name": "Financial Test Volunteer",
                 "email": "volunteer.financial@test.com",
                 "member": cls.member.name,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         cls.volunteer.insert(ignore_permissions=True)
         cls.test_records.append(cls.volunteer)
@@ -93,8 +89,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "member": self.member.name,
                     "membership_type": self.membership_type.name,
                     "annual_fee": -50.00,  # Negative fee
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             membership.insert()
 
@@ -106,8 +101,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 0.00,  # Zero fee
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         membership.insert()
 
@@ -126,8 +120,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "member": self.member.name,
                     "membership_type": self.membership_type.name,
                     "annual_fee": 999999999.99,  # Extremely large fee
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             membership.insert()
 
@@ -148,8 +141,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "member": self.member.name,
                     "membership_type": self.membership_type.name,
                     "annual_fee": float(input_amount),
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             membership.insert()
 
@@ -171,8 +163,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
                 "currency": "USD",  # Different from membership type currency
-                "status": "Active",
-            }
+                "status": "Active"}
         )
 
         # Should either convert properly or raise validation error
@@ -195,8 +186,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "membership_type": self.membership_type.name,
                     "annual_fee": 100.00,
                     "currency": "INVALID",  # Invalid currency code
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             membership.insert()
 
@@ -211,8 +201,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         membership.insert()
 
@@ -240,8 +229,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         membership.insert()
 
@@ -259,29 +247,27 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
         # Clean up
         membership.delete()
 
-    # ===== SUBSCRIPTION OVERRIDE EDGE CASES =====
+    # ===== DUES SCHEDULE OVERRIDE EDGE CASES =====
 
-    def test_subscription_override_conflicts(self):
-        """Test conflicting subscription overrides"""
+    def test_dues_schedule_override_conflicts(self):
+        """Test conflicting dues schedule overrides"""
         membership = frappe.get_doc(
             {
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         membership.insert()
 
         # Test creating conflicting overrides
         try:
-            # This should be implemented in the actual subscription override system
+            # This should be implemented in the actual dues schedule override system
             override1 = {
                 "membership": membership.name,
                 "override_amount": 50.00,
-                "reason": "Student discount",
-            }
+                "reason": "Student discount"}
             override2 = {"membership": membership.name, "override_amount": 75.00, "reason": "Senior discount"}
 
             # System should prevent conflicting overrides
@@ -290,8 +276,8 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
         finally:
             membership.delete()
 
-    def test_orphaned_subscription_cleanup(self):
-        """Test orphaned subscription detection and cleanup"""
+    def test_orphaned_dues_schedule_cleanup(self):
+        """Test orphaned dues schedule detection and cleanup"""
         # Create membership
         membership = frappe.get_doc(
             {
@@ -299,8 +285,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         membership.insert()
 
@@ -308,11 +293,11 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
         self.member.name
         self.member.delete()
 
-        # Run orphaned subscription cleanup
+        # Run orphaned dues schedule cleanup
         try:
-            from verenigingen.utils.subscription_override import cleanup_orphaned_subscriptions
+            from verenigingen.utils.membership_dues_integration import cleanup_orphaned_dues_schedules
 
-            cleanup_orphaned_subscriptions()
+            cleanup_orphaned_dues_schedules()
 
             # Membership should be marked as orphaned or deleted
             orphaned_membership = frappe.db.exists("Membership", membership.name)
@@ -331,8 +316,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "last_name": "Testmember",
                     "email": "financial.test@test.com",
                     "status": "Active",
-                    "chapter": self.chapter.name,
-                }
+                    "chapter": self.chapter.name}
             )
             self.member.insert(ignore_permissions=True)
 
@@ -352,8 +336,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "description": "Test expense",
                     "amount": -50.00,  # Negative amount
                     "currency": "EUR",
-                    "expense_date": today(),
-                }
+                    "expense_date": today()}
             )
             expense.insert()
 
@@ -367,8 +350,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "description": "Large equipment purchase",
                 "amount": 5000.00,
                 "currency": "EUR",
-                "expense_date": today(),
-            }
+                "expense_date": today()}
         )
         expense.insert()
         expense.delete()
@@ -382,8 +364,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "description": "Unreasonable expense",
                     "amount": 999999.00,  # Extremely large
                     "currency": "EUR",
-                    "expense_date": today(),
-                }
+                    "expense_date": today()}
             )
             expense.insert()
 
@@ -417,8 +398,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "description": f"Test expense {currency}",
                     "amount": 100.00,
                     "currency": currency,
-                    "expense_date": today(),
-                }
+                    "expense_date": today()}
             )
 
             try:
@@ -440,8 +420,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         membership.insert()
 
@@ -450,8 +429,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
             "membership": membership.name,
             "amount": 100.00,
             "payment_date": today(),
-            "payment_method": "SEPA",
-        }
+            "payment_method": "SEPA"}
 
         # Test payment history validation
         try:
@@ -477,8 +455,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         membership.insert()
 
@@ -514,8 +491,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
                 "annual_fee": 100.00,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
 
         # Mock ERPNext integration failure

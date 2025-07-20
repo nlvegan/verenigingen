@@ -25,8 +25,7 @@ class TestPolicyExpenseIntegration(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",  # Policy-covered category
-            "notes": "Business trip for organization activities",
-        }
+            "notes": "Business trip for organization activities"}
 
         self.non_policy_expense_data = {
             "description": "Non-policy office equipment",
@@ -34,8 +33,7 @@ class TestPolicyExpenseIntegration(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Equipment",  # Non-policy category
-            "notes": "Office equipment purchase",
-        }
+            "notes": "Office equipment purchase"}
 
     def tearDown(self):
         """Clean up after each test"""
@@ -422,14 +420,12 @@ class TestPolicyExpenseReporting(unittest.TestCase):
                 "amount": 75,
                 "status": "Approved",
                 "category_name": "Materials",
-                "organization_type": "National",
-            },
+                "organization_type": "National"},
             {
                 "amount": 500,
                 "status": "Approved",
                 "category_name": "Equipment",
-                "organization_type": "National",
-            },
+                "organization_type": "National"},
             {"amount": 50, "status": "Approved", "category_name": "Travel", "organization_type": "Chapter"},
         ]
 

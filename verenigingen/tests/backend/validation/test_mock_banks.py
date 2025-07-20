@@ -40,8 +40,7 @@ class TestMockBanks(unittest.TestCase):
         expected_bics = {
             "TEST": "TESTNL2A",
             "MOCK": "MOCKNL2A",
-            "DEMO": "DEMONL2A",
-        }
+            "DEMO": "DEMONL2A"}
         
         for bank_code, expected_bic in expected_bics.items():
             with self.subTest(bank_code=bank_code):
@@ -54,8 +53,7 @@ class TestMockBanks(unittest.TestCase):
         expected_banks = {
             "TEST": "Test Bank (Mock)",
             "MOCK": "Mock Bank for Testing",
-            "DEMO": "Demo Bank for Testing",
-        }
+            "DEMO": "Demo Bank for Testing"}
         
         for bank_code, expected_name in expected_banks.items():
             with self.subTest(bank_code=bank_code):

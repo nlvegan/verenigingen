@@ -102,8 +102,7 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
                 "membership_type": self.regular_type.name,
                 "status": "Active",
                 "start_date": today(),
-                "end_date": add_days(today(), 365),
-            })
+                "end_date": add_days(today(), 365)})
             membership.insert()
             
             # Transition to suspended
@@ -155,8 +154,7 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
             "membership_type": self.regular_type.name,
             "status": "Active",
             "start_date": today(),
-            "end_date": add_days(today(), 365),
-        })
+            "end_date": add_days(today(), 365)})
         membership.insert()
         
         # Direct status change to Terminated should not be allowed
@@ -317,8 +315,7 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
                 "membership_type": membership_type.name,
                 "status": "Active",
                 "annual_fee": membership_type.amount,
-                "start_date": add_months(today(), -i),
-            })
+                "start_date": add_months(today(), -i)})
             membership.insert()
             memberships.append(membership)
         
@@ -394,8 +391,7 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
                     filters={
                         "reference_doctype": "Member",
                         "reference_name": member.name,
-                        "communication_type": "Status Change",
-                    },
+                        "communication_type": "Status Change"},
                 )
                 if audit_entries:
                     # Verify audit entry contains status change info
@@ -426,8 +422,7 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
             "membership_type": self.regular_type.name,
             "status": "Overdue",  # Overdue payment
             "annual_fee": 100.00,
-            "start_date": today(),
-        })
+            "start_date": today()})
         membership.insert()
         
         # Test if member can be activated with overdue payments

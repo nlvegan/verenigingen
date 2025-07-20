@@ -44,8 +44,7 @@ def test_volunteer_creation_with_existing_user():
                     "last_name": "Volunteer Creation",
                     "email": f"test.volunteer.creation.{frappe.utils.random_string(5)}@example.com",
                     "contact_number": "+31612345678",
-                    "payment_method": "Bank Transfer",
-                }
+                    "payment_method": "Bank Transfer"}
             )
             test_member.insert(ignore_permissions=True)
 
@@ -56,8 +55,7 @@ def test_volunteer_creation_with_existing_user():
                     "email": test_member.email,
                     "first_name": test_member.first_name,
                     "last_name": test_member.last_name,
-                    "user_type": "Website User",
-                }
+                    "user_type": "Website User"}
             )
             user.insert(ignore_permissions=True)
 
@@ -72,8 +70,7 @@ def test_volunteer_creation_with_existing_user():
                 "name": test_member.name,
                 "full_name": test_member.full_name,
                 "email": test_member.email,
-                "user": test_member.user,
-            }
+                "user": test_member.user}
 
         else:
             test_member_data = members_with_users[0]

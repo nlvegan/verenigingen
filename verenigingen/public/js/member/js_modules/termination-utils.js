@@ -1,4 +1,5 @@
 // Termination-related utility functions for Member doctype
+// Updated to use the Membership Dues Schedule system.
 
 function show_termination_dialog(member_id, member_name) {
 	get_termination_impact(member_id, function(impact_data) {
@@ -78,13 +79,16 @@ function show_termination_dialog(member_id, member_name) {
 						__('No outstanding invoices found')
 				},
 				{
-					fieldname: 'cancel_subscriptions',
+					// Updated to use dues schedule system
+					fieldname: 'cancel_dues_schedules',
 					fieldtype: 'Check',
 					label: __('Cancel Subscriptions'),
-					default: impact_data.subscriptions > 0 ? 1 : 0,
-					description: impact_data.subscriptions > 0 ?
-						__('Will cancel {0} active subscription(s)', [impact_data.subscriptions]) :
-						__('No active subscriptions found')
+					// Updated to use dues schedule system
+					default: impact_data.dues_schedules > 0 ? 1 : 0,
+					// Updated to use dues schedule system
+					description: impact_data.dues_schedules > 0 ?
+						__('Will cancel {0} active dues schedule(s)', [impact_data.dues_schedules]) :
+						__('No active dues schedules found')
 				},
 				{
 					fieldtype: 'Section Break',
@@ -135,7 +139,7 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 		end_board_positions: values.end_board_positions,
 		cancel_memberships: values.cancel_memberships,
 		process_invoices: values.process_invoices,
-		cancel_subscriptions: values.cancel_subscriptions
+		cancel_dues_schedules: values.cancel_dues_schedules
 	};
 
 	// Add disciplinary fields if applicable
@@ -194,7 +198,7 @@ function create_confirmation_message(values, termination_data) {
 	if (values.end_board_positions) actions.push(__('End board positions'));
 	if (values.cancel_memberships) actions.push(__('Cancel memberships'));
 	if (values.process_invoices) actions.push(__('Process outstanding invoices'));
-	if (values.cancel_subscriptions) actions.push(__('Cancel subscriptions'));
+	if (values.cancel_dues_schedules) actions.push(__('Cancel dues schedules'));
 
 	if (actions.length > 0) {
 		msg += '• ' + actions.join('<br>• ');
@@ -282,7 +286,7 @@ function generate_impact_assessment_html(impact_data) {
 		{ label: 'Active Memberships', count: impact_data.active_memberships, icon: '📝' },
 		{ label: 'Board Positions', count: impact_data.board_positions, icon: '👔' },
 		{ label: 'Outstanding Invoices', count: impact_data.outstanding_invoices, icon: '💰' },
-		{ label: 'Active Subscriptions', count: impact_data.subscriptions, icon: '🔄' },
+		{ label: 'Active Dues Schedules', count: impact_data.dues_schedules, icon: '🔄' },
 		{ label: 'Volunteer Records', count: impact_data.volunteer_records || 0, icon: '🤝' },
 		{ label: 'Pending Volunteer Expenses', count: impact_data.pending_volunteer_expenses || 0, icon: '💸' },
 		{ label: 'Employee Records', count: impact_data.employee_records || 0, icon: '👥' },

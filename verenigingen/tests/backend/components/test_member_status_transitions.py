@@ -25,8 +25,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                     "name": "Member Status Test Chapter",
                     "chapter_name": "Member Status Test Chapter",
                     "short_name": "MSTC",
-                    "country": "Netherlands",
-                }
+                    "country": "Netherlands"}
             )
             cls.chapter.insert(ignore_permissions=True)
             cls.test_records.append(cls.chapter)
@@ -42,8 +41,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                     "amount": 100.00,
                     "currency": "EUR",
                     "subscription_period": "Annual",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             cls.regular_type.insert(ignore_permissions=True)
             cls.test_records.append(cls.regular_type)
@@ -58,8 +56,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                     "amount": 50.00,
                     "currency": "EUR",
                     "subscription_period": "Annual",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             cls.student_type.insert(ignore_permissions=True)
             cls.test_records.append(cls.student_type)
@@ -106,8 +103,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Member",
                 "email": "active.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -119,8 +115,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "membership_type": self.regular_type.name,
                 "status": "Active",
                 "start_date": frappe.utils.nowdate(),
-                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365),
-            }
+                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365)}
         )
         membership.insert()
 
@@ -150,8 +145,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "email": "suspended.test.status@test.com",
                 "status": "Suspended",
                 "suspension_reason": "Payment overdue",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -176,8 +170,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Member",
                 "email": "terminate.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -189,8 +182,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "membership_type": self.regular_type.name,
                 "status": "Active",
                 "start_date": frappe.utils.nowdate(),
-                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365),
-            }
+                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365)}
         )
         membership.insert()
 
@@ -225,8 +217,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "status": "Terminated",
                 "termination_reason": "Voluntary resignation",
                 "termination_date": today(),
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -247,8 +238,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Member",
                 "email": "pending.test.status@test.com",
                 "status": "Pending",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -271,8 +261,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Changer",
                 "email": "rapid.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -311,8 +300,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Member",
                 "email": "concurrent.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -353,8 +341,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Fields",
                 "email": "missing.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -382,8 +369,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Dates",
                 "email": "dates.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -416,8 +402,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Test",
                 "email": "cascade.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -431,8 +416,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                     "membership_type": membership_type.name,
                     "status": "Active",
                     "annual_fee": membership_type.amount,
-                    "start_date": add_months(today(), -i),
-                }
+                    "start_date": add_months(today(), -i)}
             )
             membership.insert()
             memberships.append(membership)
@@ -472,8 +456,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Impact",
                 "email": "volunteer.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -484,8 +467,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "volunteer_name": "Volunteer Impact",
                 "email": member.email,
                 "member": member.name,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         volunteer.insert()
 
@@ -523,8 +505,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Trail",
                 "email": "audit.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -544,8 +525,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                     filters={
                         "reference_doctype": "Member",
                         "reference_name": member.name,
-                        "communication_type": "Status Change",
-                    },
+                        "communication_type": "Status Change"},
                 )
                 if audit_entries:
                     # Verify audit entry contains status change info
@@ -571,8 +551,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Rules",
                 "email": "payment.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 
@@ -584,8 +563,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "membership_type": self.regular_type.name,
                 "status": "Overdue",  # Overdue payment
                 "annual_fee": 100.00,
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         membership.insert()
 
@@ -614,8 +592,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "name": "transfer-test-chapter",
                 "chapter_name": "Transfer Test Chapter",
                 "short_name": "TTC",
-                "country": "Netherlands",
-            }
+                "country": "Netherlands"}
         )
         chapter2.insert()
 
@@ -626,8 +603,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 "last_name": "Test",
                 "email": "transfer.test.status@test.com",
                 "status": "Active",
-                "chapter": self.chapter.name,
-            }
+                "chapter": self.chapter.name}
         )
         member.insert()
 

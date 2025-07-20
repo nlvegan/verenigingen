@@ -30,8 +30,7 @@ class TestUserFactory:
                 "first_name": "Test",
                 "last_name": "Member",
                 "enabled": 1,
-                "new_password": "test123",
-            }
+                "new_password": "test123"}
         )
 
         user.append("roles", {"role": "Member"})
@@ -58,8 +57,7 @@ class TestUserFactory:
                 "first_name": "Test",
                 "last_name": "Volunteer",
                 "enabled": 1,
-                "new_password": "test123",
-            }
+                "new_password": "test123"}
         )
 
         user.append("roles", {"role": "Volunteer"})
@@ -81,8 +79,7 @@ class TestUserFactory:
                 "first_name": "Test",
                 "last_name": "Admin",
                 "enabled": 1,
-                "new_password": "test123",
-            }
+                "new_password": "test123"}
         )
 
         user.append("roles", {"role": "Verenigingen Administrator"})
@@ -113,8 +110,7 @@ class TestStateManager:
                     "entity_name": entity_name,
                     "from_state": previous_state,
                     "to_state": state,
-                    "timestamp": datetime.now(),
-                }
+                    "timestamp": datetime.now()}
             )
 
     def get_state(self, entity_type, entity_name):
@@ -248,8 +244,7 @@ class TestDataBuilder:
                         "region_name": "Test Region",
                         "region_code": "TR",
                         "country": "Netherlands",
-                        "is_active": 1,
-                    }
+                        "is_active": 1}
                 )
                 test_region.insert(ignore_permissions=True)
                 region = test_region.name
@@ -267,8 +262,7 @@ class TestDataBuilder:
                     "name": name,
                     "region": region,
                     "postal_codes": postal_codes,
-                    "introduction": "Test chapter",
-                }
+                    "introduction": "Test chapter"}
             )
             chapter.insert(ignore_permissions=True)
 
@@ -295,8 +289,7 @@ class TestDataBuilder:
             "email": email,
             "contact_number": "+31612345678",
             "payment_method": "Bank Transfer",
-            "status": "Active",
-        }
+            "status": "Active"}
         member_data.update(kwargs)
 
         # Link to chapter if available
@@ -334,8 +327,7 @@ class TestDataBuilder:
             "member": self._data["member"].name,
             "membership_type": membership_type,
             "start_date": today(),
-            "status": "Active",
-        }
+            "status": "Active"}
         membership_data.update(kwargs)
 
         membership = frappe.get_doc(membership_data)
@@ -359,8 +351,7 @@ class TestDataBuilder:
             "email": f"volunteer.{random_string(8)}@example.com",
             "member": self._data["member"].name,
             "status": "Active",
-            "start_date": today(),
-        }
+            "start_date": today()}
         volunteer_data.update(kwargs)
 
         volunteer = frappe.get_doc(volunteer_data)
@@ -389,8 +380,7 @@ class TestDataBuilder:
                     "team_name": team_name,
                     "status": "Active",
                     "team_type": "Project Team",
-                    "start_date": today(),
-                }
+                    "start_date": today()}
             )
             if "chapter" in self._data:
                 team.chapter = self._data["chapter"].name
@@ -409,8 +399,7 @@ class TestDataBuilder:
                 "role_type": kwargs.get("role_type", "Team Member"),
                 "from_date": kwargs.get("from_date", today()),
                 "is_active": 1,
-                "status": "Active",
-            },
+                "status": "Active"},
         )
         team.save(ignore_permissions=True)
 
@@ -449,8 +438,7 @@ class TestDataBuilder:
                     {
                         "doctype": "Expense Category",
                         "category_name": "Test Expenses",
-                        "expense_account": expense_account[0].name,
-                    }
+                        "expense_account": expense_account[0].name}
                 )
                 test_category.insert(ignore_permissions=True)
                 expense_data["category"] = test_category.name
@@ -513,9 +501,7 @@ class TestDataBuilder:
                     "doctype": "Membership Type",
                     "membership_type_name": name,
                     "amount": 100,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "currency": "EUR"}
             )
             membership_type.insert(ignore_permissions=True)
             self._cleanup_manager.register("Membership Type", membership_type.name)

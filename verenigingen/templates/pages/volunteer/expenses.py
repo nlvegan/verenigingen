@@ -345,13 +345,6 @@ def update_workspace_links():
                 "is_query_report": 1,
             },
             {
-                "label": "Orphaned Subscriptions Report",
-                "link_to": "Orphaned Subscriptions Report",
-                "link_type": "Report",
-                "type": "Link",
-                "is_query_report": 1,
-            },
-            {
                 "label": "Chapter Expense Report",
                 "link_to": "Chapter Expense Report",
                 "link_type": "Report",

@@ -24,8 +24,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "doctype": "Chapter",
                 "chapter_name": "Termination Test Chapter",
                 "short_name": "TTC",
-                "country": "Netherlands",
-            }
+                "country": "Netherlands"}
         )
         cls.chapter.insert(ignore_permissions=True)
         cls.test_records.append(cls.chapter)
@@ -36,8 +35,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "doctype": "Membership Type",
                 "membership_type": "Termination Test Type",
                 "annual_fee": 100.00,
-                "currency": "EUR",
-            }
+                "currency": "EUR"}
         )
         cls.membership_type.insert(ignore_permissions=True)
         cls.test_records.append(cls.membership_type)
@@ -50,8 +48,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "last_name": "Test1",
                 "email": "termination1@test.com",
                 "status": "Active",
-                "chapter": cls.chapter.name,
-            }
+                "chapter": cls.chapter.name}
         )
         cls.member1.insert(ignore_permissions=True)
         cls.test_records.append(cls.member1)
@@ -63,8 +60,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "last_name": "Test2",
                 "email": "termination2@test.com",
                 "status": "Active",
-                "chapter": cls.chapter.name,
-            }
+                "chapter": cls.chapter.name}
         )
         cls.member2.insert(ignore_permissions=True)
         cls.test_records.append(cls.member2)
@@ -108,8 +104,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Voluntary",
                 "termination_reason": "Personal reasons",
                 "requested_termination_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         termination1.insert()
 
@@ -122,8 +117,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                     "termination_type": "Voluntary",
                     "termination_reason": "Different reason",
                     "requested_termination_date": add_days(today(), 7),
-                    "status": "Pending",
-                }
+                    "status": "Pending"}
             )
             termination2.insert()
 
@@ -145,8 +139,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Administrative",
                 "termination_reason": "Suspended for too long",
                 "requested_termination_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
 
         try:
@@ -172,8 +165,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Overdue",
-                "annual_fee": 100.00,
-            }
+                "annual_fee": 100.00}
         )
         membership.insert()
 
@@ -184,8 +176,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "volunteer_name": "Test Volunteer",
                 "email": self.member1.email,
                 "member": self.member1.name,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         volunteer.insert()
 
@@ -210,8 +201,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Voluntary",
                 "termination_reason": "Moving abroad",
                 "requested_termination_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
 
         try:
@@ -248,8 +238,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Voluntary",
                 "termination_reason": "Personal reasons",
                 "requested_termination_date": add_days(today(), 30),
-                "status": "Draft",
-            }
+                "status": "Draft"}
         )
         termination.insert()
 
@@ -297,8 +286,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Administrative",
                 "termination_reason": "Policy violation",
                 "requested_termination_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         termination.insert()
 
@@ -332,8 +320,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Active",
-                "annual_fee": 100.00,
-            }
+                "annual_fee": 100.00}
         )
         membership.insert()
 
@@ -346,8 +333,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "requested_termination_date": today(),
                 "status": "Approved",
                 "approved_by": "Administrator",
-                "approval_date": today(),
-            }
+                "approval_date": today()}
         )
         termination.insert()
 
@@ -383,8 +369,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Active",
-                "annual_fee": 100.00,
-            }
+                "annual_fee": 100.00}
         )
         membership.insert()
 
@@ -394,8 +379,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "volunteer_name": "Complex Volunteer",
                 "email": self.member1.email,
                 "member": self.member1.name,
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         volunteer.insert()
 
@@ -405,8 +389,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         sepa_mandate.insert()
 
@@ -419,8 +402,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "requested_termination_date": today(),
                 "status": "Approved",
                 "approved_by": "Administrator",
-                "approval_date": today(),
-            }
+                "approval_date": today()}
         )
         termination.insert()
 
@@ -476,8 +458,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "role": "Treasurer",
                 "start_date": today(),
-                "is_active": 1,
-            }
+                "is_active": 1}
         )
         board_member.insert()
 
@@ -489,8 +470,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Voluntary",
                 "termination_reason": "Moving abroad",
                 "requested_termination_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
 
         try:
@@ -536,8 +516,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "iban": "NL91ABNA0417164300",
                 "status": "Active",
-                "mandate_date": today(),
-            }
+                "mandate_date": today()}
         )
         sepa_mandate.insert()
 
@@ -549,8 +528,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Voluntary",
                 "termination_reason": "Financial test",
                 "requested_termination_date": add_days(today(), 7),  # Before next billing
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         termination.insert()
 
@@ -591,8 +569,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Voluntary",
                 "termination_reason": "First request",
                 "requested_termination_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
 
         termination2 = frappe.get_doc(
@@ -602,8 +579,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Administrative",
                 "termination_reason": "Second request",
                 "requested_termination_date": add_days(today(), 5),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
 
         # First request should succeed
@@ -627,8 +603,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "requested_termination_date": today(),
                 "status": "Approved",
                 "approved_by": "Administrator",
-                "approval_date": today(),
-            }
+                "approval_date": today()}
         )
         termination.insert()
 
@@ -668,8 +643,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "termination_type": "Voluntary",
                 "termination_reason": "Audit trail test",
                 "requested_termination_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         termination.insert()
 

@@ -27,8 +27,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "first_name": "Test",
                     "last_name": "Member",
                     "email": "test.member.regression@example.com",
-                    "join_date": today(),
-                }
+                    "join_date": today()}
             )
             cls.test_member.insert(ignore_permissions=True)
         else:
@@ -44,8 +43,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "email": "test.member.regression@example.com",
                     "member": cls.test_member.name,
                     "status": "Active",
-                    "start_date": today(),
-                }
+                    "start_date": today()}
             )
             cls.test_volunteer.insert(ignore_permissions=True)
         else:
@@ -57,8 +55,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                 {
                     "doctype": "Chapter",
                     "name": "TEST-CHAPTER-REGRESSION",
-                    "chapter_name": "Test Chapter Regression",
-                }
+                    "chapter_name": "Test Chapter Regression"}
             )
             cls.test_chapter.insert(ignore_permissions=True)
         else:
@@ -74,8 +71,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                 {
                     "member": cls.test_member.name,
                     "member_name": cls.test_volunteer.volunteer_name,
-                    "enabled": 1,
-                },
+                    "enabled": 1},
             )
             cls.test_chapter.save(ignore_permissions=True)
 
@@ -86,8 +82,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                     "doctype": "Expense Category",
                     "name": "TEST-CATEGORY-REGRESSION",
                     "category_name": "Test Category Regression",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             cls.test_category.insert(ignore_permissions=True)
 
@@ -143,8 +138,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
             "category": self.test_category.name,
-            "notes": "Regression test for chapter membership validation",
-        }
+            "notes": "Regression test for chapter membership validation"}
 
         # Mock session user and test submission
         with patch("frappe.session.user", self.test_volunteer.email):
@@ -178,8 +172,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
             "category": self.test_category.name,
-            "notes": "Regression test for chapter membership validation failure",
-        }
+            "notes": "Regression test for chapter membership validation failure"}
 
         # Mock get_user_volunteer_record to return volunteer without member field
         with patch(
@@ -260,8 +253,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
             "category": self.test_category.name,
-            "notes": "Full integration test",
-        }
+            "notes": "Full integration test"}
 
         with patch("frappe.session.user", self.test_volunteer.email):
             result = submit_expense(expense_data)
@@ -285,8 +277,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                 {
                     "doctype": "Chapter",
                     "name": "TEST-CHAPTER-2-REGRESSION",
-                    "chapter_name": "Test Chapter 2 Regression",
-                }
+                    "chapter_name": "Test Chapter 2 Regression"}
             )
             test_chapter_2.insert(ignore_permissions=True)
 
@@ -296,8 +287,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
                 {
                     "member": self.test_member.name,
                     "member_name": self.test_volunteer.volunteer_name,
-                    "enabled": 1,
-                },
+                    "enabled": 1},
             )
             test_chapter_2.save(ignore_permissions=True)
 
@@ -309,8 +299,7 @@ class TestVolunteerExpenseValidationRegression(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "TEST-CHAPTER-2-REGRESSION",
             "category": self.test_category.name,
-            "notes": "Testing multiple chapter memberships",
-        }
+            "notes": "Testing multiple chapter memberships"}
 
         with patch("frappe.session.user", self.test_volunteer.email):
             result = submit_expense(expense_data)

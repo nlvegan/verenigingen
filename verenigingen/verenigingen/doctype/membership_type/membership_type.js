@@ -1,10 +1,10 @@
 frappe.ui.form.on('Membership Type', {
 	refresh: function(frm) {
-		// Add button to create subscription plan
-		if (!frm.doc.subscription_plan) {
-			frm.add_custom_button(__('Create Subscription Plan'), function() {
+		// Add button to create dues schedule template
+		if (!frm.doc.dues_schedule_template) {
+			frm.add_custom_button(__('Create Dues Schedule Template'), function() {
 				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.membership_type.membership_type.create_subscription_plan',
+					method: 'verenigingen.verenigingen.doctype.membership_type.membership_type.create_dues_schedule_template',
 					args: {
 						'membership_type_name': frm.doc.name
 					},
@@ -17,10 +17,10 @@ frappe.ui.form.on('Membership Type', {
 			}, __('Actions'));
 		}
 
-		// Add button to view linked subscription plan
-		if (frm.doc.subscription_plan) {
-			frm.add_custom_button(__('Subscription Plan'), function() {
-				frappe.set_route('Form', 'Subscription Plan', frm.doc.subscription_plan);
+		// Add button to view linked dues schedule template
+		if (frm.doc.dues_schedule_template) {
+			frm.add_custom_button(__('Dues Schedule Template'), function() {
+				frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule_template);
 			}, __('View'));
 		}
 
@@ -30,14 +30,14 @@ frappe.ui.form.on('Membership Type', {
 		}, __('View'));
 	},
 
-	subscription_period: function(frm) {
+	billing_period: function(frm) {
 		// Toggle custom period field
-		frm.toggle_reqd('subscription_period_in_months', frm.doc.subscription_period === 'Custom');
-		frm.toggle_display('subscription_period_in_months', frm.doc.subscription_period === 'Custom');
+		frm.toggle_reqd('billing_period_in_months', frm.doc.billing_period === 'Custom');
+		frm.toggle_display('billing_period_in_months', frm.doc.billing_period === 'Custom');
 
 		// Clear the field if not custom
-		if (frm.doc.subscription_period !== 'Custom') {
-			frm.set_value('subscription_period_in_months', null);
+		if (frm.doc.billing_period !== 'Custom') {
+			frm.set_value('billing_period_in_months', null);
 		}
 	},
 

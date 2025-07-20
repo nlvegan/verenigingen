@@ -52,8 +52,7 @@ def test_cost_center_creation():
                     "doctype": "Chapter",
                     "chapter_name": test_chapter_name,
                     "chapter_code": "TEST_INTEG",
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             chapter.insert(ignore_permissions=True)
 
@@ -99,8 +98,7 @@ def test_employee_creation():
                     "last_name": "Test",
                     "email": test_email,
                     "status": "Active",
-                    "application_status": "Approved",
-                }
+                    "application_status": "Approved"}
             )
             member.insert(ignore_permissions=True)
 
@@ -144,8 +142,7 @@ def test_expense_category_creation():
                 {
                     "doctype": "Expense Category",
                     "category_name": test_category_name,
-                    "description": "Test category for integration testing",
-                }
+                    "description": "Test category for integration testing"}
             )
             category.insert(ignore_permissions=True)
 
@@ -185,8 +182,7 @@ def test_expense_claim_creation(volunteer, employee, chapter, expense_type):
             "expense_date": today(),
             "category": expense_type,
             "organization": chapter.name if chapter else None,
-            "notes": "Test expense for integration testing",
-        }
+            "notes": "Test expense for integration testing"}
 
         # Test the expense submission function
         from verenigingen.templates.pages.volunteer.expenses import submit_expense

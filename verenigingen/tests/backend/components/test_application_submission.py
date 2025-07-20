@@ -37,8 +37,7 @@ def test_application_submission():
             "bic": "ABNANL2A",
             "bank_account_name": "Test Application User",
             "terms": True,
-            "newsletter": True,
-        }
+            "newsletter": True}
 
         print(f"📝 Submitting application for: {form_data['first_name']} {form_data['last_name']}")
         print(f"   Email: {form_data['email']}")
@@ -63,7 +62,7 @@ def test_application_submission():
                     print("✅ Member created successfully:")
                     print(f"   Name: {member.full_name}")
                     print(f"   Email: {member.email}")
-                    print(f"   Fee override: €{member.membership_fee_override}")
+                    print(f"   Fee override: €{member.dues_rate}")
                     print(f"   Fee reason: {member.fee_override_reason}")
                     print(f"   Status: {member.application_status}")
 
@@ -76,8 +75,8 @@ def test_application_submission():
 
                     # Verify all fields are set correctly
                     assert (
-                        member.membership_fee_override == 65.0
-                    ), f"Fee override wrong: {member.membership_fee_override}"
+                        member.dues_rate == 65.0
+                    ), f"Fee override wrong: {member.dues_rate}"
                     assert member.fee_override_reason, f"Fee reason missing: {member.fee_override_reason}"
                     assert (
                         member.application_status == "Pending"
@@ -119,17 +118,16 @@ def test_backend_fee_adjustment():
                 "email": f"backend.test.{random_string(6)}@example.com",
                 "birth_date": "1985-03-10",
                 "status": "Active",
-                "application_status": "Active",
-            }
+                "application_status": "Active"}
         )
         existing_member.insert(ignore_permissions=True)
 
         print(f"✅ Created existing member: {existing_member.name} ({existing_member.full_name})")
-        print(f"   Initial fee override: {existing_member.membership_fee_override}")
+        print(f"   Initial fee override: {existing_member.dues_rate}")
 
         # Now adjust their fee (this should trigger change tracking)
         print("📝 Adjusting fee from None to €150.0...")
-        existing_member.membership_fee_override = 150.0
+        existing_member.dues_rate = 150.0
         existing_member.fee_override_reason = "Backend adjustment - Premium supporter"
         existing_member.save(ignore_permissions=True)
 

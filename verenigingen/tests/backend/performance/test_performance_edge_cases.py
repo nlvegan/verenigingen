@@ -61,8 +61,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
         self.performance_metrics[test_name] = {
             "duration": test_duration,
             "memory_used_mb": memory_used / (1024 * 1024),
-            "timestamp": datetime.now().isoformat(),
-        }
+            "timestamp": datetime.now().isoformat()}
 
     def measure_time(self, func, *args, **kwargs):
         """Measure execution time of a function"""
@@ -144,8 +143,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
                     "last_name": "Performance",
                     "email": f"bulktest{i:04d}@performance.test",
                     "status": "Active",
-                    "chapter": chapter.name,
-                }
+                    "chapter": chapter.name}
             )
             member.insert(ignore_permissions=True)
             members_created.append(member)
@@ -309,8 +307,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
                             "last_name": f"Member{i:02d}",
                             "email": f"concurrent{thread_id}.{i:02d}@performance.test",
                             "status": "Active",
-                            "chapter": chapter.name,
-                        }
+                            "chapter": chapter.name}
                     )
                     member.insert(ignore_permissions=True)
                     thread_members.append(member)
@@ -566,8 +563,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
                                 "last_name": "Test",
                                 "email": f"stress{i}@test.com",
                                 "status": "Active",
-                                "chapter": chapter.name,
-                            }
+                                "chapter": chapter.name}
                         )
                         member.insert(ignore_permissions=True)
                         stress_operations.append(f"Created: {member.name}")

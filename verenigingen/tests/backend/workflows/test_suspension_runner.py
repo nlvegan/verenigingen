@@ -70,8 +70,7 @@ def run_all_suspension_tests():
                     "tests": module_tests,
                     "failures": module_failures,
                     "errors": module_errors,
-                    "success": module_failures == 0 and module_errors == 0,
-                }
+                    "success": module_failures == 0 and module_errors == 0}
 
                 # Print results for this module
                 if module_failures == 0 and module_errors == 0:
@@ -97,8 +96,7 @@ def run_all_suspension_tests():
                     "failures": 0,
                     "errors": 1,
                     "success": False,
-                    "import_error": str(e),
-                }
+                    "import_error": str(e)}
                 total_errors += 1
 
         # Print comprehensive summary
@@ -236,8 +234,7 @@ def run_suspension_smoke_test():
             "Core Integration": "verenigingen.utils.termination_integration",
             "API Layer": "verenigingen.api.suspension_api",
             "Permissions": "verenigingen.permissions",
-            "Member Mixin": "verenigingen.verenigingen.doctype.member.mixins.termination_mixin",
-        }
+            "Member Mixin": "verenigingen.verenigingen.doctype.member.mixins.termination_mixin"}
 
         all_passed = True
 

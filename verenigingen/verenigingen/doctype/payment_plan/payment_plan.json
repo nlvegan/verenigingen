@@ -1,0 +1,252 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-01-18 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "member",
+  "membership_dues_schedule",
+  "plan_details_section",
+  "plan_type",
+  "total_amount",
+  "installment_amount",
+  "number_of_installments",
+  "frequency",
+  "start_date",
+  "end_date",
+  "status_section",
+  "status",
+  "approval_required",
+  "approved_by",
+  "approval_date",
+  "reason",
+  "payment_details_section",
+  "payment_method",
+  "payment_account",
+  "installments_tab",
+  "installments",
+  "tracking_section",
+  "total_paid",
+  "remaining_balance",
+  "next_payment_date",
+  "last_payment_date",
+  "consecutive_missed_payments"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Plan ID",
+   "options": "PAY-PLAN-.YYYY.-.MM.-.#####",
+   "reqd": 1
+  },
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Member",
+   "options": "Member",
+   "reqd": 1
+  },
+  {
+   "fieldname": "membership_dues_schedule",
+   "fieldtype": "Link",
+   "label": "Membership Dues Schedule",
+   "options": "Membership Dues Schedule"
+  },
+  {
+   "fieldname": "plan_details_section",
+   "fieldtype": "Section Break",
+   "label": "Plan Details"
+  },
+  {
+   "fieldname": "plan_type",
+   "fieldtype": "Select",
+   "label": "Plan Type",
+   "options": "Equal Installments\nCustom Schedule\nDeferred Payment",
+   "reqd": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "precision": "2",
+   "reqd": 1
+  },
+  {
+   "fieldname": "installment_amount",
+   "fieldtype": "Currency",
+   "label": "Installment Amount",
+   "precision": "2"
+  },
+  {
+   "fieldname": "number_of_installments",
+   "fieldtype": "Int",
+   "label": "Number of Installments"
+  },
+  {
+   "fieldname": "frequency",
+   "fieldtype": "Select",
+   "label": "Payment Frequency",
+   "options": "Weekly\nBi-weekly\nMonthly\nCustom"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "label": "Expected End Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status_section",
+   "fieldtype": "Section Break",
+   "label": "Status"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nPending Approval\nActive\nCompleted\nCancelled\nSuspended",
+   "reqd": 1
+  },
+  {
+   "fieldname": "approval_required",
+   "fieldtype": "Check",
+   "label": "Approval Required"
+  },
+  {
+   "fieldname": "approved_by",
+   "fieldtype": "Link",
+   "label": "Approved By",
+   "options": "User"
+  },
+  {
+   "fieldname": "approval_date",
+   "fieldtype": "Datetime",
+   "label": "Approval Date"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Text",
+   "label": "Reason for Payment Plan"
+  },
+  {
+   "fieldname": "payment_details_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Details"
+  },
+  {
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "label": "Payment Method",
+   "options": "SEPA Direct Debit\nBank Transfer\nCredit Card\nCash"
+  },
+  {
+   "fieldname": "payment_account",
+   "fieldtype": "Link",
+   "label": "Payment Account",
+   "options": "SEPA Mandate"
+  },
+  {
+   "fieldname": "installments_tab",
+   "fieldtype": "Tab Break",
+   "label": "Installments"
+  },
+  {
+   "fieldname": "installments",
+   "fieldtype": "Table",
+   "label": "Payment Installments",
+   "options": "Payment Plan Installment"
+  },
+  {
+   "fieldname": "tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Tracking"
+  },
+  {
+   "fieldname": "total_paid",
+   "fieldtype": "Currency",
+   "label": "Total Paid",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "remaining_balance",
+   "fieldtype": "Currency",
+   "label": "Remaining Balance",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "next_payment_date",
+   "fieldtype": "Date",
+   "label": "Next Payment Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_payment_date",
+   "fieldtype": "Date",
+   "label": "Last Payment Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "consecutive_missed_payments",
+   "fieldtype": "Int",
+   "label": "Consecutive Missed Payments",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-01-18 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Payment Plan",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Verenigingen Member",
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

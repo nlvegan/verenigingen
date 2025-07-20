@@ -436,14 +436,10 @@ def get_address_members_html_api(member_id):
         html_content = f'<div class="address-members-display"><h6>Other Members at This Address ({len(other_members)} found):</h6>'
 
         for other in other_members:
-            # Guess relationship
-            guess_relationship_simple(member, other)
-
-            # Get age group
-            get_age_group_simple(other.get("birth_date"))
-
-            # Get status color
-            get_status_color_simple(other.get("status", "Unknown"))
+            # Calculate relationship, age group, and status color for display
+            relationship = guess_relationship_simple(member, other)
+            age_group = get_age_group_simple(other.get("birth_date"))
+            status_color = get_status_color_simple(other.get("status", "Unknown"))
 
             html_content += f"""
             <div class="member-card" style="border: 1px solid #ddd; padding: 8px; margin: 4px 0; border-radius: 4px; background: #f8f9fa;">

@@ -31,8 +31,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "first_name": "Amendment",
                 "last_name": "TestUser",
                 "email": self.test_member_email,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         self.test_member.insert(ignore_permissions=True)
         self.test_member_name = self.test_member.name
@@ -50,13 +49,24 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "member": self.test_member_name,
                 "membership_type": test_membership_type,
                 "status": "Active",
-                "start_date": today(),
-                "uses_custom_amount": 1,
-                "custom_amount": 50.0,
-            }
+                "start_date": today()}
         )
         self.test_membership.insert(ignore_permissions=True)
         self.test_membership_name = self.test_membership.name
+        
+        # Create initial dues schedule for testing
+        self.test_dues_schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "member": self.test_member_name,
+            "membership": self.test_membership_name,
+            "membership_type": test_membership_type,
+            "amount": 50.0,
+            "contribution_mode": "Custom",
+            "uses_custom_amount": 1,
+            "custom_amount_approved": 1,
+            "status": "Active"
+        })
+        self.test_dues_schedule.insert(ignore_permissions=True)
 
     def tearDown(self):
         """Clean up test data"""
@@ -65,6 +75,10 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
             for amendment_name in self.test_amendments:
                 if frappe.db.exists("Contribution Amendment Request", amendment_name):
                     frappe.delete_doc("Contribution Amendment Request", amendment_name, force=True)
+
+            # Clean up test dues schedule
+            if hasattr(self, 'test_dues_schedule') and frappe.db.exists("Membership Dues Schedule", self.test_dues_schedule.name):
+                frappe.delete_doc("Membership Dues Schedule", self.test_dues_schedule.name, force=True)
 
             # Clean up test membership
             if self.test_membership_name and frappe.db.exists("Membership", self.test_membership_name):
@@ -89,8 +103,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 75.0,
                 "reason": "First amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval",
-            }
+                "status": "Pending Approval"}
         )
         amendment1.insert(ignore_permissions=True)
         self.test_amendments.append(amendment1.name)
@@ -106,8 +119,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                     "requested_amount": 100.0,
                     "reason": "Second amendment",
                     "effective_date": add_days(today(), 30),
-                    "status": "Pending Approval",
-                }
+                    "status": "Pending Approval"}
             )
             amendment2.insert(ignore_permissions=True)
 
@@ -125,8 +137,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 75.0,
                 "reason": "First amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval",
-            }
+                "status": "Pending Approval"}
         )
         amendment1.insert(ignore_permissions=True)
         self.test_amendments.append(amendment1.name)
@@ -148,8 +159,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 100.0,
                 "reason": "Second amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Draft",
-            }
+                "status": "Draft"}
         )
         # Bypass validation for testing
         amendment2.flags.ignore_validate = True
@@ -185,8 +195,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 75.0,
                 "reason": "First amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Approved",
-            }
+                "status": "Approved"}
         )
         amendment1.insert(ignore_permissions=True)
         self.test_amendments.append(amendment1.name)
@@ -200,8 +209,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 100.0,
                 "reason": "Second amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval",
-            }
+                "status": "Pending Approval"}
         )
         # Bypass validation for testing
         amendment2.flags.ignore_validate = True
@@ -218,8 +226,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 125.0,
                 "reason": "Third amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval",
-            }
+                "status": "Pending Approval"}
         )
         amendment3.flags.ignore_validate = True
         amendment3.insert(ignore_permissions=True)
@@ -251,8 +258,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 75.0,
                 "reason": "Single amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval",
-            }
+                "status": "Pending Approval"}
         )
         amendment.insert(ignore_permissions=True)
         self.test_amendments.append(amendment.name)
@@ -278,8 +284,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 75.0,
                 "reason": "First amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Cancelled",
-            }
+                "status": "Cancelled"}
         )
         amendment1.insert(ignore_permissions=True)
         self.test_amendments.append(amendment1.name)
@@ -294,8 +299,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 100.0,
                 "reason": "Second amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval",
-            }
+                "status": "Pending Approval"}
         )
         amendment2.insert(ignore_permissions=True)
         self.test_amendments.append(amendment2.name)
@@ -315,8 +319,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 75.0,
                 "reason": "First amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Applied",
-            }
+                "status": "Applied"}
         )
         amendment1.insert(ignore_permissions=True)
         self.test_amendments.append(amendment1.name)
@@ -331,8 +334,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "requested_amount": 100.0,
                 "reason": "Second amendment",
                 "effective_date": add_days(today(), 30),
-                "status": "Pending Approval",
-            }
+                "status": "Pending Approval"}
         )
         amendment2.insert(ignore_permissions=True)
         self.test_amendments.append(amendment2.name)

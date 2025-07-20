@@ -183,8 +183,7 @@ class TestVolunteerAPI(BaseVereengingenTest):
             {
                 "skill": "Event Planning",
                 "skill_category": "Event Management",
-                "proficiency_level": "Beginner",
-            },
+                "proficiency_level": "Beginner"},
         )
         volunteer.save()
 

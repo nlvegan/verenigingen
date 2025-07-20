@@ -29,6 +29,12 @@
   "calculator_description",
   "maximum_fee_multiplier",
   "membership_settings_section",
+  "default_grace_period_days",
+  "grace_period_auto_apply",
+  "grace_period_notification_days",
+  "system_migration_section",
+  "column_break_migration",
+  "migration_notes",
   "dutch_btw_section",
   "tax_exempt_for_contributions",
   "default_tax_exemption_type",
@@ -40,6 +46,7 @@
   "company",
   "membership_debit_account",
   "membership_payment_account",
+  "default_receivable_account",
   "column_break_9",
   "send_email",
   "send_invoice",
@@ -220,6 +227,13 @@
    "fieldtype": "Link",
    "label": "Membership Payment To",
    "mandatory_depends_on": "eval:doc.automate_membership_payment_entries",
+   "options": "Account"
+  },
+  {
+   "description": "Default receivable account for payment plans and member transactions",
+   "fieldname": "default_receivable_account",
+   "fieldtype": "Link",
+   "label": "Default Receivable Account",
    "options": "Account"
   },
   {
@@ -484,6 +498,46 @@
    "fieldtype": "Int",
    "label": "Maximum Fee Multiplier",
    "min_value": 1
+  },
+  {
+   "fieldname": "membership_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Grace Period Settings"
+  },
+  {
+   "fieldname": "default_grace_period_days",
+   "fieldtype": "Int",
+   "label": "Default Grace Period Days",
+   "description": "Number of days to automatically extend membership grace periods",
+   "default": 30,
+   "min_value": 1,
+   "max_value": 180
+  },
+  {
+   "fieldname": "grace_period_auto_apply",
+   "fieldtype": "Check",
+   "label": "Automatically Apply Grace Period",
+   "description": "Automatically place members in grace period when payments are overdue",
+   "default": 0
+  },
+  {
+   "fieldname": "grace_period_notification_days",
+   "fieldtype": "Int",
+   "label": "Grace Period Notification Days",
+   "description": "Days before grace period expiry to send warning notifications",
+   "default": 7,
+   "min_value": 1,
+   "max_value": 30,
+   "depends_on": "eval:doc.grace_period_auto_apply"
+  },
+  {
+   "fieldname": "system_migration_section",
+   "fieldtype": "Section Break",
+   "label": "System Migration"
+  },
+  {
+   "fieldname": "column_break_migration",
+   "fieldtype": "Column Break"
   }
  ],
  "index_web_pages_for_search": 1,

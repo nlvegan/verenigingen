@@ -43,15 +43,13 @@ def test_expense_form_with_foppe():
                     "email": "foppe@veganisme.org",
                     "member": foppe_member.name,
                     "status": "Active",
-                    "start_date": frappe.utils.today(),
-                }
+                    "start_date": frappe.utils.today()}
             )
             volunteer_doc.insert(ignore_permissions=True)
             foppe_volunteer = {
                 "name": volunteer_doc.name,
                 "volunteer_name": volunteer_doc.volunteer_name,
-                "email": volunteer_doc.email,
-            }
+                "email": volunteer_doc.email}
             print(f"✅ Created volunteer record for Foppe: {foppe_volunteer['name']}")
         except Exception as e:
             print(f"❌ Failed to create volunteer record: {e}")
@@ -108,8 +106,7 @@ def test_expense_form_with_foppe():
                     "chapter": None,
                     "team": None,
                     "notes": "Test expense submission via API",
-                    "receipt_attachment": None,
-                }
+                    "receipt_attachment": None}
             ]
 
             response = frappe.call(
@@ -149,8 +146,7 @@ def test_expense_form_with_foppe():
                     "chapter": None,
                     "team": None,
                     "notes": "",
-                    "receipt_attachment": None,
-                }
+                    "receipt_attachment": None}
             ]
 
             response = frappe.call(
@@ -203,8 +199,7 @@ def test_expense_form_with_foppe():
         "tests_passed": tests_passed,
         "total_tests": total_tests,
         "foppe_member": foppe_member.name if foppe_member else None,
-        "foppe_volunteer": foppe_volunteer["name"] if foppe_volunteer else None,
-    }
+        "foppe_volunteer": foppe_volunteer["name"] if foppe_volunteer else None}
 
 
 if __name__ == "__main__":

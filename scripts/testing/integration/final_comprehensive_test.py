@@ -34,8 +34,7 @@ def run_final_comprehensive_chapter_assignment_test():
             {
                 "test_group": "Error Handling",
                 "tests": test1_results,
-                "passed": all(t["passed"] for t in test1_results),
-            }
+                "passed": all(t["passed"] for t in test1_results)}
         )
 
         # Test 2: Successful Assignment
@@ -68,13 +67,11 @@ def run_final_comprehensive_chapter_assignment_test():
             {
                 "test": "Member in target chapter",
                 "passed": in_target_chapter,
-                "details": f"Chapters: {[m.parent for m in final_memberships]}",
-            },
+                "details": f"Chapters: {[m.parent for m in final_memberships]}"},
             {
                 "test": "Member in exactly one chapter",
                 "passed": only_one_chapter,
-                "details": f"Chapter count: {len(final_memberships)}",
-            },
+                "details": f"Chapter count: {len(final_memberships)}"},
         ]
 
         results["tests"].append(
@@ -84,8 +81,7 @@ def run_final_comprehensive_chapter_assignment_test():
                 "passed": all(t["passed"] for t in test2_results),
                 "initial_state": [m.parent for m in current_memberships],
                 "final_state": [m.parent for m in final_memberships],
-                "assignment_result": result,
-            }
+                "assignment_result": result}
         )
 
         # Test 3: Same Chapter Assignment
@@ -104,13 +100,11 @@ def run_final_comprehensive_chapter_assignment_test():
             {
                 "test": "Same chapter assignment handled",
                 "passed": result2.get("success", False),
-                "details": result2.get("message"),
-            },
+                "details": result2.get("message")},
             {
                 "test": "Still in one chapter",
                 "passed": len(final_memberships2) == 1,
-                "details": f"Chapters: {[m.parent for m in final_memberships2]}",
-            },
+                "details": f"Chapters: {[m.parent for m in final_memberships2]}"},
         ]
 
         results["tests"].append(
@@ -118,8 +112,7 @@ def run_final_comprehensive_chapter_assignment_test():
                 "test_group": "Same Chapter Assignment",
                 "tests": test3_results,
                 "passed": all(t["passed"] for t in test3_results),
-                "assignment_result": result2,
-            }
+                "assignment_result": result2}
         )
 
         # Calculate summary
@@ -141,8 +134,7 @@ def run_final_comprehensive_chapter_assignment_test():
             "overall_success": passed_test_groups == total_test_groups,
             "success_rate": f"{(passed_individual_tests/total_individual_tests*100):.1f}%"
             if total_individual_tests > 0
-            else "0%",
-        }
+            else "0%"}
 
         results["success"] = results["summary"]["overall_success"]
         results[

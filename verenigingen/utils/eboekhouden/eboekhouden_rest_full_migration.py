@@ -518,6 +518,15 @@ def full_rest_migration_all_mutations(
         if not company:
             return {"success": False, "error": "No company specified"}
 
+        # Import opening balances first (with enhanced stock account handling)
+        debug_info = []
+        cost_center = get_default_cost_center(company)
+        if not cost_center:
+            return {"success": False, "error": "No cost center found for company"}
+
+        opening_balance_result = _import_opening_balances(company, cost_center, debug_info)
+        opening_balances_imported = opening_balance_result.get("success", False)
+
         # Cache ALL mutations first
         total_cached, total_new = _cache_all_mutations(settings)
 
@@ -566,7 +575,7 @@ def full_rest_migration_all_mutations(
 
         for i in range(0, len(mutations), batch_size):
             batch = mutations[i : i + batch_size]
-            result = _import_rest_mutations_batch(migration_name, batch, settings)
+            result = _import_rest_mutations_batch(migration_name, batch, settings, opening_balances_imported)
 
             total_imported += result.get("imported", 0)
             total_failed += result.get("failed", 0)
@@ -594,6 +603,8 @@ def full_rest_migration_all_mutations(
             "total_failed": total_failed,
             "errors": all_errors[:50],  # Limit error list size
             "company": company,
+            "opening_balances_imported": opening_balances_imported,
+            "opening_balance_result": opening_balance_result,
         }
 
     except Exception as e:
@@ -706,51 +717,11 @@ def get_progress_info():
     return {"status": "running", "message": "Migration in progress..."}
 
 
-@frappe.whitelist()
-def test_single_mutation_import(mutation_id):
-    """Test importing a single mutation for debugging"""
-    try:
-        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
-
-        api = EBoekhoudenAPI()
-
-        # Fetch specific mutation
-        result = api.make_request(f"v1/mutation/{mutation_id}")
-
-        if result and result.get("success") and result.get("status_code") == 200:
-            mutation_data = json.loads(result.get("data", "{}"))
-
-            # Try to import it
-            settings = frappe.get_single("E-Boekhouden Settings")
-            company = settings.default_company
-            cost_center = get_default_cost_center(company)
-
-            if not cost_center:
-                return {"success": False, "error": "No cost center found"}
-
-            # Import single mutation
-            result = _import_rest_mutations_batch("TEST", [mutation_data], settings)
-
-            return {
-                "success": True,
-                "mutation_data": mutation_data,
-                "import_result": result,
-                "company": company,
-                "cost_center": cost_center,
-            }
-        else:
-            return {"success": False, "error": f"Failed to fetch mutation {mutation_id} from API"}
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-def _import_rest_mutations_batch(migration_name, mutations, settings):
+def _import_rest_mutations_batch(migration_name, mutations, settings, opening_balances_imported=False):
     """Import a batch of REST API mutations with smart tegenrekening mapping"""
     imported = 0
     errors = []
     debug_info = []
-    opening_balances_imported = False
 
     debug_info.append(f"Starting import with {len(mutations) if mutations else 0} mutations")
 
@@ -1564,18 +1535,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
                     },
                 )
 
-                # Add balancing entry
-                balancing_account = "9999 - Verrekeningen - NVV"  # Default balancing account
-                je.append(
-                    "accounts",
-                    {
-                        "account": balancing_account,
-                        "debit_in_account_currency": frappe.utils.flt(-amount if amount < 0 else 0, 2),
-                        "credit_in_account_currency": frappe.utils.flt(amount if amount > 0 else 0, 2),
-                        "cost_center": cost_center,
-                        "user_remark": f"Balancing entry for {description}",
-                    },
-                )
+                # No automatic balancing - let journal entry validation handle unbalanced entries
 
                 try:
                     je.save()
@@ -1598,6 +1558,163 @@ def _import_rest_mutations_batch(migration_name, mutations, settings):
         frappe.log_error("BATCH Log:\n" + "\n".join(debug_info[-100:]), "REST Batch Debug")  # Last 100 lines
 
     return {"imported": imported, "failed": len(mutations) - imported, "errors": errors}
+
+
+def _process_money_transfer_with_mapping(mutation, company, cost_center, debug_info):
+    """Process money transfer with automatic account mapping resolution"""
+    mutation_id = mutation.get("id")
+    mutation_type = mutation.get("type")
+    ledger_id = mutation.get("ledgerId")
+    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
+
+    debug_info.append(f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}")
+
+    # Resolve the primary account from eBoekhouden ledger mapping
+    primary_account_mapping = _resolve_account_mapping(ledger_id, debug_info)
+    if not primary_account_mapping:
+        frappe.throw(f"Money transfer {mutation_id}: No account mapping found for ledger {ledger_id}")
+
+    # Determine transfer direction and resolve counterpart account
+    if mutation_type == 5:  # Money Received
+        # Money coming IN to the primary account (primary account is credited, source is debited)
+        to_account_mapping = primary_account_mapping
+        from_account_mapping = _resolve_money_source_account(mutation, company, debug_info)
+        debug_info.append(
+            f"Money Received: {amount} from {from_account_mapping['erpnext_account']} to {to_account_mapping['erpnext_account']}"
+        )
+    else:  # Type 6 - Money Paid/Sent
+        # Money going OUT of the primary account (primary account is debited, destination is credited)
+        from_account_mapping = primary_account_mapping
+        to_account_mapping = _resolve_money_destination_account(mutation, company, debug_info)
+        debug_info.append(
+            f"Money Paid: {amount} from {from_account_mapping['erpnext_account']} to {to_account_mapping['erpnext_account']}"
+        )
+
+    # Call the specialized money transfer function
+    return _process_money_transfer_mutation(
+        mutation, company, cost_center, from_account_mapping, to_account_mapping, debug_info
+    )
+
+
+def _resolve_account_mapping(ledger_id, debug_info):
+    """Resolve account mapping from eBoekhouden ledger ID"""
+    if not ledger_id:
+        return None
+
+    mapping_result = frappe.db.sql(
+        """SELECT erpnext_account, account_name FROM `tabE-Boekhouden Ledger Mapping`
+           WHERE ledger_id = %s LIMIT 1""",
+        ledger_id,
+    )
+
+    if mapping_result:
+        return {
+            "erpnext_account": mapping_result[0][0],
+            "account_name": mapping_result[0][1],
+            "ledger_id": ledger_id,
+        }
+
+    debug_info.append(f"No mapping found for ledger ID {ledger_id}")
+    return None
+
+
+def _resolve_money_source_account(mutation, company, debug_info):
+    """Resolve source account for money received (Type 5)"""
+    # For money received, we need to determine where the money came from
+    # This could be from various sources like cash, other banks, income, etc.
+
+    # Check if there's a relation (customer/supplier) that suggests the source
+    relation_id = mutation.get("relationId")
+    if relation_id:
+        # Money from a customer or external party - use appropriate receivable/income account
+        return _get_appropriate_income_account(company, debug_info)
+
+    # No relation - likely internal transfer from cash or other bank account
+    return _get_appropriate_cash_account(company, debug_info)
+
+
+def _resolve_money_destination_account(mutation, company, debug_info):
+    """Resolve destination account for money paid (Type 6)"""
+    # For money paid, we need to determine where the money went
+    # This could be to cash, other banks, expenses, etc.
+
+    # Check if there's a relation (supplier) that suggests the destination
+    relation_id = mutation.get("relationId")
+    if relation_id:
+        # Money to a supplier or external party - use appropriate payable/expense account
+        return _get_appropriate_expense_account(company, debug_info)
+
+    # No relation - likely internal transfer to cash or other bank account
+    return _get_appropriate_cash_account(company, debug_info)
+
+
+def _get_appropriate_income_account(company, debug_info):
+    """Get appropriate income account for money received from external sources"""
+    # Look for a general income account - try multiple account types
+    income_account = frappe.db.sql(
+        """SELECT name FROM `tabAccount`
+           WHERE company = %s AND account_type IN ('Income Account', 'Income') AND is_group = 0
+           ORDER BY name LIMIT 1""",
+        company,
+    )
+
+    if income_account:
+        account_name = income_account[0][0]
+        debug_info.append(f"Using income account: {account_name}")
+        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Income"}
+
+    debug_info.append("No income account found, using cash account fallback")
+    return _get_appropriate_cash_account(company, debug_info)
+
+
+def _get_appropriate_expense_account(company, debug_info):
+    """Get appropriate expense account for money paid to external sources"""
+    # Look for a general expense account - try multiple account types
+    expense_account = frappe.db.sql(
+        """SELECT name FROM `tabAccount`
+           WHERE company = %s AND account_type IN ('Expense Account', 'Expense') AND is_group = 0
+           ORDER BY name LIMIT 1""",
+        company,
+    )
+
+    if expense_account:
+        account_name = expense_account[0][0]
+        debug_info.append(f"Using expense account: {account_name}")
+        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Expense"}
+
+    debug_info.append("No expense account found, using cash account fallback")
+    return _get_appropriate_cash_account(company, debug_info)
+
+
+def _get_appropriate_cash_account(company, debug_info):
+    """Get appropriate cash account for internal transfers"""
+    # Look for cash account first
+    cash_account = frappe.db.sql(
+        """SELECT name FROM `tabAccount`
+           WHERE company = %s AND account_type = 'Cash' AND is_group = 0
+           ORDER BY name LIMIT 1""",
+        company,
+    )
+
+    if cash_account:
+        account_name = cash_account[0][0]
+        debug_info.append(f"Using cash account: {account_name}")
+        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Cash"}
+
+    # Fallback to bank account if no cash account
+    bank_account = frappe.db.sql(
+        """SELECT name FROM `tabAccount`
+           WHERE company = %s AND account_type = 'Bank' AND is_group = 0
+           ORDER BY name LIMIT 1""",
+        company,
+    )
+
+    if bank_account:
+        account_name = bank_account[0][0]
+        debug_info.append(f"Using bank account as cash fallback: {account_name}")
+        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Bank"}
+
+    frappe.throw(f"No cash or bank account found for company {company}")
 
 
 def _process_money_transfer_mutation(
@@ -1923,6 +2040,24 @@ def get_mutation_gap_report():
 def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
     """Import opening balances from eBoekhouden using REST API"""
     try:
+        # Check if opening balances have already been imported
+        existing_opening_balance = frappe.db.exists(
+            "Journal Entry",
+            {
+                "company": company,
+                "eboekhouden_mutation_nr": "OPENING_BALANCE",
+                "voucher_type": "Opening Entry",
+            },
+        )
+
+        if existing_opening_balance:
+            debug_info.append(f"Opening balances already imported: {existing_opening_balance}")
+            return {
+                "success": True,
+                "message": "Opening balances already imported",
+                "journal_entry": existing_opening_balance,
+            }
+
         from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
 
         api = EBoekhoudenAPI()
@@ -1963,10 +2098,12 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
         je.voucher_type = "Opening Entry"
         je.title = "eBoekhouden Opening Balances"
         je.user_remark = "Opening balances imported from eBoekhouden"
+        je.eboekhouden_mutation_nr = "OPENING_BALANCE"  # Mark as opening balance import
 
         total_debit = 0
         total_credit = 0
         processed_accounts = set()
+        skipped_accounts = {"stock": [], "pnl": [], "errors": []}
 
         for mutation in mutations_data:
             # Handle if mutation is a list instead of dict (some APIs return arrays)
@@ -2013,36 +2150,60 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
             processed_accounts.add(account)
 
             # Check account type to determine if it's allowed in opening entries
-            account_doc = frappe.get_doc("Account", account)
-            root_type = account_doc.root_type
+            try:
+                account_doc = frappe.get_doc("Account", account)
+                root_type = account_doc.root_type
+                account_type = account_doc.account_type
+            except frappe.DoesNotExistError:
+                debug_info.append(f"Account {account} not found in ERPNext, skipping")
+                continue
+            except Exception as e:
+                debug_info.append(f"Error accessing account {account}: {str(e)}, skipping")
+                continue
 
             # Skip P&L accounts (Income and Expense) - only Balance Sheet accounts are allowed
             if root_type in ["Income", "Expense"]:
                 debug_info.append(f"Skipping P&L account {account} (type: {root_type})")
+                if "skipped_accounts" in locals():
+                    skipped_accounts["pnl"].append({"account": account, "type": root_type})
                 continue
 
             # Skip Stock accounts - they can only be updated via Stock transactions
-            if account_doc.account_type == "Stock":
+            if account_type == "Stock":
                 debug_info.append(
                     f"Skipping Stock account {account} - can only be updated via Stock transactions"
                 )
+                if "skipped_accounts" in locals():
+                    skipped_accounts["stock"].append({"account": account, "balance": amount})
                 continue
 
             # Determine if this account needs a party
             party_type = None
             party = None
-            if account_doc.account_type == "Receivable":
+            if account_type == "Receivable":
                 party_type = "Customer"
                 party = _get_or_create_company_as_customer(company, debug_info)
-            elif account_doc.account_type == "Payable":
+            elif account_type == "Payable":
                 party_type = "Supplier"
                 party = _get_or_create_company_as_supplier(company, debug_info)
 
-            # Create journal entry line
+            # Create journal entry line with proper debit/credit based on account type
+            # For balance sheet accounts, respect the natural balance:
+            # - Asset accounts: positive balance = debit, negative balance = credit
+            # - Liability/Equity accounts: positive balance = credit, negative balance = debit
+            if root_type == "Asset":
+                # Assets have natural debit balance
+                debit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
+                credit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
+            else:  # Liability or Equity
+                # Liabilities and Equity have natural credit balance
+                debit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
+                credit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
+
             entry_line = {
                 "account": account,
-                "debit_in_account_currency": frappe.utils.flt(amount if amount > 0 else 0, 2),
-                "credit_in_account_currency": frappe.utils.flt(-amount if amount < 0 else 0, 2),
+                "debit_in_account_currency": debit_amount,
+                "credit_in_account_currency": credit_amount,
                 "cost_center": cost_center,
                 "user_remark": f"Opening balance: {description}",
             }
@@ -2061,73 +2222,39 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
                 f"Added opening balance entry: {account}, Debit: {entry_line['debit_in_account_currency']}, Credit: {entry_line['credit_in_account_currency']}"
             )
 
-        # Add balancing entry if needed
+        # Check if entries balance - add balancing entry if needed
         balance_difference = total_debit - total_credit
         if abs(balance_difference) > 0.01:
-            debug_info.append(f"Adding balancing entry for difference: {balance_difference}")
+            debug_info.append(f"Balancing entry required: {balance_difference}")
 
-            # Use Temporary Opening account for balancing
-            balancing_account = None
+            # Get or create temporary difference account
+            temp_diff_account = _get_or_create_temporary_diff_account(company, debug_info)
 
-            # Try to find existing Temporary Opening account
-            temp_opening_accounts = frappe.get_all(
-                "Account",
-                filters={"company": company, "account_name": ["like", "%Temporary Opening%"]},
-                fields=["name", "is_group"],
-            )
+            if balance_difference > 0:
+                # Need credit to balance
+                balancing_entry = {
+                    "account": temp_diff_account,
+                    "debit_in_account_currency": 0,
+                    "credit_in_account_currency": balance_difference,
+                    "cost_center": cost_center,
+                    "user_remark": "Balancing entry for opening balances",
+                }
+            else:
+                # Need debit to balance
+                balancing_entry = {
+                    "account": temp_diff_account,
+                    "debit_in_account_currency": abs(balance_difference),
+                    "credit_in_account_currency": 0,
+                    "cost_center": cost_center,
+                    "user_remark": "Balancing entry for opening balances",
+                }
 
-            for acc in temp_opening_accounts:
-                if not acc.is_group:  # Must be a ledger account
-                    balancing_account = acc.name
-                    break
+            je.append("accounts", balancing_entry)
+            debug_info.append(f"Added balancing entry: {temp_diff_account} = {balance_difference}")
 
-            # If no Temporary Opening account found, use Verrekeningen
-            if not balancing_account:
-                verrekeningen_accounts = frappe.get_all(
-                    "Account",
-                    filters={"company": company, "account_name": ["like", "%Verrekeningen%"], "is_group": 0},
-                    fields=["name"],
-                )
-
-                if verrekeningen_accounts:
-                    balancing_account = verrekeningen_accounts[0].name
-                else:
-                    # Create the Verrekeningen account if it doesn't exist
-                    # Find or create the parent account
-                    parent_account = frappe.db.get_value(
-                        "Account", {"company": company, "root_type": "Equity", "is_group": 1}, "name"
-                    )
-
-                    if not parent_account:
-                        debug_info.append("No Equity parent account found, using company default")
-                        parent_account = company
-
-                    balancing_acc = frappe.new_doc("Account")
-                    balancing_acc.account_name = "Verrekeningen"
-                    balancing_acc.parent_account = parent_account
-                    balancing_acc.company = company
-                    balancing_acc.account_type = "Equity"
-                    balancing_acc.root_type = "Equity"
-                    balancing_acc.account_number = "9999"
-                    balancing_acc.save()
-                    balancing_account = balancing_acc.name
-                    debug_info.append(f"Created balancing account: {balancing_account}")
-
-            # Add balancing entry
-            balancing_line = {
-                "account": balancing_account,
-                "debit_in_account_currency": frappe.utils.flt(
-                    -balance_difference if balance_difference < 0 else 0, 2
-                ),
-                "credit_in_account_currency": frappe.utils.flt(
-                    balance_difference if balance_difference > 0 else 0, 2
-                ),
-                "cost_center": cost_center,
-                "user_remark": "Automatic balancing entry for opening balances",
-            }
-
-            je.append("accounts", balancing_line)
-            debug_info.append(f"Added balancing entry: {balancing_account}, difference: {balance_difference}")
+            # Update totals
+            total_debit += balancing_entry["debit_in_account_currency"]
+            total_credit += balancing_entry["credit_in_account_currency"]
 
         # Save and submit journal entry (unless dry run)
         if dry_run:
@@ -2145,10 +2272,24 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
                 je.save()
                 je.submit()
                 debug_info.append(f"Successfully created opening balance journal entry: {je.name}")
+
+                # Add summary of what was skipped
+                total_skipped = (
+                    len(skipped_accounts["stock"])
+                    + len(skipped_accounts["pnl"])
+                    + len(skipped_accounts["errors"])
+                )
+                if total_skipped > 0:
+                    debug_info.append(
+                        f"Skipped {total_skipped} accounts: {len(skipped_accounts['stock'])} stock, {len(skipped_accounts['pnl'])} P&L, {len(skipped_accounts['errors'])} errors"
+                    )
+
                 return {
                     "success": True,
                     "journal_entry": je.name,
                     "message": "Opening balances imported successfully",
+                    "skipped_accounts": skipped_accounts,
+                    "accounts_processed": len(processed_accounts),
                 }
             except Exception as e:
                 debug_info.append(f"Failed to save opening balance journal entry: {str(e)}")
@@ -2160,6 +2301,326 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
         debug_info.append(f"Error in _import_opening_balances: {str(e)}")
         debug_info.append(f"Traceback: {traceback.format_exc()}")
         return {"success": False, "error": str(e)}
+
+
+def _import_opening_balances_from_data(mutations_data, company, cost_center, debug_info, dry_run=False):
+    """
+    Import opening balances from provided data (used by stock account handler)
+    This function processes pre-filtered mutation data for opening balances
+    """
+    try:
+        # Check if opening balances have already been imported
+        existing_opening_balance = frappe.db.exists(
+            "Journal Entry",
+            {
+                "company": company,
+                "eboekhouden_mutation_nr": "OPENING_BALANCE",
+                "voucher_type": "Opening Entry",
+            },
+        )
+
+        if existing_opening_balance:
+            debug_info.append(f"Opening balances already imported: {existing_opening_balance}")
+            return {
+                "success": True,
+                "message": "Opening balances already imported",
+                "journal_entry": existing_opening_balance,
+            }
+
+        if not mutations_data:
+            return {"success": True, "message": "No opening balances found", "journal_entry": None}
+
+        # Create a single journal entry for all opening balances
+        je = frappe.new_doc("Journal Entry")
+        je.company = company
+        je.posting_date = "2018-01-01"  # Opening balance date
+        je.voucher_type = "Opening Entry"
+        je.title = "eBoekhouden Opening Balances (Stock Filtered)"
+        je.user_remark = "Opening balances imported from eBoekhouden with stock account filtering"
+        je.eboekhouden_mutation_nr = "OPENING_BALANCE"  # Mark as opening balance import
+
+        total_debit = 0
+        total_credit = 0
+        processed_accounts = set()
+
+        for mutation in mutations_data:
+            # Handle if mutation is a list instead of dict (some APIs return arrays)
+            if isinstance(mutation, list):
+                debug_info.append(f"WARNING: Mutation is a list, not dict: {mutation}")
+                continue
+
+            mutation_id = mutation.get("id")
+            ledger_id = mutation.get("ledgerId")
+            amount = frappe.utils.flt(mutation.get("balance", 0), 2)  # Use balance for opening balances
+            description = mutation.get("description", "Opening Balance")
+
+            debug_info.append(
+                f"Processing opening balance: ID={mutation_id}, Ledger={ledger_id}, Amount={amount}"
+            )
+
+            if amount == 0:
+                debug_info.append(f"Skipping zero amount opening balance for ledger {ledger_id}")
+                continue
+
+            # Get account mapping
+            account = None
+            if ledger_id:
+                mapping_result = frappe.db.sql(
+                    """SELECT erpnext_account
+                       FROM `tabE-Boekhouden Ledger Mapping`
+                       WHERE ledger_id = %s
+                       LIMIT 1""",
+                    ledger_id,
+                )
+
+                if mapping_result:
+                    account = mapping_result[0][0]
+
+            if not account:
+                debug_info.append(f"No mapping found for ledger {ledger_id}, skipping")
+                continue
+
+            # Skip if we've already processed this account (avoid duplicates)
+            if account in processed_accounts:
+                debug_info.append(f"Account {account} already processed, skipping duplicate")
+                continue
+
+            processed_accounts.add(account)
+
+            # Check account type to determine if it's allowed in opening entries
+            try:
+                account_doc = frappe.get_doc("Account", account)
+                root_type = account_doc.root_type
+                account_type = account_doc.account_type
+            except frappe.DoesNotExistError:
+                debug_info.append(f"Account {account} not found in ERPNext, skipping")
+                continue
+            except Exception as e:
+                debug_info.append(f"Error accessing account {account}: {str(e)}, skipping")
+                continue
+
+            # Skip P&L accounts (Income and Expense) - only Balance Sheet accounts are allowed
+            if root_type in ["Income", "Expense"]:
+                debug_info.append(f"Skipping P&L account {account} (type: {root_type})")
+                if "skipped_accounts" in locals():
+                    skipped_accounts["pnl"].append({"account": account, "type": root_type})
+                continue
+
+            # Skip Stock accounts - they can only be updated via Stock transactions
+            if account_type == "Stock":
+                debug_info.append(
+                    f"Skipping Stock account {account} - can only be updated via Stock transactions"
+                )
+                if "skipped_accounts" in locals():
+                    skipped_accounts["stock"].append({"account": account, "balance": amount})
+                continue
+
+            # Determine if this account needs a party
+            party_type = None
+            party = None
+            if account_type == "Receivable":
+                party_type = "Customer"
+                party = _get_or_create_company_as_customer(company, debug_info)
+            elif account_type == "Payable":
+                party_type = "Supplier"
+                party = _get_or_create_company_as_supplier(company, debug_info)
+
+            # Create journal entry line with proper debit/credit based on account type
+            if root_type == "Asset":
+                # Assets have natural debit balance
+                debit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
+                credit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
+            else:  # Liability or Equity
+                # Liabilities and Equity have natural credit balance
+                debit_amount = frappe.utils.flt(-amount if amount < 0 else 0, 2)
+                credit_amount = frappe.utils.flt(amount if amount > 0 else 0, 2)
+
+            entry_line = {
+                "account": account,
+                "debit_in_account_currency": debit_amount,
+                "credit_in_account_currency": credit_amount,
+                "cost_center": cost_center,
+                "user_remark": description,
+            }
+
+            # Add party information if needed
+            if party_type and party:
+                entry_line["party_type"] = party_type
+                entry_line["party"] = party
+
+            je.append("accounts", entry_line)
+            total_debit += debit_amount
+            total_credit += credit_amount
+
+            debug_info.append(
+                f"Added opening balance line: {account} = Debit: {debit_amount}, Credit: {credit_amount}"
+            )
+
+        # Check if we have any entries to process
+        if not je.accounts:
+            debug_info.append("No valid opening balance entries found after filtering")
+            return {
+                "success": True,
+                "message": "No valid opening balance entries found",
+                "journal_entry": None,
+            }
+
+        # Add balancing entry if needed
+        balance_diff = total_debit - total_credit
+        if abs(balance_diff) > 0.01:  # Allow small rounding differences
+            debug_info.append(f"Balancing entry required: {balance_diff}")
+
+            # Get or create temporary difference account
+            temp_diff_account = _get_or_create_temporary_diff_account(company, debug_info)
+
+            if balance_diff > 0:
+                # Need credit to balance
+                balancing_entry = {
+                    "account": temp_diff_account,
+                    "debit_in_account_currency": 0,
+                    "credit_in_account_currency": balance_diff,
+                    "cost_center": cost_center,
+                    "user_remark": "Balancing entry for opening balances",
+                }
+            else:
+                # Need debit to balance
+                balancing_entry = {
+                    "account": temp_diff_account,
+                    "debit_in_account_currency": abs(balance_diff),
+                    "credit_in_account_currency": 0,
+                    "cost_center": cost_center,
+                    "user_remark": "Balancing entry for opening balances",
+                }
+
+            je.append("accounts", balancing_entry)
+            debug_info.append(f"Added balancing entry: {temp_diff_account} = {balance_diff}")
+
+        if dry_run:
+            debug_info.append("Dry run mode - not saving journal entry")
+            return {
+                "success": True,
+                "message": "Opening balances validated (dry run)",
+                "journal_entry": None,
+                "accounts_processed": len(processed_accounts),
+            }
+
+        # Save and submit the journal entry
+        try:
+            je.save()
+            je.submit()
+            debug_info.append(f"Created and submitted Journal Entry {je.name}")
+            return {
+                "success": True,
+                "journal_entry": je.name,
+                "message": "Opening balances imported successfully",
+                "accounts_processed": len(processed_accounts),
+            }
+        except Exception as e:
+            debug_info.append(f"Failed to save opening balance journal entry: {str(e)}")
+            return {"success": False, "error": f"Failed to create journal entry: {str(e)}"}
+
+    except Exception as e:
+        import traceback
+
+        debug_info.append(f"Error in _import_opening_balances_from_data: {str(e)}")
+        debug_info.append(f"Traceback: {traceback.format_exc()}")
+        return {"success": False, "error": str(e)}
+
+
+def _get_or_create_temporary_diff_account(company, debug_info):
+    """Get or create a temporary difference account for balancing opening balances"""
+    account_name = f"Temporary Differences - {company}"
+
+    if frappe.db.exists("Account", account_name):
+        return account_name
+
+    # Create the account under Equity
+    try:
+        # Find equity parent account
+        equity_accounts = frappe.db.sql(
+            """SELECT name FROM `tabAccount`
+               WHERE company = %s
+               AND root_type = 'Equity'
+               AND is_group = 1
+               LIMIT 1""",
+            company,
+        )
+
+        if equity_accounts:
+            parent_account = equity_accounts[0][0]
+        else:
+            parent_account = f"Capital Stock - {company}"
+
+        account = frappe.new_doc("Account")
+        account.account_name = "Temporary Differences"
+        account.parent_account = parent_account
+        account.company = company
+        account.account_type = "Temporary"  # Use Temporary account type
+        account.root_type = "Equity"
+        account.is_group = 0
+        account.insert()
+
+        debug_info.append(f"Created temporary difference account: {account.name}")
+        return account.name
+
+    except Exception as e:
+        debug_info.append(f"Failed to create temporary difference account: {str(e)}")
+        # Fallback to a default account
+        return f"Retained Earnings - {company}"
+
+
+def _get_or_create_stock_temporary_account(company, debug_info):
+    """Get or create a temporary account for stock balances during opening balance import"""
+    account_name = f"Stock Opening Balance (Temporary) - {company}"
+
+    if frappe.db.exists("Account", account_name):
+        return account_name
+
+    # Create the account under Assets
+    try:
+        # Find current assets parent account
+        current_assets_accounts = frappe.db.sql(
+            """SELECT name FROM `tabAccount`
+               WHERE company = %s
+               AND root_type = 'Asset'
+               AND is_group = 1
+               AND account_name LIKE '%Current%'
+               LIMIT 1""",
+            company,
+        )
+
+        if current_assets_accounts:
+            parent_account = current_assets_accounts[0][0]
+        else:
+            # Fallback to any Asset group
+            asset_accounts = frappe.db.sql(
+                """SELECT name FROM `tabAccount`
+                   WHERE company = %s
+                   AND root_type = 'Asset'
+                   AND is_group = 1
+                   LIMIT 1""",
+                company,
+            )
+            parent_account = (
+                asset_accounts[0][0] if asset_accounts else f"Application of Funds (Assets) - {company}"
+            )
+
+        account = frappe.new_doc("Account")
+        account.account_name = "Stock Opening Balance (Temporary)"
+        account.parent_account = parent_account
+        account.company = company
+        account.account_type = "Temporary"  # Use Temporary account type
+        account.root_type = "Asset"
+        account.is_group = 0
+        account.insert()
+
+        debug_info.append(f"Created temporary stock account: {account.name}")
+        return account.name
+
+    except Exception as e:
+        debug_info.append(f"Failed to create temporary stock account: {str(e)}")
+        # Fallback to general temporary account
+        return _get_or_create_temporary_diff_account(company, debug_info)
 
 
 @frappe.whitelist()
@@ -2267,8 +2728,10 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
             return _create_purchase_invoice(mutation_detail, company, cost_center, debug_info)
         elif mutation_type in [3, 4]:  # Payment types
             return _create_payment_entry(mutation_detail, company, cost_center, debug_info)
+        elif mutation_type in [5, 6]:  # Money transfers
+            return _process_money_transfer_with_mapping(mutation_detail, company, cost_center, debug_info)
         else:
-            # Create Journal Entry for other types
+            # Create Journal Entry for other types (7, 8, 9, 10, etc.)
             return _create_journal_entry(mutation_detail, company, cost_center, debug_info)
 
     except Exception as e:
@@ -2459,23 +2922,17 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
     - Multi-invoice payment support
     - Automatic payment reconciliation
     """
-    # Check if enhanced processing is enabled
-    use_enhanced = frappe.db.get_single_value("E-Boekhouden Settings", "use_enhanced_payment_processing")
-    if use_enhanced is None:
-        use_enhanced = True  # Default to enhanced if setting doesn't exist
+    # Use enhanced payment handler
+    from verenigingen.utils.eboekhouden.enhanced_payment_import import create_enhanced_payment_entry
 
-    if use_enhanced:
-        # Use enhanced payment handler
-        from verenigingen.utils.eboekhouden.enhanced_payment_import import create_enhanced_payment_entry
+    payment_name = create_enhanced_payment_entry(mutation, company, cost_center, debug_info)
+    if payment_name:
+        return frappe.get_doc("Payment Entry", payment_name)
+    else:
+        # Fall back to basic implementation if enhanced fails
+        debug_info.append("WARNING: Enhanced payment creation failed, using basic implementation")
 
-        payment_name = create_enhanced_payment_entry(mutation, company, cost_center, debug_info)
-        if payment_name:
-            return frappe.get_doc("Payment Entry", payment_name)
-        else:
-            # Fall back to basic implementation if enhanced fails
-            debug_info.append("WARNING: Enhanced payment creation failed, using basic implementation")
-
-    # Basic implementation (legacy)
+    # Basic implementation (legacy fallback)
     mutation_id = mutation.get("id")
     amount = frappe.utils.flt(mutation.get("amount", 0), 2)
     relation_id = mutation.get("relationId")
@@ -2721,23 +3178,18 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
             },
         )
 
-        # Add balancing entry
-        balancing_account = "9999 - Verrekeningen - NVV"
-        je.append(
-            "accounts",
-            {
-                "account": balancing_account,
-                "debit_in_account_currency": frappe.utils.flt(-amount if amount < 0 else 0, 2),
-                "credit_in_account_currency": frappe.utils.flt(amount if amount > 0 else 0, 2),
-                "cost_center": cost_center,
-                "user_remark": "Balancing entry for {description}",
-            },
-        )
+        # No automatic balancing - let journal entry validation handle unbalanced entries
 
-    je.save()
-    je.submit()
-    debug_info.append(f"Created Journal Entry {je.name}")
-    return je
+    try:
+        je.save()
+        je.submit()
+        debug_info.append(f"Created Journal Entry {je.name}")
+        return je
+    except Exception as e:
+        error_msg = f"Failed to create Journal Entry: {str(e)}"
+        debug_info.append(error_msg)
+        debug_info.append("This may indicate unbalanced entries or other data issues.")
+        raise Exception(error_msg)
 
 
 def _get_memorial_booking_amounts(row_ledger_id, main_ledger_id, row_amount, debug_info):
@@ -2996,15 +3448,24 @@ def start_full_rest_import(migration_name):
                     total_skipped += batch_result.get("skipped", 0)
                     errors.extend(batch_result.get("errors", []))
 
+                    # Update running totals in the migration document
+                    current_total = total_imported + total_failed + total_skipped
+                    migration_doc.db_set("imported_records", total_imported)
+                    migration_doc.db_set("failed_records", total_failed)
+                    migration_doc.db_set("total_records", current_total)
+                    frappe.db.commit()
+
             except Exception as e:
                 errors.append(f"Error importing mutation type {mutation_type}: {str(e)}")
                 total_failed += 1
 
         # Final progress update
+        total_records = total_imported + total_failed + total_skipped
         migration_doc.db_set("current_operation", "Import completed")
         migration_doc.db_set("progress_percentage", 100)
         migration_doc.db_set("imported_records", total_imported)
         migration_doc.db_set("failed_records", total_failed)
+        migration_doc.db_set("total_records", total_records)
         frappe.db.commit()
 
         # Return results in expected format
@@ -3023,253 +3484,6 @@ def start_full_rest_import(migration_name):
     except Exception as e:
         frappe.log_error(f"Error in start_full_rest_import: {str(e)}", "E-Boekhouden Migration")
         return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-def debug_start_full_rest_import():
-    """Debug function to test start_full_rest_import step by step"""
-    try:
-        # Get the most recent migration document
-        migrations = frappe.get_all(
-            "E-Boekhouden Migration",
-            fields=["name", "migration_name", "migration_status"],
-            order_by="creation desc",
-            limit=1,
-        )
-
-        if not migrations:
-            return {"error": "No migration documents found"}
-
-        migration_name = migrations[0].name
-        debug_log = []
-
-        debug_log.append(f"Testing start_full_rest_import with migration: {migration_name}")
-
-        # Step 1: Get migration document
-        migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
-        debug_log.append(f"Migration doc loaded: {migration_doc.name}")
-
-        # Step 2: Get settings
-        settings = frappe.get_single("E-Boekhouden Settings")
-        api_token_exists = bool(settings.get_password("api_token"))
-        debug_log.append(f"API token configured: {api_token_exists}")
-
-        if not api_token_exists:
-            return {"error": "API token not configured", "debug_log": debug_log}
-
-        # Step 3: Get company and other params
-        company = getattr(migration_doc, "company", None) or settings.default_company
-        cost_center = getattr(migration_doc, "cost_center", None) or settings.default_cost_center
-        date_from = getattr(migration_doc, "date_from", None)
-        date_to = getattr(migration_doc, "date_to", None)
-
-        debug_log.append(f"Company: {company}")
-        debug_log.append(f"Cost center: {cost_center}")
-        debug_log.append(f"Date range: {date_from} to {date_to}")
-
-        # Step 4: Test REST iterator
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
-
-        iterator = EBoekhoudenRESTIterator()
-        debug_log.append("REST iterator created")
-
-        # Step 5: Test fetching mutations for one type
-        try:
-            mutations = iterator.fetch_mutations_by_type(
-                mutation_type=1, limit=50
-            )  # Test with more mutations
-            debug_log.append(f"Found {len(mutations)} mutations of type 1")
-
-            if mutations:
-                debug_log.append(
-                    f"First mutation sample: {mutations[0].get('id', 'no-id')} - {mutations[0].get('date', 'no-date')}"
-                )
-                debug_log.append(
-                    f"Last mutation sample: {mutations[-1].get('id', 'no-id')} - {mutations[-1].get('date', 'no-date')}"
-                )
-
-                # Check how many are already imported
-                already_imported = 0
-                need_import = 0
-
-                for mutation in mutations:
-                    mutation_id = mutation.get("id")
-                    if mutation_id:
-                        existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
-                        existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
-                        existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
-                        existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
-
-                        if existing_je or existing_pe or existing_si or existing_pi:
-                            already_imported += 1
-                        else:
-                            need_import += 1
-
-                debug_log.append(f"Status: {already_imported} already imported, {need_import} need import")
-
-        except Exception as e:
-            debug_log.append(f"Error fetching mutations: {str(e)}")
-            return {"error": f"Mutation fetch failed: {str(e)}", "debug_log": debug_log}
-
-        # Step 6: Test batch import with just one mutation
-        if mutations:
-            try:
-                test_mutations = mutations[:1]  # Just one mutation for testing
-                test_mutation = test_mutations[0]
-                debug_log.append("Testing batch import with 1 mutation")
-                debug_log.append(
-                    f"Test mutation details: ID={test_mutation.get('id')}, Type={test_mutation.get('type')}, Date={test_mutation.get('date')}"
-                )
-
-                # Find a mutation that needs import for testing
-                unimported_mutation = None
-                for mutation in mutations:
-                    mutation_id = mutation.get("id")
-                    if mutation_id:
-                        existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
-                        existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
-                        existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
-                        existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
-
-                        if not (existing_je or existing_pe or existing_si or existing_pi):
-                            unimported_mutation = mutation
-                            break
-
-                if unimported_mutation:
-                    debug_log.append(
-                        f"Testing with unimported mutation: ID={unimported_mutation.get('id')}, Type={unimported_mutation.get('type')}, Date={unimported_mutation.get('date')}"
-                    )
-                    test_mutations = [unimported_mutation]
-                else:
-                    debug_log.append(
-                        "No unimported mutations found in sample, testing with first mutation anyway"
-                    )
-                    debug_log.append(
-                        f"Test mutation details: ID={test_mutation.get('id')}, Type={test_mutation.get('type')}, Date={test_mutation.get('date')}"
-                    )
-
-                    # Check if already imported
-                    mutation_id = test_mutation.get("id")
-                    if mutation_id:
-                        existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
-                        existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
-                        existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
-                        existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
-
-                        debug_log.append(
-                            f"Existing checks: JE={existing_je}, PE={existing_pe}, SI={existing_si}, PI={existing_pi}"
-                        )
-
-                        if existing_je or existing_pe or existing_si or existing_pi:
-                            debug_log.append(f"Mutation {mutation_id} already imported, would be skipped")
-                        else:
-                            debug_log.append(f"Mutation {mutation_id} not yet imported, would process")
-
-                batch_result = _import_rest_mutations_batch(migration_name, test_mutations, settings)
-                debug_log.append(f"Batch result: {batch_result}")
-
-            except Exception as e:
-                debug_log.append(f"Batch import error: {str(e)}")
-                return {"error": f"Batch import failed: {str(e)}", "debug_log": debug_log}
-
-        return {
-            "migration_tested": migration_name,
-            "debug_log": debug_log,
-            "mutations_found": len(mutations) if mutations else 0,
-            "status": "debug_completed",
-        }
-
-    except Exception as e:
-        frappe.log_error(f"Error in debug_start_full_rest_import: {str(e)}")
-        return {"error": str(e), "debug_log": debug_log if "debug_log" in locals() else []}
-
-
-@frappe.whitelist()
-def debug_payment_terms_issue():
-    """Debug the specific payment_terms issue"""
-    try:
-        from verenigingen.utils.eboekhouden.invoice_helpers import get_or_create_payment_terms
-
-        # Test payment terms creation
-        result = get_or_create_payment_terms(30)
-        return {
-            "payment_terms_result": result,
-            "payment_terms_type": type(result).__name__,
-            "status": "success",
-        }
-
-    except Exception as e:
-        return {"error": str(e), "status": "failed"}
-
-
-@frappe.whitelist()
-def debug_specific_mutation_processing():
-    """Debug processing of the specific failing mutation"""
-    try:
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
-
-        iterator = EBoekhoudenRESTIterator()
-        mutations = iterator.fetch_mutations_by_type(mutation_type=1, limit=50)
-
-        # Find the mutation that's not imported
-        unimported_mutation = None
-        for mutation in mutations:
-            mutation_id = mutation.get("id")
-            if mutation_id:
-                existing_je = _check_if_already_imported(mutation_id, "Journal Entry")
-                existing_pe = _check_if_already_imported(mutation_id, "Payment Entry")
-                existing_si = _check_if_already_imported(mutation_id, "Sales Invoice")
-                existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
-
-                if not (existing_je or existing_pe or existing_si or existing_pi):
-                    unimported_mutation = mutation
-                    break
-
-        if not unimported_mutation:
-            return {"error": "No unimported mutations found"}
-
-        # Debug the mutation structure
-        mutation_info = {
-            "id": unimported_mutation.get("id"),
-            "type": unimported_mutation.get("type"),
-            "date": unimported_mutation.get("date"),
-            "has_betalingstermijn": "Betalingstermijn" in unimported_mutation,
-            "betalingstermijn_value": unimported_mutation.get("Betalingstermijn"),
-            "keys": list(unimported_mutation.keys()),
-        }
-
-        # Try to process just the first step
-        settings = frappe.get_single("E-Boekhouden Settings")
-        company = settings.default_company
-        cost_center = get_default_cost_center(company)
-
-        debug_info = []
-
-        # Test the processing step by step
-        try:
-            doc = _process_single_mutation(unimported_mutation, company, cost_center, debug_info)
-            processing_result = {
-                "success": True,
-                "doc_created": doc is not None,
-                "doc_type": doc.doctype if doc else None,
-                "doc_name": doc.name if doc else None,
-            }
-        except Exception as processing_error:
-            processing_result = {
-                "success": False,
-                "error": str(processing_error),
-                "error_type": type(processing_error).__name__,
-            }
-
-        return {
-            "mutation_info": mutation_info,
-            "processing_result": processing_result,
-            "debug_info": debug_info,
-            "status": "debug_completed",
-        }
-
-    except Exception as e:
-        return {"error": str(e), "status": "failed"}
 
 
 def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):

@@ -119,8 +119,7 @@ def show_portal_features():
             "Notification system integration",
             "Dashboard integration",
             "Reporting integration",
-        ],
-    }
+        ]}
 
     for category, items in features.items():
         print(f"\n{category}")
@@ -160,8 +159,7 @@ def show_test_coverage():
             "Permission system integration",
             "Notification integration",
             "Dashboard integration",
-        ],
-    }
+        ]}
 
     for area, tests in coverage_areas.items():
         print(f"\n{area}:")

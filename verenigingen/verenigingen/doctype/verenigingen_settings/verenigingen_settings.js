@@ -75,7 +75,7 @@ frappe.ui.form.on('Verenigingen Settings', {
 		if (frm.doc.membership_webhook_secret) {
 
 			frm.add_custom_button(__('Copy Webhook URL'), () => {
-				frappe.utils.copy_to_clipboard(`https://${frappe.boot.sitename}/api/method/verenigingen.verenigingen.doctype.membership.membership.trigger_razorpay_subscription`);
+				frappe.utils.copy_to_clipboard(`https://${frappe.boot.sitename}/api/method/verenigingen.verenigingen.doctype.membership.membership.trigger_razorpay_dues_schedule`);
 			}, __('Memberships'));
 
 			frm.add_custom_button(__('Revoke Key'), () => {

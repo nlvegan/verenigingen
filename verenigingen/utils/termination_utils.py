@@ -81,15 +81,14 @@ def validate_termination_readiness(member_name):
             )
             readiness["impact"]["outstanding_invoices"] = outstanding_invoices
 
-            active_subscriptions = frappe.db.count(
-                "Subscription",
+            active_dues_schedules = frappe.db.count(
+                "Membership Dues Schedule",
                 {
-                    "party_type": "Customer",
-                    "party": member.customer,
+                    "member": member.name,
                     "status": ["in", ["Active", "Past Due"]],
                 },
             )
-            readiness["impact"]["active_subscriptions"] = active_subscriptions
+            readiness["impact"]["active_dues_schedules"] = active_dues_schedules
 
             if outstanding_invoices > 5:
                 readiness["warnings"].append(f"Member has {outstanding_invoices} outstanding invoices")

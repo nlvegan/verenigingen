@@ -1,7 +1,7 @@
 {
  "actions": [],
-
- "app": "verenigingen","autoname": "format:MEMB-{YY}-{MM}-{####}",
+ "app": "verenigingen",
+ "autoname": "format:MEMB-{YY}-{MM}-{####}",
  "creation": "2023-01-01 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -15,6 +15,9 @@
   "membership_type",
   "auto_renew",
   "status",
+  "grace_period_status",
+  "grace_period_expiry_date",
+  "grace_period_reason",
   "details_section",
   "start_date",
   "renewal_date",
@@ -23,22 +26,12 @@
   "cancellation_date",
   "cancellation_reason",
   "cancellation_type",
-  "payment_details_section",
-  "last_payment_date",
-  "unpaid_amount",
-  "column_break_payment",
-  "membership_fee",
-  "mandate_section",
-  "sepa_mandate",
-  "mandate_reference",
-  "mandate_status",
-  "subscription_section",
+  "dues_schedule_section",
   "allow_multiple_memberships",
-  "subscription",
-  "subscription_plan",
+  "member_dues_schedule",
+  "dues_schedule_status",
   "column_break_24",
-  "create_subscription",
-  "view_subscription",
+  "view_dues_schedule",
   "view_payments",
   "amended_from"
  ],
@@ -64,11 +57,11 @@
    "read_only": 1
   },
   {
-  "fieldname": "allow_multiple_memberships",
-  "fieldtype": "Check",
-  "label": "Allow Multiple Memberships",
-  "default": 0,
-  "hidden": 1
+   "fieldname": "allow_multiple_memberships",
+   "fieldtype": "Check",
+   "label": "Allow Multiple Memberships",
+   "default": 0,
+   "hidden": 1
   },
   {
    "fetch_from": "member.email",
@@ -94,7 +87,8 @@
    "in_list_view": 1,
    "label": "Membership Type",
    "options": "Membership Type",
-   "reqd": 1
+   "reqd": 1,
+   "allow_on_submit": 1
   },
   {
    "default": "0",
@@ -110,6 +104,28 @@
    "label": "Status",
    "options": "Draft\nActive\nPending\nInactive\nExpired\nCancelled",
    "read_only": 1
+  },
+  {
+   "fieldname": "grace_period_status",
+   "fieldtype": "Select",
+   "label": "Grace Period Status",
+   "options": "\nGrace Period\nCurrent\nQuit\nExpelled\nHonorary",
+   "description": "Additional status for membership grace periods and special statuses",
+   "depends_on": "eval:doc.status == 'Active'"
+  },
+  {
+   "fieldname": "grace_period_expiry_date",
+   "fieldtype": "Date",
+   "label": "Grace Period Expiry Date",
+   "description": "Date when grace period expires",
+   "depends_on": "eval:doc.grace_period_status == 'Grace Period'"
+  },
+  {
+   "fieldname": "grace_period_reason",
+   "fieldtype": "Small Text",
+   "label": "Grace Period Reason",
+   "description": "Reason for grace period or special status",
+   "depends_on": "eval:doc.grace_period_status"
   },
   {
    "fieldname": "details_section",
@@ -158,123 +174,26 @@
    "depends_on": "eval:doc.cancellation_date"
   },
   {
-   "fieldname": "payment_details_section",
+   "fieldname": "dues_schedule_section",
    "fieldtype": "Section Break",
-   "label": "Payment Details"
+   "label": "Dues Schedule Details"
   },
   {
-   "fieldname": "last_payment_date",
-   "fieldtype": "Date",
-   "label": "Last Payment Date",
-   "read_only": 1
-  },
-  {
-   "fieldname": "unpaid_amount",
-   "fieldtype": "Currency",
-   "label": "Balance",
-   "read_only": 1,
-   "description": "Total amount of unpaid invoices"
-  },
-  {
-   "fieldname": "column_break_payment",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "membership_fee",
-   "fieldtype": "Currency",
-   "label": "Membership Fee",
-   "read_only": 1,
-   "description": "Current membership fee amount"
-  },
-  {
-   "fieldname": "mandate_section",
-   "fieldtype": "Section Break",
-   "label": "SEPA Mandate"
-  },
-  {
-   "fieldname": "sepa_mandate",
+   "fieldname": "member_dues_schedule",
    "fieldtype": "Link",
-   "label": "SEPA Mandate",
-   "options": "SEPA Mandate",
-   "get_query": "verenigingen.verenigingen.doctype.membership.membership.get_member_sepa_mandates",
-   "description": "Select from member's active SEPA mandates"
+   "label": "Member Dues Schedule",
+   "options": "Membership Dues Schedule",
+   "description": "Member's dues schedule (shared across memberships)",
+   "read_only": 1,
+   "fetch_from": "member.dues_schedule"
   },
   {
-   "fetch_from": "sepa_mandate.mandate_id",
-   "fieldname": "mandate_reference",
+   "fieldname": "dues_schedule_status",
    "fieldtype": "Data",
-   "label": "Mandate Reference",
-   "read_only": 1
-  },
-  {
-   "fetch_from": "sepa_mandate.status",
-   "fieldname": "mandate_status",
-   "fieldtype": "Data",
-   "label": "Mandate Status",
-   "read_only": 1
-  },
-  {
-   "fieldname": "subscription_section",
-   "fieldtype": "Section Break",
-   "label": "Subscription Details"
-  },
-  {
-   "fieldname": "subscription",
-   "fieldtype": "Link",
-   "label": "Subscription",
-   "options": "Subscription",
-   "get_query": "verenigingen.verenigingen.doctype.membership.membership.get_subscription_query"
-  },
-  {
-   "fieldname": "subscription_plan",
-   "fieldtype": "Link",
-   "label": "Subscription Plan",
-   "options": "Subscription Plan",
-   "fetch_from": "membership_type.subscription_plan"
-  },
-  {
-   "fieldname": "custom_amount_section",
-   "fieldtype": "Section Break",
-   "label": "Custom Amount",
-   "insert_after": "subscription_plan",
-   "collapsible": 1
-  },
-  {
-   "fieldname": "uses_custom_amount",
-   "fieldtype": "Check",
-   "label": "Uses Custom Amount",
-   "insert_after": "custom_amount_section",
-   "description": "Check if this membership uses a custom amount different from the membership type default"
-  },
-  {
-   "fieldname": "custom_amount",
-   "fieldtype": "Currency",
-   "label": "Custom Amount",
-   "insert_after": "uses_custom_amount",
-   "depends_on": "eval:doc.uses_custom_amount",
-   "mandatory_depends_on": "eval:doc.uses_custom_amount",
-   "description": "Custom amount for this specific membership"
-  },
-  {
-   "fieldname": "amount_reason",
-   "fieldtype": "Small Text",
-   "label": "Reason for Custom Amount",
-   "insert_after": "custom_amount",
-   "depends_on": "eval:doc.uses_custom_amount",
-   "description": "Optional reason for the custom amount (e.g., 'Student discount', 'Supporter contribution')"
-  },
-  {
-   "fieldname": "column_break_custom",
-   "fieldtype": "Column Break",
-   "insert_after": "amount_reason"
-  },
-  {
-   "fieldname": "effective_amount",
-   "fieldtype": "Currency",
-   "label": "Effective Amount",
-   "insert_after": "column_break_custom",
+   "label": "Dues Schedule Status",
    "read_only": 1,
-   "description": "The actual amount used for this membership (custom amount or membership type amount)"
+   "fetch_from": "member_dues_schedule.status",
+   "description": "Status of the member's dues schedule"
   },
   {
    "fieldname": "amount_difference",
@@ -289,22 +208,16 @@
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:!doc.subscription && doc.docstatus==1",
-   "fieldname": "create_subscription",
+   "depends_on": "eval:doc.member_dues_schedule",
+   "fieldname": "view_dues_schedule",
    "fieldtype": "Button",
-   "label": "Create Subscription"
-  },
-  {
-   "depends_on": "eval:doc.subscription",
-   "fieldname": "view_subscription",
-   "fieldtype": "Button",
-   "label": "View Subscription"
+   "label": "View Dues Schedule"
   },
   {
    "fieldname": "view_payments",
    "fieldtype": "Button",
    "label": "View Payment History",
-   "depends_on": "eval:doc.docstatus==1 && doc.subscription"
+   "depends_on": "eval:doc.docstatus==1 && doc.member_dues_schedule"
   },
   {
    "fieldname": "amended_from",
@@ -322,6 +235,10 @@
    "link_doctype": "Member",
    "link_fieldname": "name",
    "parent_doctype": "Member"
+  },
+  {
+   "link_doctype": "Membership Dues Schedule",
+   "link_fieldname": "member"
   }
  ],
  "modified": "2025-05-06 20:21:52.947759",

@@ -5,6 +5,8 @@
 """
 Custom assertion utilities for Verenigingen tests
 Provides enhanced assertions for complex test scenarios
+
+Updated to use the new Membership Dues Schedule system.
 """
 
 from datetime import datetime
@@ -73,8 +75,7 @@ class AssertionHelpers:
             "Payment Entry",
             filters={
                 "party_type": "Customer",
-                "references": [["Payment Entry Reference", "reference_doctype", "=", "Sales Invoice"]],
-            },
+                "references": [["Payment Entry Reference", "reference_doctype", "=", "Sales Invoice"]]},
             fields=["name", "paid_amount", "party"],
         )
 
@@ -132,19 +133,17 @@ class AssertionHelpers:
             raise AssertionError(message)
 
     @staticmethod
-    def assert_subscription_active(member_name):
-        """Assert that a member has an active subscription"""
-        subscriptions = frappe.get_all(
-            "Subscription",
+    def assert_dues_schedule_active(member_name):
+        """Assert that a member has an active dues schedule"""
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
             filters={
-                "reference_doctype": "Member",
-                "reference_document": member_name,
-                "status": ["in", ["Active", "Trialing"]],
-            },
+                "member": member_name,
+                "status": "Active"},
         )
 
-        if not subscriptions:
-            raise AssertionError(f"No active subscription found for member {member_name}")
+        if not dues_schedules:
+            raise AssertionError(f"No active dues schedule found for member {member_name}")
 
         return True
 

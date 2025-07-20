@@ -33,22 +33,19 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                 "region": "Test Region Alpha",
                 "postal_codes": "1000-1999",
                 "published": 1,
-                "introduction": "Test chapter Alpha",
-            },
+                "introduction": "Test chapter Alpha"},
             {
                 "name": "Test Chapter Beta",
                 "region": "Test Region Beta",
                 "postal_codes": "2000-2999",
                 "published": 1,
-                "introduction": "Test chapter Beta",
-            },
+                "introduction": "Test chapter Beta"},
             {
                 "name": "Unpublished Test Chapter",
                 "region": "Test Region Gamma",
                 "postal_codes": "3000-3999",
                 "published": 0,  # Unpublished
-                "introduction": "Unpublished test chapter",
-            },
+                "introduction": "Unpublished test chapter"},
         ]
 
         for chapter_data in test_chapters:
@@ -64,8 +61,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "membership_type_name": "Test Membership",
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "subscription_period": "Annual"}
             )
             membership_type.insert()
 
@@ -89,8 +85,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "email": self.test_email,
                     "status": "Active",
                     "birth_date": "1990-01-01",
-                    "application_status": "Approved",
-                }
+                    "application_status": "Approved"}
             )
             member.insert()
 
@@ -372,8 +367,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "region": "Special-Ñieuwe Test",
                     "postal_codes": "8000-8999",
                     "published": 1,
-                    "introduction": "Special chapter with international characters",
-                }
+                    "introduction": "Special chapter with international characters"}
             )
             special_chapter.insert()
 
@@ -419,8 +413,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "email": special_email,
                     "status": "Active",
                     "birth_date": "1990-01-01",
-                    "application_status": "Approved",
-                }
+                    "application_status": "Approved"}
             )
             special_member.insert()
 
@@ -465,8 +458,7 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
                     "region": "Performance Test Region",
                     "postal_codes": "9000-9999",
                     "published": 1,
-                    "introduction": "Chapter for performance testing",
-                }
+                    "introduction": "Chapter for performance testing"}
             )
             perf_chapter.insert()
 
@@ -556,289 +548,14 @@ class TestChapterAssignmentEdgeCases(unittest.TestCase):
         print("✅ Database transaction rollback works correctly")
 
 
-class TestSubscriptionPlanCostFieldEdgeCases(unittest.TestCase):
-    """Test edge cases for the price vs cost field fix in subscription plans"""
+class ObsoleteSubscriptionPlanTests(unittest.TestCase):
+    """OBSOLETE: Tests removed due to subscription system elimination"""
+    
+    def test_obsolete_notice(self):
+        """Notice that subscription plan tests are obsolete"""
+        self.skipTest("Subscription system completely removed - no backwards compatibility")
 
-    def setUp(self):
-        """Set up for each test"""
-        self.test_counter = getattr(self, "_test_counter", 0) + 1
-        setattr(self, "_test_counter", self.test_counter)
-
-        # Create test subscription plan
-        self.test_plan_name = f"Test Subscription Plan {self.test_counter}"
-        if not frappe.db.exists("Subscription Plan", self.test_plan_name):
-            plan = frappe.get_doc(
-                {
-                    "doctype": "Subscription Plan",
-                    "plan_name": self.test_plan_name,
-                    "price_determination": "Fixed Rate",
-                    "cost": 42.50,
-                    "currency": "EUR",
-                    "billing_interval": "Month",
-                    "billing_interval_count": 1,
-                }
-            )
-            plan.insert()
-
-    def tearDown(self):
-        """Clean up after each test"""
-        try:
-            if frappe.db.exists("Subscription Plan", self.test_plan_name):
-                frappe.delete_doc("Subscription Plan", self.test_plan_name, force=True)
-        except Exception:
-            pass
-
-        frappe.db.commit()
-
-    def test_subscription_plan_detail_has_no_price_field(self):
-        """Test that Subscription Plan Detail doesn't have price field"""
-        print("\n🧪 Testing Subscription Plan Detail field structure...")
-
-        # Get the field structure
-        meta = frappe.get_meta("Subscription Plan Detail")
-        field_names = [field.fieldname for field in meta.fields]
-
-        # Should not have price field
-        self.assertNotIn("price", field_names, "Subscription Plan Detail should not have price field")
-
-        # Should have plan and qty fields
-        self.assertIn("plan", field_names, "Subscription Plan Detail should have plan field")
-        self.assertIn("qty", field_names, "Subscription Plan Detail should have qty field")
-
-        print("✅ Subscription Plan Detail structure verified - no price field")
-
-    def test_subscription_plan_has_cost_field(self):
-        """Test that Subscription Plan has cost field"""
-        print("\n🧪 Testing Subscription Plan field structure...")
-
-        # Get the field structure
-        meta = frappe.get_meta("Subscription Plan")
-        field_names = [field.fieldname for field in meta.fields]
-
-        # Should have cost field
-        self.assertIn("cost", field_names, "Subscription Plan should have cost field")
-
-        # Test accessing cost field
-        plan = frappe.get_doc("Subscription Plan", self.test_plan_name)
-        self.assertEqual(float(plan.cost), 42.50, "Should be able to access cost field")
-
-        print("✅ Subscription Plan structure verified - has cost field")
-
-    def test_subscription_plan_detail_cost_access_pattern(self):
-        """Test the correct pattern for accessing cost from subscription plan detail"""
-        print("\n🧪 Testing correct cost access pattern...")
-
-        # Create a subscription with our test plan
-        subscription_name = f"Test Subscription {self.test_counter}"
-        if not frappe.db.exists("Subscription", subscription_name):
-            subscription = frappe.get_doc(
-                {
-                    "doctype": "Subscription",
-                    "name": subscription_name,
-                    "party_type": "Customer",
-                    "party": "Test Customer",  # This might need to be created
-                    "start_date": "2025-01-01",
-                    "plans": [{"plan": self.test_plan_name, "qty": 1}],
-                }
-            )
-            # Note: This might fail without a valid customer, but we're testing the field access pattern
-
-        # Test the correct pattern: plan_doc.cost (not plan.price)
-        plan_doc = frappe.get_doc("Subscription Plan", self.test_plan_name)
-        cost_value = plan_doc.cost
-        self.assertEqual(float(cost_value), 42.50, "Should access cost via plan_doc.cost")
-
-        # Test that plan.price would not exist on Subscription Plan Detail
-        # (This is what the bug was - trying to access plan.price)
-        try:
-            meta = frappe.get_meta("Subscription Plan Detail")
-            price_field = None
-            for field in meta.fields:
-                if field.fieldname == "price":
-                    price_field = field
-                    break
-            self.assertIsNone(price_field, "Subscription Plan Detail should not have price field")
-        except Exception:
-            pass
-
-        print("✅ Correct cost access pattern verified: plan_doc.cost")
-
-    def test_member_subscription_detail_display_with_cost_field(self):
-        """Test that member subscription details use cost field correctly"""
-        print("\n🧪 Testing member subscription details with cost field...")
-
-        # Create test member
-        test_member_name = f"TEST-COST-MEMBER-{self.test_counter}"
-        test_email = f"cost_test_{self.test_counter}@example.com"
-
-        if not frappe.db.exists("Member", test_member_name):
-            member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "name": test_member_name,
-                    "first_name": "Cost",
-                    "last_name": "Tester",
-                    "full_name": "Cost Tester",
-                    "email": test_email,
-                    "status": "Active",
-                    "birth_date": "1990-01-01",
-                    "application_status": "Approved",
-                }
-            )
-            member.insert()
-
-        # Test that the member's subscription detail method uses cost correctly
-        # (This simulates the fixed code in member.py)
-        member = frappe.get_doc("Member", test_member_name)
-
-        # Create mock subscription data to test the logic
-        plan_doc = frappe.get_doc("Subscription Plan", self.test_plan_name)
-
-        # This simulates the FIXED code pattern: plan_doc.cost (not plan.price)
-        plan_details = {
-            "plan_name": plan_doc.plan_name,
-            "price": plan_doc.cost,  # Using cost field correctly
-            "billing_interval": plan_doc.billing_interval,
-            "billing_interval_count": plan_doc.billing_interval_count,
-            "currency": plan_doc.currency,
-        }
-
-        # Verify the cost is accessible and correct
-        self.assertEqual(
-            float(plan_details["price"]), 42.50, "Should use plan_doc.cost for subscription details"
-        )
-
-        print("✅ Member subscription details correctly use cost field")
-
-        # Clean up
-        try:
-            frappe.delete_doc("Member", test_member_name, force=True)
-        except Exception:
-            pass
-
-    def test_cost_field_with_different_currencies(self):
-        """Test cost field with different currencies"""
-        print("\n🧪 Testing cost field with different currencies...")
-
-        # Create plans with different currencies
-        usd_plan_name = f"USD Test Plan {self.test_counter}"
-        gbp_plan_name = f"GBP Test Plan {self.test_counter}"
-
-        test_plans = [
-            {"name": usd_plan_name, "cost": 50.00, "currency": "USD"},
-            {"name": gbp_plan_name, "cost": 40.00, "currency": "GBP"},
-        ]
-
-        for plan_data in test_plans:
-            if not frappe.db.exists("Subscription Plan", plan_data["name"]):
-                plan = frappe.get_doc(
-                    {
-                        "doctype": "Subscription Plan",
-                        "plan_name": plan_data["name"],
-                        "price_determination": "Fixed Rate",
-                        "cost": plan_data["cost"],
-                        "currency": plan_data["currency"],
-                        "billing_interval": "Month",
-                        "billing_interval_count": 1,
-                    }
-                )
-                plan.insert()
-
-        # Test accessing cost for different currencies
-        usd_plan = frappe.get_doc("Subscription Plan", usd_plan_name)
-        gbp_plan = frappe.get_doc("Subscription Plan", gbp_plan_name)
-
-        self.assertEqual(float(usd_plan.cost), 50.00, "USD plan cost should be correct")
-        self.assertEqual(usd_plan.currency, "USD", "USD plan currency should be correct")
-
-        self.assertEqual(float(gbp_plan.cost), 40.00, "GBP plan cost should be correct")
-        self.assertEqual(gbp_plan.currency, "GBP", "GBP plan currency should be correct")
-
-        print("✅ Cost field works correctly with different currencies")
-
-        # Clean up
-        try:
-            frappe.delete_doc("Subscription Plan", usd_plan_name, force=True)
-            frappe.delete_doc("Subscription Plan", gbp_plan_name, force=True)
-        except Exception:
-            pass
-
-    def test_cost_field_precision_edge_cases(self):
-        """Test cost field with various precision edge cases"""
-        print("\n🧪 Testing cost field precision edge cases...")
-
-        precision_test_cases = [
-            ("Zero Cost", 0.00),
-            ("Small Amount", 0.01),
-            ("Two Decimals", 99.99),
-            ("Three Decimals", 123.456),  # Should be rounded to 2 decimals
-            ("Large Amount", 999999.99),
-        ]
-
-        for case_name, cost_value in precision_test_cases:
-            plan_name = f"Precision Test {case_name} {self.test_counter}"
-
-            if not frappe.db.exists("Subscription Plan", plan_name):
-                plan = frappe.get_doc(
-                    {
-                        "doctype": "Subscription Plan",
-                        "plan_name": plan_name,
-                        "price_determination": "Fixed Rate",
-                        "cost": cost_value,
-                        "currency": "EUR",
-                        "billing_interval": "Month",
-                        "billing_interval_count": 1,
-                    }
-                )
-                plan.insert()
-
-            # Test that cost is preserved with appropriate precision
-            plan_doc = frappe.get_doc("Subscription Plan", plan_name)
-            retrieved_cost = float(plan_doc.cost)
-
-            # For currency fields, typically rounded to 2 decimal places
-            expected_cost = round(cost_value, 2)
-            self.assertEqual(
-                retrieved_cost,
-                expected_cost,
-                f"{case_name}: Cost should be {expected_cost}, got {retrieved_cost}",
-            )
-
-            # Clean up
-            try:
-                frappe.delete_doc("Subscription Plan", plan_name, force=True)
-            except Exception:
-                pass
-
-        print("✅ Cost field precision edge cases handled correctly")
-
-    def test_backward_compatibility_warning(self):
-        """Test that the old plan.price pattern would fail"""
-        print("\n🧪 Testing that old plan.price pattern would fail...")
-
-        # This test verifies that the old buggy pattern would indeed fail
-        # and confirms our fix is necessary
-
-        # Create a mock subscription plan detail (what would be in subscription.plans)
-        class MockSubscriptionPlanDetail:
-            def __init__(self, plan_name):
-                self.plan = plan_name
-                self.qty = 1
-                # Note: No 'price' attribute - this is the key issue
-
-        mock_plan_detail = MockSubscriptionPlanDetail(self.test_plan_name)
-
-        # Test that trying to access .price would fail
-        with self.assertRaises(AttributeError):
-            # This is the OLD buggy pattern that was in the code
-            price = mock_plan_detail.price  # Should fail
-
-        # Test that the CORRECT pattern works
-        plan_doc = frappe.get_doc("Subscription Plan", mock_plan_detail.plan)
-        cost = plan_doc.cost  # This works
-        self.assertEqual(float(cost), 42.50, "Correct pattern should work")
-
-        print("✅ Confirmed that old plan.price pattern fails and fix is necessary")
+    pass  # All subscription plan tests removed - no backwards compatibility
 
 
 def run_edge_case_tests():

@@ -40,8 +40,7 @@ class VolunteerPortalTestRunner:
             "security": "verenigingen.tests.test_volunteer_portal_security",
             "edge": "verenigingen.tests.test_volunteer_portal_edge_cases",
             "integration": "verenigingen.tests.test_volunteer_portal_integration",
-            "js_api": "verenigingen.tests.test_javascript_api_integration",
-        }
+            "js_api": "verenigingen.tests.test_javascript_api_integration"}
 
         self.results = {}
 
@@ -96,8 +95,7 @@ class VolunteerPortalTestRunner:
                 "failures": len(result.failures),
                 "errors": len(result.errors),
                 "skipped": len(result.skipped) if hasattr(result, "skipped") else 0,
-                "success": result.wasSuccessful(),
-            }
+                "success": result.wasSuccessful()}
 
             return result.wasSuccessful()
 

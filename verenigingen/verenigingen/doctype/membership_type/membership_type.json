@@ -9,17 +9,14 @@
   "description",
   "is_active",
   "column_break_4",
-  "subscription_period",
-  "subscription_period_in_months",
+  "billing_period",
+  "billing_period_in_months",
+  "default_for_new_members",
+  "enforce_minimum_period",
   "pricing_section",
   "amount",
-  "currency",
-  "subscription_settings_section",
-  "subscription_plan",
-  "require_approval",
-  "column_break_14",
-  "allow_auto_renewal",
-  "default_for_new_members"
+  "billing_settings_section",
+  "dues_schedule_template"
  ],
  "fields": [
   {
@@ -48,67 +45,19 @@
   },
   {
    "default": "Annual",
-   "fieldname": "subscription_period",
+   "fieldname": "billing_period",
    "fieldtype": "Select",
    "in_list_view": 1,
-   "label": "Subscription Period",
+   "label": "Billing Period",
    "options": "Daily\nMonthly\nQuarterly\nBiannual\nAnnual\nLifetime\nCustom",
    "reqd": 1
   },
   {
-   "depends_on": "eval:doc.subscription_period=='Custom'",
-   "fieldname": "subscription_period_in_months",
+   "depends_on": "eval:doc.billing_period=='Custom'",
+   "fieldname": "billing_period_in_months",
    "fieldtype": "Int",
-   "label": "Subscription Period in Months",
-   "mandatory_depends_on": "eval:doc.subscription_period=='Custom'"
-  },
-  {
-   "fieldname": "pricing_section",
-   "fieldtype": "Section Break",
-   "label": "Pricing"
-  },
-  {
-   "fieldname": "amount",
-   "fieldtype": "Currency",
-   "in_list_view": 1,
-   "label": "Amount",
-   "options": "currency",
-   "reqd": 1
-  },
-  {
-   "default": "EUR",
-   "fieldname": "currency",
-   "fieldtype": "Link",
-   "label": "Currency",
-   "options": "Currency",
-   "reqd": 1
-  },
-  {
-   "fieldname": "subscription_settings_section",
-   "fieldtype": "Section Break",
-   "label": "Subscription Settings"
-  },
-  {
-   "fieldname": "subscription_plan",
-   "fieldtype": "Link",
-   "label": "Subscription Plan",
-   "options": "Subscription Plan"
-  },
-  {
-   "default": "0",
-   "fieldname": "require_approval",
-   "fieldtype": "Check",
-   "label": "Require Approval"
-  },
-  {
-   "fieldname": "column_break_14",
-   "fieldtype": "Column Break"
-  },
-  {
-   "default": "1",
-   "fieldname": "allow_auto_renewal",
-   "fieldtype": "Check",
-   "label": "Allow Auto Renewal"
+   "label": "Billing Period in Months",
+   "mandatory_depends_on": "eval:doc.billing_period=='Custom'"
   },
   {
    "default": "0",
@@ -121,7 +70,34 @@
    "fieldname": "enforce_minimum_period",
    "fieldtype": "Check",
    "label": "Enforce 1-Year Minimum Period",
-   "description": "When enabled, memberships of this type must be at least 1 year in duration. When disabled, memberships follow the subscription period (e.g., daily, monthly)."
+   "description": "When enabled, memberships of this type must be at least 1 year in duration. When disabled, memberships follow the billing period (e.g., daily, monthly)."
+  },
+  {
+   "fieldname": "pricing_section",
+   "fieldtype": "Section Break",
+   "label": "Default Pricing"
+  },
+  {
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Default Amount",
+   "options": "currency",
+   "reqd": 1,
+   "description": "Default amount for new dues schedules"
+  },
+  {
+   "fieldname": "billing_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Dues Schedule Template"
+  },
+  {
+   "fieldname": "dues_schedule_template",
+   "fieldtype": "Link",
+   "label": "Default Dues Schedule Template",
+   "options": "Membership Dues Schedule",
+   "get_query": "verenigingen.verenigingen.doctype.membership_type.membership_type.get_template_query",
+   "description": "Template dues schedule to use for new memberships of this type"
   }
  ],
  "modified": "2023-01-01 00:00:00.000000",

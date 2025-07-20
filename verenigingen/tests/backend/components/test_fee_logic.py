@@ -27,14 +27,12 @@ def setup_test_environment():
                 "name": "Standard",
                 "amount": 50.0,
                 "currency": "EUR",
-                "subscription_period": "year",
                 "is_active": 1,
-                "description": "Standard membership for testing",
-            }
+                "description": "Standard membership for testing"}
         )
         membership_type.insert(ignore_permissions=True)
-        # Create subscription plan for the membership type
-        membership_type.create_subscription_plan()
+        # Create dues schedule plan for the membership type
+        membership_type.create_dues_schedule_plan()
         print("✅ Created test membership type")
     else:
         print("✅ Test membership type exists")
@@ -63,8 +61,7 @@ def test_new_application_with_custom_amount():
                 "uses_custom_amount": True,
                 "custom_amount_reason": "Supporter contribution",
                 "payment_method": "SEPA Direct Debit",
-                "terms": True,
-            }
+                "terms": True}
 
             print(f"📝 Creating member with custom amount: €{application_data['membership_amount']}")
 
@@ -83,7 +80,7 @@ def test_new_application_with_custom_amount():
             print(f"✅ Member created: {member.name}")
             print(f"   - Full name: {member.full_name}")
             print(f"   - Email: {member.email}")
-            print(f"   - Fee override: €{member.membership_fee_override}")
+            print(f"   - Fee override: €{member.dues_rate}")
             print(f"   - Fee reason: {member.fee_override_reason}")
             print(f"   - Status: {member.status}")
             print(f"   - Application status: {member.application_status}")
@@ -96,10 +93,10 @@ def test_new_application_with_custom_amount():
                 print("✅ Correctly skipped fee change tracking for new application")
 
             # Check that fee override fields are properly set
-            if member.membership_fee_override == 75.0:
+            if member.dues_rate == 75.0:
                 print("✅ Custom fee amount set correctly")
             else:
-                print(f"❌ Fee amount wrong: expected 75.0, got {member.membership_fee_override}")
+                print(f"❌ Fee amount wrong: expected 75.0, got {member.dues_rate}")
                 return False
 
             if member.fee_override_reason:
@@ -137,15 +134,14 @@ def test_existing_member_fee_adjustment():
                     "last_name": "Member" + random_string(4),
                     "email": f"existing.member.{random_string(6)}@example.com",
                     "birth_date": "1985-06-15",
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             member.insert(ignore_permissions=True)
             print(f"✅ Created existing member: {member.name} ({member.full_name})")
 
             # Now adjust their fee (this should trigger change tracking)
             print("📝 Adjusting fee from standard to €125.0")
-            member.membership_fee_override = 125.0
+            member.dues_rate = 125.0
             member.fee_override_reason = "Premium supporter upgrade"
 
             # Save the member (this should trigger fee change tracking)
@@ -172,7 +168,7 @@ def test_existing_member_fee_adjustment():
                 return False
 
             # Check current member state
-            print(f"✅ Member fee override: €{member.membership_fee_override}")
+            print(f"✅ Member fee override: €{member.dues_rate}")
             print(f"✅ Member fee reason: {member.fee_override_reason}")
 
             print("✅ TEST 2 PASSED: Existing member fee adjustment works correctly")
@@ -210,8 +206,7 @@ def test_api_submission():
             "bic": "ABNANL2A",
             "bank_account_name": "API Test User",
             "terms": True,
-            "newsletter": True,
-        }
+            "newsletter": True}
 
         print(f"📝 Submitting via API with custom amount: €{form_data['membership_amount']}")
 
@@ -231,7 +226,7 @@ def test_api_submission():
             if member_id:
                 member = frappe.get_doc("Member", member_id)
                 print(f"✅ Created member verified: {member.full_name}")
-                print(f"   - Fee override: €{member.membership_fee_override}")
+                print(f"   - Fee override: €{member.dues_rate}")
                 print(f"   - Status: {member.application_status}")
 
                 # Check no pending fee change for new application

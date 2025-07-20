@@ -22,8 +22,7 @@ def test_complete_application_submission():
             "country": "Netherlands",
             "selected_membership_type": "Test Membership",
             "interested_in_volunteering": 0,
-            "payment_method": "Bank Transfer",
-        }
+            "payment_method": "Bank Transfer"}
 
         # Import and call the actual API function
         from verenigingen.api.membership_application import submit_application
@@ -45,8 +44,7 @@ def test_complete_application_submission():
                 "last_name_stored": member.last_name,
                 "email_stored": member.email,
                 "status": member.application_status,
-                "names_match": (member.first_name == "José María" and member.last_name == "García-López"),
-            }
+                "names_match": (member.first_name == "José María" and member.last_name == "García-López")}
 
             # Check if address was created properly
             if member.primary_address:
@@ -65,15 +63,13 @@ def test_complete_application_submission():
             return {
                 "success": True,
                 "message": "Complete application submission with special characters successful",
-                "verification": verification,
-            }
+                "verification": verification}
         else:
             return {
                 "success": False,
                 "message": f"Application submission failed: {result.get('message')}",
                 "error": result.get("error"),
-                "full_result": result,
-            }
+                "full_result": result}
 
     except Exception as e:
         frappe.db.rollback()

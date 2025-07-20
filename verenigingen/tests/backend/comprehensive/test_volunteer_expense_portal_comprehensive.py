@@ -23,8 +23,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
                 "doctype": "Volunteer",
                 "volunteer_name": "Test Volunteer",
                 "email": cls.test_user,
-                "status": "Active",
-            }
+                "status": "Active"}
         ).insert(ignore_if_duplicate=True)
 
         cls.test_category = frappe.get_doc(
@@ -32,8 +31,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
                 "doctype": "Expense Category",
                 "category_name": "Test Category",
                 "description": "Test category for unit tests",
-                "is_active": 1,
-            }
+                "is_active": 1}
         ).insert(ignore_if_duplicate=True)
 
         cls.test_chapter = frappe.get_doc({"doctype": "Chapter", "chapter_name": "Test Chapter"}).insert(
@@ -87,8 +85,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
             "category": self.test_category.name,
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
-            "notes": "Test notes",
-        }
+            "notes": "Test notes"}
 
         result = submit_expense(expense_data)
 
@@ -114,8 +111,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
                 "expense_date": today(),
                 "category": self.test_category.name,
                 "organization_type": "Chapter",
-                "chapter": self.test_chapter.name,
-            }
+                "chapter": self.test_chapter.name}
         )
 
         result = submit_expense(expense_data)
@@ -134,8 +130,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name,
-        }
+            "chapter": self.test_chapter.name}
 
         result = submit_expense(expense_data)
         self.assertFalse(result["success"])
@@ -170,8 +165,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
             "category": self.test_category.name,
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
-            "receipt_attachment": "/files/test_receipt.pdf",
-        }
+            "receipt_attachment": "/files/test_receipt.pdf"}
 
         result = submit_expense(expense_data)
 
@@ -189,8 +183,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name,
-        }
+            "chapter": self.test_chapter.name}
 
         result = submit_expense(expense_data)
         expense_name = result["expense_name"]
@@ -240,8 +233,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name,
-        }
+            "chapter": self.test_chapter.name}
         submit_expense(expense_data)
 
         # Get expenses for volunteer
@@ -268,8 +260,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
                 "expense_date": today(),
                 "category": self.test_category.name,
                 "organization_type": "Chapter",
-                "chapter": self.test_chapter.name,
-            }
+                "chapter": self.test_chapter.name}
             result = submit_expense(expense_data)
 
             # Update status for testing
@@ -297,8 +288,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
             "expense_date": future_date,
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name,
-        }
+            "chapter": self.test_chapter.name}
 
         result = submit_expense(expense_data)
         self.assertFalse(result["success"])
@@ -329,8 +319,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
             "expense_date": today(),
             "category": self.test_category.name,
             "organization_type": "Chapter",
-            "chapter": self.test_chapter.name,
-        }
+            "chapter": self.test_chapter.name}
 
         result = submit_expense(expense_data)
         expense = frappe.get_doc("Volunteer Expense", result["expense_name"])

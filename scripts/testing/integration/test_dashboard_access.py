@@ -27,14 +27,12 @@ def test_dashboard_access():
                 "key_metrics": {
                     "members": {"active": 25, "pending": 3, "new_this_month": 2},
                     "expenses": {"pending_amount": 150, "ytd_total": 800},
-                    "activities": {"this_month": 2, "upcoming": 1},
-                },
+                    "activities": {"this_month": 2, "upcoming": 1}},
                 "member_overview": {"recent_members": [], "pending_applications": []},
                 "pending_actions": {"total_pending": 3},
                 "financial_summary": {"this_month": {}, "ytd": {}},
                 "board_info": {"members": []},
-                "recent_activity": [],
-            }
+                "recent_activity": []}
 
             print(f"Dashboard data structure: {list(dashboard_data.keys())}")
 
@@ -42,15 +40,13 @@ def test_dashboard_access():
                 "success": True,
                 "user_chapters": user_chapters,
                 "test_chapter": chapter_name,
-                "dashboard_keys": list(dashboard_data.keys()),
-            }
+                "dashboard_keys": list(dashboard_data.keys())}
         else:
             return {
                 "success": False,
                 "error": "No board chapters found for current user",
                 "user": frappe.session.user,
-                "roles": frappe.get_roles(),
-            }
+                "roles": frappe.get_roles()}
 
     except Exception as e:
         return {"success": False, "error": str(e), "user": frappe.session.user}

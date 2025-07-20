@@ -18,7 +18,6 @@ def run_member_tests():
             / result.testsRun
             * 100
             if result.testsRun > 0
-            else 0,
-        }
+            else 0}
     except Exception as e:
         return {"error": str(e)}

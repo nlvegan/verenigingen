@@ -54,19 +54,19 @@ def get_dashboard_data(member=None):
     # Check for failed payments
     has_failed_payments = False
     if member_doc.customer:
-        # Get failed invoices through subscription relationship
+        # Get failed invoices through dues schedule relationship
         failed_invoices = frappe.db.sql(
             """
             SELECT COUNT(DISTINCT si.name)
             FROM `tabSales Invoice` si
-            INNER JOIN `tabSubscription Invoice` sub_inv ON sub_inv.invoice = si.name
-            INNER JOIN `tabSubscription` sub ON sub.name = sub_inv.parent
-            INNER JOIN `tabMembership` m ON m.subscription = sub.name
-            WHERE m.member = %s
+            INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = %s
+            WHERE si.customer = %s
             AND si.status = 'Overdue'
             AND si.docstatus = 1
+            AND si.posting_date >= mds.start_date
+            AND (mds.end_date IS NULL OR si.posting_date <= mds.end_date)
         """,
-            member,
+            (member, member_doc.customer),
         )[0][0]
         has_failed_payments = failed_invoices > 0
 
@@ -164,9 +164,9 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
     if limit > 1000:
         limit = 1000  # Max limit for performance
 
-    # Get sales invoices with membership info through subscription
+    # Get sales invoices with membership info through dues schedule
     invoice_conditions = "si.customer = %(customer)s AND si.docstatus = 1"
-    params = {"customer": member_doc.customer}
+    params = {"customer": member_doc.customer, "member": member}
 
     if year:
         invoice_conditions += " AND si.posting_date BETWEEN %(start_date)s AND %(end_date)s"
@@ -180,12 +180,14 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
             si.posting_date as date,
             si.grand_total as amount,
             si.status,
-            m.name as membership
+            m.name as membership,
+            mds.name as dues_schedule
         FROM `tabSales Invoice` si
-        LEFT JOIN `tabSubscription Invoice` sub_inv ON sub_inv.invoice = si.name
-        LEFT JOIN `tabSubscription` sub ON sub.name = sub_inv.parent
-        LEFT JOIN `tabMembership` m ON m.subscription = sub.name
+        LEFT JOIN `tabMembership Dues Schedule` mds ON mds.member = %(member)s
+        LEFT JOIN `tabMembership` m ON m.member = %(member)s
         WHERE {conditions}
+        AND (mds.start_date IS NULL OR si.posting_date >= mds.start_date)
+        AND (mds.end_date IS NULL OR si.posting_date <= mds.end_date)
         ORDER BY si.posting_date DESC
         LIMIT %(limit)s OFFSET %(offset)s
     """.format(
@@ -294,66 +296,57 @@ def get_payment_schedule(member=None):
     if not member:
         frappe.throw(_("Member not found"))
 
-    # Get active membership
-    active_membership = frappe.get_all(
-        "Membership",
-        filters={"member": member, "status": ["in", ["Active", "Current"]]},
-        fields=["name", "membership_type", "subscription", "membership_fee"],
+    # Get active dues schedule
+    active_dues_schedule = frappe.get_all(
+        "Membership Dues Schedule",
+        filters={"member": member, "status": "Active"},
+        fields=["name", "contribution_mode", "billing_frequency", "monthly_amount", "start_date", "end_date"],
         limit=1,
     )
 
-    if not active_membership:
+    if not active_dues_schedule:
         return []
 
-    membership = active_membership[0]
+    dues_schedule = active_dues_schedule[0]
     schedule = []
 
-    # Generate next 12 months of payments
-    if membership.subscription:
-        subscription = frappe.get_doc("Subscription", membership.subscription)
+    # Generate next 12 months of payments based on billing frequency
+    billing_frequency = dues_schedule.billing_frequency
+    if billing_frequency == "Monthly":
+        months = 1
+    elif billing_frequency == "Quarterly":
+        months = 3
+    elif billing_frequency == "Semi-Annual":
+        months = 6
+    elif billing_frequency == "Annual":
+        months = 12
+    else:
+        months = 1  # Default to monthly
 
-        # Get payment frequency from subscription plan or period settings
-        # Check if subscription has a plan
-        if hasattr(subscription, "plans") and subscription.plans:
-            # Get interval from first plan
-            plan = subscription.plans[0]
-            if plan.plan:
-                plan_doc = frappe.get_doc("Subscription Plan", plan.plan)
-                # Subscription plans typically have billing_interval field
-                if hasattr(plan_doc, "billing_interval"):
-                    if plan_doc.billing_interval == "Month":
-                        months = 1
-                    elif plan_doc.billing_interval == "Quarter":
-                        months = 3
-                    elif plan_doc.billing_interval == "Year":
-                        months = 12
-                    else:
-                        months = 1
-                else:
-                    # Default to monthly if no interval found
-                    months = 1
-            else:
-                months = 1
-        else:
-            # Default to monthly
-            months = 1
+    # Calculate amount based on billing frequency
+    monthly_amount = flt(dues_schedule.monthly_amount, 2)
+    payment_amount = monthly_amount * months
 
-        current_date = getdate(today())
-        for i in range(0, 12, months):
-            payment_date = add_months(current_date, i)
+    current_date = getdate(today())
+    for i in range(0, 12, months):
+        payment_date = add_months(current_date, i)
 
-            # Skip if payment date is in the past
-            if payment_date < getdate(today()):
-                continue
+        # Skip if payment date is in the past
+        if payment_date < getdate(today()):
+            continue
 
-            schedule.append(
-                {
-                    "date": str(payment_date),
-                    "amount": flt(membership.membership_fee, 2),
-                    "description": f'{membership.membership_type} - {"Monthly" if months == 1 else "Quarterly" if months == 3 else "Yearly"} Payment',
-                    "status": "Scheduled",
-                }
-            )
+        # Check if payment date is within schedule period
+        if dues_schedule.end_date and payment_date > getdate(dues_schedule.end_date):
+            break
+
+        schedule.append(
+            {
+                "date": str(payment_date),
+                "amount": payment_amount,
+                "description": f"{dues_schedule.contribution_mode} - {billing_frequency} Payment",
+                "status": "Scheduled",
+            }
+        )
 
     return schedule
 

@@ -35,8 +35,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                         "first_name": name.split()[0],
                         "last_name": name.split()[-1],
                         "full_name": name,
-                        "enabled": 1,
-                    }
+                        "enabled": 1}
                 )
                 user.insert(ignore_permissions=True)
 
@@ -51,8 +50,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                         "doctype": "Chapter",
                         "chapter_name": chapter_name,
                         "city": "Edge City",
-                        "enabled": enabled,
-                    }
+                        "enabled": enabled}
                 )
                 chapter.insert()
 
@@ -68,8 +66,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                         "team_name": team_name,
                         "description": f"Edge test team - {status}",
                         "chapter": cls.active_chapter,
-                        "status": status,
-                    }
+                        "status": status}
                 )
                 team.insert()
 
@@ -93,8 +90,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "last_name": "Volunteer",
                     "full_name": "Edge Volunteer",
                     "email": cls.volunteer_email,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             member.insert()
 
@@ -107,8 +103,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "volunteer_name": "Edge Volunteer",
                     "member": cls.active_member,
                     "email": cls.volunteer_email,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             volunteer.insert()
 
@@ -123,8 +118,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "last_name": "Volunteer",
                     "full_name": "Disabled Volunteer",
                     "email": cls.disabled_volunteer_email,
-                    "status": "Inactive",
-                }
+                    "status": "Inactive"}
             )
             member.insert()
 
@@ -137,8 +131,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "volunteer_name": "Disabled Volunteer",
                     "member": cls.disabled_member,
                     "email": cls.disabled_volunteer_email,
-                    "status": "Inactive",
-                }
+                    "status": "Inactive"}
             )
             volunteer.insert()
 
@@ -189,8 +182,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "volunteer": cls.active_volunteer,
                     "role_type": "Team Member",
                     "status": "Active",
-                    "joined_date": today(),
-                }
+                    "joined_date": today()}
             )
             team_member.insert()
 
@@ -207,8 +199,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "volunteer": cls.disabled_volunteer,
                     "role_type": "Team Member",
                     "status": "Inactive",
-                    "joined_date": add_days(today(), -30),
-                }
+                    "joined_date": add_days(today(), -30)}
             )
             team_member.insert()
 
@@ -225,8 +216,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                         "doctype": "Expense Category",
                         "category_name": category_name,
                         "description": "Edge test category",
-                        "is_active": 1 if disabled == 0 else 0,
-                    }
+                        "is_active": 1 if disabled == 0 else 0}
                 )
                 category.insert()
 
@@ -325,8 +315,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "amount": amount,
                     "expense_date": today(),
                     "organization_type": "Chapter",
-                    "chapter": self.active_chapter,
-                }
+                    "chapter": self.active_chapter}
 
                 result = submit_expense(expense_data)
 
@@ -367,8 +356,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "amount": 50.00,
                     "expense_date": test_date,
                     "organization_type": "Chapter",
-                    "chapter": self.active_chapter,
-                }
+                    "chapter": self.active_chapter}
 
                 result = submit_expense(expense_data)
 
@@ -399,8 +387,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
             "amount": "50.00",  # String instead of float
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.active_chapter,
-        }
+            "chapter": self.active_chapter}
 
         result = submit_expense(expense_data)
 
@@ -433,8 +420,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                 "amount": invalid_amount,
                 "expense_date": today(),
                 "organization_type": "Chapter",
-                "chapter": self.active_chapter,
-            }
+                "chapter": self.active_chapter}
 
             result = submit_expense(expense_data)
 
@@ -461,8 +447,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": self.active_chapter,
-            "notes": long_notes,
-        }
+            "notes": long_notes}
 
         result = submit_expense(expense_data)
 
@@ -494,8 +479,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "amount": 20.00 + i,
                     "expense_date": today(),
                     "organization_type": "Chapter",
-                    "chapter": self.active_chapter,
-                }
+                    "chapter": self.active_chapter}
 
                 result = submit_expense(expense_data)
 
@@ -538,8 +522,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                         "expense_date": add_days(today(), -i),
                         "organization_type": "Chapter",
                         "chapter": self.active_chapter,
-                        "status": "Approved" if i % 3 == 0 else "Submitted",
-                    }
+                        "status": "Approved" if i % 3 == 0 else "Submitted"}
                 )
                 expense.insert()
                 if i % 3 != 2:  # Submit most expenses
@@ -621,8 +604,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                 "member": self.active_member,
                 "chapter_join_date": add_days(today(), -100),
                 "chapter_leave_date": add_days(today(), -30),  # Left 30 days ago
-                "enabled": 0,
-            },
+                "enabled": 0},
         )
         expired_chapter_doc.save()
 
@@ -656,8 +638,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
             "amount": 50.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.active_chapter,
-        }
+            "chapter": self.active_chapter}
 
         result1 = submit_expense(valid_expense_data)
         self.assertTrue(result1["success"])
@@ -668,8 +649,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
             "amount": -50.00,  # Invalid negative amount
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.active_chapter,
-        }
+            "chapter": self.active_chapter}
 
         result2 = submit_expense(invalid_expense_data)
         self.assertFalse(result2["success"])
@@ -680,8 +660,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
             "amount": 75.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.active_chapter,
-        }
+            "chapter": self.active_chapter}
 
         result3 = submit_expense(recovery_expense_data)
         self.assertTrue(result3["success"])

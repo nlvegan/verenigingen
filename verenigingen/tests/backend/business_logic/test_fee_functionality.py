@@ -14,11 +14,10 @@ def test_new_member_fee_logic():
             "last_name": "NewMember" + random_string(4),
             "email": f"test.new.{random_string(6)}@example.com",
             "birth_date": "1990-01-01",
-            "membership_fee_override": 75.0,
+            "dues_rate": 75.0,
             "fee_override_reason": "Custom contribution during application",
             "status": "Pending",
-            "application_status": "Pending",
-        }
+            "application_status": "Pending"}
     )
 
     # Insert (this will trigger validation including handle_fee_override_changes)
@@ -33,7 +32,7 @@ def test_new_member_fee_logic():
     else:
         print("✅ New member correctly skips fee change tracking")
         print(f"   Member: {member.name}")
-        print(f"   Fee override: €{member.membership_fee_override}")
+        print(f"   Fee override: €{member.dues_rate}")
         return True
 
 
@@ -49,14 +48,13 @@ def test_existing_member_fee_change():
             "last_name": "ExistingMember" + random_string(4),
             "email": f"test.existing.{random_string(6)}@example.com",
             "birth_date": "1985-01-01",
-            "status": "Active",
-        }
+            "status": "Active"}
     )
     member.insert(ignore_permissions=True)
     print(f"✅ Created existing member: {member.name}")
 
     # Now update their fee (this should trigger change tracking)
-    member.membership_fee_override = 125.0
+    member.dues_rate = 125.0
     member.fee_override_reason = "Premium supporter upgrade"
     member.save(ignore_permissions=True)
 

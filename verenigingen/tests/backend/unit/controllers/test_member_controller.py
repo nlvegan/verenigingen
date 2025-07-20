@@ -54,9 +54,7 @@ class TestMemberController(VereningingenUnitTestCase):
                     "doctype": "Membership Type",
                     "membership_type_name": f"Test Membership Type {frappe.utils.random_string(8)}",
                     "amount": 100,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "currency": "EUR"}
             )
             mt.insert(ignore_permissions=True)
             self.track_doc("Membership Type", mt.name)
@@ -253,8 +251,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "membership_type": self._get_test_membership_type(),
                 "start_date": add_days(today(), -400),
                 "end_date": add_days(today(), -35),
-                "status": "Expired",
-            }
+                "status": "Expired"}
         )
         expired.insert(ignore_permissions=True)
         self.track_doc("Membership", expired.name)
@@ -270,9 +267,7 @@ class TestMemberController(VereningingenUnitTestCase):
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Active Membership",
                     "amount": 100,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "currency": "EUR"}
             )
             mt.insert(ignore_permissions=True)
             self.track_doc("Membership Type", mt.name)
@@ -285,8 +280,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "membership_type": membership_type_name,
                 "start_date": today(),
                 "renewal_date": add_days(today(), 365),
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         active.insert(ignore_permissions=True)
         self.track_doc("Membership", active.name)
@@ -309,8 +303,7 @@ class TestMemberController(VereningingenUnitTestCase):
                     "last_name": "Member",
                     "email": "test@example.com",
                     "contact_number": "+31612345678",
-                    "payment_method": "Bank Transfer",
-                }
+                    "payment_method": "Bank Transfer"}
             )
             member.insert()
 
@@ -360,8 +353,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "last_name": "Test",
                 "email": "lifecycle@test.com",
                 "contact_number": "+31612345678",
-                "payment_method": "Bank Transfer",
-            }
+                "payment_method": "Bank Transfer"}
         )
 
         # Should generate member_id before insert
@@ -398,8 +390,7 @@ class TestMemberController(VereningingenUnitTestCase):
             "street_name": "Shared Street",
             "house_number": "42",
             "postal_code": "1234",
-            "city": "Amsterdam",
-        }
+            "city": "Amsterdam"}
 
         # First member
         test_data1 = self.builder.with_member(
@@ -485,8 +476,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "membership_type": self._get_test_membership_type(),
                 "start_date": add_days(today(), -730),  # 2 years ago
                 "renewal_date": add_days(today(), -365),  # 1 year ago
-                "status": "Expired",
-            }
+                "status": "Expired"}
         )
         past_membership.insert(ignore_permissions=True)
         self.track_doc("Membership", past_membership.name)
@@ -499,8 +489,7 @@ class TestMemberController(VereningingenUnitTestCase):
                 "membership_type": self._get_test_membership_type(),
                 "start_date": add_days(today(), -180),  # 6 months ago
                 "renewal_date": add_days(today(), 185),  # 6 months future
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         current_membership.insert(ignore_permissions=True)
         self.track_doc("Membership", current_membership.name)
@@ -562,7 +551,7 @@ class TestMemberController(VereningingenUnitTestCase):
         """Test fee override permission validation"""
         # Create member with fee override
         test_data = self.builder.with_member(
-            membership_fee_override=50.00, fee_override_reason="Test discount for validation"
+            dues_rate=50.00, fee_override_reason="Test discount for validation"
         ).build()
 
         member = test_data["member"]
@@ -571,7 +560,7 @@ class TestMemberController(VereningingenUnitTestCase):
         with self.as_user("test.member@example.com"):
             # Should raise permission error
             with self.assertRaises(frappe.PermissionError):
-                member.membership_fee_override = 75.00
+                member.dues_rate = 75.00
                 member.validate_fee_override_permissions()
 
     def test_debug_methods(self):

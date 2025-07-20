@@ -292,14 +292,162 @@ CREATE INDEX idx_dues_schedule ON `tabSales Invoice` (membership_dues_schedule);
 
 ---
 
+## 8. Complete File Inventory (182 Files Found)
+
+### 8.1 Core DocTypes and Controllers (HIGH PRIORITY)
+**Files requiring immediate modification:**
+- `verenigingen/doctype/membership/membership.py` - Remove subscription creation logic
+- `verenigingen/doctype/membership/membership.json` - Clean subscription field references
+- `verenigingen/doctype/membership_type/membership_type.py` - Update subscription plan references
+- `verenigingen/doctype/membership_type/membership_type.json` - Update subscription plan field
+- `verenigingen/doctype/member/member.py` - Update fee calculation methods
+- `verenigingen/doctype/member/member.json` - Review subscription-related fields
+- `verenigingen/doctype/member/mixins/financial_mixin.py` - Update subscription references
+- `verenigingen/doctype/member/mixins/payment_mixin.py` - Update payment logic
+- `verenigingen/doctype/direct_debit_batch/direct_debit_batch.py` - Update subscription filtering
+
+### 8.2 API Endpoints (HIGH PRIORITY)
+**Files requiring modification:**
+- `verenigingen/api/enhanced_membership_application.py` - Update subscription creation
+- `verenigingen/api/membership_application_review.py` - Update approval flow
+- `verenigingen/api/payment_processing.py` - Update subscription references
+- `verenigingen/api/payment_dashboard.py` - Update subscription queries
+- `verenigingen/api/eboekhouden_clean_reimport.py` - Update subscription handling
+- `verenigingen/api/sepa_period_duplicate_prevention.py` - Update subscription logic
+- `verenigingen/api/generate_test_membership_types.py` - Update subscription plan creation
+
+### 8.3 Reports (HIGH PRIORITY)
+**Files requiring significant modification:**
+- `verenigingen/report/orphaned_subscriptions_report/orphaned_subscriptions_report.py` - REPLACE ENTIRELY
+- `verenigingen/report/orphaned_subscriptions_report/orphaned_subscriptions_report.js` - REPLACE ENTIRELY
+- `verenigingen/report/orphaned_subscriptions_report/orphaned_subscriptions_report.json` - REPLACE ENTIRELY
+- `verenigingen/report/overdue_member_payments/overdue_member_payments.py` - Remove subscription filters
+
+### 8.4 Utilities and Background Processing (HIGH PRIORITY)
+**Files requiring significant modification:**
+- `verenigingen/utils/subscription_processing.py` - DEPRECATE ENTIRELY
+- `verenigingen/utils/subscription_diagnostics.py` - DEPRECATE ENTIRELY
+- `verenigingen/utils/subscription_period_calculator.py` - DEPRECATE ENTIRELY
+- `verenigingen/utils/application_helpers.py` - Update subscription references
+- `verenigingen/utils/application_payments.py` - Update subscription creation
+- `verenigingen/utils/termination_integration.py` - Update subscription handling
+- `verenigingen/utils/termination_utils.py` - Update subscription references
+- `verenigingen/utils/performance_dashboard.py` - Update subscription metrics
+
+### 8.5 Schedulers and Background Tasks (HIGH PRIORITY)
+**Files requiring modification:**
+- `verenigingen/doctype/member/scheduler.py` - Update subscription processing
+- `verenigingen/doctype/membership/scheduler.py` - Update subscription handling
+- `hooks.py` - Update scheduled tasks for dues processing
+
+### 8.6 Monitoring and Diagnostics (MEDIUM PRIORITY)
+**Files requiring modification:**
+- `scripts/monitoring/zabbix_integration.py` - Update subscription metrics
+- `scripts/monitoring/zabbix_template_frappe_v7.2_fixed.yaml` - Update subscription monitoring
+- `verenigingen/monitoring/zabbix_integration_2.py` - Update subscription queries
+- `verenigingen/page/system_health_dashboard/system_health_dashboard.js` - Update subscription checks
+
+### 8.7 Test Files (MEDIUM PRIORITY)
+**Files requiring updates for new test patterns:**
+- `verenigingen/tests/backend/components/test_fee_override_subscription.py` - Update for dues schedules
+- `verenigingen/tests/backend/components/test_membership_application.py` - Update subscription creation tests
+- `verenigingen/tests/backend/components/test_overdue_payments_report.py` - Update subscription filtering tests
+- `verenigingen/tests/backend/unit/controllers/test_membership_controller.py` - Update subscription tests
+- `verenigingen/tests/backend/workflows/test_member_lifecycle_complete.py` - Update subscription workflow tests
+- `verenigingen/tests/backend/workflows/test_member_lifecycle_simple.py` - Update subscription workflow tests
+- `verenigingen/doctype/membership/test_membership.py` - Update subscription creation tests
+- `verenigingen/doctype/membership_type/test_membership_type.py` - Update subscription plan tests
+- `verenigingen/doctype/direct_debit_batch/test_direct_debit_batch.py` - Update subscription filtering tests
+
+### 8.8 Templates and Frontend (MEDIUM PRIORITY)
+**Files requiring updates:**
+- `verenigingen/templates/pages/enhanced_membership_application.py` - Update subscription creation
+- `verenigingen/templates/pages/enhanced_membership_application.html` - Update subscription references
+- `verenigingen/templates/pages/volunteer/expenses.py` - Update subscription references
+- `verenigingen/public/js/membership_application.js` - Update subscription handling
+- `verenigingen/public/js/member/js_modules/payment-utils.js` - Update subscription references
+- `verenigingen/public/js/member/js_modules/termination-utils.js` - Update subscription handling
+
+### 8.9 DocType Configurations (MEDIUM PRIORITY)
+**Files requiring field updates:**
+- `verenigingen/doctype/membership_termination_request/membership_termination_request.py` - Update subscription handling
+- `verenigingen/doctype/membership_termination_request/membership_termination_request.json` - Update subscription fields
+- `verenigingen/doctype/membership_amendment_request/membership_amendment_request.py` - Update subscription references
+- `verenigingen/doctype/membership_amendment_request/membership_amendment_request.json` - Update subscription fields
+- `verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.py` - Update subscription handling
+- `verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.json` - Update subscription fields
+
+### 8.10 Legacy DocTypes (LOW PRIORITY - DEPRECATE)
+**Files to be deprecated:**
+- `verenigingen/doctype/member_subscription_history/` - DEPRECATE ENTIRELY
+- `verenigingen/doctype/member_fee_change_history/` - DEPRECATE ENTIRELY
+- `verenigingen/doctype/membership/enhanced_subscription.py` - DEPRECATE ENTIRELY
+
+### 8.11 Documentation and Configuration (LOW PRIORITY)
+**Files requiring updates:**
+- `MEMBERSHIP_DUES_SYSTEM_DETAILED_PLAN_V2.md` - Update subscription references
+- `MEMBERSHIP_DUES_SYSTEM_DETAILED_PLAN.md` - Update subscription references
+- `MEMBERSHIP_DUES_SYSTEM_PLAN.md` - Update subscription references
+- `SUBSCRIPTION_STARVATION_INVESTIGATION.md` - Archive as historical reference
+- `verenigingen/fixtures/subscription_plan.json` - Update for dues schedules
+- `verenigingen/fixtures/membership_type.json` - Update subscription plan references
+- `verenigingen/fixtures/workspace.json` - Update workspace references
+- `docs/features/membership-management.md` - Update subscription documentation
+- `docs/ADMIN_GUIDE.md` - Update subscription administration
+- `README.md` - Update subscription feature descriptions
+
+### 8.12 Debug and Maintenance Scripts (LOW PRIORITY)
+**Files to be deprecated or updated:**
+- `scripts/debug/test_subscription_metrics.py` - DEPRECATE
+- `scripts/debug/subscription_diagnostic.py` - DEPRECATE
+- `scripts/debug/check_subscription_invoice_table.py` - DEPRECATE
+- `scripts/debug/simple_subscription_check.py` - DEPRECATE
+- `scripts/debug/subscription_starvation_analysis.py` - DEPRECATE
+- `scripts/debug/quick_subscription_check.py` - DEPRECATE
+- `scripts/debug/debug_subscription_starvation.py` - DEPRECATE
+- `scripts/fixes/fix_subscription_processing.py` - DEPRECATE
+- `scripts/api_maintenance/fix_subscription.py` - DEPRECATE
+- `scripts/testing/test_subscription_date_alignment.py` - DEPRECATE
+
+### 8.13 Patches and Fixes (LOW PRIORITY)
+**Files requiring review:**
+- `verenigingen/patches/fix_subscription_date_update.py` - Review for dues schedule equivalent
+- `verenigingen/setup/doctype_overrides.py` - Update subscription overrides
+
+---
+
+## 9. Migration Impact Assessment
+
+### 9.1 High Impact Changes (182 Files Total)
+- **Core Business Logic**: 25 files requiring significant rewrites
+- **API Endpoints**: 15 files requiring subscription-to-dues conversion
+- **Reports**: 4 files requiring complete replacement
+- **Background Processing**: 12 files requiring logic updates
+- **Tests**: 35+ files requiring test pattern updates
+
+### 9.2 Migration Timeline Estimate
+- **Phase 1 (Core Changes)**: 2-3 weeks (40 high-priority files)
+- **Phase 2 (API and Reports)**: 1-2 weeks (19 medium-priority files)
+- **Phase 3 (Tests and Documentation)**: 1-2 weeks (65+ low-priority files)
+- **Phase 4 (Cleanup and Deprecation)**: 1 week (58 deprecated files)
+
+### 9.3 Risk Assessment
+- **High Risk**: Core DocType changes, API modifications, background task updates
+- **Medium Risk**: Report replacements, test updates, monitoring changes
+- **Low Risk**: Documentation updates, debug script deprecation
+
+---
+
 ## Summary
 
-**Major Changes**:
-1. Replace subscription system with dues schedules
+**Major Changes** (182 files identified):
+1. Replace subscription system with dues schedules across entire codebase
 2. Update all reports to use dues instead of subscriptions
 3. Modify monitoring to track dues processing
 4. Add comprehensive access control layer
 5. Create new notification system
+6. Deprecate 58 subscription-specific files
+7. Update 124 files with subscription references
 
 **Minimal Changes**:
 1. SEPA integration (just reference updates)
@@ -310,3 +458,5 @@ CREATE INDEX idx_dues_schedule ON `tabSales Invoice` (membership_dues_schedule);
 - Keep subscription data for historical reference
 - Maintain audit trail of migration
 - Archive rather than delete old data
+
+**Scope Confirmation**: This migration affects **182 files** across the entire codebase, requiring careful planning and phased implementation to ensure system stability.

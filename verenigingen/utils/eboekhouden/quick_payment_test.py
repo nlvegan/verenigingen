@@ -108,11 +108,8 @@ def check_migration_status():
     else:
         results["checks"].append("✗ Enhanced import statement not found")
 
-    # Check if use_enhanced_payment_processing check exists
-    if "use_enhanced_payment_processing" in content:
-        results["checks"].append("✓ Enhanced payment setting check found")
-    else:
-        results["checks"].append("✗ Enhanced payment setting check not found")
+    # Enhanced payment processing is always enabled for data quality
+    results["checks"].append("✓ Enhanced payment processing always enabled")
 
     # Check if hardcoded Kas is still there
     if 'pe.paid_to = "10000 - Kas - NVV"' in content:

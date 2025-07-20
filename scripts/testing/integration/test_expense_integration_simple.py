@@ -22,8 +22,7 @@ def test_expense_integration():
         "description": "Test integration expense",
         "amount": 35.75,
         "expense_type": "Travel",
-        "notes": "Testing after account setup",
-    }
+        "notes": "Testing after account setup"}
 
     volunteer_name = "Foppe de  Haan"  # Use existing volunteer
 

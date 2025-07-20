@@ -183,14 +183,14 @@ class PerformanceDashboard:
             health["checks"]["database"] = {"status": "error", "error": str(e)}
             health["status"] = "degraded"
 
-        # Subscription processing health
+        # Dues schedule processing health (replaces subscription processing)
         try:
-            subscription_health = self._check_subscription_health()
-            health["checks"]["subscription_processing"] = subscription_health
-            if subscription_health["status"] != "ok":
+            dues_schedule_health = self._check_dues_schedule_health()
+            health["checks"]["dues_schedule_processing"] = dues_schedule_health
+            if dues_schedule_health["status"] != "ok":
                 health["status"] = "degraded" if health["status"] == "healthy" else "critical"
         except Exception as e:
-            health["checks"]["subscription_processing"] = {"status": "error", "error": str(e)}
+            health["checks"]["dues_schedule_processing"] = {"status": "error", "error": str(e)}
             health["status"] = "degraded"
 
         # Invoice generation health
@@ -401,55 +401,71 @@ class PerformanceDashboard:
 
         return suggestions
 
-    def _check_subscription_health(self) -> Dict[str, Any]:
-        """Check subscription processing health"""
+    def _check_dues_schedule_health(self) -> Dict[str, Any]:
+        """Check dues schedule processing health (replaces subscription processing)"""
         try:
-            # Check if subscription processing is working
-            if not frappe.db.exists("DocType", "Process Subscription"):
-                return {"status": "unknown", "message": "Process Subscription doctype not found"}
+            # Check if dues schedule processing is working
+            if not frappe.db.exists("DocType", "Membership Dues Schedule"):
+                return {"status": "unknown", "message": "Membership Dues Schedule doctype not found"}
 
-            # Get last subscription processing time
+            # Get last dues schedule processing time from scheduled job logs
             last_process = frappe.db.get_value(
-                "Process Subscription", filters={}, fieldname="creation", order_by="creation desc"
+                "Scheduled Job Log",
+                filters={"scheduled_job_type": ["like", "%dues_schedule%"]},
+                fieldname="creation",
+                order_by="creation desc",
             )
 
             if not last_process:
-                return {"status": "critical", "message": "No subscription processing history found"}
+                return {"status": "warning", "message": "No dues schedule processing history found"}
 
             hours_ago = (now_datetime() - get_datetime(last_process)).total_seconds() / 3600
 
-            # Get active subscriptions count
-            active_subscriptions = frappe.db.count("Subscription", {"status": "Active", "docstatus": 1})
+            # Get active dues schedules count
+            active_dues_schedules = frappe.db.count("Membership Dues Schedule", {"status": "Active"})
 
-            # Get today's subscription invoices
+            # Get today's membership invoices (linked to dues schedules)
             today_start = get_datetime().replace(hour=0, minute=0, second=0, microsecond=0)
-            subscription_invoices_today = frappe.db.count(
-                "Sales Invoice", {"creation": [">=", today_start], "subscription": ["!=", ""]}
+            dues_invoices_today = (
+                frappe.db.sql(
+                    """
+                SELECT COUNT(DISTINCT si.name)
+                FROM `tabSales Invoice` si
+                INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = (
+                    SELECT member FROM `tabMember` WHERE customer = si.customer LIMIT 1
+                )
+                WHERE si.creation >= %s
+                AND si.docstatus = 1
+                AND mds.status = 'Active'
+            """,
+                    (today_start,),
+                )[0][0]
+                or 0
             )
 
             if hours_ago > 25:  # More than 25 hours since last processing
                 return {
                     "status": "critical",
-                    "message": f"Subscription processing stopped {hours_ago:.1f} hours ago",
+                    "message": f"Dues schedule processing stopped {hours_ago:.1f} hours ago",
                     "last_processed": last_process,
-                    "active_subscriptions": active_subscriptions,
-                    "invoices_today": subscription_invoices_today,
+                    "active_dues_schedules": active_dues_schedules,
+                    "invoices_today": dues_invoices_today,
                 }
             elif hours_ago > 4:  # More than 4 hours (should process daily)
                 return {
                     "status": "warning",
-                    "message": f"Subscription processing delayed {hours_ago:.1f} hours",
+                    "message": f"Dues schedule processing delayed {hours_ago:.1f} hours",
                     "last_processed": last_process,
-                    "active_subscriptions": active_subscriptions,
-                    "invoices_today": subscription_invoices_today,
+                    "active_dues_schedules": active_dues_schedules,
+                    "invoices_today": dues_invoices_today,
                 }
             else:
                 return {
                     "status": "ok",
                     "message": f"Last processed {hours_ago:.1f} hours ago",
                     "last_processed": last_process,
-                    "active_subscriptions": active_subscriptions,
-                    "invoices_today": subscription_invoices_today,
+                    "active_dues_schedules": active_dues_schedules,
+                    "invoices_today": dues_invoices_today,
                 }
 
         except Exception as e:
@@ -462,18 +478,32 @@ class PerformanceDashboard:
 
             # Count different types of invoices today
             sales_invoices_today = frappe.db.count("Sales Invoice", {"creation": [">=", today_start]})
-            subscription_invoices_today = frappe.db.count(
-                "Sales Invoice", {"creation": [">=", today_start], "subscription": ["!=", ""]}
+            dues_invoices_today = (
+                frappe.db.sql(
+                    """
+                SELECT COUNT(DISTINCT si.name)
+                FROM `tabSales Invoice` si
+                INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = (
+                    SELECT member FROM `tabMember` WHERE customer = si.customer LIMIT 1
+                )
+                WHERE si.creation >= %s
+                AND si.docstatus = 1
+                AND mds.status = 'Active'
+            """,
+                    (today_start,),
+                )[0][0]
+                or 0
             )
+
             total_invoices_today = sales_invoices_today + frappe.db.count(
                 "Purchase Invoice", {"creation": [">=", today_start]}
             )
 
-            # Check for active subscriptions that should generate invoices
-            active_subscriptions = frappe.db.count("Subscription", {"status": "Active", "docstatus": 1})
+            # Check for active dues schedules that should generate invoices
+            active_dues_schedules = frappe.db.count("Membership Dues Schedule", {"status": "Active"})
 
             # Simple health logic
-            if active_subscriptions > 0 and subscription_invoices_today == 0:
+            if active_dues_schedules > 0 and dues_invoices_today == 0:
                 # Check if it's early in the day (before 6 AM) - might not have processed yet
                 current_hour = now_datetime().hour
                 if current_hour < 6:
@@ -481,7 +511,7 @@ class PerformanceDashboard:
                     message = f"Too early for invoicing (current hour: {current_hour})"
                 else:
                     status = "warning"
-                    message = f"No subscription invoices generated today (active subscriptions: {active_subscriptions})"
+                    message = f"No dues schedule invoices generated today (active schedules: {active_dues_schedules})"
             else:
                 status = "ok"
                 message = "Invoice generation healthy"
@@ -490,9 +520,9 @@ class PerformanceDashboard:
                 "status": status,
                 "message": message,
                 "sales_invoices_today": sales_invoices_today,
-                "subscription_invoices_today": subscription_invoices_today,
+                "dues_invoices_today": dues_invoices_today,
                 "total_invoices_today": total_invoices_today,
-                "active_subscriptions": active_subscriptions,
+                "active_dues_schedules": active_dues_schedules,
             }
 
         except Exception as e:

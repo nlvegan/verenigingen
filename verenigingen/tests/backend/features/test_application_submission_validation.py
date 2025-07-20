@@ -44,8 +44,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
             "country": "Netherlands",
             "selected_membership_type": "Maandlid",
             "interested_in_volunteering": 1,
-            "payment_method": "Bank Transfer",
-        }
+            "payment_method": "Bank Transfer"}
 
         from verenigingen.api.membership_application import submit_application
 
@@ -110,8 +109,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
                 "first_name": "Helper",
                 "last_name": "Test Member",
                 "email": "helper.test.member@example.com",
-                "application_status": "Pending",
-            }
+                "application_status": "Pending"}
         )
         member.insert(ignore_permissions=True)
         self.add_cleanup_record("Member", member.name)
@@ -150,8 +148,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
             "country": "Netherlands",
             "selected_membership_type": "Maandlid",
             "interested_in_volunteering": 0,  # No volunteer interest
-            "payment_method": "Bank Transfer",
-        }
+            "payment_method": "Bank Transfer"}
 
         from verenigingen.api.membership_application import submit_application
 
@@ -182,8 +179,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
             "country": "Netherlands",
             "selected_membership_type": "Maandlid",
             "interested_in_volunteering": 1,  # With volunteer interest
-            "payment_method": "Bank Transfer",
-        }
+            "payment_method": "Bank Transfer"}
 
         result = submit_application(data=test_data_with_volunteer)
         self.assertTrue(result.get("success"), "Application with volunteer interest should succeed")
@@ -219,8 +215,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
             "country": "Netherlands",
             "selected_membership_type": "NonexistentMembershipType",
             "interested_in_volunteering": 0,
-            "payment_method": "Bank Transfer",
-        }
+            "payment_method": "Bank Transfer"}
 
         from verenigingen.api.membership_application import submit_application
 
@@ -242,8 +237,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
             "country": "Netherlands",
             "selected_membership_type": "Maandlid",
             "interested_in_volunteering": 1,
-            "payment_method": "Bank Transfer",
-        }
+            "payment_method": "Bank Transfer"}
 
         from verenigingen.api.membership_application import submit_application
 
@@ -298,8 +292,7 @@ def run_application_submission_tests():
             "errors": len(result.errors),
             "failure_details": [f"{test}: {error}" for test, error in result.failures],
             "error_details": [f"{test}: {error}" for test, error in result.errors],
-            "message": f"Application validation tests completed: {result.testsRun} tests, {len(result.failures)} failures, {len(result.errors)} errors",
-        }
+            "message": f"Application validation tests completed: {result.testsRun} tests, {len(result.failures)} failures, {len(result.errors)} errors"}
     except Exception as e:
         return {"success": False, "error": str(e), "message": f"Test execution failed: {str(e)}"}
 

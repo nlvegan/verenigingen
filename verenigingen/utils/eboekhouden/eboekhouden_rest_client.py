@@ -273,29 +273,6 @@ class EBoekhoudenRESTClient:
 
 
 @frappe.whitelist()
-def test_rest_mutations():
-    """Test REST API mutation fetching"""
-    try:
-        client = EBoekhoudenRESTClient()
-
-        # Test getting first 10 mutations
-        result = client.get_mutations(limit=10)
-
-        if result["success"]:
-            return {
-                "success": True,
-                "message": f"Successfully fetched {result['count']} mutations",
-                "sample": result["mutations"][0] if result["mutations"] else None,
-                "has_more": result.get("has_more", False),
-            }
-        else:
-            return result
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
 def count_all_mutations():
     """Count total mutations available via REST API"""
     try:

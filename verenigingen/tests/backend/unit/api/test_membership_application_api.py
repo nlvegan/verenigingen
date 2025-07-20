@@ -46,8 +46,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
             "country": "Netherlands",
             "preferred_payment_method": "Bank Transfer",
             "newsletter_opt_in": 1,
-            "agree_to_terms": 1,
-        }
+            "agree_to_terms": 1}
 
         # Submit application
         result = membership_application.submit_application(application_data)
@@ -85,8 +84,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
             "city": "Amsterdam",
             "country": "Netherlands",
             "preferred_payment_method": "Bank Transfer",
-            "agree_to_terms": 1,
-        }
+            "agree_to_terms": 1}
 
         # Should raise validation error
         with self.assertRaises(frappe.ValidationError) as context:
@@ -108,8 +106,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
             "city": "Amsterdam",
             "country": "Netherlands",
             "preferred_payment_method": "Bank Transfer",
-            "agree_to_terms": 1,
-        }
+            "agree_to_terms": 1}
 
         # Submit application
         result = membership_application.submit_application(application_data)
@@ -129,8 +126,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
             "last_name": "Applicant",
             # "email": missing
             "contact_number": "+31612345678",
-            "agree_to_terms": 1,
-        }
+            "agree_to_terms": 1}
 
         with self.assertRaises(frappe.ValidationError) as context:
             membership_application.submit_application(application_data)
@@ -151,8 +147,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
             "city": "Amsterdam",
             "country": "Netherlands",
             "preferred_payment_method": "Bank Transfer",
-            "agree_to_terms": 1,
-        }
+            "agree_to_terms": 1}
 
         with self.assertRaises(frappe.ValidationError) as context:
             membership_application.submit_application(application_data)
@@ -188,8 +183,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
         update_data = {
             "contact_number": "+31687654321",
             "street_name": "Updated Street",
-            "house_number": "456",
-        }
+            "house_number": "456"}
 
         membership_application.update_application(member.name, update_data)
 
@@ -219,8 +213,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
             "city": "Amsterdam",
             "country": "Netherlands",
             "preferred_payment_method": "Bank Transfer",
-            "agree_to_terms": 1,
-        }
+            "agree_to_terms": 1}
 
         result = membership_application.submit_application(application_data)
 
@@ -247,8 +240,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
             "iban": "NL91ABNA0417164300",
             "bank_account_name": "SEPA Test",
             "agree_to_terms": 1,
-            "agree_to_sepa_mandate": 1,
-        }
+            "agree_to_sepa_mandate": 1}
 
         result = membership_application.submit_application(application_data)
 
@@ -275,8 +267,7 @@ class TestMembershipApplicationAPI(VereningingenUnitTestCase):
             "city": "Amsterdam",
             "country": "Netherlands",
             "preferred_payment_method": "Bank Transfer",
-            "agree_to_terms": 1,
-        }
+            "agree_to_terms": 1}
 
         # This might require parental consent or special handling
         result = membership_application.submit_application(application_data)

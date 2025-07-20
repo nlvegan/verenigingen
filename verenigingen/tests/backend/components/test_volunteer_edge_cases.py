@@ -47,8 +47,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                 "pronouns": "They/them",
                 "interested_in_volunteering": 1,
                 "volunteer_availability": "Weekly",
-                "volunteer_skills": "Programming, Event Planning",
-            }
+                "volunteer_skills": "Programming, Event Planning"}
         )
         self.test_member.insert(ignore_permissions=True)
         self.docs_to_cleanup.append(("Member", self.test_member.name))
@@ -65,8 +64,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     {
                         "doctype": "Volunteer Interest Category",
                         "category_name": category,
-                        "description": f"Test category {category}",
-                    }
+                        "description": f"Test category {category}"}
                 )
                 cat_doc.insert(ignore_permissions=True)
                 self.docs_to_cleanup.append(("Volunteer Interest Category", category))
@@ -79,8 +77,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
             "email": f"volunteer{self.test_id.lower()}@organization.org",
             "member": self.test_member.name,
             "status": "Active",
-            "start_date": today(),
-        }
+            "start_date": today()}
         defaults.update(kwargs)
 
         volunteer = frappe.get_doc(defaults)
@@ -227,8 +224,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     + " - "
                     + ["Beginner", "Basic", "Intermediate", "Advanced", "Expert"][i % 5],
                     "experience_years": i % 20,
-                    "certifications": f"Cert-{i + 1}, Advanced-{i + 1}" if i % 3 == 0 else "",
-                },
+                    "certifications": f"Cert-{i + 1}, Advanced-{i + 1}" if i % 3 == 0 else ""},
             )
 
         volunteer.save(ignore_permissions=True)
@@ -262,8 +258,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                         "volunteer_skill": skill,
                         "proficiency_level": level,
                         "experience_years": years,
-                        "certifications": certs,
-                    },
+                        "certifications": certs},
                 )
                 volunteer.save(ignore_permissions=True)
                 print(f"✅ Special skill handled: {skill[:30]}...")
@@ -305,8 +300,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "estimated_hours": (i + 1) * 10,
                     "actual_hours": (i + 1) * 8 if end_date else 0,
                     "accomplishments": f"Accomplished task {i + 1} successfully",
-                    "notes": f"Notes for assignment {i + 1}",
-                },
+                    "notes": f"Notes for assignment {i + 1}"},
             )
 
         volunteer.save(ignore_permissions=True)
@@ -324,8 +318,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                 "start_date": today(),
                 "estimated_hours": 0.1,  # Minimal hours
                 "accomplishments": "A" * 1000,  # Very long accomplishments
-                "notes": "Notes with special chars: <script>alert('test')</script>",
-            },
+                "notes": "Notes with special chars: <script>alert('test')</script>"},
             {
                 "assignment_type": "Event",
                 "role": "R" * 200,  # Very long role name
@@ -417,8 +410,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "skill": skill,
                     "current_level": current_level,
                     "target_level": target_level,
-                    "notes": f"Development plan for {skill} - step {i + 1}",
-                },
+                    "notes": f"Development plan for {skill} - step {i + 1}"},
             )
 
         volunteer.save(ignore_permissions=True)
@@ -442,14 +434,12 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                 "skill": "日本語習得 (Japanese Learning) 🇯🇵",  # Unicode and emoji
                 "current_level": "2 - Basic",
                 "target_level": "4 - Advanced",
-                "notes": "Learning Japanese for international outreach",
-            },
+                "notes": "Learning Japanese for international outreach"},
             {
                 "skill": "",  # Empty skill
                 "current_level": "3 - Intermediate",
                 "target_level": "3 - Intermediate",  # Same level
-                "notes": "",
-            },
+                "notes": ""},
         ]
 
         for goal_data in edge_case_goals:
@@ -478,8 +468,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "email": f"invalid{self.test_id.lower()}@organization.org",
                     "member": "NON-EXISTENT-MEMBER",
                     "status": "Active",
-                    "start_date": today(),
-                }
+                    "start_date": today()}
             )
             invalid_volunteer.insert(ignore_permissions=True)
             self.docs_to_cleanup.append(("Volunteer", invalid_volunteer.name))
@@ -510,8 +499,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "volunteer_name": f"No Member Test {self.test_id}",
                     "email": f"nomember{self.test_id.lower()}@organization.org",
                     "status": "Active",
-                    "start_date": today(),
-                }
+                    "start_date": today()}
             )
             volunteer_no_member.insert(ignore_permissions=True)
             self.docs_to_cleanup.append(("Volunteer", volunteer_no_member.name))
@@ -530,13 +518,11 @@ class TestVolunteerEdgeCases(FrappeTestCase):
             {
                 "start_date": add_days(today(), 10),
                 "end_date": today(),  # End before start
-                "description": "End date before start date",
-            },
+                "description": "End date before start date"},
             {
                 "start_date": add_days(today(), -10000),  # Very old start
                 "end_date": add_days(today(), 10000),  # Very far future end
-                "description": "Extreme date range",
-            },
+                "description": "Extreme date range"},
             {"start_date": None, "end_date": today(), "description": "Null start date"},
         ]
 
@@ -549,8 +535,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                         "role": f"Date Test - {scenario['description']}",
                         "start_date": scenario["start_date"],
                         "end_date": scenario["end_date"],
-                        "status": "Active",
-                    },
+                        "status": "Active"},
                 )
                 volunteer.save(ignore_permissions=True)
                 print(f"⚠️ {scenario['description']} was accepted")
@@ -625,8 +610,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "volunteer_skill": f"Skill {i + 1}",
                     "proficiency_level": f"{(i % 5) + 1} - Level {i + 1}",
                     "experience_years": i % 20,
-                    "certifications": f"Cert-{i + 1}, Advanced-{i + 1}" if i % 5 == 0 else "",
-                },
+                    "certifications": f"Cert-{i + 1}, Advanced-{i + 1}" if i % 5 == 0 else ""},
             )
 
             if i < 10:  # Limit interests to available categories
@@ -641,8 +625,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "status": "Active",
                     "estimated_hours": (i + 1) * 2,
                     "accomplishments": f"Accomplishment {i + 1} " * 10,  # Longer text
-                    "notes": f"Notes for assignment {i + 1} " * 5,
-                },
+                    "notes": f"Notes for assignment {i + 1} " * 5},
             )
 
             volunteer.append(
@@ -651,8 +634,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "skill": f"Goal Skill {i + 1}",
                     "current_level": f"{(i % 3) + 1} - Current",
                     "target_level": f"{((i % 3) + 2)} - Target",
-                    "notes": f"Development notes {i + 1} " * 3,
-                },
+                    "notes": f"Development notes {i + 1} " * 3},
             )
 
         volunteer.save(ignore_permissions=True)
@@ -709,8 +691,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
             {
                 "field": "experience_level",
                 "value": "Invalid Level",
-                "description": "Invalid experience level",
-            },
+                "description": "Invalid experience level"},
             {"field": "commitment_level", "value": "24/7", "description": "Invalid commitment level"},
             {"field": "preferred_work_style", "value": "Underwater", "description": "Invalid work style"},
             {"field": "status", "value": "Zombie", "description": "Invalid status"},
@@ -722,8 +703,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "doctype": "Volunteer",
                     "volunteer_name": f"Invalid {scenario['description']} {self.test_id}",
                     "email": f"invalid{len(self.docs_to_cleanup)}{self.test_id.lower()}@organization.org",
-                    scenario["field"]: scenario["value"],
-                }
+                    scenario["field"]: scenario["value"]}
                 invalid_volunteer = frappe.get_doc(test_data)
                 invalid_volunteer.insert(ignore_permissions=True)
                 self.docs_to_cleanup.append(("Volunteer", invalid_volunteer.name))

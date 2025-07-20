@@ -109,10 +109,7 @@ function load_membership_details(frm) {
 				// Set member details
 				frm.set_value('member', membership.member);
 
-				// Load current subscription details if exists
-				if (membership.subscription) {
-					load_subscription_details(frm, membership.subscription);
-				}
+				// Subscription system removed - using dues schedule system
 
 				// Set current amount
 				frappe.call({
@@ -129,34 +126,7 @@ function load_membership_details(frm) {
 	});
 }
 
-function load_subscription_details(frm, subscription_name) {
-	frappe.call({
-		method: 'frappe.client.get',
-		args: {
-			doctype: 'Subscription',
-			name: subscription_name
-		},
-		callback: function(r) {
-			if (r.message) {
-				const subscription = r.message;
-
-				frm.set_value('current_subscription', subscription.name);
-				frm.set_value('current_billing_interval',
-					`${subscription.billing_interval_count} ${subscription.billing_interval}(s)`);
-
-				if (subscription.plans && subscription.plans.length > 0) {
-					frm.set_value('current_plan', subscription.plans[0].plan);
-				}
-
-				// Set default effective date to next billing period
-				if (subscription.current_invoice_end && !frm.doc.effective_date) {
-					const next_billing = frappe.datetime.add_days(subscription.current_invoice_end, 1);
-					frm.set_value('effective_date', next_billing);
-				}
-			}
-		}
-	});
-}
+// Subscription loading functions removed - using dues schedule system
 
 function load_impact_preview(frm) {
 	if (!frm.doc.membership || frm.doc.amendment_type !== 'Fee Change') {

@@ -33,8 +33,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                     "name": self.test_chapter,
                     "region": "nederland",
                     "published": 1,
-                    "title": "Test Chapter for Unit Tests",
-                }
+                    "title": "Test Chapter for Unit Tests"}
             )
             chapter.insert(ignore_permissions=True)
 
@@ -90,8 +89,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
             "postal_code": "1234AB",
             "country": "Netherlands",
             "selected_membership_type": self.test_membership_type,
-            "selected_chapter": self.test_chapter,
-        }
+            "selected_chapter": self.test_chapter}
 
         # Test chapter determination
         suggested_chapter = determine_chapter_from_application(application_data)
@@ -123,8 +121,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
-                "application_status": "Pending",
-            }
+                "application_status": "Pending"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -160,8 +157,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
-                "application_status": "Pending",
-            }
+                "application_status": "Pending"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -198,8 +194,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "application_status": "Pending",
                 "application_id": f"TEST-{int(now_datetime().timestamp())}",
                 "selected_membership_type": self.test_membership_type,
-                "current_chapter_display": self.test_chapter,
-            }
+                "current_chapter_display": self.test_chapter}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -244,8 +239,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
-                "application_status": "Pending",
-            }
+                "application_status": "Pending"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -280,8 +274,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01",
                 "status": "Pending",
-                "application_status": "Pending",
-            }
+                "application_status": "Pending"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -319,8 +312,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "first_name": "Unit",
                 "last_name": "TestUser",
                 "email": self.test_member_email,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name
@@ -348,8 +340,7 @@ class TestChapterMembershipWorkflow(unittest.TestCase):
                 "first_name": "Unit",
                 "last_name": "TestUser",
                 "email": self.test_member_email,
-                "birth_date": "1990-01-01",
-            }
+                "birth_date": "1990-01-01"}
         )
         member.insert(ignore_permissions=True)
         self.test_member_name = member.name

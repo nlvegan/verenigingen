@@ -15,7 +15,7 @@ required_apps = ["erpnext", "payments", "hrms", "alyf-de/banking"]
 
 # Includes in <head>
 # ------------------
-on_app_init = ["verenigingen.setup.doctype_overrides.setup_subscription_override"]
+# Updated to use dues schedule system instead of subscription overrides
 
 # Boot session - runs when user session starts
 boot_session = "verenigingen.boot.boot_session"
@@ -52,18 +52,16 @@ doctype_js = {
 doc_events = {
     # Core membership system events
     "Membership": {
+        "validate": "verenigingen.validations.validate_membership_grace_period",
         "on_submit": "verenigingen.verenigingen.doctype.membership.membership.on_submit",
         "on_cancel": "verenigingen.verenigingen.doctype.membership.membership.on_cancel",
     },
-    "Subscription": {
-        "on_update": [
-            "verenigingen.verenigingen.doctype.membership.membership.update_membership_from_subscription",
-        ]
-    },
+    # Updated to use dues schedule system instead of subscription hooks
     "Chapter": {
         "validate": "verenigingen.verenigingen.doctype.chapter.chapter.validate_chapter_access",
     },
     "Verenigingen Settings": {
+        "validate": "verenigingen.validations.validate_verenigingen_settings",
         "on_update": "verenigingen.verenigingen.doctype.member.member_utils.sync_member_counter_with_settings",
     },
     "Payment Entry": {
@@ -134,11 +132,13 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships",
         "verenigingen.verenigingen.doctype.membership.scheduler.send_renewal_reminders",
         "verenigingen.verenigingen.doctype.membership.scheduler.process_auto_renewals",
-        "verenigingen.utils.subscription_processing.process_all_subscriptions",
+        # Updated to use dues schedule system instead
         "verenigingen.verenigingen.doctype.membership.scheduler.notify_about_orphaned_records",
         "verenigingen.api.membership_application_review.send_overdue_notifications",
         # Amendment system processing
-        "verenigingen.verenigingen.doctype.membership_amendment_request.membership_amendment_request.process_pending_amendments",
+        "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
+        # Auto-create missing dues schedules
+        "verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
         # Analytics and goals updates
         "verenigingen.verenigingen.doctype.membership_goal.membership_goal.update_all_goals",
         # Termination system maintenance
@@ -164,6 +164,10 @@ scheduler_events = {
         "verenigingen.utils.native_expense_helpers.refresh_all_expense_approvers",
         # Create daily analytics snapshots
         "verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_scheduled_snapshots",
+        # Enhanced membership dues collection processing
+        "verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor.create_monthly_dues_collection_batch",
+        # Payment plan processing
+        "verenigingen.verenigingen.doctype.payment_plan.payment_plan.process_overdue_installments",
     ],
     "hourly": [
         # Check analytics alert rules
@@ -182,7 +186,8 @@ jinja = {"methods": ["verenigingen.utils.jinja_methods"], "filters": ["verenigin
 # Installation and Migration Hooks
 # ---------------------------------
 after_migrate = [
-    "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings"
+    "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
+    "verenigingen.setup.membership_application_workflow_setup.setup_membership_application_workflow",
 ]
 
 # Portal Configuration
@@ -283,7 +288,32 @@ fixtures = [
     },
     # Workflows
     {"doctype": "Workflow", "filters": [["name", "in", ["Membership Termination Workflow"]]]},
-    {"doctype": "Workflow State", "filters": [["workflow_state_name", "in", ["Executed"]]]},
+    {
+        "doctype": "Workflow State",
+        "filters": [
+            [
+                "workflow_state_name",
+                "in",
+                [
+                    "Draft",
+                    "Pending",
+                    "Pending Verification",
+                    "Under Review",
+                    "Approved",
+                    "Rejected",
+                    "Active",
+                    "Inactive",
+                    "Completed",
+                    "Cancelled",
+                    "Expired",
+                    "Payment Pending",
+                    "Processing",
+                    "Submitted",
+                    "Executed",
+                ],
+            ]
+        ],
+    },
     {"doctype": "Workflow Action Master", "filters": [["workflow_action_name", "in", ["Execute"]]]},
     # Roles
     {
@@ -370,11 +400,7 @@ fixtures = [
         "doctype": "Item",
         "filters": [["item_code", "=", "MEMBERSHIP"]],
     },
-    # Subscription Plans
-    {
-        "doctype": "Subscription Plan",
-        "filters": [["name", "in", ["Monthly Membership Plan", "Annual Membership Plan"]]],
-    },
+    # Updated to use dues schedule system instead of subscription plans
     # Workspaces
     {
         "doctype": "Workspace",

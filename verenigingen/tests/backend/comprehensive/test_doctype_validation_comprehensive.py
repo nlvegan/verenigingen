@@ -47,8 +47,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
                             "last_name": status,
                             "status": status.strip(),
                             "available": 1,
-                            "date_joined": today(),
-                        }
+                            "date_joined": today()}
                     )
 
                     # This should not raise an exception
@@ -71,8 +70,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
                         "last_name": "Invalid",
                         "status": invalid_status,
                         "available": 1,
-                        "date_joined": today(),
-                    }
+                        "date_joined": today()}
                 )
 
                 # This should raise a validation exception
@@ -101,8 +99,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
                             "first_name": "Test",
                             "last_name": f"{status} Member",
                             "email": f"test.member.{status.lower().replace(' ', '')}@example.com",
-                            "status": status,
-                        }
+                            "status": status}
                     )
 
                     try:
@@ -127,8 +124,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
                         "first_name": "Test",
                         "last_name": f"App {app_status} Member",
                         "email": f"test.app.{app_status.lower().replace(' ', '')}@example.com",
-                        "application_status": app_status,
-                    }
+                        "application_status": app_status}
                 )
 
                 try:
@@ -149,8 +145,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
                 "first_name": "Test",
                 "last_name": "Volunteer Application",
                 "email": "test.volunteer.app@example.com",
-                "application_status": "Pending",
-            }
+                "application_status": "Pending"}
         )
         member.insert(ignore_permissions=True)
 
@@ -188,8 +183,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
             "country": "Netherlands",
             "selected_membership_type": "Maandlid",  # Use existing membership type
             "interested_in_volunteering": 1,
-            "payment_method": "Bank Transfer",
-        }
+            "payment_method": "Bank Transfer"}
 
         # Import application submission function
         from verenigingen.api.membership_application import submit_application
@@ -282,8 +276,7 @@ def run_doctype_validation_tests():
             "errors": len(result.errors),
             "failure_details": [f"{test}: {error}" for test, error in result.failures],
             "error_details": [f"{test}: {error}" for test, error in result.errors],
-            "message": f"Validation tests completed: {result.testsRun} tests, {len(result.failures)} failures, {len(result.errors)} errors",
-        }
+            "message": f"Validation tests completed: {result.testsRun} tests, {len(result.failures)} failures, {len(result.errors)} errors"}
     except Exception as e:
         return {"success": False, "error": str(e), "message": f"Test execution failed: {str(e)}"}
 

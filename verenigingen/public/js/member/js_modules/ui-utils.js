@@ -279,19 +279,22 @@ function handle_payment_method_change(frm) {
 
 function setup_iban_bic_derivation(frm) {
 	// Set up IBAN field to auto-derive BIC
-	frm.fields_dict.iban.$input.off('change.bic_derivation').on('change.bic_derivation', function() {
-		const iban = $(this).val();
-		if (iban) {
-			const derivedBic = get_bic_from_iban(iban);
-			if (derivedBic && derivedBic !== frm.doc.bic) {
-				frm.set_value('bic', derivedBic);
-				frappe.show_alert({
-					message: __('BIC automatically derived from IBAN: {0}', [derivedBic]),
-					indicator: 'green'
-				}, 3);
+	// Check if IBAN field exists and is rendered before attaching handlers
+	if (frm.fields_dict.iban && frm.fields_dict.iban.$input) {
+		frm.fields_dict.iban.$input.off('change.bic_derivation').on('change.bic_derivation', function() {
+			const iban = $(this).val();
+			if (iban) {
+				const derivedBic = get_bic_from_iban(iban);
+				if (derivedBic && derivedBic !== frm.doc.bic) {
+					frm.set_value('bic', derivedBic);
+					frappe.show_alert({
+						message: __('BIC automatically derived from IBAN: {0}', [derivedBic]),
+						indicator: 'green'
+					}, 3);
+				}
 			}
-		}
-	});
+		});
+	}
 }
 
 function get_bic_from_iban(iban) {

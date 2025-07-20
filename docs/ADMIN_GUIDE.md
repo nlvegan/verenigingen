@@ -263,14 +263,17 @@ Support for multiple payment methods:
 - Automatic renewals with SEPA mandates
 - Payment failure handling
 
-#### Subscription Overrides
-Custom subscription management system:
+#### Dues Schedule Management
+Modern dues schedule management system (replaces legacy subscription system):
 ```bash
-# Check orphaned subscriptions
-bench execute verenigingen.utils.subscription_processing.find_orphaned_subscriptions
+# Check orphaned dues schedules
+bench execute verenigingen.verenigingen.report.orphaned_subscriptions_report.orphaned_subscriptions_report.get_data
 
-# Process renewals
-bench execute verenigingen.utils.subscription_processing.process_renewals
+# Process membership renewals
+bench execute verenigingen.verenigingen.doctype.membership.membership.process_membership_statuses
+
+# Migration from legacy subscription system
+bench execute verenigingen.utils.subscription_migration.migrate_to_dues_schedule_system
 ```
 
 ### Financial Reporting
@@ -406,10 +409,13 @@ bench backup
 **Monthly**:
 ```bash
 # System optimization
-bench execute verenigingen.utils.subscription_processing.cleanup_orphaned_subscriptions
+bench execute verenigingen.verenigingen.report.orphaned_subscriptions_report.orphaned_subscriptions_report.get_data
 
 # Performance analysis
 python scripts/testing/runners/run_volunteer_portal_tests.py --suite performance
+
+# Verify subscription system migration status
+python scripts/validation/validate_subscription_migration.py
 ```
 
 #### Database Maintenance
@@ -484,6 +490,7 @@ python scripts/testing/runners/run_volunteer_portal_tests.py --suite performance
 - **Member Data**: Restore from backups
 - **Payment Data**: Reconcile with bank statements
 - **Configuration**: Redeploy role profiles and templates
+- **Migration Recovery**: Restore from pre-migration backups if dues schedule migration fails
 
 ### Monitoring and Alerting
 

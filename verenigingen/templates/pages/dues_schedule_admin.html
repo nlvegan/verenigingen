@@ -1,0 +1,203 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Dues Schedule Administration") }}{% endblock %}
+
+{% block page_content %}
+<div class="container">
+    <h1>{{ _("Dues Schedule Administration") }}</h1>
+
+    <div class="alert alert-info mb-4">
+        <i class="fa fa-info-circle"></i>
+        {{ _("This page allows administrators to manage membership dues schedules and trigger auto-creation for members missing schedules.") }}
+    </div>
+
+    <!-- Statistics Section -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h3>{{ _("Current Statistics") }}</h3>
+            <div class="row">
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ stats.total_active_members }}</h5>
+                            <p class="card-text">{{ _("Active Members") }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ stats.members_with_schedules }}</h5>
+                            <p class="card-text">{{ _("With Schedules") }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title text-danger">{{ stats.members_without_schedules }}</h5>
+                            <p class="card-text">{{ _("Missing Schedules") }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card text-center">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ stats.schedule_templates }}</h5>
+                            <p class="card-text">{{ _("Templates") }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Preview Section -->
+    {% if preview_members %}
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h3>{{ _("Members Missing Schedules (Preview)") }}</h3>
+            <p class="text-muted">{{ _("Showing first 10 members who would get schedules created") }}</p>
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>{{ _("Member") }}</th>
+                        <th>{{ _("Member Name") }}</th>
+                        <th>{{ _("Membership Type") }}</th>
+                        <th>{{ _("Expected Amount") }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for member in preview_members %}
+                    <tr>
+                        <td>{{ member.member_name }}</td>
+                        <td>{{ member.member_full_name }}</td>
+                        <td>{{ member.membership_type }}</td>
+                        <td>€{{ member.membership_type_amount or 0 }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Actions Section -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <h3>{{ _("Actions") }}</h3>
+
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">{{ _("Auto-Create Missing Schedules") }}</h5>
+                    <p class="card-text">
+                        {{ _("This will create dues schedules for all active members who have a membership type assigned but lack a billing plan.") }}
+                    </p>
+                    <p class="card-text text-muted">
+                        <i class="fa fa-clock-o"></i> {{ _("This task normally runs daily at midnight.") }}
+                    </p>
+
+                    {% if stats.members_without_schedules > 0 %}
+                    <button id="trigger-auto-creation" class="btn btn-primary">
+                        <i class="fa fa-play"></i> {{ _("Run Auto-Creation Now") }}
+                    </button>
+                    {% else %}
+                    <div class="alert alert-success">
+                        <i class="fa fa-check"></i> {{ _("All active members have dues schedules!") }}
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Section (Hidden by default) -->
+    <div id="results-section" class="row mb-4" style="display: none;">
+        <div class="col-md-12">
+            <h3>{{ _("Results") }}</h3>
+            <div id="results-content" class="alert"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    $('#trigger-auto-creation').on('click', function() {
+        var btn = $(this);
+        var originalText = btn.html();
+
+        // Disable button and show loading
+        btn.prop('disabled', true);
+        btn.html('<i class="fa fa-spinner fa-spin"></i> {{ _("Processing...") }}');
+
+        // Call the server
+        frappe.call({
+            method: 'verenigingen.templates.pages.dues_schedule_admin.trigger_auto_creation',
+            callback: function(r) {
+                // Re-enable button
+                btn.prop('disabled', false);
+                btn.html(originalText);
+
+                if (r.message && r.message.success) {
+                    // Show results
+                    $('#results-section').show();
+                    $('#results-content')
+                        .removeClass('alert-danger')
+                        .addClass('alert-success')
+                        .html('<i class="fa fa-check"></i> ' + r.message.message);
+
+                    // Reload page after 3 seconds to update statistics
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    // Show error
+                    $('#results-section').show();
+                    $('#results-content')
+                        .removeClass('alert-success')
+                        .addClass('alert-danger')
+                        .html('<i class="fa fa-exclamation-triangle"></i> {{ _("An error occurred. Please check the logs.") }}');
+                }
+            },
+            error: function(r) {
+                // Re-enable button
+                btn.prop('disabled', false);
+                btn.html(originalText);
+
+                // Show error
+                $('#results-section').show();
+                $('#results-content')
+                    .removeClass('alert-success')
+                    .addClass('alert-danger')
+                    .html('<i class="fa fa-exclamation-triangle"></i> ' + (r.message || '{{ _("An error occurred") }}'));
+            }
+        });
+    });
+});
+</script>
+
+<style>
+.card {
+    margin-bottom: 1rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+}
+
+.card-body {
+    padding: 1.25rem;
+}
+
+.card-title {
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+}
+
+.card-text {
+    margin-bottom: 0;
+}
+
+.text-center {
+    text-align: center;
+}
+</style>
+{% endblock %}

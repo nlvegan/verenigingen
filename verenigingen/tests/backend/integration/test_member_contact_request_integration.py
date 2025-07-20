@@ -30,8 +30,7 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                 "email_address": "john.doe.test@example.com",
                 "phone_number": "+31612345678",
                 "membership_status": "Active",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         self.test_member.insert(ignore_permissions=True)
 
@@ -121,8 +120,7 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                     "request_type": "Volunteer Opportunity",
                     "preferred_contact_method": "Email",
                     "urgency": "High",
-                    "created_by_portal": 1,
-                }
+                    "created_by_portal": 1}
             )
             contact_request.insert(ignore_permissions=True)
 
@@ -139,8 +137,7 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                 "subject": "Status Transition Test",
                 "message": "Testing status transitions",
                 "request_type": "Technical Support",
-                "status": "Open",
-            }
+                "status": "Open"}
         )
         contact_request.insert(ignore_permissions=True)
 
@@ -170,8 +167,7 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                 "subject": "Assignment Test",
                 "message": "Testing assignment workflow",
                 "request_type": "Complaint",
-                "urgency": "High",
-            }
+                "urgency": "High"}
         )
         contact_request.insert(ignore_permissions=True)
 
@@ -199,8 +195,7 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                     "subject": f"Test Request {i + 1}",
                     "message": f"Test message {i + 1}",
                     "request_type": "General Inquiry",
-                    "status": "Open" if i % 2 == 0 else "Resolved",
-                }
+                    "status": "Open" if i % 2 == 0 else "Resolved"}
             )
             contact_request.insert(ignore_permissions=True)
 
@@ -220,8 +215,7 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
             "request_type": "Event Information",
             "preferred_contact_method": "Phone",
             "urgency": "Normal",
-            "preferred_time": "Weekdays 9-17",
-        }
+            "preferred_time": "Weekdays 9-17"}
 
         # Mock session user as the test member
         with patch("frappe.session.user", self.test_member.email_address):
@@ -273,8 +267,7 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                 "status": "Open",
                 "request_date": add_days(today(), -2),  # 2 days ago
                 "follow_up_date": today(),  # Due today
-                "assigned_to": "Administrator",
-            }
+                "assigned_to": "Administrator"}
         )
         overdue_request.insert(ignore_permissions=True)
 
@@ -349,8 +342,7 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                     "message": "Test for analytics",
                     "request_type": req_data["request_type"],
                     "status": req_data["status"],
-                    "response_date": today() if req_data["status"] != "Open" else None,
-                }
+                    "response_date": today() if req_data["status"] != "Open" else None}
             )
             contact_request.insert(ignore_permissions=True)
 

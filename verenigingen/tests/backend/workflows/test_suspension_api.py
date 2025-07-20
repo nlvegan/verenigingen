@@ -41,8 +41,7 @@ class TestSuspensionAPI(unittest.TestCase):
         # Mock successful suspension
         mock_suspend_safe.return_value = {
             "success": True,
-            "actions_taken": ["Member status changed", "User account suspended"],
-        }
+            "actions_taken": ["Member status changed", "User account suspended"]}
 
         # Call API
         result = suspend_member(
@@ -126,8 +125,7 @@ class TestSuspensionAPI(unittest.TestCase):
         # Mock successful unsuspension
         mock_unsuspend_safe.return_value = {
             "success": True,
-            "actions_taken": ["Member status restored", "User account reactivated"],
-        }
+            "actions_taken": ["Member status restored", "User account reactivated"]}
 
         # Call API
         result = unsuspend_member(self.test_member_name, self.test_unsuspension_reason)
@@ -159,8 +157,7 @@ class TestSuspensionAPI(unittest.TestCase):
             "member_status": "Suspended",
             "user_suspended": True,
             "active_teams": 2,
-            "can_unsuspend": True,
-        }
+            "can_unsuspend": True}
         mock_get_status.return_value = expected_status
 
         # Call API

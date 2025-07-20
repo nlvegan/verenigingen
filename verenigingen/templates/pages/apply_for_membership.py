@@ -44,6 +44,15 @@ def get_context(context):
         "Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.",
     )
 
+    # Get membership types with enhanced contribution options
+    try:
+        from verenigingen.api.enhanced_membership_application import get_membership_types_for_application
+
+        context.enhanced_membership_types = get_membership_types_for_application()
+    except Exception as e:
+        frappe.log_error(f"Error loading enhanced membership types: {str(e)}")
+        context.enhanced_membership_types = []
+
     # Basic context setup
     context.already_member = False
 

@@ -565,22 +565,6 @@ def create_bank_account_record(account, bank_name, bank_info, company):
 
 
 @frappe.whitelist()
-def test_iban_extraction(account_names):
-    """
-    Test IBAN extraction from account names
-    """
-    if isinstance(account_names, str):
-        account_names = json.loads(account_names)
-
-    results = []
-    for name in account_names:
-        bank_info = extract_bank_info_from_account_name(name)
-        results.append({"input": name, "extracted": bank_info})
-
-    return {"results": results}
-
-
-@frappe.whitelist()
 def find_bank_accounts_in_coa():
     """
     Find potential bank accounts in existing Chart of Accounts
@@ -942,39 +926,6 @@ def fix_bank_account_mappings(company=None):
     except Exception as e:
         frappe.log_error(f"Bank account mapping fix error: {str(e)}", "Bank Account Mapping Fix")
         return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
-def test_enhanced_bank_detection():
-    """
-    Test the enhanced bank account detection and extraction
-    """
-    test_cases = [
-        "Triodos - 19.83.96.716 - Algemeen",
-        "ING - 123456789",
-        "Rabo - 1234.56.789 - Zakelijk",
-        "PayPal - info@veganisme.org",
-        "Triodos Spaarrekening - 1234567890",
-        "ABN AMRO - 0123456789",
-        "Triodos Spaarrekening",  # No account number
-        "Kas",  # Cash account
-        "NL91ABNA0417164300",  # Full IBAN
-        "Voorraad - Materialen",  # Not a bank account
-        "Liquide middelen - Bank",  # Generic bank
-    ]
-
-    results = []
-
-    for test_case in test_cases:
-        # Test extraction
-        bank_info = extract_bank_info_from_account_name(test_case)
-
-        # Test detection
-        is_bank = is_potential_bank_account(test_case)
-
-        results.append({"input": test_case, "is_potential_bank": is_bank, "extracted_info": bank_info})
-
-    return {"success": True, "test_results": results, "summary": "Tested {len(test_cases)} account names"}
 
 
 @frappe.whitelist()

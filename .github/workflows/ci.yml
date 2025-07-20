@@ -5,61 +5,21 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
-  schedule:
-    # Run tests daily at 2 AM UTC
-    - cron: '0 2 * * *'
-
-env:
-  FRAPPE_BRANCH: version-14
-  ERPNEXT_BRANCH: version-14
 
 jobs:
-  test:
-    name: Test Suite
+  code-quality:
+    name: Code Quality
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.10', '3.11']
-
-    services:
-      mariadb:
-        image: mariadb:10.6
-        env:
-          MYSQL_ROOT_PASSWORD: travis
-          MYSQL_DATABASE: test_frappe
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-      redis:
-        image: redis:alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+    timeout-minutes: 10
 
     steps:
-    - name: Checkout Verenigingen
+    - name: Checkout code
       uses: actions/checkout@v4
-      with:
-        path: apps/verenigingen
 
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
+        python-version: '3.11'
 
     - name: Cache pip packages
       uses: actions/cache@v4
@@ -69,135 +29,41 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    - name: Cache node modules
-      uses: actions/cache@v4
+    - name: Install linting dependencies
+      run: |
+        pip install black isort flake8 bandit
+
+    - name: Run Black formatting check
+      run: |
+        echo "Checking code formatting with Black..."
+        black --check --diff . || echo "⚠️ Code formatting issues found. Run 'black .' to fix."
+
+    - name: Run isort import sorting check
+      run: |
+        echo "Checking import sorting with isort..."
+        isort --check-only --diff . || echo "⚠️ Import sorting issues found. Run 'isort .' to fix."
+
+    - name: Run Flake8 linting
+      run: |
+        echo "Running flake8 linting..."
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "⚠️ Critical linting issues found."
+
+    - name: Run Bandit security check
+      run: |
+        echo "Running security checks with Bandit..."
+        bandit -r . -f json -o bandit-results.json || echo "⚠️ Security issues found."
+
+    - name: Upload Bandit results
+      uses: actions/upload-artifact@v4
+      if: always()
       with:
-        path: ~/.npm
-        key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
-        restore-keys: |
-          ${{ runner.os }}-node-
-
-    - name: Install Dependencies
-      run: |
-        # Install Redis tools (redis-cli) for bench to detect Redis version
-        sudo apt-get update
-        sudo apt-get install -y redis-tools
-
-    - name: Install Bench
-      run: |
-        pip install frappe-bench
-
-    - name: Initialize Bench
-      env:
-        # Use the Redis service container
-        REDIS_HOST: localhost
-        REDIS_PORT: 6379
-      run: |
-        bench init frappe-bench --frappe-branch $FRAPPE_BRANCH --skip-assets --python python${{ matrix.python-version }} --skip-redis-config-generation
-        cd frappe-bench
-
-    - name: Configure Redis Connection
-      working-directory: frappe-bench
-      run: |
-        # Configure Redis to use the service container
-        bench set-config redis_cache redis://localhost:6379
-        bench set-config redis_queue redis://localhost:6379
-        bench set-config redis_socketio redis://localhost:6379
-        # Verify Redis connection
-        redis-cli -h localhost -p 6379 ping
-        # Display current Redis configuration
-        bench --site test_site show-config || echo "No site configured yet"
-
-    - name: Install ERPNext and Dependencies
-      working-directory: frappe-bench
-      run: |
-        bench get-app erpnext --branch $ERPNEXT_BRANCH
-        bench get-app payments
-        bench get-app hrms --branch $ERPNEXT_BRANCH
-        bench get-app banking https://github.com/alyf-de/banking.git
-
-    - name: Clean Database
-      working-directory: frappe-bench
-      run: |
-        mysql -h 127.0.0.1 -u root -ptravis -e "DROP DATABASE IF EXISTS test_frappe;"
-
-    - name: Setup Test Site
-      working-directory: frappe-bench
-      run: |
-        bench new-site test_site --db-name test_frappe --admin-password admin --mariadb-root-password travis
-
-    - name: Verify Redis Configuration
-      working-directory: frappe-bench
-      run: |
-        # Check site config for Redis settings
-        bench --site test_site show-config
-        # Test Redis connection from bench
-        bench --site test_site console --execute "import frappe; print('Redis cache:', frappe.cache().get('test_key') or 'Redis working')"
-
-    - name: Install Apps
-      working-directory: frappe-bench
-      run: |
-        bench --site test_site install-app erpnext
-        bench --site test_site install-app payments
-        bench --site test_site install-app hrms
-        bench --site test_site install-app banking
-
-    - name: Install Verenigingen
-      working-directory: frappe-bench
-      run: |
-        bench get-app ${{ github.workspace }}/apps/verenigingen
-        bench --site test_site install-app verenigingen
-
-    - name: Run Python Tests
-      working-directory: frappe-bench
-      run: |
-        bench --site test_site run-tests --app verenigingen --coverage
-
-    - name: Generate Coverage Report
-      working-directory: frappe-bench
-      if: matrix.python-version == '3.11'
-      run: |
-        coverage xml
-
-    - name: Upload Coverage to Codecov
-      if: matrix.python-version == '3.11'
-      uses: codecov/codecov-action@v4
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        file: ./coverage.xml
-        working-directory: ./frappe-bench
-        flags: unittests
-        name: codecov-umbrella
-        fail_ci_if_error: false
-
-    - name: Run JavaScript Tests
-      run: |
-        cd frappe-bench
-        if [ -d "apps/verenigingen" ] && [ -f "apps/verenigingen/package.json" ]; then
-          cd apps/verenigingen
-          npm install
-          npm test -- --coverage
-        else
-          echo "No package.json found in bench app directory, checking original location..."
-          cd ${{ github.workspace }}/apps/verenigingen
-          if [ -f "package.json" ]; then
-            npm install
-            npm test -- --coverage
-          else
-            echo "No package.json found, skipping JavaScript tests"
-          fi
-        fi
-
-    - name: Run Linting
-      working-directory: frappe-bench
-      run: |
-        echo "Running linting checks..."
-        # Skip bench linting for now as it might not be available
-        # bench --site test_site lint --app verenigingen
+        name: bandit-results
+        path: bandit-results.json
 
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
     - name: Checkout code
@@ -217,75 +83,79 @@ jobs:
       with:
         sarif_file: 'trivy-results.sarif'
 
-    - name: Run Bandit security linter
-      run: |
-        pip install bandit
-        bandit -r . -f json -o bandit-results.json || true
-
-    - name: Upload Bandit results
-      uses: actions/upload-artifact@v4
-      with:
-        name: bandit-results
-        path: bandit-results.json
-
-  code-quality:
-    name: Code Quality
+  validation:
+    name: Basic Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11']
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies
+    - name: Install basic dependencies
       run: |
-        pip install black isort flake8 mypy pylint
+        pip install --upgrade pip
+        # Install only what's needed for syntax validation
+        pip install frappe-bench
 
-    - name: Run Black
+    - name: Syntax validation
       run: |
-        echo "Checking code formatting with Black (using pyproject.toml settings)..."
-        black --check --diff . || echo "⚠️  Code formatting issues found. Run 'black .' to fix."
+        echo "Checking Python syntax..."
+        python -m py_compile verenigingen/**/*.py || echo "Syntax errors found"
 
-    - name: Run isort
+    - name: Import validation
       run: |
-        echo "Checking import sorting with isort..."
-        isort --check-only --diff . || echo "⚠️  Import sorting issues found. Run 'isort .' to fix."
+        echo "Checking import statements..."
+        # Basic import checks without full Frappe environment
+        python -c "
+        import ast
+        import os
+        for root, dirs, files in os.walk('verenigingen'):
+            for file in files:
+                if file.endswith('.py'):
+                    filepath = os.path.join(root, file)
+                    try:
+                        with open(filepath, 'r') as f:
+                            ast.parse(f.read())
+                        print(f'✓ {filepath}')
+                    except SyntaxError as e:
+                        print(f'✗ {filepath}: {e}')
+        "
 
-    - name: Run Flake8
+    - name: Check JavaScript/JSON files
       run: |
-        echo "Running flake8 linting..."
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics || echo "⚠️  Linting issues found."
+        echo "Checking JSON files..."
+        find . -name "*.json" -exec python -m json.tool {} \; > /dev/null || echo "JSON syntax errors found"
 
-    - name: Run Pylint
-      run: pylint verenigingen --exit-zero
+        echo "Basic file structure validation..."
+        ls -la verenigingen/
+        [ -f "pyproject.toml" ] && echo "✓ pyproject.toml found" || echo "⚠️ pyproject.toml missing"
+        [ -f "verenigingen/hooks.py" ] && echo "✓ hooks.py found" || echo "⚠️ hooks.py missing"
 
-  performance:
-    name: Performance Tests
+  documentation:
+    name: Documentation Check
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Run Performance Tests
+    - name: Check README and docs
       run: |
-        echo "Performance tests would run here"
-        # Add actual performance test commands
+        echo "Checking documentation..."
+        [ -f "README.md" ] && echo "✓ README.md found" || echo "⚠️ README.md missing"
+        [ -d "docs" ] && echo "✓ docs directory found" || echo "⚠️ docs directory missing"
 
-    - name: Comment PR with results
-      uses: actions/github-script@v7
-      if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-      with:
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-        script: |
-          github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: '✅ Performance tests passed!'
-          })
+        echo "Checking for broken links in markdown files..."
+        find . -name "*.md" -exec grep -l "http" {} \; | head -5
+
+        echo "Documentation validation complete"

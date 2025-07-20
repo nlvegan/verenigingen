@@ -133,7 +133,7 @@ def calculate_financial_metrics(snapshot, period):
     revenue_data = frappe.db.sql(
         """
         SELECT
-            SUM(COALESCE(mem.membership_fee_override, mt.amount, 0)) as total_revenue,
+            SUM(COALESCE(mem.dues_rate, mt.amount, 0)) as total_revenue,
             COUNT(DISTINCT m.member) as member_count
         FROM `tabMembership` m
         JOIN `tabMember` mem ON m.member = mem.name
@@ -207,7 +207,7 @@ def calculate_segmentation_data(snapshot, period):
         SELECT
             ms.membership_type,
             COUNT(DISTINCT ms.member) as member_count,
-            SUM(COALESCE(m.membership_fee_override, mt.amount, 0)) as revenue
+            SUM(COALESCE(m.dues_rate, mt.amount, 0)) as revenue
         FROM `tabMembership` ms
         JOIN `tabMember` m ON ms.member = m.name
         JOIN `tabMembership Type` mt ON ms.membership_type = mt.name
@@ -263,7 +263,7 @@ def calculate_segmentation_data(snapshot, period):
         SELECT
             YEAR(member_since) as join_year,
             COUNT(*) as member_count,
-            AVG(COALESCE(membership_fee_override,
+            AVG(COALESCE(dues_rate,
                 (SELECT amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'

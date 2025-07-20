@@ -91,6 +91,104 @@ class TestPersonas:
         return test_data
 
     @staticmethod
+    def create_fee_adjuster_fiona():
+        """Create 'Fee Adjuster Fiona' - Member who adjusts fees frequently"""
+        builder = TestDataBuilder()
+
+        # Member who uses fee adjustment features
+        test_data = (
+            builder.with_chapter("Utrecht Test Chapter", postal_codes="3500-3599")
+            .with_member(
+                first_name="Fiona",
+                last_name="FeeAdjuster",
+                email="fiona.feeadjuster@test.com",
+                contact_number="+31655555555",
+                birth_date=add_days(today(), -365 * 28),  # 28 years old
+                street_name="Contributiestraat",
+                house_number="789",
+                postal_code="3512",
+                city="Utrecht",
+                country="Netherlands",
+                payment_method="SEPA Direct Debit",
+                iban="NL39RABO0300065264",
+                bank_account_name="Fiona FeeAdjuster",
+                status="Active",
+                student_status=1,  # Student for testing minimum fee rules
+            )
+            .with_membership(membership_type="Monthly Membership", payment_method="SEPA Direct Debit")
+            .build()
+        )
+
+        # Add dues schedule with custom amount
+        member = test_data["member"]
+        dues_schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "member": member.name,
+            "membership": test_data["membership"].name,
+            "membership_type": test_data["membership"].membership_type,
+            "amount": 15.00,  # Custom reduced amount,
+            "status": "Active",
+            "contribution_mode": "Custom",
+            "uses_custom_amount": 1,
+            "custom_amount_reason": "Student discount",
+            "effective_date": today()
+        })
+        dues_schedule.insert(ignore_permissions=True)
+        test_data["dues_schedule"] = dues_schedule
+
+        return test_data
+
+    @staticmethod
+    def create_type_changer_thomas():
+        """Create 'Type Changer Thomas' - Member who changes membership types"""
+        builder = TestDataBuilder()
+
+        # Member who switches between membership types
+        test_data = (
+            builder.with_chapter("Den Haag Test Chapter", postal_codes="2500-2599")
+            .with_member(
+                first_name="Thomas",
+                last_name="TypeChanger",
+                email="thomas.typechanger@test.com",
+                contact_number="+31644444444",
+                birth_date=add_days(today(), -365 * 40),  # 40 years old
+                street_name="Wisselstraat",
+                house_number="321",
+                postal_code="2512",
+                city="Den Haag",
+                country="Netherlands",
+                payment_method="Bank Transfer",
+                status="Active",
+            )
+            .with_membership(membership_type="Monthly Membership", payment_method="Bank Transfer")
+            .build()
+        )
+
+        # Add history of membership type changes
+        member = test_data["member"]
+        
+        # Create a past amendment request
+        past_request = frappe.get_doc({
+            "doctype": "Contribution Amendment Request",
+            "member": member.name,
+            "membership": test_data["membership"].name,
+            "amendment_type": "Membership Type Change",
+            "current_membership_type": "Basic Monthly",
+            "requested_membership_type": "Monthly Membership",
+            "current_amount": 10.00,
+            "requested_amount": 20.00,
+            "reason": "Upgrading to standard membership",
+            "status": "Applied",
+            "requested_by_member": 1,
+            "effective_date": add_days(today(), -90),
+            "applied_date": add_days(today(), -88)
+        })
+        past_request.insert(ignore_permissions=True)
+        test_data["past_type_change"] = past_request
+
+        return test_data
+
+    @staticmethod
     def create_volunteer_victor():
         """Create 'Volunteer Victor' - Active volunteer with expenses"""
         builder = TestDataBuilder()
@@ -309,8 +407,7 @@ class TestPersonas:
                     "member": test_data["member"].name,
                     "chapter_join_date": add_days(today(), -180),
                     "enabled": 1,
-                    "status": "Active",
-                },
+                    "status": "Active"},
             )
             rotterdam_chapter.save(ignore_permissions=True)
 
@@ -327,8 +424,7 @@ class TestPersonas:
             "suspended_susan": TestPersonas.create_suspended_susan(),
             "new_nancy": TestPersonas.create_new_member_nancy(),
             "board_bob": TestPersonas.create_board_member_bob(),
-            "multi_mary": TestPersonas.create_multi_chapter_mary(),
-        }
+            "multi_mary": TestPersonas.create_multi_chapter_mary()}
 
         return personas
 

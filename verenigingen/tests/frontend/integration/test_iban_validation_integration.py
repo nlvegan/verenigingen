@@ -127,8 +127,7 @@ class TestIBANValidationIntegration(unittest.TestCase):
             "membership_type": "Annual",
             "payment_method": "SEPA Direct Debit",
             "iban": "XX91ABNA0417164300",  # Invalid country
-            "bank_account_name": "Test Account",
-        }
+            "bank_account_name": "Test Account"}
 
         validation_result = validate_application_data(application_data)
         self.assertFalse(validation_result["valid"])

@@ -1,0 +1,1094 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Apply for Membership - Enhanced") }}{% endblock %}
+
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
+<style>
+/* Enhanced styles for contribution selection */
+.contribution-selection-container {
+    background: linear-gradient(to bottom right, #f8fafc, #f1f5f9);
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 1.5rem;
+}
+
+.contribution-mode-tabs {
+    display: flex;
+    background: #f1f5f9;
+    border-radius: 8px;
+    padding: 4px;
+    margin-bottom: 1.5rem;
+}
+
+.contribution-mode-tab {
+    flex: 1;
+    padding: 8px 16px;
+    text-align: center;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    font-weight: 500;
+    color: #64748b;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.contribution-mode-tab.active {
+    background: white;
+    color: var(--brand-primary, #cf3131);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.contribution-mode-tab:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.income-calculator-card {
+    background: linear-gradient(135deg, #f0f9ff 0%, #e0f7fa 100%);
+    border: 1px solid #0891b2;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.calculator-result {
+    background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+    border: 1px solid #16a34a;
+    border-radius: 8px;
+    padding: 1rem;
+    margin-top: 1rem;
+}
+
+.contribution-tiers {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.tier-card {
+    background: white;
+    border: 2px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    position: relative;
+}
+
+.tier-card:hover {
+    border-color: var(--brand-primary, #cf3131);
+    box-shadow: 0 4px 12px rgba(207, 49, 49, 0.1);
+    transform: translateY(-2px);
+}
+
+.tier-card.selected {
+    border-color: var(--brand-primary, #cf3131);
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+    box-shadow: 0 4px 12px rgba(207, 49, 49, 0.2);
+}
+
+.tier-card.default::before {
+    content: "Recommended";
+    position: absolute;
+    top: -8px;
+    right: 12px;
+    background: var(--brand-primary, #cf3131);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.tier-amount {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--brand-primary, #cf3131);
+    margin: 0.5rem 0;
+}
+
+.quick-amounts {
+    margin-bottom: 1.5rem;
+}
+
+.amount-buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.amount-btn {
+    background: white;
+    border: 2px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 0.75rem;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.amount-btn:hover {
+    border-color: var(--brand-primary, #cf3131);
+    background: #fef2f2;
+}
+
+.amount-btn.selected {
+    border-color: var(--brand-primary, #cf3131);
+    background: var(--brand-primary, #cf3131);
+    color: white;
+}
+
+.amount-btn.default {
+    border-color: var(--brand-secondary, #01796f);
+    background: linear-gradient(135deg, #f0fdfa 0%, #ccfbf1 100%);
+}
+
+.amount-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+}
+
+.amount-value {
+    font-size: 0.875rem;
+    font-weight: 700;
+    margin-top: 0.25rem;
+}
+
+.fee-slider-container {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.slider-wrapper {
+    margin: 1rem 0;
+}
+
+.fee-slider {
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: #e2e8f0;
+    outline: none;
+    -webkit-appearance: none;
+}
+
+.fee-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--brand-primary, #cf3131);
+    cursor: pointer;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.fee-slider::-moz-range-thumb {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--brand-primary, #cf3131);
+    cursor: pointer;
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.selected-amount-display {
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 2px solid var(--brand-primary, #cf3131);
+    border-radius: 8px;
+    padding: 1.5rem;
+    text-align: center;
+    margin-top: 1.5rem;
+}
+
+.selected-amount-display .amount-display {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.selected-amount-display .selected-amount {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--brand-primary, #cf3131);
+}
+
+.selected-amount-display .frequency {
+    font-size: 1rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+.contribution-info {
+    background: #f8fafc;
+    border-left: 4px solid var(--brand-secondary, #01796f);
+    padding: 1rem;
+    margin-top: 1rem;
+    border-radius: 0 6px 6px 0;
+}
+
+.membership-type-card {
+    background: white;
+    border: 2px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    transition: all 0.3s ease;
+}
+
+.membership-type-card:hover {
+    border-color: var(--brand-primary, #cf3131);
+    box-shadow: 0 4px 20px rgba(207, 49, 49, 0.1);
+}
+
+.membership-type-card.selected {
+    border-color: var(--brand-primary, #cf3131);
+    background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
+{% endblock %}
+
+{% block page_content %}
+<div class="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 py-8">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+
+        <!-- Organization Logo & Header -->
+        {% if organization_logo %}
+        <div class="organization-logo animate-fade-in">
+            <img src="{{ organization_logo }}" alt="Organization Logo" class="logo-img">
+        </div>
+        {% endif %}
+
+        <div class="page-header animate-slide-up">
+            <h1 class="page-title">{{ _("Become a Member") }}</h1>
+            <p class="page-subtitle">{{ _("Join our association with flexible contribution options that work for your budget!") }}</p>
+        </div>
+
+        <!-- Progress Indicator -->
+        <div class="progress-container animate-slide-up">
+            <div class="progress-bar-container">
+                <div class="progress-bar" style="width: 16.67%" id="form-progress"></div>
+            </div>
+            <div class="progress-steps">
+                <span class="progress-step active" data-step="1">{{ _("Personal Info") }}</span>
+                <span class="progress-step" data-step="2">{{ _("Address") }}</span>
+                <span class="progress-step" data-step="3">{{ _("Contribution") }}</span>
+                <span class="progress-step" data-step="4">{{ _("Volunteer") }}</span>
+                <span class="progress-step" data-step="5">{{ _("Payment") }}</span>
+                <span class="progress-step" data-step="6">{{ _("Confirm") }}</span>
+            </div>
+        </div>
+
+        <!-- Multi-Step Form -->
+        <form id="enhanced-membership-form" class="space-y-6" onsubmit="return false;">
+
+            <!-- Step 1: Personal Information (same as original) -->
+            <div class="form-step active" data-step="1">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Personal Information") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="input-group">
+                                <label for="first_name" class="input-label required">{{ _("First Name") }}</label>
+                                <input type="text" class="form-input" id="first_name" name="first_name" required>
+                            </div>
+                            <div class="input-group">
+                                <label for="middle_name" class="input-label">{{ _("Middle Name") }}</label>
+                                <input type="text" class="form-input" id="middle_name" name="middle_name">
+                            </div>
+                            <div class="input-group">
+                                <label for="last_name" class="input-label required">{{ _("Last Name") }}</label>
+                                <input type="text" class="form-input" id="last_name" name="last_name" required>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="input-group">
+                                <label for="email" class="input-label required">{{ _("Email Address") }}</label>
+                                <input type="email" class="form-input" id="email" name="email" required>
+                            </div>
+                            <div class="input-group">
+                                <label for="mobile_no" class="input-label">{{ _("Mobile Number") }}</label>
+                                <input type="tel" class="form-input" id="mobile_no" name="mobile_no">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2: Address Information (same as original) -->
+            <div class="form-step" data-step="2">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Address Information") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="input-group">
+                            <label for="address_line1" class="input-label required">{{ _("Street Address") }}</label>
+                            <input type="text" class="form-input" id="address_line1" name="address_line1" required>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div class="input-group">
+                                <label for="postal_code" class="input-label required">{{ _("Postal Code") }}</label>
+                                <input type="text" class="form-input" id="postal_code" name="postal_code" required>
+                            </div>
+                            <div class="input-group">
+                                <label for="city" class="input-label required">{{ _("City") }}</label>
+                                <input type="text" class="form-input" id="city" name="city" required>
+                            </div>
+                            <div class="input-group">
+                                <label for="country" class="input-label required">{{ _("Country") }}</label>
+                                <select class="form-input" id="country" name="country" required>
+                                    <option value="">{{ _("Select country") }}</option>
+                                    <option value="Netherlands">{{ _("Netherlands") }}</option>
+                                    <option value="Belgium">{{ _("Belgium") }}</option>
+                                    <option value="Germany">{{ _("Germany") }}</option>
+                                    <option value="Other">{{ _("Other") }}</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3: Enhanced Contribution Selection -->
+            <div class="form-step" data-step="3">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Choose Your Membership & Contribution") }}</h3>
+                        <p class="text-sm text-gray-600 mt-2">{{ _("Select a membership type and set your contribution amount using our flexible options.") }}</p>
+                    </div>
+                    <div class="form-body">
+
+                        <!-- Membership Type Selection -->
+                        <div class="mb-6">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Membership Type") }}</h4>
+                            <div id="membership-types-enhanced" class="space-y-4">
+                                {% for mt in membership_types %}
+                                <div class="membership-type-card" data-membership-type="{{ mt.name }}" data-contribution-options="{{ mt.contribution_options|tojson|e }}">
+                                    <div class="flex items-start justify-between">
+                                        <div class="flex-1">
+                                            <h5 class="text-lg font-semibold text-gray-900">{{ mt.membership_type_name }}</h5>
+                                            <p class="text-sm text-gray-600 mt-1">{{ mt.description }}</p>
+                                            <div class="flex items-center mt-2 space-x-4">
+                                                <span class="text-sm text-gray-500">{{ _("Period:") }} {{ mt.billing_period }}</span>
+                                                <span class="text-sm text-gray-500">{{ _("Standard:") }} €{{ mt.amount }}</span>
+                                            </div>
+                                        </div>
+                                        <div class="flex-shrink-0 ml-4">
+                                            <div class="w-6 h-6 border-2 border-gray-300 rounded-full membership-type-radio"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            <input type="hidden" id="selected_membership_type" name="membership_type" required>
+                        </div>
+
+                        <!-- Flexible Contribution Selection (Hidden by default) -->
+                        <div id="contribution-selection" class="contribution-selection-container" style="display: none;">
+                            <h4 class="text-lg font-semibold text-gray-800 mb-4">{{ _("Choose Your Contribution") }}</h4>
+
+                            <!-- Contribution Mode Tabs -->
+                            <div class="contribution-mode-tabs" id="contribution-mode-tabs">
+                                <button type="button" class="contribution-mode-tab active" data-mode="calculator">
+                                    {{ _("Calculator") }}
+                                </button>
+                                <button type="button" class="contribution-mode-tab" data-mode="quick">
+                                    {{ _("Quick Select") }}
+                                </button>
+                                <button type="button" class="contribution-mode-tab" data-mode="custom">
+                                    {{ _("Custom") }}
+                                </button>
+                            </div>
+
+                            <!-- Income Calculator Mode -->
+                            <div id="contribution-calculator-mode" class="contribution-mode-content">
+                                <div class="income-calculator-card">
+                                    <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Contribution Calculator") }}</h5>
+                                    <p id="calculator-description" class="text-sm text-gray-600 mb-4"></p>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                        <div class="input-group">
+                                            <label for="calc-monthly-income" class="input-label">{{ _("Monthly Net Income (€)") }}</label>
+                                            <input type="number" class="form-input" id="calc-monthly-income"
+                                                   placeholder="3500" min="0" step="0.01">
+                                        </div>
+                                        <div class="input-group">
+                                            <label for="calc-payment-interval" class="input-label">{{ _("Payment Frequency") }}</label>
+                                            <select class="form-input" id="calc-payment-interval">
+                                                <option value="monthly">{{ _("Monthly") }}</option>
+                                                <option value="quarterly">{{ _("Quarterly") }}</option>
+                                                <option value="annually">{{ _("Annually") }}</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="calculator-result" id="calc-result" style="display: none;">
+                                        <p class="text-sm font-medium mb-1">{{ _("Suggested Contribution:") }}</p>
+                                        <p class="text-lg font-bold">
+                                            <span id="calc-suggested-amount"></span>
+                                            <span id="calc-payment-frequency"></span>
+                                        </p>
+                                        <p class="text-xs text-green-600 mt-1">
+                                            {{ _("Based on") }} <span id="calc-income-percentage"></span> {{ _("of your monthly income") }}
+                                        </p>
+                                        <button type="button" class="mt-3 bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-md transition-colors duration-200" id="use-calculated-amount">
+                                            {{ _("Use This Amount") }}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Quick Select Mode -->
+                            <div id="contribution-quick-mode" class="contribution-mode-content" style="display: none;">
+                                <div class="quick-amounts">
+                                    <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Quick Selection") }}</h5>
+                                    <div class="amount-buttons" id="quick-amount-buttons">
+                                        <!-- Quick amount buttons will be populated by JavaScript -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Custom Amount Mode -->
+                            <div id="contribution-custom-mode" class="contribution-mode-content" style="display: none;">
+                                <div class="fee-slider-container">
+                                    <h5 class="text-lg font-semibold text-gray-800 mb-3">{{ _("Custom Amount") }}</h5>
+
+                                    <div class="slider-wrapper">
+                                        <input type="range" id="fee-slider" class="fee-slider"
+                                               min="5" max="150" step="0.50" value="15">
+                                    </div>
+
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div class="input-group">
+                                            <label for="custom-amount" class="input-label">{{ _("Amount (€)") }}</label>
+                                            <input type="number" id="custom-amount" class="form-input"
+                                                   min="5" step="0.50" value="15">
+                                        </div>
+                                        <div class="input-group">
+                                            <label for="custom-amount-reason" class="input-label">{{ _("Reason (Optional)") }}</label>
+                                            <input type="text" id="custom-amount-reason" class="form-input"
+                                                   placeholder="{{ _('Why this amount?') }}">
+                                        </div>
+                                    </div>
+
+                                    <div class="contribution-info" id="contribution-constraints">
+                                        <p class="text-sm">
+                                            <strong>{{ _("Minimum:") }}</strong> <span id="min-amount">€5.00</span> |
+                                            <strong>{{ _("Suggested:") }}</strong> <span id="suggested-amount">€15.00</span>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Selected Amount Display -->
+                            <div class="selected-amount-display">
+                                <h4 class="text-lg font-semibold text-gray-800 mb-2">{{ _("Your Contribution") }}</h4>
+                                <div class="amount-display">
+                                    <span class="selected-amount">€<span id="selected-amount-value">15.00</span></span>
+                                    <span class="frequency" id="selected-frequency">{{ _("per month") }}</span>
+                                </div>
+                                <div id="contribution-summary" class="text-sm text-gray-600 mt-2">
+                                    <!-- Summary will be populated by JavaScript -->
+                                </div>
+                            </div>
+
+                            <input type="hidden" id="final_contribution_amount" name="contribution_amount" required>
+                            <input type="hidden" id="contribution_mode" name="contribution_mode">
+                            <input type="hidden" id="selected_tier" name="selected_tier">
+                            <input type="hidden" id="base_multiplier" name="base_multiplier">
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4: Volunteer Information (same as original) -->
+            <div class="form-step" data-step="4">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Volunteer Interests") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="input-group">
+                            <div class="flex items-center space-x-3 mb-4">
+                                <input type="checkbox" id="interested_in_volunteering" name="interested_in_volunteering" class="form-input w-auto">
+                                <label for="interested_in_volunteering" class="input-label">
+                                    {{ _("I'm interested in volunteering with the association") }}
+                                </label>
+                            </div>
+                        </div>
+                        <!-- Volunteer details would go here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 5: Payment Information -->
+            <div class="form-step" data-step="5">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Payment Information") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="alert-success mb-6">
+                            <p class="font-medium mb-2">{{ _("Contribution Summary") }}</p>
+                            <p class="text-sm" id="payment-summary">{{ _("Your contribution details will be displayed here.") }}</p>
+                        </div>
+
+                        <div class="input-group">
+                            <label class="input-label required">{{ _("Payment Method") }}</label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3">
+                                <label class="flex items-center space-x-3 cursor-pointer">
+                                    <input type="radio" name="payment_method" value="sepa_direct_debit" class="form-input w-auto" required>
+                                    <span>{{ _("SEPA Direct Debit") }}</span>
+                                </label>
+                                <label class="flex items-center space-x-3 cursor-pointer">
+                                    <input type="radio" name="payment_method" value="bank_transfer" class="form-input w-auto" required>
+                                    <span>{{ _("Bank Transfer") }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="input-group" id="bank-details">
+                            <label for="iban" class="input-label required">{{ _("IBAN") }}</label>
+                            <input type="text" class="form-input" id="iban" name="iban"
+                                   placeholder="{{ _('NL00 BANK 0000 0000 00') }}">
+
+                            <div class="input-group mt-4">
+                                <label for="account_holder_name" class="input-label required">{{ _("Account Holder Name") }}</label>
+                                <input type="text" class="form-input" id="account_holder_name" name="account_holder_name">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 6: Confirmation -->
+            <div class="form-step" data-step="6">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Confirm Your Application") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <div class="alert-success mb-6">
+                            <p class="font-medium">{{ _("Please review your information before submitting.") }}</p>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-3">{{ _("Personal Information") }}</h4>
+                                <div class="space-y-2 text-sm">
+                                    <p><span class="font-medium">{{ _("Name") }}:</span> <span id="confirm-name"></span></p>
+                                    <p><span class="font-medium">{{ _("Email") }}:</span> <span id="confirm-email"></span></p>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 class="font-semibold text-gray-900 mb-3">{{ _("Contribution") }}</h4>
+                                <div class="space-y-2 text-sm">
+                                    <p><span class="font-medium">{{ _("Amount") }}:</span> <span id="confirm-contribution-amount"></span></p>
+                                    <p><span class="font-medium">{{ _("Method") }}:</span> <span id="confirm-contribution-mode"></span></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="input-group mt-6">
+                            <label class="flex items-center space-x-3">
+                                <input type="checkbox" name="terms_accepted" class="form-input w-auto" required>
+                                <span class="text-sm">{{ _("I agree to the membership terms and conditions") }}</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div class="flex justify-between pt-6">
+                <button type="button" class="btn-secondary hidden" id="btn-prev">
+                    ← {{ _("Previous") }}
+                </button>
+                <div class="ml-auto">
+                    <button type="button" class="btn-primary" id="btn-next">
+                        {{ _("Next") }} →
+                    </button>
+                    <button type="submit" class="btn-success hidden" id="btn-submit">
+                        {{ _("Submit Application") }}
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Success Message -->
+        <div class="hidden" id="success-message">
+            <div class="alert-success text-center">
+                <div class="text-2xl mb-4">🎉</div>
+                <h3 class="text-xl font-semibold mb-2">{{ _("Application Submitted Successfully!") }}</h3>
+                <p class="mb-4">{{ _("Thank you for joining us with your flexible contribution!") }}</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block script %}
+<script>
+// Enhanced membership application with flexible contribution system
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Initializing enhanced membership application...');
+
+    // Initialize the enhanced application
+    const app = new EnhancedMembershipApplication();
+    window.enhancedApp = app; // For debugging
+});
+
+class EnhancedMembershipApplication {
+    constructor() {
+        this.currentStep = 1;
+        this.maxSteps = 6;
+        this.selectedMembershipType = null;
+        this.contributionOptions = null;
+        this.selectedAmount = 15.00;
+        this.selectedMode = 'calculator';
+
+        this.init();
+    }
+
+    init() {
+        this.setupEventListeners();
+        this.setupMembershipTypeSelection();
+        this.setupContributionSystem();
+        this.updateProgress();
+    }
+
+    setupEventListeners() {
+        // Navigation buttons
+        document.getElementById('btn-next').addEventListener('click', () => this.nextStep());
+        document.getElementById('btn-prev').addEventListener('click', () => this.prevStep());
+        document.getElementById('btn-submit').addEventListener('click', () => this.submitForm());
+    }
+
+    setupMembershipTypeSelection() {
+        const membershipCards = document.querySelectorAll('.membership-type-card');
+
+        membershipCards.forEach(card => {
+            card.addEventListener('click', () => {
+                // Remove previous selection
+                membershipCards.forEach(c => {
+                    c.classList.remove('selected');
+                    c.querySelector('.membership-type-radio').style.backgroundColor = '';
+                    c.querySelector('.membership-type-radio').style.borderColor = '#d1d5db';
+                });
+
+                // Select current card
+                card.classList.add('selected');
+                const radio = card.querySelector('.membership-type-radio');
+                radio.style.backgroundColor = 'var(--brand-primary, #cf3131)';
+                radio.style.borderColor = 'var(--brand-primary, #cf3131)';
+
+                // Store selection
+                this.selectedMembershipType = card.dataset.membershipType;
+                this.contributionOptions = JSON.parse(card.dataset.contributionOptions);
+
+                document.getElementById('selected_membership_type').value = this.selectedMembershipType;
+
+                // Show contribution selection
+                this.showContributionSelection();
+            });
+        });
+    }
+
+    showContributionSelection() {
+        const contributionSection = document.getElementById('contribution-selection');
+        contributionSection.style.display = 'block';
+        contributionSection.classList.add('fade-in');
+
+        this.updateContributionOptions();
+        this.setupContributionModes();
+    }
+
+    updateContributionOptions() {
+        if (!this.contributionOptions) return;
+
+        // Update calculator description
+        const calcDesc = document.getElementById('calculator-description');
+        if (calcDesc && this.contributionOptions.calculator) {
+            calcDesc.textContent = this.contributionOptions.calculator.description ||
+                                 'Calculate your contribution based on income';
+        }
+
+        // Update constraints
+        const minAmountSpan = document.getElementById('min-amount');
+        const suggestedAmountSpan = document.getElementById('suggested-amount');
+
+        if (minAmountSpan) minAmountSpan.textContent = `€${this.contributionOptions.minimum.toFixed(2)}`;
+        if (suggestedAmountSpan) suggestedAmountSpan.textContent = `€${this.contributionOptions.suggested.toFixed(2)}`;
+
+        // Update slider
+        const slider = document.getElementById('fee-slider');
+        const customAmount = document.getElementById('custom-amount');
+
+        if (slider && this.contributionOptions) {
+            slider.min = this.contributionOptions.minimum;
+            slider.max = this.contributionOptions.maximum;
+            slider.value = this.contributionOptions.suggested;
+        }
+
+        if (customAmount) {
+            customAmount.min = this.contributionOptions.minimum;
+            customAmount.value = this.contributionOptions.suggested;
+        }
+
+        this.selectedAmount = this.contributionOptions.suggested;
+        this.updateSelectedAmountDisplay();
+
+        // Generate quick amounts if available
+        this.generateQuickAmounts();
+    }
+
+    generateQuickAmounts() {
+        const quickAmountButtons = document.getElementById('quick-amount-buttons');
+        if (!quickAmountButtons || !this.contributionOptions.quick_amounts) return;
+
+        quickAmountButtons.innerHTML = '';
+
+        this.contributionOptions.quick_amounts.forEach(amount => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `amount-btn ${amount.is_default ? 'default' : ''}`;
+            button.dataset.amount = amount.amount;
+            button.dataset.multiplier = amount.multiplier;
+
+            button.innerHTML = `
+                <span class="amount-label">${amount.label}</span>
+                <span class="amount-value">€${amount.amount.toFixed(2)}</span>
+            `;
+
+            button.addEventListener('click', () => {
+                this.selectQuickAmount(button, amount.amount);
+            });
+
+            quickAmountButtons.appendChild(button);
+        });
+    }
+
+    selectQuickAmount(button, amount) {
+        // Remove previous selection
+        document.querySelectorAll('.amount-btn').forEach(btn => {
+            btn.classList.remove('selected');
+        });
+
+        // Select current button
+        button.classList.add('selected');
+
+        this.selectedAmount = amount;
+        this.updateSelectedAmountDisplay();
+    }
+
+    setupContributionSystem() {
+        // Contribution mode tabs
+        const modeTabs = document.querySelectorAll('.contribution-mode-tab');
+        const modeContents = document.querySelectorAll('.contribution-mode-content');
+
+        modeTabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const mode = tab.dataset.mode;
+
+                // Update tabs
+                modeTabs.forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                // Update content
+                modeContents.forEach(content => {
+                    content.style.display = 'none';
+                });
+
+                const targetContent = document.getElementById(`contribution-${mode}-mode`);
+                if (targetContent) {
+                    targetContent.style.display = 'block';
+                    targetContent.classList.add('fade-in');
+                }
+
+                this.selectedMode = mode;
+                document.getElementById('contribution_mode').value = mode;
+            });
+        });
+
+        // Income calculator
+        this.setupIncomeCalculator();
+
+        // Custom amount slider
+        this.setupCustomAmountControls();
+    }
+
+    setupIncomeCalculator() {
+        const incomeInput = document.getElementById('calc-monthly-income');
+        const intervalSelect = document.getElementById('calc-payment-interval');
+        const resultDiv = document.getElementById('calc-result');
+        const useButton = document.getElementById('use-calculated-amount');
+
+        const calculate = () => {
+            const income = parseFloat(incomeInput.value) || 0;
+            const interval = intervalSelect.value;
+
+            if (income > 0 && this.contributionOptions) {
+                const percentage = this.contributionOptions.calculator.percentage || 0.5;
+                const baseAmount = income * (percentage / 100);
+
+                let finalAmount = baseAmount;
+                let frequencyText = 'per month';
+
+                if (interval === 'quarterly') {
+                    finalAmount = baseAmount * 3;
+                    frequencyText = 'per quarter';
+                } else if (interval === 'annually') {
+                    finalAmount = baseAmount * 12;
+                    frequencyText = 'per year';
+                }
+
+                // Ensure minimum
+                finalAmount = Math.max(finalAmount, this.contributionOptions.minimum);
+
+                document.getElementById('calc-suggested-amount').textContent = `€${finalAmount.toFixed(2)}`;
+                document.getElementById('calc-payment-frequency').textContent = frequencyText;
+                document.getElementById('calc-income-percentage').textContent = `${percentage}%`;
+
+                resultDiv.style.display = 'block';
+
+                useButton.onclick = () => {
+                    this.selectedAmount = finalAmount;
+                    this.updateSelectedAmountDisplay();
+                };
+            } else {
+                resultDiv.style.display = 'none';
+            }
+        };
+
+        if (incomeInput) incomeInput.addEventListener('input', calculate);
+        if (intervalSelect) intervalSelect.addEventListener('change', calculate);
+    }
+
+    setupCustomAmountControls() {
+        const slider = document.getElementById('fee-slider');
+        const input = document.getElementById('custom-amount');
+
+        if (slider && input) {
+            const updateAmount = (value) => {
+                const amount = parseFloat(value);
+                if (!isNaN(amount)) {
+                    slider.value = amount;
+                    input.value = amount;
+                    this.selectedAmount = amount;
+                    this.updateSelectedAmountDisplay();
+                }
+            };
+
+            slider.addEventListener('input', (e) => updateAmount(e.target.value));
+            input.addEventListener('input', (e) => updateAmount(e.target.value));
+        }
+    }
+
+    updateSelectedAmountDisplay() {
+        const amountSpan = document.getElementById('selected-amount-value');
+        const summaryDiv = document.getElementById('contribution-summary');
+
+        if (amountSpan) {
+            amountSpan.textContent = this.selectedAmount.toFixed(2);
+        }
+
+        if (summaryDiv) {
+            summaryDiv.innerHTML = this.generateContributionSummary();
+        }
+
+        // Update hidden field
+        document.getElementById('final_contribution_amount').value = this.selectedAmount;
+    }
+
+    generateContributionSummary() {
+        if (!this.contributionOptions) return '';
+
+        let summary = '';
+
+        if (this.selectedAmount === this.contributionOptions.suggested) {
+            summary = 'Suggested amount';
+        } else if (this.selectedAmount < this.contributionOptions.suggested) {
+            summary = 'Below suggested amount';
+        } else {
+            summary = 'Above suggested amount';
+        }
+
+        if (this.selectedMode === 'calculator') {
+            summary += ' (Income-based)';
+        } else if (this.selectedMode === 'custom') {
+            summary += ' (Custom)';
+        }
+
+        return summary;
+    }
+
+    nextStep() {
+        if (this.validateCurrentStep()) {
+            if (this.currentStep < this.maxSteps) {
+                this.currentStep++;
+                this.updateStepDisplay();
+                this.updateProgress();
+                this.updateButtonStates();
+            }
+        }
+    }
+
+    prevStep() {
+        if (this.currentStep > 1) {
+            this.currentStep--;
+            this.updateStepDisplay();
+            this.updateProgress();
+            this.updateButtonStates();
+        }
+    }
+
+    updateStepDisplay() {
+        // Hide all steps
+        document.querySelectorAll('.form-step').forEach(step => {
+            step.classList.remove('active');
+        });
+
+        // Show current step
+        const currentStepEl = document.querySelector(`[data-step="${this.currentStep}"]`);
+        if (currentStepEl) {
+            currentStepEl.classList.add('active');
+        }
+
+        // Update progress steps
+        document.querySelectorAll('.progress-step').forEach((step, index) => {
+            if (index + 1 <= this.currentStep) {
+                step.classList.add('active');
+            } else {
+                step.classList.remove('active');
+            }
+        });
+    }
+
+    updateProgress() {
+        const progressBar = document.getElementById('form-progress');
+        const percentage = (this.currentStep / this.maxSteps) * 100;
+        if (progressBar) {
+            progressBar.style.width = `${percentage}%`;
+        }
+    }
+
+    updateButtonStates() {
+        const prevBtn = document.getElementById('btn-prev');
+        const nextBtn = document.getElementById('btn-next');
+        const submitBtn = document.getElementById('btn-submit');
+
+        // Previous button
+        if (this.currentStep > 1) {
+            prevBtn.classList.remove('hidden');
+        } else {
+            prevBtn.classList.add('hidden');
+        }
+
+        // Next/Submit buttons
+        if (this.currentStep === this.maxSteps) {
+            nextBtn.classList.add('hidden');
+            submitBtn.classList.remove('hidden');
+        } else {
+            nextBtn.classList.remove('hidden');
+            submitBtn.classList.add('hidden');
+        }
+    }
+
+    validateCurrentStep() {
+        // Basic validation for each step
+        if (this.currentStep === 1) {
+            const required = ['first_name', 'last_name', 'email'];
+            return required.every(field => document.getElementById(field).value.trim());
+        } else if (this.currentStep === 2) {
+            const required = ['address_line1', 'postal_code', 'city', 'country'];
+            return required.every(field => document.getElementById(field).value.trim());
+        } else if (this.currentStep === 3) {
+            return this.selectedMembershipType && this.selectedAmount > 0;
+        }
+
+        return true;
+    }
+
+    submitForm() {
+        if (this.validateCurrentStep()) {
+            // Collect form data
+            const formData = this.collectFormData();
+
+            // Submit via API
+            this.submitApplication(formData);
+        }
+    }
+
+    collectFormData() {
+        const form = document.getElementById('enhanced-membership-form');
+        const formData = new FormData(form);
+
+        // Add computed fields
+        formData.append('membership_type', this.selectedMembershipType);
+        formData.append('contribution_amount', this.selectedAmount);
+        formData.append('contribution_mode', this.selectedMode);
+
+        return formData;
+    }
+
+    async submitApplication(formData) {
+        try {
+            const response = await fetch('/api/method/verenigingen.api.membership_application.submit_enhanced_application', {
+                method: 'POST',
+                body: formData
+            });
+
+            const result = await response.json();
+
+            if (result.message && result.message.success) {
+                this.showSuccessMessage();
+            } else {
+                this.showError('Submission failed. Please try again.');
+            }
+        } catch (error) {
+            console.error('Submission error:', error);
+            this.showError('An error occurred. Please try again.');
+        }
+    }
+
+    showSuccessMessage() {
+        document.getElementById('enhanced-membership-form').style.display = 'none';
+        document.getElementById('success-message').classList.remove('hidden');
+    }
+
+    showError(message) {
+        alert(message); // Simple error handling for now
+    }
+}
+</script>
+{% endblock %}

@@ -43,6 +43,13 @@ def execute(filters=None):
         {"fieldname": "full_name", "label": "Full Name", "fieldtype": "Data", "width": 180},
         {"fieldname": "email", "label": "Email", "fieldtype": "Data", "width": 180},
         {"fieldname": "status", "label": "Status", "fieldtype": "Data", "width": 100},
+        {"fieldname": "grace_period_status", "label": "Grace Period", "fieldtype": "Data", "width": 120},
+        {
+            "fieldname": "grace_period_expiry",
+            "label": "Grace Period Expiry",
+            "fieldtype": "Date",
+            "width": 120,
+        },
         {"fieldname": "chapter_join_date", "label": "Join Date", "fieldtype": "Date", "width": 120},
         {"fieldname": "enabled", "label": "Active", "fieldtype": "Check", "width": 80},
         {"fieldname": "leave_reason", "label": "Leave Reason", "fieldtype": "Data", "width": 150},
@@ -96,6 +103,8 @@ def execute(filters=None):
             m.full_name,
             m.email,
             COALESCE(cm.status, 'Active') as status,
+            mem.grace_period_status,
+            mem.grace_period_expiry_date as grace_period_expiry,
             cm.chapter_join_date,
             cm.enabled,
             cm.leave_reason
@@ -103,6 +112,8 @@ def execute(filters=None):
             `tabChapter Member` cm
         INNER JOIN
             `tabMember` m ON cm.member = m.name
+        LEFT JOIN
+            `tabMembership` mem ON m.name = mem.member AND mem.status = 'Active'
         WHERE
             {where_clause}
         ORDER BY

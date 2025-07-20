@@ -41,16 +41,13 @@ class TestValidationRegression(unittest.TestCase):
             "Volunteer": {
                 "status": {
                     "valid": ["New", "Onboarding", "Active", "Inactive", "Retired"],
-                    "invalid": ["Pending", "Draft", "Submitted", "Approved"],
-                }
+                    "invalid": ["Pending", "Draft", "Submitted", "Approved"]}
             },
             "Member": {
                 "application_status": {
                     "valid": ["Pending", "Under Review", "Approved", "Rejected"],
-                    "invalid": ["New", "Draft", "Submitted"],
-                }
-            },
-        }
+                    "invalid": ["New", "Draft", "Submitted"]}
+            }}
 
         for doctype_name, field_validations in critical_validations.items():
             for field_name, validation_data in field_validations.items():
@@ -93,8 +90,7 @@ class TestValidationRegression(unittest.TestCase):
         """Get minimal data required to create a document"""
 
         base_data = {
-            "doctype": doctype_name,
-        }
+            "doctype": doctype_name}
 
         if doctype_name == "Volunteer":
             base_data.update(
@@ -104,16 +100,14 @@ class TestValidationRegression(unittest.TestCase):
                     "first_name": "Test",
                     "last_name": "Volunteer",
                     "available": 1,
-                    "date_joined": today(),
-                }
+                    "date_joined": today()}
             )
         elif doctype_name == "Member":
             base_data.update(
                 {
                     "first_name": "Test",
                     "last_name": f"Member {frappe.utils.random_string(5)}",
-                    "email": f"test.member.{frappe.utils.random_string(5).lower()}@example.com",
-                }
+                    "email": f"test.member.{frappe.utils.random_string(5).lower()}@example.com"}
             )
 
         return base_data
@@ -133,8 +127,7 @@ class TestValidationRegression(unittest.TestCase):
             "country": "Netherlands",
             "selected_membership_type": "Maandlid",
             "interested_in_volunteering": 1,
-            "payment_method": "Bank Transfer",
-        }
+            "payment_method": "Bank Transfer"}
 
         from verenigingen.api.membership_application import submit_application
 
@@ -210,8 +203,7 @@ class TestValidationRegression(unittest.TestCase):
                 "first_name": "Helper",
                 "last_name": "Function Test",
                 "email": f"helper.function.{frappe.utils.random_string(5).lower()}@example.com",
-                "application_status": "Pending",
-            }
+                "application_status": "Pending"}
         )
         member.insert(ignore_permissions=True)
         self.add_cleanup("Member", member.name)
@@ -248,8 +240,7 @@ class TestValidationRegression(unittest.TestCase):
             "email": "api.error.test@example.com",
             "birth_date": "1990-01-01",
             "selected_membership_type": "INVALID_MEMBERSHIP_TYPE",
-            "interested_in_volunteering": 1,
-        }
+            "interested_in_volunteering": 1}
 
         from verenigingen.api.membership_application import submit_application
 
@@ -280,8 +271,7 @@ def run_validation_regression_suite():
             "tests_run": result.testsRun,
             "failures": len(result.failures),
             "errors": len(result.errors),
-            "skipped": len(result.skipped) if hasattr(result, "skipped") else 0,
-        }
+            "skipped": len(result.skipped) if hasattr(result, "skipped") else 0}
 
         # Detailed failure/error info
         if result.failures:
@@ -303,8 +293,7 @@ def run_validation_regression_suite():
         return {
             "success": False,
             "error": str(e),
-            "message": f"Validation regression test execution failed: {str(e)}",
-        }
+            "message": f"Validation regression test execution failed: {str(e)}"}
 
 
 if __name__ == "__main__":

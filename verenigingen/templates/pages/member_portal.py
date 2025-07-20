@@ -347,7 +347,7 @@ def get_quick_actions(member, membership, volunteer):
 
     # Fee adjustment if needed
     try:
-        if getattr(member, "membership_fee_override", None):
+        if getattr(member, "dues_rate", None):
             actions.append(
                 {
                     "title": _("Review Fee Adjustment"),

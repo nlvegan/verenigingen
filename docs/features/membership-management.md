@@ -4,7 +4,7 @@ The Verenigingen app provides comprehensive membership management capabilities d
 
 ## Overview
 
-The membership system handles the complete lifecycle of member relationships, from application through active membership to termination, with full integration to ERPNext's subscription and billing systems.
+The membership system handles the complete lifecycle of member relationships, from application through active membership to termination, with full integration to ERPNext's billing systems through the Membership Dues Schedule system.
 
 ## Key Features
 
@@ -29,7 +29,7 @@ The membership system handles the complete lifecycle of member relationships, fr
 #### Active Membership
 - **Status Tracking**: Real-time membership status (Active, Inactive, Expired, Cancelled)
 - **Renewal Management**: Automatic and manual renewal options
-- **Payment Integration**: Full integration with ERPNext subscriptions and invoicing
+- **Payment Integration**: Full integration with ERPNext billing through Membership Dues Schedule system
 - **Custom Amounts**: Administrator-approved custom membership fees
 
 #### Membership Termination
@@ -40,8 +40,8 @@ The membership system handles the complete lifecycle of member relationships, fr
 
 ### Payment and Billing
 
-#### Subscription Integration
-- **Automated Billing**: Integration with ERPNext subscription system
+#### Dues Schedule Integration
+- **Automated Billing**: Integration with ERPNext billing through Membership Dues Schedule system
 - **Invoice Generation**: Automatic invoice creation and submission
 - **Payment Tracking**: Real-time payment status synchronization
 - **SEPA Support**: SEPA mandate integration for direct debit payments
@@ -105,7 +105,7 @@ Automated email notifications for:
 
 ### ERPNext Modules
 - **Customer Management**: Automatic customer creation for members
-- **Subscription Management**: Full subscription lifecycle integration
+- **Dues Schedule Management**: Full dues schedule lifecycle integration (replaces legacy subscription system)
 - **Accounting**: Automated journal entries and payment tracking
 - **User Management**: Optional user account creation for members
 
@@ -120,7 +120,8 @@ Automated email notifications for:
 - **Membership Sync**: Bulk payment status synchronization
 - **Status Updates**: Batch membership status changes
 - **Data Export**: Export membership data for analysis
-- **Subscription Management**: Bulk subscription creation and updates
+- **Dues Schedule Management**: Bulk dues schedule creation and updates
+- **Legacy System Migration**: Tools for transitioning from old subscription system to dues schedule system
 
 ### Reporting and Analytics
 - **Membership Reports**: Active, expired, and cancelled membership reports
@@ -145,16 +146,18 @@ Automated email notifications for:
 ## Best Practices
 
 ### Data Quality
-- Regularly sync payment data with subscription systems
+- Regularly sync payment data with dues schedule systems
 - Monitor and resolve payment discrepancies
 - Maintain accurate member contact information
 - Review and update membership type configurations
+- Complete migration from legacy subscription system to dues schedule system
 
 ### Member Experience
 - Provide clear communication about membership terms
 - Send timely renewal notifications
 - Offer flexible payment options
 - Maintain responsive customer service for membership issues
+- Ensure seamless transition from legacy subscription system to modern dues schedule system
 
 ### Compliance
 - Ensure GDPR compliance for member data handling

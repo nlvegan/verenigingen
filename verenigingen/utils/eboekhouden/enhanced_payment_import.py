@@ -89,61 +89,6 @@ def log_payment_statistics(payment_name, mutation_detail, handler):
 
 
 @frappe.whitelist()
-def test_enhanced_payment_processing(mutation_id=None):
-    """
-    Test the enhanced payment processing with a specific mutation.
-
-    Args:
-        mutation_id: E-Boekhouden mutation ID to test
-
-    Returns:
-        Dict with test results
-    """
-    if not mutation_id:
-        # Use a known test mutation
-        mutation_id = 5473  # Multi-invoice supplier payment
-
-    # Get mutation from API or database
-    from verenigingen.utils.eboekhouden.eboekhouden_rest_client import EBoekhoudenRESTClient
-
-    try:
-        client = EBoekhoudenRESTClient()
-        mutation = client.get_mutation(mutation_id)
-
-        if not mutation:
-            return {"success": False, "error": f"Mutation {mutation_id} not found"}
-
-        # Process with enhanced handler
-        company = frappe.db.get_single_value("Global Defaults", "default_company")
-        debug_info = []
-
-        payment_name = create_enhanced_payment_entry(
-            mutation, company, None, debug_info  # Will use default cost center
-        )
-
-        if payment_name:
-            pe = frappe.get_doc("Payment Entry", payment_name)
-
-            return {
-                "success": True,
-                "payment_entry": payment_name,
-                "bank_account": pe.paid_to if pe.payment_type == "Receive" else pe.paid_from,
-                "party": pe.party,
-                "amount": pe.paid_amount or pe.received_amount,
-                "references": [
-                    {"invoice": ref.reference_name, "allocated": ref.allocated_amount}
-                    for ref in pe.references
-                ],
-                "debug_log": debug_info,
-            }
-        else:
-            return {"success": False, "error": "Payment creation failed", "debug_log": debug_info}
-
-    except Exception as e:
-        return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
-
-
-@frappe.whitelist()
 def compare_payment_implementations(limit=10):
     """
     Compare hardcoded vs enhanced payment implementation results.

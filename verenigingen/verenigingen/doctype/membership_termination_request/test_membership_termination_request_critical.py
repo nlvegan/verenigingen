@@ -46,9 +46,9 @@ class TestMembershipTerminationRequestCritical(FrappeTestCase):
         """Test that termination integration utilities exist"""
         try:
             from verenigingen.utils.termination_integration import (
+                cancel_dues_schedule_safe,
                 cancel_membership_safe,
                 cancel_sepa_mandate_safe,
-                cancel_subscription_safe,
                 deactivate_user_account_safe,
                 end_board_positions_safe,
                 suspend_team_memberships_safe,
@@ -60,7 +60,7 @@ class TestMembershipTerminationRequestCritical(FrappeTestCase):
             integration_methods = [
                 cancel_membership_safe,
                 cancel_sepa_mandate_safe,
-                cancel_subscription_safe,
+                cancel_dues_schedule_safe,
                 deactivate_user_account_safe,
                 end_board_positions_safe,
                 suspend_team_memberships_safe,

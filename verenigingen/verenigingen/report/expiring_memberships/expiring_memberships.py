@@ -21,6 +21,8 @@ def get_columns(filters):
         _("Member Name") + ":Data:140",
         _("Email") + ":Data:140",
         _("Expiring On") + ":Date:120",
+        _("Grace Period") + ":Data:120",
+        _("Grace Period Expiry") + ":Date:120",
     ]
 
 
@@ -42,13 +44,16 @@ def get_data(filters):
 
     return frappe.db.sql(
         """
-        select ms.membership_type, ms.name, m.name, m.full_name, m.email, ms.expiry_date
+        select ms.membership_type, ms.name, m.name, m.full_name, m.email, ms.expiry_date,
+               ms.grace_period_status, ms.grace_period_expiry_date
         from `tabMember` m
         inner join (
             select
                 name,
                 membership_type,
                 member,
+                grace_period_status,
+                grace_period_expiry_date,
                 COALESCE(next_billing_date, renewal_date) as expiry_date
             from `tabMembership`
             where status in ('Active', 'Pending')

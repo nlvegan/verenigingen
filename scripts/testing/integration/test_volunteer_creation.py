@@ -33,8 +33,7 @@ def test_volunteer_creation_with_user():
                 "last_name": "Volunteer",
                 "email": "test.volunteer@example.com",
                 "application_status": "Active",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         test_member.insert(ignore_permissions=True)
         print(f"✅ Created test member: {test_member.name}")

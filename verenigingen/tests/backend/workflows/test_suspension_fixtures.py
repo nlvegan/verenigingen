@@ -107,8 +107,7 @@ class SuspensionTestFixtures:
             "user_suspended": user_suspended,
             "teams_suspended": teams_suspended,
             "actions_taken": actions_taken,
-            "errors": errors,
-        }
+            "errors": errors}
 
     @staticmethod
     def create_unsuspension_result(
@@ -130,8 +129,7 @@ class SuspensionTestFixtures:
             "member_unsuspended": member_unsuspended,
             "user_unsuspended": user_unsuspended,
             "actions_taken": actions_taken,
-            "errors": errors,
-        }
+            "errors": errors}
 
     @staticmethod
     def create_suspension_status(
@@ -149,8 +147,7 @@ class SuspensionTestFixtures:
             "user_suspended": user_suspended,
             "active_teams": active_teams,
             "pre_suspension_status": pre_suspension_status,
-            "can_unsuspend": can_unsuspend,
-        }
+            "can_unsuspend": can_unsuspend}
 
     @staticmethod
     def create_suspension_preview(
@@ -181,8 +178,7 @@ class SuspensionTestFixtures:
             "active_memberships": active_memberships,
             "membership_details": membership_details,
             "can_suspend": can_suspend,
-            "is_currently_suspended": is_currently_suspended,
-        }
+            "is_currently_suspended": is_currently_suspended}
 
     @staticmethod
     def create_bulk_suspension_result(success_count=2, failed_count=0, details=None):
@@ -192,13 +188,11 @@ class SuspensionTestFixtures:
                 {
                     "member": "TEST-MEMBER-001",
                     "status": "success",
-                    "actions": ["Member suspended", "User account disabled"],
-                },
+                    "actions": ["Member suspended", "User account disabled"]},
                 {
                     "member": "TEST-MEMBER-002",
                     "status": "success",
-                    "actions": ["Member suspended", "User account disabled"],
-                },
+                    "actions": ["Member suspended", "User account disabled"]},
             ]
 
         return {"success": success_count, "failed": failed_count, "details": details}
@@ -337,8 +331,7 @@ class SuspensionTestBase(unittest.TestCase):
         defaults = {
             "member_id": self.test_member_name,
             "user_email": self.test_user_email,
-            "chapter": self.test_chapter,
-        }
+            "chapter": self.test_chapter}
         defaults.update(kwargs)
         return self.fixtures.create_mock_member(**defaults)
 

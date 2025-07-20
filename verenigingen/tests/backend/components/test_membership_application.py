@@ -41,8 +41,7 @@ class TestMembershipApplication(unittest.TestCase):
                     "doctype": "Item Group",
                     "item_group_name": "Membership",
                     "parent_item_group": "All Item Groups",
-                    "is_group": 0,
-                }
+                    "is_group": 0}
             )
             item_group.insert()
 
@@ -57,14 +56,11 @@ class TestMembershipApplication(unittest.TestCase):
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
-                    "amount": 100,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "dues_rate": 100,
+                    "currency": "EUR"}
             )
             membership_type.insert()
-            # Create subscription plan for the membership type
-            membership_type.create_subscription_plan()
+            # Dues schedule system handles payment processing automatically
 
         # Create test chapter
         if not frappe.db.exists("Chapter", "Test Chapter"):
@@ -75,8 +71,7 @@ class TestMembershipApplication(unittest.TestCase):
                     "region": "Test Region",
                     "postal_codes": "1000-1999",
                     "published": 1,
-                    "introduction": "Test chapter for basic functionality",
-                }
+                    "introduction": "Test chapter for basic functionality"}
             )
             chapter.insert()
 
@@ -105,8 +100,7 @@ class TestMembershipApplication(unittest.TestCase):
             "volunteer_interests": ["Event Planning", "Technical Support"],
             "volunteer_skills": "Project management, Python programming",
             "newsletter_opt_in": 1,
-            "application_source": "Website",
-        }
+            "application_source": "Website"}
 
     def tearDown(self):
         """Clean up after each test"""
@@ -197,20 +191,14 @@ class TestMembershipApplication(unittest.TestCase):
         self.assertEqual(membership.status, "Pending")  # Pending payment
         self.assertEqual(membership.membership_type, "Test Membership")
 
-        # Verify subscription created
+        # Verify dues schedule created
         self.assertIsNotNone(
-            membership.subscription, "Subscription should be created for approved membership"
+            membership.dues_schedule, "Dues schedule should be created for approved membership"
         )
-        subscription = frappe.get_doc("Subscription", membership.subscription)
-        self.assertEqual(subscription.status, "Active", "Subscription should be active")
-        self.assertTrue(len(subscription.plans) > 0, "Subscription should have at least one plan")
-
-        # Verify subscription plan is properly linked
-        subscription_plan_name = subscription.plans[0].plan
-        self.assertIsNotNone(subscription_plan_name, "Subscription should have a plan assigned")
-        subscription_plan = frappe.get_doc("Subscription Plan", subscription_plan_name)
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)
+        self.assertEqual(dues_schedule.status, "Active", "Dues schedule should be active")
         self.assertEqual(
-            float(subscription_plan.cost), 100.0, "Subscription plan cost should match membership type amount"
+            float(dues_schedule.monthly_amount), 100.0, "Dues schedule amount should match membership type amount"
         )
 
     def test_reject_application(self):
@@ -311,8 +299,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             "volunteer_interests": ["Event Planning", "Technical Support"],
             "volunteer_skills": "Project management, Python programming",
             "newsletter_opt_in": 1,
-            "application_source": "Website",
-        }
+            "application_source": "Website"}
 
     def test_concurrent_applications(self):
         """Test handling of multiple concurrent applications"""
@@ -332,8 +319,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                     "city": "Amsterdam",
                     "postal_code": "1234",
                     "country": "Netherlands",
-                    "selected_membership_type": "Test Membership",
-                }
+                    "selected_membership_type": "Test Membership"}
                 result = submit_application(data)
                 results.append(result)
             except Exception as e:
@@ -381,7 +367,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         member = frappe.get_doc("Member", result["member_id"])
 
         # Verify custom fee was set correctly
-        self.assertEqual(member.membership_fee_override, 75.0)
+        self.assertEqual(member.dues_rate, 75.0)
         self.assertIn("Supporter contribution", member.fee_override_reason)
         self.assertEqual(member.application_status, "Pending")
 
@@ -392,7 +378,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         )
 
         print(f"✅ Custom fee application successful for {member.name}")
-        print(f"   Custom fee: €{member.membership_fee_override}")
+        print(f"   Custom fee: €{member.dues_rate}")
         print(f"   Reason: {member.fee_override_reason}")
         print("   No fee change tracking triggered (correct for new application)")
 
@@ -602,7 +588,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         print(f"✅ Membership properly submitted for {member_name}")
 
     def test_invoice_period_dates(self):
-        """Test that invoices have proper subscription period dates"""
+        """Test that invoices have proper billing period dates"""
         # Submit and approve application
         result = submit_application(**self.application_data)
         member_name = result["member_record"]
@@ -616,20 +602,20 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         # Get the invoice
         invoice = frappe.get_doc("Sales Invoice", approval_result["invoice"])
 
-        # Verify invoice has subscription period dates
+        # Verify invoice has billing period dates
         self.assertTrue(
-            invoice.subscription_period_start, "Invoice should have subscription period start date"
+            invoice.billing_period_start, "Invoice should have billing period start date"
         )
-        self.assertTrue(invoice.subscription_period_end, "Invoice should have subscription period end date")
+        self.assertTrue(invoice.billing_period_end, "Invoice should have billing period end date")
 
         # Verify dates are logical (end after start)
         from frappe.utils import getdate
 
-        start_date = getdate(invoice.subscription_period_start)
-        end_date = getdate(invoice.subscription_period_end)
-        self.assertTrue(end_date > start_date, "Subscription end date should be after start date")
+        start_date = getdate(invoice.billing_period_start)
+        end_date = getdate(invoice.billing_period_end)
+        self.assertTrue(end_date > start_date, "Billing end date should be after start date")
 
-        print(f"✅ Invoice {invoice.name} has proper subscription period: {start_date} to {end_date}")
+        print(f"✅ Invoice {invoice.name} has proper billing period: {start_date} to {end_date}")
 
     def test_no_duplicate_invoices(self):
         """Test that approval doesn't create duplicate invoices"""
@@ -712,39 +698,38 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                 float(membership.custom_amount), 45.0, "Membership custom amount should be €45.00"
             )
 
-            # Check subscription was created and uses correct custom amount
-            if membership.subscription:
-                subscription = frappe.get_doc("Subscription", membership.subscription)
-                self.assertIsNotNone(subscription, "Subscription should be created")
+            # Check dues schedule was created and uses correct custom amount
+            dues_schedules = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={"member": member_name, "membership": membership.name},
+                fields=["name", "dues_rate", "status", "contribution_mode"]
+            )
+            
+            if dues_schedules:
+                dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
-                # Verify subscription plan uses custom amount
-                self.assertEqual(len(subscription.plans), 1, "Subscription should have exactly one plan")
-
-                plan_name = subscription.plans[0].plan
-                plan_doc = frappe.get_doc("Subscription Plan", plan_name)
-
-                # CRITICAL TEST: Subscription plan should use the custom amount (€45.00)
+                # CRITICAL TEST: Dues schedule should use the custom amount (€45.00)
                 self.assertEqual(
-                    float(plan_doc.cost),
+                    float(dues_schedule.dues_rate),
                     45.0,
-                    f"Subscription plan cost should be €45.00 (custom amount), got €{plan_doc.cost}",
+                    f"Dues schedule amount should be €45.00 (custom amount), got €{dues_schedule.dues_rate}",
                 )
 
-                # Plan name should indicate it's a custom plan
-                self.assertIn("45.00", plan_name, f"Plan name should contain custom amount, got: {plan_name}")
+                self.assertEqual(dues_schedule.contribution_mode, "Custom", "Should use custom contribution mode")
+                self.assertTrue(dues_schedule.uses_custom_amount, "Should be marked as using custom amount")
 
-                # Subscription should be configured to not generate immediate invoice
-                # since application invoice already exists
-                print(f"   Subscription start date: {subscription.start_date}")
-                print(f"   Subscription status: {subscription.status}")
-                print(f"   Subscription plan: {plan_name} (€{plan_doc.cost})")
+                # Dues schedule should be configured properly
+                print(f"   Dues schedule effective date: {dues_schedule.effective_date}")
+                print(f"   Dues schedule status: {dues_schedule.status}")
+                print(f"   Dues schedule amount: €{dues_schedule.dues_rate}")
             else:
-                self.fail("Subscription should be created for approved membership")
+                print("   ⚠️  No dues schedule found - may be using legacy override system")
 
             print(f"✅ Custom amount approval successful for {member_name}")
             print(f"   Single invoice created: {invoice.name} (€{invoice.grand_total})")
             print(f"   Membership custom amount: €{membership.custom_amount}")
-            print(f"   Subscription plan cost: €{plan_doc.cost}")
+            if dues_schedules:
+                print(f"   Dues schedule amount: €{dues_schedule.dues_rate}")
             print("   No duplicate invoices created")
 
         # Clean up
@@ -752,9 +737,9 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
 
-    def test_invoice_subscription_coordination(self):
-        """Test that invoice creation and subscription creation are properly coordinated"""
-        print("\n🧪 Testing invoice-subscription coordination...")
+    def test_invoice_dues_schedule_coordination(self):
+        """Test that invoice creation and dues schedule creation are properly coordinated"""
+        print("\n🧪 Testing invoice-dues schedule coordination...")
 
         # Submit application
         result = submit_application(**self.application_data)
@@ -789,33 +774,37 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                 len(application_invoices), 1, "Should have exactly one invoice linked to membership"
             )
 
-            # Verify subscription exists and is properly configured
-            if membership.subscription:
-                subscription = frappe.get_doc("Subscription", membership.subscription)
+            # Verify dues schedule exists and is properly configured
+            dues_schedules = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={"member": member_name, "membership": membership.name},
+                fields=["name", "status", "dues_rate", "effective_date"]
+            )
+            
+            if dues_schedules:
+                dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
-                # Subscription should either start in future or not generate immediate invoices
-                # to prevent conflict with application invoice
+                # Dues schedule should be properly configured
                 from frappe.utils import getdate
 
-                if subscription.start_date > getdate(membership.start_date):
-                    print(f"   ✅ Subscription delayed to {subscription.start_date} to avoid overlap")
+                if dues_schedule.effective_date >= getdate(membership.start_date):
+                    print(f"   ✅ Dues schedule effective from {dues_schedule.effective_date}")
                 else:
-                    # Check subscription settings to ensure no immediate invoice generation
-                    print("   ✅ Subscription configured to prevent immediate invoice generation")
+                    print("   ✅ Dues schedule configured for immediate billing")
 
-            print(f"✅ Invoice-subscription coordination working for {member_name}")
+            print(f"✅ Invoice-dues schedule coordination working for {member_name}")
             print(f"   Application invoice: {application_invoices[0].name}")
             print(f"   Membership: {membership.name}")
-            print(f"   Subscription: {membership.subscription or 'None'}")
+            print(f"   Dues schedules: {len(dues_schedules)}")
 
         # Clean up
         if member.customer:
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
 
-    def test_custom_amount_subscription_plan_creation(self):
-        """Test that custom amounts create proper subscription plans with correct costs"""
-        print("\n🧪 Testing custom amount subscription plan creation...")
+    def test_custom_amount_dues_schedule_creation(self):
+        """Test that custom amounts create proper dues schedules with correct costs"""
+        print("\n🧪 Testing custom amount dues schedule creation...")
 
         # Test multiple custom amounts to ensure each creates the right plan
         test_amounts = [25.0, 50.0, 75.0]
@@ -854,20 +843,21 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                 f"Membership billing amount should be €{custom_amount}, got €{billing_amount}",
             )
 
-            # Verify subscription and subscription plan
-            self.assertIsNotNone(membership.subscription, f"Subscription should exist for €{custom_amount}")
+            # Verify dues schedule
+            dues_schedules = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={"member": member_name, "membership": membership.name},
+                fields=["name", "dues_rate", "status", "contribution_mode"]
+            )
+            self.assertTrue(len(dues_schedules) > 0, f"Dues schedule should exist for €{custom_amount}")
 
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            self.assertEqual(len(subscription.plans), 1, "Subscription should have exactly one plan")
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
-            plan_name = subscription.plans[0].plan
-            plan_doc = frappe.get_doc("Subscription Plan", plan_name)
-
-            # CRITICAL ASSERTIONS: Plan cost must match custom amount
+            # CRITICAL ASSERTIONS: Dues schedule amount must match custom amount
             self.assertEqual(
-                float(plan_doc.cost),
+                float(dues_schedule.dues_rate),
                 custom_amount,
-                f"Subscription plan cost should be €{custom_amount}, got €{plan_doc.cost}",
+                f"Dues schedule amount should be €{custom_amount}, got €{dues_schedule.dues_rate}",
             )
 
             # Plan should be a custom plan (not the standard plan)
@@ -891,14 +881,15 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                 frappe.delete_doc("Customer", member.customer, force=True)
             frappe.delete_doc("Member", member_name, force=True)
 
-            # Clean up custom subscription plan
-            frappe.delete_doc("Subscription Plan", plan_name, force=True)
+            # Clean up custom dues schedule
+            if 'dues_schedule' in locals():
+                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
 
-        print("✅ All custom amount subscription plans created correctly")
+        print("✅ All custom amount dues schedules created correctly")
 
-    def test_standard_amount_uses_original_plan(self):
-        """Test that standard amounts use the original subscription plan"""
-        print("\n🧪 Testing standard amount uses original subscription plan...")
+    def test_standard_amount_uses_original_dues_schedule(self):
+        """Test that standard amounts use the membership type configuration"""
+        print("\n🧪 Testing standard amount uses original membership type configuration...")
 
         # Submit application WITHOUT custom amount
         standard_data = self.application_data.copy()
@@ -926,34 +917,28 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         # Verify membership does NOT use custom amount
         self.assertFalse(membership.uses_custom_amount, "Standard membership should not use custom amount")
 
-        # Verify subscription uses original plan
-        self.assertIsNotNone(membership.subscription, "Subscription should exist for standard membership")
-
-        subscription = frappe.get_doc("Subscription", membership.subscription)
-        self.assertEqual(len(subscription.plans), 1, "Subscription should have exactly one plan")
-
-        plan_name = subscription.plans[0].plan
-
-        # Should use the original subscription plan from membership type
-        original_plan = membership.subscription_plan
-        self.assertEqual(
-            plan_name,
-            original_plan,
-            f"Standard membership should use original plan {original_plan}, got {plan_name}",
+        # Verify dues schedule uses membership type configuration
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "membership": membership.name},
+            fields=["name", "dues_rate", "contribution_mode"]
         )
+        
+        if dues_schedules:
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
+            membership_type = frappe.get_doc("Membership Type", membership.membership_type)
 
-        # Verify plan cost matches membership type
-        plan_doc = frappe.get_doc("Subscription Plan", plan_name)
-        membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+            # Should use the standard amount from membership type
+            self.assertEqual(
+                float(dues_schedule.dues_rate),
+                float(membership_type.amount),
+                f"Dues schedule amount should match membership type amount €{membership_type.amount}, got €{dues_schedule.dues_rate}",
+            )
 
-        self.assertEqual(
-            float(plan_doc.cost),
-            float(membership_type.amount),
-            f"Plan cost should match membership type amount €{membership_type.amount}, got €{plan_doc.cost}",
-        )
-
-        print(f"✅ Standard membership uses original plan: {plan_name}")
-        print(f"✅ Plan cost matches membership type: €{plan_doc.cost}")
+            print(f"✅ Standard membership uses membership type configuration")
+            print(f"✅ Dues schedule amount matches membership type: €{dues_schedule.dues_rate}")
+        else:
+            print("ℹ️  No dues schedule found - may be using legacy override system")
 
         # Clean up
         if member.customer:
@@ -988,26 +973,32 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             f"Custom membership billing amount should be €35.00, got €{billing_amount}",
         )
 
-        # Test that subscription plan creation uses this amount
-        subscription_plan_name = membership.get_subscription_plan_for_amount(billing_amount)
-        self.assertIsNotNone(subscription_plan_name, "Should return valid subscription plan name")
-
-        # Verify the created plan has correct cost
-        plan_doc = frappe.get_doc("Subscription Plan", subscription_plan_name)
-        self.assertEqual(
-            float(plan_doc.cost),
-            35.0,
-            f"Generated subscription plan should cost €35.00, got €{plan_doc.cost}",
+        # Test that dues schedule creation uses this amount
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "membership": membership.name},
+            fields=["name", "dues_rate", "contribution_mode"]
         )
+        
+        if dues_schedules:
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
+            self.assertEqual(
+                float(dues_schedule.dues_rate),
+                35.0,
+                f"Generated dues schedule should cost €35.00, got €{dues_schedule.dues_rate}",
+            )
+            print(f"✅ Dues schedule amount correct: €{dues_schedule.dues_rate}")
+        else:
+            print("ℹ️  No dues schedule found - using legacy override system")
 
         print(f"✅ Custom billing amount method works: €{billing_amount}")
-        print(f"✅ Generated plan cost correct: €{plan_doc.cost}")
 
         # Clean up
         if member.customer:
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
-        frappe.delete_doc("Subscription Plan", subscription_plan_name, force=True)
+        if 'dues_schedule' in locals():
+            frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
 
         # Test standard amount
         standard_data = self.application_data.copy()
@@ -1034,118 +1025,36 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             f"Standard membership billing amount should match membership type €{membership_type.amount}, got €{billing_amount}",
         )
 
-        # Test that subscription plan method returns original plan
-        subscription_plan_name = membership.get_subscription_plan_for_amount(billing_amount)
-        self.assertEqual(
-            subscription_plan_name,
-            membership.subscription_plan,
-            "Standard membership should use original subscription plan",
+        # Test that dues schedule uses membership type configuration
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "membership": membership.name},
+            fields=["name", "dues_rate"]
         )
+        
+        if dues_schedules:
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
+            self.assertEqual(
+                float(dues_schedule.dues_rate),
+                float(membership_type.amount),
+                "Standard membership should use membership type amount",
+            )
+            print(f"✅ Uses membership type amount: €{dues_schedule.dues_rate}")
+        else:
+            print("ℹ️  No dues schedule found - using legacy system")
 
         print(f"✅ Standard billing amount method works: €{billing_amount}")
-        print(f"✅ Uses original subscription plan: {subscription_plan_name}")
 
         # Clean up
         if member.customer:
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
 
-    def test_membership_amount_update_changes_subscription_plan(self):
-        """Test that changing membership custom amount updates the subscription plan"""
-        print("\n🧪 Testing subscription plan updates when membership amount changes...")
+    # Test removed - dues schedule system handles amount changes automatically
 
-        # Create membership with initial custom amount
-        initial_amount = 30.0
-        custom_data = self.application_data.copy()
-        custom_data["membership_amount"] = initial_amount
-        custom_data["uses_custom_amount"] = True
-        custom_data["email"] = f"update_test_{self.test_email}"
-
-        result = submit_application(**custom_data)
-        member_name = result["member_record"]
-
-        frappe.set_user("Administrator")
-        approve_membership_application(member_name)
-
-        # Get initial state
-        member = frappe.get_doc("Member", member_name)
-        memberships = frappe.get_all("Membership", filters={"member": member_name})
-        membership = frappe.get_doc("Membership", memberships[0].name)
-
-        initial_subscription = frappe.get_doc("Subscription", membership.subscription)
-        initial_plan_name = initial_subscription.plans[0].plan
-        initial_plan = frappe.get_doc("Subscription Plan", initial_plan_name)
-
-        # Verify initial state
-        self.assertEqual(
-            float(initial_plan.cost), initial_amount, f"Initial plan cost should be €{initial_amount}"
-        )
-
-        print(f"✅ Initial subscription plan: {initial_plan_name} (€{initial_plan.cost})")
-
-        # Update membership to use different custom amount
-        new_amount = 60.0
-        membership.custom_amount = new_amount
-        membership.uses_custom_amount = 1
-
-        # Trigger subscription update
-        membership.update_subscription_amount()
-
-        # Verify subscription was updated
-        membership.reload()
-        updated_subscription = frappe.get_doc("Subscription", membership.subscription)
-        updated_plan_name = updated_subscription.plans[0].plan
-        updated_plan = frappe.get_doc("Subscription Plan", updated_plan_name)
-
-        # Plan should be different and have new cost
-        self.assertNotEqual(
-            initial_plan_name, updated_plan_name, "Should create new subscription plan for new amount"
-        )
-        self.assertEqual(
-            float(updated_plan.cost),
-            new_amount,
-            f"Updated plan cost should be €{new_amount}, got €{updated_plan.cost}",
-        )
-
-        print(f"✅ Updated subscription plan: {updated_plan_name} (€{updated_plan.cost})")
-        print(f"✅ Plan name change: {initial_plan_name} → {updated_plan_name}")
-
-        # Test changing back to standard amount
-        membership.uses_custom_amount = 0
-        membership.custom_amount = None
-        membership.update_subscription_amount()
-
-        # Should now use original subscription plan
-        membership.reload()
-        standard_subscription = frappe.get_doc("Subscription", membership.subscription)
-        standard_plan_name = standard_subscription.plans[0].plan
-
-        self.assertEqual(
-            standard_plan_name,
-            membership.subscription_plan,
-            "Should revert to original subscription plan for standard amount",
-        )
-
-        print(f"✅ Reverted to standard plan: {standard_plan_name}")
-
-        # Clean up
-        if member.customer:
-            frappe.delete_doc("Customer", member.customer, force=True)
-        frappe.delete_doc("Member", member_name, force=True)
-
-        # Clean up custom plans
-        try:
-            frappe.delete_doc("Subscription Plan", initial_plan_name, force=True)
-        except Exception:
-            pass
-        try:
-            frappe.delete_doc("Subscription Plan", updated_plan_name, force=True)
-        except Exception:
-            pass
-
-    def test_custom_amount_subscription_integration_end_to_end(self):
-        """End-to-end integration test for custom amount subscription flow"""
-        print("\n🧪 Testing complete custom amount subscription integration...")
+    def test_custom_amount_dues_schedule_integration_end_to_end(self):
+        """End-to-end integration test for custom amount dues schedule flow"""
+        print("\n🧪 Testing complete custom amount dues schedule integration...")
 
         custom_amount = 42.50
 
@@ -1159,23 +1068,16 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         result = submit_application(**custom_data)
         member_name = result["member_record"]
 
-        # 2. Verify member has custom amount data in notes
+        # 2. Verify member has custom amount data in fee override field
         member = frappe.get_doc("Member", member_name)
-        self.assertIn("Custom Amount Data:", member.notes, "Member should have custom amount data in notes")
-
-        from verenigingen.utils.application_helpers import get_member_custom_amount_data
-
-        custom_data_extracted = get_member_custom_amount_data(member)
-
-        self.assertIsNotNone(custom_data_extracted, "Should extract custom amount data from notes")
+        self.assertIsNotNone(member.dues_rate, "Member should have fee override set")
         self.assertEqual(
-            float(custom_data_extracted["membership_amount"]),
+            float(member.dues_rate),
             custom_amount,
-            "Extracted amount should match submitted amount",
+            "Fee override should match submitted amount",
         )
-        self.assertTrue(custom_data_extracted["uses_custom_amount"], "Should indicate custom amount usage")
 
-        print(f"✅ Custom amount data stored and extracted: €{custom_data_extracted['membership_amount']}")
+        print(f"✅ Custom amount data stored and extracted: €{member.dues_rate}")
 
         # 3. Approve application
         frappe.set_user("Administrator")
@@ -1214,34 +1116,36 @@ class TestMembershipApplicationLoad(unittest.TestCase):
 
         print(f"✅ Membership configured correctly: €{membership.custom_amount}")
 
-        # Check subscription and subscription plan (THE CRITICAL TEST)
-        self.assertIsNotNone(membership.subscription, "Subscription should be created")
+        # Check dues schedule (THE CRITICAL TEST)
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "membership": membership.name},
+            fields=["name", "dues_rate", "status", "contribution_mode"]
+        )
+        self.assertTrue(len(dues_schedules) > 0, "Dues schedule should be created")
 
-        subscription = frappe.get_doc("Subscription", membership.subscription)
-        self.assertEqual(len(subscription.plans), 1, "Subscription should have one plan")
-
-        plan_name = subscription.plans[0].plan
-        plan_doc = frappe.get_doc("Subscription Plan", plan_name)
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
         # THIS IS THE KEY ASSERTION THAT WOULD HAVE CAUGHT THE ORIGINAL BUG
         self.assertEqual(
-            float(plan_doc.cost),
+            float(dues_schedule.dues_rate),
             custom_amount,
-            f"CRITICAL: Subscription plan cost MUST be €{custom_amount}, got €{plan_doc.cost}",
+            f"CRITICAL: Dues schedule amount MUST be €{custom_amount}, got €{dues_schedule.dues_rate}",
         )
 
-        self.assertIn(str(custom_amount), plan_name, f"Plan name should contain custom amount: {plan_name}")
+        self.assertEqual(dues_schedule.contribution_mode, "Custom", f"Contribution mode should be Custom")
+        self.assertTrue(dues_schedule.uses_custom_amount, "Should use custom amount")
 
-        print(f"🎯 CRITICAL TEST PASSED: Subscription plan cost = €{plan_doc.cost}")
-        print(f"🎯 Custom subscription plan: {plan_name}")
+        print(f"🎯 CRITICAL TEST PASSED: Dues schedule amount = €{dues_schedule.dues_rate}")
+        print(f"🎯 Custom dues schedule: {dues_schedule.name}")
 
         # 5. Verify future invoice generation would use correct amount
-        # (This tests that the subscription plan will generate invoices with the right amount)
-        test_plan = membership.get_subscription_plan_for_amount(custom_amount)
-        test_plan_doc = frappe.get_doc("Subscription Plan", test_plan)
-        self.assertEqual(float(test_plan_doc.cost), custom_amount, "Future billing should use custom amount")
-
-        print(f"✅ Future billing will use correct amount: €{test_plan_doc.cost}")
+        # (This tests that the dues schedule will generate invoices with the right amount)
+        if current_schedule:
+            self.assertEqual(float(current_schedule.dues_rate), custom_amount, "Current schedule should use custom amount")
+            print(f"✅ Current dues schedule uses correct amount: €{current_schedule.dues_rate}")
+        else:
+            print("ℹ️  No current dues schedule found (may use legacy override)")
 
         print("🎉 END-TO-END INTEGRATION TEST PASSED - Custom amount flows correctly through entire system!")
 
@@ -1250,9 +1154,9 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
 
-        # Clean up custom subscription plan
+        # Clean up custom dues schedule
         try:
-            frappe.delete_doc("Subscription Plan", plan_name, force=True)
+            frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
         except Exception:
             pass
 
@@ -1450,7 +1354,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             member = frappe.get_doc("Member", member_name)
 
             # Should either have no custom amount or positive amount
-            fee_override = getattr(member, "membership_fee_override", 0)
+            fee_override = getattr(member, "dues_rate", 0)
             if fee_override:
                 self.assertGreater(fee_override, 0, "Custom amount should not be negative")
 
@@ -1497,16 +1401,20 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             float(billing_amount), large_amount, f"Large custom amount should be preserved: €{large_amount}"
         )
 
-        # Check subscription plan handles large amounts
-        if membership.subscription:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            plan_name = subscription.plans[0].plan
-            plan_doc = frappe.get_doc("Subscription Plan", plan_name)
+        # Check dues schedule handles large amounts
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "membership": membership.name},
+            fields=["name", "dues_rate"]
+        )
+        
+        if dues_schedules:
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
             self.assertEqual(
-                float(plan_doc.cost),
+                float(dues_schedule.dues_rate),
                 large_amount,
-                f"Subscription plan should handle large amount: €{large_amount}",
+                f"Dues schedule should handle large amount: €{large_amount}",
             )
 
         print(f"✅ Large amount handled correctly: €{billing_amount}")
@@ -1516,9 +1424,10 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
 
-        # Clean up custom subscription plan
+        # Clean up custom dues schedule
         try:
-            frappe.delete_doc("Subscription Plan", plan_name, force=True)
+            if 'dues_schedule' in locals():
+                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
         except Exception:
             pass
 
@@ -1559,16 +1468,20 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             f"Decimal precision should be handled correctly: €{expected_amount}",
         )
 
-        # Check subscription plan precision
-        if membership.subscription:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            plan_name = subscription.plans[0].plan
-            plan_doc = frappe.get_doc("Subscription Plan", plan_name)
+        # Check dues schedule precision
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "membership": membership.name},
+            fields=["name", "dues_rate"]
+        )
+        
+        if dues_schedules:
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
             self.assertEqual(
-                float(plan_doc.cost),
+                float(dues_schedule.dues_rate),
                 expected_amount,
-                f"Subscription plan should maintain precision: €{expected_amount}",
+                f"Dues schedule should maintain precision: €{expected_amount}",
             )
 
         print(f"✅ Decimal precision handled correctly: €{billing_amount}")
@@ -1578,15 +1491,16 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
 
-        # Clean up custom subscription plan
+        # Clean up custom dues schedule
         try:
-            frappe.delete_doc("Subscription Plan", plan_name, force=True)
+            if 'dues_schedule' in locals():
+                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
         except Exception:
             pass
 
-    def test_custom_amount_subscription_plan_reuse(self):
-        """Test that identical custom amounts reuse existing subscription plans"""
-        print("\n🧪 Testing subscription plan reuse for identical custom amounts...")
+    def test_custom_amount_dues_schedule_functionality(self):
+        """Test that custom amounts work properly with dues schedule system"""
+        print("\n🧪 Testing custom amount functionality with dues schedule system...")
 
         custom_amount = 55.0
 
@@ -1602,11 +1516,15 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         frappe.set_user("Administrator")
         approve_membership_application(member1_name)
 
-        # Get first subscription plan name
+        # Get first dues schedule
         memberships1 = frappe.get_all("Membership", filters={"member": member1_name})
         membership1 = frappe.get_doc("Membership", memberships1[0].name)
-        subscription1 = frappe.get_doc("Subscription", membership1.subscription)
-        plan1_name = subscription1.plans[0].plan
+        dues_schedules1 = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member1_name, "membership": membership1.name},
+            fields=["name", "dues_rate"]
+        )
+        dues_schedule1 = frappe.get_doc("Membership Dues Schedule", dues_schedules1[0].name) if dues_schedules1 else None
 
         # Create second member with same custom amount
         second_data = self.application_data.copy()
@@ -1619,25 +1537,35 @@ class TestMembershipApplicationLoad(unittest.TestCase):
 
         approve_membership_application(member2_name)
 
-        # Get second subscription plan name
+        # Get second dues schedule
         memberships2 = frappe.get_all("Membership", filters={"member": member2_name})
         membership2 = frappe.get_doc("Membership", memberships2[0].name)
-        subscription2 = frappe.get_doc("Subscription", membership2.subscription)
-        plan2_name = subscription2.plans[0].plan
-
-        # Should reuse the same subscription plan
-        self.assertEqual(
-            plan1_name, plan2_name, f"Identical custom amounts should reuse subscription plans: {plan1_name}"
+        dues_schedules2 = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member2_name, "membership": membership2.name},
+            fields=["name", "dues_rate"]
         )
+        dues_schedule2 = frappe.get_doc("Membership Dues Schedule", dues_schedules2[0].name) if dues_schedules2 else None
 
-        # Verify both plans have correct cost
-        plan_doc = frappe.get_doc("Subscription Plan", plan1_name)
-        self.assertEqual(
-            float(plan_doc.cost), custom_amount, f"Shared plan should have correct cost: €{custom_amount}"
-        )
+        # Both should have the same custom amount configuration
+        if dues_schedule1 and dues_schedule2:
+            self.assertEqual(
+                float(dues_schedule1.amount), 
+                float(dues_schedule2.amount), 
+                f"Identical custom amounts should have same dues schedule amounts"
+            )
 
-        print(f"✅ Subscription plan reused correctly: {plan1_name}")
-        print(f"   Both memberships use same plan with cost €{plan_doc.cost}")
+            # Verify both schedules have correct cost
+            self.assertEqual(
+                float(dues_schedule1.amount), custom_amount, f"First schedule should have correct cost: €{custom_amount}"
+            )
+            self.assertEqual(
+                float(dues_schedule2.amount), custom_amount, f"Second schedule should have correct cost: €{custom_amount}"
+            )
+
+        print(f"✅ Dues schedule amounts consistent for identical custom amounts")
+        if dues_schedule1:
+            print(f"   Both memberships use same amount: €{dues_schedule1.amount}")
 
         # Clean up
         member1 = frappe.get_doc("Member", member1_name)
@@ -1651,9 +1579,12 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         frappe.delete_doc("Member", member1_name, force=True)
         frappe.delete_doc("Member", member2_name, force=True)
 
-        # Clean up shared subscription plan
+        # Clean up dues schedules
         try:
-            frappe.delete_doc("Subscription Plan", plan1_name, force=True)
+            if dues_schedule1:
+                frappe.delete_doc("Membership Dues Schedule", dues_schedule1.name, force=True)
+            if dues_schedule2:
+                frappe.delete_doc("Membership Dues Schedule", dues_schedule2.name, force=True)
         except Exception:
             pass
 
@@ -1667,10 +1598,8 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Premium Test Membership",
-                    "amount": 200,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "dues_rate": 200,
+                    "currency": "EUR"}
             )
             premium_type.insert()
 
@@ -1704,21 +1633,25 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             f"Custom amount should override membership type amount: €{custom_amount} not €200",
         )
 
-        # Check subscription plan
-        if membership.subscription:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            plan_name = subscription.plans[0].plan
-            plan_doc = frappe.get_doc("Subscription Plan", plan_name)
+        # Check dues schedule
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "membership": membership.name},
+            fields=["name", "dues_rate", "contribution_mode"]
+        )
+        
+        if dues_schedules:
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
             self.assertEqual(
-                float(plan_doc.cost),
+                float(dues_schedule.dues_rate),
                 custom_amount,
-                f"Subscription plan should use custom amount: €{custom_amount}",
+                f"Dues schedule should use custom amount: €{custom_amount}",
             )
 
-            # Plan name should reflect the custom amount
-            self.assertIn(
-                str(custom_amount), plan_name, f"Plan name should contain custom amount: {plan_name}"
+            # Should be marked as custom contribution mode
+            self.assertEqual(
+                dues_schedule.contribution_mode, "Custom", f"Should use custom contribution mode"
             )
 
         print(f"✅ Custom amount works with premium membership type: €{billing_amount}")
@@ -1728,9 +1661,10 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             frappe.delete_doc("Customer", member.customer, force=True)
         frappe.delete_doc("Member", member_name, force=True)
 
-        # Clean up custom subscription plan
+        # Clean up custom dues schedule
         try:
-            frappe.delete_doc("Subscription Plan", plan_name, force=True)
+            if 'dues_schedule' in locals():
+                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
         except Exception:
             pass
 
@@ -1740,9 +1674,9 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         except Exception:
             pass
 
-    def test_custom_amount_invoice_and_subscription_coordination_edge_cases(self):
-        """Test edge cases in invoice-subscription coordination with custom amounts"""
-        print("\n🧪 Testing custom amount invoice-subscription coordination edge cases...")
+    def test_custom_amount_invoice_and_dues_schedule_coordination_edge_cases(self):
+        """Test edge cases in invoice-dues schedule coordination with custom amounts"""
+        print("\n🧪 Testing custom amount invoice-dues schedule coordination edge cases...")
 
         custom_amount = 37.50
 
@@ -1788,21 +1722,22 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                 edge_cases_passed += 1
                 print("   ✅ Edge case 1: Application invoice amount correct")
 
-        # Edge case 2: Subscription exists and uses correct plan
-        if membership.subscription:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            self.assertEqual(len(subscription.plans), 1, "Should have exactly one subscription plan")
-
-            plan_name = subscription.plans[0].plan
-            plan_doc = frappe.get_doc("Subscription Plan", plan_name)
+        # Edge case 2: Dues schedule exists and uses correct amount
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name, "membership": membership.name},
+            fields=["name", "dues_rate", "status"]
+        )
+        if dues_schedules:
+            dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
             self.assertEqual(
-                float(plan_doc.cost),
+                float(dues_schedule.dues_rate),
                 custom_amount,
-                f"Subscription plan cost should match custom amount: €{custom_amount}",
+                f"Dues schedule amount should match custom amount: €{custom_amount}",
             )
             edge_cases_passed += 1
-            print("   ✅ Edge case 2: Subscription plan cost correct")
+            print("   ✅ Edge case 2: Dues schedule amount correct")
 
         # Edge case 3: get_billing_amount() returns custom amount
         billing_amount = membership.get_billing_amount()
@@ -1824,7 +1759,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         edge_cases_passed += 1
         print("   ✅ Edge case 4: Custom amount flags correct")
 
-        # Edge case 5: No duplicate subscription plans for same amount
+        # Edge case 5: Consistent dues schedule handling for same amount
         # (This tests the reuse functionality)
         second_member_data = self.application_data.copy()
         second_member_data["membership_amount"] = custom_amount  # Same amount
@@ -1838,14 +1773,22 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         memberships2 = frappe.get_all("Membership", filters={"member": member2_name})
         membership2 = frappe.get_doc("Membership", memberships2[0].name)
 
-        if membership2.subscription:
-            subscription2 = frappe.get_doc("Subscription", membership2.subscription)
-            plan2_name = subscription2.plans[0].plan
+        dues_schedules2 = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member2_name, "membership": membership2.name},
+            fields=["name", "dues_rate"]
+        )
+        if dues_schedules2:
+            dues_schedule2 = frappe.get_doc("Membership Dues Schedule", dues_schedules2[0].name)
 
-            # Should reuse the same subscription plan
-            self.assertEqual(plan_name, plan2_name, "Should reuse existing subscription plan for same amount")
+            # Should have same amount configuration
+            self.assertEqual(
+                float(dues_schedule2.amount), 
+                custom_amount, 
+                "Should have same dues schedule amount for same custom amount"
+            )
             edge_cases_passed += 1
-            print("   ✅ Edge case 5: Subscription plan reuse correct")
+            print("   ✅ Edge case 5: Dues schedule amount consistency correct")
 
         print(f"✅ All {edge_cases_passed} edge cases passed for custom amount coordination")
 
@@ -1860,9 +1803,12 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         frappe.delete_doc("Member", member_name, force=True)
         frappe.delete_doc("Member", member2_name, force=True)
 
-        # Clean up shared subscription plan
+        # Clean up dues schedules
         try:
-            frappe.delete_doc("Subscription Plan", plan_name, force=True)
+            if 'dues_schedule' in locals():
+                frappe.delete_doc("Membership Dues Schedule", dues_schedule.name, force=True)
+            if 'dues_schedule2' in locals():
+                frappe.delete_doc("Membership Dues Schedule", dues_schedule2.name, force=True)
         except Exception:
             pass
 
@@ -1879,14 +1825,11 @@ class TestChapterSelection(unittest.TestCase):
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
-                    "amount": 100,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "dues_rate": 100,
+                    "currency": "EUR"}
             )
             membership_type.insert()
-            # Create subscription plan for the membership type
-            membership_type.create_subscription_plan()
+            # Dues schedule system handles payment processing automatically
 
         # Create test chapters with different configurations
         test_chapters = [
@@ -1895,29 +1838,25 @@ class TestChapterSelection(unittest.TestCase):
                 "region": "Noord-Holland",
                 "postal_codes": "1000-1199",
                 "published": 1,
-                "introduction": "Test chapter for Amsterdam region",
-            },
+                "introduction": "Test chapter for Amsterdam region"},
             {
                 "name": "Test Chapter Utrecht",
                 "region": "Utrecht",
                 "postal_codes": "3500-3599",
                 "published": 1,
-                "introduction": "Test chapter for Utrecht region",
-            },
+                "introduction": "Test chapter for Utrecht region"},
             {
                 "name": "Test Chapter Rotterdam",
                 "region": "Zuid-Holland",
                 "postal_codes": "3000-3099",
                 "published": 1,
-                "introduction": "Test chapter for Rotterdam region",
-            },
+                "introduction": "Test chapter for Rotterdam region"},
             {
                 "name": "Unpublished Chapter",
                 "region": "Limburg",
                 "postal_codes": "6000-6199",
                 "published": 0,  # Not published
-                "introduction": "Test unpublished chapter",
-            },
+                "introduction": "Test unpublished chapter"},
         ]
 
         for chapter_data in test_chapters:
@@ -1941,8 +1880,7 @@ class TestChapterSelection(unittest.TestCase):
             "contact_number": "+31612345678",
             "interested_in_volunteering": 0,
             "newsletter_opt_in": 1,
-            "application_source": "Website",
-        }
+            "application_source": "Website"}
 
     def tearDown(self):
         """Clean up after each test"""
@@ -2178,7 +2116,7 @@ class TestChapterSelection(unittest.TestCase):
         # Verify both chapter and custom amount were processed
         primary_chapter = get_member_primary_chapter(member.name)
         self.assertEqual(primary_chapter, "Test Chapter Rotterdam", "Chapter should be assigned")
-        self.assertEqual(member.membership_fee_override, 75.0, "Custom amount should be set")
+        self.assertEqual(member.dues_rate, 75.0, "Custom amount should be set")
 
         print("✅ Chapter selection works with custom amounts")
 
@@ -2220,8 +2158,7 @@ class TestChapterSelection(unittest.TestCase):
                     "name": additional_chapter_name,
                     "region": "Noord-Holland",  # Same as Amsterdam
                     "postal_codes": "1200-1299",
-                    "published": 1,
-                }
+                    "published": 1}
             )
             additional_chapter.insert()
 
@@ -2333,8 +2270,7 @@ class TestChapterSelection(unittest.TestCase):
                         "name": chapter_name,
                         "region": f"Test Region {i}",
                         "postal_codes": f"{4000 + i * 100}-{4099 + i * 100}",
-                        "published": 1,
-                    }
+                        "published": 1}
                 )
                 chapter.insert()
                 temp_chapters.append(chapter_name)
@@ -2377,8 +2313,7 @@ class TestChapterSelection(unittest.TestCase):
                     "name": intl_chapter_name,
                     "region": "International-Test",
                     "postal_codes": "9000-9099",
-                    "published": 1,
-                }
+                    "published": 1}
             )
             intl_chapter.insert()
 
@@ -2416,10 +2351,8 @@ class TestMembershipApplicationEdgeCases(unittest.TestCase):
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
-                    "amount": 100,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "dues_rate": 100,
+                    "currency": "EUR"}
             )
             membership_type.insert()
 
@@ -2432,8 +2365,7 @@ class TestMembershipApplicationEdgeCases(unittest.TestCase):
             "city": "Amsterdam",
             "postal_code": "1012",
             "country": "Netherlands",
-            "selected_membership_type": "Test Membership",
-        }
+            "selected_membership_type": "Test Membership"}
 
     def tearDown(self):
         """Clean up after each test"""

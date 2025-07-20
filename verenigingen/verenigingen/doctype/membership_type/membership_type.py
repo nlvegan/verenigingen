@@ -6,108 +6,55 @@ from frappe.utils import flt
 
 class MembershipType(Document):
     def validate(self):
-        self.validate_subscription_period()
+        self.validate_billing_period()
         self.validate_amount()
-        self.validate_subscription_plan()
 
-    def validate_subscription_period(self):
-        # Ensure subscription_period_in_months is set for custom periods
-        if self.subscription_period == "Custom" and not self.subscription_period_in_months:
-            frappe.throw(_("Subscription Period in Months is required for Custom subscription period"))
+    def on_update(self):
+        """Update template when membership type changes"""
+        if not frappe.flags.in_migrate:
+            self.update_dues_schedule_template()
 
-        # Clear subscription_period_in_months for non-custom periods
-        if self.subscription_period != "Custom":
-            self.subscription_period_in_months = None
+    def update_dues_schedule_template(self):
+        """Update the dues schedule template when membership type changes"""
+        if self.dues_schedule_template:
+            try:
+                template = frappe.get_doc("Membership Dues Schedule", self.dues_schedule_template)
+
+                # Update template with the basic amount from membership type
+                template.suggested_amount = self.amount or 0
+
+                template.save()
+            except Exception as e:
+                frappe.log_error(f"Error updating dues schedule template: {str(e)}", "Membership Type Update")
+
+    def validate_billing_period(self):
+        # Legacy period fields have been removed
+        # All references now use billing_period and billing_period_in_months directly
+
+        # Skip validation during migration if new fields are not available
+        if frappe.flags.in_migrate or not hasattr(self, "billing_period"):
+            return
+
+        # Ensure billing_period_in_months is set for custom periods
+        if self.billing_period == "Custom" and not self.billing_period_in_months:
+            frappe.throw(_("Billing Period in Months is required for Custom billing period"))
+
+        # Clear billing_period_in_months for non-custom periods
+        if self.billing_period != "Custom":
+            self.billing_period_in_months = None
 
     def validate_amount(self):
         # Ensure amount is positive
         if flt(self.amount) < 0:
             frappe.throw(_("Amount cannot be negative"))
 
-    def validate_subscription_plan(self):
-        # If subscription_plan is set, validate it exists
-        if self.subscription_plan and not frappe.db.exists("Subscription Plan", self.subscription_plan):
-            frappe.throw(_("Subscription Plan {0} does not exist").format(self.subscription_plan))
+        # Round monetary amounts to 2 decimal places
+        if hasattr(self, "amount"):
+            self.amount = flt(self.amount, 2)
 
-        # If subscription_plan is set but linked to another membership type, warn user
-        if self.subscription_plan:
-            other_membership_types = frappe.get_all(
-                "Membership Type",
-                filters={"subscription_plan": self.subscription_plan, "name": ["!=", self.name]},
-                fields=["name"],
-            )
+    # Updated to use dues schedule system
 
-            if other_membership_types:
-                frappe.msgprint(
-                    _("Subscription Plan {0} is also linked to Membership Type {1}").format(
-                        self.subscription_plan, other_membership_types[0].name
-                    ),
-                    indicator="orange",
-                    alert=True,
-                )
-
-    def create_subscription_plan(self):
-        """Create a subscription plan matching this membership type"""
-        if self.subscription_plan:
-            frappe.msgprint(_("Subscription Plan {0} already linked").format(self.subscription_plan))
-            return self.subscription_plan
-
-        # Determine plan interval based on subscription period
-        # ERPNext only supports Day, Week, Month, Year
-        interval_map = {
-            "Daily": "Day",
-            "Monthly": "Month",
-            "Quarterly": "Month",  # Will use 3 months
-            "Biannual": "Month",  # Will use 6 months
-            "Annual": "Year",
-            "Lifetime": "Year",  # ERPNext doesn't have 'Lifetime', use Year
-            "Custom": "Month",  # Custom will use months as the base unit
-        }
-
-        interval = interval_map.get(self.subscription_period, "Month")
-
-        # Calculate interval count for custom periods
-        interval_count_map = {
-            "Daily": 1,  # 1 day
-            "Monthly": 1,  # 1 month
-            "Quarterly": 3,  # 3 months
-            "Biannual": 6,  # 6 months
-            "Annual": 1,  # 1 year
-            "Lifetime": 1,  # 1 year
-            "Custom": self.subscription_period_in_months or 1,
-        }
-
-        interval_count = interval_count_map.get(self.subscription_period, 1)
-
-        # Create new subscription plan
-        plan = frappe.new_doc("Subscription Plan")
-        plan.plan_name = self.membership_type_name
-        plan.item = self.get_or_create_membership_item()
-        plan.price_determination = "Fixed Rate"
-        plan.cost = self.amount
-        plan.billing_interval = interval
-        plan.billing_interval_count = interval_count
-
-        # Handle GST/tax if applicable
-        # TODO: Add tax_inclusive and tax_rate fields if tax handling is needed
-        # if (
-        #     hasattr(self, "tax_inclusive")
-        #     and self.tax_inclusive
-        #     and hasattr(self, "tax_rate")
-        #     and self.tax_rate
-        # ):
-        #     plan.is_including_tax = 1
-        #     # Would need to handle tax template assignment here
-
-        plan.flags.ignore_mandatory = True
-        plan.insert(ignore_permissions=True)
-
-        # Link the created plan back to membership type
-        self.subscription_plan = plan.name
-        self.save()
-
-        frappe.msgprint(_("Subscription Plan {0} created successfully").format(plan.name))
-        return plan.name
+    # Updated to use dues schedule system
 
     def get_or_create_membership_item(self):
         """Get or create an Item for membership"""
@@ -130,7 +77,7 @@ class MembershipType(Document):
         item.is_stock_item = 0
         item.include_item_in_manufacturing = 0
         item.is_service_item = 1
-        item.is_subscription_item = 1
+        # Removed: item.is_legacy_item = 1  # Not needed with dues schedule system
 
         # Set item defaults
         item.append(
@@ -144,9 +91,177 @@ class MembershipType(Document):
         frappe.msgprint(_("Item {0} created for membership type").format(item.name))
         return item.name
 
+    def get_contribution_options(self):
+        """Get contribution options from the dues schedule template"""
+        if not self.dues_schedule_template:
+            # Return basic defaults if no template
+            return {
+                "mode": "Calculator",
+                "minimum": 5.0,
+                "suggested": self.amount or 15.0,
+                "maximum": (self.amount or 15.0) * 10,
+                "calculator": {
+                    "enabled": True,
+                    "percentage": 0.75,
+                    "description": "We suggest 0.75% of your monthly net income",
+                },
+                "tiers": [],
+                "quick_amounts": [],
+            }
+
+        try:
+            template = frappe.get_doc("Membership Dues Schedule", self.dues_schedule_template)
+
+            # Get all configuration from the template
+            options = {
+                "mode": template.contribution_mode or "Calculator",
+                "minimum": template.minimum_amount or 5.0,
+                "suggested": template.suggested_amount or self.amount or 15.0,
+                "maximum": template.maximum_amount
+                or ((template.suggested_amount or self.amount or 15.0) * 10),
+                "calculator": {
+                    "enabled": template.enable_income_calculator
+                    if hasattr(template, "enable_income_calculator")
+                    else True,
+                    "percentage": template.income_percentage_rate
+                    if hasattr(template, "income_percentage_rate")
+                    else 0.75,
+                    "description": template.calculator_description
+                    if hasattr(template, "calculator_description")
+                    else "",
+                },
+                "tiers": [],
+                "quick_amounts": [],
+            }
+
+            # Add tiers if available
+            if hasattr(template, "predefined_tiers") and template.predefined_tiers:
+                for tier in template.predefined_tiers:
+                    options["tiers"].append(
+                        {
+                            "name": tier.tier_name,
+                            "display_name": tier.display_name,
+                            "amount": tier.amount,
+                            "description": tier.description,
+                            "requires_verification": getattr(tier, "requires_verification", 0),
+                            "is_default": getattr(tier, "is_default", 0),
+                            "display_order": getattr(tier, "display_order", 0) or 0,
+                        }
+                    )
+
+            # Generate quick amounts for calculator mode
+            if options["mode"] in ["Calculator", "Both"]:
+                multipliers = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 5.0]
+                for multiplier in multipliers:
+                    amount = options["suggested"] * multiplier
+                    if amount >= options["minimum"]:
+                        options["quick_amounts"].append(
+                            {
+                                "multiplier": multiplier,
+                                "amount": amount,
+                                "label": f"{int(multiplier * 100)}%" if multiplier != 1.0 else "Suggested",
+                                "is_default": multiplier == 1.0,
+                            }
+                        )
+
+            return options
+
+        except Exception as e:
+            frappe.log_error(f"Error getting contribution options: {str(e)}", "Membership Type")
+            # Return defaults on error
+            return {
+                "mode": "Calculator",
+                "minimum": 5.0,
+                "suggested": self.amount or 15.0,
+                "maximum": (self.amount or 15.0) * 10,
+                "calculator": {
+                    "enabled": True,
+                    "percentage": 0.75,
+                    "description": "We suggest 0.75% of your monthly net income",
+                },
+                "tiers": [],
+                "quick_amounts": [],
+            }
+
+    def after_insert(self):
+        """Create dues schedule template after membership type creation"""
+        # Skip during migration to avoid validation issues
+        if not frappe.flags.in_migrate:
+            self.create_dues_schedule_template()
+
+    def create_dues_schedule_template(self):
+        """Create or update the dues schedule template for this membership type"""
+        # Check if template already exists
+        existing_template = frappe.db.get_value(
+            "Membership Dues Schedule", {"membership_type": self.name, "is_template": 1}, "name"
+        )
+
+        if existing_template:
+            # Update existing template
+            template = frappe.get_doc("Membership Dues Schedule", existing_template)
+        else:
+            # Create new template
+            template = frappe.new_doc("Membership Dues Schedule")
+            template.is_template = 1
+            template.schedule_name = f"Template-{self.name}"
+            template.membership_type = self.name
+            template.status = "Active"
+            # Set required fields to avoid validation errors during creation
+            template.amount = 0.0
+
+        # Set/update template fields with sensible defaults
+        template.billing_frequency = "Annual"  # Default billing frequency
+        template.contribution_mode = "Calculator"  # Default contribution mode
+        template.minimum_amount = 5.0  # Default minimum
+        template.suggested_amount = self.amount or 15.0  # Use membership type amount as suggested
+        template.invoice_days_before = 30  # Default invoice days
+        template.auto_generate = 1
+        template.status = "Active"
+        # Ensure amount is set for templates
+        if not template.amount:
+            template.amount = self.amount or 15.0
+
+        if existing_template:
+            template.save()
+        else:
+            template.insert()
+            # Link template back to membership type
+            self.dues_schedule_template = template.name
+            self.save()
+
+        return template.name
+
+    @frappe.whitelist()
+    def get_dues_schedule_template(self):
+        """Get the dues schedule template for this membership type"""
+        if self.dues_schedule_template:
+            return self.dues_schedule_template
+
+        # Try to find existing template
+        template_name = frappe.db.get_value(
+            "Membership Dues Schedule", {"membership_type": self.name, "is_template": 1}, "name"
+        )
+
+        if template_name:
+            self.dues_schedule_template = template_name
+            self.save()
+            return template_name
+
+        # Create new template
+        return self.create_dues_schedule_template()
+
+
+# Updated to use dues schedule system
+
 
 @frappe.whitelist()
-def create_subscription_plan(membership_type_name):
-    """Create a subscription plan from a membership type"""
+def get_membership_contribution_options(membership_type_name):
+    """Get contribution options for a specific membership type"""
     membership_type = frappe.get_doc("Membership Type", membership_type_name)
-    return membership_type.create_subscription_plan()
+    return membership_type.get_contribution_options()
+
+
+@frappe.whitelist()
+def get_template_query():
+    """Query function for dues schedule template filter"""
+    return {"filters": [["Membership Dues Schedule", "is_template", "=", 1]]}

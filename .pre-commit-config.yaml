@@ -82,3 +82,11 @@ repos:
         files: \.py$
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py)'
+
+      - id: workspace-validator
+        name: Validate workspace integrity
+        entry: python scripts/validation/workspace_pre_commit.py
+        language: system
+        pass_filenames: false
+        files: '^(verenigingen/fixtures/workspace\.json|verenigingen/api/workspace_.*\.py)$'
+        stages: [pre-commit]

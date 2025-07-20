@@ -120,10 +120,9 @@ class MembershipTerminationRequest(Document):
 
     def execute_system_updates_safely(self):
         """Execute system updates using safe integration methods from utils"""
-        from verenigingen.utils.termination_integration import (
+        from verenigingen.utils.termination_integration import (  # Updated to use dues schedule system
             cancel_membership_safe,
             cancel_sepa_mandate_safe,
-            cancel_subscription_safe,
             deactivate_user_account_safe,
             end_board_positions_safe,
             suspend_team_memberships_safe,
@@ -140,7 +139,7 @@ class MembershipTerminationRequest(Document):
             "sepa_mandates_cancelled": 0,
             "memberships_cancelled": 0,
             "positions_ended": 0,
-            "subscriptions_cancelled": 0,
+            # "dues_schedules_cancelled": 0,  # Updated to use dues schedule system
             "invoices_updated": 0,
             "customer_updated": False,
             "member_updated": False,
@@ -159,7 +158,7 @@ class MembershipTerminationRequest(Document):
         active_memberships = frappe.get_all(
             "Membership",
             filters={"member": member_doc.name, "status": ["in", ["Active", "Pending"]], "docstatus": 1},
-            fields=["name", "membership_type", "subscription"],
+            fields=["name", "membership_type"],  # Removed legacy field
         )
 
         frappe.logger().info(f"Found {len(active_memberships)} active memberships to cancel")
@@ -174,17 +173,18 @@ class MembershipTerminationRequest(Document):
                 results["memberships_cancelled"] += 1
                 results["actions_taken"].append(f"Cancelled membership {membership_data.name}")
 
-                # Also cancel associated subscription
-                if membership_data.subscription:
-                    if cancel_subscription_safe(membership_data.subscription):
-                        results["subscriptions_cancelled"] += 1
-                        results["actions_taken"].append(
-                            f"Cancelled subscription {membership_data.subscription}"
-                        )
-                    else:
-                        results["errors"].append(
-                            f"Failed to cancel subscription {membership_data.subscription}"
-                        )
+                # Updated to use dues schedule system
+                # Also cancel associated dues schedule
+                # if membership_data.dues_schedule:
+                #     if cancel_dues_schedule_safe(membership_data.dues_schedule):
+                #         results["dues_schedules_cancelled"] += 1
+                #         results["actions_taken"].append(
+                #             f"Cancelled dues schedule {membership_data.dues_schedule}"
+                #         )
+                #     else:
+                #         results["errors"].append(
+                #             f"Failed to cancel dues schedule {membership_data.dues_schedule}"
+                #         )
             else:
                 results["errors"].append(f"Failed to cancel membership {membership_data.name}")
 
@@ -300,24 +300,24 @@ class MembershipTerminationRequest(Document):
                     f"Updated {results['invoices_updated']} outstanding invoice(s)"
                 )
 
-        # 7. Handle additional subscriptions not linked to memberships
-        if member_doc.customer:
-            remaining_subscriptions = frappe.get_all(
-                "Subscription",
-                filters={
-                    "party_type": "Customer",
-                    "party": member_doc.customer,
-                    "status": ["in", ["Active", "Past Due"]],
-                },
-                fields=["name"],
-            )
-
-            for sub_data in remaining_subscriptions:
-                if cancel_subscription_safe(sub_data.name):
-                    results["subscriptions_cancelled"] += 1
-                    results["actions_taken"].append(f"Cancelled additional subscription {sub_data.name}")
-                else:
-                    results["errors"].append(f"Failed to cancel subscription {sub_data.name}")
+        # Updated to use dues schedule system
+        # 7. Handle additional dues schedules not linked to memberships
+        # if member_doc.name:
+        #     remaining_dues_schedules = frappe.get_all(
+        #         "Membership Dues Schedule",
+        #         filters={
+        #             "member": member_doc.name,
+        #             "status": ["in", ["Active", "Past Due"]],
+        #         },
+        #         fields=["name"],
+        #     )
+        #
+        #     for dues_data in remaining_dues_schedules:
+        #         if cancel_dues_schedule_safe(dues_data.name):
+        #             results["dues_schedules_cancelled"] += 1
+        #             results["actions_taken"].append(f"Cancelled additional dues schedule {dues_data.name}")
+        #         else:
+        #             results["errors"].append(f"Failed to cancel dues schedule {dues_data.name}")
 
         # Log results
         frappe.logger().info(f"System updates completed: {results}")
@@ -616,7 +616,7 @@ def get_termination_impact_preview(member):
             "sepa_mandates": 0,
             "board_positions": 0,
             "outstanding_invoices": 0,
-            "subscriptions": 0,
+            # "dues_schedules": 0,  # Updated to use dues schedule system
             "volunteer_records": 0,
             "pending_volunteer_expenses": 0,
             "employee_records": 0,

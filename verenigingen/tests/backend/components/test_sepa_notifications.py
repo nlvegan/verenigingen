@@ -29,8 +29,7 @@ class TestSEPANotifications(unittest.TestCase):
                     "doctype": "Customer",
                     "customer_name": "Test SEPA Customer",
                     "customer_type": "Individual",
-                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
-                }
+                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name")}
             ).insert()
         else:
             cls.test_customer = frappe.get_doc("Customer", "TEST-SEPA-CUSTOMER")
@@ -42,8 +41,7 @@ class TestSEPANotifications(unittest.TestCase):
                     "doctype": "Member",
                     "member_name": "Test SEPA Member",
                     "email": "sepa-test@example.com",
-                    "customer": cls.test_customer.name,
-                }
+                    "customer": cls.test_customer.name}
             ).insert()
         else:
             cls.test_member = frappe.get_doc("Member", {"email": "sepa-test@example.com"})
@@ -64,8 +62,7 @@ class TestSEPANotifications(unittest.TestCase):
                 "sign_date": today(),
                 "status": "Active",
                 "is_active": 1,
-                "used_for_memberships": 1,
-            }
+                "used_for_memberships": 1}
         ).insert()
 
     def tearDown(self):
@@ -166,10 +163,8 @@ class TestSEPANotifications(unittest.TestCase):
                     {
                         "item_code": frappe.db.get_value("Item", {"item_group": {"!=": ""}}, "name"),
                         "qty": 1,
-                        "rate": 100,
-                    }
-                ],
-            }
+                        "rate": 100}
+                ]}
         ).insert()
         invoice.submit()
 
@@ -183,8 +178,7 @@ class TestSEPANotifications(unittest.TestCase):
                 "retry_count": 1,
                 "next_retry_date": add_days(today(), 3),
                 "status": "Scheduled",
-                "last_failure_reason": "Insufficient funds",
-            }
+                "last_failure_reason": "Insufficient funds"}
         ).insert()
 
         # Send notification
@@ -219,8 +213,7 @@ class TestSEPANotifications(unittest.TestCase):
                 "posting_date": today(),
                 "mode_of_payment": "Bank Transfer",
                 "paid_to": frappe.db.get_value("Account", {"account_type": "Bank", "is_group": 0}, "name"),
-                "paid_to_account_currency": "EUR",
-            }
+                "paid_to_account_currency": "EUR"}
         )
         payment.insert()
 
@@ -287,8 +280,7 @@ class TestSEPANotifications(unittest.TestCase):
                 "member": self.test_member.name,
                 "expiry_date": add_days(today(), 20),
                 "mandate_id": self.test_mandate.mandate_id,
-                "iban": self.test_mandate.iban,
-            }
+                "iban": self.test_mandate.iban}
         ]
 
         # Mock no recent notifications sent
@@ -322,8 +314,7 @@ class TestSEPANotifications(unittest.TestCase):
                 "bic": "RABONL2U",
                 "account_holder_name": "Test Account Holder",
                 "sign_date": today(),
-                "status": "Active",
-            }
+                "status": "Active"}
         ).insert()
 
         # These should not raise exceptions
@@ -352,8 +343,7 @@ class TestPaymentNotifications(unittest.TestCase):
                     "doctype": "Customer",
                     "customer_name": "Test Payment Customer",
                     "customer_type": "Individual",
-                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name"),
-                }
+                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name")}
             ).insert()
         else:
             cls.test_customer = frappe.get_doc("Customer", "TEST-PAYMENT-CUSTOMER")
@@ -365,8 +355,7 @@ class TestPaymentNotifications(unittest.TestCase):
                     "doctype": "Member",
                     "member_name": "Test Payment Member",
                     "email": "payment-test@example.com",
-                    "customer": cls.test_customer.name,
-                }
+                    "customer": cls.test_customer.name}
             ).insert()
         else:
             cls.test_member = frappe.get_doc("Member", {"email": "payment-test@example.com"})
@@ -411,10 +400,8 @@ class TestPaymentNotifications(unittest.TestCase):
                     {
                         "item_code": frappe.db.get_value("Item", {"item_group": {"!=": ""}}, "name"),
                         "qty": 1,
-                        "rate": 100,
-                    }
-                ],
-            }
+                        "rate": 100}
+                ]}
         ).insert()
         invoice.submit()
 
@@ -425,8 +412,7 @@ class TestPaymentNotifications(unittest.TestCase):
                 "invoice": invoice.name,
                 "member": self.test_member.name,
                 "original_amount": 100,
-                "status": "Scheduled",
-            }
+                "status": "Scheduled"}
         ).insert()
 
         # Create payment entry with reference

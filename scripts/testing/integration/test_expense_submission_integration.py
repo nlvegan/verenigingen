@@ -27,8 +27,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
                 "first_name": "Integration",
                 "last_name": "Test",
                 "email": "integration@example.com",
-                "join_date": today(),
-            }
+                "join_date": today()}
         )
         cls.test_member.insert(ignore_permissions=True)
 
@@ -40,8 +39,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
                 "email": "integration@example.com",
                 "member": cls.test_member.name,
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         cls.test_volunteer.insert(ignore_permissions=True)
 
@@ -64,8 +62,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
                     "doctype": "Expense Category",
                     "name": "INTEGRATION-CATEGORY",
                     "category_name": "Integration Test Category",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             cls.test_category.insert(ignore_permissions=True)
 
@@ -91,8 +88,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
             "category": "INTEGRATION-CATEGORY",
-            "notes": "End-to-end integration test",
-        }
+            "notes": "End-to-end integration test"}
 
         with patch("frappe.session.user", self.test_volunteer.email):
             result = submit_expense(expense_data)
@@ -138,8 +134,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
                 "organization_type": "Chapter",
                 "chapter": self.test_chapter.name,
                 "category": "INTEGRATION-CATEGORY",
-                "notes": "Testing API call simulation",
-            }
+                "notes": "Testing API call simulation"}
         )
 
         with patch("frappe.session.user", self.test_volunteer.email):
@@ -164,8 +159,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
                         "volunteer_name": self.test_volunteer.volunteer_name,
                         "member": self.test_member.name,
                         "extra_field": "extra_value",  # Extra field shouldn't break anything
-                        "another_field": 123,
-                    }
+                        "another_field": 123}
                 ),
             ]
 
@@ -188,8 +182,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
                 "organization_type": "Chapter",
                 "chapter": self.test_chapter.name,
                 "category": "INTEGRATION-CATEGORY",
-                "notes": f"Concurrent submission test {i}",
-            }
+                "notes": f"Concurrent submission test {i}"}
             for i in range(3)
         ]
 
@@ -217,8 +210,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": self.test_chapter.name,
             "category": "INTEGRATION-CATEGORY",
-            "notes": "Testing data consistency",
-        }
+            "notes": "Testing data consistency"}
 
         with patch("frappe.session.user", self.test_volunteer.email):
             result = submit_expense(expense_data)
@@ -259,8 +251,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
             "organization_type": "Chapter",
             "chapter": "NONEXISTENT-CHAPTER",
             "category": "INTEGRATION-CATEGORY",
-            "notes": "Testing error handling",
-        }
+            "notes": "Testing error handling"}
 
         with patch("frappe.session.user", self.test_volunteer.email):
             result = submit_expense(invalid_expense_data)

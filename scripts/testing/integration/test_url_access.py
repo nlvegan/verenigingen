@@ -21,8 +21,7 @@ def test_url_access():
         "chapter_dashboard_exists": "chapter_dashboard" in py_files,
         "member_dashboard_exists": "member_dashboard" in py_files,
         "site_url": frappe.utils.get_url(),
-        "user": frappe.session.user,
-    }
+        "user": frappe.session.user}
 
     # Test if we can access page context directly
     try:
@@ -34,8 +33,7 @@ def test_url_access():
         results["context_data"] = {
             "title": test_context.get("title"),
             "has_data": test_context.get("has_data"),
-            "selected_chapter": test_context.get("selected_chapter"),
-        }
+            "selected_chapter": test_context.get("selected_chapter")}
     except Exception as e:
         results["chapter_dashboard_context_ok"] = False
         results["context_error"] = str(e)

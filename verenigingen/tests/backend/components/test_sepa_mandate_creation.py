@@ -27,8 +27,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "full_name": "SEPA Creation",
                 "status": "Active",
                 "iban": "NL13TEST0123456789",  # Use test bank IBAN
-                "bic": "TESTNL2A",
-            }
+                "bic": "TESTNL2A"}
         )
         cls.member.insert(ignore_permissions=True)
         cls.test_records.append(cls.member)
@@ -108,8 +107,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "account_holder_name": self.member.full_name,
                 "iban": "NL13TEST0123456789",
                 "sign_date": today(),
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         existing_mandate.insert()
 
@@ -142,8 +140,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "iban": "NL13TEST0123456789",
                 "sign_date": today(),
                 "status": "Active",
-                "is_active": 1,
-            }
+                "is_active": 1}
         )
         existing_mandate.insert()
 
@@ -219,8 +216,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "iban": "NL13TEST0123456789",
                 "sign_date": today(),
                 "status": "Active",
-                "is_active": 1,
-            }
+                "is_active": 1}
         )
         mandate.insert()
 
@@ -250,8 +246,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "iban": "NL13TEST0123456789",
                 "sign_date": today(),
                 "status": "Active",
-                "is_active": 1,
-            }
+                "is_active": 1}
         )
         mandate1.insert()
 
@@ -264,8 +259,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "iban": "NL82MOCK0123456789",
                 "sign_date": today(),
                 "status": "Active",
-                "is_active": 1,
-            }
+                "is_active": 1}
         )
         mandate2.insert()
 
@@ -368,8 +362,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "account_holder_name": self.member.full_name,
                 "iban": "NL13TEST0123456789",
                 "sign_date": today(),
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         existing_mandate.insert()
 
@@ -382,8 +375,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "mandate_reference": "OLD-MANDATE-001",
                 "is_current": 1,
                 "status": "Active",
-                "valid_from": today(),
-            },
+                "valid_from": today()},
         )
         member_doc.save()
 

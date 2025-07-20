@@ -51,9 +51,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                     "doctype": "Membership Type",
                     "membership_type_name": f"Test Type {random_string(8)}",
                     "amount": 100,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                }
+                    "currency": "EUR"}
             )
             mt.insert(ignore_permissions=True)
             self.track_doc("Membership Type", mt.name)
@@ -130,8 +128,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "iban": member.iban,
                 "bank_account_name": member.bank_account_name,
                 "status": "Active",
-                "signature_date": today(),
-            }
+                "signature_date": today()}
         )
         mandate.insert(ignore_permissions=True)
         self.track_doc("SEPA Mandate", mandate.name)
@@ -159,8 +156,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                     "doctype": "Donor",
                     "donor_name": member.full_name,
                     "email": member.email,
-                    "member": member.name,
-                }
+                    "member": member.name}
             )
             donor.insert(ignore_permissions=True)
             self.track_doc("Donor", donor.name)
@@ -175,8 +171,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                     "donor": member.donor,
                     "amount": 50 * (i + 1),
                     "date": add_days(today(), -30 * i),
-                    "payment_method": "Bank Transfer",
-                }
+                    "payment_method": "Bank Transfer"}
             )
             donation.insert(ignore_permissions=True)
             self.track_doc("Donation", donation.name)
@@ -218,7 +213,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
     def test_get_display_membership_fee_whitelist(self):
         """Test get_display_membership_fee method with override"""
         test_data = self.builder.with_member(
-            membership_fee_override=75.00, fee_override_reason="Special discount"
+            dues_rate=75.00, fee_override_reason="Special discount"
         ).build()
 
         member = test_data["member"]
@@ -306,8 +301,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
             "street_name": "Test Street",
             "house_number": "123",
             "postal_code": "1234",
-            "city": "Amsterdam",
-        }
+            "city": "Amsterdam"}
 
         test_data1 = self.builder.with_member(
             first_name="First", last_name="Resident", **address_data
@@ -356,8 +350,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "last_name": "Member",
                 "email": f"new.{random_string(8)}@test.com",
                 "contact_number": "+31612345678",
-                "payment_method": "Bank Transfer",
-            }
+                "payment_method": "Bank Transfer"}
         )
         new_member.insert(ignore_permissions=True)
         self.track_doc("Member", new_member.name)
@@ -402,9 +395,9 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
         # Submit membership
         membership.submit()
 
-        # Test getting current subscription details
+        # Test getting current dues schedule details
         details = frappe.call(
-            "verenigingen.verenigingen.doctype.member.member.Member.get_current_subscription_details",
+            "verenigingen.verenigingen.doctype.member.member.Member.get_current_dues_schedule_details",
             doc=member.as_dict(),
         )
 
@@ -424,8 +417,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "member": member.name,
                 "suspension_reason": "Payment Failed",
                 "suspension_date": today(),
-                "status": "Pending",
-            }
+                "status": "Pending"}
         )
         suspension.insert(ignore_permissions=True)
         self.track_doc("Member Suspension", suspension.name)
@@ -509,8 +501,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "first_name": "Test",
                 "last_name": "User",
                 "enabled": 1,
-                "roles": [{"role": "Verenigingen Member"}],
-            }
+                "roles": [{"role": "Verenigingen Member"}]}
         )
         test_user.insert(ignore_permissions=True)
         self.track_doc("User", test_user.name)
@@ -546,8 +537,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "email": member.email,
                 "first_name": "Existing",
                 "last_name": "User",
-                "enabled": 1,
-            }
+                "enabled": 1}
         )
         existing_user.insert(ignore_permissions=True)
         self.track_doc("User", existing_user.name)
@@ -574,8 +564,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "last_name": "Member",
                 "email": f"another.{random_string(8)}@test.com",
                 "contact_number": "+31612345678",
-                "payment_method": "Bank Transfer",
-            }
+                "payment_method": "Bank Transfer"}
         )
         new_member.insert(ignore_permissions=True)
         self.track_doc("Member", new_member.name)

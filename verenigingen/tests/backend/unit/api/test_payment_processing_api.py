@@ -54,8 +54,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
             "amount": 100.00,
             "payment_method": "Bank Transfer",
             "transaction_reference": "TEST-PAY-001",
-            "payment_date": today(),
-        }
+            "payment_date": today()}
 
         result = payment_processing.process_membership_payment(member.name, payment_data)
 
@@ -77,8 +76,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
             "bic": "ABNANL2A",
             "account_holder_name": "Test Member",
             "mandate_type": "CORE",
-            "sign_date": today(),
-        }
+            "sign_date": today()}
 
         result = payment_processing.create_sepa_mandate(member.name, mandate_data)
 
@@ -121,8 +119,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
             "batch_reference": "TEST-BATCH-001",
             "member_payments": [
                 {"member": mp["member"].name, "amount": mp["amount"]} for mp in members_with_payments
-            ],
-        }
+            ]}
 
         result = payment_processing.process_direct_debit_batch(batch_data)
 
@@ -148,8 +145,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
             "reason": "Insufficient funds",
             "failure_date": today(),
             "amount": 100.00,
-            "retry_scheduled": add_days(today(), 7),
-        }
+            "retry_scheduled": add_days(today(), 7)}
 
         result = payment_processing.handle_payment_failure(member.name, failure_data)
 
@@ -197,8 +193,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
                 "bank_transaction_id": "BANK-001",
                 "amount": 100.00,
                 "transaction_date": today(),
-                "description": f"Payment from {member.full_name}",
-            }
+                "description": f"Payment from {member.full_name}"}
 
             result = payment_processing.reconcile_payment(reconciliation_data)
 
@@ -221,8 +216,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
             reminder_data = {
                 "reminder_type": "First Reminder",
                 "due_amount": 100.00,
-                "due_date": add_days(today(), -7),
-            }
+                "due_date": add_days(today(), -7)}
 
             result = payment_processing.generate_payment_reminder(member.name, reminder_data)
 
@@ -242,8 +236,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
                     "member": test_data["member"].name,
                     "amount": 50.00 + (i * 10),
                     "payment_method": "Bank Transfer",
-                    "reference": f"BULK-{i}",
-                }
+                    "reference": f"BULK-{i}"}
             )
             self.builder.cleanup()
 
@@ -266,8 +259,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
             "new_payment_method": "SEPA Direct Debit",
             "iban": "NL18RABO0123456789",
             "bic": "RABONL2U",
-            "account_holder_name": "Updated Name",
-        }
+            "account_holder_name": "Updated Name"}
 
         payment_processing.update_payment_method(member.name, update_data)
 
@@ -327,8 +319,7 @@ class TestPaymentProcessingAPI(VereningingenUnitTestCase):
             payment_data = {
                 "amount": 50.00,
                 "payment_method": "Bank Transfer",
-                "transaction_reference": "FIN-001",
-            }
+                "transaction_reference": "FIN-001"}
 
             result = payment_processing.process_membership_payment(member.name, payment_data)
 

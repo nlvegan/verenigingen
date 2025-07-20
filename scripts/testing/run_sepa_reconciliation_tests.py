@@ -101,8 +101,7 @@ def run_workflow_tests():
     workflow_data = {
         "bank_transaction": "BT-TEST-001",
         "sepa_batch": "BATCH-TEST-001",
-        "processing_mode": "conservative",
-    }
+        "processing_mode": "conservative"}
 
     print("  Testing complete reconciliation workflow...")
     success, stdout, stderr = run_command(

@@ -29,8 +29,7 @@ class TestVolunteerCreationFix(unittest.TestCase):
                 "last_name": "ExistingUser",
                 "email": f"test.existing.user.{frappe.utils.random_string(5)}@example.com",
                 "contact_number": "+31612345678",
-                "payment_method": "Bank Transfer",
-            }
+                "payment_method": "Bank Transfer"}
         )
         member.insert(ignore_permissions=True)
         self.test_docs.append(("Member", member.name))
@@ -42,8 +41,7 @@ class TestVolunteerCreationFix(unittest.TestCase):
                 "email": member.email,
                 "first_name": member.first_name,
                 "last_name": member.last_name,
-                "user_type": "Website User",
-            }
+                "user_type": "Website User"}
         )
         user.insert(ignore_permissions=True)
         self.test_docs.append(("User", user.name))

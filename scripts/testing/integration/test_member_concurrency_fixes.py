@@ -68,8 +68,7 @@ def test_member_creation_performance():
                 "first_name": "Test",
                 "last_name": "Performance" + random_string(5),
                 "email": f"test.performance.{random_string(5)}@example.com",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
 
         member.insert(ignore_permissions=True)
@@ -78,7 +77,7 @@ def test_member_creation_performance():
         member.update_current_chapter_display()
 
         # Test fee override handling
-        member.membership_fee_override = 25.0
+        member.dues_rate = 25.0
         member.fee_override_reason = "Test performance"
         member.save(ignore_permissions=True)
 

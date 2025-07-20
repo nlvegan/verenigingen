@@ -47,8 +47,7 @@ class VereningingenTestCase(unittest.TestCase):
                 "doctype": "Member",
                 "first_name": f"Test{unique_id[:4]}",
                 "last_name": f"Member{unique_id[4:]}",
-                "email": email,
-            }
+                "email": email}
         )
         member.insert(ignore_permissions=True)
         return member
@@ -65,8 +64,7 @@ class VereningingenTestCase(unittest.TestCase):
                 "email": f"test.volunteer.{frappe.utils.random_string(5)}@example.org",
                 "member": member.name,
                 "status": "Active",
-                "start_date": today(),
-            }
+                "start_date": today()}
         )
         volunteer.insert(ignore_permissions=True)
         return volunteer

@@ -26,8 +26,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "company_name": "Integration Test Company",
                     "abbr": "ITC",
                     "default_currency": "EUR",
-                    "country": "Netherlands",
-                }
+                    "country": "Netherlands"}
             )
             company.insert()
             cls.company = company.name
@@ -52,8 +51,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                         "first_name": name.split()[0],
                         "last_name": name.split()[-1],
                         "full_name": name,
-                        "enabled": 1,
-                    }
+                        "enabled": 1}
                 )
                 user.insert(ignore_permissions=True)
 
@@ -98,8 +96,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "chapter_name": chapter_name,
                     "city": "Integration City",
                     "country": "Netherlands",
-                    "enabled": 1,
-                }
+                    "enabled": 1}
             )
             chapter.insert()
             return chapter.name
@@ -116,8 +113,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "team_name": team_name,
                     "description": "Integration test team",
                     "chapter": cls.test_chapter,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             team.insert()
             return team.name
@@ -131,20 +127,17 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                 "name": "Integration Chair",
                 "permissions_level": "Admin",
                 "can_approve_expenses": 1,
-                "description": "Chapter chair with admin permissions",
-            },
+                "description": "Chapter chair with admin permissions"},
             {
                 "name": "Integration Treasurer",
                 "permissions_level": "Financial",
                 "can_approve_expenses": 1,
-                "description": "Treasurer with financial permissions",
-            },
+                "description": "Treasurer with financial permissions"},
             {
                 "name": "Integration Secretary",
                 "permissions_level": "Basic",
                 "can_approve_expenses": 1,
-                "description": "Secretary with basic permissions",
-            },
+                "description": "Secretary with basic permissions"},
         ]
 
         cls.chapter_roles = {}
@@ -156,8 +149,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                         "role_name": role_data["name"],
                         "permissions_level": role_data["permissions_level"],
                         "can_approve_expenses": role_data["can_approve_expenses"],
-                        "description": role_data["description"],
-                    }
+                        "description": role_data["description"]}
                 )
                 role.insert()
             cls.chapter_roles[role_data["permissions_level"].lower()] = role_data["name"]
@@ -176,8 +168,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "full_name": name,
                     "email": email,
                     "user": email,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             member.insert()
             return member.name
@@ -195,8 +186,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "volunteer_name": frappe.db.get_value("Member", member_id, "full_name"),
                     "member": member_id,
                     "email": email,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             volunteer.insert()
             return volunteer.name
@@ -234,8 +224,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "volunteer": cls.board_volunteer,
                     "chapter_role": cls.chapter_roles["admin"],
                     "start_date": today(),
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             board_position.insert()
 
@@ -256,8 +245,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                         "doctype": "Expense Category",
                         "category_name": cat_data["name"],
                         "description": cat_data["description"],
-                        "disabled": 0,
-                    }
+                        "disabled": 0}
                 )
                 category.insert()
                 categories.append(category.name)
@@ -300,8 +288,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
             "organization_type": "Chapter",
             "chapter": self.test_chapter,
             "category": self.expense_categories[0],
-            "notes": "Integration testing expense",
-        }
+            "notes": "Integration testing expense"}
 
         # Submit expense
         submit_result = submit_expense(expense_data)
@@ -353,8 +340,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
             "expense_date": today(),
             "organization_type": "Chapter",
             "chapter": self.test_chapter,
-            "category": self.expense_categories[1],
-        }
+            "category": self.expense_categories[1]}
 
         submit_result = submit_expense(expense_data)
         self.assertTrue(submit_result["success"])
@@ -399,8 +385,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
             "amount": 50.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.test_chapter,
-        }
+            "chapter": self.test_chapter}
 
         submit_result = submit_expense(expense_data)
         self.assertTrue(submit_result["success"])
@@ -452,8 +437,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "amount": amount,
                     "expense_date": today(),
                     "organization_type": "Chapter",
-                    "chapter": self.test_chapter,
-                }
+                    "chapter": self.test_chapter}
 
                 result = submit_expense(expense_data)
                 self.assertTrue(result["success"])
@@ -500,8 +484,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "amount": 30.00 + (i * 10),
                     "expense_date": today(),
                     "organization_type": "Chapter",
-                    "chapter": self.test_chapter,
-                }
+                    "chapter": self.test_chapter}
 
                 result = submit_expense(expense_data)
                 self.assertTrue(result["success"])
@@ -553,8 +536,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
             "amount": 50.00,
             "expense_date": today(),
             "organization_type": "Chapter",
-            "chapter": self.test_chapter,
-        }
+            "chapter": self.test_chapter}
 
         result = submit_expense(expense_data)
         self.assertTrue(result["success"])
@@ -596,8 +578,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "team_name": extra_team,
                     "description": "Extra team for integration testing",
                     "chapter": self.test_chapter,
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             team.insert()
 
@@ -612,8 +593,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "volunteer": self.test_volunteer,
                     "role_type": "Team Member",
                     "status": "Active",
-                    "joined_date": today(),
-                }
+                    "joined_date": today()}
             )
             team_member.insert()
 
@@ -639,8 +619,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                 "amount": 40.00,
                 "expense_date": today(),
                 "organization_type": "Chapter",
-                "chapter": self.test_chapter,
-            }
+                "chapter": self.test_chapter}
 
             result1 = submit_expense(chapter_expense_data)
             self.assertTrue(result1["success"])
@@ -652,8 +631,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                 "amount": 35.00,
                 "expense_date": today(),
                 "organization_type": "Team",
-                "team": extra_team,
-            }
+                "team": extra_team}
 
             result2 = submit_expense(team_expense_data)
             self.assertTrue(result2["success"])
@@ -702,8 +680,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "amount": exp_data["amount"],
                     "expense_date": today(),
                     "organization_type": "Chapter",
-                    "chapter": self.test_chapter,
-                }
+                    "chapter": self.test_chapter}
 
                 result = submit_expense(expense_data)
                 self.assertTrue(result["success"])

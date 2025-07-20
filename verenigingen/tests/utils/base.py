@@ -74,8 +74,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "doctype": "Item Group",
                     "item_group_name": "Membership",
                     "parent_item_group": "All Item Groups",
-                    "is_group": 0,
-                }
+                    "is_group": 0}
             )
             item_group.insert(ignore_permissions=True)
 
@@ -89,8 +88,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "region_name": "Test Region",
                     "region_code": "TR",
                     "country": "Netherlands",
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             region.insert(ignore_permissions=True)
             # Store the actual name that was generated
@@ -107,8 +105,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "membership_type_name": "Test Membership",
                     "payment_interval": "Monthly",
                     "amount": 10.00,
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             membership_type.insert(ignore_permissions=True)
 
@@ -122,8 +119,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "name": "Test Chapter",  # Set name explicitly for prompt autoname
                     "chapter_name": "Test Chapter",
                     "region": region_name,
-                    "is_active": 1,
-                }
+                    "is_active": 1}
             )
             chapter.insert(ignore_permissions=True)
 
@@ -190,12 +186,18 @@ class VereningingenTestCase(FrappeTestCase):
             except:
                 pass
         
-        # Delete SEPA Mandates
-        for mandate in frappe.get_all("SEPA Mandate", filters={"customer": customer_name}):
-            try:
-                frappe.delete_doc("SEPA Mandate", mandate.name, force=True, ignore_permissions=True)
-            except:
-                pass
+        # Delete SEPA Mandates (linked to members, not customers directly)
+        # Find member linked to this customer and delete their SEPA Mandates
+        try:
+            member = frappe.db.get_value("Member", {"customer": customer_name}, "name")
+            if member:
+                for mandate in frappe.get_all("SEPA Mandate", filters={"member": member}):
+                    try:
+                        frappe.delete_doc("SEPA Mandate", mandate.name, force=True, ignore_permissions=True)
+                    except:
+                        pass
+        except:
+            pass
     
     @staticmethod
     def get_test_region_name():
@@ -248,6 +250,118 @@ class VereningingenTestCase(FrappeTestCase):
             message = f"Expected {doctype} to not exist with filters {filters}"
         self.assertFalse(exists, message)
 
+    def create_test_member(self, **kwargs):
+        """Create a test member with default values"""
+        defaults = {
+            "first_name": "Test",
+            "last_name": "Member",
+            "email": f"test.member.{frappe.generate_hash(length=6)}@example.com",
+            "member_since": frappe.utils.today(),
+            "address_line1": "123 Test Street",
+            "postal_code": "1234AB",
+            "city": "Test City",
+            "country": "Netherlands"
+        }
+        defaults.update(kwargs)
+        
+        member = frappe.new_doc("Member")
+        for key, value in defaults.items():
+            setattr(member, key, value)
+        
+        member.save()
+        self.track_doc("Member", member.name)
+        return member
+
+    def create_test_membership_type(self, **kwargs):
+        """Create a test membership type with default values"""
+        defaults = {
+            "membership_type_name": f"Test Type {frappe.generate_hash(length=6)}",
+            "amount": 25.0,
+            "is_active": 1,
+            "contribution_mode": "Calculator",
+            "enable_income_calculator": 1,
+            "income_percentage_rate": 0.75
+        }
+        defaults.update(kwargs)
+        
+        membership_type = frappe.new_doc("Membership Type")
+        for key, value in defaults.items():
+            setattr(membership_type, key, value)
+        
+        membership_type.save()
+        self.track_doc("Membership Type", membership_type.name)
+        return membership_type
+
+    def create_test_membership(self, **kwargs):
+        """Create a test membership with default values"""
+        # Get a test membership type
+        membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
+        if not membership_type:
+            membership_type = frappe.db.get_value("Membership Type", {}, "name")
+        
+        defaults = {
+            "membership_type": membership_type,
+            "status": "Active",
+            "docstatus": 1,
+            "start_date": frappe.utils.today(),
+            "from_date": frappe.utils.today(),
+            "to_date": frappe.utils.add_months(frappe.utils.today(), 12)
+        }
+        defaults.update(kwargs)
+        
+        membership = frappe.new_doc("Membership")
+        for key, value in defaults.items():
+            setattr(membership, key, value)
+        
+        membership.save()
+        if membership.docstatus == 0:
+            membership.submit()
+        self.track_doc("Membership", membership.name)
+        return membership
+
+    def create_test_dues_schedule(self, **kwargs):
+        """Create a test dues schedule with default values"""
+        # If member is provided, create instance from template
+        if "member" in kwargs:
+            member_name = kwargs["member"]
+            membership_type_name = kwargs.get("membership_type")
+            
+            # Use factory method to create from template
+            return self.factory.create_dues_schedule_for_member(member_name, membership_type_name)
+        
+        # Otherwise create a template (for backward compatibility)
+        membership_type = kwargs.get("membership_type")
+        if not membership_type:
+            membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
+            if not membership_type:
+                membership_type = frappe.db.get_value("Membership Type", {}, "name")
+        
+        # Create template
+        defaults = {
+            "is_template": 1,
+            "schedule_name": f"Test-Template-{membership_type}",
+            "membership_type": membership_type,
+            "amount": 15.00,
+            "contribution_mode": "Calculator",
+            "status": "Active",
+            "auto_generate": 1,
+            "minimum_amount": 5.00,
+            "suggested_amount": 15.00}
+        defaults.update(kwargs)
+        
+        # Remove deprecated fields if they were passed
+        deprecated_fields = ["payment_method", "current_coverage_start", "effective_date", "test_mode"]
+        for field in deprecated_fields:
+            defaults.pop(field, None)
+        
+        dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        for key, value in defaults.items():
+            setattr(dues_schedule, key, value)
+        
+        dues_schedule.save()
+        self.track_doc("Membership Dues Schedule", dues_schedule.name)
+        return dues_schedule
+
     def create_test_user(self, email, roles=None, password="test123"):
         """Create a test user with specified roles"""
         if frappe.db.exists("User", email):
@@ -260,8 +374,7 @@ class VereningingenTestCase(FrappeTestCase):
                     "first_name": "Test",
                     "last_name": "User",
                     "enabled": 1,
-                    "new_password": password,
-                }
+                    "new_password": password}
             )
             user.insert(ignore_permissions=True)
             self.track_doc("User", email)
@@ -366,8 +479,7 @@ class VereningingenIntegrationTestCase(VereningingenTestCase):
                     "doctype": "Company",
                     "company_name": "Test Company",
                     "default_currency": "EUR",
-                    "country": "Netherlands",
-                }
+                    "country": "Netherlands"}
             )
             company.insert(ignore_permissions=True)
 

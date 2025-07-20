@@ -79,8 +79,7 @@ def test_basic_expense_functionality():
                         "company": default_company,
                         "title": "Test Integration Claim",
                         "remark": "Testing expense claim creation",
-                        "status": "Draft",
-                    }
+                        "status": "Draft"}
                 )
 
                 expense_claim.insert()
@@ -160,8 +159,7 @@ def test_volunteer_expense_workflow():
             "description": "Test expense after account setup",
             "amount": 15.75,
             "expense_type": "Travel",
-            "notes": "Testing expense functionality",
-        }
+            "notes": "Testing expense functionality"}
 
         print("\n💰 Submitting test expense...")
 

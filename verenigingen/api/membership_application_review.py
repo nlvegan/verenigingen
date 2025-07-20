@@ -8,7 +8,9 @@ from frappe.utils import add_days, getdate, now_datetime, today
 
 
 @frappe.whitelist()
-def approve_membership_application(member_name, membership_type=None, chapter=None, notes=None):
+def approve_membership_application(
+    member_name, membership_type=None, chapter=None, notes=None, create_invoice=True
+):
     """
     Approve a membership application and create invoice
     Now directly processes payment instead of waiting
@@ -53,20 +55,36 @@ def approve_membership_application(member_name, membership_type=None, chapter=No
     if not membership_type:
         frappe.throw(_("Please select a membership type"))
 
+    # Pre-check: Validate membership type has a valid dues schedule template
+    validate_membership_type_for_approval(membership_type, member)
+
     # Update chapter if provided
     if chapter:
-        current_chapter = getattr(member, "current_chapter_display", None) or ""
-        if chapter != current_chapter:
-            try:
-                member.current_chapter_display = chapter
-            except AttributeError:
-                # Field might not exist in database yet, log but continue
-                frappe.logger().warning(
-                    f"Could not set current_chapter_display field on member {member.name}"
+        # Note: current_chapter_display is an HTML field, actual chapter assignment
+        # is handled through Chapter Member doctype
+        try:
+            # Create chapter membership if it doesn't exist
+            existing_membership = frappe.db.exists(
+                "Chapter Member", {"member": member.name, "parent": chapter, "enabled": 1}
+            )
+            if not existing_membership:
+                chapter_member = frappe.get_doc(
+                    {
+                        "doctype": "Chapter Member",
+                        "parent": chapter,
+                        "parenttype": "Chapter",
+                        "parentfield": "members",
+                        "member": member.name,
+                        "enabled": 1,
+                        "chapter_join_date": today(),
+                    }
                 )
+                chapter_member.insert()
+        except Exception as e:
+            frappe.logger().warning(f"Could not create chapter membership for {member.name}: {str(e)}")
 
     # Update member status
-    member.application_status = "Approved"  # Application is approved
+    member.application_status = "Active"  # Application is approved and member is active
     member.status = "Active"  # Member is now active (not waiting for payment)
     member.member_since = today()  # Set member since date when approved
     member.reviewed_by = frappe.session.user
@@ -128,21 +146,11 @@ def approve_membership_application(member_name, membership_type=None, chapter=No
         }
     )
 
-    # Handle custom amount if member selected one during application or has fee override
-    from verenigingen.utils.application_helpers import get_member_custom_amount_data
-
-    custom_amount_data = get_member_custom_amount_data(member)
-
-    # Check for custom amount from application data
-    if custom_amount_data and custom_amount_data.get("uses_custom_amount"):
+    # Handle custom amount if member has fee override
+    # Legacy JSON parsing removed - use direct fee override field
+    if hasattr(member, "dues_rate") and member.dues_rate:
         membership.uses_custom_amount = 1
-        if custom_amount_data.get("membership_amount"):
-            membership.custom_amount = custom_amount_data.get("membership_amount")
-
-    # Also check for direct fee override on member
-    elif hasattr(member, "membership_fee_override") and member.membership_fee_override:
-        membership.uses_custom_amount = 1
-        membership.custom_amount = member.membership_fee_override
+        membership.custom_amount = member.dues_rate
 
     membership.insert()
 
@@ -155,7 +163,7 @@ def approve_membership_application(member_name, membership_type=None, chapter=No
     get_or_create_customer(member)
     invoice = create_application_invoice(member, membership)
 
-    # Now submit the membership - the subscription creation will detect the existing invoice
+    # Now submit the membership - the dues schedule creation will detect the existing invoice
     membership.submit()  # Submit the membership to activate it
 
     # Activate volunteer record if member is interested in volunteering
@@ -319,7 +327,7 @@ def reject_membership_application(
 
 
 @frappe.whitelist()
-def get_user_chapter_access():
+def get_user_chapter_access(**kwargs):
     """Get user's chapter access for filtering applications"""
     user = frappe.session.user
 
@@ -390,7 +398,14 @@ def has_approval_permission(member):
         return True
 
     # Check if user is a board member of the member's chapter
-    chapter = getattr(member, "current_chapter_display", None) or getattr(member, "suggested_chapter", None)
+    # Get chapter from Chapter Member table instead of HTML field
+    member_chapters = frappe.get_all(
+        "Chapter Member",
+        filters={"member": member.name, "enabled": 1},
+        fields=["parent"],
+        order_by="chapter_join_date desc",
+    )
+    chapter = member_chapters[0].parent if member_chapters else getattr(member, "suggested_chapter", None)
     if chapter:
         # Get user's member record
         user_member = frappe.db.get_value("Member", {"user": user}, "name")
@@ -420,7 +435,7 @@ def send_approval_notification(member, invoice, membership_type):
             "payment_url": payment_url,
             "payment_amount": invoice.grand_total,
             "company": frappe.defaults.get_global_default("company"),
-            "support_email": frappe.db.get_single_value("Verenigingen Settings", "contact_email")
+            "support_email": frappe.db.get_single_value("Verenigingen Settings", "member_contact_email")
             or "info@verenigingen.nl",
             "base_url": frappe.utils.get_url(),
         }
@@ -507,7 +522,7 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
         "member_name": member.full_name,
         "first_name": member.first_name,
         "application_id": getattr(member, "application_id", member.name),
-        "support_email": frappe.db.get_single_value("Verenigingen Settings", "contact_email")
+        "support_email": frappe.db.get_single_value("Verenigingen Settings", "member_contact_email")
         or "info@verenigingen.nl",
         "base_url": frappe.utils.get_url(),
     }
@@ -558,9 +573,9 @@ def get_pending_applications(chapter=None, days_overdue=None):
     """Get list of pending membership applications"""
     filters = {"application_status": "Pending", "status": "Pending"}
 
-    # Filter by chapter if specified
-    if chapter:
-        filters["current_chapter_display"] = chapter
+    # Chapter filtering will be done post-query since we need to check Chapter Member table
+    # if chapter:
+    #     filters["current_chapter_display"] = chapter
 
     # Filter by overdue if specified
     if days_overdue:
@@ -589,13 +604,15 @@ def get_pending_applications(chapter=None, days_overdue=None):
             )
 
             if board_chapters:
-                chapter_list = [ch.name for ch in board_chapters]
-                if "current_chapter_display" in filters:
-                    # Ensure requested chapter is in allowed list
-                    if filters["current_chapter_display"] not in chapter_list:
-                        return []
-                else:
-                    filters["current_chapter_display"] = ["in", chapter_list]
+                # Chapter filtering will be done post-query using Chapter Member relationships
+                # chapter_list = [ch.name for ch in board_chapters]  # Not currently used
+                # if "current_chapter_display" in filters:
+                #     # Ensure requested chapter is in allowed list
+                #     if filters["current_chapter_display"] not in chapter_list:
+                #         return []
+                # else:
+                #     filters["current_chapter_display"] = ["in", chapter_list]
+                pass
             else:
                 return []  # No board memberships
 
@@ -610,7 +627,7 @@ def get_pending_applications(chapter=None, days_overdue=None):
             "email",
             "contact_number",
             "application_date",
-            "current_chapter_display",
+            # "current_chapter_display",  # HTML field - not in database
             "selected_membership_type",
             "application_source",
             "interested_in_volunteering",
@@ -619,17 +636,64 @@ def get_pending_applications(chapter=None, days_overdue=None):
         order_by="application_date desc",
     )
 
-    # Add additional info
+    # Optimize chapter lookup by fetching all chapter memberships at once
+    member_names = [app.name for app in applications]
+
+    # Get all chapter memberships for these members in a single query
+    chapter_memberships = {}
+    if member_names:
+        all_memberships = frappe.db.sql(
+            """
+            SELECT member, parent as chapter_name
+            FROM `tabChapter Member`
+            WHERE member IN %(member_names)s AND enabled = 1
+            ORDER BY chapter_join_date DESC
+        """,
+            {"member_names": member_names},
+            as_dict=True,
+        )
+
+        # Group by member (taking the most recent chapter)
+        for membership in all_memberships:
+            if membership.member not in chapter_memberships:
+                chapter_memberships[membership.member] = membership.chapter_name
+
+    # Get all membership types in one query for amount lookup
+    membership_types = {app.selected_membership_type for app in applications if app.selected_membership_type}
+    membership_type_data = {}
+    if membership_types:
+        type_data = frappe.get_all(
+            "Membership Type",
+            filters={"name": ["in", list(membership_types)]},
+            fields=["name", "amount", "currency"],
+        )
+        membership_type_data = {mt.name: mt for mt in type_data}
+
+    # Add additional info and apply chapter filtering
+    filtered_applications = []
     for app in applications:
         app["days_pending"] = (getdate(today()) - getdate(app.application_date)).days
 
-        # Get membership type amount
-        if app.selected_membership_type:
-            mt = frappe.get_cached_doc("Membership Type", app.selected_membership_type)
+        # Get membership type amount from cached data
+        if app.selected_membership_type and app.selected_membership_type in membership_type_data:
+            mt = membership_type_data[app.selected_membership_type]
             app["membership_amount"] = mt.amount
             app["membership_currency"] = mt.currency
 
-    return applications
+        # Get chapter information from pre-loaded data
+        app["current_chapter_display"] = chapter_memberships.get(app.name, "Unassigned")
+
+        # Apply chapter filter if specified
+        if chapter:
+            member_chapter = chapter_memberships.get(app.name)
+            if chapter == "Unassigned" and member_chapter:
+                continue  # Skip if looking for unassigned but member has chapters
+            elif chapter != "Unassigned" and member_chapter != chapter:
+                continue  # Skip if doesn't match requested chapter
+
+        filtered_applications.append(app)
+
+    return filtered_applications
 
 
 @frappe.whitelist()
@@ -878,14 +942,14 @@ def get_application_stats():
         "Member", {"application_status": "Pending", "application_date": ["<", add_days(today(), -14)]}
     )
 
-    # Applications by chapter
+    # Applications by chapter - using Chapter Member table
     chapter_counts = frappe.db.sql(
         """
-        SELECT current_chapter_display, COUNT(*) as count
-        FROM `tabMember`
-        WHERE application_status = 'Pending'
-        AND current_chapter_display IS NOT NULL
-        GROUP BY current_chapter_display
+        SELECT cm.parent as current_chapter_display, COUNT(*) as count
+        FROM `tabMember` m
+        LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.enabled = 1
+        WHERE m.application_status = 'Pending'
+        GROUP BY cm.parent
         ORDER BY count DESC
         LIMIT 10
     """,
@@ -986,40 +1050,28 @@ def debug_custom_amount_flow(member_name):
             "error": None,
         }
 
-        # Test custom amount extraction
-        from verenigingen.utils.application_helpers import get_member_custom_amount_data
-
-        custom_data = get_member_custom_amount_data(member)
-
-        result["custom_amount_data"] = custom_data
-
-        if custom_data:
-            result["uses_custom_amount"] = custom_data.get("uses_custom_amount")
-            result["membership_amount"] = custom_data.get("membership_amount")
+        # Legacy JSON parsing removed - check direct fee override field
+        result["dues_rate"] = getattr(member, "dues_rate", None)
+        result["uses_custom_amount"] = bool(getattr(member, "dues_rate", None))
+        result["membership_amount"] = getattr(member, "dues_rate", None)
 
         # Check existing memberships
         memberships = frappe.get_all(
             "Membership",
             filters={"member": member_name},
-            fields=["name", "uses_custom_amount", "custom_amount", "subscription"],
+            fields=["name", "uses_custom_amount", "custom_amount"],
         )
 
         result["memberships"] = memberships
 
-        # Check subscriptions if any
+        # Check dues schedules if any
         for membership in memberships:
-            if membership.subscription:
-                subscription = frappe.get_doc("Subscription", membership.subscription)
-                membership["subscription_details"] = {"name": subscription.name, "plans": []}
-
-                for plan in subscription.plans:
-                    membership["subscription_details"]["plans"].append(
-                        {
-                            "plan": plan.plan,
-                            "cost": getattr(plan, "cost", getattr(plan, "price", 0)),
-                            "qty": plan.qty,
-                        }
-                    )
+            dues_schedules = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={"member": member_name},
+                fields=["name", "contribution_mode", "monthly_amount", "billing_frequency", "status"],
+            )
+            membership["dues_schedules"] = dues_schedules
 
         return result
 
@@ -1027,166 +1079,20 @@ def debug_custom_amount_flow(member_name):
         return {"error": str(e), "member_name": member_name}
 
 
-@frappe.whitelist()
-def debug_membership_subscription(membership_name):
-    """Debug a specific membership and its subscription"""
-    try:
-        membership = frappe.get_doc("Membership", membership_name)
+# Updated to use debug_membership_dues_schedule
 
-        result = {
-            "membership_name": membership_name,
-            "uses_custom_amount": membership.uses_custom_amount,
-            "custom_amount": membership.custom_amount,
-            "billing_amount": membership.get_billing_amount(),
-            "subscription": membership.subscription,
-            "subscription_details": None,
-        }
 
-        if membership.subscription:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            result["subscription_details"] = {
-                "name": subscription.name,
-                "status": subscription.status,
-                "plans": [],
-            }
+# Updated to use debug_membership_dues_schedule
 
-            for plan in subscription.plans:
-                plan_data = {"plan": plan.plan, "qty": plan.qty, "all_fields": {}}
 
-                # Get all fields from the plan object
-                for attr in dir(plan):
-                    if not attr.startswith("_") and not callable(getattr(plan, attr)):
-                        try:
-                            value = getattr(plan, attr)
-                            if value is not None:
-                                plan_data["all_fields"][attr] = value
-                        except Exception:
-                            pass
+# Updated to use dues schedules
 
-                result["subscription_details"]["plans"].append(plan_data)
 
-        return result
-
-    except Exception as e:
-        return {"error": str(e), "membership_name": membership_name}
+# Updated to use check_dues_schedule_invoice_relationship
 
 
 @frappe.whitelist()
-def debug_subscription_plan(plan_name):
-    """Debug a subscription plan"""
-    try:
-        plan = frappe.get_doc("Subscription Plan", plan_name)
-
-        result = {"plan_name": plan_name, "all_fields": {}}
-
-        # Get all fields from the plan object
-        for attr in dir(plan):
-            if not attr.startswith("_") and not callable(getattr(plan, attr)):
-                try:
-                    value = getattr(plan, attr)
-                    if value is not None and not isinstance(value, dict):
-                        result["all_fields"][attr] = value
-                except Exception:
-                    pass
-
-        return result
-
-    except Exception as e:
-        return {"error": str(e), "plan_name": plan_name}
-
-
-@frappe.whitelist()
-def test_fix_custom_amount_subscription(membership_name):
-    """Test fix for custom amount subscription issue"""
-    try:
-        membership = frappe.get_doc("Membership", membership_name)
-
-        result = {
-            "membership_name": membership_name,
-            "current_billing_amount": membership.get_billing_amount(),
-            "uses_custom_amount": membership.uses_custom_amount,
-            "custom_amount": membership.custom_amount,
-            "subscription": membership.subscription,
-            "before_fix": {},
-            "after_fix": {},
-        }
-
-        # Get current subscription state
-        if membership.subscription:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            result["before_fix"] = {"subscription_name": subscription.name, "plans": []}
-
-            for plan in subscription.plans:
-                plan_doc = frappe.get_doc("Subscription Plan", plan.plan)
-                result["before_fix"]["plans"].append({"plan_name": plan.plan, "plan_cost": plan_doc.cost})
-
-        # Test the fix
-        if membership.uses_custom_amount and membership.custom_amount:
-            # Get or create the correct subscription plan
-            correct_plan = membership.get_subscription_plan_for_amount(membership.custom_amount)
-            result["correct_plan_name"] = correct_plan
-
-            # Apply the fix by updating the subscription
-            if membership.subscription:
-                subscription = frappe.get_doc("Subscription", membership.subscription)
-
-                # If subscription is submitted, we need to cancel and recreate it
-                if subscription.docstatus == 1:
-                    subscription.cancel()
-                    result["old_subscription_cancelled"] = True
-
-                    # Create new subscription with correct plan
-                    new_subscription = membership.create_subscription_from_membership()
-                    result["new_subscription_created"] = new_subscription.name
-
-                    # Update membership to point to new subscription
-                    membership.subscription = new_subscription.name
-                    membership.save(ignore_permissions=True)
-                else:
-                    # Update the plan for draft subscription
-                    for plan_row in subscription.plans:
-                        plan_row.plan = correct_plan
-
-                    subscription.save(ignore_permissions=True)
-
-                # Get updated state
-                subscription.reload()
-                result["after_fix"] = {"subscription_name": subscription.name, "plans": []}
-
-                for plan in subscription.plans:
-                    plan_doc = frappe.get_doc("Subscription Plan", plan.plan)
-                    result["after_fix"]["plans"].append({"plan_name": plan.plan, "plan_cost": plan_doc.cost})
-
-                result["fix_applied"] = True
-
-        return result
-
-    except Exception as e:
-        return {"error": str(e), "membership_name": membership_name}
-
-
-@frappe.whitelist()
-def check_subscription_invoice(invoice_name):
-    """Check subscription invoice details"""
-    try:
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
-
-        return {
-            "invoice_name": invoice_name,
-            "status": invoice.status,
-            "grand_total": invoice.grand_total,
-            "outstanding_amount": invoice.outstanding_amount,
-            "docstatus": invoice.docstatus,
-            "subscription": invoice.subscription,
-            "posting_date": invoice.posting_date,
-        }
-
-    except Exception as e:
-        return {"error": str(e), "invoice_name": invoice_name}
-
-
-@frappe.whitelist()
-def send_overdue_notifications():
+def send_overdue_notifications(**kwargs):
     """Send notifications for overdue applications (> 2 weeks)"""
     # This would be called by a scheduled job
 
@@ -1196,34 +1102,118 @@ def send_overdue_notifications():
     overdue = frappe.get_all(
         "Member",
         filters={"application_status": "Pending", "application_date": ["<", two_weeks_ago]},
-        fields=["name", "full_name", "application_date", "current_chapter_display"],
+        fields=["name", "full_name", "application_date"],
     )
 
     if not overdue:
         return
 
     # Group by chapter
-    by_chapter = {}
-    no_chapter = []
 
-    for app in overdue:
-        chapter = app.current_chapter_display
-        if chapter:
-            if chapter not in by_chapter:
-                by_chapter[chapter] = []
-            by_chapter[chapter].append(app)
-        else:
-            no_chapter.append(app)
 
-    # Send notifications to chapter boards
-    for chapter_name, apps in by_chapter.items():
-        notify_chapter_of_overdue_applications(chapter_name, apps)
+# NEW FUNCTIONS - MODERNIZED FOR DUES SCHEDULE SYSTEM
 
-    # Send notification for applications without chapters to association managers
-    if no_chapter:
-        notify_managers_of_overdue_applications(no_chapter)
 
-    return {"notified_chapters": len(by_chapter), "no_chapter_apps": len(no_chapter)}
+@frappe.whitelist()
+def debug_membership_dues_schedule(membership_name):
+    """Debug a specific membership and its dues schedule"""
+    try:
+        membership = frappe.get_doc("Membership", membership_name)
+
+        result = {
+            "membership_name": membership_name,
+            "uses_custom_amount": membership.uses_custom_amount,
+            "custom_amount": membership.custom_amount,
+            "billing_amount": membership.get_billing_amount(),
+            "dues_schedules": [],
+        }
+
+        # Get all dues schedules for this member
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": membership.member},
+            fields=[
+                "name",
+                "contribution_mode",
+                "monthly_amount",
+                "billing_frequency",
+                "status",
+                "start_date",
+                "end_date",
+            ],
+        )
+
+        for schedule in dues_schedules:
+            schedule_data = {
+                "name": schedule.name,
+                "contribution_mode": schedule.contribution_mode,
+                "monthly_amount": schedule.monthly_amount,
+                "billing_frequency": schedule.billing_frequency,
+                "status": schedule.status,
+                "start_date": schedule.start_date,
+                "end_date": schedule.end_date,
+            }
+            result["dues_schedules"].append(schedule_data)
+
+        return result
+
+    except Exception as e:
+        return {"error": str(e), "membership_name": membership_name}
+
+
+@frappe.whitelist()
+def debug_membership_type_settings(membership_type_name):
+    """Debug a membership type and its settings"""
+    try:
+        membership_type = frappe.get_doc("Membership Type", membership_type_name)
+
+        result = {
+            "membership_type_name": membership_type_name,
+            "membership_type_details": {
+                "membership_type_name": membership_type.membership_type_name,
+                "amount": membership_type.amount,
+                "description": membership_type.description,
+            },
+        }
+
+        return result
+
+    except Exception as e:
+        return {"error": str(e), "membership_type_name": membership_type_name}
+
+
+@frappe.whitelist()
+def check_dues_schedule_invoice_relationship(invoice_name):
+    """Check dues schedule invoice relationships"""
+    try:
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+
+        result = {
+            "invoice_name": invoice_name,
+            "customer": invoice.customer,
+            "grand_total": invoice.grand_total,
+            "docstatus": invoice.docstatus,
+            "status": invoice.status,
+            "dues_schedule": None,
+        }
+
+        # Find related dues schedule
+        if invoice.customer:
+            member = frappe.db.get_value("Member", {"customer": invoice.customer}, "name")
+            if member:
+                dues_schedule = frappe.get_all(
+                    "Membership Dues Schedule",
+                    filters={"member": member, "status": "Active"},
+                    fields=["name", "contribution_mode", "monthly_amount"],
+                    limit=1,
+                )
+                if dues_schedule:
+                    result["dues_schedule"] = dues_schedule[0]
+
+        return result
+
+    except Exception as e:
+        return {"error": str(e), "invoice_name": invoice_name}
 
 
 def notify_chapter_of_overdue_applications(chapter_name, applications):
@@ -1262,7 +1252,7 @@ def notify_chapter_of_overdue_applications(chapter_name, applications):
 
             <p>Please review these applications as soon as possible.</p>
 
-            <p><a href="{frappe.utils.get_url()}/app/member?application_status=Pending&current_chapter_display={chapter_name}">
+            <p><a href="{frappe.utils.get_url()}/app/report/pending-membership-applications?chapter={chapter_name}">
             View All Pending Applications</a></p>
             """,
             now=True,
@@ -1303,7 +1293,7 @@ def notify_managers_of_overdue_applications(applications):
 
                 <p>Please review and assign these applications to appropriate chapters.</p>
 
-                <p><a href="{frappe.utils.get_url()}/app/member?application_status=Pending&current_chapter_display=">
+                <p><a href="{frappe.utils.get_url()}/app/report/pending-membership-applications?chapter=Unassigned">
                 View Unassigned Applications</a></p>
                 """,
                 now=True,
@@ -1491,3 +1481,110 @@ def create_default_email_templates():
     frappe.db.commit()
 
     return {"success": True, "message": f"Created {len(templates)} email templates", "templates": templates}
+
+
+def validate_membership_type_for_approval(membership_type, member):
+    """
+    Validate that the membership type has a proper dues schedule template
+    and all required fields are properly configured before approval
+    """
+    # Check if membership type exists and is active
+    if not frappe.db.exists("Membership Type", membership_type):
+        frappe.throw(_("Membership Type {0} does not exist").format(membership_type))
+
+    membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+
+    # Check if membership type is active
+    if hasattr(membership_type_doc, "is_active") and not membership_type_doc.is_active:
+        frappe.throw(_("Membership Type {0} is not active").format(membership_type))
+
+    # Check if dues schedule template exists
+    template_exists = frappe.db.exists(
+        "Membership Dues Schedule", {"membership_type": membership_type, "is_template": 1, "status": "Active"}
+    )
+
+    if not template_exists:
+        frappe.throw(
+            _(
+                "Cannot approve application: Membership Type {0} does not have a valid dues schedule template. "
+                "Please create a dues schedule template for this membership type first."
+            ).format(membership_type)
+        )
+
+    # Get the template and validate it
+    template = frappe.get_doc(
+        "Membership Dues Schedule", {"membership_type": membership_type, "is_template": 1, "status": "Active"}
+    )
+
+    # Validate template has required fields
+    validation_errors = []
+
+    # Check required fields
+    if not template.billing_frequency:
+        validation_errors.append(_("Billing frequency is not set"))
+
+    if not template.amount or template.amount <= 0:
+        validation_errors.append(_("Amount must be greater than 0"))
+
+    if not template.contribution_mode:
+        validation_errors.append(_("Contribution mode is not set"))
+
+    # Check if auto_generate is enabled (optional but recommended)
+    if not template.auto_generate:
+        frappe.msgprint(
+            _(
+                "Warning: Auto-generate is disabled for this membership type. "
+                "Invoices will need to be created manually."
+            ),
+            alert=True,
+        )
+
+    # Validate member-specific requirements
+    if member:
+        # Check if member already has an active membership
+        existing_membership = frappe.db.exists(
+            "Membership", {"member": member.name, "status": "Active", "docstatus": 1}
+        )
+
+        if existing_membership:
+            frappe.throw(
+                _(
+                    "Member {0} already has an active membership. "
+                    "Please cancel or terminate the existing membership first."
+                ).format(member.name)
+            )
+
+        # Check if member already has an active dues schedule
+        existing_schedule = frappe.db.exists(
+            "Membership Dues Schedule",
+            {"member": member.name, "is_template": 0, "status": ["in", ["Active", "Grace Period"]]},
+        )
+
+        if existing_schedule:
+            frappe.throw(
+                _(
+                    "Member {0} already has an active dues schedule. "
+                    "Please resolve the existing schedule first."
+                ).format(member.name)
+            )
+
+        # Validate member has required fields for billing
+        if hasattr(member, "email") and not member.email:
+            validation_errors.append(_("Member email is required for billing notifications"))
+
+        # Check if SEPA is required but member has no valid IBAN
+        # Note: We don't block approval for missing IBAN as members can add it later
+        if hasattr(member, "iban") and not member.iban:
+            frappe.msgprint(
+                _(
+                    "Note: Member has no IBAN configured. "
+                    "They will need to add payment details before SEPA collection can begin."
+                ),
+                alert=True,
+            )
+
+    if validation_errors:
+        frappe.throw(
+            _("Cannot approve application due to the following issues with the dues schedule template:<br>")
+            + "<br>".join(f"• {error}" for error in validation_errors)
+        )

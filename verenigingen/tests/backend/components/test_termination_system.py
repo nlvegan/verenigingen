@@ -76,8 +76,7 @@ class TestTerminationSystem(unittest.TestCase):
                         "roles": [
                             {"role": "Verenigingen Administrator"},
                             {"role": "System Manager"},  # For testing purposes
-                        ],
-                    }
+                        ]}
                 )
                 user.insert(ignore_permissions=True)
             except Exception as e:
@@ -103,8 +102,7 @@ class TestTerminationSystem(unittest.TestCase):
                     "last_name": "TestMember",
                     "full_name": "John TestMember",
                     "email": member_email,
-                    "status": "Active",
-                }
+                    "status": "Active"}
 
                 member = frappe.get_doc(member_data)
                 member.insert(ignore_permissions=True)
@@ -250,8 +248,7 @@ class TestTerminationRequestWorkflow(TestTerminationSystem):
                 "termination_type": "Voluntary",
                 "termination_reason": "Test termination for unit testing",
                 "requested_by": frappe.session.user,
-                "request_date": today(),
-            }
+                "request_date": today()}
         )
 
         # Should not raise any exceptions
@@ -277,8 +274,7 @@ class TestTerminationRequestWorkflow(TestTerminationSystem):
                 "disciplinary_documentation": "Test documentation for policy violation",
                 "requested_by": frappe.session.user,
                 "request_date": today(),
-                "secondary_approver": self.test_users["manager"],
-            }
+                "secondary_approver": self.test_users["manager"]}
         )
 
         termination.insert()
@@ -304,8 +300,7 @@ class TestTerminationRequestWorkflow(TestTerminationSystem):
                     "termination_reason": "Test expulsion",
                     # Missing disciplinary_documentation
                     "requested_by": frappe.session.user,
-                    "request_date": today(),
-                }
+                    "request_date": today()}
             )
             termination.insert()
 
@@ -331,8 +326,7 @@ class TestTerminationRequestWorkflow(TestTerminationSystem):
                 "termination_type": "Voluntary",
                 "termination_reason": "Test workflow transitions",
                 "requested_by": frappe.session.user,
-                "request_date": today(),
-            }
+                "request_date": today()}
         )
         termination.insert()
 
@@ -418,8 +412,7 @@ class TestAppealsWorkflow(TestTerminationSystem):
                 "appellant_relationship": "Self",
                 "appeal_type": "Procedural Appeal",
                 "appeal_grounds": "Test appeal grounds",
-                "remedy_sought": "Full Reinstatement",
-            }
+                "remedy_sought": "Full Reinstatement"}
         )
 
         # Should not raise exceptions
@@ -443,8 +436,7 @@ class TestAppealsWorkflow(TestTerminationSystem):
                 "appellant_relationship": "Self",
                 "appeal_type": "Procedural Appeal",
                 "appeal_grounds": "Test appeal for deadline validation",
-                "remedy_sought": "Full Reinstatement",
-            }
+                "remedy_sought": "Full Reinstatement"}
         )
 
         # Should not fail - deadline validation might just show warning
@@ -470,8 +462,7 @@ class TestSystemIntegration(TestTerminationSystem):
                 "disciplinary_documentation": "Test documentation",
                 "requested_by": frappe.session.user,
                 "request_date": today(),
-                "secondary_approver": self.test_users["manager"],
-            }
+                "secondary_approver": self.test_users["manager"]}
         )
         termination.insert()
 

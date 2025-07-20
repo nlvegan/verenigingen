@@ -34,8 +34,7 @@ def quick_expense_test():
                 "posting_date": today(),
                 "company": companies[0].name,
                 "title": "Test Claim",
-                "status": "Draft",
-            }
+                "status": "Draft"}
         )
         expense_claim.insert()
         print(f"✅ Created expense claim: {expense_claim.name}")
@@ -78,8 +77,7 @@ def test_volunteer_with_employee():
                         "posting_date": today(),
                         "company": companies[0].name,
                         "title": f"Volunteer expense for {vol.volunteer_name}",
-                        "status": "Draft",
-                    }
+                        "status": "Draft"}
                 )
                 expense_claim.insert()
                 print(f"✅ Created volunteer expense claim: {expense_claim.name}")

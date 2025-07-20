@@ -68,8 +68,7 @@ def analyze_filtering_logic():
             "name": "AMEND-2025-00007",
             "member": "MEM-002",
             "status": "Draft",
-            "should_match": False,
-        },  # different member
+            "should_match": False},  # different member
     ]
 
     print("Test data for member 'MEM-001':")

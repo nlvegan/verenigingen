@@ -33,8 +33,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
                     "doctype": "Company",
                     "company_name": "Test Company",
                     "default_currency": "EUR",
-                    "country": "Netherlands",
-                }
+                    "country": "Netherlands"}
             )
             company.insert(ignore_permissions=True)
 
@@ -59,8 +58,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
                 "account_type": "Expense Account",
                 "parent_account": "Expenses - TC",
                 "company": "Test Company",
-                "is_group": 0,
-            },
+                "is_group": 0},
             {"account_name": "Test Cost Center", "company": "Test Company", "is_group": 0},
         ]
 
@@ -84,8 +82,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
                     "first_name": "Test",
                     "last_name": "Volunteer",
                     "email": "test.volunteer@example.com",
-                    "status": "Active",
-                }
+                    "status": "Active"}
             )
             member.insert(ignore_permissions=True)
 
@@ -99,8 +96,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
                     "email": "test.volunteer@example.com",
                     "member": "TEST-MEM-001",
                     "status": "Active",
-                    "start_date": frappe.utils.today(),
-                }
+                    "start_date": frappe.utils.today()}
             )
             volunteer.insert(ignore_permissions=True)
 
@@ -125,8 +121,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Test expense for unit testing",
-        }
+            "notes": "Test expense for unit testing"}
 
     def tearDown(self):
         """Clean up after each test"""
@@ -248,8 +243,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
         chapter_data = {
             "doctype": "Chapter",
             "chapter_name": "Test Chapter",
-            "cost_center": "Test Cost Center - TC",
-        }
+            "cost_center": "Test Cost Center - TC"}
 
         with patch("frappe.get_doc", return_value=MagicMock(cost_center="Test Cost Center - TC")):
             expense_data = {"organization_type": "Chapter", "chapter": "Test Chapter"}
@@ -482,8 +476,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing üñïçödé characters",
-        }
+            "notes": "Testing üñïçödé characters"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -508,8 +501,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing large amount",
-        }
+            "notes": "Testing large amount"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -535,8 +527,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
             "expense_date": future_date,
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing future date",
-        }
+            "notes": "Testing future date"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -562,8 +553,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing long description",
-        }
+            "notes": "Testing long description"}
 
         mock_volunteer = MagicMock()
         mock_volunteer.employee_id = "HR-EMP-001"
@@ -609,8 +599,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
                     "expense_date": "2024-12-14",
                     "organization_type": "National",
                     "category": "Travel",
-                    "notes": f"Thread {thread_id} test",
-                }
+                    "notes": f"Thread {thread_id} test"}
 
                 # Create thread-specific mocks to avoid shared state issues
                 mock_volunteer = MagicMock()
@@ -715,8 +704,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
             "expense_date": "2024-12-14",
             "organization_type": "National",
             "category": "Travel",
-            "notes": "Testing DB failure",
-        }
+            "notes": "Testing DB failure"}
 
         with patch(
             "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
@@ -743,8 +731,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
                 "expense_date": "2024-12-14",
                 "organization_type": "National",
                 "category": "Travel",
-                "notes": f"Batch test {i}",
-            }
+                "notes": f"Batch test {i}"}
 
             with patch(
                 "verenigingen.templates.pages.volunteer.expenses.get_user_volunteer_record",
@@ -770,8 +757,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
                 "doctype": "Volunteer",
                 "volunteer_name": "Expense Approver Test",
                 "email": "expense.approver.test@example.com",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         test_volunteer.insert(ignore_permissions=True)
 
@@ -807,8 +793,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
                 "doctype": "Volunteer",
                 "volunteer_name": "Priority Test Volunteer",
                 "email": "priority.test@example.com",
-                "status": "Active",
-            }
+                "status": "Active"}
         )
         test_volunteer.insert(ignore_permissions=True)
 

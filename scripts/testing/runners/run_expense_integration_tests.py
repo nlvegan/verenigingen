@@ -103,12 +103,10 @@ def main():
         "core": {"name": "Core ERPNext Integration Tests", "classes": [TestERPNextExpenseIntegration]},
         "report": {
             "name": "Chapter Expense Report Tests",
-            "classes": [TestChapterExpenseReport, TestChapterExpenseReportIntegration],
-        },
+            "classes": [TestChapterExpenseReport, TestChapterExpenseReportIntegration]},
         "legacy": {
             "name": "Legacy System Removal Verification",
-            "classes": [TestLegacySystemRemoval, TestERPNextMigrationCompliance],
-        },
+            "classes": [TestLegacySystemRemoval, TestERPNextMigrationCompliance]},
         "integration": {"name": "Edge Cases and Integration Tests", "classes": [TestERPNextExpenseEdgeCases]},
         "all": {
             "name": "Complete Test Suite",
@@ -119,9 +117,7 @@ def main():
                 TestChapterExpenseReportIntegration,
                 TestLegacySystemRemoval,
                 TestERPNextMigrationCompliance,
-            ],
-        },
-    }
+            ]}}
 
     if args.suite not in test_suites:
         print(f"❌ Unknown test suite: {args.suite}")

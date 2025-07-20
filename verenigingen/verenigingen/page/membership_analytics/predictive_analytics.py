@@ -127,7 +127,7 @@ def forecast_revenue(months_ahead=12):
         SELECT
             ms.membership_type,
             COUNT(DISTINCT ms.member) as member_count,
-            AVG(COALESCE(m.membership_fee_override, mt.amount)) as avg_fee
+            AVG(COALESCE(m.dues_rate, mt.amount)) as avg_fee
         FROM `tabMembership` ms
         JOIN `tabMember` m ON ms.member = m.name
         JOIN `tabMembership Type` mt ON ms.membership_type = mt.name
@@ -565,7 +565,7 @@ def calculate_average_revenue_per_member():
     """Calculate average annual revenue per member"""
     result = frappe.db.sql(
         """
-        SELECT AVG(COALESCE(m.membership_fee_override, mt.amount)) as avg_revenue
+        SELECT AVG(COALESCE(m.dues_rate, mt.amount)) as avg_revenue
         FROM `tabMembership` ms
         JOIN `tabMember` m ON ms.member = m.name
         JOIN `tabMembership Type` mt ON ms.membership_type = mt.name
@@ -580,7 +580,7 @@ def calculate_current_annual_revenue():
     """Calculate current annual revenue from all active members"""
     result = frappe.db.sql(
         """
-        SELECT SUM(COALESCE(m.membership_fee_override, mt.amount)) as total
+        SELECT SUM(COALESCE(m.dues_rate, mt.amount)) as total
         FROM `tabMembership` ms
         JOIN `tabMember` m ON ms.member = m.name
         JOIN `tabMembership Type` mt ON ms.membership_type = mt.name

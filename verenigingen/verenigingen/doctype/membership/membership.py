@@ -10,8 +10,88 @@ class Membership(Document):
         self.validate_membership_type()
         self.validate_existing_memberships()
         self.set_renewal_date()  # Calculate renewal date based on start date and membership type
+        self.set_grace_period_expiry()  # Set default grace period expiry if needed
         self.set_status()
-        self.calculate_effective_amount()  # New: Calculate effective amount
+
+    def on_submit(self):
+        """Create or update dues schedule when membership is submitted"""
+        self.create_or_update_dues_schedule()
+
+    def on_cancel(self):
+        """Handle dues schedule when membership is cancelled"""
+        self.pause_dues_schedule()
+
+    def create_or_update_dues_schedule(self):
+        """Create or update the member's dues schedule"""
+        if not self.member or self.status != "Active":
+            return
+
+        # Check if member already has a dues schedule
+        existing_schedule = frappe.db.get_value(
+            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
+        )
+
+        if existing_schedule:
+            # Update existing schedule with new membership type if changed
+            schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+            if schedule.membership_type != self.membership_type:
+                schedule.membership_type = self.membership_type
+                # Get template from membership type if available
+                membership_type_doc = frappe.get_doc("Membership Type", self.membership_type)
+                if membership_type_doc.dues_schedule_template:
+                    template = frappe.get_doc(
+                        "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                    )
+                    schedule.minimum_amount = template.minimum_amount or 0
+                    schedule.suggested_amount = template.suggested_amount or 0
+                schedule.save()
+        else:
+            # Create new dues schedule from template
+            try:
+                from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+                    MembershipDuesSchedule,
+                )
+
+                schedule_name = MembershipDuesSchedule.create_from_template(
+                    self.member, membership_type=self.membership_type
+                )
+
+                # Update member record with dues schedule link
+                member = frappe.get_doc("Member", self.member)
+                member.dues_schedule = schedule_name
+                member.save()
+
+            except Exception as e:
+                frappe.log_error(
+                    f"Error creating dues schedule for member {self.member}: {str(e)}",
+                    "Membership Dues Schedule Creation",
+                )
+                # Don't fail the membership creation if dues schedule fails
+                frappe.msgprint(
+                    f"Warning: Could not create dues schedule automatically. Error: {str(e)}", alert=True
+                )
+
+    def pause_dues_schedule(self):
+        """Pause the member's dues schedule when membership is cancelled"""
+        if not self.member:
+            return
+
+        existing_schedule = frappe.db.get_value(
+            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
+        )
+
+        if existing_schedule:
+            schedule = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+            schedule.pause_schedule(f"Membership {self.name} cancelled on {today()}")
+
+    def get_dues_schedule(self):
+        """Get the member's dues schedule"""
+        if not self.member:
+            return None
+
+        return frappe.db.get_value(
+            "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "name"
+        )
 
     def validate_existing_memberships(self):
         """Check if there are any existing active memberships for this member"""
@@ -126,10 +206,10 @@ class Membership(Document):
             membership_type = frappe.get_doc("Membership Type", self.membership_type)
 
             # Get duration from membership type
-            if membership_type.subscription_period != "Lifetime":
-                months = self.get_months_from_period(
-                    membership_type.subscription_period, membership_type.subscription_period_in_months
-                )
+            billing_period = getattr(membership_type, "billing_period", "Annual")
+            if billing_period != "Lifetime":
+                billing_period_in_months = getattr(membership_type, "billing_period_in_months", None)
+                months = self.get_months_from_period(billing_period, billing_period_in_months)
 
                 # Check if minimum period enforcement is enabled for this membership type
                 enforce_minimum = membership_type.get("enforce_minimum_period", True)
@@ -150,7 +230,7 @@ class Membership(Document):
 
                 if months:
                     self.renewal_date = add_to_date(self.start_date, months=months)
-                elif membership_type.subscription_period == "Daily":
+                elif billing_period == "Daily":
                     # Handle daily period
                     if enforce_minimum:
                         # Even for daily, enforce 1 year minimum
@@ -220,8 +300,9 @@ class Membership(Document):
         elif self.cancellation_date and getdate(self.cancellation_date) <= getdate(today()):
             # Membership is cancelled
             self.status = "Cancelled"
-        elif self.unpaid_amount and flt(self.unpaid_amount) > 0:
+        elif hasattr(self, "unpaid_amount") and self.unpaid_amount and flt(self.unpaid_amount) > 0:
             # Has unpaid invoices - membership inactive
+            # Note: This field may not exist in all installations
             self.status = "Inactive"
         elif self.renewal_date and getdate(self.renewal_date) < getdate(today()):
             # Past renewal date - membership expired
@@ -230,372 +311,192 @@ class Membership(Document):
             # All good - active membership
             self.status = "Active"
 
+    def set_grace_period_expiry(self):
+        """Set grace period expiry date based on settings if grace period status is set"""
+        if self.grace_period_status == "Grace Period" and not self.grace_period_expiry_date:
+            # Get default grace period days from settings
+            settings = frappe.get_single("Verenigingen Settings")
+            default_days = getattr(settings, "default_grace_period_days", 30)
+
+            # Set expiry date to default days from today
+            self.grace_period_expiry_date = add_to_date(today(), days=default_days)
+
+            # Optional: Log the auto-setting of grace period
+            if not frappe.flags.get("suppress_grace_period_message"):
+                frappe.msgprint(
+                    _("Grace period expiry date automatically set to {0} days from today ({1})").format(
+                        default_days, frappe.format(self.grace_period_expiry_date, {"fieldtype": "Date"})
+                    ),
+                    indicator="info",
+                    alert=True,
+                )
+
+    @staticmethod
+    def auto_apply_grace_period_if_enabled(member_name):
+        """Apply grace period automatically if enabled in settings"""
+        settings = frappe.get_single("Verenigingen Settings")
+
+        if not getattr(settings, "grace_period_auto_apply", False):
+            return False
+
+        # Find active membership for this member
+        membership = frappe.get_value("Membership", {"member": member_name, "status": "Active"}, "name")
+
+        if not membership:
+            return False
+
+        # Get membership document
+        membership_doc = frappe.get_doc("Membership", membership)
+
+        # Check if already in grace period
+        if membership_doc.grace_period_status == "Grace Period":
+            return False
+
+        # Apply grace period
+        membership_doc.grace_period_status = "Grace Period"
+        membership_doc.grace_period_reason = "Automatically applied due to overdue payments"
+
+        # The set_grace_period_expiry method will set the expiry date
+        frappe.flags.suppress_grace_period_message = True
+        membership_doc.save()
+        frappe.flags.suppress_grace_period_message = False
+
+        return True
+
+    # DEPRECATED: Legacy fee calculation method - use dues schedule system instead
     def calculate_effective_amount(self):
-        """Calculate the effective amount and difference from standard"""
-        amount = 0
+        """DEPRECATED: Calculate the effective amount and difference from standard
 
-        # Check if member has fee override
-        if self.member:
-            member = frappe.get_cached_doc("Member", self.member)
-            if member.membership_fee_override and member.membership_fee_override > 0:
-                amount = member.membership_fee_override
-                self.effective_amount = amount
-                self.membership_fee = amount
+        This method is deprecated. Use the Membership Dues Schedule system instead.
+        Maintained for backward compatibility only.
+        """
+        frappe.log_error(
+            "calculate_effective_amount method is deprecated. Use dues schedule system instead.",
+            "Deprecated Function",
+        )
 
-                # Calculate difference from standard
-                if self.membership_type:
-                    membership_type = frappe.get_cached_doc("Membership Type", self.membership_type)
-                    self.amount_difference = flt(amount) - flt(membership_type.amount)
-                else:
-                    self.amount_difference = 0
-
-                return amount
-
-        # Check custom amount
-        if self.uses_custom_amount and self.custom_amount:
-            amount = self.custom_amount
-        elif self.membership_type:
+        # Return basic amount from membership type for backward compatibility
+        if self.membership_type:
             membership_type = frappe.get_cached_doc("Membership Type", self.membership_type)
-            amount = membership_type.amount
-
-            # Apply discount if present
-            # TODO: Add discount_percentage field if discount functionality is needed
-            # if hasattr(self, "discount_percentage") and self.discount_percentage:
-            #     amount = amount * (1 - self.discount_percentage / 100)
-
-        self.effective_amount = amount
-        self.membership_fee = amount
-
-        # Calculate difference
-        if self.membership_type and amount:
-            membership_type = frappe.get_cached_doc("Membership Type", self.membership_type)
-            self.amount_difference = flt(amount) - flt(membership_type.amount)
-        else:
-            self.amount_difference = 0
-        return amount
+            return membership_type.amount
+        return 0
 
     def get_billing_amount(self):
         """Get the billing amount for this membership"""
-        # Return effective amount if already calculated
-        if hasattr(self, "effective_amount") and self.effective_amount:
-            return self.effective_amount
+        # Return membership fee if set
+        membership_fee = getattr(self, "membership_fee", None)
+        if membership_fee:
+            return membership_fee
 
-        # Otherwise calculate and return
-        return self.calculate_effective_amount()
+        # Otherwise get from membership type
+        if self.membership_type:
+            membership_type = frappe.get_doc("Membership Type", self.membership_type)
+            return membership_type.amount
 
-    def create_subscription_from_membership(self, options=None):
-        """Create an ERPNext subscription for this membership with additional options"""
-        import frappe
-        from frappe import _
-        from frappe.utils import add_days, add_months, getdate, nowdate
+        return 0
 
-        # Initialize options with defaults if none provided
-        if not options:
-            options = {
-                "follow_calendar_months": 0,
-                "generate_invoice_at_period_start": 1,
-                "generate_new_invoices_past_due_date": 1,
-                "submit_invoice": 1,
-                "days_until_due": 27,
+    @frappe.whitelist()
+    def create_dues_schedule_from_membership(self):
+        """Create a Membership Dues Schedule for this membership"""
+        dues_schedule = getattr(self, "dues_schedule", None)
+        if dues_schedule:
+            return dues_schedule
+
+        # Create dues schedule
+        dues_schedule = frappe.new_doc("Membership Dues Schedule")
+
+        # Set required fields
+        dues_schedule.schedule_name = (
+            f"Schedule-{self.member}-{self.membership_type}-{frappe.generate_hash(length=6)}"
+        )
+        dues_schedule.member = self.member
+        dues_schedule.membership_type = self.membership_type
+
+        # Set dues rate from billing amount or membership type
+        billing_amount = self.get_billing_amount() if hasattr(self, "get_billing_amount") else None
+        if billing_amount:
+            dues_schedule.dues_rate = billing_amount
+        else:
+            # Fallback to membership type amount or template
+            membership_type = frappe.get_doc("Membership Type", self.membership_type)
+            if membership_type.dues_schedule_template:
+                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+                dues_schedule.dues_rate = (
+                    template.suggested_amount or template.dues_rate or membership_type.amount
+                )
+            else:
+                dues_schedule.dues_rate = membership_type.amount or 0
+
+        # Set billing frequency based on membership type
+        if self.membership_type:
+            membership_type = frappe.get_doc("Membership Type", self.membership_type)
+            # Map membership type billing periods to billing frequencies
+            period_mapping = {
+                "Monthly": "Monthly",
+                "Quarterly": "Quarterly",
+                "Annual": "Annual",
+                "Biannual": "Semi-Annual",  # Fixed mapping
+                "Lifetime": "Annual",  # Lifetime memberships still bill annually
+                "Daily": "Monthly",  # Daily periods converted to monthly billing
+                "Custom": "Annual",  # Custom periods default to annual
             }
 
-        # Check if member has a customer
-        member = frappe.get_doc("Member", self.member)
+            billing_period = getattr(membership_type, "billing_period", "Annual")
+            dues_schedule.billing_frequency = period_mapping.get(billing_period, "Annual")
 
-        # Check if there's already an application invoice for this membership
-        has_application_invoice = False
-        if member.customer:
-            # First check for invoices specifically linked to this membership
-            existing_invoice = frappe.db.exists(
-                "Sales Invoice",
-                {
-                    "customer": member.customer,
-                    "membership": self.name,
-                    "docstatus": ["!=", 2],  # Not cancelled
-                },
-            )
+        # Set contribution mode - use proper values
+        dues_schedule.contribution_mode = "Calculator"  # Default to calculator mode
+        dues_schedule.base_multiplier = 1.0
 
-            # If no direct link, check for recent invoices for this customer
-            if not existing_invoice:
-                existing_invoice = frappe.db.exists(
-                    "Sales Invoice",
-                    {
-                        "customer": member.customer,
-                        "status": ["in", ["Draft", "Submitted", "Unpaid", "Paid", "Partly Paid"]],
-                        "posting_date": [">=", self.start_date],
-                        "docstatus": ["!=", 2],  # Not cancelled
-                    },
-                )
+        # Set status
+        dues_schedule.status = "Active"
+        dues_schedule.auto_generate = 1  # Enable auto invoice generation
 
-            if existing_invoice:
-                has_application_invoice = True
-                frappe.log_error(
-                    f"Application invoice {existing_invoice} exists for membership {self.name} - adjusting subscription to prevent duplicates",
-                    "Membership Subscription Creation",
-                )
-                # Modify options to prevent immediate invoice generation
-                options["generate_invoice_at_period_start"] = 0
-                options["generate_new_invoices_past_due_date"] = 0
+        # Insert the dues schedule
+        dues_schedule.insert()
 
-        if not member.customer:
-            # Create a customer for this member
-            member.create_customer()
-            member.reload()
+        # Link to membership
+        self.dues_schedule = dues_schedule.name
+        self.db_set("dues_schedule", dues_schedule.name)
 
-        if not member.customer:
-            frappe.throw(_("Please create a customer for this member first"))
+        return dues_schedule.name
 
-        try:
-            # Get subscription plan details
-            if not self.subscription_plan:
-                frappe.throw(_("Subscription Plan is required to create a subscription"))
-
-            # Load the subscription plan to get its billing details
-            subscription_plan = frappe.get_doc("Subscription Plan", self.subscription_plan)
-
-            # Create subscription
-            subscription = frappe.new_doc("Subscription")
-
-            # Set basic subscription properties
-            subscription.party_type = "Customer"
-            subscription.party = member.customer
-
-            # Use subscription period calculator for proper date alignment
-            try:
-                from verenigingen.utils.subscription_period_calculator import get_aligned_subscription_dates
-
-                membership_type = frappe.get_doc("Membership Type", self.membership_type)
-
-                # Get properly aligned subscription dates
-                subscription_dates = get_aligned_subscription_dates(
-                    self.start_date, membership_type, has_application_invoice=has_application_invoice
-                )
-
-                subscription.start_date = subscription_dates["subscription_start_date"]
-
-                # Log the calculated date for tracking
-                frappe.log_error(
-                    f"Subscription start date calculated as {subscription_dates['subscription_start_date']} for membership {self.name} "
-                    f"(application invoice: {has_application_invoice}, billing: {subscription_dates['billing_info']['subscription_period']})",
-                    "Membership Subscription Date Calculation",
-                )
-
-            except ImportError:
-                # Fallback to original logic if calculator not available
-                if has_application_invoice:
-                    # Calculate next billing period start date
-
-                    if subscription_plan.billing_interval == "Month":
-                        next_period_start = add_months(
-                            getdate(self.start_date), subscription_plan.billing_interval_count
-                        )
-                    elif subscription_plan.billing_interval == "Year":
-                        next_period_start = add_months(
-                            getdate(self.start_date), subscription_plan.billing_interval_count * 12
-                        )
-                    else:
-                        # Fallback for other intervals
-                        next_period_start = add_days(getdate(self.start_date), 30)
-                    subscription.start_date = next_period_start
-                    frappe.log_error(
-                        f"Fallback: Adjusted subscription start date to {next_period_start} for membership {self.name}",
-                        "Membership Subscription Date Adjustment",
-                    )
-                else:
-                    subscription.start_date = getdate(self.start_date)
-
-            # Set company
-            default_company = frappe.defaults.get_global_default("company")
-            if not default_company:
-                # Fallback to first available company if no default is set
-                companies = frappe.get_all("Company", limit=1, fields=["name"])
-                default_company = companies[0].name if companies else None
-
-            if not default_company:
-                frappe.throw(
-                    _("No company configured in the system. Please set a default company in Global Defaults.")
-                )
-
-            subscription.company = default_company
-
-            # Set billing details from the subscription plan
-            subscription.billing_interval = subscription_plan.billing_interval
-            subscription.billing_interval_count = subscription_plan.billing_interval_count
-
-            # Set options from provided parameters
-            subscription.follow_calendar_months = options.get("follow_calendar_months", 0)
-            if options.get("generate_invoice_at_period_start", 1):
-                subscription.generate_invoice_at = "Beginning of the current subscription period"
-            else:
-                subscription.generate_invoice_at = "End of the current subscription period"
-            subscription.generate_new_invoices_past_due_date = options.get(
-                "generate_new_invoices_past_due_date", 1
-            )
-            subscription.submit_invoice = options.get("submit_invoice", 1)
-            subscription.days_until_due = options.get("days_until_due", 27)
-
-            # Get the effective amount for this membership
-            effective_amount = self.get_billing_amount()
-
-            # Get or create the appropriate subscription plan
-            subscription_plan_to_use = self.get_subscription_plan_for_amount(effective_amount)
-
-            # Add the subscription plan
-            subscription.append("plans", {"plan": subscription_plan_to_use, "qty": 1})
-
-            # Insert and submit
-            subscription.flags.ignore_mandatory = True
-            subscription.flags.ignore_permissions = True
-            subscription.insert()
-
-            # Log the subscription details before submission for debugging
-            frappe.logger().info(
-                f"Creating subscription for membership {self.name}. Start: {subscription.start_date}"
-            )
-
-            try:
-                subscription.submit()
-            except Exception as e:
-                frappe.log_error(f"Error submitting subscription: {str(e)}", "Subscription Submit Error")
-                raise
-
-            # Link subscription to membership
-            self.subscription = subscription.name
-            self.db_set("subscription", subscription.name)
-
-            if subscription.current_invoice_end:
-                self.next_billing_date = add_days(subscription.current_invoice_end, 1)
-                self.db_set("next_billing_date", add_days(subscription.current_invoice_end, 1))
-
-            # Queue job to process subscription for invoice generation
-            if getdate(self.start_date) <= getdate(nowdate()):
-                frappe.flags.in_test = False
-                frappe.enqueue(
-                    "erpnext.accounts.doctype.subscription.subscription.process_all",
-                    subscription=subscription.name,
-                    enqueue_after_commit=True,
-                )
-                frappe.msgprint(_("Subscription created. Invoice will be generated shortly."))
-            else:
-                frappe.msgprint(
-                    _("Subscription created. Invoice will be generated on {0}").format(
-                        frappe.format(subscription.current_invoice_start, {"fieldtype": "Date"})
-                    )
-                )
-
-            frappe.logger().info(
-                f"Created subscription {subscription.name} with amount {effective_amount} "
-                f"(custom: {self.uses_custom_amount}) for membership {self.name}"
-            )
-
-            return subscription.name
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error creating subscription for membership {self.name}: {str(e)}",
-                "Membership Subscription Creation Error",
-            )
-            frappe.throw(_("Error creating subscription: {0}").format(str(e)))
-
-    def sync_payment_details_from_subscription(self):
-        """Sync payment details from linked subscription"""
-        from frappe.utils import add_days, flt, getdate
-
-        if not self.subscription:
+    def sync_payment_details_from_dues_schedule(self):
+        """Sync payment details from linked dues schedule"""
+        if not getattr(self, "dues_schedule", None):
             return
 
-        subscription = frappe.get_doc("Subscription", self.subscription)
-
-        # Update next billing date
-        if subscription.current_invoice_end:
-            # First define the variable
-            next_billing_date = add_days(subscription.current_invoice_end, 1)
-            # Then use it to update the object
-            self.next_billing_date = next_billing_date
-            # Then use it again for db_set
-            self.db_set("next_billing_date", next_billing_date)
-
-        # Get invoices from the subscription's child table
-        if not hasattr(subscription, "invoices") or not subscription.invoices:
-            return
+        # Get invoices related to this member through the dues schedule
+        invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": frappe.db.get_value("Member", self.member, "customer"),
+                "docstatus": 1,
+                "posting_date": [">=", self.start_date],
+            },
+            fields=["name", "status", "outstanding_amount", "posting_date", "grand_total"],
+        )
 
         # Calculate unpaid amount
         unpaid_amount = 0
         payment_date = None
 
-        for invoice_ref in subscription.invoices:
-            try:
-                # Determine invoice type based on party type
-                invoice_type = invoice_ref.document_type or (
-                    "Sales Invoice" if subscription.party_type == "Customer" else "Purchase Invoice"
-                )
-                invoice = frappe.get_doc(invoice_type, invoice_ref.invoice)
-
-                # Add to unpaid amount if unpaid or overdue
-                if invoice.status in ["Unpaid", "Overdue"]:
-                    unpaid_amount += flt(invoice.outstanding_amount)
-
-                # Get latest payment date
-                if invoice.status == "Paid" and (
-                    not payment_date or getdate(invoice.posting_date) > getdate(payment_date)
-                ):
+        for invoice in invoices:
+            if invoice.status in ["Unpaid", "Overdue"]:
+                unpaid_amount += invoice.outstanding_amount
+            elif invoice.status == "Paid":
+                if not payment_date or invoice.posting_date > payment_date:
                     payment_date = invoice.posting_date
-            except Exception as e:
-                frappe.log_error(
-                    f"Error processing invoice {invoice_ref.invoice}: {str(e)}",
-                    "Membership Payment Sync Error",
-                )
 
-        # Update unpaid amount
+        # Update membership
         self.unpaid_amount = unpaid_amount
         self.db_set("unpaid_amount", unpaid_amount)
 
-        # Update last payment date if found
         if payment_date:
             self.last_payment_date = payment_date
             self.db_set("last_payment_date", payment_date)
 
-    def get_subscription_plan_for_amount(self, amount):
-        """Get or create a subscription plan for the specified amount"""
-        # If using standard amount, use the original subscription plan
-        if not self.uses_custom_amount or not self.custom_amount:
-            return self.subscription_plan
-
-        # For custom amounts, get/create a custom subscription plan
-        original_plan = frappe.get_doc("Subscription Plan", self.subscription_plan)
-
-        # Create a unique plan name for this amount
-        custom_plan_name = f"{original_plan.plan_name} - €{amount:.2f}"
-
-        # Check if custom plan already exists
-        existing_plan = frappe.db.exists("Subscription Plan", {"plan_name": custom_plan_name})
-        if existing_plan:
-            return existing_plan
-
-        # Create new custom subscription plan
-        custom_plan = frappe.get_doc(
-            {
-                "doctype": "Subscription Plan",
-                "plan_name": custom_plan_name,
-                "item": original_plan.item,
-                "currency": original_plan.currency,
-                "price_determination": "Fixed Rate",
-                "cost": amount,
-                "billing_interval": original_plan.billing_interval,
-                "billing_interval_count": original_plan.billing_interval_count,
-                "payment_gateway": original_plan.payment_gateway,
-                "cost_center": original_plan.cost_center,
-            }
-        )
-
-        custom_plan.insert(ignore_permissions=True)
-        frappe.log_error(
-            f"Created custom subscription plan {custom_plan_name} with cost {amount} for membership {self.name}"
-        )
-
-        return custom_plan.name
-
-    def on_submit(self):
+    def on_submit_legacy(self):  # Renamed to avoid duplicate definition
         import json
 
         import frappe
@@ -605,8 +506,8 @@ class Membership(Document):
         # Update member's current membership
         self.update_member_status()
 
-        # Make sure unpaid_amount is set if not already
-        if not self.unpaid_amount:
+        # Make sure unpaid_amount is set if field exists and not already set
+        if hasattr(self, "unpaid_amount") and not self.unpaid_amount:
             self.unpaid_amount = 0
 
         # Initialize next_billing_date to start_date if not set
@@ -624,7 +525,9 @@ class Membership(Document):
 
         # Force update to database
         self.db_set("status", self.status)
-        self.db_set("unpaid_amount", self.unpaid_amount)
+        unpaid_amount = getattr(self, "unpaid_amount", None)
+        if unpaid_amount is not None:
+            self.db_set("unpaid_amount", unpaid_amount)
         self.db_set("next_billing_date", self.next_billing_date)
         self.db_set("cancellation_date", None)
         self.db_set("cancellation_reason", None)
@@ -633,21 +536,16 @@ class Membership(Document):
         # Update member's current membership
         self.update_member_status()
 
-        # Link to subscription if configured
-        if not self.subscription and self.subscription_plan:
-            subscription_options = {
-                "follow_calendar_months": 0,
-                "generate_invoice_at_period_start": 1,  # Beginning of period
-                "generate_new_invoices_past_due_date": 1,  # Generate even if past due
-                "submit_invoice": 1,  # Submit invoices
-                "days_until_due": 27,
-            }
-            self.create_subscription_from_membership(subscription_options)
+        # Create dues schedule if not exists
+        # Note: dues_schedule field doesn't exist in Membership doctype
+        # This functionality should be handled differently
+        # if not self.dues_schedule:
+        #     self.create_dues_schedule_from_membership()
 
-            # Sync payment details from subscription
-            self.sync_payment_details_from_subscription()
+        # Sync payment details from dues schedule
+        # self.sync_payment_details_from_dues_schedule()
 
-    def on_cancel(self):
+    def on_cancel_legacy(self):  # Renamed to avoid duplicate definition
         """Handle when membership is cancelled directly (not the same as member cancellation)"""
         from frappe.utils import add_months, getdate, nowdate, today
 
@@ -702,39 +600,6 @@ def on_cancel(doc, method=None):
     It simply calls the document's on_cancel method.
     """
     # The class already has on_cancel method, so this is just a passthrough
-
-
-@frappe.whitelist()
-def get_subscription_query(doctype, txt, searchfield, start, page_len, filters):
-    """Filter subscriptions to only show ones related to the current member"""
-    member = filters.get("member")
-
-    if not member:
-        # If called from the form, try to get member from doc
-        if filters.get("doctype") == "Membership" and filters.get("name"):
-            member_doc = frappe.get_doc("Membership", filters.get("name"))
-            member = member_doc.member
-
-    if not member:
-        return []
-
-    # Get customer linked to this member
-    customer = frappe.db.get_value("Member", member, "customer")
-
-    if not customer:
-        return []
-
-    return frappe.db.sql(
-        """
-        SELECT name, billing_status
-        FROM `tabSubscription`
-        WHERE party_type = 'Customer'
-        AND party = %s
-        AND name LIKE %s
-        ORDER BY creation DESC
-    """,
-        (customer, "%" + txt + "%"),
-    )
 
 
 @frappe.whitelist()
@@ -795,14 +660,6 @@ def cancel_membership(
     membership.flags.ignore_validate_update_after_submit = True
     membership.save()
 
-    # If immediate cancellation, also cancel the subscription
-    if cancellation_type == "Immediate" and membership.subscription:
-        subscription = frappe.get_doc("Subscription", membership.subscription)
-        if subscription.status != "Cancelled":
-            # Use the standard method to cancel subscription
-            subscription.flags.ignore_permissions = True
-            subscription.cancel_subscription()
-
     frappe.msgprint(_("Membership {0} has been cancelled").format(membership.name))
     return membership.name
 
@@ -813,29 +670,19 @@ def sync_membership_payments(membership_name=None):
     Sync payment details for a membership or all active memberships
     """
     if membership_name:
-        # Sync a single membership
-        membership = frappe.get_doc("Membership", membership_name)
-        if membership.subscription:
-            membership.sync_payment_details_from_subscription()
-            return True
-    else:
-        # Sync all active memberships
-        memberships = frappe.get_all(
-            "Membership",
-            filters={"status": ["in", ["Active", "Pending", "Inactive"]], "subscription": ["is", "set"]},
-            fields=["name"],
+        frappe.msgprint(
+            _("Payment sync from legacy system is deprecated. Use dues schedule system instead."),
+            indicator="orange",
+            alert=True,
         )
-
+        return True
+    else:
+        frappe.msgprint(
+            _("Payment sync from legacy system is deprecated. Use dues schedule system instead."),
+            indicator="orange",
+            alert=True,
+        )
         count = 0
-        for m in memberships:
-            try:
-                membership = frappe.get_doc("Membership", m.name)
-                membership.sync_payment_details_from_subscription()
-                count += 1
-            except Exception as e:
-                frappe.log_error(
-                    f"Error syncing membership {m.name}: {str(e)}", "Membership Payment Sync Error"
-                )
 
         return count
 
@@ -843,83 +690,19 @@ def sync_membership_payments(membership_name=None):
 @frappe.whitelist()
 def show_payment_history(membership_name):
     """
-    Get payment history for a membership from linked subscription
+    Get payment history for a membership from linked dues schedule
     """
     membership = frappe.get_doc("Membership", membership_name)
 
-    if not membership.subscription:
+    if not membership.dues_schedule:
         return []
 
-    # Get the subscription document
-    try:
-        subscription = frappe.get_doc("Subscription", membership.subscription)
-    except Exception as e:
-        frappe.log_error(
-            f"Error fetching subscription {membership.subscription}: {str(e)}",
-            "Membership Payment History Error",
-        )
-        return []
+    # Get payment history from dues schedule system
+    from verenigingen.verenigingen.doctype.membership.enhanced_dues_schedule import (
+        get_membership_payment_history,
+    )
 
-    payment_history = []
-
-    # Access the invoices directly from the subscription document's child table
-    if hasattr(subscription, "invoices") and subscription.invoices:
-        for invoice_ref in subscription.invoices:
-            try:
-                invoice = frappe.get_doc("Sales Invoice", invoice_ref.invoice)
-
-                # Get linked payments
-                payments = frappe.get_all(
-                    "Payment Entry Reference", filters={"reference_name": invoice.name}, fields=["parent"]
-                )
-
-                payment_entries = []
-                for payment in payments:
-                    try:
-                        payment_doc = frappe.get_doc("Payment Entry", payment.parent)
-                        payment_entries.append(
-                            {
-                                "payment_entry": payment_doc.name,
-                                "amount": payment_doc.paid_amount,
-                                "date": payment_doc.posting_date,
-                                "mode": payment_doc.mode_of_payment,
-                                "status": payment_doc.status,
-                            }
-                        )
-                    except Exception as e:
-                        frappe.log_error(
-                            f"Error fetching payment {payment.parent}: {str(e)}",
-                            "Membership Payment History Error",
-                        )
-
-                payment_history.append(
-                    {
-                        "invoice": invoice.name,
-                        "date": invoice.posting_date,
-                        "amount": invoice.grand_total,
-                        "outstanding": invoice.outstanding_amount,
-                        "status": invoice.status,
-                        "payments": payment_entries,
-                    }
-                )
-            except Exception as e:
-                frappe.log_error(
-                    f"Error fetching invoice {invoice_ref.invoice}: {str(e)}",
-                    "Membership Payment History Error",
-                )
-                # Add a placeholder entry with basic information
-                payment_history.append(
-                    {
-                        "invoice": invoice_ref.invoice,
-                        "date": invoice_ref.posting_date if hasattr(invoice_ref, "posting_date") else None,
-                        "amount": 0,
-                        "outstanding": 0,
-                        "status": "Unknown",
-                        "payments": [],
-                    }
-                )
-
-    return payment_history
+    return get_membership_payment_history(membership)
 
 
 @frappe.whitelist()
@@ -930,44 +713,6 @@ def renew_membership(membership_name):
 
 
 @frappe.whitelist()
-def create_subscription(membership_name, options=None):
-    """Create a subscription for a membership with the specified options"""
-    import frappe
-    from frappe import _
-
-    try:
-        # Parse options if provided as string
-        if options and isinstance(options, str):
-            import json
-
-            options = json.loads(options)
-
-        # Get default options if none provided
-        if not options:
-            options = {
-                "follow_calendar_months": 0,
-                "generate_invoice_at_period_start": 1,
-                "generate_new_invoices_past_due_date": 1,
-                "submit_invoice": 1,
-                "days_until_due": 27,
-            }
-
-        # Get the membership
-        membership = frappe.get_doc("Membership", membership_name)
-
-        # Create subscription
-        subscription_name = membership.create_subscription_from_membership(options)
-
-        # Sync payment details after creation
-        membership.sync_payment_details_from_subscription()
-
-        return subscription_name
-
-    except Exception as e:
-        frappe.log_error(f"Error creating subscription: {str(e)}", "Subscription Error")
-        frappe.throw(_("Error creating subscription: {0}").format(str(e)))
-
-
 def process_membership_statuses():
     """
     Scheduled job to update membership statuses based on dates and payments
@@ -990,9 +735,9 @@ def process_membership_statuses():
         try:
             membership = frappe.get_doc("Membership", membership_info.name)
 
-            # First sync payment details to get current payment status
-            if membership.subscription:
-                membership.sync_payment_details_from_subscription()
+            # Sync payment details from dues schedule
+            if membership.dues_schedule:
+                membership.sync_payment_details_from_dues_schedule()
 
             # Check expiry - if past renewal date
             if membership.renewal_date and getdate(membership.renewal_date) < today_date:
@@ -1091,52 +836,39 @@ def verify_signature(data, signature, secret_key=None):
 @frappe.whitelist()
 def show_all_invoices(membership_name):
     """
-    Get all invoices related to a membership either through subscription
+    Get all invoices related to a membership through dues schedule
     or direct links
     """
     membership = frappe.get_doc("Membership", membership_name)
     invoices = []
 
-    # Get invoices from subscription if available
-    if membership.subscription:
-        try:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
+    # Get invoices from dues schedule if available
+    if membership.dues_schedule:
+        from verenigingen.verenigingen.doctype.membership.enhanced_dues_schedule import (
+            get_membership_payment_history,
+        )
 
-            # Access invoices from the subscription's child table
-            if hasattr(subscription, "invoices") and subscription.invoices:
-                for invoice_ref in subscription.invoices:
-                    try:
-                        invoice_doc = frappe.get_doc("Sales Invoice", invoice_ref.invoice)
+        payment_history = get_membership_payment_history(membership)
 
-                        invoices.append(
-                            {
-                                "invoice": invoice_doc.name,
-                                "date": invoice_doc.posting_date,
-                                "amount": invoice_doc.grand_total,
-                                "outstanding": invoice_doc.outstanding_amount,
-                                "status": invoice_doc.status,
-                                "due_date": invoice_doc.due_date,
-                                "source": "Subscription",
-                            }
-                        )
-                    except Exception as e:
-                        frappe.log_error(
-                            f"Error fetching invoice {invoice_ref.invoice}: {str(e)}",
-                            "Membership Invoices Error",
-                        )
-        except Exception as e:
-            frappe.log_error(
-                f"Error fetching subscription {membership.subscription}: {str(e)}",
-                "Membership Invoices Error",
+        for payment in payment_history:
+            invoices.append(
+                {
+                    "invoice": payment.get("invoice"),
+                    "date": payment.get("date"),
+                    "amount": payment.get("amount"),
+                    "outstanding": payment.get("outstanding", 0),
+                    "status": payment.get("status"),
+                    "due_date": payment.get("due_date"),
+                    "source": "Dues Schedule",
+                }
             )
 
     # Also look for invoices that might be directly linked to the membership
-    # via custom fields or standard references
     direct_invoices = frappe.get_all(
         "Sales Invoice",
         filters={
             "docstatus": 1,
-            "membership": membership.name,  # Assuming there's a field named "membership" in Sales Invoice
+            "membership": membership.name,
         },
         fields=["name", "posting_date", "grand_total", "outstanding_amount", "status", "due_date"],
     )
@@ -1156,7 +888,7 @@ def show_all_invoices(membership_name):
                 }
             )
 
-    # Look for invoices related to the member (might be relevant for the membership)
+    # Look for invoices related to the member
     if membership.member:
         member = frappe.get_doc("Member", membership.member)
 
@@ -1230,89 +962,6 @@ def get_member_sepa_mandates(doctype, txt, searchfield, start, page_len, filters
     )
 
 
-def update_membership_from_subscription(doc, method=None):
-    """
-    Handler for when a subscription is updated
-    Updates the linked membership
-
-    This function is called via hooks.py
-    """
-    # Find memberships linked to this subscription
-    memberships = frappe.get_all("Membership", filters={"subscription": doc.name}, fields=["name"])
-
-    if not memberships:
-        return
-
-    for membership_data in memberships:
-        try:
-            membership = frappe.get_doc("Membership", membership_data.name)
-
-            # Update membership status and payment details
-            membership.sync_payment_details_from_subscription()
-
-            # Update status based on subscription status
-            if doc.status == "Active" and membership.status not in ["Active", "Expired"]:
-                membership.db_set("status", "Active")
-            elif doc.status == "Cancelled" and membership.status != "Cancelled":
-                membership.db_set("status", "Cancelled")
-            elif doc.status == "Unpaid" and membership.status == "Active":
-                membership.db_set("status", "Inactive")
-
-            frappe.logger().info(f"Updated membership {membership.name} from subscription {doc.name}")
-
-        except Exception as e:
-            frappe.log_error(
-                f"Error updating membership {membership_data.name} from subscription: {str(e)}",
-                "Membership Update Error",
-            )
-
-
-# Enhanced set_custom_amount function
-@frappe.whitelist()
-def set_custom_amount(membership_name, custom_amount, reason=None):
-    """Set custom amount for a membership and update subscription"""
-
-    membership = frappe.get_doc("Membership", membership_name)
-
-    # Check permissions
-    if not frappe.has_permission("Membership", "write", membership):
-        frappe.throw(_("No permission to modify this membership"))
-
-    custom_amount = float(custom_amount)
-    old_effective_amount = membership.get_billing_amount()
-
-    # Validate against membership type
-    membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-
-    if not getattr(membership_type, "allow_custom_amount", False):
-        frappe.throw(_("Custom amounts are not allowed for this membership type"))
-
-    minimum_amount = getattr(membership_type, "minimum_amount", None) or membership_type.amount
-    if custom_amount < minimum_amount:
-        frappe.throw(_("Amount cannot be less than minimum: {0}").format(minimum_amount))
-
-    # Update membership
-    membership.uses_custom_amount = 1
-    membership.custom_amount = custom_amount
-    membership.amount_reason = reason or ""
-    membership.flags.ignore_validate_update_after_submit = True
-    membership.save()
-
-    # Get new effective amount
-    new_effective_amount = membership.get_billing_amount()
-
-    return {
-        "success": True,
-        "old_amount": old_effective_amount,
-        "new_amount": new_effective_amount,
-        "difference": new_effective_amount - membership_type.amount,
-        "subscription_updated": bool(membership.subscription),
-        "message": _("Amount updated successfully. Future invoices will use {0}").format(
-            frappe.format_value(new_effective_amount, {"fieldtype": "Currency"})
-        ),
-    }
-
-
 @frappe.whitelist()
 def revert_to_standard_amount(membership_name, reason=None):
     """Revert membership to use standard membership type amount"""
@@ -1323,15 +972,15 @@ def revert_to_standard_amount(membership_name, reason=None):
     if not frappe.has_permission("Membership", "write", membership):
         frappe.throw(_("No permission to modify this membership"))
 
-    if not membership.uses_custom_amount:
+        # DEPRECATED:     if not membership.uses_custom_amount:
         frappe.throw(_("This membership is already using the standard amount"))
 
-    old_amount = membership.custom_amount
+    # DEPRECATED:     old_amount = membership.custom_amount
 
     # Revert to standard amount
-    membership.uses_custom_amount = 0
-    membership.custom_amount = None
-    membership.amount_reason = reason or "Reverted to standard amount"
+    # DEPRECATED:     membership.uses_custom_amount = 0
+    # DEPRECATED:     membership.custom_amount = None
+    # DEPRECATED:     membership.amount_reason = reason or "Reverted to standard amount"
     membership.flags.ignore_validate_update_after_submit = True
     membership.save()
 
@@ -1341,95 +990,12 @@ def revert_to_standard_amount(membership_name, reason=None):
 
     return {
         "success": True,
-        "old_amount": old_amount,
+        "old_amount": 0,  # Placeholder for backward compatibility
         "new_amount": standard_amount,
         "message": _("Reverted to standard amount: {0}").format(
             frappe.format_value(standard_amount, {"fieldtype": "Currency"})
         ),
     }
-
-
-# Utility function to check subscription amounts
-@frappe.whitelist()
-def check_subscription_amounts():
-    """Debug function to check subscription amounts vs membership amounts"""
-
-    results = []
-
-    # Get all active memberships with subscriptions
-    memberships = frappe.get_all(
-        "Membership",
-        filters={"status": "Active", "subscription": ["is", "set"]},
-        fields=[
-            "name",
-            "member_name",
-            "uses_custom_amount",
-            "custom_amount",
-            "subscription",
-            "membership_type",
-        ],
-    )
-
-    for membership_info in memberships:
-        membership = frappe.get_doc("Membership", membership_info.name)
-        expected_amount = membership.get_billing_amount()
-
-        # Get subscription amount
-        try:
-            subscription = frappe.get_doc("Subscription", membership.subscription)
-            actual_amount = subscription.plans[0].cost if subscription.plans else 0
-
-            results.append(
-                {
-                    "membership": membership.name,
-                    "member": membership.member_name,
-                    "expected_amount": expected_amount,
-                    "actual_amount": actual_amount,
-                    "matches": abs(expected_amount - actual_amount) < 0.01,
-                    "uses_custom": membership.uses_custom_amount,
-                }
-            )
-
-        except Exception as e:
-            results.append({"membership": membership.name, "member": membership.member_name, "error": str(e)})
-
-    return results
-
-
-# Function to bulk fix subscription amounts if needed
-@frappe.whitelist()
-def fix_subscription_amounts():
-    """Fix subscription amounts to match membership amounts"""
-
-    check_results = check_subscription_amounts()
-    fixed_count = 0
-
-    for result in check_results:
-        if result.get("matches") is False:  # Amount mismatch
-            try:
-                membership = frappe.get_doc("Membership", result["membership"])
-                membership.update_subscription_amount()
-                fixed_count += 1
-
-            except Exception as e:
-                frappe.log_error(f"Error fixing subscription amount for {result['membership']}: {str(e)}")
-
-    return {
-        "success": True,
-        "fixed_count": fixed_count,
-        "message": f"Fixed {fixed_count} subscription amounts",
-    }
-
-
-@frappe.whitelist()
-def test_subscription_creation(membership_name):
-    """Test subscription creation for a membership"""
-    try:
-        membership = frappe.get_doc("Membership", membership_name)
-        result = membership.create_subscription_from_membership()
-        return {"success": True, "subscription": result}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()

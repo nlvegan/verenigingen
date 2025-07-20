@@ -46,7 +46,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
                     "membership_type_name": "Test Termination Type",
                     "amount": 100,
                     "currency": "EUR",
-                    "subscription_period": "Annual",
+                    "billing_period": "Annual",
                 }
             )
             self.test_membership_type.insert(ignore_permissions=True)
@@ -326,7 +326,7 @@ class TestMembershipTerminationRequest(FrappeTestCase):
         impact_fields = [
             "sepa_mandates_cancelled",
             "positions_ended",
-            "subscriptions_cancelled",
+            "dues_schedules_cancelled",
             "teams_left",
         ]
 

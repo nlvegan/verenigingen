@@ -20,18 +20,15 @@ def test_file_completeness():
         {
             "path": "verenigingen/utils/dd_security_enhancements.py",
             "type": "security_enhancements",
-            "min_lines": 400,
-        },
+            "min_lines": 400},
         {
             "path": "verenigingen/tests/test_dd_batch_edge_cases_comprehensive.py",
             "type": "comprehensive_tests",
-            "min_lines": 300,
-        },
+            "min_lines": 300},
         {
             "path": "verenigingen/public/js/dd_batch_management_enhanced.js",
             "type": "enhanced_ui",
-            "min_lines": 800,
-        },
+            "min_lines": 800},
         {"path": "run_dd_batch_comprehensive_tests.py", "type": "test_runner", "min_lines": 100},
     ]
 
@@ -60,8 +57,7 @@ def test_file_completeness():
                         "file": path,
                         "status": "incomplete",
                         "lines": line_count,
-                        "expected": file_info["min_lines"],
-                    }
+                        "expected": file_info["min_lines"]}
                 )
         else:
             print(f"   ❌ {os.path.basename(path)}: Missing")
