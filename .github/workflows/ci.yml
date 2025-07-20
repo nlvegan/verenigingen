@@ -156,17 +156,6 @@ jobs:
         echo "=== Apps Downloaded Successfully ==="
         ls -la apps/
 
-    - name: Install App Dependencies
-      working-directory: frappe-bench
-      run: |
-        echo "=== Installing Python Dependencies ==="
-        # Install dependencies for all apps to avoid conflicts during app installation
-        pip install -e apps/frappe
-        pip install -e apps/erpnext
-        pip install -e apps/payments
-        pip install -e apps/hrms
-        pip install -e apps/banking
-        echo "✓ All app dependencies installed"
 
     - name: Clean Database
       working-directory: frappe-bench
