@@ -1724,28 +1724,7 @@ When we originally analyzed ERPNext's core functionality, here were the consider
    - Multi-plan subscriptions
    - Usage-based billing
    - Tiered pricing support
-
 #### **Accounting Integration Risks:**
-
-1. **General Ledger Impact**
-   - Manual GL entry creation might miss validations
-   - Cost center allocation errors
-   - Incorrect account postings
-   - Missing dimension tagging
-   - Audit trail gaps
-
-2. **Financial Reporting**
-   - Revenue recognition timing
-   - Deferred revenue handling
-   - Tax reporting accuracy
-   - Aging report integration
-   - Cash flow impacts
-
-3. **Compliance Concerns**
-   - VAT/BTW calculations
-   - Tax withholding logic
-   - Cross-border transactions
-   - Regulatory reporting
 
 ### 9.2 Recommended Hybrid Approach
 
@@ -1795,11 +1774,6 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
        # - Reconciliation
    ```
 
-3. **Consider ERPNext Subscriptions For:**
-   - Use as the base, extend with custom fields
-   - Override only the invoice generation timing
-   - Keep their proration and accounting logic
-
 #### **Custom Implementation Only For:**
 
 1. **SEPA Batch Processing**
@@ -1815,12 +1789,6 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
    - Custom permission model
 
 ### 9.3 Implementation Recommendations
-
-1. **Phase 1: Minimal Custom Development**
-   - Use ERPNext Subscription as base
-   - Add custom fields for SEPA tracking
-   - Override only the batch generation logic
-   - Keep all accounting through ERPNext
 
 2. **Phase 2: Gradual Enhancement**
    - Add application payment flow
@@ -1854,14 +1822,6 @@ To mitigate these risks while maintaining our SEPA-specific requirements:
    - Monitor unreconciled payments
    - Track invoice aging
    - Watch for orphaned transactions
-
-3. **Fallback Plan**
-   - Keep manual override capability
-   - Document all customizations
-   - Maintain upgrade path
-   - Plan for ERPNext updates
-
-This hybrid approach gives us the SEPA functionality we need while preserving ERPNext's battle-tested accounting logic.
 
 ---
 
