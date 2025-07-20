@@ -97,7 +97,7 @@ def create_test_dues_schedule(member_name):
     schedule.member = member_name
     schedule.membership = membership
     schedule.billing_frequency = "Monthly"
-    schedule.amount = 25.00  # Test amount
+    schedule.dues_rate = 25.00  # Test amount
     schedule.next_invoice_date = today()
     schedule.invoice_days_before = 0  # Generate immediately
     schedule.test_mode = 1  # Test mode

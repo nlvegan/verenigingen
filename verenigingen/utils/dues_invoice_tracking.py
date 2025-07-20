@@ -86,7 +86,7 @@ def get_dues_summary_for_member(member_name):
     schedules = frappe.get_all(
         "Membership Dues Schedule",
         filters={"member": member_name, "status": "Active"},
-        fields=["name", "billing_frequency", "amount", "next_invoice_date"],
+        fields=["name", "billing_frequency", "dues_rate", "next_invoice_date"],
     )
 
     summary["active_schedules"] = schedules

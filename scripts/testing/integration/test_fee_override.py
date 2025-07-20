@@ -78,7 +78,7 @@ def test_enhanced_dues_amendment():
                 
                 # Verify the dues schedule
                 dues_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
-                print(f"  Amount: €{dues_schedule.amount}")
+                print(f"  Amount: €{dues_schedule.dues_rate}")
                 print(f"  Mode: {dues_schedule.contribution_mode}")
                 print(f"  Status: {dues_schedule.status}")
                 print(f"  Custom amount: {dues_schedule.uses_custom_amount}")

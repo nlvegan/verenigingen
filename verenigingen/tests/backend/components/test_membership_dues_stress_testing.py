@@ -95,8 +95,8 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
                 
                 if operation_id % 3 == 0:
                     # Change amount
-                    new_amount = schedule.amount + random.uniform(-10, 10)
-                    schedule.amount = max(5.0, new_amount)  # Keep above minimum
+                    new_amount = schedule.dues_rate + random.uniform(-10, 10)
+                    schedule.dues_rate = max(5.0, new_amount)  # Keep above minimum
                 elif operation_id % 3 == 1:
                     # Change billing frequency
                     frequencies = ["Monthly", "Quarterly", "Annual"]
@@ -304,13 +304,13 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
                 "name": "Get all active dues schedules",
                 "query": lambda: frappe.get_all("Membership Dues Schedule", 
                                                filters={"status": "Active"}, 
-                                               fields=["name", "member", "amount", "billing_frequency"])
+                                               fields=["name", "member", "dues_rate", "billing_frequency"])
             },
             {
                 "name": "Get dues schedules by member",
                 "query": lambda: [frappe.get_all("Membership Dues Schedule", 
                                                 filters={"member": member.name}, 
-                                                fields=["name", "amount", "status"]) 
+                                                fields=["name", "dues_rate", "status"]) 
                                 for member in members[:10]]  # Test first 10
             },
             {
@@ -385,7 +385,7 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
             schedule.membership = membership.name
             schedule.membership_type = membership_type.name
             schedule.contribution_mode = "Calculator"
-            schedule.amount = 25.0 + (i * 2.0)  # Varied amounts
+            schedule.dues_rate = 25.0 + (i * 2.0)  # Varied amounts
             schedule.billing_frequency = "Monthly"
             schedule.payment_method = "SEPA Direct Debit"
             schedule.status = "Active"
@@ -472,7 +472,7 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
         # Vary amounts and frequencies for realistic testing
         base_amount = membership_type.suggested_contribution
         multiplier = 0.5 + (identifier % 10) * 0.1  # 0.5 to 1.4
-        dues_schedule.amount = base_amount * multiplier
+        dues_schedule.dues_rate = base_amount * multiplier
         
         frequencies = ["Monthly", "Quarterly", "Annual"]
         dues_schedule.billing_frequency = frequencies[identifier % 3]

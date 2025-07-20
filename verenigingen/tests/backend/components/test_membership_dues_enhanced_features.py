@@ -182,7 +182,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         
         # Amount should match tier
-        self.assertEqual(dues_schedule.amount, student_tier.amount)
+        self.assertEqual(dues_schedule.dues_rate, student_tier.amount)
         
     def test_tier_requires_verification_flag(self):
         """Test tier verification requirement handling"""
@@ -231,7 +231,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         
         # Should be created but may need approval
         self.assertEqual(dues_schedule.contribution_mode, "Custom")
-        self.assertEqual(dues_schedule.amount, 50.00)
+        self.assertEqual(dues_schedule.dues_rate, 50.00)
         self.assertTrue(dues_schedule.uses_custom_amount)
         
     def test_custom_amount_below_minimum_validation(self):
@@ -260,7 +260,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         )
         
         # Should be created with reason recorded
-        self.assertEqual(dues_schedule.amount, 200.00)
+        self.assertEqual(dues_schedule.dues_rate, 200.00)
         self.assertIn("support", dues_schedule.custom_amount_reason)
         
     # Contribution Mode Switching Tests
@@ -535,25 +535,25 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         dues_schedule = self.create_test_dues_schedule(membership_type)
         dues_schedule.contribution_mode = "Tier"
         dues_schedule.selected_tier = student_tier.name
-        dues_schedule.amount = 10.0
+        dues_schedule.dues_rate = 10.0
         dues_schedule.save()
         
         # Stage 2: Member graduates, switches to calculator mode
         dues_schedule.contribution_mode = "Calculator"
         dues_schedule.selected_tier = None
         dues_schedule.base_multiplier = 2.0  # Earning more now
-        dues_schedule.amount = membership_type.suggested_contribution * 2.0
+        dues_schedule.dues_rate = membership_type.suggested_contribution * 2.0
         dues_schedule.save()
         
         # Stage 3: Member becomes senior, switches to professional tier
         dues_schedule.contribution_mode = "Tier"
         dues_schedule.selected_tier = professional_tier.name
-        dues_schedule.amount = 50.0
+        dues_schedule.dues_rate = 50.0
         dues_schedule.save()
         
         # Validate final state
         self.assertEqual(dues_schedule.contribution_mode, "Tier")
-        self.assertEqual(dues_schedule.amount, 50.0)
+        self.assertEqual(dues_schedule.dues_rate, 50.0)
         
     def test_organizational_configuration_switching(self):
         """Test organization switching between tier-based and calculator-based approaches"""
@@ -565,7 +565,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         tier_schedule.contribution_mode = "Tier"
         standard_tier = next(t for t in tier_org_type.predefined_tiers if t.tier_name == "Standard")
         tier_schedule.selected_tier = standard_tier.name
-        tier_schedule.amount = standard_tier.amount
+        tier_schedule.dues_rate = standard_tier.amount
         tier_schedule.save()
         
         # Organization decides to switch to calculator-based
@@ -576,7 +576,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         
         # Existing members should maintain their current contributions
         tier_schedule.reload()
-        self.assertEqual(tier_schedule.amount, standard_tier.amount)
+        self.assertEqual(tier_schedule.dues_rate, standard_tier.amount)
         
         # New members should use calculator mode
         new_schedule = self.create_test_dues_schedule_for_member(
@@ -608,7 +608,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         self.assertIn("unemployed", hardship_schedule.custom_amount_reason)
         
         # If minimum or reasonable, should be auto-approved for testing
-        if hardship_schedule.amount == membership_type.minimum_contribution:
+        if hardship_schedule.dues_rate == membership_type.minimum_contribution:
             self.assertTrue(hardship_schedule.custom_amount_approved)
             
     def test_wealthy_supporter_high_contribution_workflow(self):
@@ -627,7 +627,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         )
         
         # Should handle large amounts gracefully
-        self.assertEqual(supporter_schedule.amount, 1000.00)
+        self.assertEqual(supporter_schedule.dues_rate, 1000.00)
         self.assertEqual(supporter_schedule.contribution_mode, "Custom")
         self.assertIn("business owner", supporter_schedule.custom_amount_reason)
         
@@ -667,12 +667,12 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         family_schedule = self.create_test_dues_schedule(family_type)
         family_schedule.contribution_mode = "Tier"
         family_schedule.selected_tier = family_tier.name
-        family_schedule.amount = 75.0
+        family_schedule.dues_rate = 75.0
         family_schedule.billing_frequency = "Annual"  # Families might prefer annual
         family_schedule.save()
         
         # Validate family membership setup
-        self.assertEqual(family_schedule.amount, 75.0)
+        self.assertEqual(family_schedule.dues_rate, 75.0)
         self.assertEqual(family_schedule.billing_frequency, "Annual")
         
     def test_seasonal_membership_with_prorated_amounts(self):
@@ -690,13 +690,13 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         )
         
         # Simulate prorated amount for half-year (would be calculated by business logic)
-        mid_year_schedule.amount = 50.00  # Prorated for half year
+        mid_year_schedule.dues_rate = 50.00  # Prorated for half year
         mid_year_schedule.custom_amount_reason = "Mid-year join - prorated amount"
         mid_year_schedule.uses_custom_amount = 1
         mid_year_schedule.save()
         
         # Validate prorated setup
-        self.assertEqual(mid_year_schedule.amount, 50.0)
+        self.assertEqual(mid_year_schedule.dues_rate, 50.0)
         self.assertIn("prorated", mid_year_schedule.custom_amount_reason)
         
     def test_international_member_currency_handling(self):
@@ -771,12 +771,12 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         
         # Would integrate with payment plan system
         payment_plan_schedule.billing_frequency = "Monthly"  # Pay monthly
-        payment_plan_schedule.amount = 10.00  # Monthly portion of annual
+        payment_plan_schedule.dues_rate = 10.00  # Monthly portion of annual
         payment_plan_schedule.save()
         
         # Validate payment plan setup
         self.assertEqual(payment_plan_schedule.billing_frequency, "Monthly")
-        self.assertEqual(payment_plan_schedule.amount, 10.00)
+        self.assertEqual(payment_plan_schedule.dues_rate, 10.00)
 
     # Helper Methods
     
@@ -867,11 +867,11 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         
         if amount is not None:
             dues_schedule.contribution_mode = "Custom"
-            dues_schedule.amount = amount
+            dues_schedule.dues_rate = amount
             dues_schedule.uses_custom_amount = 1
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.amount = membership_type.suggested_contribution
+            dues_schedule.dues_rate = membership_type.suggested_contribution
             
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = payment_method
@@ -904,11 +904,11 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         
         if amount is not None:
             dues_schedule.contribution_mode = "Custom"
-            dues_schedule.amount = amount
+            dues_schedule.dues_rate = amount
             dues_schedule.uses_custom_amount = 1
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.amount = membership_type.suggested_contribution
+            dues_schedule.dues_rate = membership_type.suggested_contribution
             
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"
@@ -930,7 +930,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
         dues_schedule.contribution_mode = "Custom"
-        dues_schedule.amount = amount
+        dues_schedule.dues_rate = amount
         dues_schedule.uses_custom_amount = 1
         dues_schedule.custom_amount_reason = reason
         dues_schedule.billing_frequency = "Monthly"

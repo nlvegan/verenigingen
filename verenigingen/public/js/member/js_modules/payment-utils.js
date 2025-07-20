@@ -64,25 +64,44 @@ function format_payment_history_row(row) {
 	}
 }
 
-function refresh_financial_history(frm) {
+function refresh_membership_dues_info(frm) {
 	frappe.show_alert({
 		message: __('Refreshing financial history...'),
 		indicator: 'blue'
 	});
 
 	frappe.call({
-		method: 'load_payment_history',
+		method: 'refresh_financial_history',
 		doc: frm.doc,
 		callback: function(r) {
 			frm.refresh_field('payment_history');
 
 			// Updated to refresh dues schedule summary
 			frappe.call({
-				method: 'refresh_dues_schedule_summary',
-				doc: frm.doc,
+				method: 'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details',
+				args: {
+					member: frm.doc.name
+				},
 				callback: function(r) {
-					// Updated to use dues schedule system
-					frm.refresh_field('dues_schedule_summary');
+					if (r.message && r.message.has_schedule && r.message.schedule_name) {
+						frm.set_value('current_dues_schedule', r.message.schedule_name);
+						if (r.message.dues_rate !== undefined) {
+							frm.set_value('dues_rate', r.message.dues_rate);
+						}
+					}
+				}
+			});
+
+			// Refresh fee change history from dues schedules
+			frappe.call({
+				method: 'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
+				args: {
+					member_name: frm.doc.name
+				},
+				callback: function(r) {
+					if (r.message && r.message.success) {
+						frm.refresh_field('fee_change_history');
+					}
 				}
 			});
 
@@ -150,6 +169,6 @@ window.PaymentUtils = {
 	process_payment,
 	mark_as_paid,
 	format_payment_history_row,
-	refresh_financial_history,
+	refresh_membership_dues_info,
 	calculate_financial_stats
 };

@@ -84,7 +84,7 @@ def approve_membership_application(
             frappe.logger().warning(f"Could not create chapter membership for {member.name}: {str(e)}")
 
     # Update member status
-    member.application_status = "Approved"  # Application is approved
+    member.application_status = "Active"  # Application is approved and member is active
     member.status = "Active"  # Member is now active (not waiting for payment)
     member.member_since = today()  # Set member since date when approved
     member.reviewed_by = frappe.session.user

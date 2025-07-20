@@ -156,13 +156,13 @@ def get_effective_fee_for_member(member, membership):
         active_dues_schedule = frappe.db.get_value(
             "Membership Dues Schedule",
             {"member": member.name, "status": "Active"},
-            ["name", "amount", "contribution_mode", "billing_frequency"],
+            ["name", "dues_rate", "contribution_mode", "billing_frequency"],
             as_dict=True,
         )
 
         if active_dues_schedule:
             return {
-                "amount": active_dues_schedule.amount,
+                "amount": active_dues_schedule.dues_rate,
                 "source": "dues_schedule",
                 "reason": f"Active dues schedule ({active_dues_schedule.contribution_mode})",
                 "schedule_name": active_dues_schedule.name,
@@ -457,7 +457,7 @@ def create_new_dues_schedule(member, new_amount, reason):
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership.membership_type
         dues_schedule.contribution_mode = "Custom"
-        dues_schedule.amount = new_amount
+        dues_schedule.dues_rate = new_amount
         dues_schedule.uses_custom_amount = 1
         dues_schedule.custom_amount_approved = 1  # Auto-approve for self-adjustments
         dues_schedule.custom_amount_reason = f"Member self-adjustment: {reason}"
@@ -591,7 +591,7 @@ def get_member_fee_history(member_name):
                 {
                     "date": schedule.effective_date or schedule.creation,
                     "type": "Dues Schedule",
-                    "amount": schedule.amount,
+                    "amount": schedule.dues_rate,
                     "status": schedule.status,
                     "reason": schedule.custom_amount_reason or f"{schedule.contribution_mode} contribution",
                     "source": "dues_schedule",

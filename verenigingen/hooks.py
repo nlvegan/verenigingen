@@ -136,7 +136,7 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.membership.scheduler.notify_about_orphaned_records",
         "verenigingen.api.membership_application_review.send_overdue_notifications",
         # Amendment system processing
-        "verenigingen.verenigingen.doctype.membership_amendment_request.membership_amendment_request.process_pending_amendments",
+        "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
         # Auto-create missing dues schedules
         "verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
         # Analytics and goals updates
@@ -186,7 +186,8 @@ jinja = {"methods": ["verenigingen.utils.jinja_methods"], "filters": ["verenigin
 # Installation and Migration Hooks
 # ---------------------------------
 after_migrate = [
-    "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings"
+    "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
+    "verenigingen.setup.membership_application_workflow_setup.setup_membership_application_workflow",
 ]
 
 # Portal Configuration
@@ -287,7 +288,32 @@ fixtures = [
     },
     # Workflows
     {"doctype": "Workflow", "filters": [["name", "in", ["Membership Termination Workflow"]]]},
-    {"doctype": "Workflow State", "filters": [["workflow_state_name", "in", ["Executed"]]]},
+    {
+        "doctype": "Workflow State",
+        "filters": [
+            [
+                "workflow_state_name",
+                "in",
+                [
+                    "Draft",
+                    "Pending",
+                    "Pending Verification",
+                    "Under Review",
+                    "Approved",
+                    "Rejected",
+                    "Active",
+                    "Inactive",
+                    "Completed",
+                    "Cancelled",
+                    "Expired",
+                    "Payment Pending",
+                    "Processing",
+                    "Submitted",
+                    "Executed",
+                ],
+            ]
+        ],
+    },
     {"doctype": "Workflow Action Master", "filters": [["workflow_action_name", "in", ["Execute"]]]},
     # Roles
     {

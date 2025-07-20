@@ -344,7 +344,7 @@ class TestPaymentPlanSystem(VereningingenTestCase):
         payment_plan.member = self.test_member.name
         payment_plan.membership_dues_schedule = dues_schedule.name
         payment_plan.plan_type = "Equal Installments"
-        payment_plan.total_amount = dues_schedule.amount * 3  # 3 months
+        payment_plan.total_amount = dues_schedule.dues_rate * 3  # 3 months
         payment_plan.number_of_installments = 3
         payment_plan.frequency = "Monthly"
         payment_plan.start_date = today()
@@ -457,7 +457,7 @@ class TestPaymentPlanSystem(VereningingenTestCase):
         dues_schedule.member = self.test_member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
-        dues_schedule.amount = membership_type.amount
+        dues_schedule.dues_rate = membership_type.amount
         dues_schedule.billing_frequency = "Monthly"
         dues_schedule.status = "Active"
         dues_schedule.auto_generate = 0

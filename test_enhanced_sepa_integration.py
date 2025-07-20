@@ -115,7 +115,7 @@ def test_create_mock_dues_schedule():
         dues_schedule.member = test_member
         dues_schedule.membership_type = test_membership_type
         dues_schedule.contribution_mode = "Calculator"
-        dues_schedule.amount = 15.0
+        dues_schedule.dues_rate = 15.0
         dues_schedule.billing_frequency = "Monthly"
         # Payment method will be determined dynamically based on member's payment setup
         dues_schedule.status = "Active"

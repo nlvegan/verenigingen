@@ -217,3 +217,142 @@ def run_financial_tests():
         return run_all_financial_tests()
     except Exception as e:
         return {"success": False, "message": f"Financial tests failed: {str(e)}"}
+
+
+@frappe.whitelist()
+def run_report_regression_tests():
+    """Run report regression tests including overdue payments report"""
+    try:
+        import unittest
+
+        from verenigingen.tests.backend.components.test_overdue_payments_report_regression import TestOverduePaymentsReportRegression
+
+        suite = unittest.TestLoader().loadTestsFromTestCase(TestOverduePaymentsReportRegression)
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+
+        return {
+            "success": result.wasSuccessful(),
+            "tests_run": result.testsRun,
+            "failures": len(result.failures),
+            "errors": len(result.errors),
+            "message": f"Report regression tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors",
+        }
+    except Exception as e:
+        return {"success": False, "message": f"Report regression tests failed: {str(e)}"}
+
+
+@frappe.whitelist()
+def run_anbi_report_tests():
+    """Run ANBI Donation Summary report tests"""
+    try:
+        import unittest
+
+        from verenigingen.tests.backend.components.test_anbi_donation_summary_report import (
+            TestANBIDonationSummaryReport,
+            TestANBIDonationSummaryReportRegression
+        )
+
+        # Create test suite with both test classes
+        suite = unittest.TestSuite()
+        suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestANBIDonationSummaryReport))
+        suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestANBIDonationSummaryReportRegression))
+        
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+
+        return {
+            "success": result.wasSuccessful(),
+            "tests_run": result.testsRun,
+            "failures": len(result.failures),
+            "errors": len(result.errors),
+            "message": f"ANBI report tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors",
+        }
+    except Exception as e:
+        return {"success": False, "message": f"ANBI report tests failed: {str(e)}"}
+
+
+@frappe.whitelist()
+def run_all_report_tests():
+    """Run all report tests (overdue payments + ANBI donation summary)"""
+    try:
+        import unittest
+
+        from verenigingen.tests.backend.components.test_overdue_payments_report_regression import TestOverduePaymentsReportRegression
+        from verenigingen.tests.backend.components.test_anbi_donation_summary_report import (
+            TestANBIDonationSummaryReport,
+            TestANBIDonationSummaryReportRegression
+        )
+
+        # Create comprehensive test suite
+        suite = unittest.TestSuite()
+        suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestOverduePaymentsReportRegression))
+        suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestANBIDonationSummaryReport))
+        suite.addTests(unittest.TestLoader().loadTestsFromTestCase(TestANBIDonationSummaryReportRegression))
+        
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+
+        return {
+            "success": result.wasSuccessful(),
+            "tests_run": result.testsRun,
+            "failures": len(result.failures),
+            "errors": len(result.errors),
+            "message": f"All report tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors",
+        }
+    except Exception as e:
+        return {"success": False, "message": f"All report tests failed: {str(e)}"}
+
+
+@frappe.whitelist()
+def run_hybrid_report_tests():
+    """Run report tests using the new hybrid framework"""
+    try:
+        from verenigingen.tests.utils.hybrid_report_tester import test_all_reports_hybrid
+        
+        result = test_all_reports_hybrid()
+        
+        if result.get("success"):
+            detailed = result.get("detailed_results", {})
+            total_reports = len(detailed)
+            passed_reports = sum(1 for r in detailed.values() if r.get("success"))
+            
+            return {
+                "success": True,
+                "tests_run": total_reports,
+                "failures": total_reports - passed_reports,
+                "errors": 0,
+                "message": f"Hybrid report tests: {passed_reports}/{total_reports} reports passed"
+            }
+        else:
+            return {
+                "success": False,
+                "tests_run": 0,
+                "failures": 1,
+                "errors": 0,
+                "message": f"Hybrid report tests failed: {result.get('message')}"
+            }
+    except Exception as e:
+        return {"success": False, "message": f"Hybrid report tests failed: {str(e)}"}
+
+
+@frappe.whitelist()
+def run_comprehensive_report_tests():
+    """Run both traditional and hybrid report tests"""
+    try:
+        # Run traditional tests
+        traditional_result = run_all_report_tests()
+        
+        # Run hybrid tests  
+        hybrid_result = run_hybrid_report_tests()
+        
+        overall_success = traditional_result.get("success", False) and hybrid_result.get("success", False)
+        
+        return {
+            "success": overall_success,
+            "message": f"Comprehensive tests: Traditional {'✅' if traditional_result.get('success') else '❌'}, Hybrid {'✅' if hybrid_result.get('success') else '❌'}",
+            "traditional_tests": traditional_result,
+            "hybrid_tests": hybrid_result
+        }
+    except Exception as e:
+        return {"success": False, "message": f"Comprehensive report tests failed: {str(e)}"}

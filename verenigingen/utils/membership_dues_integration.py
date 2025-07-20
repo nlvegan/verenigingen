@@ -39,7 +39,7 @@ def create_dues_schedule_from_application(membership_application):
     dues_schedule.member = member.name
     dues_schedule.membership = membership
     dues_schedule.billing_frequency = billing_frequency
-    dues_schedule.amount = amount
+    dues_schedule.dues_rate = amount
     dues_schedule.next_invoice_date = first_invoice_date
     dues_schedule.invoice_days_before = 0  # Invoice immediately for new members
     dues_schedule.auto_generate = 1
@@ -122,7 +122,7 @@ def get_member_billing_status(member_name):
     schedules = frappe.get_all(
         "Membership Dues Schedule",
         filters={"member": member_name},
-        fields=["name", "status", "next_invoice_date", "last_invoice_date", "amount"],
+        fields=["name", "status", "next_invoice_date", "last_invoice_date", "dues_rate"],
     )
 
     for schedule in schedules:
@@ -187,9 +187,9 @@ def adjust_dues_schedule(schedule_name, new_amount=None, new_frequency=None, new
 
     changes = []
 
-    if new_amount and new_amount != schedule.amount:
-        changes.append(f"Amount: {schedule.amount} → {new_amount}")
-        schedule.amount = new_amount
+    if new_amount and new_amount != schedule.dues_rate:
+        changes.append(f"Amount: {schedule.dues_rate} → {new_amount}")
+        schedule.dues_rate = new_amount
 
     if new_frequency and new_frequency != schedule.billing_frequency:
         changes.append(f"Frequency: {schedule.billing_frequency} → {new_frequency}")
@@ -233,7 +233,7 @@ def create_payment_plan(member_name, total_amount, installments, start_date=None
         schedule.member = member_name
         schedule.membership = membership
         schedule.billing_frequency = "Custom"
-        schedule.amount = installment_amount
+        schedule.dues_rate = installment_amount
         schedule.next_invoice_date = add_months(start_date, i)
         schedule.auto_generate = 1
         schedule.status = "Active"

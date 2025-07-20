@@ -85,7 +85,7 @@ def migrate_member_override(member_data):
     dues_schedule.membership = membership.name
     dues_schedule.membership_type = membership.membership_type
     dues_schedule.contribution_mode = "Custom"
-    dues_schedule.amount = override_amount
+    dues_schedule.dues_rate = override_amount
     dues_schedule.uses_custom_amount = 1
     dues_schedule.custom_amount_approved = 1  # Assume existing overrides were approved
     dues_schedule.custom_amount_reason = member_data.get("fee_override_reason") or "Migrated from legacy fee override"
@@ -189,9 +189,9 @@ def validate_migration():
         if not dues_schedule:
             validation_results["missing"] += 1
             print(f"  Missing dues schedule for {member_name}")
-        elif flt(dues_schedule.amount) != override_amount:
+        elif flt(dues_schedule.dues_rate) != override_amount:
             validation_results["mismatches"] += 1
-            print(f"  Amount mismatch for {member_name}: Override €{override_amount:.2f} vs Schedule €{dues_schedule.amount:.2f}")
+            print(f"  Amount mismatch for {member_name}: Override €{override_amount:.2f} vs Schedule €{dues_schedule.dues_rate:.2f}")
         else:
             validation_results["matches"] += 1
     

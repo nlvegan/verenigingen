@@ -305,6 +305,9 @@ function add_consolidated_action_buttons(frm) {
 	// Membership creation - only for members without active memberships
 	add_membership_creation_button(frm);
 
+	// Consolidated dues schedule management
+	add_consolidated_dues_schedule_buttons(frm);
+
 	// === MEMBER ACTIONS GROUP ===
 
 	// Payment actions for submitted documents
@@ -333,14 +336,8 @@ function add_consolidated_action_buttons(frm) {
 	// Membership review button (improved loading)
 	add_membership_review_button(frm);
 
-	// Financial actions
-	if (frm.doc.customer) {
-		frm.add_custom_button(__('Refresh Financial History'), function() {
-			if (window.PaymentUtils) {
-				PaymentUtils.refresh_financial_history(frm);
-			}
-		}, __('Review Actions'));
-	}
+	// Financial actions moved to Membership & Dues section
+	// This button is now added in add_fee_management_buttons()
 }
 
 function add_consolidated_view_buttons(frm) {
@@ -396,11 +393,11 @@ function add_administrative_buttons(frm) {
 		if (frm.doc.customer) {
 			frm.add_custom_button(__('Refresh Dues Schedule History'), function() {
 				refresh_dues_schedule_history(frm);
-			}, __('Fee Management'));
+			}, __('Membership & Dues'));
 
 			frm.add_custom_button(__('Refresh Dues Schedule Summary'), function() {
 				load_dues_schedule_summary(frm);
-			}, __('Fee Management'));
+			}, __('Membership & Dues'));
 		}
 
 		frm.add_custom_button(__('Refresh Fee Section'), function() {
@@ -505,21 +502,23 @@ function add_membership_review_button(frm) {
 }
 
 function add_membership_creation_button(frm) {
-	// Check if member has any active memberships
+	// Check if member has any active or pending memberships (exclude cancelled memberships)
 	frappe.call({
 		method: 'frappe.client.get_list',
 		args: {
 			doctype: 'Membership',
 			filters: {
 				'member': frm.doc.name,
-				'status': ['in', ['Active', 'Pending']]
+				'status': ['in', ['Active', 'Pending']],
+				'docstatus': ['!=', 2]  // Exclude cancelled documents (docstatus 2)
 			},
 			fields: ['name'],
 			limit: 1
 		},
 		callback: function(r) {
 			if (!r.message || r.message.length === 0) {
-				// No active memberships found, show create button
+				// No active or pending memberships found, show create button
+				// (Cancelled memberships are ignored - member can create new membership after cancellation)
 				frm.add_custom_button(__('Create Membership'), function() {
 					frappe.new_doc('Membership', {
 						'member': frm.doc.name,
@@ -907,26 +906,27 @@ function add_fee_management_buttons(frm) {
 		// Add button to view current fee info
 		frm.add_custom_button(__('View Fee Details'), function() {
 			show_fee_details_dialog(frm);
-		}, __('Fee Management'));
+		}, __('Membership & Dues'));
 
 		// Add button to change fee if user has permission
 		if (frappe.user.has_role(['System Manager', 'Membership Manager', 'Verenigingen Administrator'])) {
 			frm.add_custom_button(__('Override Membership Fee'), function() {
 				show_fee_override_dialog(frm);
-			}, __('Fee Management'));
+			}, __('Membership & Dues'));
+		}
+
+		// Add the renamed refresh button if member has customer record
+		if (frm.doc.customer) {
+			frm.add_custom_button(__('Refresh Membership & Dues Info'), function() {
+				if (window.PaymentUtils) {
+					PaymentUtils.refresh_membership_dues_info(frm);
+				}
+			}, __('Membership & Dues'));
 		}
 
 
 		// Subscription history functionality removed - use dues schedule system instead
-		if (frm.doc.customer) {
-			frm.add_custom_button(__('Refresh Dues Schedule History'), function() {
-				refresh_dues_schedule_history(frm);
-			}, __('Fee Management'));
-
-			frm.add_custom_button(__('Refresh Dues Schedule Summary'), function() {
-				load_dues_schedule_summary(frm);
-			}, __('Fee Management'));
-		}
+		// Dues schedule buttons moved to consolidated function
 	}
 }
 
@@ -1083,24 +1083,44 @@ function get_fee_source_label(source) {
 }
 
 function refresh_dues_schedule_history(frm) {
-	// Updated to use dues schedule system
-	frappe.show_alert({
-		message: 'Dues schedule history functionality is not yet implemented.',
-		indicator: 'orange'
+	// Use the new fee change history refresh functionality
+	frappe.call({
+		method: 'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
+		args: {
+			member_name: frm.doc.name
+		},
+		callback: function(r) {
+			if (r.message && r.message.success) {
+				frm.refresh_field('fee_change_history');
+				frappe.show_alert({
+					message: `Dues schedule history refreshed: ${r.message.history_count} entries from ${r.message.dues_schedules_found} schedules`,
+					indicator: 'green'
+				}, 5);
+			} else {
+				frappe.show_alert({
+					message: r.message ? r.message.message : 'Failed to refresh dues schedule history',
+					indicator: 'red'
+				}, 5);
+			}
+		}
 	});
-	return;
 }
 
 function refresh_dues_schedule_summary(frm) {
 	// Updated to use dues schedule system
 	frappe.call({
-		method: 'get_dues_schedule_summary',
-		doc: frm.doc,
+		method: 'verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details',
+		args: {
+			member: frm.doc.name
+		},
 		callback: function(r) {
 			if (r.message) {
-				frm.reload_doc();
+				if (r.message.has_schedule && r.message.schedule_name) {
+					frm.set_value('current_dues_schedule', r.message.schedule_name);
+					frm.set_value('dues_rate', r.message.dues_rate || 0);
+				}
 				frappe.show_alert({
-					message: r.message.message || 'Dues schedule summary refreshed',
+					message: 'Dues schedule summary refreshed',
 					indicator: 'green'
 				}, 3);
 			}
@@ -1219,7 +1239,7 @@ function add_termination_dashboard_indicators(frm, status) {
 
 function load_dues_schedule_summary(frm) {
 	// Updated to use dues schedule system
-	if (!frm.doc.customer || !frm.doc.name) {
+	if (!frm.doc.name) {
 		return;
 	}
 
@@ -1229,8 +1249,23 @@ function load_dues_schedule_summary(frm) {
 			member: frm.doc.name
 		},
 		callback: function(r) {
-			if (r.message) {
-				// Subscription display removed - using dues schedule system
+			if (r.message && r.message.has_schedule && r.message.schedule_name) {
+				// Update the current dues schedule link field
+				frm.set_value('current_dues_schedule', r.message.schedule_name);
+				// Update dues rate from schedule
+				if (r.message.dues_rate !== undefined) {
+					frm.set_value('dues_rate', r.message.dues_rate);
+				}
+
+				// Add button to view dues schedule if it exists
+				if (!frm.custom_buttons[__('View Dues Schedule')]) {
+					frm.add_custom_button(__('View Dues Schedule'), function() {
+						frappe.set_route('Form', 'Membership Dues Schedule', r.message.schedule_name);
+					}, __('View'));
+				}
+			} else {
+				// Clear the field if no dues schedule found
+				frm.set_value('current_dues_schedule', '');
 			}
 		}
 	});
@@ -1980,21 +2015,31 @@ function setup_dutch_naming_fields(frm) {
 
 function setup_dutch_name_refresh_handlers(frm) {
 	// Add event handlers to update full_name when Dutch name fields change
-	frm.fields_dict.first_name.$input.on('blur', function() {
-		update_dutch_full_name(frm);
-	});
+	// Check if fields exist and are rendered before attaching handlers
 
-	frm.fields_dict.middle_name.$input.on('blur', function() {
-		update_dutch_full_name(frm);
-	});
+	if (frm.fields_dict.first_name && frm.fields_dict.first_name.$input) {
+		frm.fields_dict.first_name.$input.on('blur', function() {
+			update_dutch_full_name(frm);
+		});
+	}
 
-	frm.fields_dict.tussenvoegsel.$input.on('blur', function() {
-		update_dutch_full_name(frm);
-	});
+	if (frm.fields_dict.middle_name && frm.fields_dict.middle_name.$input) {
+		frm.fields_dict.middle_name.$input.on('blur', function() {
+			update_dutch_full_name(frm);
+		});
+	}
 
-	frm.fields_dict.last_name.$input.on('blur', function() {
-		update_dutch_full_name(frm);
-	});
+	if (frm.fields_dict.tussenvoegsel && frm.fields_dict.tussenvoegsel.$input) {
+		frm.fields_dict.tussenvoegsel.$input.on('blur', function() {
+			update_dutch_full_name(frm);
+		});
+	}
+
+	if (frm.fields_dict.last_name && frm.fields_dict.last_name.$input) {
+		frm.fields_dict.last_name.$input.on('blur', function() {
+			update_dutch_full_name(frm);
+		});
+	}
 }
 
 function update_dutch_full_name(frm) {
@@ -2093,4 +2138,62 @@ function setup_customer_link_button(frm) {
 			}
 		}
 	}
+}
+
+// Consolidated dues schedule button management
+function add_consolidated_dues_schedule_buttons(frm) {
+	if (!frm.doc.name || frm.doc.__islocal) return;
+
+	// Check for any active dues schedule for this member
+	frappe.db.get_value('Membership Dues Schedule', {
+		'member': frm.doc.name,
+		'is_template': 0,
+		'status': ['in', ['Active', 'Paused']]
+	}, ['name', 'dues_rate', 'billing_frequency', 'status']).then(function(result) {
+		if (result.message && result.message.name) {
+			const schedule = result.message;
+
+			// Add consolidated dues schedule button
+			frm.add_custom_button(__('View Dues Schedule'), function() {
+				frappe.set_route('Form', 'Membership Dues Schedule', schedule.name);
+			}, __('Membership & Dues'));
+
+			// Add dues rate info button
+			frm.add_custom_button(__(`Current Rate: €${schedule.dues_rate} (${schedule.billing_frequency})`), function() {
+				frappe.set_route('Form', 'Membership Dues Schedule', schedule.name);
+			}, __('Membership & Dues'));
+
+			// Refresh dues history button
+			frm.add_custom_button(__('Refresh Dues History'), function() {
+				refresh_dues_schedule_history(frm);
+			}, __('Membership & Dues'));
+
+			// Sync dues rate button
+			frm.add_custom_button(__('Sync Dues Rate'), function() {
+				frappe.call({
+					method: 'verenigingen.verenigingen.doctype.member.member.sync_member_dues_rate',
+					args: { member_name: frm.doc.name },
+					callback: function(r) {
+						if (r.message && r.message.success) {
+							frm.set_value('dues_rate', r.message.dues_rate);
+							frappe.show_alert({
+								message: r.message.message,
+								indicator: 'green'
+							}, 3);
+						} else {
+							frappe.show_alert({
+								message: r.message.message || 'Sync failed',
+								indicator: 'red'
+							}, 3);
+						}
+					}
+				});
+			}, __('Membership & Dues'));
+
+			// Update current dues schedule field
+			frm.set_value('current_dues_schedule', schedule.name);
+		}
+	}).catch(function(error) {
+		console.error('Dues schedule buttons: Error loading schedule', error);
+	});
 }

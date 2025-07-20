@@ -242,7 +242,7 @@ def create_initial_dues_schedule(application, data):
 
         # Contribution configuration
         dues_schedule.contribution_mode = application.contribution_mode
-        dues_schedule.amount = application.contribution_amount
+        dues_schedule.dues_rate = application.contribution_amount
 
         if hasattr(application, "selected_tier") and application.selected_tier:
             dues_schedule.selected_tier = application.selected_tier

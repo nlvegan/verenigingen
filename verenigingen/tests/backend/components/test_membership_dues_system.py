@@ -101,7 +101,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         
         # Validate amount was set from tier
         student_tier_amount = membership_type.predefined_tiers[0].amount
-        self.assertEqual(dues_schedule.amount, student_tier_amount)
+        self.assertEqual(dues_schedule.dues_rate, student_tier_amount)
         
         # Validate dates were calculated
         self.assertIsNotNone(dues_schedule.current_coverage_start)
@@ -136,7 +136,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         
         # Validate amount calculation
         expected_amount = membership_type.suggested_contribution * 1.5
-        self.assertEqual(dues_schedule.amount, expected_amount)
+        self.assertEqual(dues_schedule.dues_rate, expected_amount)
         
     def test_membership_dues_schedule_custom_mode(self):
         """Test dues schedule with custom amount"""
@@ -157,7 +157,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
         dues_schedule.contribution_mode = "Custom"
-        dues_schedule.amount = custom_amount
+        dues_schedule.dues_rate = custom_amount
         dues_schedule.uses_custom_amount = 1
         dues_schedule.custom_amount_reason = "Financial hardship adjustment"
         dues_schedule.billing_frequency = "Monthly"
@@ -168,7 +168,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         
         # Validate custom configuration
-        self.assertEqual(dues_schedule.amount, custom_amount)
+        self.assertEqual(dues_schedule.dues_rate, custom_amount)
         self.assertTrue(dues_schedule.uses_custom_amount)
         self.assertEqual(dues_schedule.custom_amount_reason, "Financial hardship adjustment")
         
@@ -182,7 +182,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
             dues_schedule.member = self.test_member.name
             dues_schedule.membership_type = membership_type.name
             dues_schedule.contribution_mode = "Custom"
-            dues_schedule.amount = membership_type.minimum_contribution - 1  # Below minimum
+            dues_schedule.dues_rate = membership_type.minimum_contribution - 1  # Below minimum
             dues_schedule.uses_custom_amount = 1
             dues_schedule.save()
             
@@ -442,7 +442,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
         dues_schedule.contribution_mode = "Calculator"
-        dues_schedule.amount = amount or membership_type.suggested_contribution
+        dues_schedule.dues_rate = amount or membership_type.suggested_contribution
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"
         dues_schedule.status = "Active"

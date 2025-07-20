@@ -205,8 +205,6 @@ def get_data(filters):
         if grace_period_status == "Grace Period":
             # Check if grace period is expiring soon
             if grace_period_expiry:
-                from frappe.utils import getdate, today
-
                 days_until_expiry = (getdate(grace_period_expiry) - getdate(today())).days
                 if days_until_expiry <= 0:
                     row["status_indicator"] = '<span class="indicator red">Grace Period Expired</span>'

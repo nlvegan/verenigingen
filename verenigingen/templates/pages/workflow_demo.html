@@ -1,0 +1,243 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-12">
+            <h1 class="mb-4">{{ title }}</h1>
+
+            {% if not workflow_exists %}
+                <div class="alert alert-danger">
+                    <h4>Workflow Not Found</h4>
+                    <p>{{ error_message }}</p>
+                </div>
+            {% else %}
+
+                <!-- Workflow Overview -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h3>Workflow Overview</h3>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Document Type:</strong> {{ workflow.document_type }}</p>
+                        <p><strong>State Field:</strong> {{ workflow.workflow_state_field }}</p>
+                        <p><strong>Email Alerts:</strong> {{ "Enabled" if workflow.send_email_alert else "Disabled" }}</p>
+                        <p><strong>Active:</strong> {{ "Yes" if workflow.is_active else "No" }}</p>
+                    </div>
+                </div>
+
+                <!-- Workflow States -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h3>Workflow States ({{ workflow_states|length }})</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            {% for state in workflow_states %}
+                            <div class="col-md-4 mb-3">
+                                <div class="card border-secondary">
+                                    <div class="card-body">
+                                        <h5 class="card-title">{{ state.name }}</h5>
+                                        <p class="card-text">
+                                            <small class="text-muted">
+                                                Status: {{ "Draft" if state.doc_status == "0" else "Submitted" if state.doc_status == "1" else "Cancelled" }}<br>
+                                                Edit Role: {{ state.allow_edit }}
+                                            </small>
+                                        </p>
+                                        {% if state.message %}
+                                        <p class="card-text">{{ state.message }}</p>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Workflow Statistics -->
+                {% if workflow_stats %}
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h3>Current Statistics</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            {% for state, count in workflow_stats.items() %}
+                            <div class="col-md-2 text-center mb-3">
+                                <h4 class="text-primary">{{ count }}</h4>
+                                <p class="mb-0">{{ state }}</p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Workflow Transitions -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h3>Workflow Transitions ({{ workflow_transitions|length }})</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>From State</th>
+                                        <th>Action</th>
+                                        <th>To State</th>
+                                        <th>Allowed Role</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for transition in workflow_transitions %}
+                                    <tr>
+                                        <td><span class="badge badge-secondary">{{ transition.from_state }}</span></td>
+                                        <td><span class="badge badge-primary">{{ transition.action }}</span></td>
+                                        <td><span class="badge badge-success">{{ transition.to_state }}</span></td>
+                                        <td>{{ transition.allowed_role }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sample Members -->
+                {% if sample_members %}
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h3>Sample Members in Workflow</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Member Name</th>
+                                        <th>Email</th>
+                                        <th>Current State</th>
+                                        <th>Application Date</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for member in sample_members %}
+                                    <tr>
+                                        <td>{{ member.full_name }}</td>
+                                        <td>{{ member.email }}</td>
+                                        <td>
+                                            <span class="badge
+                                                {% if member.application_status == 'Pending' %}badge-warning
+                                                {% elif member.application_status == 'Under Review' %}badge-info
+                                                {% elif member.application_status == 'Approved' %}badge-primary
+                                                {% elif member.application_status == 'Payment Pending' %}badge-secondary
+                                                {% elif member.application_status == 'Active' %}badge-success
+                                                {% elif member.application_status == 'Rejected' %}badge-danger
+                                                {% else %}badge-light{% endif %}">
+                                                {{ member.application_status }}
+                                            </span>
+                                        </td>
+                                        <td>{{ member.application_date.strftime('%Y-%m-%d') if member.application_date else 'N/A' }}</td>
+                                        <td>
+                                            <button class="btn btn-sm btn-outline-primary" onclick="showWorkflowActions('{{ member.name }}', '{{ member.full_name }}')">
+                                                View Actions
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Workflow Actions Modal -->
+<div class="modal fade" id="workflowActionsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Workflow Actions</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>Available actions for <strong id="modal-member-name"></strong>:</p>
+                <p>Current State: <span id="modal-current-state" class="badge badge-info"></span></p>
+                <div id="modal-actions-list">
+                    <!-- Actions will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function showWorkflowActions(memberName, memberFullName) {
+    $('#modal-member-name').text(memberFullName);
+    $('#workflowActionsModal').modal('show');
+
+    // Load available actions
+    frappe.call({
+        method: 'verenigingen.templates.pages.workflow_demo.get_workflow_actions',
+        args: { member_name: memberName },
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                $('#modal-current-state').text(r.message.current_state);
+
+                let actionsHtml = '';
+                if (r.message.available_actions.length === 0) {
+                    actionsHtml = '<p class="text-muted">No actions available for current user.</p>';
+                } else {
+                    r.message.available_actions.forEach(function(action) {
+                        actionsHtml += `
+                            <button class="btn btn-primary btn-block mb-2"
+                                    onclick="executeAction('${memberName}', '${action.action}', '${action.next_state}')">
+                                ${action.action} → ${action.next_state}
+                            </button>
+                        `;
+                    });
+                }
+                $('#modal-actions-list').html(actionsHtml);
+            } else {
+                $('#modal-actions-list').html('<p class="text-danger">Error loading actions: ' + (r.message ? r.message.error : 'Unknown error') + '</p>');
+            }
+        }
+    });
+}
+
+function executeAction(memberName, action, nextState) {
+    if (confirm(`Are you sure you want to execute "${action}"?`)) {
+        frappe.call({
+            method: 'verenigingen.templates.pages.workflow_demo.execute_workflow_action',
+            args: {
+                member_name: memberName,
+                action: action,
+                next_state: nextState
+            },
+            callback: function(r) {
+                if (r.message && r.message.success) {
+                    frappe.msgprint(r.message.message);
+                    $('#workflowActionsModal').modal('hide');
+                    // Reload page to show updated status
+                    location.reload();
+                } else {
+                    frappe.msgprint('Error: ' + (r.message ? r.message.error : 'Unknown error'));
+                }
+            }
+        });
+    }
+}
+</script>
+{% endblock %}

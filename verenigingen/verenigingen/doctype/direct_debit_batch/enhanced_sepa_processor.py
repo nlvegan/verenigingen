@@ -170,8 +170,8 @@ class EnhancedSEPAProcessor:
                     "item_name": f"Membership Dues - {schedule.membership_type}",
                     "description": description,
                     "qty": 1,
-                    "rate": schedule.amount,
-                    "amount": schedule.amount,
+                    "rate": schedule.dues_rate,
+                    "amount": schedule.dues_rate,
                 },
             )
 
@@ -381,7 +381,7 @@ class EnhancedSEPAProcessor:
             message = f"""
             Dear {member.full_name},
 
-            Your membership payment of €{schedule.amount} has failed with the following reason:
+            Your membership payment of €{schedule.dues_rate} has failed with the following reason:
             {reason}
 
             Please update your payment information or contact us to resolve this issue.
@@ -503,7 +503,7 @@ def get_upcoming_dues_collections(days_ahead=30):
             }
 
         collections_by_date[date_key]["schedules"].append(schedule)
-        collections_by_date[date_key]["total_amount"] += flt(schedule.amount)
+        collections_by_date[date_key]["total_amount"] += flt(schedule.dues_rate)
         collections_by_date[date_key]["count"] += 1
 
     return list(collections_by_date.values())

@@ -143,7 +143,7 @@ class ContributionAmendmentRequest(Document):
         )
 
         if active_dues_schedule:
-            self.current_amount = active_dues_schedule.amount
+            self.current_amount = active_dues_schedule.dues_rate
             self.current_billing_interval = active_dues_schedule.billing_frequency or "Monthly"
             self.current_dues_schedule = active_dues_schedule.name
         else:
@@ -518,12 +518,12 @@ class ContributionAmendmentRequest(Document):
             new_amount = self.requested_amount or current_amount
 
             difference = new_amount - current_amount
-            (difference / current_amount * 100) if current_amount > 0 else 0
+            percentage_change = (difference / current_amount * 100) if current_amount > 0 else 0
 
-            # impact_class = (
-            #     "text-success" if difference > 0 else "text-danger" if difference < 0 else "text-muted"
-            # )
-            "increase" if difference > 0 else "decrease" if difference < 0 else "no change"
+            impact_class = (
+                "text-success" if difference > 0 else "text-danger" if difference < 0 else "text-muted"
+            )
+            impact_text = "increase" if difference > 0 else "decrease" if difference < 0 else "no change"
 
             # Get billing interval information from dues schedule or membership type
             billing_interval_display = "per month"  # Default
@@ -588,22 +588,22 @@ class ContributionAmendmentRequest(Document):
             annual_difference = round(difference * annual_multiplier, 2)
 
             # Format currency values safely
-            frappe.format_value(current_amount, "Currency")
-            frappe.format_value(new_amount, "Currency")
-            frappe.format_value(abs(difference), "Currency")
-            frappe.format_value(annual_difference, "Currency")
+            current_amount_formatted = frappe.format_value(current_amount, "Currency")
+            new_amount_formatted = frappe.format_value(new_amount, "Currency")
+            difference_formatted = frappe.format_value(abs(difference), "Currency")
+            annual_difference_formatted = frappe.format_value(annual_difference, "Currency")
 
             # Format effective date safely
-            # effective_date_str = (
-            #     frappe.utils.formatdate(self.effective_date) if self.effective_date else "Not set"
-            # )
+            effective_date_str = (
+                frappe.utils.formatdate(self.effective_date) if self.effective_date else "Not set"
+            )
 
             # Clean billing interval for display
-            billing_interval_display.replace("per ", "").title()
+            billing_display_clean = billing_interval_display.replace("per ", "").title()
 
             # Debug info removed - issue resolved
 
-            html = """
+            html = f"""
             <div class="amendment-impact">
                 <h5>Amendment Impact Preview</h5>
 
@@ -1017,6 +1017,892 @@ def test_real_world_amendment_scenarios():
 
     except Exception as e:
         return {"success": False, "message": f"Error during real-world testing: {str(e)}"}
+
+
+@frappe.whitelist()
+def check_specific_amendment(amendment_name):
+    """Check details of a specific amendment request"""
+    try:
+        amendment = frappe.get_doc("Contribution Amendment Request", amendment_name)
+        return {
+            "name": amendment.name,
+            "effective_date": amendment.effective_date,
+            "creation": amendment.creation,
+            "status": amendment.status,
+            "member": amendment.member,
+            "current_amount": amendment.current_amount,
+            "requested_amount": amendment.requested_amount,
+            "current_dues_schedule": amendment.current_dues_schedule,
+            "reason": amendment.reason,
+            "amendment_type": amendment.amendment_type,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def fix_membership_type_billing_periods():
+    """Fix all membership type billing period misconfigurations"""
+    try:
+        # Get all membership types
+        membership_types = frappe.get_all(
+            "Membership Type", fields=["name", "amount", "billing_period"], order_by="name"
+        )
+
+        # Define the expected corrections
+        corrections = []
+
+        for mt in membership_types:
+            expected_billing = None
+            name_lower = mt.name.lower()
+
+            if "daily" in name_lower or "daglid" in name_lower:
+                expected_billing = "Daily"
+            elif "monthly" in name_lower or "maandlid" in name_lower:
+                expected_billing = "Monthly"
+            elif "weekly" in name_lower:
+                expected_billing = "Weekly"
+            elif "quarterly" in name_lower:
+                expected_billing = "Quarterly"
+            elif "annual" in name_lower or "yearly" in name_lower or "jaarlid" in name_lower:
+                expected_billing = "Annual"
+
+            if expected_billing and mt.billing_period != expected_billing:
+                corrections.append(
+                    {
+                        "name": mt.name,
+                        "current_billing_period": mt.billing_period,
+                        "corrected_billing_period": expected_billing,
+                    }
+                )
+
+        # Apply corrections
+        applied_corrections = []
+        errors = []
+
+        for correction in corrections:
+            try:
+                # Update the membership type
+                membership_type = frappe.get_doc("Membership Type", correction["name"])
+                membership_type.billing_period = correction["corrected_billing_period"]
+                membership_type.save(ignore_permissions=True)
+
+                applied_corrections.append(
+                    {
+                        "membership_type": correction["name"],
+                        "old_billing_period": correction["current_billing_period"],
+                        "new_billing_period": correction["corrected_billing_period"],
+                        "status": "corrected",
+                    }
+                )
+
+            except Exception as e:
+                errors.append({"membership_type": correction["name"], "error": str(e)})
+
+        return {
+            "success": True,
+            "total_corrections_needed": len(corrections),
+            "applied_corrections": len(applied_corrections),
+            "errors": len(errors),
+            "corrections_applied": applied_corrections,
+            "error_details": errors,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def fix_membership_dues_schedule_templates():
+    """Fix membership dues schedule template billing frequency misconfigurations"""
+    try:
+        # Get all template schedules (where member is null)
+        template_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters=[["member", "is", "not set"]],
+            fields=["name", "schedule_name", "billing_frequency", "membership_type"],
+            order_by="name",
+        )
+
+        # Define the expected corrections
+        corrections = []
+
+        for schedule in template_schedules:
+            expected_frequency = None
+            name_lower = schedule.schedule_name.lower()
+
+            if "daily" in name_lower:
+                expected_frequency = "Daily"
+            elif "monthly" in name_lower:
+                expected_frequency = "Monthly"
+            elif "weekly" in name_lower:
+                expected_frequency = "Weekly"
+            elif "quarterly" in name_lower:
+                expected_frequency = "Quarterly"
+            elif "annual" in name_lower:
+                expected_frequency = "Annual"
+
+            if expected_frequency and schedule.billing_frequency != expected_frequency:
+                corrections.append(
+                    {
+                        "name": schedule.name,
+                        "schedule_name": schedule.schedule_name,
+                        "current_billing_frequency": schedule.billing_frequency,
+                        "corrected_billing_frequency": expected_frequency,
+                    }
+                )
+
+        # Apply corrections
+        applied_corrections = []
+        errors = []
+
+        for correction in corrections:
+            try:
+                # Update the dues schedule template
+                schedule_doc = frappe.get_doc("Membership Dues Schedule", correction["name"])
+                schedule_doc.billing_frequency = correction["corrected_billing_frequency"]
+                schedule_doc.save(ignore_permissions=True)
+
+                applied_corrections.append(
+                    {
+                        "schedule_name": correction["schedule_name"],
+                        "old_billing_frequency": correction["current_billing_frequency"],
+                        "new_billing_frequency": correction["corrected_billing_frequency"],
+                        "status": "corrected",
+                    }
+                )
+
+            except Exception as e:
+                errors.append({"schedule_name": correction["schedule_name"], "error": str(e)})
+
+        return {
+            "success": True,
+            "total_corrections_needed": len(corrections),
+            "applied_corrections": len(applied_corrections),
+            "errors": len(errors),
+            "corrections_applied": applied_corrections,
+            "error_details": errors,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def fix_orphaned_schedule_templates():
+    """Fix or remove schedule templates that reference non-existent membership types"""
+    try:
+        # Get all template schedules
+        template_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters=[["member", "is", "not set"]],
+            fields=["name", "schedule_name", "billing_frequency", "membership_type"],
+            order_by="name",
+        )
+
+        orphaned_templates = []
+        corrected_templates = []
+        errors = []
+
+        for schedule in template_schedules:
+            # Check if membership type exists
+            if schedule.membership_type and not frappe.db.exists("Membership Type", schedule.membership_type):
+                orphaned_templates.append(
+                    {
+                        "name": schedule.name,
+                        "schedule_name": schedule.schedule_name,
+                        "missing_membership_type": schedule.membership_type,
+                        "billing_frequency": schedule.billing_frequency,
+                    }
+                )
+
+            # Also check for billing frequency mismatches in existing types
+            elif schedule.membership_type:
+                try:
+                    membership_type = frappe.get_doc("Membership Type", schedule.membership_type)
+                    if schedule.billing_frequency != membership_type.billing_period:
+                        # Update template to match membership type
+                        schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
+                        old_frequency = schedule_doc.billing_frequency
+                        schedule_doc.billing_frequency = membership_type.billing_period
+                        schedule_doc.save(ignore_permissions=True)
+
+                        corrected_templates.append(
+                            {
+                                "schedule_name": schedule.schedule_name,
+                                "old_frequency": old_frequency,
+                                "new_frequency": membership_type.billing_period,
+                                "matched_to_membership_type": membership_type.name,
+                            }
+                        )
+
+                except Exception as e:
+                    errors.append({"schedule_name": schedule.schedule_name, "error": str(e)})
+
+        # For orphaned templates, try to clean them up or fix them
+        cleanup_results = []
+        for orphan in orphaned_templates:
+            try:
+                # Delete orphaned templates
+                frappe.delete_doc("Membership Dues Schedule", orphan["name"], ignore_permissions=True)
+                cleanup_results.append(
+                    {
+                        "schedule_name": orphan["schedule_name"],
+                        "action": "deleted",
+                        "reason": f"Referenced non-existent membership type: {orphan['missing_membership_type']}",
+                    }
+                )
+            except Exception as e:
+                errors.append(
+                    {"schedule_name": orphan["schedule_name"], "error": f"Failed to delete: {str(e)}"}
+                )
+
+        return {
+            "success": len(errors) == 0,
+            "orphaned_templates_found": len(orphaned_templates),
+            "templates_corrected": len(corrected_templates),
+            "templates_deleted": len(cleanup_results),
+            "errors": len(errors),
+            "corrected_templates": corrected_templates,
+            "cleanup_results": cleanup_results,
+            "error_details": errors,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def validate_billing_consistency():
+    """Validate that membership types and dues schedule templates have consistent billing frequencies"""
+    try:
+        inconsistencies = []
+
+        # Get all membership types
+        membership_types = frappe.get_all(
+            "Membership Type", fields=["name", "billing_period"], order_by="name"
+        )
+
+        # Check each membership type against its template
+        for mt in membership_types:
+            template_name = f"Template-{mt.name}"
+            template = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"schedule_name": template_name, "member": ["is", "not set"]},
+                ["name", "billing_frequency"],
+                as_dict=True,
+            )
+
+            if template and template.billing_frequency != mt.billing_period:
+                inconsistencies.append(
+                    {
+                        "membership_type": mt.name,
+                        "membership_billing_period": mt.billing_period,
+                        "template_billing_frequency": template.billing_frequency,
+                        "template_name": template_name,
+                        "issue": "Mismatch between membership type and template",
+                    }
+                )
+
+        return {
+            "success": len(inconsistencies) == 0,
+            "total_checked": len(membership_types),
+            "inconsistencies_found": len(inconsistencies),
+            "inconsistencies": inconsistencies,
+            "status": "All billing configurations are consistent"
+            if len(inconsistencies) == 0
+            else f"Found {len(inconsistencies)} inconsistencies",
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def test_silvia_scenario_after_fixes():
+    """Test if Silvia's scenario would work correctly now with the fixed configurations"""
+    try:
+        # Check if Test Daily Membership is now properly configured
+        test_daily_type = frappe.get_doc("Membership Type", "Test Daily Membership")
+
+        # Check the template
+        template = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"schedule_name": "Template-Test Daily Membership", "member": ["is", "not set"]},
+            ["name", "billing_frequency", "next_invoice_date"],
+            as_dict=True,
+        )
+
+        # Simulate what would happen if Silvia was on Test Daily Membership now
+        from frappe.utils import add_days, today
+
+        expected_daily_next_invoice = add_days(today(), 1)  # Tomorrow for daily
+
+        scenario_analysis = {
+            "membership_type_name": test_daily_type.name,
+            "membership_billing_period": test_daily_type.billing_period,
+            "template_billing_frequency": template.billing_frequency if template else None,
+            "configurations_match": test_daily_type.billing_period
+            == (template.billing_frequency if template else None),
+            "expected_daily_behavior": {
+                "next_invoice_should_be": expected_daily_next_invoice,
+                "effective_date_should_be": expected_daily_next_invoice,
+                "instead_of_7_days_away": "2025-07-27",
+            },
+            "fix_status": "FIXED" if test_daily_type.billing_period == "Daily" else "STILL_BROKEN",
+        }
+
+        return {
+            "success": True,
+            "scenario_analysis": scenario_analysis,
+            "summary": f"Test Daily Membership is now {scenario_analysis['fix_status']} - billing_period is {test_daily_type.billing_period}",
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def test_anbi_dashboard_sql():
+    """Test the SQL query from ANBI dashboard to check if it works"""
+    try:
+        # Test the donor statistics query that was causing the error
+        donor_stats = frappe.db.sql(
+            """
+            SELECT
+                COUNT(DISTINCT donor.name) as unique_donors,
+                COUNT(DISTINCT CASE WHEN donor.donor_type = 'Individual' THEN donor.name END) as individual_donors,
+                COUNT(DISTINCT CASE WHEN donor.donor_type = 'Organization' THEN donor.name END) as organization_donors,
+                COUNT(DISTINCT CASE WHEN donor.anbi_consent = 1 THEN donor.name END) as donors_with_consent
+            FROM `tabDonor` donor
+            WHERE donor.name IN (
+                SELECT DISTINCT d.donor FROM `tabDonation` d
+                WHERE d.paid = 1 AND d.docstatus = 1
+            )
+        """,
+            as_dict=1,
+        )
+
+        if donor_stats:
+            result = donor_stats[0]
+        else:
+            result = {
+                "unique_donors": 0,
+                "individual_donors": 0,
+                "organization_donors": 0,
+                "donors_with_consent": 0,
+            }
+
+        return {"success": True, "message": "SQL query executed successfully", "donor_stats": result}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def fix_all_test_data_billing_configurations():
+    """Fix all test data billing configuration issues in one operation"""
+    try:
+        results = {
+            "membership_types": fix_membership_type_billing_periods(),
+            "dues_schedule_templates": fix_membership_dues_schedule_templates(),
+        }
+
+        # Summary
+        total_corrections = results["membership_types"].get("applied_corrections", 0) + results[
+            "dues_schedule_templates"
+        ].get("applied_corrections", 0)
+
+        total_errors = results["membership_types"].get("errors", 0) + results["dues_schedule_templates"].get(
+            "errors", 0
+        )
+
+        overall_success = (
+            results["membership_types"].get("success", False)
+            and results["dues_schedule_templates"].get("success", False)
+            and total_errors == 0
+        )
+
+        return {
+            "success": overall_success,
+            "total_corrections_applied": total_corrections,
+            "total_errors": total_errors,
+            "detailed_results": results,
+            "summary": f"Applied {total_corrections} corrections with {total_errors} errors",
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def check_membership_type_billing_periods():
+    """Check all membership types and their billing periods for misconfigurations"""
+    try:
+        # Get all membership types
+        membership_types = frappe.get_all(
+            "Membership Type", fields=["name", "amount", "billing_period"], order_by="name"
+        )
+
+        # Get template dues schedules
+        template_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters=[["member", "is", "not set"]],
+            fields=["name", "schedule_name", "billing_frequency", "status", "membership_type"],
+            order_by="name",
+        )
+
+        # Analyze misconfigurations
+        misconfigurations = []
+
+        for mt in membership_types:
+            expected_billing = None
+            name_lower = mt.name.lower()
+
+            if "daily" in name_lower or "daglid" in name_lower:
+                expected_billing = "Daily"
+            elif "monthly" in name_lower or "maandlid" in name_lower:
+                expected_billing = "Monthly"
+            elif "weekly" in name_lower:
+                expected_billing = "Weekly"
+            elif "annual" in name_lower or "yearly" in name_lower or "jaarlid" in name_lower:
+                expected_billing = "Annual"
+
+            if expected_billing and mt.billing_period != expected_billing:
+                misconfigurations.append(
+                    {
+                        "membership_type": mt.name,
+                        "current_billing_period": mt.billing_period,
+                        "expected_billing_period": expected_billing,
+                        "issue": f"Type suggests {expected_billing} but set to {mt.billing_period}",
+                    }
+                )
+
+        # Check for template schedules with wrong billing frequency
+        schedule_misconfigurations = []
+        for schedule in template_schedules:
+            name_lower = schedule.schedule_name.lower()
+            expected_frequency = None
+
+            if "daily" in name_lower:
+                expected_frequency = "Daily"
+            elif "monthly" in name_lower:
+                expected_frequency = "Monthly"
+            elif "weekly" in name_lower:
+                expected_frequency = "Weekly"
+            elif "annual" in name_lower:
+                expected_frequency = "Annual"
+
+            if expected_frequency and schedule.billing_frequency != expected_frequency:
+                schedule_misconfigurations.append(
+                    {
+                        "schedule_name": schedule.schedule_name,
+                        "current_billing_frequency": schedule.billing_frequency,
+                        "expected_billing_frequency": expected_frequency,
+                        "issue": f"Name suggests {expected_frequency} but set to {schedule.billing_frequency}",
+                    }
+                )
+
+        return {
+            "membership_types": membership_types,
+            "template_schedules": template_schedules,
+            "misconfigurations": misconfigurations,
+            "schedule_misconfigurations": schedule_misconfigurations,
+            "summary": {
+                "total_membership_types": len(membership_types),
+                "misconfigured_types": len(misconfigurations),
+                "total_template_schedules": len(template_schedules),
+                "misconfigured_schedules": len(schedule_misconfigurations),
+            },
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def investigate_7_day_discrepancy():
+    """Investigate where the 7-day effective date came from in AMEND-2025-02547"""
+    try:
+        # Look for patterns that might explain the 7-day difference
+        analysis_results = []
+
+        # Check if this is related to add_days(today(), 7) somewhere
+        from frappe.utils import add_days, today
+
+        seven_days_from_today = add_days(today(), 7)
+        analysis_results.append(
+            {
+                "hypothesis": "add_days(today(), 7)",
+                "calculated_date": seven_days_from_today,
+                "matches_amendment": seven_days_from_today == "2025-07-27",
+            }
+        )
+
+        # Check if it's related to a weekly billing cycle
+        seven_days_from_creation = add_days("2025-07-20", 7)  # Amendment creation date
+        analysis_results.append(
+            {
+                "hypothesis": "7 days from creation date",
+                "calculated_date": seven_days_from_creation,
+                "matches_amendment": seven_days_from_creation == "2025-07-27",
+            }
+        )
+
+        # Check if this could be from a fallback in set_default_effective_date exception handling
+        thirty_days_fallback = add_days(today(), 30)
+        analysis_results.append(
+            {
+                "hypothesis": "30-day fallback (should not match)",
+                "calculated_date": thirty_days_fallback,
+                "matches_amendment": thirty_days_fallback == "2025-07-27",
+            }
+        )
+
+        # Check if there's any pattern with the membership creation or other dates
+        amendment = frappe.get_doc("Contribution Amendment Request", "AMEND-2025-02547")
+        membership = frappe.get_doc("Membership", amendment.membership)
+
+        analysis_results.append(
+            {
+                "amendment_creation": amendment.creation,
+                "membership_creation": membership.creation,
+                "membership_start_date": getattr(membership, "start_date", None),
+                "membership_from_date": getattr(membership, "from_date", None),
+            }
+        )
+
+        # Let me check if there's any code that sets effective_date manually
+        # This might be from user input or some other logic
+
+        # Also check if this amendment was created through a specific API call
+        # that might have passed an explicit effective_date
+
+        potential_sources = [
+            "Manual user input during amendment creation",
+            "API call with explicit effective_date parameter",
+            "Some business logic calculating 7 days for weekly cycles",
+            "Error in exception handling leading to wrong fallback",
+            "Test data setup with hardcoded dates",
+        ]
+
+        return {
+            "amendment_effective_date": amendment.effective_date,
+            "today": today(),
+            "analysis_results": analysis_results,
+            "potential_sources": potential_sources,
+            "key_finding": "The 7-day date was NOT calculated by set_default_effective_date method",
+            "likely_cause": "External input - either user input, API parameter, or test data setup",
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def trace_effective_date_calculation(amendment_name):
+    """Trace exactly how the effective date was calculated for a specific amendment"""
+    try:
+        amendment = frappe.get_doc("Contribution Amendment Request", amendment_name)
+        member_name = amendment.member
+
+        # Simulate the exact logic from set_default_effective_date
+        trace_steps = []
+
+        # Step 1: Check if effective_date was already set
+        if amendment.effective_date:
+            trace_steps.append(
+                {
+                    "step": 1,
+                    "description": "Amendment already has effective_date set",
+                    "value": amendment.effective_date,
+                    "source": "pre-existing",
+                }
+            )
+
+        # Step 2: Check for active dues schedule
+        active_dues_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "status": "Active"},
+            ["name", "next_invoice_date"],
+            as_dict=True,
+        )
+
+        if active_dues_schedule:
+            trace_steps.append(
+                {
+                    "step": 2,
+                    "description": "Found active dues schedule",
+                    "schedule_name": active_dues_schedule.name,
+                    "next_invoice_date": active_dues_schedule.next_invoice_date,
+                }
+            )
+
+            if active_dues_schedule.next_invoice_date:
+                trace_steps.append(
+                    {
+                        "step": 3,
+                        "description": "Using next_invoice_date from dues schedule",
+                        "calculated_date": active_dues_schedule.next_invoice_date,
+                        "source": "dues_schedule_next_invoice",
+                    }
+                )
+            else:
+                fallback_date = add_days(today(), 30)
+                trace_steps.append(
+                    {
+                        "step": 3,
+                        "description": "next_invoice_date is None, using fallback",
+                        "calculated_date": fallback_date,
+                        "source": "fallback_30_days",
+                    }
+                )
+        else:
+            fallback_date = add_days(today(), 30)
+            trace_steps.append(
+                {
+                    "step": 2,
+                    "description": "No active dues schedule found, using fallback",
+                    "calculated_date": fallback_date,
+                    "source": "fallback_30_days",
+                }
+            )
+
+        # Now let's also check what the ACTUAL calculation would be if we ran set_default_effective_date
+        # Create a test amendment to see what date it would calculate
+        test_amendment = frappe.new_doc("Contribution Amendment Request")
+        test_amendment.membership = amendment.membership
+        test_amendment.member = amendment.member
+        test_amendment.amendment_type = "Fee Change"
+        test_amendment.requested_amount = 10.0
+        test_amendment.reason = "Test calculation"
+
+        # Call set_default_effective_date to see what it calculates
+        test_amendment.set_default_effective_date()
+
+        trace_steps.append(
+            {
+                "step": 4,
+                "description": "Fresh calculation using set_default_effective_date",
+                "calculated_date": test_amendment.effective_date,
+                "source": "set_default_effective_date_method",
+            }
+        )
+
+        # Compare with actual amendment date
+        actual_effective_date = amendment.effective_date
+        expected_from_schedule = (
+            active_dues_schedule.next_invoice_date
+            if active_dues_schedule and active_dues_schedule.next_invoice_date
+            else add_days(today(), 30)
+        )
+
+        discrepancy_analysis = {
+            "actual_effective_date": actual_effective_date,
+            "expected_from_schedule": expected_from_schedule,
+            "fresh_calculation": test_amendment.effective_date,
+            "discrepancy_detected": str(actual_effective_date) != str(expected_from_schedule),
+            "days_difference_actual_vs_expected": (
+                getdate(actual_effective_date) - getdate(expected_from_schedule)
+            ).days
+            if actual_effective_date and expected_from_schedule
+            else None,
+        }
+
+        return {
+            "amendment_name": amendment_name,
+            "member": member_name,
+            "trace_steps": trace_steps,
+            "discrepancy_analysis": discrepancy_analysis,
+            "today": today(),
+            "active_dues_schedule": active_dues_schedule,
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def debug_silvia_schedule_issue():
+    """Debug why Silvia's effective date is 7 days when she should be on daily schedule"""
+    try:
+        member_name = "Assoc-Member-2025-07-2544"  # Silvia Hanna Rietenmaker
+
+        # Get member details
+        member = frappe.get_doc("Member", member_name)
+
+        # Get ALL dues schedules for this member (including inactive ones)
+        all_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name},
+            fields=[
+                "name",
+                "schedule_name",
+                "billing_frequency",
+                "status",
+                "next_invoice_date",
+                "dues_rate",
+                "creation",
+                "modified",
+            ],
+            order_by="creation desc",
+        )
+
+        # Get all daily schedules in the system
+        all_daily_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"billing_frequency": "Daily"},
+            fields=[
+                "name",
+                "schedule_name",
+                "member",
+                "billing_frequency",
+                "status",
+                "next_invoice_date",
+                "dues_rate",
+            ],
+            order_by="creation desc",
+        )
+
+        # Check current amendment details
+        amendment = frappe.get_doc("Contribution Amendment Request", "AMEND-2025-02547")
+
+        # Get active dues schedule and check its next invoice calculation
+        active_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "status": "Active"},
+            ["name", "next_invoice_date", "billing_frequency"],
+            as_dict=True,
+        )
+
+        # Check what should be the next invoice date for daily billing
+        from frappe.utils import add_days, today
+
+        expected_daily_next_invoice = add_days(today(), 1)  # Tomorrow for daily
+
+        return {
+            "member_full_name": member.full_name,
+            "member_id": member_name,
+            "amendment_effective_date": amendment.effective_date,
+            "amendment_creation": amendment.creation,
+            "all_member_schedules": all_schedules,
+            "all_daily_schedules_in_system": all_daily_schedules,
+            "current_active_schedule": active_schedule,
+            "today": today(),
+            "expected_daily_next_invoice": expected_daily_next_invoice,
+            "issue_analysis": {
+                "current_billing_frequency": active_schedule.billing_frequency if active_schedule else None,
+                "current_next_invoice": active_schedule.next_invoice_date if active_schedule else None,
+                "expected_for_daily": expected_daily_next_invoice,
+                "discrepancy": "Member appears to be on Annual billing instead of Daily billing",
+            },
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def check_member_and_dues_schedule(member_name):
+    """Check member details and their dues schedule"""
+    try:
+        member = frappe.get_doc("Member", member_name)
+
+        # Get active dues schedule
+        active_dues_schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "status": "Active"},
+            ["name", "next_invoice_date", "billing_frequency", "schedule_name", "amount"],
+            as_dict=True,
+        )
+
+        dues_schedule_doc = None
+        if active_dues_schedule:
+            dues_schedule_doc = frappe.get_doc("Membership Dues Schedule", active_dues_schedule.name)
+
+        return {
+            "member_name": member.full_name,
+            "member_id": member.name,
+            "active_dues_schedule": active_dues_schedule,
+            "dues_schedule_details": {
+                "name": dues_schedule_doc.name if dues_schedule_doc else None,
+                "schedule_name": dues_schedule_doc.schedule_name if dues_schedule_doc else None,
+                "billing_frequency": dues_schedule_doc.billing_frequency if dues_schedule_doc else None,
+                "next_invoice_date": dues_schedule_doc.next_invoice_date if dues_schedule_doc else None,
+                "amount": dues_schedule_doc.dues_rate if dues_schedule_doc else None,
+                "status": dues_schedule_doc.status if dues_schedule_doc else None,
+            }
+            if dues_schedule_doc
+            else None,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def investigate_effective_date_logic():
+    """Investigate how effective dates are set in contribution amendment requests"""
+    try:
+        # Get recent amendment requests to understand the pattern
+        amendments = frappe.get_all(
+            "Contribution Amendment Request",
+            fields=["name", "effective_date", "creation", "status", "member"],
+            order_by="creation desc",
+            limit=10,
+        )
+
+        analysis_results = []
+
+        for amendment in amendments:
+            # Calculate days between creation and effective date
+            creation_date = getdate(amendment.creation)
+            effective_date = getdate(amendment.effective_date) if amendment.effective_date else None
+
+            days_difference = None
+            if effective_date:
+                days_difference = (effective_date - creation_date).days
+
+            # Check if there's an active dues schedule for this member
+            active_dues_schedule = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"member": amendment.member, "status": "Active"},
+                ["name", "next_invoice_date"],
+                as_dict=True,
+            )
+
+            analysis_results.append(
+                {
+                    "amendment_name": amendment.name,
+                    "creation_date": creation_date,
+                    "effective_date": effective_date,
+                    "days_difference": days_difference,
+                    "member": amendment.member,
+                    "active_dues_schedule": active_dues_schedule.name if active_dues_schedule else None,
+                    "dues_next_invoice": active_dues_schedule.next_invoice_date
+                    if active_dues_schedule
+                    else None,
+                    "status": amendment.status,
+                }
+            )
+
+        # Also analyze the logic in set_default_effective_date
+        logic_explanation = {
+            "default_logic": "The set_default_effective_date method follows this priority:",
+            "priority_1": "If member has active dues schedule with next_invoice_date, use that date",
+            "priority_2": "Otherwise, fallback to add_days(today(), 30) - 30 days from creation",
+            "fallback_on_error": "If any exception occurs, use add_days(today(), 30)",
+            "method_called_during": "Called during validation (validate method)",
+        }
+
+        return {
+            "success": True,
+            "logic_explanation": logic_explanation,
+            "recent_amendments_analysis": analysis_results,
+            "today_date": today(),
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()

@@ -591,7 +591,7 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
         dues_schedule.member = member.name
         dues_schedule.billing_frequency = "Monthly"
-        dues_schedule.amount = 25.0
+        dues_schedule.dues_rate = 25.0
         dues_schedule.status = "Active"
         dues_schedule.save()
         self.track_doc("Membership Dues Schedule", dues_schedule.name)

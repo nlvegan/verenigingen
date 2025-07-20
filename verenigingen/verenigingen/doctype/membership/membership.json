@@ -235,6 +235,10 @@
    "link_doctype": "Member",
    "link_fieldname": "name",
    "parent_doctype": "Member"
+  },
+  {
+   "link_doctype": "Membership Dues Schedule",
+   "link_fieldname": "member"
   }
  ],
  "modified": "2025-05-06 20:21:52.947759",

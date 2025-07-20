@@ -166,7 +166,7 @@ def get_context(context):
     return context
 """
         
-        dashboard_html = """{% extends "templates/web.html" %}
+        dashboard_html = f"""{% extends "templates/web.html" %}
 
 {% block title %}{{ title }}{% endblock %}
 

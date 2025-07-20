@@ -121,7 +121,7 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         dues_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         
-        self.assertEqual(dues_schedule.amount, 30.00)
+        self.assertEqual(dues_schedule.dues_rate, 30.00)
         self.assertEqual(dues_schedule.member, self.test_member.name)
         self.assertEqual(dues_schedule.status, "Active")
         self.assertEqual(dues_schedule.contribution_mode, "Custom")
@@ -244,7 +244,7 @@ class TestEnhancedContributionAmendmentSystem(VereningingenTestCase):
         dues_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         
-        self.assertEqual(dues_schedule.amount, 0.00)
+        self.assertEqual(dues_schedule.dues_rate, 0.00)
         self.assertIn("Free membership", dues_schedule.custom_amount_reason)
         
     def test_dues_schedule_system_integration(self):

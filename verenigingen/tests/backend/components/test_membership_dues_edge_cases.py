@@ -44,7 +44,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         
         # Test exactly at minimum - should pass
         dues_schedule = self.create_test_dues_schedule(membership_type, amount=0.01)
-        self.assertEqual(dues_schedule.amount, 0.01)
+        self.assertEqual(dues_schedule.dues_rate, 0.01)
         
         # Test below minimum - should fail
         with self.assertRaises(frappe.ValidationError):
@@ -65,7 +65,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         
         # Test exactly at maximum - should pass
         dues_schedule = self.create_test_dues_schedule(membership_type, amount=1000.00)
-        self.assertEqual(dues_schedule.amount, 1000.00)
+        self.assertEqual(dues_schedule.dues_rate, 1000.00)
         
         # Test above maximum - should validate but warn
         with self.assertRaises(frappe.ValidationError):
@@ -83,7 +83,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         
         # Should handle large amounts gracefully
         dues_schedule = self.create_test_dues_schedule(membership_type, amount=50000.00)
-        self.assertEqual(dues_schedule.amount, 50000.00)
+        self.assertEqual(dues_schedule.dues_rate, 50000.00)
         
         # Test precision with many decimal places
         membership_type.suggested_contribution = 25.999999
@@ -198,7 +198,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         for amount in test_amounts:
             dues_schedule = self.create_test_dues_schedule(membership_type, amount=amount)
             # Verify amount is properly rounded to 2 decimal places
-            self.assertEqual(len(str(dues_schedule.amount).split('.')[-1]), 2)
+            self.assertEqual(len(str(dues_schedule.dues_rate).split('.')[-1]), 2)
             
     def test_special_character_handling(self):
         """Test handling of special characters in names and descriptions"""
@@ -380,7 +380,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         dues_schedule = self.create_test_dues_schedule(membership_type, amount=0.0)
         
         # Should handle zero amounts gracefully
-        self.assertEqual(dues_schedule.amount, 0.0)
+        self.assertEqual(dues_schedule.dues_rate, 0.0)
         self.assertEqual(dues_schedule.status, "Active")
         
         # Coverage periods should still be calculated
@@ -395,7 +395,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         
         # Create schedule with calculator mode
         dues_schedule = self.create_test_dues_schedule(membership_type)
-        original_amount = dues_schedule.amount
+        original_amount = dues_schedule.dues_rate
         
         # Switch membership type to Tiers mode
         membership_type.contribution_mode = "Tiers"
@@ -412,7 +412,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         
         # Existing dues schedule should maintain its amount
         dues_schedule.reload()
-        self.assertEqual(dues_schedule.amount, original_amount)
+        self.assertEqual(dues_schedule.dues_rate, original_amount)
         
         # But new schedules should use tiers
         new_schedule = self.create_test_dues_schedule_for_member(
@@ -429,7 +429,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         dues_schedule.member = self.test_member.name
         dues_schedule.membership_type = membership_type.name
         dues_schedule.billing_frequency = "Invalid Frequency"
-        dues_schedule.amount = 25.0
+        dues_schedule.dues_rate = 25.0
         dues_schedule.status = "Active"
         
         # Should either validate or default to valid frequency
@@ -477,7 +477,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         dues_schedule.membership_type = membership_type.name
         if amount is not None:
             dues_schedule.contribution_mode = "Custom"
-            dues_schedule.amount = amount
+            dues_schedule.dues_rate = amount
             dues_schedule.uses_custom_amount = 1
             # Only auto-approve valid amounts for tests
             if amount > 0:
@@ -486,7 +486,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
                     dues_schedule.custom_amount_reason = "Test scenario requiring large amount"
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.amount = membership_type.suggested_contribution
+            dues_schedule.dues_rate = membership_type.suggested_contribution
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"
         dues_schedule.status = "Active"
@@ -512,7 +512,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         dues_schedule.membership_type = membership_type.name
         if amount is not None:
             dues_schedule.contribution_mode = "Custom"
-            dues_schedule.amount = amount
+            dues_schedule.dues_rate = amount
             dues_schedule.uses_custom_amount = 1
             # Only auto-approve valid amounts for tests
             if amount > 0:
@@ -521,7 +521,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
                     dues_schedule.custom_amount_reason = "Test scenario requiring large amount"
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.amount = membership_type.suggested_contribution
+            dues_schedule.dues_rate = membership_type.suggested_contribution
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"
         dues_schedule.status = "Active"

@@ -57,7 +57,7 @@ class TestMembershipApplication(unittest.TestCase):
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
-                    "amount": 100,
+                    "dues_rate": 100,
                     "currency": "EUR",
                     "billing_frequency": "Annual",
                 }
@@ -709,7 +709,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             dues_schedules = frappe.get_all(
                 "Membership Dues Schedule",
                 filters={"member": member_name, "membership": membership.name},
-                fields=["name", "amount", "status", "contribution_mode"]
+                fields=["name", "dues_rate", "status", "contribution_mode"]
             )
             
             if dues_schedules:
@@ -717,9 +717,9 @@ class TestMembershipApplicationLoad(unittest.TestCase):
 
                 # CRITICAL TEST: Dues schedule should use the custom amount (€45.00)
                 self.assertEqual(
-                    float(dues_schedule.amount),
+                    float(dues_schedule.dues_rate),
                     45.0,
-                    f"Dues schedule amount should be €45.00 (custom amount), got €{dues_schedule.amount}",
+                    f"Dues schedule amount should be €45.00 (custom amount), got €{dues_schedule.dues_rate}",
                 )
 
                 self.assertEqual(dues_schedule.contribution_mode, "Custom", "Should use custom contribution mode")
@@ -728,7 +728,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                 # Dues schedule should be configured properly
                 print(f"   Dues schedule effective date: {dues_schedule.effective_date}")
                 print(f"   Dues schedule status: {dues_schedule.status}")
-                print(f"   Dues schedule amount: €{dues_schedule.amount}")
+                print(f"   Dues schedule amount: €{dues_schedule.dues_rate}")
             else:
                 print("   ⚠️  No dues schedule found - may be using legacy override system")
 
@@ -736,7 +736,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             print(f"   Single invoice created: {invoice.name} (€{invoice.grand_total})")
             print(f"   Membership custom amount: €{membership.custom_amount}")
             if dues_schedules:
-                print(f"   Dues schedule amount: €{dues_schedule.amount}")
+                print(f"   Dues schedule amount: €{dues_schedule.dues_rate}")
             print("   No duplicate invoices created")
 
         # Clean up
@@ -785,7 +785,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             dues_schedules = frappe.get_all(
                 "Membership Dues Schedule",
                 filters={"member": member_name, "membership": membership.name},
-                fields=["name", "status", "amount", "effective_date"]
+                fields=["name", "status", "dues_rate", "effective_date"]
             )
             
             if dues_schedules:
@@ -854,7 +854,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             dues_schedules = frappe.get_all(
                 "Membership Dues Schedule",
                 filters={"member": member_name, "membership": membership.name},
-                fields=["name", "amount", "status", "contribution_mode"]
+                fields=["name", "dues_rate", "status", "contribution_mode"]
             )
             self.assertTrue(len(dues_schedules) > 0, f"Dues schedule should exist for €{custom_amount}")
 
@@ -862,9 +862,9 @@ class TestMembershipApplicationLoad(unittest.TestCase):
 
             # CRITICAL ASSERTIONS: Dues schedule amount must match custom amount
             self.assertEqual(
-                float(dues_schedule.amount),
+                float(dues_schedule.dues_rate),
                 custom_amount,
-                f"Dues schedule amount should be €{custom_amount}, got €{dues_schedule.amount}",
+                f"Dues schedule amount should be €{custom_amount}, got €{dues_schedule.dues_rate}",
             )
 
             # Plan should be a custom plan (not the standard plan)
@@ -928,7 +928,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
-            fields=["name", "amount", "contribution_mode"]
+            fields=["name", "dues_rate", "contribution_mode"]
         )
         
         if dues_schedules:
@@ -937,13 +937,13 @@ class TestMembershipApplicationLoad(unittest.TestCase):
 
             # Should use the standard amount from membership type
             self.assertEqual(
-                float(dues_schedule.amount),
+                float(dues_schedule.dues_rate),
                 float(membership_type.amount),
-                f"Dues schedule amount should match membership type amount €{membership_type.amount}, got €{dues_schedule.amount}",
+                f"Dues schedule amount should match membership type amount €{membership_type.amount}, got €{dues_schedule.dues_rate}",
             )
 
             print(f"✅ Standard membership uses membership type configuration")
-            print(f"✅ Dues schedule amount matches membership type: €{dues_schedule.amount}")
+            print(f"✅ Dues schedule amount matches membership type: €{dues_schedule.dues_rate}")
         else:
             print("ℹ️  No dues schedule found - may be using legacy override system")
 
@@ -984,17 +984,17 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
-            fields=["name", "amount", "contribution_mode"]
+            fields=["name", "dues_rate", "contribution_mode"]
         )
         
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
             self.assertEqual(
-                float(dues_schedule.amount),
+                float(dues_schedule.dues_rate),
                 35.0,
-                f"Generated dues schedule should cost €35.00, got €{dues_schedule.amount}",
+                f"Generated dues schedule should cost €35.00, got €{dues_schedule.dues_rate}",
             )
-            print(f"✅ Dues schedule amount correct: €{dues_schedule.amount}")
+            print(f"✅ Dues schedule amount correct: €{dues_schedule.dues_rate}")
         else:
             print("ℹ️  No dues schedule found - using legacy override system")
 
@@ -1036,17 +1036,17 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
-            fields=["name", "amount"]
+            fields=["name", "dues_rate"]
         )
         
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
             self.assertEqual(
-                float(dues_schedule.amount),
+                float(dues_schedule.dues_rate),
                 float(membership_type.amount),
                 "Standard membership should use membership type amount",
             )
-            print(f"✅ Uses membership type amount: €{dues_schedule.amount}")
+            print(f"✅ Uses membership type amount: €{dues_schedule.dues_rate}")
         else:
             print("ℹ️  No dues schedule found - using legacy system")
 
@@ -1127,7 +1127,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
-            fields=["name", "amount", "status", "contribution_mode"]
+            fields=["name", "dues_rate", "status", "contribution_mode"]
         )
         self.assertTrue(len(dues_schedules) > 0, "Dues schedule should be created")
 
@@ -1135,22 +1135,22 @@ class TestMembershipApplicationLoad(unittest.TestCase):
 
         # THIS IS THE KEY ASSERTION THAT WOULD HAVE CAUGHT THE ORIGINAL BUG
         self.assertEqual(
-            float(dues_schedule.amount),
+            float(dues_schedule.dues_rate),
             custom_amount,
-            f"CRITICAL: Dues schedule amount MUST be €{custom_amount}, got €{dues_schedule.amount}",
+            f"CRITICAL: Dues schedule amount MUST be €{custom_amount}, got €{dues_schedule.dues_rate}",
         )
 
         self.assertEqual(dues_schedule.contribution_mode, "Custom", f"Contribution mode should be Custom")
         self.assertTrue(dues_schedule.uses_custom_amount, "Should use custom amount")
 
-        print(f"🎯 CRITICAL TEST PASSED: Dues schedule amount = €{dues_schedule.amount}")
+        print(f"🎯 CRITICAL TEST PASSED: Dues schedule amount = €{dues_schedule.dues_rate}")
         print(f"🎯 Custom dues schedule: {dues_schedule.name}")
 
         # 5. Verify future invoice generation would use correct amount
         # (This tests that the dues schedule will generate invoices with the right amount)
         if current_schedule:
-            self.assertEqual(float(current_schedule.amount), custom_amount, "Current schedule should use custom amount")
-            print(f"✅ Current dues schedule uses correct amount: €{current_schedule.amount}")
+            self.assertEqual(float(current_schedule.dues_rate), custom_amount, "Current schedule should use custom amount")
+            print(f"✅ Current dues schedule uses correct amount: €{current_schedule.dues_rate}")
         else:
             print("ℹ️  No current dues schedule found (may use legacy override)")
 
@@ -1412,14 +1412,14 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
-            fields=["name", "amount"]
+            fields=["name", "dues_rate"]
         )
         
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
             self.assertEqual(
-                float(dues_schedule.amount),
+                float(dues_schedule.dues_rate),
                 large_amount,
                 f"Dues schedule should handle large amount: €{large_amount}",
             )
@@ -1479,14 +1479,14 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
-            fields=["name", "amount"]
+            fields=["name", "dues_rate"]
         )
         
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
             self.assertEqual(
-                float(dues_schedule.amount),
+                float(dues_schedule.dues_rate),
                 expected_amount,
                 f"Dues schedule should maintain precision: €{expected_amount}",
             )
@@ -1529,7 +1529,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules1 = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member1_name, "membership": membership1.name},
-            fields=["name", "amount"]
+            fields=["name", "dues_rate"]
         )
         dues_schedule1 = frappe.get_doc("Membership Dues Schedule", dues_schedules1[0].name) if dues_schedules1 else None
 
@@ -1550,7 +1550,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules2 = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member2_name, "membership": membership2.name},
-            fields=["name", "amount"]
+            fields=["name", "dues_rate"]
         )
         dues_schedule2 = frappe.get_doc("Membership Dues Schedule", dues_schedules2[0].name) if dues_schedules2 else None
 
@@ -1605,7 +1605,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Premium Test Membership",
-                    "amount": 200,
+                    "dues_rate": 200,
                     "currency": "EUR",
                     "billing_frequency": "Annual",
                 }
@@ -1646,14 +1646,14 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
-            fields=["name", "amount", "contribution_mode"]
+            fields=["name", "dues_rate", "contribution_mode"]
         )
         
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
             self.assertEqual(
-                float(dues_schedule.amount),
+                float(dues_schedule.dues_rate),
                 custom_amount,
                 f"Dues schedule should use custom amount: €{custom_amount}",
             )
@@ -1735,13 +1735,13 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member_name, "membership": membership.name},
-            fields=["name", "amount", "status"]
+            fields=["name", "dues_rate", "status"]
         )
         if dues_schedules:
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
 
             self.assertEqual(
-                float(dues_schedule.amount),
+                float(dues_schedule.dues_rate),
                 custom_amount,
                 f"Dues schedule amount should match custom amount: €{custom_amount}",
             )
@@ -1785,7 +1785,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         dues_schedules2 = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member2_name, "membership": membership2.name},
-            fields=["name", "amount"]
+            fields=["name", "dues_rate"]
         )
         if dues_schedules2:
             dues_schedule2 = frappe.get_doc("Membership Dues Schedule", dues_schedules2[0].name)
@@ -1834,7 +1834,7 @@ class TestChapterSelection(unittest.TestCase):
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
-                    "amount": 100,
+                    "dues_rate": 100,
                     "currency": "EUR",
                     "billing_frequency": "Annual",
                 }
@@ -2370,7 +2370,7 @@ class TestMembershipApplicationEdgeCases(unittest.TestCase):
                 {
                     "doctype": "Membership Type",
                     "membership_type_name": "Test Membership",
-                    "amount": 100,
+                    "dues_rate": 100,
                     "currency": "EUR",
                     "billing_frequency": "Annual",
                 }

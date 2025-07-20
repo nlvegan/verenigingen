@@ -256,11 +256,11 @@ def test_fee_override_integration():
         initial_dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member.name, "status": "Active"},
-            fields=["name", "status", "amount"],
+            fields=["name", "status", "dues_rate"],
         )
         print(f"   Existing dues schedules: {len(initial_dues_schedules)}")
         for schedule in initial_dues_schedules:
-            print(f"     - {schedule.name}: {schedule.status} - €{schedule.amount}")
+            print(f"     - {schedule.name}: {schedule.status} - €{schedule.dues_rate}")
 
         # Apply fee override
         new_fee_amount = 99.99
@@ -280,14 +280,14 @@ def test_fee_override_integration():
         updated_dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member.name},
-            fields=["name", "status", "amount", "modified"],
+            fields=["name", "status", "dues_rate", "modified"],
             order_by="modified desc",
         )
 
         print("\n3. After fee override:")
         print(f"   Dues schedules count: {len(updated_dues_schedules)}")
         for schedule in updated_dues_schedules:
-            print(f"     - {schedule.name}: {schedule.status} - €{schedule.amount} (modified: {schedule.modified})")
+            print(f"     - {schedule.name}: {schedule.status} - €{schedule.dues_rate} (modified: {schedule.modified})")
 
             # Check schedule details
             schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
@@ -307,7 +307,7 @@ def test_fee_override_integration():
         dues_history = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member.name},
-            fields=["name", "status", "amount", "effective_date", "contribution_mode"],
+            fields=["name", "status", "dues_rate", "effective_date", "contribution_mode"],
             order_by="effective_date desc"
         )
         print(f"   History entries: {len(dues_history)}")
@@ -318,7 +318,7 @@ def test_fee_override_integration():
         print("\n6. Testing dues schedule integration:")
         current_schedule = member.get_current_dues_schedule()
         if current_schedule:
-            print(f"   Current schedule: {current_schedule.name} - €{current_schedule.amount}")
+            print(f"   Current schedule: {current_schedule.name} - €{current_schedule.dues_rate}")
         else:
             print("   No current dues schedule found (using legacy override)")
 

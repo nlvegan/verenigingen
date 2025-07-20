@@ -55,11 +55,11 @@ def get_data(filters):
             donor.donor_name,
             donor.donor_type,
             CASE
-                WHEN donor.donor_type = 'Individual' THEN donor.bsn_encrypted
-                WHEN donor.donor_type = 'Organization' THEN donor.rsin_encrypted
+                WHEN donor.donor_type = 'Individual' THEN donor.bsn_citizen_service_number
+                WHEN donor.donor_type = 'Organization' THEN donor.rsin_organization_tax_number
                 ELSE NULL
-            END as tax_id_encrypted,
-            donor.anbi_consent_given as consent_given,
+            END as tax_id_value,
+            donor.anbi_consent as consent_given,
             SUM(d.amount) as total_donations,
             COUNT(d.name) as donation_count,
             MIN(d.date) as first_donation,
@@ -89,51 +89,61 @@ def get_data(filters):
     # Process data
     data = []
     for row in donation_data:
-        # Decrypt tax ID if available
-        tax_id = None
-        if row.tax_id_encrypted:
-            try:
-                from frappe.utils.password import decrypt
+        # Get tax ID (may be encrypted)
+        tax_id = ""
+        if row.get("tax_id_value"):
+            # Check if it looks like encrypted data (starts with specific patterns)
+            if row.get("tax_id_value", "").startswith(("gAAAAAB", "$")):
+                try:
+                    from frappe.utils.password import decrypt
 
-                tax_id = decrypt(row.tax_id_encrypted)
-            except:
-                tax_id = "***ENCRYPTED***"
+                    tax_id = decrypt(row.get("tax_id_value"))
+                except Exception:
+                    tax_id = "***ENCRYPTED***"
+            else:
+                # Plain text or already decrypted
+                tax_id = row.get("tax_id_value")
 
         # Determine agreement type
         agreement_type = "One-time Donations"
         agreement_number = ""
 
-        if row.agreements and row.agreements != "None":
+        if row.get("agreements") and row.get("agreements") != "None":
             # Get periodic donation agreement details
-            agreement_names = [a for a in row.agreements.split(",") if a and a != "None"]
+            agreement_names = [a for a in row.get("agreements", "").split(",") if a and a != "None"]
             if agreement_names:
-                agreement = frappe.get_doc("Periodic Donation Agreement", agreement_names[0])
-                if agreement.anbi_eligible:
-                    agreement_type = "ANBI Periodic Agreement (5+ years)"
-                else:
-                    agreement_type = "Donation Pledge (1-4 years)"
-                agreement_number = agreement.agreement_number
-        elif row.agreement_numbers:
+                try:
+                    agreement = frappe.get_doc("Periodic Donation Agreement", agreement_names[0])
+                    if agreement.anbi_eligible:
+                        agreement_type = "ANBI Periodic Agreement (5+ years)"
+                    else:
+                        agreement_type = "Donation Pledge (1-4 years)"
+                    agreement_number = agreement.agreement_number
+                except:
+                    # Handle case where agreement doesn't exist
+                    agreement_type = "Periodic Agreement"
+                    agreement_number = agreement_names[0]
+        elif row.get("agreement_numbers"):
             agreement_type = "ANBI Agreement"
-            agreement_number = row.agreement_numbers.split(",")[0]
+            agreement_number = row.get("agreement_numbers", "").split(",")[0]
 
         # Determine if reportable
-        reportable = row.reportable or (row.total_donations >= min_reportable)
+        reportable = row.get("reportable") or (row.get("total_donations", 0) >= min_reportable)
 
         data.append(
             {
-                "donor": row.donor,
-                "donor_name": row.donor_name,
-                "donor_type": row.donor_type or "Individual",
+                "donor": row.get("donor"),
+                "donor_name": row.get("donor_name"),
+                "donor_type": row.get("donor_type") or "Individual",
                 "tax_id": tax_id or "",
                 "agreement_type": agreement_type,
                 "agreement_number": agreement_number,
-                "total_donations": row.total_donations,
-                "donation_count": row.donation_count,
+                "total_donations": row.get("total_donations"),
+                "donation_count": row.get("donation_count"),
                 "reportable": reportable,
-                "first_donation": row.first_donation,
-                "last_donation": row.last_donation,
-                "consent_given": row.consent_given,
+                "first_donation": row.get("first_donation"),
+                "last_donation": row.get("last_donation"),
+                "consent_given": row.get("consent_given"),
             }
         )
 
@@ -165,8 +175,8 @@ def get_conditions(filters):
         conditions.append("d.periodic_donation_agreement IS NOT NULL")
 
     if filters.get("consent_status") == "Given":
-        conditions.append("donor.anbi_consent_given = 1")
+        conditions.append("donor.anbi_consent = 1")
     elif filters.get("consent_status") == "Not Given":
-        conditions.append("(donor.anbi_consent_given = 0 OR donor.anbi_consent_given IS NULL)")
+        conditions.append("(donor.anbi_consent = 0 OR donor.anbi_consent IS NULL)")
 
     return " AND " + " AND ".join(conditions) if conditions else ""

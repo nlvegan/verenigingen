@@ -79,7 +79,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             
             # Validate invoice details
             self.assertEqual(invoice.customer, dues_schedule.member)
-            self.assertEqual(invoice.grand_total, dues_schedule.amount)
+            self.assertEqual(invoice.grand_total, dues_schedule.dues_rate)
             self.assertIsNotNone(invoice.custom_membership_dues_schedule)
             self.assertIsNotNone(invoice.custom_coverage_start_date)
             self.assertIsNotNone(invoice.custom_coverage_end_date)
@@ -87,7 +87,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             # Validate invoice items
             self.assertEqual(len(invoice.items), 1)
             item = invoice.items[0]
-            self.assertEqual(item.rate, dues_schedule.amount)
+            self.assertEqual(item.rate, dues_schedule.dues_rate)
             self.assertEqual(item.qty, 1)
             
     def test_invoice_description_generation(self):
@@ -336,7 +336,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = self.test_membership_type.name
         dues_schedule.contribution_mode = "Calculator"
-        dues_schedule.amount = 25.0
+        dues_schedule.dues_rate = 25.0
         dues_schedule.billing_frequency = "Monthly"
         dues_schedule.payment_method = "SEPA Direct Debit"
         dues_schedule.status = "Active"
@@ -360,7 +360,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             dues_schedule.membership_type = membership_type.name
             dues_schedule.contribution_mode = "Tier"
             dues_schedule.selected_tier = membership_type.predefined_tiers[0].name
-            dues_schedule.amount = membership_type.predefined_tiers[0].amount
+            dues_schedule.dues_rate = membership_type.predefined_tiers[0].amount
             dues_schedule.billing_frequency = "Monthly"
             dues_schedule.status = "Active"
             
@@ -378,7 +378,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             dues_schedule.membership_type = self.test_membership_type.name
             dues_schedule.contribution_mode = "Calculator"
             dues_schedule.base_multiplier = 1.5
-            dues_schedule.amount = 30.0  # 20 * 1.5
+            dues_schedule.dues_rate = 30.0  # 20 * 1.5
             dues_schedule.billing_frequency = "Monthly"
             dues_schedule.status = "Active"
             
@@ -395,7 +395,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             dues_schedule.member = self.test_member.name
             dues_schedule.membership_type = self.test_membership_type.name
             dues_schedule.contribution_mode = "Custom"
-            dues_schedule.amount = 15.0
+            dues_schedule.dues_rate = 15.0
             dues_schedule.uses_custom_amount = 1
             dues_schedule.custom_amount_reason = "Financial hardship"
             dues_schedule.billing_frequency = "Monthly"
@@ -417,7 +417,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             dues_schedule.member = self.test_member.name
             dues_schedule.membership_type = self.test_membership_type.name
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.amount = 25.0
+            dues_schedule.dues_rate = 25.0
             dues_schedule.billing_frequency = "Monthly"
             dues_schedule.payment_method = "SEPA Direct Debit"
             dues_schedule.active_mandate = mandate.name

@@ -100,7 +100,7 @@ def get_current_dues_schedule(member):
             "billing_frequency",
             "next_invoice_date",
             "last_invoice_date",
-            "amount",
+            "dues_rate",
             "auto_generate",
             "status",
             "membership_type",
@@ -111,15 +111,15 @@ def get_current_dues_schedule(member):
     if schedule:
         # Calculate monthly amount from billing frequency
         if schedule.billing_frequency == "Monthly":
-            schedule["monthly_amount"] = schedule.amount
+            schedule["monthly_amount"] = schedule.dues_rate
         elif schedule.billing_frequency == "Quarterly":
-            schedule["monthly_amount"] = schedule.amount / 3
+            schedule["monthly_amount"] = schedule.dues_rate / 3
         elif schedule.billing_frequency == "Semi-Annual":
-            schedule["monthly_amount"] = schedule.amount / 6
+            schedule["monthly_amount"] = schedule.dues_rate / 6
         elif schedule.billing_frequency == "Annual":
-            schedule["monthly_amount"] = schedule.amount / 12
+            schedule["monthly_amount"] = schedule.dues_rate / 12
         else:
-            schedule["monthly_amount"] = schedule.amount
+            schedule["monthly_amount"] = schedule.dues_rate
 
         # Set derived fields for backward compatibility
         schedule["auto_renewal"] = schedule.auto_generate

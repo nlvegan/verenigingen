@@ -105,6 +105,10 @@ Practical how-to guides:
 - **Technical Issues**: Contact support with system details
 - **Feature Questions**: Refer to feature documentation in `/features/`
 
+### 🛠️ **Troubleshooting** (`/troubleshooting/`)
+Technical troubleshooting guides for common issues:
+- **[workspace-debugging.md](troubleshooting/workspace-debugging.md)** - Complete guide for workspace display issues (0 links, cache problems, broken DocType links)
+
 ## Documentation Standards
 
 ### Formatting

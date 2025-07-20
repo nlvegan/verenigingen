@@ -398,16 +398,26 @@ class Membership(Document):
         if dues_schedule:
             return dues_schedule
 
-        # Get member document
-        member = frappe.get_doc("Member", self.member)
-
         # Create dues schedule
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
+
+        # Set required fields
+        dues_schedule.schedule_name = (
+            f"Schedule-{self.member}-{self.membership_type}-{frappe.generate_hash(length=6)}"
+        )
         dues_schedule.member = self.member
         dues_schedule.membership_type = self.membership_type
-        dues_schedule.start_date = self.start_date
-        dues_schedule.end_date = self.renewal_date
-        dues_schedule.monthly_amount = self.get_billing_amount()
+
+        # Set dues rate from billing amount or membership type
+        billing_amount = self.get_billing_amount() if hasattr(self, "get_billing_amount") else None
+        if billing_amount:
+            dues_schedule.dues_rate = billing_amount
+        else:
+            # Fallback to membership type amount
+            membership_type = frappe.get_doc("Membership Type", self.membership_type)
+            dues_schedule.dues_rate = getattr(membership_type, "suggested_contribution", None) or getattr(
+                membership_type, "amount", 0
+            )
 
         # Set billing frequency based on membership type
         if self.membership_type:
@@ -417,7 +427,7 @@ class Membership(Document):
                 "Monthly": "Monthly",
                 "Quarterly": "Quarterly",
                 "Annual": "Annual",
-                "Biannual": "Biannual",
+                "Biannual": "Semi-Annual",  # Fixed mapping
                 "Lifetime": "Annual",  # Lifetime memberships still bill annually
                 "Daily": "Monthly",  # Daily periods converted to monthly billing
                 "Custom": "Annual",  # Custom periods default to annual
@@ -426,14 +436,13 @@ class Membership(Document):
             billing_period = getattr(membership_type, "billing_period", "Annual")
             dues_schedule.billing_frequency = period_mapping.get(billing_period, "Annual")
 
-        # Set contribution mode
-        if hasattr(member, "payment_method") and member.payment_method == "SEPA Direct Debit":
-            dues_schedule.contribution_mode = "Direct Debit"
-        else:
-            dues_schedule.contribution_mode = "Manual"
+        # Set contribution mode - use proper values
+        dues_schedule.contribution_mode = "Calculator"  # Default to calculator mode
+        dues_schedule.base_multiplier = 1.0
 
         # Set status
         dues_schedule.status = "Active"
+        dues_schedule.auto_generate = 1  # Enable auto invoice generation
 
         # Insert the dues schedule
         dues_schedule.insert()

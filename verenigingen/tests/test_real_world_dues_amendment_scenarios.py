@@ -174,7 +174,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         new_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
         self.track_doc("Membership Dues Schedule", new_schedule.name)
         
-        self.assertEqual(new_schedule.amount, 25.00)
+        self.assertEqual(new_schedule.dues_rate, 25.00)
         self.assertEqual(new_schedule.contribution_mode, "Custom")
         self.assertTrue(new_schedule.uses_custom_amount)
         self.assertEqual(new_schedule.status, "Active")
@@ -218,7 +218,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         new_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
         self.track_doc("Membership Dues Schedule", new_schedule.name)
         
-        self.assertEqual(new_schedule.amount, 15.00)
+        self.assertEqual(new_schedule.dues_rate, 15.00)
         self.assertIn("graduated", new_schedule.custom_amount_reason.lower())
         
         # Update member's student status
@@ -264,7 +264,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         new_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
         self.track_doc("Membership Dues Schedule", new_schedule.name)
         
-        self.assertEqual(new_schedule.amount, 8.00)
+        self.assertEqual(new_schedule.dues_rate, 8.00)
         self.assertIn("hardship", new_schedule.custom_amount_reason.lower())
         
     def test_legacy_member_migration_scenario(self):
@@ -301,7 +301,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         new_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
         self.track_doc("Membership Dues Schedule", new_schedule.name)
         
-        self.assertEqual(new_schedule.amount, 22.00)
+        self.assertEqual(new_schedule.dues_rate, 22.00)
         self.assertEqual(new_schedule.contribution_mode, "Custom")
         self.assertTrue(new_schedule.uses_custom_amount)
         
@@ -336,7 +336,7 @@ class TestRealWorldDuesAmendmentScenarios(VereningingenTestCase):
         new_schedule = frappe.get_doc("Membership Dues Schedule", amendment.new_dues_schedule)
         self.track_doc("Membership Dues Schedule", new_schedule.name)
         
-        self.assertEqual(new_schedule.amount, 0.00)
+        self.assertEqual(new_schedule.dues_rate, 0.00)
         self.assertIn("Free membership", new_schedule.custom_amount_reason)
         
     def test_bulk_amendment_processing_scenario(self):

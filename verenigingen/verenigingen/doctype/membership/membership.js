@@ -7,18 +7,54 @@ frappe.ui.form.on('Membership', {
 				frm.call('sync_payment_details_from_dues_schedule');
 			});
 
-			if (frm.doc.dues_schedule) {
-				frm.add_custom_button(__('View Dues Schedule'), function() {
-					frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule);
+			// Check for any active dues schedule for this member
+			if (frm.doc.member) {
+				frappe.db.get_value('Membership Dues Schedule', {
+					'member': frm.doc.member,
+					'is_template': 0,
+					'status': ['in', ['Active', 'Paused']]
+				}, 'name').then(function(result) {
+					if (result.message && result.message.name) {
+						frm.add_custom_button(__('View Active Dues Schedule'), function() {
+							frappe.set_route('Form', 'Membership Dues Schedule', result.message.name);
+						}, __('Dues Schedule'));
+					}
 				});
+			}
+
+			// Show linked dues schedule if available
+			if (frm.doc.dues_schedule) {
+				frm.add_custom_button(__('View Linked Dues Schedule'), function() {
+					frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule);
+				}, __('Dues Schedule'));
 			}
 		}
 
 		// Add custom button for creating dues schedule if not exists
 		if (frm.doc.docstatus === 1 && !frm.doc.dues_schedule) {
-			frm.add_custom_button(__('Create Dues Schedule'), function() {
-				frm.call('create_dues_schedule_from_membership');
-			});
+			// Check if member already has an active dues schedule before showing create button
+			if (frm.doc.member) {
+				frappe.db.get_value('Membership Dues Schedule', {
+					'member': frm.doc.member,
+					'is_template': 0,
+					'status': 'Active'
+				}, 'name').then(function(result) {
+					if (!result.message || !result.message.name) {
+						// No active dues schedule exists, show create button
+						frm.add_custom_button(__('Create Dues Schedule'), function() {
+							frm.call('create_dues_schedule_from_membership').then(function(response) {
+								if (response.message) {
+									frappe.show_alert({
+										message: __('Dues Schedule created successfully'),
+										indicator: 'green'
+									});
+									frm.refresh();
+								}
+							});
+						}, __('Dues Schedule'));
+					}
+				});
+			}
 		}
 	},
 

@@ -77,7 +77,7 @@ def test_complete_workflow():
         print(f"  - Member: {schedule.member}")
         print(f"  - Membership Type: {schedule.membership_type}")
         print(f"  - Template Reference: {schedule.template_reference}")
-        print(f"  - Amount: €{schedule.amount}")
+        print(f"  - Amount: €{schedule.dues_rate}")
         print(f"  - Billing Frequency: {schedule.billing_frequency}")
         print(f"  - Status: {schedule.status}")
         

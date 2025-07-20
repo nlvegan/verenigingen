@@ -1050,7 +1050,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
                     "new_amount": new_amount,
                     "reason": getattr(self, "fee_override_reason", None) or "No reason provided",
                     "change_date": now(),
-                    "changed_by": frappe.session.user,
+                    "changed_by": frappe.session.user if frappe.session.user else "Administrator",
                 }
 
                 frappe.logger().info(f"Queued fee override change for member {self.name}")
@@ -2517,6 +2517,117 @@ def get_member_chapter_display_html(member_name):
 
 
 @frappe.whitelist()
+def test_dues_schedule_query(member_name):
+    """Test the exact query used in JavaScript"""
+    try:
+        filters = {"member": member_name, "is_template": 0, "status": ["in", ["Active", "Paused"]]}
+        result = frappe.db.get_value(
+            "Membership Dues Schedule",
+            filters,
+            ["name", "dues_rate", "billing_frequency", "status"],
+            as_dict=True,
+        )
+        return {"query_result": result, "filters_used": filters}
+    except Exception as e:
+        return {"error": str(e), "filters_used": filters}
+
+
+@frappe.whitelist()
+def debug_button_conditions(member_name):
+    """Debug what buttons should appear for a member"""
+    try:
+        member = frappe.get_doc("Member", member_name)
+
+        # Check various conditions
+        has_customer = bool(getattr(member, "customer", None))
+        has_user = bool(getattr(member, "user", None))
+        has_email = bool(getattr(member, "email", None))
+
+        # Check for volunteer
+        has_volunteer = bool(frappe.db.exists("Volunteer", {"member": member_name}))
+
+        # Check for active membership
+        has_active_membership = bool(
+            frappe.db.exists(
+                "Membership",
+                {"member": member_name, "status": ["in", ["Active", "Pending"]], "docstatus": ["!=", 2]},
+            )
+        )
+
+        # Check for donor
+        has_donor = bool(frappe.db.exists("Donor", {"linked_member": member_name}))
+
+        return {
+            "member_name": member_name,
+            "status": member.status,
+            "docstatus": member.docstatus,
+            "has_customer": has_customer,
+            "has_user": has_user,
+            "has_email": has_email,
+            "has_volunteer": has_volunteer,
+            "has_active_membership": has_active_membership,
+            "has_donor": has_donor,
+            "expected_buttons": {
+                "create_customer": not has_customer,
+                "create_user": has_email and not has_user,
+                "create_volunteer": not has_volunteer,
+                "create_membership": not has_active_membership,
+                "create_donor": not has_donor,
+                "dues_management": True,  # Always show if script works
+            },
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def debug_member_status(member_name):
+    """Debug member status for button investigation"""
+    try:
+        member = frappe.get_doc("Member", member_name)
+        return {
+            "name": member.name,
+            "status": member.status,
+            "application_status": getattr(member, "application_status", None),
+            "customer": getattr(member, "customer", None),
+            "user": getattr(member, "user", None),
+            "docstatus": member.docstatus,
+            "payment_method": getattr(member, "payment_method", None),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def sync_member_dues_rate(member_name):
+    """Sync member's dues_rate field with their active dues schedule"""
+    try:
+        # Get the member's active dues schedule
+        schedule = frappe.db.get_value(
+            "Membership Dues Schedule",
+            {"member": member_name, "status": "Active"},
+            ["name", "dues_rate"],
+            as_dict=True,
+        )
+
+        if schedule:
+            # Update member's dues_rate field
+            member_doc = frappe.get_doc("Member", member_name)
+            member_doc.dues_rate = schedule.dues_rate
+            member_doc.save()
+            return {
+                "success": True,
+                "message": f"Synced dues rate: {schedule.dues_rate}",
+                "dues_rate": schedule.dues_rate,
+            }
+        else:
+            return {"success": False, "message": "No active dues schedule found"}
+    except Exception as e:
+        frappe.log_error(f"Error syncing member dues rate: {str(e)}", "Member Dues Rate Sync")
+        return {"success": False, "message": f"Error: {str(e)}"}
+
+
+@frappe.whitelist()
 def get_current_dues_schedule_details(member):
     """Get current dues schedule details for a member"""
     try:
@@ -2556,4 +2667,157 @@ def get_current_dues_schedule_details(member):
         frappe.log_error(
             f"Error getting dues schedule details for member {member}: {str(e)}", "Dues Schedule Details"
         )
-        return {"has_schedule": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def refresh_fee_change_history(member_name):
+    """Refresh fee change history from dues schedules"""
+    try:
+        # Get the member document
+        member_doc = frappe.get_doc("Member", member_name)
+
+        # Clear existing fee_change_history and rebuild from dues schedules
+        # First, delete existing entries directly from database to avoid submission issues
+        frappe.db.sql(
+            """
+            DELETE FROM `tabMember Fee Change History`
+            WHERE parent = %s
+        """,
+            member_name,
+        )
+
+        # Get all dues schedules for this member
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name},
+            fields=["name", "schedule_name", "dues_rate", "billing_frequency", "status", "creation"],
+            order_by="creation",
+        )
+
+        # Create fee change history entries directly in database to avoid submission validation
+        for i, schedule in enumerate(dues_schedules):
+            # Validate billing frequency - use "Custom" for unsupported frequencies
+            valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
+            billing_freq = (
+                schedule.billing_frequency if schedule.billing_frequency in valid_frequencies else "Custom"
+            )
+
+            frappe.db.sql(
+                """
+                INSERT INTO `tabMember Fee Change History`
+                (name, parent, parenttype, parentfield, idx, change_date, dues_schedule,
+                 billing_frequency, old_dues_rate, new_dues_rate, change_type, reason, changed_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+                (
+                    frappe.generate_hash(length=10),  # Generate unique name
+                    member_name,  # parent
+                    "Member",  # parenttype
+                    "fee_change_history",  # parentfield
+                    i + 1,  # idx
+                    schedule.creation,  # change_date
+                    schedule.name,  # dues_schedule
+                    billing_freq,  # billing_frequency
+                    0,  # old_dues_rate
+                    schedule.dues_rate,  # new_dues_rate
+                    "Schedule Created",  # change_type
+                    f"Dues schedule: {schedule.schedule_name or schedule.name}",  # reason
+                    frappe.session.user if frappe.session.user else "Administrator",  # changed_by
+                ),
+            )
+
+        # Commit the database changes
+        frappe.db.commit()
+
+        # Refresh the member document to show updated data
+        member_doc.reload()
+
+        return {
+            "success": True,
+            "message": f"Fee change history refreshed for {member_name}",
+            "history_count": len(dues_schedules),
+            "dues_schedules_found": len(dues_schedules),
+        }
+
+    except Exception as e:
+        error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
+        frappe.log_error(f"Fee change history error: {error_msg}", "Fee History Refresh")
+        return {"success": False, "message": f"Error: {error_msg}"}
+
+
+@frappe.whitelist()
+def test_fee_history_functionality(member_name="Assoc-Member-2025-07-0030"):
+    """Test function to validate fee change history functionality"""
+    try:
+        # Call the refresh function
+        result = refresh_fee_change_history(member_name)
+
+        # Get member data
+        member = frappe.get_doc("Member", member_name)
+
+        # Get dues schedules
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name},
+            fields=["name", "schedule_name", "dues_rate", "status"],
+        )
+
+        return {
+            "refresh_result": result,
+            "member_name": member_name,
+            "fee_change_history_count": len(member.fee_change_history or []),
+            "dues_schedules_count": len(dues_schedules),
+            "dues_schedules": dues_schedules,
+            "fee_change_history": [
+                {
+                    "change_date": entry.change_date,
+                    "change_type": entry.change_type,
+                    "old_rate": entry.old_dues_rate,
+                    "new_rate": entry.new_dues_rate,
+                    "reason": entry.reason,
+                    "dues_schedule": entry.dues_schedule,
+                }
+                for entry in (member.fee_change_history or [])
+            ],
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Test fee history error: {str(e)}", "Test Fee History")
+        import traceback
+
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
+@frappe.whitelist()
+def fix_existing_member_workflow_status():
+    """Fix application_status for existing active members who shouldn't be in workflow states"""
+    try:
+        # Find all members with status='Active' but application_status != 'Active'
+        members_to_fix = frappe.db.sql(
+            """
+            SELECT name, application_status, status
+            FROM `tabMember`
+            WHERE status = 'Active'
+            AND application_status != 'Active'
+            AND application_status IS NOT NULL
+        """,
+            as_dict=True,
+        )
+
+        fixed_count = 0
+        for member in members_to_fix:
+            # Update application_status to match status
+            frappe.db.set_value("Member", member.name, "application_status", "Active")
+            fixed_count += 1
+
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Fixed application_status for {fixed_count} members",
+            "fixed_members": [m.name for m in members_to_fix],
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error fixing member workflow status: {str(e)}", "Member Workflow Fix")
+        return {"success": False, "message": f"Error: {str(e)}"}

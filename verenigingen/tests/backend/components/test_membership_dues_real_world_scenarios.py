@@ -121,7 +121,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
             dues_schedule.membership_type = traditional_type.name
             dues_schedule.contribution_mode = "Tier"
             dues_schedule.selected_tier = supporter_tier.name
-            dues_schedule.amount = 100.0
+            dues_schedule.dues_rate = 100.0
             dues_schedule.billing_frequency = "Annual"
             dues_schedule.status = "Active"
             dues_schedule.save()

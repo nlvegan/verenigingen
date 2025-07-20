@@ -52,7 +52,11 @@ class MembershipDuesSchedule(Document):
                 },
             )
             if existing:
-                frappe.throw(f"Member {self.member} already has an active dues schedule: {existing}")
+                frappe.throw(
+                    f"Member {self.member} already has an active dues schedule: <a href='/app/membership-dues-schedule/{existing}' target='_blank'>{existing}</a>. "
+                    f"Please edit the existing schedule or deactivate it before creating a new one.",
+                    title="Duplicate Dues Schedule",
+                )
 
     def validate_member_membership(self):
         """Ensure the member has an active membership"""
@@ -224,12 +228,19 @@ class MembershipDuesSchedule(Document):
 
         membership_type = frappe.get_doc("Membership Type", self.membership_type)
 
-        if self.contribution_mode == "Tier" and self.selected_tier:
-            tier = frappe.get_doc("Membership Tier", self.selected_tier)
-            self.dues_rate = tier.amount
-        elif self.contribution_mode == "Calculator":
-            self.dues_rate = membership_type.suggested_contribution * (self.base_multiplier or 1.0)
-        elif self.contribution_mode == "Custom":
+        # Only calculate dues_rate if not already explicitly set or if it's zero
+        if not self.dues_rate or self.dues_rate == 0:
+            if self.contribution_mode == "Tier" and self.selected_tier:
+                tier = frappe.get_doc("Membership Tier", self.selected_tier)
+                self.dues_rate = tier.amount
+            elif self.contribution_mode == "Calculator":
+                self.dues_rate = membership_type.suggested_contribution * (self.base_multiplier or 1.0)
+            elif self.contribution_mode == "Custom":
+                if not self.uses_custom_amount:
+                    frappe.throw("Custom dues rate must be enabled for custom contribution mode")
+
+        # If contribution mode is Custom but dues_rate is set, ensure custom amount flags are set
+        if self.contribution_mode == "Custom" and self.dues_rate:
             if not self.uses_custom_amount:
                 frappe.throw("Custom dues rate must be enabled for custom contribution mode")
 
@@ -237,28 +248,48 @@ class MembershipDuesSchedule(Document):
         if self.dues_rate < 0:
             frappe.throw("Dues rate cannot be negative")
 
-        # Validate against minimum contribution from membership type
-        if hasattr(membership_type, "minimum_contribution") and membership_type.minimum_contribution:
-            if self.dues_rate < membership_type.minimum_contribution:
-                # Allow zero dues rates and custom dues rates with approval
-                if self.dues_rate == 0:
-                    # Zero dues rate is allowed but requires special handling
-                    if not self.custom_amount_reason:
-                        frappe.throw("Zero dues rate memberships require a reason")
-                elif not (self.uses_custom_amount and self.custom_amount_approved):
-                    frappe.throw(
-                        f"Dues rate cannot be less than minimum: €{membership_type.minimum_contribution:.2f} (requires custom dues rate approval)"
-                    )
+        # Single consolidated minimum validation
+        if membership_type.minimum_contribution and self.dues_rate < membership_type.minimum_contribution:
+            # Zero dues rates are allowed with reason (free memberships)
+            if self.dues_rate == 0:
+                if not self.custom_amount_reason:
+                    frappe.throw("Zero dues rate memberships require a reason")
+                # Mark as custom amount for tracking
+                self.uses_custom_amount = 1
+            # Custom approved amounts can be below minimum
+            elif self.uses_custom_amount and self.custom_amount_approved:
+                pass  # Allow approved custom amounts below minimum
+            else:
+                # Auto-raise to minimum for non-custom amounts
+                self.dues_rate = membership_type.minimum_contribution
 
         # Check maximum contribution from Verenigingen Settings
         settings = frappe.get_single("Verenigingen Settings")
         if settings.maximum_fee_multiplier:
-            max_dues_rate = membership_type.amount * settings.maximum_fee_multiplier
+            # Use suggested_contribution for consistency with Calculator mode
+            base_amount = membership_type.suggested_contribution or membership_type.amount
+            max_dues_rate = base_amount * settings.maximum_fee_multiplier
+
             if self.dues_rate > max_dues_rate:
-                if not self.uses_custom_amount or not self.custom_amount_approved:
+                # Check if user has management permissions to override
+                user_roles = frappe.get_roles(frappe.session.user)
+                can_override = any(
+                    role in user_roles
+                    for role in ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+                )
+
+                if not can_override and (not self.uses_custom_amount or not self.custom_amount_approved):
                     frappe.throw(
-                        f"Dues rate cannot exceed maximum: €{max_dues_rate:.2f} ({settings.maximum_fee_multiplier}x base fee - requires custom dues rate approval)"
+                        f"Dues rate cannot exceed maximum: €{max_dues_rate:.2f} ({settings.maximum_fee_multiplier}x base fee - requires custom dues rate approval or Verenigingen Manager permissions)"
                     )
+                elif can_override:
+                    # Auto-approve for managers
+                    self.uses_custom_amount = 1
+                    self.custom_amount_approved = 1
+                    self.custom_amount_approved_by = frappe.session.user
+                    self.custom_amount_approved_date = today()
+                    if not self.custom_amount_reason:
+                        self.custom_amount_reason = f"Approved by {frappe.session.user} (Manager Override)"
 
         # Ensure currency precision (2 decimal places)
         self.dues_rate = flt(self.dues_rate, 2)
@@ -282,12 +313,10 @@ class MembershipDuesSchedule(Document):
     def set_dues_rate_from_membership_type(self):
         """Set dues rate based on membership type if not already set"""
         if not self.dues_rate and self.membership_type:
-            # Get the fee from membership type
+            # Get the fee from membership type - prefer suggested_contribution for consistency
             membership_type_doc = frappe.get_doc("Membership Type", self.membership_type)
-            if hasattr(membership_type_doc, "amount"):
-                self.dues_rate = membership_type_doc.amount
-            elif hasattr(membership_type_doc, "fee"):
-                self.dues_rate = membership_type_doc.fee
+            # Use suggested_contribution first (used by Calculator mode), fallback to amount
+            self.dues_rate = membership_type_doc.suggested_contribution or membership_type_doc.amount
 
     def can_generate_invoice(self):
         """Check if invoice can be generated"""
@@ -597,6 +626,7 @@ class MembershipDuesSchedule(Document):
 
         # Link back to member
         member.dues_schedule = schedule.name
+        member.dues_rate = schedule.dues_rate
         member.save()
 
         return schedule.name
@@ -609,10 +639,14 @@ class MembershipDuesSchedule(Document):
         # Check if this is a new schedule or if key fields changed
         if self.is_new():
             self.add_billing_history_entry("New Schedule", None, self.dues_rate)
+            # Update member's dues_rate field
+            self.update_member_dues_rate()
         else:
             # Check for dues rate change
             if hasattr(self, "_old_dues_rate") and self._old_dues_rate != self.dues_rate:
                 self.add_billing_history_entry("Fee Adjustment", self._old_dues_rate, self.dues_rate)
+                # Update member's dues_rate field
+                self.update_member_dues_rate()
 
             # Check for status change
             if hasattr(self, "_old_status") and self._old_status != self.status:
@@ -627,6 +661,16 @@ class MembershipDuesSchedule(Document):
                 and self._old_billing_frequency != self.billing_frequency
             ):
                 self.add_billing_history_entry("Billing Frequency Change", self.dues_rate, self.dues_rate)
+
+    def update_member_dues_rate(self):
+        """Update the member's dues_rate field to match the schedule"""
+        try:
+            member_doc = frappe.get_doc("Member", self.member)
+            if member_doc.dues_rate != self.dues_rate:
+                member_doc.dues_rate = self.dues_rate
+                member_doc.save(ignore_permissions=True)
+        except Exception as e:
+            frappe.log_error(f"Error updating member dues rate: {str(e)}", "Member Dues Rate Update")
 
     def add_billing_history_entry(self, change_type, old_rate, new_rate):
         """Add entry to member's billing history"""

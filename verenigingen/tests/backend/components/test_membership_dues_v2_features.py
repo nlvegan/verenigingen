@@ -220,7 +220,7 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         dues_schedule.member = member.name
         dues_schedule.billing_frequency = application.billing_frequency
         dues_schedule.billing_day = today().day
-        dues_schedule.amount = invoice.grand_total
+        dues_schedule.dues_rate = invoice.grand_total
         dues_schedule.payment_method = "SEPA Direct Debit"
         dues_schedule.active_mandate = mandate.name
         dues_schedule.current_coverage_start = today()
@@ -757,7 +757,7 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
         dues_schedule.member = member.name
         dues_schedule.billing_frequency = "Monthly"
-        dues_schedule.amount = 25.0
+        dues_schedule.dues_rate = 25.0
         # Payment method is determined dynamically based on member's payment setup
         dues_schedule.status = "Active"
         # Coverage dates are calculated automatically

@@ -120,7 +120,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         member = self.create_test_member()
         dues_schedule = self.create_tier_based_dues_schedule(member)
         
-        original_amount = dues_schedule.amount
+        original_amount = dues_schedule.dues_rate
         original_tier = dues_schedule.selected_tier
         
         # Request adjustment to different tier
@@ -128,15 +128,15 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         if new_tier:
             # Update dues schedule
             dues_schedule.selected_tier = new_tier.name
-            dues_schedule.amount = new_tier.amount
+            dues_schedule.dues_rate = new_tier.amount
             dues_schedule.add_comment(
                 text=f"Contribution adjusted from {original_tier} to {new_tier.display_name}"
             )
             dues_schedule.save()
             
             # Validate adjustment
-            self.assertEqual(dues_schedule.amount, new_tier.amount)
-            self.assertNotEqual(dues_schedule.amount, original_amount)
+            self.assertEqual(dues_schedule.dues_rate, new_tier.amount)
+            self.assertNotEqual(dues_schedule.dues_rate, original_amount)
             
     def test_payment_failure_recovery_workflow(self):
         """Test complete payment failure and recovery workflow"""
@@ -172,7 +172,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         # 5. Recovery: Create payment plan
         payment_plan_data = {
             "member": member.name,
-            "total_amount": dues_schedule.amount * 3,  # 3 months arrears
+            "total_amount": dues_schedule.dues_rate * 3,  # 3 months arrears
             "preferred_installments": 3,
             "preferred_frequency": "Monthly",
             "reason": "Payment failure recovery plan"
@@ -255,7 +255,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         new_dues_schedule.member = member.name
         new_dues_schedule.membership = membership.name
         new_dues_schedule.membership_type = new_membership_type.name
-        new_dues_schedule.amount = new_membership_type.amount
+        new_dues_schedule.dues_rate = new_membership_type.amount
         new_dues_schedule.billing_frequency = "Monthly"
         new_dues_schedule.status = "Active"
         new_dues_schedule.effective_date = today()
@@ -280,7 +280,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
             as_dict=True
         )
         self.assertEqual(active_schedule.membership_type, new_membership_type.name)
-        self.assertEqual(active_schedule.amount, new_membership_type.amount)
+        self.assertEqual(active_schedule.dues_rate, new_membership_type.amount)
     
     def test_membership_type_migration_workflow(self):
         """Test workflow for migrating between membership types"""
@@ -295,7 +295,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         new_dues_schedule.membership_type = self.tier_membership_type.name
         new_dues_schedule.contribution_mode = "Tier"
         new_dues_schedule.selected_tier = self.tier_membership_type.predefined_tiers[0].name
-        new_dues_schedule.amount = self.tier_membership_type.predefined_tiers[0].amount
+        new_dues_schedule.dues_rate = self.tier_membership_type.predefined_tiers[0].amount
         new_dues_schedule.billing_frequency = "Monthly"
         # Payment method is determined dynamically based on member's active mandates
         new_dues_schedule.status = "Active"
@@ -322,30 +322,30 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         member = self.create_test_member()
         dues_schedule = self.create_calculator_dues_schedule(member)
         
-        original_amount = dues_schedule.amount
+        original_amount = dues_schedule.dues_rate
         
         # 1. Temporary reduction (e.g., student discount period)
         dues_schedule.contribution_mode = "Custom"
-        dues_schedule.amount = original_amount * 0.5  # 50% discount
+        dues_schedule.dues_rate = original_amount * 0.5  # 50% discount
         dues_schedule.uses_custom_amount = 1
         dues_schedule.custom_amount_reason = "Student discount - summer period"
         dues_schedule.save()
         
         # Validate temporary adjustment
         self.assertEqual(dues_schedule.contribution_mode, "Custom")
-        self.assertEqual(dues_schedule.amount, original_amount * 0.5)
+        self.assertEqual(dues_schedule.dues_rate, original_amount * 0.5)
         self.assertTrue(dues_schedule.uses_custom_amount)
         
         # 2. Revert to normal rate
         dues_schedule.contribution_mode = "Calculator"
-        dues_schedule.amount = original_amount
+        dues_schedule.dues_rate = original_amount
         dues_schedule.uses_custom_amount = 0
         dues_schedule.custom_amount_reason = ""
         dues_schedule.save()
         
         # Validate reversion
         self.assertEqual(dues_schedule.contribution_mode, "Calculator")
-        self.assertEqual(dues_schedule.amount, original_amount)
+        self.assertEqual(dues_schedule.dues_rate, original_amount)
         self.assertFalse(dues_schedule.uses_custom_amount)
         
     def test_bulk_contribution_adjustment_workflow(self):
@@ -362,17 +362,17 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         adjustment_factor = 1.05  # 5% increase
         
         for member, schedule in members_and_schedules:
-            original_amount = schedule.amount
+            original_amount = schedule.dues_rate
             new_amount = original_amount * adjustment_factor
             
-            schedule.amount = new_amount
+            schedule.dues_rate = new_amount
             schedule.add_comment(
                 text=f"Annual adjustment: {original_amount} -> {new_amount} (+5%)"
             )
             schedule.save()
             
             # Validate adjustment
-            self.assertAlmostEqual(schedule.amount, original_amount * adjustment_factor, places=2)
+            self.assertAlmostEqual(schedule.dues_rate, original_amount * adjustment_factor, places=2)
             
     def test_enhanced_application_api_workflow(self):
         """Test the enhanced application API workflow"""
@@ -447,7 +447,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         dues_schedule.member = member.name
         dues_schedule.membership_type = application.membership_type
         dues_schedule.contribution_mode = application.contribution_mode
-        dues_schedule.amount = application.contribution_amount
+        dues_schedule.dues_rate = application.contribution_amount
         
         if hasattr(application, 'selected_tier') and application.selected_tier:
             dues_schedule.selected_tier = application.selected_tier
@@ -492,14 +492,14 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
                     break
                     
             if target_tier:
-                original_amount = dues_schedule.amount
+                original_amount = dues_schedule.dues_rate
                 dues_schedule.selected_tier = target_tier.name
-                dues_schedule.amount = target_tier.amount
+                dues_schedule.dues_rate = target_tier.amount
                 dues_schedule.save()
                 
                 # Validate adjustment
-                self.assertEqual(dues_schedule.amount, target_tier.amount)
-                self.assertNotEqual(dues_schedule.amount, original_amount)
+                self.assertEqual(dues_schedule.dues_rate, target_tier.amount)
+                self.assertNotEqual(dues_schedule.dues_rate, original_amount)
                 
     def test_payment_plan_request_workflow(self, member, dues_schedule):
         """Test payment plan request for member"""
@@ -512,7 +512,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         with self.set_user(member.email):
             result = request_payment_plan(
                 member=member.name,
-                total_amount=dues_schedule.amount * 2,  # 2 months
+                total_amount=dues_schedule.dues_rate * 2,  # 2 months
                 preferred_installments=2,
                 preferred_frequency="Monthly",
                 reason="Testing payment plan workflow"
@@ -591,7 +591,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         dues_schedule.membership_type = self.tier_membership_type.name
         dues_schedule.contribution_mode = "Tier"
         dues_schedule.selected_tier = self.tier_membership_type.predefined_tiers[1].name  # Standard
-        dues_schedule.amount = self.tier_membership_type.predefined_tiers[1].amount
+        dues_schedule.dues_rate = self.tier_membership_type.predefined_tiers[1].amount
         dues_schedule.billing_frequency = "Monthly"
         dues_schedule.status = "Active"
         
@@ -606,7 +606,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         dues_schedule.membership_type = self.calculator_membership_type.name
         dues_schedule.contribution_mode = "Calculator"
         dues_schedule.base_multiplier = 1.0
-        dues_schedule.amount = self.calculator_membership_type.suggested_contribution
+        dues_schedule.dues_rate = self.calculator_membership_type.suggested_contribution
         dues_schedule.billing_frequency = "Monthly"
         dues_schedule.status = "Active"
         

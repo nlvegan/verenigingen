@@ -53,7 +53,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             admin_schedule.membership = test_membership.name
             admin_schedule.membership_type = membership_type.name
             admin_schedule.contribution_mode = "Calculator"
-            admin_schedule.amount = 25.0
+            admin_schedule.dues_rate = 25.0
             admin_schedule.billing_frequency = "Monthly"
             admin_schedule.status = "Active"
             admin_schedule.auto_generate = 0
@@ -69,7 +69,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             member_schedule.membership = test_membership.name
             member_schedule.membership_type = membership_type.name
             member_schedule.contribution_mode = "Calculator"
-            member_schedule.amount = 25.0
+            member_schedule.dues_rate = 25.0
             member_schedule.billing_frequency = "Monthly"
             member_schedule.status = "Active"
             member_schedule.auto_generate = 0
@@ -85,7 +85,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             guest_schedule.membership = test_membership.name
             guest_schedule.membership_type = membership_type.name
             guest_schedule.contribution_mode = "Calculator"
-            guest_schedule.amount = 25.0
+            guest_schedule.dues_rate = 25.0
             guest_schedule.billing_frequency = "Monthly"
             guest_schedule.status = "Active"
             guest_schedule.auto_generate = 0
@@ -106,7 +106,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             dues_schedule.membership = test_membership.name
             dues_schedule.membership_type = membership_type.name
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.amount = 25.0
+            dues_schedule.dues_rate = 25.0
             dues_schedule.billing_frequency = "Monthly"
             dues_schedule.status = "Active"
             dues_schedule.auto_generate = 0
@@ -117,14 +117,14 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
         # Admin should be able to modify
         with self.as_user(self.admin_user.name):
             admin_schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-            admin_schedule.amount = 30.0
+            admin_schedule.dues_rate = 30.0
             admin_schedule.save()  # Should succeed
             
         # Member should NOT be able to modify
         with self.as_user(self.member_user.name):
             with self.assertRaises(frappe.PermissionError):
                 member_schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-                member_schedule.amount = 35.0
+                member_schedule.dues_rate = 35.0
                 member_schedule.save()
                 
     def test_sensitive_field_access_control(self):
@@ -140,7 +140,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             dues_schedule.membership = test_membership.name
             dues_schedule.membership_type = membership_type.name
             dues_schedule.contribution_mode = "Custom"
-            dues_schedule.amount = 10.0  # Below normal rate
+            dues_schedule.dues_rate = 10.0  # Below normal rate
             dues_schedule.uses_custom_amount = 1
             dues_schedule.custom_amount_reason = "Financial hardship - CONFIDENTIAL"
             dues_schedule.billing_frequency = "Monthly"
@@ -324,7 +324,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
                 dues_schedule.membership = test_membership.name
                 dues_schedule.membership_type = membership_type.name
                 dues_schedule.contribution_mode = "Custom"
-                dues_schedule.amount = 25.0
+                dues_schedule.dues_rate = 25.0
                 dues_schedule.uses_custom_amount = 1
                 dues_schedule.custom_amount_reason = malicious_input
                 dues_schedule.billing_frequency = "Monthly"
@@ -356,7 +356,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
             dues_schedule.membership = test_membership.name
             dues_schedule.membership_type = membership_type.name
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.amount = 25.0
+            dues_schedule.dues_rate = 25.0
             dues_schedule.billing_frequency = "Monthly"
             dues_schedule.status = "Active"
             dues_schedule.auto_generate = 0
@@ -376,10 +376,10 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
         with self.as_user(self.admin_user.name):
             for test_amount, test_description in manipulation_tests:
                 schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-                original_amount = schedule.amount
+                original_amount = schedule.dues_rate
                 
                 try:
-                    schedule.amount = test_amount
+                    schedule.dues_rate = test_amount
                     schedule.save()
                     
                     # If save succeeded, verify the amount was properly validated
@@ -398,8 +398,8 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
                 finally:
                     # Restore original amount
                     schedule.reload()
-                    if schedule.amount != original_amount:
-                        schedule.amount = original_amount
+                    if schedule.dues_rate != original_amount:
+                        schedule.dues_rate = original_amount
                         schedule.save()
                         
     def test_bulk_operation_security(self):
@@ -424,7 +424,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
                 schedule.membership = membership.name
                 schedule.membership_type = membership_type.name
                 schedule.contribution_mode = "Calculator"
-                schedule.amount = 25.0
+                schedule.dues_rate = 25.0
                 schedule.billing_frequency = "Monthly"
                 schedule.status = "Active"
                 schedule.auto_generate = 0
@@ -446,7 +446,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
                     schedule.member = member.name
                     schedule.membership_type = membership_type.name
                     schedule.contribution_mode = "Calculator"
-                    schedule.amount = 25.0
+                    schedule.dues_rate = 25.0
                     schedule.billing_frequency = "Monthly"
                     schedule.status = "Active"
                     schedule.auto_generate = 0

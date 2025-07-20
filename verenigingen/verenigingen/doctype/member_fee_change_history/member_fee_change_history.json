@@ -35,7 +35,7 @@
    "fieldname": "billing_frequency",
    "fieldtype": "Select",
    "label": "Billing Frequency",
-   "options": "Annual\nSemi-Annual\nQuarterly\nMonthly\nCustom"
+   "options": "Daily\nMonthly\nQuarterly\nSemi-Annual\nAnnual\nCustom"
   },
   {
    "fieldname": "old_dues_rate",
@@ -59,7 +59,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Change Type",
-   "options": "Fee Adjustment\nMembership Type Change\nBilling Frequency Change\nNew Schedule\nSchedule Cancelled",
+   "options": "Fee Adjustment\nMembership Type Change\nBilling Frequency Change\nNew Schedule\nSchedule Created\nSchedule Cancelled",
    "reqd": 1
   },
   {

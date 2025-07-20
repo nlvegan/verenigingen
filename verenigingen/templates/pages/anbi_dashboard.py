@@ -76,14 +76,14 @@ def get_context(context):
     donor_stats = frappe.db.sql(
         """
         SELECT
-            COUNT(DISTINCT donor) as unique_donors,
-            COUNT(DISTINCT CASE WHEN donor_type = 'Individual' THEN donor END) as individual_donors,
-            COUNT(DISTINCT CASE WHEN donor_type = 'Organization' THEN donor END) as organization_donors,
-            COUNT(DISTINCT CASE WHEN anbi_consent_given = 1 THEN name END) as donors_with_consent
-        FROM `tabDonor`
-        WHERE name IN (
-            SELECT DISTINCT donor FROM `tabDonation`
-            WHERE paid = 1 AND docstatus = 1
+            COUNT(DISTINCT donor.name) as unique_donors,
+            COUNT(DISTINCT CASE WHEN donor.donor_type = 'Individual' THEN donor.name END) as individual_donors,
+            COUNT(DISTINCT CASE WHEN donor.donor_type = 'Organization' THEN donor.name END) as organization_donors,
+            COUNT(DISTINCT CASE WHEN donor.anbi_consent = 1 THEN donor.name END) as donors_with_consent
+        FROM `tabDonor` donor
+        WHERE donor.name IN (
+            SELECT DISTINCT d.donor FROM `tabDonation` d
+            WHERE d.paid = 1 AND d.docstatus = 1
         )
     """,
         as_dict=1,
@@ -122,13 +122,14 @@ def get_context(context):
         SELECT
             d.name,
             d.donor,
-            d.donor_name,
+            donor.donor_name,
             d.amount,
             d.date,
             d.periodic_donation_agreement,
             pda.agreement_number,
             pda.anbi_eligible
         FROM `tabDonation` d
+        LEFT JOIN `tabDonor` donor ON d.donor = donor.name
         LEFT JOIN `tabPeriodic Donation Agreement` pda ON d.periodic_donation_agreement = pda.name
         WHERE d.paid = 1
         AND d.docstatus = 1

@@ -31,6 +31,7 @@ class TestRunner:
         "test_runner_wrappers.run_all_termination_tests",
         "test_runner_wrappers.run_workflow_tests",
         "test_runner_wrappers.run_transition_tests",
+        "test_runner_wrappers.run_all_report_tests",
     ]
 
     SCHEDULED_TESTS = [
@@ -59,7 +60,7 @@ class TestRunner:
 
         for test_path in test_list:
             module_name, function_name = test_path.rsplit(".", 1)
-            full_module = f"verenigingen.verenigingen.tests.{module_name}"
+            full_module = f"verenigingen.tests.utils.{module_name}"
 
             print(f"\n📋 {module_name}.{function_name}")
             print("-" * 40)

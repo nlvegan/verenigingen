@@ -120,7 +120,7 @@ def test_membership_dues_schedule():
     dues_schedule.member = member_name
     dues_schedule.membership = membership
     dues_schedule.billing_frequency = "Monthly"
-    dues_schedule.amount = 15.0
+    dues_schedule.dues_rate = 15.0
     dues_schedule.status = "Active"
     dues_schedule.auto_generate = 1
     dues_schedule.test_mode = 1
@@ -139,7 +139,7 @@ def test_membership_dues_schedule():
     print(f"✓ Created membership dues schedule: {dues_schedule.name}")
     print(f"  - Member: {member_name}")
     print(f"  - Contribution mode: {dues_schedule.contribution_mode}")
-    print(f"  - Amount: €{dues_schedule.amount}")
+    print(f"  - Amount: €{dues_schedule.dues_rate}")
     print(f"  - Next invoice: {dues_schedule.next_invoice_date}")
 
     return dues_schedule

@@ -65,7 +65,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
         
         self.assertEqual(schedule.member, self.test_member.name)
-        self.assertEqual(schedule.amount, 35.0)
+        self.assertEqual(schedule.dues_rate, 35.0)
         self.assertEqual(schedule.contribution_mode, "Custom")
         self.assertEqual(schedule.status, "Active")
         self.assertTrue(schedule.uses_custom_amount)
@@ -97,7 +97,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         # Verify second schedule is active
         second_schedule = frappe.get_doc("Membership Dues Schedule", second_schedule_name)
         self.assertEqual(second_schedule.status, "Active")
-        self.assertEqual(second_schedule.amount, 25.0)
+        self.assertEqual(second_schedule.dues_rate, 25.0)
         
     def test_fee_history_tracking(self):
         """Test that fee history is properly tracked"""
@@ -158,12 +158,12 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         dues_schedule = frappe.db.get_value(
             "Membership Dues Schedule",
             {"member": self.test_member.name, "custom_amount_reason": ["like", "%Special case%"]},
-            ["name", "amount", "custom_amount_reason"],
+            ["name", "dues_rate", "custom_amount_reason"],
             as_dict=True
         )
         
         self.assertIsNotNone(dues_schedule)
-        self.assertEqual(dues_schedule.amount, 45.0)
+        self.assertEqual(dues_schedule.dues_rate, 45.0)
         self.assertIn("Special case", dues_schedule.custom_amount_reason)
         
     def test_enhanced_fee_calculation_api(self):
@@ -240,7 +240,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
         
         # Should be rounded to 2 decimal places
-        self.assertEqual(schedule.amount, 26.00)
+        self.assertEqual(schedule.dues_rate, 26.00)
         
     # Helper methods
     
@@ -275,7 +275,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = self.test_membership_type.name
         dues_schedule.contribution_mode = "Custom"
-        dues_schedule.amount = amount
+        dues_schedule.dues_rate = amount
         dues_schedule.uses_custom_amount = 1
         dues_schedule.custom_amount_approved = 1
         dues_schedule.billing_frequency = "Monthly"

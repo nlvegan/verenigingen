@@ -1,1 +1,100 @@
-[]
+[
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Draft",
+  "style": "",
+  "workflow_state_name": "Draft"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Pending",
+  "style": "",
+  "workflow_state_name": "Pending"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Pending Verification",
+  "style": "",
+  "workflow_state_name": "Pending Verification"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Under Review",
+  "style": "",
+  "workflow_state_name": "Under Review"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Approved",
+  "style": "Success",
+  "workflow_state_name": "Approved"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Rejected",
+  "style": "Danger",
+  "workflow_state_name": "Rejected"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Active",
+  "style": "Success",
+  "workflow_state_name": "Active"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Inactive",
+  "style": "",
+  "workflow_state_name": "Inactive"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Completed",
+  "style": "Success",
+  "workflow_state_name": "Completed"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Cancelled",
+  "style": "Danger",
+  "workflow_state_name": "Cancelled"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Expired",
+  "style": "Warning",
+  "workflow_state_name": "Expired"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Payment Pending",
+  "style": "Warning",
+  "workflow_state_name": "Payment Pending"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Processing",
+  "style": "Info",
+  "workflow_state_name": "Processing"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "name": "Submitted",
+  "style": "Info",
+  "workflow_state_name": "Submitted"
+ }
+]
