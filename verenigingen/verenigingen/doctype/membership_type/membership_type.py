@@ -117,7 +117,8 @@ class MembershipType(Document):
                 "mode": template.contribution_mode or "Calculator",
                 "minimum": template.minimum_amount or 5.0,
                 "suggested": template.suggested_amount or self.amount or 15.0,
-                "maximum": ((template.suggested_amount or self.amount or 15.0) * 10),
+                "maximum": template.maximum_amount
+                or ((template.suggested_amount or self.amount or 15.0) * 10),
                 "calculator": {
                     "enabled": template.enable_income_calculator
                     if hasattr(template, "enable_income_calculator")
@@ -221,7 +222,7 @@ class MembershipType(Document):
             template.invoice_days_before = 30  # Only set default if not already set
         template.auto_generate = 1  # Always ensure auto_generate is enabled
         template.status = "Active"  # Always ensure template is active
-        # Ensure dues_rate is set for templates (amount field doesn't exist in template schema)
+        # Ensure dues_rate is set for templates (field confirmed in JSON schema)
         if not template.dues_rate:
             template.dues_rate = self.amount or 15.0
 

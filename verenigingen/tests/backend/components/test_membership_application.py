@@ -31,6 +31,56 @@ def get_member_primary_chapter(member_name):
 class TestMembershipApplication(VereningingenTestCase):
     """Test membership application workflow"""
 
+    @classmethod
+    def setUpClass(cls):
+        """Set up test data"""
+        # Create required Item Group for membership types
+        if not frappe.db.exists("Item Group", "Membership"):
+            item_group = frappe.get_doc(
+                {
+                    "doctype": "Item Group",
+                    "item_group_name": "Membership",
+                    "parent_item_group": "All Item Groups",
+                    "is_group": 0}
+            )
+            item_group.insert()
+
+        # Create required Region for chapters
+        if not frappe.db.exists("Region", "Test Region"):
+            region = frappe.get_doc({"doctype": "Region", "region": "Test Region"})
+            region.insert()
+
+        # Create test membership type
+        if not frappe.db.exists("Membership Type", "Test Membership"):
+            membership_type = frappe.get_doc(
+                {
+                    "doctype": "Membership Type",
+                    "membership_type_name": "Test Membership",
+                    "dues_rate": 100,
+                    "currency": "EUR"}
+            )
+            membership_type.insert()
+            # Dues schedule system handles payment processing automatically
+
+        # Create test chapter
+        if not frappe.db.exists("Chapter", "Test Chapter"):
+            chapter = frappe.get_doc(
+                {
+                    "doctype": "Chapter",
+                    "name": "Test Chapter",
+                    "region": "Test Region",
+                    "postal_codes": "1000-1999",
+                    "published": 1,
+                    "introduction": "Test chapter for basic functionality"}
+            )
+            chapter.insert()
+
+        # Create volunteer interest areas
+        interest_areas = ["Event Planning", "Technical Support", "Community Outreach"]
+        for area in interest_areas:
+            if not frappe.db.exists("Volunteer Interest Area", area):
+                frappe.get_doc({"doctype": "Volunteer Interest Area", "name": area}).insert()
+
     def setUp(self):
         """Set up for each test using factory methods"""
         super().setUp()

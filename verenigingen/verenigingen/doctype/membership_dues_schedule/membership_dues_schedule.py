@@ -357,6 +357,15 @@ class MembershipDuesSchedule(Document):
     def validate_dues_rate_minimum(self):
         """Legacy validation method - moved logic to validate_financial_constraints"""
         # This method is kept for backward compatibility
+        pass
+
+    def validate_dues_rate_configuration_legacy(self):
+        """Legacy method - validates negative dues rates and minimum requirements"""
+        # Validate negative dues rates (zero is allowed for free memberships)
+        if self.dues_rate < 0:
+            frappe.throw("Dues rate cannot be negative")
+
+        # Single consolidated minimum validation
         template_values = self.get_template_values()
         min_contribution = template_values.get("minimum_amount", 0)
         if min_contribution and self.dues_rate < min_contribution:

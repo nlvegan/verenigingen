@@ -386,7 +386,7 @@ class Membership(Document):
         # Get amount from member's dues schedule if exists
         if self.member:
             dues_schedule = frappe.db.get_value(
-                "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "amount"
+                "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "dues_rate"
             )
             if dues_schedule:
                 return dues_schedule

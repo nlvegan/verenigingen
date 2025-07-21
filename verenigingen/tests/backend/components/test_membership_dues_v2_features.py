@@ -73,21 +73,9 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
             applicant_email=f"payfirst.{frappe.generate_hash(length=6)}@example.com",
             posting_date=today(),
             due_date=today(),
-            is_membership_invoice=1
+            is_membership_invoice=1,
+            membership_application=application.name
         )
-        invoice.membership_application = application.name
-        
-        # Add membership item
-        invoice.append("items", {
-            "item_code": "MEMBERSHIP-MONTHLY",
-            "description": f"Membership dues for {today().strftime('%B %Y')}",
-            "qty": 1,
-            "rate": 25.0,
-            "income_account": "Sales - TC"
-        })
-        
-        invoice.save()
-        self.track_doc("Sales Invoice", invoice.name)
         
         # Step 4: Simulate successful PSP payment
         # Update invoice to paid status
