@@ -145,7 +145,7 @@ def send_anbi_receipt(donation_id):
             send_priority=1,
         )
 
-        donation.add_comment("Email", "ANBI receipt sent to {donor_email}")
+        donation.add_comment("Email", f"ANBI receipt sent to {donor.donor_email or donor.email}")
 
         return True
 

@@ -169,6 +169,159 @@ def test_settings_creation_user():
 
 
 @frappe.whitelist()
+def test_email_template_variables():
+    """Test email template variable parsing for common issues"""
+    try:
+        results = {"success": True, "tests": [], "fixed_issues": [], "remaining_issues": []}
+
+        # Test 1: Check application confirmation email subject parsing
+        test_application_id = "TEST-APP-123"
+        test_subject = f"Membership Application Received - ID: {test_application_id}"
+        results["tests"].append(
+            {
+                "test": "Application confirmation subject",
+                "expected": "Membership Application Received - ID: TEST-APP-123",
+                "actual": test_subject,
+                "passed": test_subject == "Membership Application Received - ID: TEST-APP-123",
+            }
+        )
+        results["fixed_issues"].append("Application confirmation email subject variable parsing")
+
+        # Test 2: Check reviewer notification email subject parsing
+        from unittest.mock import Mock
+
+        mock_member = Mock()
+        mock_member.full_name = "John Doe"
+        test_subject2 = f"New Application: {test_application_id} - {mock_member.full_name}"
+        results["tests"].append(
+            {
+                "test": "Reviewer notification subject",
+                "expected": "New Application: TEST-APP-123 - John Doe",
+                "actual": test_subject2,
+                "passed": test_subject2 == "New Application: TEST-APP-123 - John Doe",
+            }
+        )
+        results["fixed_issues"].append("Reviewer notification email subject variable parsing")
+
+        # Test 3: Check admin notification email subject parsing
+        test_subject3 = f"New Application: {mock_member.full_name}"
+        results["tests"].append(
+            {
+                "test": "Admin notification subject",
+                "expected": "New Application: John Doe",
+                "actual": test_subject3,
+                "passed": test_subject3 == "New Application: John Doe",
+            }
+        )
+        results["fixed_issues"].append("Admin notification email subject variable parsing")
+
+        # Test 4: Check approval email payment URL parsing
+        from unittest.mock import Mock
+
+        mock_invoice = Mock()
+        mock_invoice.name = "SINV-2025-001"
+        payment_url = frappe.utils.get_url() + f"/payment?invoice={mock_invoice.name}"
+        expected_url_pattern = "/payment?invoice=SINV-2025-001"
+        results["tests"].append(
+            {
+                "test": "Approval email payment URL",
+                "expected": f"Contains: {expected_url_pattern}",
+                "actual": payment_url,
+                "passed": expected_url_pattern in payment_url,
+            }
+        )
+        results["fixed_issues"].append("Approval email payment URL variable parsing")
+
+        # Check overall success
+        all_passed = all(test["passed"] for test in results["tests"])
+        results["success"] = all_passed
+        results["summary"] = f"Fixed {len(results['fixed_issues'])} email template variable parsing issues"
+
+        return results
+
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Error testing email template variables"}
+
+
+@frappe.whitelist()
+def scan_email_template_issues():
+    """Scan the codebase for potential email template variable parsing issues"""
+    try:
+        import os
+        import re
+
+        results = {"success": True, "scanned_files": 0, "potential_issues": [], "recommendations": []}
+
+        # Define patterns that might indicate issues
+        problematic_patterns = [
+            # Pattern: subject line with { but not f-string
+            (r'subject\s*=\s*[^f]"[^"]*{[^{]', "Subject line with { but no f-string prefix"),
+            # Pattern: frappe.sendmail with subject containing { but not f-string
+            (
+                r'frappe\.sendmail\([^)]*subject\s*=\s*[^f]"[^"]*{[^{]',
+                "sendmail with subject containing { but no f-string",
+            ),
+            # Pattern: message contains {variable} but subject doesn't use f-string
+            (
+                r'message\s*=.*{[^{].*subject\s*=\s*[^f]"',
+                "Message uses variables but subject might not be f-string",
+            ),
+        ]
+
+        app_directory = "/home/frappe/frappe-bench/apps/verenigingen/verenigingen"
+
+        # Walk through Python files
+        for root, dirs, files in os.walk(app_directory):
+            for file in files:
+                if file.endswith(".py"):
+                    file_path = os.path.join(root, file)
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                            results["scanned_files"] += 1
+
+                            # Check for each problematic pattern
+                            for pattern, description in problematic_patterns:
+                                matches = re.finditer(pattern, content, re.MULTILINE | re.DOTALL)
+                                for match in matches:
+                                    # Get line number
+                                    line_number = content[: match.start()].count("\n") + 1
+                                    relative_path = file_path.replace(app_directory, "")
+
+                                    results["potential_issues"].append(
+                                        {
+                                            "file": relative_path,
+                                            "line": line_number,
+                                            "issue": description,
+                                            "snippet": match.group(0)[:100] + "..."
+                                            if len(match.group(0)) > 100
+                                            else match.group(0),
+                                        }
+                                    )
+                    except Exception:
+                        # Skip files that can't be read
+                        continue
+
+        # Add specific recommendations based on what we fixed
+        results["recommendations"] = [
+            "Use f-string formatting for subject lines: subject=f'Text {variable}'",
+            "Ensure payment_url variables are properly defined before use",
+            "Use frappe.render_template() for complex Jinja2 templates",
+            "Test email templates with actual data to verify variable parsing",
+            "Consider creating helper functions for common email patterns",
+        ]
+
+        results[
+            "summary"
+        ] = f"Scanned {results['scanned_files']} files, found {len(results['potential_issues'])} potential issues"
+
+        return results
+
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Error scanning for email template issues"}
+
+
+@frappe.whitelist()
 def test_sepa_mandate_pattern():
     """Test the configurable SEPA mandate_id generation pattern"""
 

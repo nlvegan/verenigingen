@@ -5,6 +5,29 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 
+def format_email_subject(template, **kwargs):
+    """
+    Helper function to consistently format email subjects with variable substitution
+
+    Args:
+        template (str): Subject template with placeholder variables
+        **kwargs: Variables to substitute
+
+    Returns:
+        str: Formatted subject line
+    """
+    try:
+        # Use f-string style formatting for better error handling
+        return template.format(**kwargs)
+    except KeyError as e:
+        frappe.log_error(f"Missing template variable: {str(e)}", "Email Subject Formatting")
+        # Return template with missing variables highlighted
+        return template + f" [MISSING: {str(e)}]"
+    except Exception as e:
+        frappe.log_error(f"Email subject formatting error: {str(e)}", "Email Subject Formatting")
+        return template
+
+
 def send_application_confirmation_email(member, application_id):
     """Send confirmation email with application ID"""
     try:
@@ -34,7 +57,7 @@ def send_application_confirmation_email(member, application_id):
 
         frappe.sendmail(
             recipients=[member.email],
-            subject="Membership Application Received - ID: {application_id}",
+            subject=f"Membership Application Received - ID: {application_id}",
             message=message,
             now=True,
             reference_doctype="Member",
@@ -85,7 +108,7 @@ def notify_reviewers_of_new_application(member, application_id):
 
         frappe.sendmail(
             recipients=reviewers,
-            subject="New Application: {application_id} - {member.full_name}",
+            subject=f"New Application: {application_id} - {member.full_name}",
             message=message,
             now=True,
         )
@@ -94,7 +117,7 @@ def notify_reviewers_of_new_application(member, application_id):
 def send_approval_email(member, invoice):
     """Send email when application is approved with payment instructions"""
     try:
-        # payment_url = frappe.utils.get_url() + "/payment?invoice={invoice.name}"
+        payment_url = frappe.utils.get_url() + f"/payment?invoice={invoice.name}"
 
         message = f"""
         <h3>Your membership application has been approved!</h3>
@@ -339,7 +362,7 @@ def notify_admins_of_new_application(member, invoice=None):
 
         frappe.sendmail(
             recipients=[admin.email for admin in admins],
-            subject="New Application: {member.full_name}",
+            subject=f"New Application: {member.full_name}",
             message=message,
             now=True,
         )

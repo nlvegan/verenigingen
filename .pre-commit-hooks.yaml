@@ -1,0 +1,43 @@
+# Pre-commit hooks configuration for Verenigingen app
+#
+# To use these hooks, install pre-commit and run:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Or add to your .pre-commit-config.yaml:
+#   repos:
+#   - repo: local
+#     hooks:
+#     - id: email-template-validation
+#       name: Email Template Validation
+#       entry: python scripts/validation/email_template_precommit_check.py
+#       language: system
+#       files: \.(py|json)$
+#       pass_filenames: false
+
+repos:
+  - repo: local
+    hooks:
+      - id: email-template-validation
+        name: Email Template Validation
+        entry: python scripts/validation/email_template_precommit_check.py --verbose
+        language: system
+        files: \.(py|json)$
+        pass_filenames: false
+        stages: [commit]
+
+      - id: email-template-auto-fix
+        name: Email Template Auto-Fix
+        entry: python scripts/validation/email_template_precommit_check.py --fix-issues --verbose
+        language: system
+        files: \.(py|json)$
+        pass_filenames: false
+        stages: [manual]
+
+      - id: email-template-tests
+        name: Email Template Tests
+        entry: python scripts/testing/runners/run_email_template_tests.py --suite syntax --standalone
+        language: system
+        files: \.(py|json)$
+        pass_filenames: false
+        stages: [push]
