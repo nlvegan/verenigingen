@@ -182,7 +182,7 @@ def validate_migration():
         dues_schedule = frappe.db.get_value(
             "Membership Dues Schedule",
             {"member": member_name, "status": "Active"},
-            ["name", "amount"],
+            ["name", "dues_rate"],
             as_dict=True
         )
         
@@ -219,7 +219,7 @@ def create_migration_report():
             WHERE membership_fee_override > 0
         """)[0][0] or 0,
         "total_migrated_amount": frappe.db.sql("""
-            SELECT SUM(amount) 
+            SELECT SUM(dues_rate) 
             FROM `tabMembership Dues Schedule` 
             WHERE migration_source = 'fee_override_migration'
         """)[0][0] or 0
