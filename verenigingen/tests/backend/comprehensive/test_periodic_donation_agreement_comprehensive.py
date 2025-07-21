@@ -4,74 +4,42 @@ Including edge cases and error scenarios
 """
 
 import frappe
-import unittest
 from frappe.utils import today, add_years, add_months, getdate, flt
 from datetime import datetime
 from decimal import Decimal
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestPeriodicDonationAgreementComprehensive(unittest.TestCase):
-    
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        cls.test_company = frappe.db.get_single_value("Verenigingen Settings", "donation_company") or "Test Company"
+class TestPeriodicDonationAgreementComprehensive(VereningingenTestCase):
     
     def setUp(self):
         """Set up for each test"""
-        frappe.set_user("Administrator")
+        super().setUp()
+        self.test_company = frappe.db.get_single_value("Verenigingen Settings", "donation_company") or "Test Company"
         self.test_donor = self.create_test_donor()
     
-    def tearDown(self):
-        """Clean up after each test"""
-        # Clean up agreements
-        agreements = frappe.get_all(
-            "Periodic Donation Agreement",
-            filters={"donor": ["like", "%TEST-PDA-%"]}
-        )
-        for agreement in agreements:
-            doc = frappe.get_doc("Periodic Donation Agreement", agreement.name)
-            if doc.docstatus == 0:
-                doc.delete()
-        
-        # Clean up donations
-        donations = frappe.get_all(
-            "Donation",
-            filters={"donor": ["like", "%TEST-PDA-%"]}
-        )
-        for donation in donations:
-            doc = frappe.get_doc("Donation", donation.name)
-            if doc.docstatus == 1:
-                doc.cancel()
-            doc.delete()
-        
-        # Clean up test donors
-        donors = frappe.get_all("Donor", filters={"donor_name": ["like", "%TEST-PDA-%"]})
-        for donor in donors:
-            frappe.delete_doc("Donor", donor.name, force=True)
-        
-        frappe.db.commit()
+    # Cleanup is now handled automatically by VereningingenTestCase
     
     def create_test_donor(self, suffix=""):
-        """Create a test donor"""
-        donor = frappe.new_doc("Donor")
-        donor.donor_name = f"TEST-PDA-Donor-{frappe.utils.random_string(5)}{suffix}"
-        donor.donor_email = f"test-pda-{frappe.utils.random_string(5)}@example.com"
-        donor.donor_type = "Individual"
-        donor.insert()
+        """Create a test donor using factory method"""
+        donor = super().create_test_donor(
+            donor_name=f"TEST-PDA-Donor-{frappe.utils.random_string(5)}{suffix}",
+            donor_email=f"test-pda-{frappe.utils.random_string(5)}@example.com",
+            donor_type="Individual"
+        )
         return donor.name
     
     # Basic Functionality Tests
     
     def test_create_agreement_with_defaults(self):
         """Test creating agreement with default values"""
-        agreement = frappe.new_doc("Periodic Donation Agreement")
-        agreement.donor = self.test_donor
-        agreement.start_date = today()
-        agreement.annual_amount = 1200
-        agreement.payment_frequency = "Monthly"
-        agreement.payment_method = "Bank Transfer"
-        agreement.insert()
+        agreement = self.create_test_periodic_donation_agreement(
+            donor=self.test_donor,
+            start_date=today(),
+            annual_amount=1200,
+            payment_frequency="Monthly",
+            payment_method="Bank Transfer"
+        )
         
         # Verify defaults
         self.assertEqual(agreement.status, "Draft")
@@ -95,16 +63,15 @@ class TestPeriodicDonationAgreementComprehensive(unittest.TestCase):
         ]
         
         for duration_str, expected_years, is_anbi in test_cases:
-            agreement = frappe.new_doc("Periodic Donation Agreement")
-            agreement.donor = self.test_donor
-            agreement.start_date = today()
-            agreement.agreement_duration_years = duration_str
-            agreement.anbi_eligible = 1 if is_anbi else 0
-            agreement.annual_amount = 1000
-            agreement.payment_frequency = "Annually"
-            agreement.payment_method = "Bank Transfer"
-            
-            agreement.insert()
+            agreement = self.create_test_periodic_donation_agreement(
+                donor=self.test_donor,
+                start_date=today(),
+                agreement_duration_years=duration_str,
+                anbi_eligible=1 if is_anbi else 0,
+                annual_amount=1000,
+                payment_frequency="Annually",
+                payment_method="Bank Transfer"
+            )
             
             # Verify duration calculation
             expected_end = add_years(getdate(agreement.start_date), expected_years)
@@ -131,12 +98,13 @@ class TestPeriodicDonationAgreementComprehensive(unittest.TestCase):
         ]
         
         for annual, frequency, expected in test_cases:
-            agreement = frappe.new_doc("Periodic Donation Agreement")
-            agreement.donor = self.test_donor
-            agreement.start_date = today()
-            agreement.annual_amount = annual
-            agreement.payment_frequency = frequency
-            agreement.payment_method = "Bank Transfer"
+            agreement = self.create_test_periodic_donation_agreement(
+                donor=self.test_donor,
+                start_date=today(),
+                annual_amount=annual,
+                payment_frequency=frequency,
+                payment_method="Bank Transfer"
+            )
             
             agreement.calculate_payment_amount()
             
@@ -164,45 +132,41 @@ class TestPeriodicDonationAgreementComprehensive(unittest.TestCase):
         # Should not throw error
         agreement.insert()
         
-        # ANBI agreement must be >= 5 years
-        agreement2 = frappe.new_doc("Periodic Donation Agreement")
-        agreement2.donor = self.test_donor
-        agreement2.start_date = today()
-        agreement2.end_date = add_years(today(), 4)  # 4 years
-        agreement2.anbi_eligible = 1
-        agreement2.annual_amount = 1000
-        agreement2.payment_frequency = "Annually"
-        agreement2.payment_method = "Bank Transfer"
-        
-        # Should throw error
+        # ANBI agreement must be >= 5 years - should throw error
         with self.assertRaises(frappe.ValidationError):
-            agreement2.insert()
+            agreement2 = self.create_test_periodic_donation_agreement(
+                donor=self.test_donor,
+                start_date=today(),
+                end_date=add_years(today(), 4),  # 4 years
+                anbi_eligible=1,
+                annual_amount=1000,
+                payment_frequency="Annually",
+                payment_method="Bank Transfer"
+            )
     
     def test_date_validation_edge_cases(self):
         """Test date validation edge cases"""
-        # End date before start date
-        agreement = frappe.new_doc("Periodic Donation Agreement")
-        agreement.donor = self.test_donor
-        agreement.start_date = today()
-        agreement.end_date = add_months(today(), -1)
-        agreement.annual_amount = 1000
-        agreement.payment_frequency = "Monthly"
-        agreement.payment_method = "Bank Transfer"
-        
+        # End date before start date - should throw error
         with self.assertRaises(frappe.ValidationError):
-            agreement.insert()
+            agreement = self.create_test_periodic_donation_agreement(
+                donor=self.test_donor,
+                start_date=today(),
+                end_date=add_months(today(), -1),
+                annual_amount=1000,
+                payment_frequency="Monthly",
+                payment_method="Bank Transfer"
+            )
         
-        # Same start and end date
-        agreement2 = frappe.new_doc("Periodic Donation Agreement")
-        agreement2.donor = self.test_donor
-        agreement2.start_date = today()
-        agreement2.end_date = today()
-        agreement2.annual_amount = 1000
-        agreement2.payment_frequency = "Monthly"
-        agreement2.payment_method = "Bank Transfer"
-        
+        # Same start and end date - should throw error
         with self.assertRaises(frappe.ValidationError):
-            agreement2.insert()
+            agreement2 = self.create_test_periodic_donation_agreement(
+                donor=self.test_donor,
+                start_date=today(),
+                end_date=today(),
+                annual_amount=1000,
+                payment_frequency="Monthly",
+                payment_method="Bank Transfer"
+            )
     
     # Donation Linking Tests
     

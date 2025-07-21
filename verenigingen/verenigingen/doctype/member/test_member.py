@@ -511,7 +511,7 @@ class TestMember(FrappeTestCase):
         self.assertFalse(hasattr(member, "mobile_no") and getattr(member, "mobile_no", None))
 
     def test_membership_fee_display(self):
-        """Test that membership fee is properly displayed"""
+        """Test that membership fee is properly displayed via dues_rate"""
         unique_id = "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
         member_data = {
             "first_name": f"Test{unique_id}",
@@ -519,12 +519,12 @@ class TestMember(FrappeTestCase):
             "email": f"testmember{unique_id}@example.com",
             "contact_number": "+31612345678",
             "payment_method": "Bank Transfer",
-            "membership_fee": 50.0,
+            "dues_rate": 50.0,  # Use dues_rate instead of membership_fee
         }
 
         member = frappe.new_doc("Member")
         member.update(member_data)
         member.insert()
 
-        # Verify membership_fee field is available
-        self.assertEqual(member.membership_fee, 50.0)
+        # Verify dues_rate field is available (replaces membership_fee)
+        self.assertEqual(member.dues_rate, 50.0)

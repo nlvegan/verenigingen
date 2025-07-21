@@ -56,7 +56,7 @@ class TestDDMemberIdentityEdgeCases(FrappeTestCase):
         member.email = email
         member.iban = iban or f"NL{random.randint(10, 99)}INGB{random.randint(1000000000, 9999999999)}"
         member.status = "Active"
-        member.insert(ignore_permissions=True)
+        member.insert()
 
         self.test_records.append(member)
         return member
@@ -629,7 +629,7 @@ class TestDDPerformanceEdgeCases(FrappeTestCase):
             member.email = f"testmember{i}.{self.unique_id}@test.com"
             member.iban = f"NL{(43 + i):02d}INGB{(1000000000 + i):010d}"
             member.status = "Active"
-            member.insert(ignore_permissions=True)
+            member.insert()
             created_members.append(member)
             self.test_records.append(member)
 

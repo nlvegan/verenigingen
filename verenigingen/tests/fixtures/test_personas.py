@@ -86,7 +86,105 @@ class TestPersonas:
         member = test_data["member"]
         member.payment_failure_count = 2
         member.last_payment_failure_date = today()
-        member.save(ignore_permissions=True)
+        member.save()
+
+        return test_data
+
+    @staticmethod
+    def create_fee_adjuster_fiona():
+        """Create 'Fee Adjuster Fiona' - Member who adjusts fees frequently"""
+        builder = TestDataBuilder()
+
+        # Member who uses fee adjustment features
+        test_data = (
+            builder.with_chapter("Utrecht Test Chapter", postal_codes="3500-3599")
+            .with_member(
+                first_name="Fiona",
+                last_name="FeeAdjuster",
+                email="fiona.feeadjuster@test.com",
+                contact_number="+31655555555",
+                birth_date=add_days(today(), -365 * 28),  # 28 years old
+                street_name="Contributiestraat",
+                house_number="789",
+                postal_code="3512",
+                city="Utrecht",
+                country="Netherlands",
+                payment_method="SEPA Direct Debit",
+                iban="NL39RABO0300065264",
+                bank_account_name="Fiona FeeAdjuster",
+                status="Active",
+                student_status=1,  # Student for testing minimum fee rules
+            )
+            .with_membership(membership_type="Monthly Membership", payment_method="SEPA Direct Debit")
+            .build()
+        )
+
+        # Add dues schedule with custom amount
+        member = test_data["member"]
+        dues_schedule = frappe.get_doc({
+            "doctype": "Membership Dues Schedule",
+            "member": member.name,
+            "membership": test_data["membership"].name,
+            "membership_type": test_data["membership"].membership_type,
+            "amount": 15.00,  # Custom reduced amount,
+            "status": "Active",
+            "contribution_mode": "Custom",
+            "uses_custom_amount": 1,
+            "custom_amount_reason": "Student discount",
+            "effective_date": today()
+        })
+        dues_schedule.insert()
+        test_data["dues_schedule"] = dues_schedule
+
+        return test_data
+
+    @staticmethod
+    def create_type_changer_thomas():
+        """Create 'Type Changer Thomas' - Member who changes membership types"""
+        builder = TestDataBuilder()
+
+        # Member who switches between membership types
+        test_data = (
+            builder.with_chapter("Den Haag Test Chapter", postal_codes="2500-2599")
+            .with_member(
+                first_name="Thomas",
+                last_name="TypeChanger",
+                email="thomas.typechanger@test.com",
+                contact_number="+31644444444",
+                birth_date=add_days(today(), -365 * 40),  # 40 years old
+                street_name="Wisselstraat",
+                house_number="321",
+                postal_code="2512",
+                city="Den Haag",
+                country="Netherlands",
+                payment_method="Bank Transfer",
+                status="Active",
+            )
+            .with_membership(membership_type="Monthly Membership", payment_method="Bank Transfer")
+            .build()
+        )
+
+        # Add history of membership type changes
+        member = test_data["member"]
+        
+        # Create a past amendment request
+        past_request = frappe.get_doc({
+            "doctype": "Contribution Amendment Request",
+            "member": member.name,
+            "membership": test_data["membership"].name,
+            "amendment_type": "Membership Type Change",
+            "current_membership_type": "Basic Monthly",
+            "requested_membership_type": "Monthly Membership",
+            "current_amount": 10.00,
+            "requested_amount": 20.00,
+            "reason": "Upgrading to standard membership",
+            "status": "Applied",
+            "requested_by_member": 1,
+            "effective_date": add_days(today(), -90),
+            "applied_date": add_days(today(), -88)
+        })
+        past_request.insert()
+        test_data["past_type_change"] = past_request
 
         return test_data
 
@@ -230,7 +328,7 @@ class TestPersonas:
         # Mark some expenses as approved
         if "expenses" in test_data:
             test_data["expenses"][0].status = "Approved"
-            test_data["expenses"][0].save(ignore_permissions=True)
+            test_data["expenses"][0].save()
 
         return test_data
 
@@ -271,7 +369,7 @@ class TestPersonas:
         member.termination_reason = "Non-payment"
         member.termination_date = today()
         member.status = "Pending Termination"
-        member.save(ignore_permissions=True)
+        member.save()
 
         return test_data
 
@@ -308,7 +406,7 @@ class TestPersonas:
         member.suspension_date = add_days(today(), -30)
         member.suspension_reason = "Payment failure"
         member.suspension_lifted_date = None
-        member.save(ignore_permissions=True)
+        member.save()
 
         return test_data
 
@@ -409,7 +507,7 @@ class TestPersonas:
                     "enabled": 1,
                     "status": "Active"},
             )
-            rotterdam_chapter.save(ignore_permissions=True)
+            rotterdam_chapter.save()
 
         return test_data
 

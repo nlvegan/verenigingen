@@ -71,6 +71,10 @@ def get_user_volunteer_record():
 @frappe.whitelist()
 def debug_volunteer_access():
     """Debug function to help administrators troubleshoot volunteer access issues"""
+    # Security check: Only allow debug functions in development or for System Managers
+    if not frappe.conf.get("developer_mode") and "System Manager" not in frappe.get_roles():
+        frappe.throw(_("Debug functions are only available in development mode or for System Managers"))
+
     if not frappe.has_permission("Volunteer", "read"):
         frappe.throw(_("Insufficient permissions to debug volunteer access"))
 
@@ -890,6 +894,9 @@ def get_status_class(status):
 @frappe.whitelist()
 def debug_expense_claim_statuses():
     """Debug function to check expense claim statuses"""
+    # Security check: Only allow debug functions in development or for System Managers
+    if not frappe.conf.get("developer_mode") and "System Manager" not in frappe.get_roles():
+        frappe.throw(_("Debug functions are only available in development mode or for System Managers"))
     result = frappe.db.sql(
         """
         SELECT status, approval_status, docstatus, COUNT(*) as count
@@ -905,6 +912,9 @@ def debug_expense_claim_statuses():
 @frappe.whitelist()
 def debug_expense_claim_dates():
     """Debug function to check expense claim dates"""
+    # Security check: Only allow debug functions in development or for System Managers
+    if not frappe.conf.get("developer_mode") and "System Manager" not in frappe.get_roles():
+        frappe.throw(_("Debug functions are only available in development mode or for System Managers"))
     result = frappe.db.sql(
         """
         SELECT name, posting_date, creation, status, approval_status, docstatus,

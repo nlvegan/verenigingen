@@ -37,7 +37,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                         "full_name": name,
                         "enabled": 1}
                 )
-                user.insert(ignore_permissions=True)
+                user.insert()
 
         # Create test chapters
         cls.active_chapter = "Edge Active Chapter"

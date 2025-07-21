@@ -119,9 +119,9 @@ class ChapterMembershipHistoryManager:
                 if reason:
                     target_membership.reason = reason
 
-                frappe.log_error(
-                    f"Updated specific membership history for member {member_id}: {assignment_type} at {chapter_name}",
-                    "Chapter Membership History Manager",
+                # Success: Log as info, not error
+                frappe.logger().info(
+                    f"Updated membership history for member {member_id}: {assignment_type} at {chapter_name}"
                 )
             else:
                 # If we can't find the exact membership, look for any active one
@@ -141,9 +141,9 @@ class ChapterMembershipHistoryManager:
                     if reason:
                         fallback_membership.reason = reason
 
-                    frappe.log_error(
-                        f"Updated fallback membership history for member {member_id}: {assignment_type} at {chapter_name}",
-                        "Chapter Membership History Manager",
+                    # Success: Log as info, not error
+                    frappe.logger().info(
+                        f"Updated fallback membership history for member {member_id}: {assignment_type} at {chapter_name}"
                     )
                 else:
                     # Create a new completed membership if nothing exists
@@ -159,9 +159,9 @@ class ChapterMembershipHistoryManager:
                         },
                     )
 
-                    frappe.log_error(
-                        "Created new completed membership history for member {member_id}: {assignment_type} at {chapter_name}",
-                        "Chapter Membership History Manager",
+                    # Success: Log as info, not error
+                    frappe.logger().info(
+                        f"Created new completed membership history for member {member_id}: {assignment_type} at {chapter_name}"
                     )
 
             member.save(ignore_permissions=True)
@@ -243,15 +243,13 @@ class ChapterMembershipHistoryManager:
                 member.chapter_membership_history.remove(membership_to_remove)
                 member.save(ignore_permissions=True)
 
-                frappe.log_error(
-                    "Removed membership history for member {member_id}: {assignment_type} at {chapter_name}",
-                    "Chapter Membership History Manager",
+                frappe.logger().info(
+                    f"Removed membership history for member {member_id}: {assignment_type} at {chapter_name}"
                 )
                 return True
             else:
-                frappe.log_error(
-                    "Membership to remove not found for member {member_id}: {assignment_type} at {chapter_name}",
-                    "Chapter Membership History Manager",
+                frappe.logger().info(
+                    f"Membership to remove not found for member {member_id}: {assignment_type} at {chapter_name}"
                 )
                 return False
 
@@ -300,15 +298,13 @@ class ChapterMembershipHistoryManager:
 
                 member.save(ignore_permissions=True)
 
-                frappe.log_error(
-                    "Terminated membership history for member {member_id}: {assignment_type} at {chapter_name}",
-                    "Chapter Membership History Manager",
+                frappe.logger().info(
+                    f"Terminated membership history for member {member_id}: {assignment_type} at {chapter_name}"
                 )
                 return True
             else:
-                frappe.log_error(
-                    "No active membership found to terminate for member {member_id}: {assignment_type} at {chapter_name}",
-                    "Chapter Membership History Manager",
+                frappe.logger().info(
+                    f"No active membership found to terminate for member {member_id}: {assignment_type} at {chapter_name}"
                 )
                 return False
 
@@ -409,8 +405,8 @@ class ChapterMembershipHistoryManager:
 
                 member.save(ignore_permissions=True)
 
-                print(
-                    "Updated membership status for member {member_id}: {assignment_type} at {chapter_name} from Pending to {new_status}"
+                frappe.logger().info(
+                    f"Updated membership status for member {member_id}: {assignment_type} at {chapter_name} from Pending to {new_status}"
                 )
                 return True
             else:

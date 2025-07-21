@@ -5,115 +5,129 @@ Test script to verify volunteer creation works when user account already exists
 
 import frappe
 from frappe.utils import today
+from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.verenigingen.doctype.volunteer.volunteer import create_volunteer_from_member
 
 
-def test_volunteer_creation_with_existing_user():
-    """Test that volunteer record can be created even when member has existing user account"""
+class TestVolunteerCreationFix(VereningingenTestCase):
+    """Test volunteer creation with existing user accounts using proper test framework"""
+    
+    def setUp(self):
+        """Set up test environment"""
+        super().setUp()
+        frappe.set_user("Administrator")
 
-    frappe.init(site="dev.veganisme.net")
-    frappe.connect()
-
-    try:
-        # Find a member that has a user account but no volunteer record
-        members_with_users = frappe.db.sql(
-            """
-            SELECT m.name, m.full_name, m.email, m.user
-            FROM `tabMember` m
-            WHERE m.user IS NOT NULL
-            AND m.name NOT IN (
-                SELECT v.member
-                FROM `tabVolunteer` v
-                WHERE v.member IS NOT NULL
-            )
-            LIMIT 1
-        """,
-            as_dict=True,
+    def test_volunteer_creation_with_existing_user(self):
+        """Test that volunteer record can be created even when member has existing user account"""
+        
+        # Create test member using factory method
+        test_member = self.create_test_member(
+            first_name="Test",
+            last_name="VolunteerCreation",
+            email=f"test.volunteer.creation.{frappe.utils.random_string(5)}@example.com"
         )
-
-        if not members_with_users:
-            print("❌ No members found with user accounts but without volunteer records")
-
-            # Let's create a test scenario instead
-            print("Creating test scenario...")
-
-            # Create a test member
-            test_member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "first_name": "Test",
-                    "last_name": "Volunteer Creation",
-                    "email": f"test.volunteer.creation.{frappe.utils.random_string(5)}@example.com",
-                    "contact_number": "+31612345678",
-                    "payment_method": "Bank Transfer"}
-            )
-            test_member.insert(ignore_permissions=True)
-
-            # Create a user account for this member
-            user = frappe.get_doc(
-                {
-                    "doctype": "User",
-                    "email": test_member.email,
-                    "first_name": test_member.first_name,
-                    "last_name": test_member.last_name,
-                    "user_type": "Website User"}
-            )
-            user.insert(ignore_permissions=True)
-
-            # Link user to member
-            test_member.user = user.name
-            test_member.save(ignore_permissions=True)
-
-            print(f"✅ Created test member {test_member.name} with user account {user.name}")
-
-            # Now test volunteer creation
-            test_member_data = {
-                "name": test_member.name,
-                "full_name": test_member.full_name,
-                "email": test_member.email,
-                "user": test_member.user}
-
+        
+        # Create user account for member using factory method
+        test_user = self.create_test_user(
+            email=test_member.email,
+            roles=["Member"]
+        )
+        
+        # Link user to member
+        test_member.user = test_user.name
+        test_member.save()
+        
+        print(f"✅ Created test member {test_member.name} with user account {test_user.name}")
+        
+        # Test volunteer creation - this should work without throwing an error
+        volunteer = create_volunteer_from_member(test_member.name)
+        
+        # Verify volunteer was created successfully
+        self.assertIsNotNone(volunteer, "Volunteer should be created successfully")
+        self.assertEqual(volunteer.member, test_member.name, "Volunteer should be linked to member")
+        
+        print(f"✅ SUCCESS: Volunteer record created: {volunteer.name}")
+        print(f"   Volunteer name: {volunteer.volunteer_name}")
+        print(f"   Organization email: {volunteer.email}")
+        print(f"   Member keeps personal user: {test_member.user}")
+        
+        # Verify the volunteer record
+        volunteer.reload()
+        print(f"   Volunteer status: {volunteer.status}")
+        print(f"   Volunteer member link: {volunteer.member}")
+        
+        if volunteer.user:
+            print(f"   Volunteer organization user: {volunteer.user}")
         else:
-            test_member_data = members_with_users[0]
-            print(f"Found test member: {test_member_data['full_name']} (User: {test_member_data['user']})")
+            print("   No organization user created (expected if email generation failed)")
+            
+        # Member should still have their original user account
+        test_member.reload()
+        self.assertEqual(test_member.user, test_user.name, "Member should keep original user account")
+        
+        # Track volunteer for automatic cleanup
+        self.track_doc("Volunteer", volunteer.name)
+        
+    def test_volunteer_creation_database_query_scenario(self):
+        """Test scenario that mimics finding existing members with users but no volunteer records"""
+        
+        # Create multiple test members with user accounts
+        test_members = []
+        for i in range(2):
+            member = self.create_test_member(
+                first_name=f"Database",
+                last_name=f"Test{i}",
+                email=f"database.test{i}.{frappe.utils.random_string(5)}@example.com"
+            )
+            
+            user = self.create_test_user(
+                email=member.email,
+                roles=["Member"]
+            )
+            
+            member.user = user.name
+            member.save()
+            test_members.append(member)
+        
+        # Test volunteer creation for each member
+        for member in test_members:
+            volunteer = create_volunteer_from_member(member.name)
+            
+            self.assertIsNotNone(volunteer, f"Volunteer should be created for member {member.name}")
+            self.assertEqual(volunteer.member, member.name, "Volunteer should be linked correctly")
+            
+            # Track for automatic cleanup
+            self.track_doc("Volunteer", volunteer.name)
+            
+            print(f"✅ Created volunteer {volunteer.name} for member {member.full_name}")
 
-        # Test volunteer creation
-        print(f"\n🧪 Testing volunteer creation for member: {test_member_data['full_name']}")
-        print(f"   Member has existing user account: {test_member_data['user']}")
 
-        # Import the volunteer creation function
-        from verenigingen.verenigingen.doctype.volunteer.volunteer import create_volunteer_from_member
-
-        # This should now work without throwing an error
-        volunteer = create_volunteer_from_member(test_member_data["name"])
-
-        if volunteer:
-            print(f"✅ SUCCESS: Volunteer record created: {volunteer.name}")
-            print(f"   Volunteer name: {volunteer.volunteer_name}")
-            print(f"   Organization email: {volunteer.email}")
-            print(f"   Member keeps personal user: {test_member_data['user']}")
-
-            # Verify the volunteer record
-            volunteer.reload()
-            print(f"   Volunteer status: {volunteer.status}")
-            print(f"   Volunteer member link: {volunteer.member}")
-
-            if volunteer.user:
-                print(f"   Volunteer organization user: {volunteer.user}")
-            else:
-                print("   No organization user created (expected if email generation failed)")
-
-        else:
-            print("❌ FAILED: No volunteer record returned")
-
-    except Exception as e:
-        print(f"❌ ERROR: {e}")
-        import traceback
-
-        traceback.print_exc()
-
-    finally:
-        frappe.destroy()
+def run_volunteer_creation_fix_tests():
+    """Run volunteer creation fix tests"""
+    import unittest
+    
+    print("👤 Running Volunteer Creation Fix Tests...")
+    
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestVolunteerCreationFix)
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    
+    if result.wasSuccessful():
+        print("✅ All volunteer creation fix tests passed!")
+        return True
+    else:
+        print(f"❌ {len(result.failures)} test(s) failed, {len(result.errors)} error(s)")
+        for failure in result.failures:
+            print(f"FAIL: {failure[0]}")
+            print(f"  {failure[1]}")
+        for error in result.errors:
+            print(f"ERROR: {error[0]}")
+            print(f"  {error[1]}")
+        return False
 
 
 if __name__ == "__main__":
-    test_volunteer_creation_with_existing_user()
+    frappe.init(site="dev.veganisme.net")
+    frappe.connect()
+    run_volunteer_creation_fix_tests()
+    frappe.destroy()

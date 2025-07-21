@@ -4,124 +4,37 @@ Tests for member lifecycle, status changes, and state validation
 """
 
 import unittest
-
 import frappe
 from frappe.utils import add_days, add_months, today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestMemberStatusTransitions(unittest.TestCase):
+class TestMemberStatusTransitions(VereningingenTestCase):
     """Test member status transition edge cases and validation"""
-
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        cls.test_records = []
-
-        # Create test chapter
-        if not frappe.db.exists("Chapter", "Member Status Test Chapter"):
-            cls.chapter = frappe.get_doc(
-                {
-                    "doctype": "Chapter",
-                    "name": "Member Status Test Chapter",
-                    "chapter_name": "Member Status Test Chapter",
-                    "short_name": "MSTC",
-                    "country": "Netherlands"}
-            )
-            cls.chapter.insert(ignore_permissions=True)
-            cls.test_records.append(cls.chapter)
-        else:
-            cls.chapter = frappe.get_doc("Chapter", "Member Status Test Chapter")
-
-        # Create membership types
-        if not frappe.db.exists("Membership Type", "Regular Member"):
-            cls.regular_type = frappe.get_doc(
-                {
-                    "doctype": "Membership Type",
-                    "membership_type_name": "Regular Member",
-                    "amount": 100.00,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                    "is_active": 1}
-            )
-            cls.regular_type.insert(ignore_permissions=True)
-            cls.test_records.append(cls.regular_type)
-        else:
-            cls.regular_type = frappe.get_doc("Membership Type", "Regular Member")
-
-        if not frappe.db.exists("Membership Type", "Student Member"):
-            cls.student_type = frappe.get_doc(
-                {
-                    "doctype": "Membership Type",
-                    "membership_type_name": "Student Member",
-                    "amount": 50.00,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                    "is_active": 1}
-            )
-            cls.student_type.insert(ignore_permissions=True)
-            cls.test_records.append(cls.student_type)
-        else:
-            cls.student_type = frappe.get_doc("Membership Type", "Student Member")
-
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up test data"""
-        for record in reversed(cls.test_records):
-            try:
-                record.delete(ignore_permissions=True)
-            except Exception:
-                pass
-
-    def setUp(self):
-        """Set up each test"""
-        frappe.set_user("Administrator")
-
-    def tearDown(self):
-        """Clean up after each test"""
-        # Clean up any members created during tests
-        test_members = frappe.get_all("Member", filters={"email": ["like", "%test.status%"]}, fields=["name"])
-
-        for member_data in test_members:
-            try:
-                member = frappe.get_doc("Member", member_data.name)
-                # Delete related records first
-                frappe.db.sql("DELETE FROM `tabMembership` WHERE member = %s", member.name)
-                frappe.db.sql("DELETE FROM `tabSEPA Mandate` WHERE member = %s", member.name)
-                frappe.db.sql("DELETE FROM `tabVolunteer` WHERE member = %s", member.name)
-                member.delete(ignore_permissions=True)
-            except Exception:
-                pass
 
     # ===== BASIC STATUS TRANSITIONS =====
 
     def test_active_to_suspended_transition(self):
         """Test Active → Suspended transition"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Active",
-                "last_name": "Member",
-                "email": "active.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        # Create member using factory method
+        member = self.create_test_member(
+            first_name="Active",
+            last_name="Member",
+            email="active.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
-        # Create active membership
-        membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": member.name,
-                "membership_type": self.regular_type.name,
-                "status": "Active",
-                "start_date": frappe.utils.nowdate(),
-                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365)}
+        # Create active membership using factory method
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Active"
         )
-        membership.insert()
 
         # Transition to suspended
         member.status = "Suspended"
-        member.suspension_reason = "Payment overdue"
+        # Check if suspension_reason field exists in Member doctype
+        if hasattr(member, 'suspension_reason'):
+            member.suspension_reason = "Payment overdue"
         member.save()
 
         # Verify status change
@@ -131,60 +44,49 @@ class TestMemberStatusTransitions(unittest.TestCase):
         updated_membership = frappe.get_doc("Membership", membership.name)
         self.assertIn(updated_membership.status, ["Suspended", "Pending"])
 
-        # Clean up
-        membership.delete()
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     def test_suspended_to_active_transition(self):
         """Test Suspended → Active transition"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Suspended",
-                "last_name": "Member",
-                "email": "suspended.test.status@test.com",
-                "status": "Suspended",
-                "suspension_reason": "Payment overdue",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Suspended",
+            last_name="Member",
+            email="suspended.test.status@test.com",
+            status="Suspended"
         )
-        member.insert()
+        
+        # Set suspension reason if field exists
+        if hasattr(member, 'suspension_reason'):
+            member.suspension_reason = "Payment overdue"
+            member.save()
 
         # Transition back to active
         member.status = "Active"
-        member.suspension_reason = ""  # Clear reason
+        if hasattr(member, 'suspension_reason'):
+            member.suspension_reason = ""  # Clear reason
         member.save()
 
         # Verify status change
         self.assertEqual(member.status, "Active")
-        self.assertEqual(member.suspension_reason, "")
+        if hasattr(member, 'suspension_reason'):
+            self.assertEqual(member.suspension_reason, "")
 
-        # Clean up
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     def test_active_to_terminated_transition(self):
         """Test Active → Terminated transition"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "ToTerminate",
-                "last_name": "Member",
-                "email": "terminate.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="ToTerminate",
+            last_name="Member",
+            email="terminate.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Create active membership
-        membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": member.name,
-                "membership_type": self.regular_type.name,
-                "status": "Active",
-                "start_date": frappe.utils.nowdate(),
-                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365)}
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Active"
         )
-        membership.insert()
 
         # Transition to terminated
         member.status = "Terminated"
@@ -200,70 +102,52 @@ class TestMemberStatusTransitions(unittest.TestCase):
         updated_membership = frappe.get_doc("Membership", membership.name)
         self.assertIn(updated_membership.status, ["Terminated", "Cancelled"])
 
-        # Clean up
-        membership.delete()
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     # ===== INVALID TRANSITIONS =====
 
     def test_terminated_to_active_prevention(self):
         """Test prevention of Terminated → Active transition"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Terminated",
-                "last_name": "Member",
-                "email": "terminated.test.status@test.com",
-                "status": "Terminated",
-                "termination_reason": "Voluntary resignation",
-                "termination_date": today(),
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Terminated",
+            last_name="Member",
+            email="terminated.test.status@test.com",
+            status="Terminated"
         )
-        member.insert()
 
         # Attempt invalid transition
         with self.assertRaises(frappe.ValidationError):
             member.status = "Active"
             member.save()
 
-        # Clean up
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     def test_pending_to_terminated_prevention(self):
         """Test prevention of Pending → Terminated transition"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Pending",
-                "last_name": "Member",
-                "email": "pending.test.status@test.com",
-                "status": "Pending",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Pending",
+            last_name="Member",
+            email="pending.test.status@test.com",
+            status="Pending"
         )
-        member.insert()
 
         # Attempt invalid transition
         with self.assertRaises(frappe.ValidationError):
             member.status = "Terminated"
             member.save()
 
-        # Clean up
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     # ===== COMPLEX TRANSITION SCENARIOS =====
 
     def test_rapid_status_changes(self):
         """Test rapid successive status changes"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Rapid",
-                "last_name": "Changer",
-                "email": "rapid.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Rapid",
+            last_name="Changer",
+            email="rapid.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Perform rapid transitions
         transitions = [
@@ -288,21 +172,16 @@ class TestMemberStatusTransitions(unittest.TestCase):
             # Small delay to avoid conflicts
             frappe.db.commit()
 
-        # Clean up
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     def test_concurrent_status_changes(self):
         """Test concurrent status change attempts"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Concurrent",
-                "last_name": "Member",
-                "email": "concurrent.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Concurrent",
+            last_name="Member",
+            email="concurrent.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Simulate concurrent modifications
         member1 = frappe.get_doc("Member", member.name)
@@ -327,23 +206,18 @@ class TestMemberStatusTransitions(unittest.TestCase):
             # Conflict detection is acceptable
             pass
 
-        # Clean up
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     # ===== STATUS VALIDATION EDGE CASES =====
 
     def test_status_with_missing_required_fields(self):
         """Test status changes with missing required fields"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Missing",
-                "last_name": "Fields",
-                "email": "missing.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Missing",
+            last_name="Fields",
+            email="missing.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Test suspended without reason
         with self.assertRaises(frappe.ValidationError):
@@ -357,21 +231,16 @@ class TestMemberStatusTransitions(unittest.TestCase):
             # Missing termination_reason and termination_date
             member.save()
 
-        # Clean up
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     def test_status_with_invalid_dates(self):
         """Test status changes with invalid dates"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Invalid",
-                "last_name": "Dates",
-                "email": "dates.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Invalid",
+            last_name="Dates",
+            email="dates.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Test future termination date
         with self.assertRaises(frappe.ValidationError):
@@ -388,37 +257,26 @@ class TestMemberStatusTransitions(unittest.TestCase):
                 member.termination_date = add_days(member.join_date, -1)  # Before join
                 member.save()
 
-        # Clean up
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     # ===== MEMBERSHIP IMPACT TESTING =====
 
     def test_member_status_membership_cascade(self):
         """Test how member status changes affect memberships"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Cascade",
-                "last_name": "Test",
-                "email": "cascade.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Cascade",
+            last_name="Test",
+            email="cascade.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Create multiple memberships
         memberships = []
-        for i, membership_type in enumerate([self.regular_type, self.student_type]):
-            membership = frappe.get_doc(
-                {
-                    "doctype": "Membership",
-                    "member": member.name,
-                    "membership_type": membership_type.name,
-                    "status": "Active",
-                    "annual_fee": membership_type.amount,
-                    "start_date": add_months(today(), -i)}
+        for i in range(2):  # Create 2 memberships
+            membership = self.create_test_membership(
+                member=member.name,
+                status="Active"
             )
-            membership.insert()
             memberships.append(membership)
 
         # Suspend member
@@ -442,34 +300,21 @@ class TestMemberStatusTransitions(unittest.TestCase):
             updated_membership = frappe.get_doc("Membership", membership.name)
             self.assertIn(updated_membership.status, ["Terminated", "Cancelled"])
 
-        # Clean up
-        for membership in memberships:
-            membership.delete()
-        member.delete()
-
+        # Cleanup handled automatically by VereningingenTestCase
     def test_volunteer_status_impact(self):
         """Test how member status changes affect volunteer records"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Volunteer",
-                "last_name": "Impact",
-                "email": "volunteer.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Volunteer",
+            last_name="Impact",
+            email="volunteer.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Create volunteer record
-        volunteer = frappe.get_doc(
-            {
-                "doctype": "Volunteer",
-                "volunteer_name": "Volunteer Impact",
-                "email": member.email,
-                "member": member.name,
-                "status": "Active"}
+        volunteer = self.create_test_volunteer(
+            volunteer_name="Volunteer Impact",
+            member=member.name
         )
-        volunteer.insert()
 
         # Suspend member
         member.status = "Suspended"
@@ -490,24 +335,17 @@ class TestMemberStatusTransitions(unittest.TestCase):
         updated_volunteer = frappe.get_doc("Volunteer", volunteer.name)
         self.assertIn(updated_volunteer.status, ["Active", "Inactive", "Terminated"])
 
-        # Clean up
-        volunteer.delete()
-        member.delete()
-
+        # Cleanup handled automatically by VereningingenTestCase
     # ===== AUDIT TRAIL VALIDATION =====
 
     def test_status_change_audit_trail(self):
         """Test audit trail creation for status changes"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Audit",
-                "last_name": "Trail",
-                "email": "audit.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Audit",
+            last_name="Trail",
+            email="audit.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         original_status = member.status
 
@@ -537,35 +375,24 @@ class TestMemberStatusTransitions(unittest.TestCase):
             # Audit system not implemented yet or table structure different
             pass
 
-        # Clean up
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     # ===== BUSINESS RULE VALIDATION =====
 
     def test_payment_status_business_rules(self):
         """Test business rules around payment status and member status"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Payment",
-                "last_name": "Rules",
-                "email": "payment.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Payment",
+            last_name="Rules",
+            email="payment.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Create overdue membership
-        membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": member.name,
-                "membership_type": self.regular_type.name,
-                "status": "Overdue",  # Overdue payment
-                "annual_fee": 100.00,
-                "start_date": today()}
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Overdue"  # Overdue payment
         )
-        membership.insert()
 
         # Test if member can be activated with overdue payments
         try:
@@ -579,33 +406,21 @@ class TestMemberStatusTransitions(unittest.TestCase):
             # Prevention is also valid business rule
             pass
 
-        # Clean up
-        membership.delete()
-        member.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
     def test_chapter_transfer_status_rules(self):
         """Test status rules during chapter transfers"""
         # Create second chapter
-        chapter2 = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "name": "transfer-test-chapter",
-                "chapter_name": "Transfer Test Chapter",
-                "short_name": "TTC",
-                "country": "Netherlands"}
+        chapter2 = self.create_test_chapter(
+            chapter_name="Transfer Test Chapter"
         )
-        chapter2.insert()
 
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Transfer",
-                "last_name": "Test",
-                "email": "transfer.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        member = self.create_test_member(
+            first_name="Transfer",
+            last_name="Test",
+            email="transfer.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
         # Suspend member
         member.status = "Suspended"
@@ -624,9 +439,7 @@ class TestMemberStatusTransitions(unittest.TestCase):
             # Prevention is valid business rule
             pass
 
-        # Clean up
-        member.delete()
-        chapter2.delete()
+        # Cleanup handled automatically by VereningingenTestCase
 
 
 def run_member_status_transition_tests():

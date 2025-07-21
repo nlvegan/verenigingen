@@ -35,7 +35,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
                     "default_currency": "EUR",
                     "country": "Netherlands"}
             )
-            company.insert(ignore_permissions=True)
+            company.insert()
 
         # Set as default company
         frappe.db.set_default("company", "Test Company")
@@ -66,7 +66,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
             if not frappe.db.exists("Account", f"{account_data['account_name']} - TC"):
                 try:
                     account = frappe.get_doc(dict(doctype="Account", **account_data))
-                    account.insert(ignore_permissions=True)
+                    account.insert()
                 except Exception:
                     pass  # Account might already exist or parent missing
 
@@ -84,7 +84,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
                     "email": "test.volunteer@example.com",
                     "status": "Active"}
             )
-            member.insert(ignore_permissions=True)
+            member.insert()
 
         # Create test volunteer
         if not frappe.db.exists("Volunteer", "TEST-VOL-001"):
@@ -98,7 +98,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
                     "status": "Active",
                     "start_date": frappe.utils.today()}
             )
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()
 
     @classmethod
     def create_test_expense_categories(cls):
@@ -109,7 +109,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
                 cat = frappe.get_doc(
                     {"doctype": "Expense Category", "category_name": category, "is_active": 1}
                 )
-                cat.insert(ignore_permissions=True)
+                cat.insert()
 
     def setUp(self):
         """Set up for each test"""
@@ -459,7 +459,7 @@ class TestERPNextExpenseIntegration(unittest.TestCase):
 
         for doctype, name in test_records:
             if frappe.db.exists(doctype, name):
-                frappe.delete_doc(doctype, name, ignore_permissions=True)
+                frappe.delete_doc(doctype, name, )
 
 
 class TestERPNextExpenseEdgeCases(unittest.TestCase):
@@ -759,7 +759,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
                 "email": "expense.approver.test@example.com",
                 "status": "Active"}
         )
-        test_volunteer.insert(ignore_permissions=True)
+        test_volunteer.insert()
 
         try:
             # This should not raise any SQL errors with the new simplified logic
@@ -777,7 +777,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
         finally:
             # Clean up
             if frappe.db.exists("Volunteer", test_volunteer.name):
-                frappe.delete_doc("Volunteer", test_volunteer.name, ignore_permissions=True)
+                frappe.delete_doc("Volunteer", test_volunteer.name, )
 
     @patch("frappe.get_single")
     def test_expense_approver_treasurer_priority(self, mock_get_single):
@@ -795,7 +795,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
                 "email": "priority.test@example.com",
                 "status": "Active"}
         )
-        test_volunteer.insert(ignore_permissions=True)
+        test_volunteer.insert()
 
         try:
             # Mock frappe.get_all to return treasurer first
@@ -825,7 +825,7 @@ class TestERPNextExpenseEdgeCases(unittest.TestCase):
         finally:
             # Clean up
             if frappe.db.exists("Volunteer", test_volunteer.name):
-                frappe.delete_doc("Volunteer", test_volunteer.name, ignore_permissions=True)
+                frappe.delete_doc("Volunteer", test_volunteer.name, )
 
 
 if __name__ == "__main__":

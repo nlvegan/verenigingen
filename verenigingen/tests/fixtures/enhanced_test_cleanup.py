@@ -61,7 +61,7 @@ class EnhancedTestCleanup:
                     self._cleanup_customer_dependencies(customer_name)
                     
                     # Delete the customer
-                    frappe.delete_doc("Customer", customer_name, force=True, ignore_permissions=True)
+                    frappe.delete_doc("Customer", customer_name, force=True, )
                     print(f"✅ Deleted customer: {customer_name}")
             except Exception as e:
                 errors.append(f"Error deleting customer {customer_name}: {str(e)}")
@@ -77,12 +77,12 @@ class EnhancedTestCleanup:
                             membership_doc = frappe.get_doc("Membership", membership.name)
                             if membership_doc.docstatus == 1:
                                 membership_doc.cancel()
-                            frappe.delete_doc("Membership", membership.name, force=True, ignore_permissions=True)
+                            frappe.delete_doc("Membership", membership.name, force=True, )
                         except:
                             pass
                     
                     # Delete member
-                    frappe.delete_doc("Member", member_name, force=True, ignore_permissions=True)
+                    frappe.delete_doc("Member", member_name, force=True, )
                     print(f"✅ Deleted member: {member_name}")
             except Exception as e:
                 errors.append(f"Error deleting member {member_name}: {str(e)}")
@@ -91,7 +91,7 @@ class EnhancedTestCleanup:
         for app_name in self.tracked_applications:
             try:
                 if frappe.db.exists("Membership Application", app_name):
-                    frappe.delete_doc("Membership Application", app_name, force=True, ignore_permissions=True)
+                    frappe.delete_doc("Membership Application", app_name, force=True, )
                     print(f"✅ Deleted application: {app_name}")
             except Exception as e:
                 errors.append(f"Error deleting application {app_name}: {str(e)}")
@@ -116,7 +116,7 @@ class EnhancedTestCleanup:
                 doc = frappe.get_doc("Sales Invoice", invoice.name)
                 if doc.docstatus == 1:
                     doc.cancel()
-                frappe.delete_doc("Sales Invoice", invoice.name, force=True, ignore_permissions=True)
+                frappe.delete_doc("Sales Invoice", invoice.name, force=True, )
             except:
                 pass
         
@@ -126,14 +126,14 @@ class EnhancedTestCleanup:
                 doc = frappe.get_doc("Payment Entry", payment.name)
                 if doc.docstatus == 1:
                     doc.cancel()
-                frappe.delete_doc("Payment Entry", payment.name, force=True, ignore_permissions=True)
+                frappe.delete_doc("Payment Entry", payment.name, force=True, )
             except:
                 pass
         
         # Delete SEPA Mandates
         for mandate in frappe.get_all("SEPA Mandate", filters={"customer": customer_name}):
             try:
-                frappe.delete_doc("SEPA Mandate", mandate.name, force=True, ignore_permissions=True)
+                frappe.delete_doc("SEPA Mandate", mandate.name, force=True, )
             except:
                 pass
     

@@ -80,11 +80,10 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         
         # Add Alex as chapter board member
         self.test_chapter.append("board_members", {
-            "member": alex_member.name,
+            "volunteer": alex_volunteer.name,
             "chapter_role": self.finance_role.name,
-            "start_date": today(),
-            "is_active": 1,
-            "appointment_reason": "Promoted due to excellent financial skills"
+            "from_date": today(),
+            "is_active": 1
         })
         self.test_chapter.save()
         
@@ -93,7 +92,7 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         # Verify Alex has finance permissions
         alex_board_member = None
         for board_member in self.test_chapter.board_members:
-            if board_member.member == alex_member.name:
+            if board_member.volunteer == alex_volunteer.name:
                 alex_board_member = board_member
                 break
         
@@ -210,20 +209,13 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         }
     
     def create_test_chapter(self):
-        """Create a test chapter for the persona"""
-        chapter = frappe.new_doc("Chapter")
-        # Generate unique name to avoid duplicates
+        """Create a test chapter for the persona using factory method"""
         unique_suffix = frappe.generate_hash(length=6)
-        chapter.name = f"Finance-Test-Chapter-{unique_suffix}"
-        chapter.chapter_name = f"Finance Test Chapter {unique_suffix}"
-        chapter.city = "Amsterdam"
-        chapter.status = "Active"
-        chapter.establishment_date = today()
-        chapter.description = "Test chapter for finance persona testing"
-        # Don't set region to avoid validation issues
-        chapter.insert()
-        self.track_doc("Chapter", chapter.name)
-        return chapter
+        return super().create_test_chapter(
+            chapter_name=f"Finance Test Chapter {unique_suffix}",
+            city="Amsterdam",
+            introduction="Test chapter for finance persona testing"
+        )
     
     def create_test_membership_type_with_calculator(self):
         """Create a test membership type with calculator contribution mode"""
@@ -290,11 +282,19 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
             chapter=self.test_chapter.name
         )
         
+        # Create volunteer record for regular member
+        regular_volunteer = self.create_test_volunteer(
+            member=regular_member.name,
+            volunteer_name="Regular Member",
+            email="regular.volunteer@example.com",
+            status="Active"
+        )
+        
         # Add as board member without finance permissions
         self.test_chapter.append("board_members", {
-            "member": regular_member.name,
+            "volunteer": regular_volunteer.name,
             "chapter_role": regular_role.name,
-            "start_date": today(),
+            "from_date": today(),
             "is_active": 1
         })
         self.test_chapter.save()
@@ -302,15 +302,12 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         print("✓ Created regular board member without finance permissions")
         
         # Test 2: Cross-chapter permission isolation
-        other_chapter = frappe.new_doc("Chapter")
         other_unique_suffix = frappe.generate_hash(length=6)
-        other_chapter.name = f"Other-Test-Chapter-{other_unique_suffix}"
-        other_chapter.chapter_name = f"Other Chapter {other_unique_suffix}"
-        other_chapter.city = "Rotterdam"
-        other_chapter.status = "Active"
-        other_chapter.establishment_date = today()
-        other_chapter.insert()
-        self.track_doc("Chapter", other_chapter.name)
+        other_chapter = self.create_test_chapter(
+            chapter_name=f"Other Chapter {other_unique_suffix}",
+            city="Rotterdam",
+            introduction="Other test chapter for permission isolation testing"
+        )
         
         # Create expense in other chapter
         other_volunteer = frappe.new_doc("Volunteer")
@@ -364,15 +361,12 @@ class TestFinancePermissionValidation(VereningingenTestCase):
         """Test that finance permissions are properly validated"""
         
         # Create test chapter and member using base class methods
-        chapter = frappe.new_doc("Chapter")
         unique_suffix = frappe.generate_hash(length=6)
-        chapter.name = f"Permission-Test-Chapter-{unique_suffix}"
-        chapter.chapter_name = f"Permission Test Chapter {unique_suffix}"
-        chapter.city = "Test City"
-        chapter.status = "Active"
-        chapter.establishment_date = today()
-        chapter.insert()
-        self.track_doc("Chapter", chapter.name)
+        chapter = self.create_test_chapter(
+            chapter_name=f"Permission Test Chapter {unique_suffix}",
+            city="Test City",
+            introduction="Test chapter for permission validation testing"
+        )
         
         member = self.create_test_member(
             first_name="Test",

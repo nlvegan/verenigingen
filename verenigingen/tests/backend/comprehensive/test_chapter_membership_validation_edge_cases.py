@@ -34,7 +34,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "email": "edge1@example.com",
                 "join_date": today()}
         )
-        cls.test_data["member_1"].insert(ignore_permissions=True)
+        cls.test_data["member_1"].insert()
 
         cls.test_data["volunteer_1"] = frappe.get_doc(
             {
@@ -45,7 +45,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "status": "Active",
                 "start_date": today()}
         )
-        cls.test_data["volunteer_1"].insert(ignore_permissions=True)
+        cls.test_data["volunteer_1"].insert()
 
         # Scenario 2: Volunteer without member link
         cls.test_data["volunteer_2"] = frappe.get_doc(
@@ -56,7 +56,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "status": "Active",
                 "start_date": today()}
         )
-        cls.test_data["volunteer_2"].insert(ignore_permissions=True)
+        cls.test_data["volunteer_2"].insert()
 
         # Scenario 3: Member without volunteer link
         cls.test_data["member_3"] = frappe.get_doc(
@@ -68,7 +68,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "email": "edge3@example.com",
                 "join_date": today()}
         )
-        cls.test_data["member_3"].insert(ignore_permissions=True)
+        cls.test_data["member_3"].insert()
 
         # Create test chapters with required region field
         cls.test_data["chapter_1"] = frappe.get_doc(
@@ -78,7 +78,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "chapter_name": "Edge Case Chapter 1",
                 "region": "Test Region 1"}
         )
-        cls.test_data["chapter_1"].insert(ignore_permissions=True)
+        cls.test_data["chapter_1"].insert()
 
         cls.test_data["chapter_2"] = frappe.get_doc(
             {
@@ -87,13 +87,13 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "chapter_name": "Edge Case Chapter 2",
                 "region": "Test Region 2"}
         )
-        cls.test_data["chapter_2"].insert(ignore_permissions=True)
+        cls.test_data["chapter_2"].insert()
 
         # Create chapter membership for scenario 1
         cls.test_data["chapter_1"].append(
             "members", {"member": "EDGE-MEMBER-1", "member_name": "Edge Case Volunteer 1", "enabled": 1}
         )
-        cls.test_data["chapter_1"].save(ignore_permissions=True)
+        cls.test_data["chapter_1"].save()
 
         # Create expense category
         if not frappe.db.exists("Expense Category", "EDGE-CATEGORY"):
@@ -104,7 +104,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                     "category_name": "Edge Case Category",
                     "is_active": 1}
             )
-            cls.test_data["category"].insert(ignore_permissions=True)
+            cls.test_data["category"].insert()
 
     def test_volunteer_with_member_valid_chapter(self):
         """Test volunteer with member link submitting to valid chapter"""
@@ -205,7 +205,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "chapter_name": "Edge Case Disabled Chapter",
                 "region": "Test Region Disabled"}
         )
-        test_chapter.insert(ignore_permissions=True)
+        test_chapter.insert()
 
         test_chapter.append(
             "members",
@@ -215,7 +215,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "enabled": 0,  # Disabled membership
             },
         )
-        test_chapter.save(ignore_permissions=True)
+        test_chapter.save()
 
         expense_data = {
             "description": "Edge case test - disabled membership",
@@ -242,7 +242,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             self.assertFalse(membership_exists, "Should not find enabled membership")
 
         # Clean up
-        frappe.delete_doc("Chapter", "EDGE-CHAPTER-DISABLED", ignore_permissions=True)
+        frappe.delete_doc("Chapter", "EDGE-CHAPTER-DISABLED", )
 
     def test_multiple_memberships_same_chapter(self):
         """Test edge case where member has multiple entries for same chapter"""
@@ -313,7 +313,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 "status": "Active",
                 "start_date": today()}
         )
-        volunteer_empty.insert(ignore_permissions=True)
+        volunteer_empty.insert()
 
         try:
             with patch("frappe.session.user", "empty@example.com"):
@@ -324,7 +324,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
                 # The field should be there, even if empty
 
         finally:
-            frappe.delete_doc("Volunteer", "Edge Case Empty Member", ignore_permissions=True)
+            frappe.delete_doc("Volunteer", "Edge Case Empty Member", )
 
     @classmethod
     def _cleanup_test_data(cls):
@@ -346,7 +346,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             ]:
                 for name in names:
                     if frappe.db.exists(doc_type, name):
-                        frappe.delete_doc(doc_type, name, ignore_permissions=True)
+                        frappe.delete_doc(doc_type, name, )
 
             frappe.db.commit()
         except Exception:

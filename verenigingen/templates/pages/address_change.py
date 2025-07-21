@@ -24,9 +24,17 @@ def get_context(context):
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 
     # Get member document (may need ignore_permissions for portal users)
+    # Security: Verify member belongs to current user before using ignore_permissions
+    member_user = frappe.db.get_value("Member", member_name, ["user", "email"], as_dict=True)
+    current_user = frappe.session.user
+
+    if member_user.user != current_user and member_user.email != current_user:
+        frappe.throw(_("Access denied: You can only access your own member record"), frappe.PermissionError)
+
     try:
         context.member = frappe.get_doc("Member", member_name)
     except frappe.PermissionError:
+        # Only use ignore_permissions after verifying ownership
         context.member = frappe.get_doc("Member", member_name, ignore_permissions=True)
 
     # Get current address if exists
@@ -35,7 +43,21 @@ def get_context(context):
         try:
             current_address = frappe.get_doc("Address", context.member.primary_address)
         except frappe.PermissionError:
-            # If permission denied, use database access
+            # If permission denied, verify address belongs to current member before using ignore_permissions
+            address_links = frappe.get_all(
+                "Dynamic Link",
+                filters={
+                    "parent": context.member.primary_address,
+                    "link_doctype": "Member",
+                    "link_name": member_name,
+                },
+            )
+
+            if not address_links:
+                frappe.throw(
+                    _("Access denied: Address does not belong to your member record"), frappe.PermissionError
+                )
+
             try:
                 current_address = frappe.get_doc(
                     "Address", context.member.primary_address, ignore_permissions=True

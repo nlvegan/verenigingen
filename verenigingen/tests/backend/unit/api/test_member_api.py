@@ -11,51 +11,52 @@ Tests the API endpoints that JavaScript calls
 import frappe
 from frappe.utils import add_days, random_string, today
 
-from verenigingen.tests.utils.base import VereningingenUnitTestCase
-from verenigingen.tests.utils.factories import TestDataBuilder
-from verenigingen.tests.utils.setup_helpers import TestEnvironmentSetup
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestMemberWhitelistMethods(VereningingenUnitTestCase):
+class TestMemberWhitelistMethods(VereningingenTestCase):
     """Test Member whitelisted API methods as called from JavaScript"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test environment"""
-        super().setUpClass()
-        try:
-            cls.test_env = TestEnvironmentSetup.create_standard_test_environment()
-        except Exception:
-            cls.test_env = {"membership_types": []}
-
     def setUp(self):
-        """Set up for each test"""
+        """Set up test environment using factory methods"""
         super().setUp()
+        
+        # Create test data using factory methods
+        self.test_member = self.create_test_member(
+            first_name="TestAPI",
+            last_name="Member",
+            email="testapi@example.com"
+        )
+
+        # Set up builder for compatibility with legacy test methods
+        from verenigingen.tests.utils.factories import TestDataBuilder
         self.builder = TestDataBuilder()
 
+        # Get or create membership type
+        existing_types = frappe.get_all("Membership Type", limit=1)
+        if existing_types:
+            self.membership_type = existing_types[0].name
+        else:
+            mt = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Test API Membership",
+                "amount": 50.0
+            })
+            mt.insert()
+            self.track_doc("Membership Type", mt.name)
+            self.membership_type = mt.name
+    
     def tearDown(self):
-        """Clean up after each test"""
-        try:
+        """Clean up test data including builder cleanup"""
+        if hasattr(self, 'builder'):
             self.builder.cleanup()
-        except Exception as e:
-            frappe.logger().error(f"Cleanup error in test: {str(e)}")
         super().tearDown()
 
+    # tearDown handled automatically by VereningingenTestCase
+
     def _get_test_membership_type(self):
-        """Helper to get or create a test membership type"""
-        if self.test_env.get("membership_types") and len(self.test_env["membership_types"]) > 0:
-            return self.test_env["membership_types"][0].name
-        else:
-            mt = frappe.get_doc(
-                {
-                    "doctype": "Membership Type",
-                    "membership_type_name": f"Test Type {random_string(8)}",
-                    "amount": 100,
-                    "currency": "EUR"}
-            )
-            mt.insert(ignore_permissions=True)
-            self.track_doc("Membership Type", mt.name)
-            return mt.name
+        """Helper to get the test membership type"""
+        return self.membership_type
 
     def test_create_customer_whitelist(self):
         """Test create_customer method as called from JavaScript"""
@@ -66,7 +67,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
         # Clear customer if auto-created
         if member.customer:
             member.customer = None
-            member.save(ignore_permissions=True)
+            member.save()
 
         # Test via API call (simulating JavaScript)
         customer_name = frappe.call(
@@ -130,7 +131,8 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "status": "Active",
                 "signature_date": today()}
         )
-        mandate.insert(ignore_permissions=True)
+        mandate.insert()
+        self.track_doc("SEPA Mandate", mandate.name)
         self.track_doc("SEPA Mandate", mandate.name)
 
         # Test via API call
@@ -158,10 +160,11 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                     "email": member.email,
                     "member": member.name}
             )
-            donor.insert(ignore_permissions=True)
+            donor.insert()
+            self.track_doc("Donor", donor.name)
             self.track_doc("Donor", donor.name)
             member.donor = donor.name
-            member.save(ignore_permissions=True)
+            member.save()
 
         # Create donations
         for i in range(2):
@@ -173,7 +176,8 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                     "date": add_days(today(), -30 * i),
                     "payment_method": "Bank Transfer"}
             )
-            donation.insert(ignore_permissions=True)
+            donation.insert()
+            self.track_doc("Donation", donation.name)
             self.track_doc("Donation", donation.name)
 
         # Test via API call
@@ -352,7 +356,8 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "contact_number": "+31612345678",
                 "payment_method": "Bank Transfer"}
         )
-        new_member.insert(ignore_permissions=True)
+        new_member.insert()
+        self.track_doc("Member", new_member.name)
         self.track_doc("Member", new_member.name)
 
         member_id = frappe.call(
@@ -419,7 +424,8 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "suspension_date": today(),
                 "status": "Pending"}
         )
-        suspension.insert(ignore_permissions=True)
+        suspension.insert()
+        self.track_doc("Member Suspension", suspension.name)
         self.track_doc("Member Suspension", suspension.name)
 
         # Process suspension
@@ -503,7 +509,8 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "enabled": 1,
                 "roles": [{"role": "Verenigingen Member"}]}
         )
-        test_user.insert(ignore_permissions=True)
+        test_user.insert()
+        self.track_doc("User", test_user.name)
         self.track_doc("User", test_user.name)
 
         # Test as non-admin user
@@ -528,7 +535,7 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
 
         # Test creating user with duplicate email
         member.user = None
-        member.save(ignore_permissions=True)
+        member.save()
 
         # Create user with same email
         existing_user = frappe.get_doc(
@@ -539,7 +546,8 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "last_name": "User",
                 "enabled": 1}
         )
-        existing_user.insert(ignore_permissions=True)
+        existing_user.insert()
+        self.track_doc("User", existing_user.name)
         self.track_doc("User", existing_user.name)
 
         # Should handle duplicate email gracefully
@@ -566,7 +574,8 @@ class TestMemberWhitelistMethods(VereningingenUnitTestCase):
                 "contact_number": "+31612345678",
                 "payment_method": "Bank Transfer"}
         )
-        new_member.insert(ignore_permissions=True)
+        new_member.insert()
+        self.track_doc("Member", new_member.name)
         self.track_doc("Member", new_member.name)
 
         # Ensure different member_id

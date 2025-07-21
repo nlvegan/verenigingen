@@ -39,9 +39,14 @@ class VereningingenTestCase(FrappeTestCase):
         super().setUp()
         self._test_docs = []
         self._original_session_user = frappe.session.user
+        # Track test start time for error monitoring
+        self._test_start_time = frappe.utils.now()
 
     def tearDown(self):
         """Clean up test-specific data"""
+        # Check for errors that occurred during this test BEFORE cleanup
+        self._check_test_errors()
+        
         # Restore original session user
         frappe.session.user = self._original_session_user
 
@@ -57,6 +62,38 @@ class VereningingenTestCase(FrappeTestCase):
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
 
         super().tearDown()
+        
+    def _check_test_errors(self):
+        """Check for errors that occurred during this test"""
+        try:
+            test_errors = frappe.db.sql('''
+                SELECT error, creation 
+                FROM `tabError Log` 
+                WHERE creation >= %s
+                ORDER BY creation DESC
+                LIMIT 5
+            ''', (self._test_start_time,), as_dict=True)
+            
+            if test_errors:
+                error_summary = []
+                for error in test_errors:
+                    # Truncate long errors for readability
+                    error_text = error.error[:200] + "..." if len(error.error) > 200 else error.error
+                    error_summary.append(f"  - {error.creation}: {error_text}")
+                
+                error_msg = f"Errors occurred during test {self._testMethodName}:\n" + "\n".join(error_summary)
+                
+                # Use frappe.logger to avoid failing tests due to error logging issues
+                frappe.logger().error(f"Test Error Detection: {error_msg}")
+                
+                # For now, just log the errors rather than failing tests
+                # In the future, we can make this configurable or fail on critical errors
+                print(f"WARNING: {error_msg}")
+                
+        except Exception as e:
+            # Don't let error checking itself break tests
+            frappe.logger().error(f"Error during test error checking: {str(e)}")
+            print(f"Warning: Could not check for test errors: {str(e)}")
 
     @classmethod
     def _ensure_test_environment(cls):
@@ -109,15 +146,16 @@ class VereningingenTestCase(FrappeTestCase):
             )
             membership_type.insert(ignore_permissions=True)
 
-        # Ensure test Chapter exists
-        if not frappe.db.exists("Chapter", "Test Chapter"):
+        # Ensure test Chapter exists (unique per test session)
+        cls._test_chapter_name = getattr(cls, '_test_chapter_name', f"Test Chapter {frappe.generate_hash(length=8)}")
+        if not frappe.db.exists("Chapter", cls._test_chapter_name):
             # Get the actual region name after insert
             region_name = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "name": "Test Chapter",  # Set name explicitly for prompt autoname
-                    "chapter_name": "Test Chapter",
+                    "name": cls._test_chapter_name,  # Set name explicitly for prompt autoname
+                    "chapter_name": cls._test_chapter_name,
                     "region": region_name,
                     "is_active": 1}
             )
@@ -132,6 +170,7 @@ class VereningingenTestCase(FrappeTestCase):
         # Find all tracked members and their customers
         customers_to_delete = set()
         
+        # Method 1: Find customers via Member.customer field
         for doc_info in self._test_docs:
             if doc_info["doctype"] == "Member":
                 try:
@@ -149,6 +188,17 @@ class VereningingenTestCase(FrappeTestCase):
                             customer = frappe.db.get_value("Member", member, "customer")
                             if customer:
                                 customers_to_delete.add(customer)
+                except Exception:
+                    pass
+        
+        # Method 2: Find customers via new Customer.member field (backup method)
+        for doc_info in self._test_docs:
+            if doc_info["doctype"] == "Member":
+                try:
+                    # Use direct customer.member link
+                    customer = frappe.db.get_value("Customer", {"member": doc_info["name"]}, "name")
+                    if customer:
+                        customers_to_delete.add(customer)
                 except Exception:
                     pass
         
@@ -203,6 +253,11 @@ class VereningingenTestCase(FrappeTestCase):
     def get_test_region_name():
         """Get the actual test region name from database"""
         return frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
+    
+    @classmethod
+    def get_test_chapter_name(cls):
+        """Get the unique test chapter name for this test session"""
+        return getattr(cls, '_test_chapter_name', f"Test Chapter {frappe.generate_hash(length=8)}")
 
     @classmethod
     def track_class_doc(cls, doctype, name):
@@ -314,7 +369,8 @@ class VereningingenTestCase(FrappeTestCase):
             setattr(membership, key, value)
         
         membership.save()
-        if membership.docstatus == 0:
+        # Only submit if the original default was used (submit by default unless explicitly set to 0)
+        if membership.docstatus == 0 and kwargs.get("docstatus", 1) != 0:
             membership.submit()
         self.track_doc("Membership", membership.name)
         return membership
@@ -341,7 +397,7 @@ class VereningingenTestCase(FrappeTestCase):
             "is_template": 1,
             "schedule_name": f"Test-Template-{membership_type}",
             "membership_type": membership_type,
-            "amount": 15.00,
+            "dues_rate": 15.00,  # Fixed: was "amount", should be "dues_rate"
             "contribution_mode": "Calculator",
             "status": "Active",
             "auto_generate": 1,
@@ -361,6 +417,455 @@ class VereningingenTestCase(FrappeTestCase):
         dues_schedule.save()
         self.track_doc("Membership Dues Schedule", dues_schedule.name)
         return dues_schedule
+
+    def create_test_chapter(self, **kwargs):
+        """Create a test chapter with default values including required region"""
+        # Generate unique chapter name if not provided
+        chapter_name = kwargs.pop("chapter_name", f"Test Chapter {frappe.generate_hash(length=6)}")
+        
+        defaults = {
+            "region": self.get_test_region_name(),  # Use existing test region
+            "introduction": "Test chapter for automated testing",
+            "published": 1,  # Enable chapter to be found in searches
+        }
+        defaults.update(kwargs)
+        
+        chapter = frappe.new_doc("Chapter")
+        chapter.name = chapter_name  # Set the name directly
+        
+        for key, value in defaults.items():
+            setattr(chapter, key, value)
+        
+        chapter.save()
+        self.track_doc("Chapter", chapter.name)
+        return chapter
+
+    def create_test_volunteer_team(self, **kwargs):
+        """Create a test volunteer team with default values"""
+        defaults = {
+            "team_name": f"Test Team {frappe.generate_hash(length=6)}",
+            "team_code": f"T{frappe.generate_hash(length=3)}",
+            "description": "Test volunteer team for automated testing",
+            "team_leader": f"leader.{frappe.generate_hash(length=4)}@example.com",
+            "is_active": 1,
+            "requires_background_check": 0,
+            "minimum_member_status": "Active"
+        }
+        defaults.update(kwargs)
+        
+        team = frappe.new_doc("Volunteer Team")
+        for key, value in defaults.items():
+            setattr(team, key, value)
+        
+        team.save()
+        self.track_doc("Volunteer Team", team.name)
+        return team
+
+    def create_test_volunteer_expense(self, **kwargs):
+        """Create a test volunteer expense with default values"""
+        # Create a volunteer first if not provided
+        if "volunteer" not in kwargs:
+            volunteer = self.create_test_volunteer()
+            kwargs["volunteer"] = volunteer.name
+        
+        # Get first available expense category
+        existing_categories = frappe.get_all("Expense Category", limit=1, pluck="name")
+        expense_category = existing_categories[0] if existing_categories else "Reiskosten"
+        
+        defaults = {
+            "expense_date": frappe.utils.today(),
+            "description": "Test volunteer expense",
+            "amount": 25.00,
+            "category": expense_category,
+            "organization_type": "Chapter",
+            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0],
+            "status": "Submitted"
+        }
+        defaults.update(kwargs)
+        
+        expense = frappe.new_doc("Volunteer Expense")
+        for key, value in defaults.items():
+            setattr(expense, key, value)
+        
+        expense.save()
+        self.track_doc("Volunteer Expense", expense.name)
+        return expense
+
+    def create_test_event(self, **kwargs):
+        """Create a test event with default values"""
+        defaults = {
+            "subject": f"Test Event {frappe.generate_hash(length=6)}",
+            "event_type": "Public",
+            "starts_on": frappe.utils.add_days(frappe.utils.today(), 30),
+            "ends_on": frappe.utils.add_days(frappe.utils.today(), 30),
+            "description": "Test event for automated testing"
+        }
+        defaults.update(kwargs)
+        
+        event = frappe.new_doc("Event")
+        for key, value in defaults.items():
+            setattr(event, key, value)
+        
+        event.save()
+        self.track_doc("Event", event.name)
+        return event
+
+    def create_test_sepa_mandate(self, **kwargs):
+        """Create a test SEPA mandate with default values"""
+        # Create a member first if not provided
+        if "party" not in kwargs and "member" in kwargs:
+            member = frappe.get_doc("Member", kwargs["member"])
+            # Ensure member has a customer
+            if not member.customer:
+                customer = frappe.new_doc("Customer")
+                customer.customer_name = f"{member.first_name} {member.last_name}"
+                customer.customer_type = "Individual"
+                customer.member = member.name  # Direct link to member
+                customer.save()
+                member.customer = customer.name
+                member.save()
+                self.track_doc("Customer", customer.name)
+            kwargs["party"] = member.customer
+            kwargs["party_type"] = "Customer"
+        
+        defaults = {
+            "party_type": "Customer",
+            "iban": "NL91ABNA0417164300",  # Valid test IBAN
+            "account_holder": "Test Account Holder",
+            "mandate_type": "RCUR",
+            "status": "Active",
+            "consent_date": frappe.utils.today(),
+            "consent_method": "Online Portal"
+        }
+        defaults.update(kwargs)
+        
+        mandate = frappe.new_doc("SEPA Mandate")
+        for key, value in defaults.items():
+            setattr(mandate, key, value)
+        
+        mandate.save()
+        self.track_doc("SEPA Mandate", mandate.name)
+        return mandate
+
+    def create_test_membership_application(self, **kwargs):
+        """Create a test membership application with default values"""
+        defaults = {
+            "first_name": "Test",
+            "last_name": "Applicant",
+            "email": f"applicant.{frappe.generate_hash(length=6)}@example.com",
+            "membership_type": "Test Membership",
+            "status": "Pending",
+            "address_line1": "123 Test Street",
+            "postal_code": "1234AB",
+            "city": "Test City",
+            "country": "Netherlands",
+            "application_date": frappe.utils.today()
+        }
+        defaults.update(kwargs)
+        
+        application = frappe.new_doc("Membership Application")
+        for key, value in defaults.items():
+            setattr(application, key, value)
+        
+        application.save()
+        self.track_doc("Membership Application", application.name)
+        return application
+
+    def create_test_sales_invoice(self, **kwargs):
+        """Create a test sales invoice with default values"""
+        # Ensure we have a customer
+        if "customer" not in kwargs:
+            if "member" in kwargs:
+                member = frappe.get_doc("Member", kwargs["member"])
+                if not member.customer:
+                    customer = frappe.new_doc("Customer")
+                    customer.customer_name = f"{member.first_name} {member.last_name}"
+                    customer.customer_type = "Individual"
+                    customer.member = member.name  # Direct link to member
+                    customer.save()
+                    member.customer = customer.name
+                    member.save()
+                    self.track_doc("Customer", customer.name)
+                kwargs["customer"] = member.customer
+            else:
+                # Create a test customer
+                customer = frappe.new_doc("Customer")
+                customer.customer_name = "Test Customer"
+                customer.customer_type = "Individual"
+                customer.save()
+                self.track_doc("Customer", customer.name)
+                kwargs["customer"] = customer.name
+        
+        defaults = {
+            "posting_date": frappe.utils.today(),
+            "due_date": frappe.utils.today(),
+            "is_membership_invoice": 1,
+            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+        }
+        defaults.update(kwargs)
+        
+        invoice = frappe.new_doc("Sales Invoice")
+        for key, value in defaults.items():
+            setattr(invoice, key, value)
+        
+        # Add a default item if no items provided
+        if not invoice.items:
+            invoice.append("items", {
+                "item_code": "MEMBERSHIP-MONTHLY",
+                "qty": 1,
+                "rate": 25.0,
+                "income_account": "Sales - TC"
+            })
+        
+        invoice.save()
+        self.track_doc("Sales Invoice", invoice.name)
+        return invoice
+
+    def create_test_donor(self, **kwargs):
+        """Create a test donor with default values"""
+        defaults = {
+            "donor_name": f"Test Donor {frappe.generate_hash(length=6)}",
+            "donor_email": f"donor.{frappe.generate_hash(length=6)}@example.com",
+            "donor_type": "Individual",
+            "is_anbi_eligible": 1
+        }
+        defaults.update(kwargs)
+        
+        donor = frappe.new_doc("Donor")
+        for key, value in defaults.items():
+            setattr(donor, key, value)
+        
+        donor.save()
+        self.track_doc("Donor", donor.name)
+        return donor
+
+    def create_test_periodic_donation_agreement(self, **kwargs):
+        """Create a test periodic donation agreement with default values"""
+        # Create a donor first if not provided
+        if "donor" not in kwargs:
+            donor = self.create_test_donor()
+            kwargs["donor"] = donor.name
+        
+        defaults = {
+            "start_date": frappe.utils.today(),
+            "annual_amount": 1200,
+            "payment_frequency": "Monthly",
+            "payment_method": "Bank Transfer",
+            "agreement_duration_years": "5 Years (ANBI Minimum)",
+            "anbi_eligible": 1,
+            "status": "Draft"
+        }
+        defaults.update(kwargs)
+        
+        agreement = frappe.new_doc("Periodic Donation Agreement")
+        for key, value in defaults.items():
+            setattr(agreement, key, value)
+        
+        agreement.save()
+        self.track_doc("Periodic Donation Agreement", agreement.name)
+        return agreement
+
+    def create_test_donation(self, **kwargs):
+        """Create a test donation with default values"""
+        # Create a donor first if not provided
+        if "donor" not in kwargs:
+            donor = self.create_test_donor()
+            kwargs["donor"] = donor.name
+        
+        defaults = {
+            "date": frappe.utils.today(),
+            "amount": 100.0,
+            "payment_method": "Bank Transfer",
+            "donor_type": "Individual",
+            "currency": "EUR",
+            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+        }
+        defaults.update(kwargs)
+        
+        donation = frappe.new_doc("Donation")
+        for key, value in defaults.items():
+            setattr(donation, key, value)
+        
+        donation.save()
+        self.track_doc("Donation", donation.name)
+        return donation
+
+    def create_anbi_compliant_agreement(self, **kwargs):
+        """Create an ANBI-compliant donation agreement (5+ years)"""
+        defaults = {
+            "agreement_duration_years": "5 Years (ANBI Minimum)",
+            "anbi_eligible": 1,
+            "annual_amount": 1200
+        }
+        defaults.update(kwargs)
+        return self.create_test_periodic_donation_agreement(**defaults)
+
+    def create_non_anbi_pledge(self, **kwargs):
+        """Create a non-ANBI pledge (1-4 years)"""
+        defaults = {
+            "agreement_duration_years": "1 Year (Pledge - No ANBI benefits)",
+            "anbi_eligible": 0,
+            "annual_amount": 600
+        }
+        defaults.update(kwargs)
+        return self.create_test_periodic_donation_agreement(**defaults)
+
+    def create_test_payment_entry(self, **kwargs):
+        """Create a test payment entry with default values"""
+        # Ensure we have a party (customer or supplier)
+        if "party" not in kwargs:
+            if "member" in kwargs:
+                member = frappe.get_doc("Member", kwargs["member"])
+                if not member.customer:
+                    customer = frappe.new_doc("Customer")
+                    customer.customer_name = f"{member.first_name} {member.last_name}"
+                    customer.customer_type = "Individual"
+                    customer.member = member.name  # Direct link to member
+                    customer.save()
+                    member.customer = customer.name
+                    member.save()
+                    self.track_doc("Customer", customer.name)
+                kwargs["party"] = member.customer
+                kwargs["party_type"] = "Customer"
+            else:
+                # Create a test customer
+                customer = frappe.new_doc("Customer")
+                customer.customer_name = "Test Payment Customer"
+                customer.customer_type = "Individual"
+                customer.save()
+                self.track_doc("Customer", customer.name)
+                kwargs["party"] = customer.name
+                kwargs["party_type"] = "Customer"
+        
+        defaults = {
+            "payment_type": "Receive",
+            "posting_date": frappe.utils.today(),
+            "paid_amount": 100.0,
+            "received_amount": 100.0,
+            "source_exchange_rate": 1,
+            "target_exchange_rate": 1,
+            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0],
+            "mode_of_payment": "Bank Transfer"
+        }
+        defaults.update(kwargs)
+        
+        payment = frappe.new_doc("Payment Entry")
+        for key, value in defaults.items():
+            setattr(payment, key, value)
+        
+        payment.save()
+        self.track_doc("Payment Entry", payment.name)
+        return payment
+
+    def create_test_direct_debit_batch(self, **kwargs):
+        """Create a test direct debit batch with default values"""
+        defaults = {
+            "batch_name": f"Test DD Batch {frappe.generate_hash(length=6)}",
+            "collection_date": frappe.utils.add_days(frappe.utils.today(), 3),
+            "batch_status": "Draft",
+            "payment_method": "SEPA Direct Debit",
+            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+        }
+        defaults.update(kwargs)
+        
+        batch = frappe.new_doc("Direct Debit Batch")
+        for key, value in defaults.items():
+            setattr(batch, key, value)
+        
+        batch.save()
+        self.track_doc("Direct Debit Batch", batch.name)
+        return batch
+
+    def create_test_chapter_role(self, **kwargs):
+        """Create a test chapter role with default values"""
+        defaults = {
+            "role_name": f"Test Role {frappe.generate_hash(length=6)}",
+            "description": "Test role for automated testing",
+            "permissions_level": "Basic",  # Valid options: Basic/Financial/Admin
+            "is_chair": 0,
+            "is_unique": 0,
+            "is_active": 1
+        }
+        defaults.update(kwargs)
+        
+        role = frappe.new_doc("Chapter Role")
+        for key, value in defaults.items():
+            setattr(role, key, value)
+        
+        role.save()
+        self.track_doc("Chapter Role", role.name)
+        return role
+
+    def create_test_volunteer(self, **kwargs):
+        """Create a test volunteer with default values"""
+        # Create a member first if not provided
+        if "member" not in kwargs:
+            member = self.create_test_member()
+            kwargs["member"] = member.name
+        
+        defaults = {
+            "volunteer_name": f"Test Volunteer {frappe.generate_hash(length=6)}",  # Required field
+            "email": f"volunteer.{frappe.generate_hash(length=6)}@example.com",    # Required, unique field
+            "status": "Active",
+            "start_date": frappe.utils.today()
+        }
+        defaults.update(kwargs)
+        
+        volunteer = frappe.new_doc("Volunteer")
+        for key, value in defaults.items():
+            setattr(volunteer, key, value)
+        
+        volunteer.save()
+        self.track_doc("Volunteer", volunteer.name)
+        return volunteer
+
+    def create_test_volunteer_with_realistic_name(self, **kwargs):
+        """Create volunteer with realistic name that could cause duplicates (for production scenario testing)"""
+        common_names = [
+            ("John", "Smith"), ("Mary", "Johnson"), ("James", "Williams"),
+            ("Patricia", "Brown"), ("Robert", "Jones"), ("Jennifer", "Garcia"),
+            ("Michael", "Davis"), ("Linda", "Rodriguez"), ("David", "Martinez"),
+            ("Barbara", "Hernandez"), ("William", "Anderson"), ("Elizabeth", "Taylor")
+        ]
+        
+        # Use deterministic but realistic names based on test context
+        import hashlib
+        test_context = f"{self._testMethodName}_{str(kwargs)}"
+        test_id = hashlib.md5(test_context.encode()).hexdigest()[:4]
+        name_index = int(test_id, 16) % len(common_names)
+        first_name, last_name = common_names[name_index]
+        
+        # Create member with realistic name if not provided
+        if "member" not in kwargs:
+            member = self.create_test_member(
+                first_name=first_name,
+                last_name=last_name,
+                email=f"{first_name.lower()}.{last_name.lower()}.{test_id}@example.com"
+            )
+            kwargs["member"] = member.name
+        
+        # Don't override volunteer_name if explicitly provided
+        if "volunteer_name" not in kwargs:
+            # Get the member to use their name
+            member_doc = frappe.get_doc("Member", kwargs["member"])
+            kwargs["volunteer_name"] = f"{member_doc.first_name} {member_doc.last_name}".strip()
+        
+        return self.create_test_volunteer(**kwargs)
+
+    def add_board_member_to_chapter(self, chapter, volunteer, chapter_role, **kwargs):
+        """Add a board member to a chapter with proper validation"""
+        defaults = {
+            "volunteer": volunteer.name if hasattr(volunteer, 'name') else volunteer,
+            "chapter_role": chapter_role.name if hasattr(chapter_role, 'name') else chapter_role,
+            "from_date": frappe.utils.today(),
+            "is_active": 1
+        }
+        defaults.update(kwargs)
+        
+        chapter.append("board_members", defaults)
+        chapter.save()
+        
+        return chapter
 
     def create_test_user(self, email, roles=None, password="test123"):
         """Create a test user with specified roles"""

@@ -119,7 +119,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                 "postal_codes": "1000-9999",
                 "introduction": "Test chapter for lifecycle testing"}
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()
         self.track_doc("Chapter", chapter.name)
         return chapter
 
@@ -193,7 +193,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                 member.application_approved_on = frappe.utils.now_datetime()
             if hasattr(member, "application_approved_by"):
                 member.application_approved_by = self.admin_user.name
-            member.save(ignore_permissions=True)
+            member.save()
 
             # Activate chapter membership if pending
             selected_chapter = (
@@ -252,14 +252,14 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                             "send_welcome_email": 0}
                     )
                     user.append("roles", {"role": "Verenigingen Member"})
-                    user.insert(ignore_permissions=True)
+                    user.insert()
                     self.track_doc("User", user.name)
                 else:
                     user = frappe.get_doc("User", user_email)
 
                 # Link user to member
                 member.user = user.name
-                member.save(ignore_permissions=True)
+                member.save()
             else:
                 user_email = member.user
 
@@ -350,7 +350,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                                 "allocated_amount": invoice.grand_total}
                         ]}
                 )
-                payment_entry.insert(ignore_permissions=True)
+                payment_entry.insert()
                 payment_entry.submit()
                 self.track_doc("Payment Entry", payment_entry.name)
                 payment_result = {"success": True}
@@ -395,7 +395,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "renewal_date": add_months(today(), 12),
                     "status": "Active"}
             )
-            membership.insert(ignore_permissions=True)
+            membership.insert()
             membership.submit()
             self.track_doc("Membership", membership.name)
 
@@ -432,7 +432,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "start_date": today(),
                     "skills": "Event Organization, Community Outreach"}
             )
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()
 
         # Record state
         self.state_manager.record_state("Volunteer", volunteer.name, "Active")
@@ -469,7 +469,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "team_type": "Project Team",
                     "start_date": today()}
             )
-            team.insert(ignore_permissions=True)
+            team.insert()
             self.track_doc("Team", team.name)
 
             # Add volunteer to team
@@ -484,7 +484,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "is_active": 1,
                     "status": "Active"},
             )
-            team.save(ignore_permissions=True)
+            team.save()
 
         # Test board member addition - ensure status field is set
         with self.as_user(self.admin_user.name):
@@ -499,7 +499,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "permissions_level": "Admin",
                     "is_active": 1}
             )
-            board_role.insert(ignore_permissions=True)
+            board_role.insert()
             self.track_doc("Chapter Role", board_role.name)
 
             # Add as board member
@@ -545,7 +545,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                             "category_name": category_name,
                             "expense_account": expense_account[0].name}
                     )
-                    expense_cat.insert(ignore_permissions=True)
+                    expense_cat.insert()
                     self.track_doc("Expense Category", expense_cat.name)
                     expense_category = expense_cat.name
                 else:
@@ -565,7 +565,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                         "chapter": self.test_chapter.name,
                         "category": expense_category}
                 )
-                expense.insert(ignore_permissions=True)
+                expense.insert()
                 self.track_doc("Volunteer Expense", expense.name)
             else:
                 expense = None
@@ -608,7 +608,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
                     "renewal_date": add_months(old_membership.renewal_date, 12),
                     "status": "Active"}
             )
-            new_membership_doc.insert(ignore_permissions=True)
+            new_membership_doc.insert()
             new_membership_doc.submit()
             self.track_doc("Membership", new_membership_doc.name)
 
@@ -638,7 +638,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
             member = frappe.get_doc("Member", member_name)
             member.status = "Suspended"
             member.add_comment("Comment", "Test suspension for lifecycle")
-            member.save(ignore_permissions=True)
+            member.save()
 
             # Record suspension
             self.state_manager.record_state("Member", member_name, "Suspended")
@@ -646,7 +646,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
             # Reactivate member
             member.status = "Active"
             member.add_comment("Comment", "Test reactivation for lifecycle")
-            member.save(ignore_permissions=True)
+            member.save()
 
             self.state_manager.record_state("Member", member_name, "Active")
 
@@ -686,7 +686,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
             # Clear application_status to prevent sync_status_fields from changing it back
             member.application_status = ""
             member.add_comment("Comment", "Lifecycle test completion - member terminated")
-            member.save(ignore_permissions=True)
+            member.save()
 
             self.state_manager.record_state("Member", member_name, "Terminated")
 

@@ -104,7 +104,7 @@ class TestVolunteerSkillsAPI(unittest.TestCase):
                 skill_row.proficiency_level = skill_data["level"]
                 skill_row.experience_years = skill_data["years"]
             
-            volunteer.insert(ignore_permissions=True)
+            volunteer.insert()
             self.test_volunteers.append(volunteer.name)
 
         # Add some development goals for testing
@@ -113,7 +113,7 @@ class TestVolunteerSkillsAPI(unittest.TestCase):
         goal_row.skill = "Machine Learning"
         goal_row.current_level = "2"
         goal_row.target_level = "4"
-        volunteer1.save(ignore_permissions=True)
+        volunteer1.save()
 
     def test_search_volunteers_by_skill(self):
         """Test searching volunteers by skill name"""
@@ -280,7 +280,7 @@ class TestVolunteerSkillsAPI(unittest.TestCase):
             "email": "test_no_skills@example.com",
             "status": "Active"
         })
-        volunteer_no_skills.insert(ignore_permissions=True)
+        volunteer_no_skills.insert()
         
         no_recs = get_skill_recommendations(volunteer_no_skills.name)
         self.assertTrue(no_recs["success"])
@@ -398,7 +398,7 @@ class TestVolunteerSkillsAPI(unittest.TestCase):
         skill_row.volunteer_skill = "TestSkill"
         skill_row.proficiency_level = "3 - Intermediate"
         
-        test_vol.insert(ignore_permissions=True)
+        test_vol.insert()
         
         # Test minimum level filtering
         results_level_3 = search_volunteers_by_skill("TestSkill", min_level=3)

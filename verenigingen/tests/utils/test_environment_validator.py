@@ -339,11 +339,11 @@ class TestEnvironmentValidator:
                         "short_name": "TEVC",
                         "country": "Netherlands"}
                 )
-                test_chapter.insert(ignore_permissions=True)
+                test_chapter.insert()
                 test_doc_created = True
 
                 # Clean up immediately
-                test_chapter.delete(ignore_permissions=True, force=True)
+                test_chapter.delete(, force=True)
 
             except Exception as e:
                 return {

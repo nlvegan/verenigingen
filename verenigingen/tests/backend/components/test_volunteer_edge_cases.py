@@ -49,7 +49,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                 "volunteer_availability": "Weekly",
                 "volunteer_skills": "Programming, Event Planning"}
         )
-        self.test_member.insert(ignore_permissions=True)
+        self.test_member.insert()
         self.docs_to_cleanup.append(("Member", self.test_member.name))
 
         # Create test interest categories if needed
@@ -66,7 +66,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                         "category_name": category,
                         "description": f"Test category {category}"}
                 )
-                cat_doc.insert(ignore_permissions=True)
+                cat_doc.insert()
                 self.docs_to_cleanup.append(("Volunteer Interest Category", category))
 
     def create_test_volunteer(self, **kwargs):
@@ -81,7 +81,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         defaults.update(kwargs)
 
         volunteer = frappe.get_doc(defaults)
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         self.docs_to_cleanup.append(("Volunteer", volunteer.name))
         return volunteer
 
@@ -175,12 +175,12 @@ class TestVolunteerEdgeCases(FrappeTestCase):
 
         for from_status, to_status in status_transitions:
             volunteer.status = from_status
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()
             volunteer.reload()
             self.assertEqual(volunteer.status, from_status, f"Should be able to set status to {from_status}")
 
             volunteer.status = to_status
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()
             volunteer.reload()
             self.assertEqual(
                 volunteer.status, to_status, f"Should transition from {from_status} to {to_status}"
@@ -191,7 +191,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         for i in range(10):
             status = ["New", "Active", "Inactive"][i % 3]
             volunteer.status = status
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()
             volunteer.reload()
             self.assertEqual(volunteer.status, status, f"Rapid change {i} should work")
 
@@ -227,7 +227,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "certifications": f"Cert-{i + 1}, Advanced-{i + 1}" if i % 3 == 0 else ""},
             )
 
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         volunteer.reload()
 
         # Verify large skill set handling
@@ -260,7 +260,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                         "experience_years": years,
                         "certifications": certs},
                 )
-                volunteer.save(ignore_permissions=True)
+                volunteer.save()
                 print(f"✅ Special skill handled: {skill[:30]}...")
             except Exception as e:
                 print(f"⚠️ Special skill rejected: {skill[:30]}... - {str(e)}")
@@ -303,7 +303,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "notes": f"Notes for assignment {i + 1}"},
             )
 
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         volunteer.reload()
 
         # Verify large assignment history handling
@@ -338,7 +338,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         for assignment_data in edge_case_assignments:
             try:
                 volunteer.append("assignment_history", assignment_data)
-                volunteer.save(ignore_permissions=True)
+                volunteer.save()
                 print(f"✅ Edge case assignment handled: {assignment_data.get('role', 'Empty role')[:30]}...")
             except Exception as e:
                 print(f"⚠️ Edge case assignment rejected: {str(e)}")
@@ -355,7 +355,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         for category in available_categories * 3:  # Add duplicates
             volunteer.append("interests", {"interest_area": category})
 
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         volunteer.reload()
 
         # Should allow duplicates (business decision)
@@ -367,7 +367,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         # Test with non-existent interest category
         try:
             volunteer.append("interests", {"interest_area": "Non-Existent Category"})
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()
             print("⚠️ Non-existent category was accepted")
         except Exception as e:
             print(f"✅ Non-existent category properly rejected: {str(e)}")
@@ -413,7 +413,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "notes": f"Development plan for {skill} - step {i + 1}"},
             )
 
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         volunteer.reload()
 
         # Verify large goals set handling
@@ -445,7 +445,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         for goal_data in edge_case_goals:
             try:
                 volunteer.append("development_goals", goal_data)
-                volunteer.save(ignore_permissions=True)
+                volunteer.save()
                 print(f"✅ Edge case goal handled: {goal_data['skill'][:30]}...")
             except Exception as e:
                 print(f"⚠️ Edge case goal rejected: {str(e)}")
@@ -470,7 +470,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "status": "Active",
                     "start_date": today()}
             )
-            invalid_volunteer.insert(ignore_permissions=True)
+            invalid_volunteer.insert()
             self.docs_to_cleanup.append(("Volunteer", invalid_volunteer.name))
             print("⚠️ Non-existent member was accepted")
         except Exception as e:
@@ -481,7 +481,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
 
         # Update member pronouns
         self.test_member.pronouns = "she/her"
-        self.test_member.save(ignore_permissions=True)
+        self.test_member.save()
 
         # Reload volunteer and check if pronouns sync (depends on implementation)
         volunteer.reload()
@@ -501,7 +501,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "status": "Active",
                     "start_date": today()}
             )
-            volunteer_no_member.insert(ignore_permissions=True)
+            volunteer_no_member.insert()
             self.docs_to_cleanup.append(("Volunteer", volunteer_no_member.name))
             print("✅ Volunteer without member link allowed")
         except Exception as e:
@@ -537,7 +537,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                         "end_date": scenario["end_date"],
                         "status": "Active"},
                 )
-                volunteer.save(ignore_permissions=True)
+                volunteer.save()
                 print(f"⚠️ {scenario['description']} was accepted")
             except Exception as e:
                 print(f"✅ {scenario['description']} properly rejected: {str(e)}")
@@ -556,7 +556,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         # Test rapid successive updates
         for i in range(20):
             volunteer.note = f"Updated note {i} with timestamp {now_datetime()}"
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()
             volunteer.reload()
 
         # Verify final state
@@ -573,8 +573,8 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         volunteer2.commitment_level = "Intensive"
 
         # Save both (second save might overwrite first)
-        volunteer1.save(ignore_permissions=True)
-        volunteer2.save(ignore_permissions=True)
+        volunteer1.save()
+        volunteer2.save()
 
         # Reload and verify final state
         final_volunteer = frappe.get_doc("Volunteer", volunteer.name)
@@ -637,7 +637,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "notes": f"Development notes {i + 1} " * 3},
             )
 
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         creation_time = time.time() - start_time
 
         self.assertLess(
@@ -678,7 +678,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     # Only required fields
                 }
             )
-            minimal_volunteer.insert(ignore_permissions=True)
+            minimal_volunteer.insert()
             self.docs_to_cleanup.append(("Volunteer", minimal_volunteer.name))
 
             self.assertEqual(minimal_volunteer.volunteer_name, f"Minimal Volunteer {self.test_id}")
@@ -705,7 +705,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "email": f"invalid{len(self.docs_to_cleanup)}{self.test_id.lower()}@organization.org",
                     scenario["field"]: scenario["value"]}
                 invalid_volunteer = frappe.get_doc(test_data)
-                invalid_volunteer.insert(ignore_permissions=True)
+                invalid_volunteer.insert()
                 self.docs_to_cleanup.append(("Volunteer", invalid_volunteer.name))
                 print(f"⚠️ {scenario['description']} was accepted (might be valid)")
             except Exception as e:

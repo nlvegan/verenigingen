@@ -2,11 +2,10 @@
 Unit tests for suspension integration functions
 """
 
-import unittest
 from unittest.mock import MagicMock, patch
 
 from frappe.utils import today
-
+from verenigingen.tests.utils.base import VereningingenTestCase
 from verenigingen.utils.termination_integration import (
     get_member_suspension_status,
     suspend_member_safe,
@@ -14,19 +13,27 @@ from verenigingen.utils.termination_integration import (
 )
 
 
-class TestSuspensionIntegration(unittest.TestCase):
+class TestSuspensionIntegration(VereningingenTestCase):
     """Test suspension integration functions"""
 
     def setUp(self):
-        """Set up test data"""
-        self.test_member_name = "TEST-MEMBER-001"
-        self.test_user_email = "test.member@example.com"
+        """Set up test data using factory methods"""
+        super().setUp()
+        
+        # Create test member using factory method
+        self.test_member = self.create_test_member(
+            first_name="TestSuspension",
+            last_name="Member",
+            email="test.suspension@example.com",
+            status="Active"
+        )
+        
+        self.test_member_name = self.test_member.name
+        self.test_user_email = self.test_member.email
         self.test_suspension_reason = "Test suspension for unit testing"
         self.test_unsuspension_reason = "Test unsuspension for unit testing"
 
-    def tearDown(self):
-        """Clean up test data"""
-        # Clean up any test documents created
+    # tearDown handled by VereningingenTestCase automatically
 
     @patch("verenigingen.utils.termination_integration.frappe.get_doc")
     @patch("verenigingen.utils.termination_integration.frappe.db.get_value")
@@ -275,4 +282,7 @@ class TestSuspensionIntegration(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    # Can be run via:
+    # bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.integration.test_suspension_integration
+    import unittest
     unittest.main()

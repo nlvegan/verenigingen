@@ -73,7 +73,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         user_doc.first_name = "Test"
         user_doc.last_name = "Termination"
         user_doc.enabled = 1
-        user_doc.insert(ignore_permissions=True)
+        user_doc.insert()
 
         # Create member
         member_doc = frappe.new_doc("Member")
@@ -81,7 +81,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         member_doc.full_name = "Test Termination User"
         member_doc.user = cls.test_user_email
         member_doc.status = "Active"
-        member_doc.insert(ignore_permissions=True)
+        member_doc.insert()
 
         # Create employee with different field configurations for testing
         employee_doc = frappe.new_doc("Employee")
@@ -89,14 +89,14 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         employee_doc.user_id = cls.test_user_email  # Primary linking method
         employee_doc.personal_email = cls.test_user_email  # Alternative linking method
         employee_doc.status = "Active"
-        employee_doc.insert(ignore_permissions=True)
+        employee_doc.insert()
 
         # Create volunteer
         volunteer_doc = frappe.new_doc("Volunteer")
         volunteer_doc.volunteer_name = "Test Termination Volunteer"
         volunteer_doc.member = cls.test_member_name
         volunteer_doc.status = "Active"
-        volunteer_doc.insert(ignore_permissions=True)
+        volunteer_doc.insert()
 
         frappe.db.commit()
 
@@ -117,7 +117,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
             member.application_status = "Rejected"  # This would normally override
 
             # Save and check status is preserved
-            member.save(ignore_permissions=True)
+            member.save()
 
             # Reload and verify
             member.reload()
@@ -150,7 +150,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         alt_employee.personal_email = self.test_user_email
         alt_employee.status = "Active"
         # Deliberately not setting user_id
-        alt_employee.insert(ignore_permissions=True)
+        alt_employee.insert()
 
         try:
             from verenigingen.utils.termination_utils import validate_termination_readiness
@@ -237,7 +237,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
                 # Reset member status
                 member = frappe.get_doc("Member", self.test_member_name)
                 member.status = "Active"
-                member.save(ignore_permissions=True)
+                member.save()
 
                 # Apply termination
                 success = update_member_status_safe(
@@ -325,7 +325,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         termination_req.member = self.test_member_name
         termination_req.termination_type = "Voluntary"
         termination_req.termination_reason = "End-to-end test"
-        termination_req.insert(ignore_permissions=True)
+        termination_req.insert()
 
         try:
             # Submit for approval
@@ -367,7 +367,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         memberless_user.full_name = "Member Without User"
         memberless_user.status = "Active"
         # Deliberately not setting user field
-        memberless_user.insert(ignore_permissions=True)
+        memberless_user.insert()
 
         try:
             from verenigingen.utils.termination_utils import validate_termination_readiness
@@ -391,7 +391,7 @@ class TestTerminationSystemComprehensive(unittest.TestCase):
         duplicate_employee.employee_name = "Duplicate Employee"
         duplicate_employee.user_id = self.test_user_email
         duplicate_employee.status = "Active"
-        duplicate_employee.insert(ignore_permissions=True)
+        duplicate_employee.insert()
 
         try:
             from verenigingen.utils.termination_integration import terminate_employee_records_safe

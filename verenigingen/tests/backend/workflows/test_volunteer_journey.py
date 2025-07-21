@@ -10,12 +10,10 @@ Tests the complete volunteer lifecycle from member to active volunteer
 
 import frappe
 from frappe.utils import add_days, today
-
-from verenigingen.tests.utils.base import VereningingenWorkflowTestCase
-from verenigingen.tests.utils.factories import TestDataBuilder, TestStateManager, TestUserFactory
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestVolunteerJourney(VereningingenWorkflowTestCase):
+class TestVolunteerJourney(VereningingenTestCase):
     """
     Volunteer Journey Test
 
@@ -32,15 +30,18 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
     def setUp(self):
         """Set up the volunteer journey test"""
         super().setUp()
-        self.state_manager = TestStateManager()
-        self.test_data_builder = TestDataBuilder()
 
-        # Create test environment
-        self.test_chapter = self._create_test_chapter()
-        self.admin_user = TestUserFactory.create_admin_user()
+        # Create test environment using factory methods
+        self.test_chapter = self.create_test_chapter(
+            chapter_name="Volunteer Journey Chapter"
+        )
 
         # Create base member for volunteer journey
-        self.base_member = self._create_base_member()
+        self.base_member = self.create_test_member(
+            first_name="Volunteer",
+            last_name="Journey",
+            email="volunteer.journey@example.com"
+        )
 
     def test_complete_volunteer_journey(self):
         """Test the complete volunteer journey from member to deactivation"""
@@ -198,7 +199,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
                     "volunteer_interests", {"interest_category": "Youth Programs", "interest_level": "Medium"}
                 )
 
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()
 
         # Record state
         self.state_manager.record_state("Volunteer", volunteer_name, "Profile Completed")
@@ -493,7 +494,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
             volunteer.total_hours_logged = total_hours
             volunteer.total_expenses = total_expenses
             volunteer.last_activity_date = today()
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()
 
         # Record state
         self.state_manager.record_state("Volunteer", volunteer_name, "Reports Generated")
@@ -528,7 +529,7 @@ class TestVolunteerJourney(VereningingenWorkflowTestCase):
             volunteer.status = "Inactive"
             volunteer.end_date = today()
             volunteer.deactivation_reason = "Volunteer journey test completion"
-            volunteer.save(ignore_permissions=True)
+            volunteer.save()
 
             # Deactivate team memberships
             teams = frappe.get_all(

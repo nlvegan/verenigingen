@@ -36,6 +36,7 @@ class Volunteer(Document):
         """Validate volunteer data"""
         self.validate_required_fields()
         self.validate_member_link()
+        self.validate_volunteer_age()
         self.validate_dates()
 
     def validate_required_fields(self):
@@ -47,6 +48,52 @@ class Volunteer(Document):
         """Validate that member link is valid"""
         if self.member and not frappe.db.exists("Member", self.member):
             frappe.throw(_("Member {0} does not exist").format(self.member), frappe.DoesNotExistError)
+
+    def validate_volunteer_age(self):
+        """Validate volunteer age requirements"""
+        if not self.member:
+            return  # Skip if no member linked
+
+        try:
+            # Get member's age
+            member = frappe.get_doc("Member", self.member)
+            if not member.birth_date:
+                return  # Skip if no birth date
+
+            # Calculate age or use existing age field
+            if hasattr(member, "age") and member.age is not None:
+                age = member.age
+            else:
+                from datetime import date, datetime
+
+                today_date = date.today()
+                if isinstance(member.birth_date, str):
+                    born = datetime.strptime(member.birth_date, "%Y-%m-%d").date()
+                else:
+                    born = member.birth_date
+                age = (
+                    today_date.year
+                    - born.year
+                    - ((today_date.month, today_date.day) < (born.month, born.day))
+                )
+
+            # Get minimum volunteer age from configuration
+            from verenigingen.utils.config_manager import ConfigManager
+
+            min_volunteer_age = ConfigManager.get("min_volunteer_age", 16)
+
+            if age < min_volunteer_age:
+                frappe.throw(
+                    _("Volunteers must be at least {0} years old. Member age: {1}").format(
+                        min_volunteer_age, age
+                    ),
+                    frappe.ValidationError,
+                )
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error validating volunteer age for {self.name}: {str(e)}", "Volunteer Age Validation Error"
+            )
 
     def validate_dates(self):
         """Validate date fields in child tables"""
@@ -1004,6 +1051,150 @@ class Volunteer(Document):
             frappe.log_error(
                 f"Error creating employee for volunteer {self.name}: {str(e)}", "Employee Creation Error"
             )
+
+
+@frappe.whitelist()
+def create_volunteer_from_member(member_name, volunteer_name=None, status="New", interested_skills=None):
+    """Create a volunteer record from an existing member
+
+    Args:
+        member_name: Name of the Member record to create volunteer from
+        volunteer_name: Optional custom volunteer name (defaults to member's full name)
+        status: Initial volunteer status (default: "New")
+        interested_skills: Optional list/string of skills the volunteer is interested in
+
+    Returns:
+        dict: Result with volunteer name if successful, error message if failed
+    """
+    try:
+        # Validate member exists
+        if not frappe.db.exists("Member", member_name):
+            return {"success": False, "error": f"Member {member_name} does not exist"}
+
+        # Check if volunteer already exists for this member
+        existing_volunteer = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        if existing_volunteer:
+            return {
+                "success": False,
+                "error": f"Volunteer record already exists for member {member_name}: {existing_volunteer}",
+            }
+
+        # Get member data
+        member = frappe.get_doc("Member", member_name)
+
+        # Determine volunteer name
+        if not volunteer_name:
+            if member.full_name:
+                volunteer_name = member.full_name
+            elif is_dutch_installation() and hasattr(member, "tussenvoegsel") and member.tussenvoegsel:
+                volunteer_name = format_dutch_full_name(
+                    member.first_name, None, member.tussenvoegsel, member.last_name
+                )
+            else:
+                volunteer_name = f"{member.first_name} {member.last_name}".strip()
+
+        if not volunteer_name:
+            volunteer_name = member.email or f"Volunteer-{member.name}"
+
+        # Create volunteer record
+        volunteer_data = {
+            "doctype": "Volunteer",
+            "volunteer_name": volunteer_name,
+            "member": member.name,
+            "email": member.email,
+            "first_name": member.first_name,
+            "last_name": member.last_name,
+            "status": status,
+            "available": 1,
+            "date_joined": frappe.utils.today(),
+            "start_date": frappe.utils.today(),
+        }
+
+        # Add optional fields if available
+        if hasattr(member, "personal_email") and member.personal_email:
+            volunteer_data["personal_email"] = member.personal_email
+        if hasattr(member, "contact_number") and member.contact_number:
+            volunteer_data["contact_number"] = member.contact_number
+
+        volunteer = frappe.get_doc(volunteer_data)
+
+        # Add skills if provided
+        if interested_skills:
+            if isinstance(interested_skills, str):
+                try:
+                    import json
+
+                    interested_skills = json.loads(interested_skills)
+                except:
+                    interested_skills = [interested_skills]
+
+            if isinstance(interested_skills, list):
+                for skill in interested_skills:
+                    if isinstance(skill, str):
+                        volunteer.append(
+                            "skills_and_qualifications",
+                            {
+                                "volunteer_skill": skill,
+                                "skill_category": "General",
+                                "proficiency_level": "1 - Beginner",
+                            },
+                        )
+                    elif isinstance(skill, dict):
+                        volunteer.append(
+                            "skills_and_qualifications",
+                            {
+                                "volunteer_skill": skill.get("name", skill.get("skill", "Unknown")),
+                                "skill_category": skill.get("category", "General"),
+                                "proficiency_level": skill.get("level", "1 - Beginner"),
+                            },
+                        )
+
+        # Save volunteer with proper permissions
+        try:
+            # Try to insert with normal permissions first
+            volunteer.insert()
+        except frappe.PermissionError:
+            # If permission is denied, check if user should be allowed to create this volunteer
+            current_user = frappe.session.user
+            user_roles = frappe.get_roles(current_user)
+
+            # Allow if user has management roles or is creating for themselves
+            management_roles = [
+                "System Manager",
+                "Verenigingen Administrator",
+                "Volunteer Manager",
+                "Chapter Manager",
+                "Chapter Board Member",
+                "Volunteer Coordinator",
+            ]
+
+            user_member = frappe.db.get_value("Member", {"user": current_user}, "name")
+            is_creating_for_self = user_member == member.name
+            has_management_role = any(role in user_roles for role in management_roles)
+
+            if is_creating_for_self or has_management_role:
+                # Use ignore_permissions only when we've verified the user should have access
+                volunteer.insert(ignore_permissions=True)
+            else:
+                # Re-raise the permission error if user truly shouldn't have access
+                raise
+
+        return {
+            "success": True,
+            "volunteer_name": volunteer.name,
+            "volunteer_display_name": volunteer.volunteer_name,
+            "message": f"Successfully created volunteer record {volunteer.name} for member {member_name}",
+        }
+
+    except frappe.ValidationError as e:
+        return {"success": False, "error": f"Validation failed: {str(e)}"}
+    except frappe.PermissionError as e:
+        return {"success": False, "error": f"Permission denied: {str(e)}"}
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating volunteer from member {member_name}: {str(e)}", "Volunteer Creation Error"
+        )
+        return {"success": False, "error": f"Failed to create volunteer: {str(e)}"}
 
 
 @frappe.whitelist()

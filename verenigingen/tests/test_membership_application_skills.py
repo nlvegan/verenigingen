@@ -128,7 +128,7 @@ class TestMembershipApplicationSkills(unittest.TestCase):
             "birth_date": "1990-01-01",
             "status": "Pending"
         })
-        member.insert(ignore_permissions=True)
+        member.insert()
         
         volunteer_info = create_volunteer_application_data(member, self.test_application_data)
         
@@ -271,7 +271,7 @@ Excited to contribute!
             "email": "test_vol_skills@example.com",
             "status": "Active"
         })
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         
         # Test data
         volunteer_data = {

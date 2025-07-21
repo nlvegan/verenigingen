@@ -359,7 +359,7 @@ class TestSkillsIntegrationWorkflow(unittest.TestCase):
         new_skill.proficiency_level = "3 - Intermediate"
         new_skill.experience_years = 1
         
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         
         # Verify new skill appears in search
         ml_results = search_volunteers_by_skill("Machine Learning")
@@ -374,7 +374,7 @@ class TestSkillsIntegrationWorkflow(unittest.TestCase):
                 skill.proficiency_level = "5 - Expert"
                 break
         
-        volunteer.save(ignore_permissions=True)
+        volunteer.save()
         
         # Verify updated proficiency appears in search
         expert_python = search_volunteers_by_skill("Python Programming", min_level=5)

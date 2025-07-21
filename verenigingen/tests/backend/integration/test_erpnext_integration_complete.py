@@ -49,7 +49,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                 "create_chart_of_accounts_based_on": "Standard Template",
                 "chart_of_accounts": "Standard"
             })
-            company.insert(ignore_permissions=True)
+            company.insert()
             return company
         return frappe.get_doc("Company", company_name)
         
@@ -88,7 +88,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                     "account_type": account_data["account_type"],
                     "company": cls.company.name
                 })
-                account.insert(ignore_permissions=True)
+                account.insert()
                 accounts[key] = account.name
             else:
                 accounts[key] = account_name
@@ -109,7 +109,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                 "company": cls.company.name,
                 "is_group": 0
             })
-            cc.insert(ignore_permissions=True)
+            cc.insert()
             
         cost_centers["main"] = main_cc
         
@@ -123,7 +123,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                 "parent_cost_center": main_cc,
                 "is_group": 0
             })
-            cc.insert(ignore_permissions=True)
+            cc.insert()
             
         cost_centers["chapter"] = chapter_cc
         
@@ -140,7 +140,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
             "phone": "+31612345678",
             "status": "Active"
         })
-        member.insert(ignore_permissions=True)
+        member.insert()
         
         # Create customer
         customer = frappe.get_doc({
@@ -149,10 +149,10 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
             "customer_type": "Individual",
             "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
         })
-        customer.insert(ignore_permissions=True)
+        customer.insert()
         
         member.customer = customer.name
-        member.save(ignore_permissions=True)
+        member.save()
         
         return member
         
@@ -166,7 +166,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
             "member": cls.test_member.name,
             "status": "Active"
         })
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         return volunteer
         
     def test_sales_invoice_creation_flow(self):
@@ -220,7 +220,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                 "is_sales_item": 1,
                 "is_service_item": 1
             })
-            item.insert(ignore_permissions=True)
+            item.insert()
             
         return item_code
         
@@ -409,7 +409,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                 "category_name": category_name,
                 "expense_account": self.test_accounts["expense_reimbursement"]
             })
-            category.insert(ignore_permissions=True)
+            category.insert()
             
         return category_name
         
@@ -427,7 +427,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                 "date_of_joining": today(),
                 "status": "Active"
             })
-            employee.insert(ignore_permissions=True)
+            employee.insert()
             return employee.name
             
         return employee_name
@@ -489,7 +489,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                 "is_stock_item": 0,
                 "is_sales_item": 1
             })
-            item.insert(ignore_permissions=True)
+            item.insert()
             
         return item_code
         
@@ -535,7 +535,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                     "account_type": "Tax",
                     "company": self.company.name
                 })
-                account.insert(ignore_permissions=True)
+                account.insert()
                 
             # Create template
             template = frappe.get_doc({
@@ -549,7 +549,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
                     "rate": 21
                 }]
             })
-            template.insert(ignore_permissions=True)
+            template.insert()
             
         return template_name
         

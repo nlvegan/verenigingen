@@ -37,10 +37,9 @@ def get_context(context):
         frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 
     volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
-    if not volunteer:
-        frappe.throw(
-            _("You must be registered as a volunteer to access team information"), frappe.PermissionError
-        )
+
+    # Allow members to view team information even if they're not volunteers yet
+    # This is important for members who want to explore volunteering opportunities
 
     # Security check: Only allow team members or admins to view team members
     admin_roles = [
@@ -53,14 +52,27 @@ def get_context(context):
     is_admin = any(role in user_roles for role in admin_roles)
 
     if not is_admin:
-        # Check if user is a member of this team
-        is_team_member = frappe.db.exists(
-            "Team Member", {"parent": team_name, "volunteer": volunteer, "is_active": 1}
-        )
+        # Check if user is a member of this team (only if they have a volunteer record)
+        is_team_member = False
+        if volunteer:
+            is_team_member = frappe.db.exists(
+                "Team Member", {"parent": team_name, "volunteer": volunteer, "is_active": 1}
+            )
+
+        # Also check if member has chapter membership that relates to this team
+        if not is_team_member:
+            # Allow if member belongs to the same chapter as the team
+            team_doc = frappe.get_doc("Team", team_name)
+            if team_doc.chapter:
+                member_in_chapter = frappe.db.exists(
+                    "Chapter Member", {"parent": team_doc.chapter, "member": member, "enabled": 1}
+                )
+                is_team_member = bool(member_in_chapter)
 
         if not is_team_member:
             frappe.throw(
-                _("You can only view members of teams where you are a member"), frappe.PermissionError
+                _("You can only view members of teams where you are a member or belong to the same chapter"),
+                frappe.PermissionError,
             )
 
     # Get team members

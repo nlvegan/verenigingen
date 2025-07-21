@@ -288,7 +288,7 @@ class TestDataFactory:
             "minimum_amount": kwargs.get("minimum_amount", 5.0),
             "suggested_amount": kwargs.get("suggested_amount", 15.0),
             "auto_generate": kwargs.get("auto_generate", 1),
-            "amount": kwargs.get("amount", 15.0),
+            "dues_rate": kwargs.get("dues_rate", 15.0),
             "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
             "invoice_days_before": kwargs.get("invoice_days_before", 30)
         })

@@ -383,12 +383,15 @@ class Membership(Document):
 
     def get_billing_amount(self):
         """Get the billing amount for this membership"""
-        # Return membership fee if set
-        membership_fee = getattr(self, "membership_fee", None)
-        if membership_fee:
-            return membership_fee
+        # Get amount from member's dues schedule if exists
+        if self.member:
+            dues_schedule = frappe.db.get_value(
+                "Membership Dues Schedule", {"member": self.member, "is_template": 0}, "dues_rate"
+            )
+            if dues_schedule:
+                return dues_schedule
 
-        # Otherwise get from membership type
+        # Fallback to membership type amount
         if self.membership_type:
             membership_type = frappe.get_doc("Membership Type", self.membership_type)
             return membership_type.amount

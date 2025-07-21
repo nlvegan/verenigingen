@@ -1,11 +1,9 @@
-import unittest
-
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestVolunteerExpensePortal(FrappeTestCase):
+class TestVolunteerExpensePortal(VereningingenTestCase):
     """
     Comprehensive tests for the volunteer expense portal
 

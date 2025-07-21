@@ -32,7 +32,7 @@ class TestEnvironmentSetup:
                     "postal_code_patterns": "1000-9999",  # Cover all test postal codes
                 }
             )
-            region.insert(ignore_permissions=True)
+            region.insert()
             test_region = region.name
 
         # Amsterdam Chapter
@@ -50,7 +50,7 @@ class TestEnvironmentSetup:
                     "country": "Netherlands",  # Add country field
                 }
             )
-            amsterdam.insert(ignore_permissions=True)
+            amsterdam.insert()
             chapters.append(amsterdam)
         else:
             chapters.append(frappe.get_doc("Chapter", "Test Amsterdam Chapter"))
@@ -70,7 +70,7 @@ class TestEnvironmentSetup:
                     "country": "Netherlands",  # Add country field
                 }
             )
-            rotterdam.insert(ignore_permissions=True)
+            rotterdam.insert()
             chapters.append(rotterdam)
         else:
             chapters.append(frappe.get_doc("Chapter", "Test Rotterdam Chapter"))
@@ -96,7 +96,7 @@ class TestEnvironmentSetup:
                     "is_association_wide": 0 if chapter else 1,
                     "chapter": chapter.name if chapter else None}
             )
-            events_team.insert(ignore_permissions=True)
+            events_team.insert()
             teams.append(events_team)
 
         # Communications Team
@@ -112,7 +112,7 @@ class TestEnvironmentSetup:
                     "objectives": "Manage association communications and PR",
                     "is_association_wide": 1}
             )
-            comm_team.insert(ignore_permissions=True)
+            comm_team.insert()
             teams.append(comm_team)
 
         return teams
@@ -177,7 +177,7 @@ class TestEnvironmentSetup:
                         "subscription_period": config["period"],
                         "enforce_minimum_period": config["enforce_minimum"]}
                 )
-                membership_type.insert(ignore_permissions=True)
+                membership_type.insert()
                 types.append(membership_type)
 
         return types
@@ -203,7 +203,7 @@ class TestEnvironmentSetup:
                 category = frappe.get_doc(
                     {"doctype": "Volunteer Interest Category", "category_name": area_name}
                 )
-                category.insert(ignore_permissions=True)
+                category.insert()
                 areas.append(category)
 
         return areas

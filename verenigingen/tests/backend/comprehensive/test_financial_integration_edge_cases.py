@@ -26,7 +26,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "short_name": "FTC",
                 "country": "Netherlands"}
         )
-        cls.chapter.insert(ignore_permissions=True)
+        cls.chapter.insert()
         cls.test_records.append(cls.chapter)
 
         # Create test membership type
@@ -37,7 +37,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "annual_fee": 100.00,
                 "currency": "EUR"}
         )
-        cls.membership_type.insert(ignore_permissions=True)
+        cls.membership_type.insert()
         cls.test_records.append(cls.membership_type)
 
         # Create test member
@@ -50,7 +50,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "status": "Active",
                 "chapter": cls.chapter.name}
         )
-        cls.member.insert(ignore_permissions=True)
+        cls.member.insert()
         cls.test_records.append(cls.member)
 
         # Create test volunteer
@@ -62,7 +62,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                 "member": cls.member.name,
                 "status": "Active"}
         )
-        cls.volunteer.insert(ignore_permissions=True)
+        cls.volunteer.insert()
         cls.test_records.append(cls.volunteer)
 
     @classmethod
@@ -70,7 +70,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
         """Clean up test data"""
         for record in reversed(cls.test_records):
             try:
-                record.delete(ignore_permissions=True)
+                record.delete()
             except Exception:
                 pass
 
@@ -318,7 +318,7 @@ class TestFinancialIntegrationEdgeCases(unittest.TestCase):
                     "status": "Active",
                     "chapter": self.chapter.name}
             )
-            self.member.insert(ignore_permissions=True)
+            self.member.insert()
 
             # Clean up membership if it still exists
             if frappe.db.exists("Membership", membership.name):

@@ -33,7 +33,7 @@ def setup_test_company():
         company.chart_of_accounts = "Standard"
         company.domain = "Manufacturing"  # Adding domain to ensure all necessary features are enabled
         try:
-            company.insert(ignore_permissions=True)
+            company.insert()
             frappe.db.commit()
             print("_Test Company created")
         except Exception as e:
@@ -60,7 +60,7 @@ def setup_test_accounts():
         currency.fraction = "Cent"
         currency.fraction_units = 100
         try:
-            currency.insert(ignore_permissions=True)
+            currency.insert()
             frappe.db.commit()
             print("USD currency created")
         except Exception as e:
@@ -88,7 +88,7 @@ def setup_test_accounts():
         account.company = "_Test Company"
         account.account_currency = "USD"
         try:
-            account.insert(ignore_permissions=True)
+            account.insert()
             frappe.db.commit()
             print("USD Payable account created successfully")
         except Exception as e:
@@ -110,7 +110,7 @@ def setup_test_warehouses():
         try:
             # To avoid autoname issues, we'll set the name directly
             warehouse.name = "_Test Warehouse - _TC"
-            warehouse.insert(ignore_permissions=True)
+            warehouse.insert()
             frappe.db.commit()
             print("_Test Warehouse created")
         except Exception as e:

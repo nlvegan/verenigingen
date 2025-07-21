@@ -52,7 +52,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
 
                     # This should not raise an exception
                     try:
-                        volunteer.insert(ignore_permissions=True)
+                        volunteer.insert()
                         volunteer.delete()  # Clean up immediately
                     except Exception as e:
                         self.fail(f"Valid status '{status}' should not cause validation error: {str(e)}")
@@ -75,7 +75,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
 
                 # This should raise a validation exception
                 with self.assertRaises(frappe.ValidationError):
-                    volunteer.insert(ignore_permissions=True)
+                    volunteer.insert()
 
     def test_member_status_validation(self):
         """Test member status field validation"""
@@ -103,7 +103,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
                     )
 
                     try:
-                        member.insert(ignore_permissions=True)
+                        member.insert()
                         member.delete()
                     except Exception as e:
                         self.fail(
@@ -128,7 +128,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
                 )
 
                 try:
-                    member.insert(ignore_permissions=True)
+                    member.insert()
                     member.delete()
                 except Exception as e:
                     self.fail(
@@ -147,7 +147,7 @@ class TestDoctypeValidationComprehensive(unittest.TestCase):
                 "email": "test.volunteer.app@example.com",
                 "application_status": "Pending"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
 
         # Set volunteer interest
         member.interested_in_volunteering = 1

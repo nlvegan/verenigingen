@@ -3,57 +3,40 @@
 Unit tests specifically for get_user_volunteer_record function to prevent field omission bugs
 """
 
-import unittest
 from unittest.mock import patch
 
 import frappe
 from frappe.utils import today
 
+from verenigingen.tests.utils.base import VereningingenTestCase
 
-class TestGetUserVolunteerRecordUnit(unittest.TestCase):
+
+class TestGetUserVolunteerRecordUnit(VereningingenTestCase):
     """Unit tests for get_user_volunteer_record function"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        frappe.set_user("Administrator")
+    def setUp(self):
+        """Set up test data using factory methods"""
+        super().setUp()
 
-        # Create test member
-        if not frappe.db.exists("Member", "UNIT-TEST-MEMBER"):
-            cls.test_member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "name": "UNIT-TEST-MEMBER",
-                    "first_name": "Unit",
-                    "last_name": "Test",
-                    "email": "unit.test@example.com",
-                    "join_date": today()}
-            )
-            cls.test_member.insert(ignore_permissions=True)
-        else:
-            cls.test_member = frappe.get_doc("Member", "UNIT-TEST-MEMBER")
+        # Create test member using factory method
+        self.test_member = self.create_test_member(
+            first_name="Unit",
+            last_name="Test",
+            email="unit.test@example.com"
+        )
 
-        # Create test volunteer linked to member
-        if not frappe.db.exists("Volunteer", "UNIT-TEST-VOLUNTEER"):
-            cls.test_volunteer = frappe.get_doc(
-                {
-                    "doctype": "Volunteer",
-                    "name": "UNIT-TEST-VOLUNTEER",
-                    "volunteer_name": "Unit Test Volunteer",
-                    "email": "unit.test@example.com",
-                    "member": cls.test_member.name,
-                    "status": "Active",
-                    "start_date": today()}
-            )
-            cls.test_volunteer.insert(ignore_permissions=True)
-        else:
-            cls.test_volunteer = frappe.get_doc("Volunteer", "UNIT-TEST-VOLUNTEER")
+        # Create test volunteer linked to member using factory method
+        self.test_volunteer = self.create_test_volunteer(
+            member=self.test_member,
+            volunteer_name="Unit Test Volunteer",
+            email="unit.test@example.com"
+        )
 
     def test_function_returns_all_required_fields(self):
         """Test that get_user_volunteer_record returns all required fields"""
         from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
 
-        with patch("frappe.session.user", self.test_volunteer.email):
+        with self.as_user(self.test_volunteer.email):
             result = get_user_volunteer_record()
 
             # Verify all required fields are present
@@ -83,7 +66,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                 ),
             ]
 
-            with patch("frappe.session.user", self.test_member.email):
+            with self.as_user(self.test_member.email):
                 get_user_volunteer_record()
 
                 # Verify the volunteer lookup call included the member field
@@ -116,7 +99,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                 ),
             ]
 
-            with patch("frappe.session.user", self.test_volunteer.email):
+            with self.as_user(self.test_volunteer.email):
                 get_user_volunteer_record()
 
                 # Verify the direct volunteer lookup call included the member field
@@ -145,10 +128,11 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                 "status": "Active",
                 "start_date": today()}
         )
-        volunteer_no_member.insert(ignore_permissions=True)
+        volunteer_no_member.insert()
+        self.track_doc("Volunteer", volunteer_no_member.name)
 
         try:
-            with patch("frappe.session.user", volunteer_no_member.email):
+            with self.as_user(volunteer_no_member.email):
                 result = get_user_volunteer_record()
 
                 self.assertIsNotNone(result, "Should return volunteer even without member link")
@@ -156,14 +140,14 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                 # Member field can be None for volunteers without member links
 
         finally:
-            # Clean up
-            frappe.delete_doc("Volunteer", "UNIT-TEST-VOLUNTEER-NO-MEMBER", ignore_permissions=True)
+            # Clean up handled automatically by VereningingenTestCase
+            pass
 
     def test_function_returns_none_for_nonexistent_user(self):
         """Test function returns None for non-existent users"""
         from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
 
-        with patch("frappe.session.user", "nonexistent@example.com"):
+        with self.as_user("nonexistent@example.com"):
             result = get_user_volunteer_record()
 
             self.assertIsNone(result, "Should return None for non-existent users")
@@ -172,7 +156,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
         """Regression test: ensure no fields are accidentally omitted in future changes"""
         from verenigingen.templates.pages.volunteer.expenses import get_user_volunteer_record
 
-        with patch("frappe.session.user", self.test_volunteer.email):
+        with self.as_user(self.test_volunteer.email):
             result = get_user_volunteer_record()
 
             # Define the minimum required fields - add to this list if more become required
@@ -210,7 +194,7 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                 ),
             ]
 
-            with patch("frappe.session.user", self.test_member.email):
+            with self.as_user(self.test_member.email):
                 get_user_volunteer_record()
 
                 # Verify that queries only fetch necessary fields
@@ -232,20 +216,4 @@ class TestGetUserVolunteerRecordUnit(unittest.TestCase):
                                     f"Unnecessary field '{unnecessary_field}' should not be fetched for performance",
                                 )
 
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up test data"""
-        try:
-            if frappe.db.exists("Volunteer", "UNIT-TEST-VOLUNTEER"):
-                frappe.delete_doc("Volunteer", "UNIT-TEST-VOLUNTEER", ignore_permissions=True)
-
-            if frappe.db.exists("Member", "UNIT-TEST-MEMBER"):
-                frappe.delete_doc("Member", "UNIT-TEST-MEMBER", ignore_permissions=True)
-
-            frappe.db.commit()
-        except Exception as e:
-            frappe.logger().error(f"Error cleaning up unit test data: {str(e)}")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    # tearDown handled automatically by VereningingenTestCase

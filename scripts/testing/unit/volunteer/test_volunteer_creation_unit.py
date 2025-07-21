@@ -1,54 +1,36 @@
-import unittest
-
 import frappe
 from frappe.utils import today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 from verenigingen.verenigingen.doctype.volunteer.volunteer import create_volunteer_from_member
 
 
-class TestVolunteerCreationFix(unittest.TestCase):
+class TestVolunteerCreationFix(VereningingenTestCase):
     def setUp(self):
-        self.test_docs = []
+        super().setUp()
+        # test_docs tracking handled automatically by VereningingenTestCase
 
-    def tearDown(self):
-        # Clean up test documents
-        for doctype, name in reversed(self.test_docs):
-            try:
-                frappe.delete_doc(doctype, name, force=True)
-            except:
-                pass
+    # tearDown handled automatically by VereningingenTestCase
 
     def test_volunteer_creation_with_existing_user(self):
         """Test that volunteer can be created when member already has user account"""
 
-        # Create test member
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Test",
-                "last_name": "ExistingUser",
-                "email": f"test.existing.user.{frappe.utils.random_string(5)}@example.com",
-                "contact_number": "+31612345678",
-                "payment_method": "Bank Transfer"}
+        # Create test member using factory method
+        member = self.create_test_member(
+            first_name="Test",
+            last_name="ExistingUser",
+            email=f"test.existing.user.{frappe.utils.random_string(5)}@example.com"
         )
-        member.insert(ignore_permissions=True)
-        self.test_docs.append(("Member", member.name))
 
-        # Create user account for member
-        user = frappe.get_doc(
-            {
-                "doctype": "User",
-                "email": member.email,
-                "first_name": member.first_name,
-                "last_name": member.last_name,
-                "user_type": "Website User"}
+        # Create user account for member using factory method
+        user = self.create_test_user(
+            email=member.email,
+            roles=["Member"]
         )
-        user.insert(ignore_permissions=True)
-        self.test_docs.append(("User", user.name))
 
         # Link user to member
         member.user = user.name
-        member.save(ignore_permissions=True)
+        member.save()
 
         # Verify member has user account
         self.assertTrue(member.user, "Member should have user account")
@@ -58,7 +40,7 @@ class TestVolunteerCreationFix(unittest.TestCase):
             volunteer = create_volunteer_from_member(member.name)
             self.assertIsNotNone(volunteer, "Volunteer should be created")
             self.assertEqual(volunteer.member, member.name, "Volunteer should be linked to member")
-            self.test_docs.append(("Volunteer", volunteer.name))
+            # Volunteer cleanup handled automatically by VereningingenTestCase
 
             # Member should still have their original user account
             member.reload()
@@ -72,7 +54,24 @@ class TestVolunteerCreationFix(unittest.TestCase):
             self.fail(f"Volunteer creation should not fail when user account exists: {e}")
 
 
+def run_volunteer_creation_unit_tests():
+    """Run volunteer creation unit tests"""
+    import unittest
+    
+    print("👤 Running Volunteer Creation Unit Tests...")
+    
+    suite = unittest.TestLoader().loadTestsFromTestCase(TestVolunteerCreationFix)
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+    
+    if result.wasSuccessful():
+        print("✅ All volunteer creation unit tests passed!")
+        return True
+    else:
+        print(f"❌ {len(result.failures)} test(s) failed, {len(result.errors)} error(s)")
+        return False
+
 if __name__ == "__main__":
     frappe.init(site="dev.veganisme.net")
     frappe.connect()
-    unittest.main()
+    run_volunteer_creation_unit_tests()

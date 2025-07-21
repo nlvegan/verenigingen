@@ -5,13 +5,12 @@ These tests MUST pass for the system to function correctly.
 They verify that essential methods exist and core workflows work.
 """
 
-import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestCriticalBusinessLogic(FrappeTestCase):
+class TestCriticalBusinessLogic(VereningingenTestCase):
     """Tests for critical business logic that must always work"""
 
     def test_membership_doctype_has_required_methods(self):
@@ -123,46 +122,36 @@ class TestCriticalBusinessLogic(FrappeTestCase):
 
     def test_membership_submission_workflow(self):
         """Test that membership submission workflow works end-to-end"""
-        # Skip if no test data is available
-        if not frappe.db.exists("Member", {"email": "test@example.com"}):
-            self.skipTest("No test member available")
-            
-        # Create a minimal membership for testing
-        test_member = frappe.get_doc({
-            "doctype": "Member",
-            "first_name": "Test",
-            "last_name": "User",
-            "email": "test.critical@example.com",
-            "status": "Active"
-        })
+        # Create test member using factory method (automatic cleanup)
+        test_member = self.create_test_member(
+            first_name="Critical",
+            last_name="Test",
+            email="critical.test@example.com",
+            status="Active"
+        )
         
+        # Create membership using factory method (automatic cleanup)  
+        membership = self.create_test_membership(
+            member=test_member.name,
+            docstatus=0  # Keep as Draft (0) instead of Submitted (1)
+        )
+        
+        # The key test: Verify critical methods exist and work
+        self.assertTrue(hasattr(membership, 'update_member_status'),
+                       "Membership must have update_member_status method")
+        
+        # Test that the method is callable
         try:
-            test_member.insert(ignore_permissions=True)
-            
-            # Create membership
-            membership = frappe.get_doc({
-                "doctype": "Membership",
-                "member": test_member.name,
-                "membership_type": "Test Type",
-                "start_date": today(),
-                "status": "Draft"
-            })
-            
-            # The key test: This should not raise AttributeError
-            try:
-                membership.insert(ignore_permissions=True)
-                # Don't submit to avoid other dependencies, just test the methods exist
-                self.assertTrue(hasattr(membership, 'update_member_status'))
-                
-            except AttributeError as e:
-                self.fail(f"Membership workflow failed due to missing method: {e}")
-                
-        finally:
-            # Clean up
-            try:
-                frappe.delete_doc("Member", test_member.name, force=True)
-            except:
-                pass
+            # This should not raise AttributeError or other critical errors
+            self.assertTrue(callable(getattr(membership, 'update_member_status')),
+                          "update_member_status must be callable")
+        except AttributeError as e:
+            self.fail(f"Membership workflow failed due to missing method: {e}")
+        
+        # Verify membership was created with proper structure
+        self.assertEqual(membership.member, test_member.name)
+        self.assertEqual(membership.docstatus, 0)  # Draft status
+        self.assertIsNotNone(membership.start_date)
 
     def test_no_critical_import_errors(self):
         """Test that critical modules can be imported without errors"""
@@ -178,7 +167,3 @@ class TestCriticalBusinessLogic(FrappeTestCase):
                 frappe.get_module(module_path)
             except ImportError as e:
                 self.fail(f"Critical module {module_path} cannot be imported: {e}")
-
-
-if __name__ == '__main__':
-    unittest.main()

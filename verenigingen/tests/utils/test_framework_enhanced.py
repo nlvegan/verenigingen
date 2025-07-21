@@ -76,7 +76,7 @@ class VerenigingenTestCase(FrappeTestCase):
             "doctype": doctype,
             **data
         })
-        doc.insert(ignore_permissions=True)
+        doc.insert()
         
         if commit:
             frappe.db.commit()
@@ -91,7 +91,7 @@ class VerenigingenTestCase(FrappeTestCase):
         for doctype, name in reversed(self.created_docs):
             try:
                 if frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, ignore_permissions=True)
+                    frappe.delete_doc(doctype, name, )
             except Exception as e:
                 self.logger.warning(f"Failed to cleanup {doctype} {name}: {str(e)}")
         
@@ -470,7 +470,7 @@ class TestDataFactory:
             }
             
             member = frappe.get_doc({"doctype": "Member", **member_data})
-            member.insert(ignore_permissions=True)
+            member.insert()
             members.append(member)
         
         frappe.db.commit()
@@ -484,7 +484,7 @@ class TestDataFactory:
             "chapter_name": f"Test Chapter {int(time.time())}",
             "postal_code_patterns": "1000-1999"
         })
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()
         
         members = TestDataFactory.create_member_batch(member_count)
         
@@ -497,7 +497,7 @@ class TestDataFactory:
                 "member": member.name,
                 "is_active": 1
             })
-            chapter_member.insert(ignore_permissions=True)
+            chapter_member.insert()
         
         frappe.db.commit()
         return chapter, members

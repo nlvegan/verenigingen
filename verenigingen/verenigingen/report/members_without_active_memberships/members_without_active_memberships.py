@@ -30,6 +30,10 @@ def get_columns(filters):
 
 
 def get_data(filters):
+    # Initialize filters if None
+    if filters is None:
+        filters = {}
+
     # Build dynamic WHERE conditions based on filters
     where_conditions = ["m.docstatus != 2"]  # Exclude cancelled member records
 

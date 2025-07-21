@@ -21,113 +21,95 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         self.test_member = self.create_test_member_with_chapter()
         
     def create_test_chapters(self):
-        """Create test chapters for assignment testing"""
+        """Create test chapters for assignment testing using factory methods"""
         self.chapters = {}
         
         # Amsterdam Chapter
-        amsterdam = frappe.new_doc("Chapter")
-        amsterdam.chapter_name = "Amsterdam Chapter"
-        amsterdam.chapter_code = "AMS"
-        amsterdam.city = "Amsterdam"
-        amsterdam.postal_code_ranges = "1000AB-1099ZZ"
-        amsterdam.is_active = 1
-        amsterdam.save()
-        self.track_doc("Chapter", amsterdam.name)
+        amsterdam = self.create_test_chapter(
+            chapter_name="Amsterdam Chapter",
+            city="Amsterdam",
+            postal_codes="1000AB-1099ZZ",
+            status="Active"
+        )
         self.chapters["amsterdam"] = amsterdam
         
-        # Rotterdam Chapter
-        rotterdam = frappe.new_doc("Chapter")
-        rotterdam.chapter_name = "Rotterdam Chapter"
-        rotterdam.chapter_code = "RTM"
-        rotterdam.city = "Rotterdam"
-        rotterdam.postal_code_ranges = "3000AA-3099ZZ"
-        rotterdam.is_active = 1
-        rotterdam.save()
-        self.track_doc("Chapter", rotterdam.name)
+        # Rotterdam Chapter  
+        rotterdam = self.create_test_chapter(
+            chapter_name="Rotterdam Chapter",
+            city="Rotterdam",
+            postal_codes="3000AA-3099ZZ",
+            status="Active"
+        )
         self.chapters["rotterdam"] = rotterdam
         
         # Utrecht Chapter
-        utrecht = frappe.new_doc("Chapter")
-        utrecht.chapter_name = "Utrecht Chapter"
-        utrecht.chapter_code = "UTR"
-        utrecht.city = "Utrecht"
-        utrecht.postal_code_ranges = "3500AA-3599ZZ"
-        utrecht.is_active = 1
-        utrecht.save()
-        self.track_doc("Chapter", utrecht.name)
+        utrecht = self.create_test_chapter(
+            chapter_name="Utrecht Chapter",
+            city="Utrecht", 
+            postal_codes="3500AA-3599ZZ",
+            status="Active"
+        )
         self.chapters["utrecht"] = utrecht
         
         # Inactive Chapter for testing
-        inactive = frappe.new_doc("Chapter")
-        inactive.chapter_name = "Inactive Chapter"
-        inactive.chapter_code = "INA"
-        inactive.city = "Inactive City"
-        inactive.postal_code_ranges = "9999AA-9999ZZ"
-        inactive.is_active = 0
-        inactive.save()
-        self.track_doc("Chapter", inactive.name)
+        inactive = self.create_test_chapter(
+            chapter_name="Inactive Chapter",
+            city="Inactive City",
+            postal_codes="9999AA-9999ZZ",
+            status="Inactive"
+        )
         self.chapters["inactive"] = inactive
         
     def create_test_member_with_chapter(self):
-        """Create test member with initial chapter assignment"""
-        member = frappe.new_doc("Member")
-        member.first_name = "Chapter"
-        member.last_name = "TestMember"
-        member.email = f"chapter.{frappe.generate_hash(length=6)}@example.com"
-        member.member_since = today()
-        member.address_line1 = "123 Amsterdam Street"
-        member.postal_code = "1012AB"  # Amsterdam postal code
-        member.city = "Amsterdam"
-        member.country = "Netherlands"
-        member.status = "Active"
-        member.chapter = self.chapters["amsterdam"].name
-        member.save()
-        self.track_doc("Member", member.name)
-        return member
+        """Create test member with initial chapter assignment using factory method"""
+        return self.create_test_member(
+            first_name="Chapter",
+            last_name="TestMember",
+            email=f"chapter.{frappe.generate_hash(length=6)}@example.com",
+            address_line1="123 Amsterdam Street",
+            postal_code="1012AB",  # Amsterdam postal code
+            city="Amsterdam",
+            status="Active",
+            chapter=self.chapters["amsterdam"].name
+        )
         
     # Geographic Assignment Tests
     
     def test_automatic_chapter_assignment_by_postal_code(self):
         """Test automatic chapter assignment based on postal code"""
         # Test Amsterdam postal code
-        member = frappe.new_doc("Member")
-        member.first_name = "Auto"
-        member.last_name = "Amsterdam"
-        member.email = f"auto.ams.{frappe.generate_hash(length=6)}@example.com"
-        member.postal_code = "1055AB"  # Amsterdam range
-        member.city = "Amsterdam"
-        member.country = "Netherlands"
-        member.save()
-        self.track_doc("Member", member.name)
+        member = self.create_test_member(
+            first_name="Auto",
+            last_name="Amsterdam",
+            email=f"auto.ams.{frappe.generate_hash(length=6)}@example.com",
+            postal_code="1055AB",  # Amsterdam range
+            city="Amsterdam"
+        )
         
         # Should auto-assign to Amsterdam chapter
         assigned_chapter = self.determine_chapter_by_postal_code(member.postal_code)
         self.assertEqual(assigned_chapter, self.chapters["amsterdam"].name)
         
         # Test Rotterdam postal code
-        member2 = frappe.new_doc("Member")
-        member2.first_name = "Auto"
-        member2.last_name = "Rotterdam"
-        member2.email = f"auto.rtm.{frappe.generate_hash(length=6)}@example.com"
-        member2.postal_code = "3011AA"  # Rotterdam range
-        member2.city = "Rotterdam"
-        member2.country = "Netherlands"
-        member2.save()
-        self.track_doc("Member", member2.name)
+        member2 = self.create_test_member(
+            first_name="Auto",
+            last_name="Rotterdam",
+            email=f"auto.rtm.{frappe.generate_hash(length=6)}@example.com",
+            postal_code="3011AA",  # Rotterdam range
+            city="Rotterdam"
+        )
         
         assigned_chapter2 = self.determine_chapter_by_postal_code(member2.postal_code)
         self.assertEqual(assigned_chapter2, self.chapters["rotterdam"].name)
         
         # Test unassigned postal code
-        member3 = frappe.new_doc("Member")
-        member3.first_name = "Auto"
-        member3.last_name = "Unassigned"
-        member3.email = f"auto.una.{frappe.generate_hash(length=6)}@example.com"
-        member3.postal_code = "2000AB"  # No chapter covers this
-        member3.city = "Unassigned City"
-        member3.country = "Netherlands"
-        member3.save()
-        self.track_doc("Member", member3.name)
+        member3 = self.create_test_member(
+            first_name="Auto",
+            last_name="Unassigned",
+            email=f"auto.una.{frappe.generate_hash(length=6)}@example.com",
+            postal_code="2000AB",  # No chapter covers this
+            city="Unassigned City"
+        )
         
         assigned_chapter3 = self.determine_chapter_by_postal_code(member3.postal_code)
         self.assertIsNone(assigned_chapter3)  # Should remain unassigned
@@ -302,17 +284,15 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         # Add multiple members to Amsterdam chapter
         new_members = []
         for i in range(3):
-            member = frappe.new_doc("Member")
-            member.first_name = f"ChapterMember{i}"
-            member.last_name = "Test"
-            member.email = f"chaptermember{i}.{frappe.generate_hash(length=4)}@example.com"
-            member.postal_code = "1055AB"  # Amsterdam postal code
-            member.city = "Amsterdam"
-            member.country = "Netherlands"
-            member.chapter = amsterdam_chapter.name
-            member.status = "Active"
-            member.save()
-            self.track_doc("Member", member.name)
+            member = self.create_test_member(
+                first_name=f"ChapterMember{i}",
+                last_name="Test",
+                email=f"chaptermember{i}.{frappe.generate_hash(length=4)}@example.com",
+                postal_code="1055AB",  # Amsterdam postal code
+                city="Amsterdam",
+                chapter=amsterdam_chapter.name,
+                status="Active"
+            )
             new_members.append(member)
         
         # Verify member count increased
@@ -372,15 +352,14 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         original_postal_ranges = amsterdam_chapter.postal_code_ranges
         
         # Create member in boundary area
-        boundary_member = frappe.new_doc("Member")
-        boundary_member.first_name = "Boundary"
-        boundary_member.last_name = "Member"
-        boundary_member.email = f"boundary.{frappe.generate_hash(length=6)}@example.com"
-        boundary_member.postal_code = "1099ZZ"  # At edge of Amsterdam range
-        boundary_member.city = "Amsterdam"
-        boundary_member.chapter = amsterdam_chapter.name
-        boundary_member.save()
-        self.track_doc("Member", boundary_member.name)
+        boundary_member = self.create_test_member(
+            first_name="Boundary",
+            last_name="Member",
+            email=f"boundary.{frappe.generate_hash(length=6)}@example.com",
+            postal_code="1099ZZ",  # At edge of Amsterdam range
+            city="Amsterdam",
+            chapter=amsterdam_chapter.name
+        )
         
         # Update chapter boundaries (reduce range)
         amsterdam_chapter.postal_code_ranges = "1000AB-1050ZZ"  # Excludes 1099ZZ
@@ -407,27 +386,24 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
     
     def test_inactive_chapter_member_handling(self):
         """Test handling of members when chapter becomes inactive"""
-        # Create active chapter with members
-        temp_chapter = frappe.new_doc("Chapter")
-        temp_chapter.chapter_name = "Temporary Chapter"
-        temp_chapter.chapter_code = "TMP"
-        temp_chapter.city = "Temp City"
-        temp_chapter.postal_code_ranges = "8000AA-8099ZZ"
-        temp_chapter.is_active = 1
-        temp_chapter.save()
-        self.track_doc("Chapter", temp_chapter.name)
+        # Create active chapter with members using factory method
+        temp_chapter = self.create_test_chapter(
+            chapter_name="Temporary Chapter",
+            city="Temp City",
+            postal_codes="8000AA-8099ZZ",
+            status="Active"
+        )
         
         # Add member to chapter
-        temp_member = frappe.new_doc("Member")
-        temp_member.first_name = "Temp"
-        temp_member.last_name = "Member"
-        temp_member.email = f"temp.{frappe.generate_hash(length=6)}@example.com"
-        temp_member.postal_code = "8055AB"
-        temp_member.city = "Temp City"
-        temp_member.chapter = temp_chapter.name
-        temp_member.status = "Active"
-        temp_member.save()
-        self.track_doc("Member", temp_member.name)
+        temp_member = self.create_test_member(
+            first_name="Temp",
+            last_name="Member",
+            email=f"temp.{frappe.generate_hash(length=6)}@example.com",
+            postal_code="8055AB",
+            city="Temp City",
+            chapter=temp_chapter.name,
+            status="Active"
+        )
         
         # Deactivate chapter
         temp_chapter.is_active = 0
@@ -464,16 +440,15 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         # Add members to source chapter
         utrecht_members = []
         for i in range(2):
-            member = frappe.new_doc("Member")
-            member.first_name = f"Utrecht{i}"
-            member.last_name = "Member"
-            member.email = f"utrecht{i}.{frappe.generate_hash(length=4)}@example.com"
-            member.postal_code = "3511AB"
-            member.city = "Utrecht"
-            member.chapter = source_chapter.name
-            member.status = "Active"
-            member.save()
-            self.track_doc("Member", member.name)
+            member = self.create_test_member(
+                first_name=f"Utrecht{i}",
+                last_name="Member",
+                email=f"utrecht{i}.{frappe.generate_hash(length=4)}@example.com",
+                postal_code="3511AB",
+                city="Utrecht",
+                chapter=source_chapter.name,
+                status="Active"
+            )
             utrecht_members.append(member)
         
         # Initiate bulk transfer for merger

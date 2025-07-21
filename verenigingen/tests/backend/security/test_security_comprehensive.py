@@ -24,7 +24,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "short_name": "TC1",
                 "country": "Netherlands"}
         )
-        cls.chapter1.insert(ignore_permissions=True)
+        cls.chapter1.insert()
         cls.test_records.append(cls.chapter1)
 
         cls.chapter2 = frappe.get_doc(
@@ -34,7 +34,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "short_name": "TC2",
                 "country": "Netherlands"}
         )
-        cls.chapter2.insert(ignore_permissions=True)
+        cls.chapter2.insert()
         cls.test_records.append(cls.chapter2)
 
         # Create test users with different permissions
@@ -54,7 +54,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "status": "Active",
                 "chapter": cls.chapter1.name}
         )
-        cls.member1.insert(ignore_permissions=True)
+        cls.member1.insert()
         cls.test_records.append(cls.member1)
 
         cls.member2 = frappe.get_doc(
@@ -66,7 +66,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "status": "Active",
                 "chapter": cls.chapter2.name}
         )
-        cls.member2.insert(ignore_permissions=True)
+        cls.member2.insert()
         cls.test_records.append(cls.member2)
 
         # Create test volunteers
@@ -78,7 +78,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "member": cls.member1.name,
                 "status": "Active"}
         )
-        cls.volunteer1.insert(ignore_permissions=True)
+        cls.volunteer1.insert()
         cls.test_records.append(cls.volunteer1)
 
         # Create test membership with financial data
@@ -90,7 +90,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "status": "Active",
                 "annual_fee": 50.00}
         )
-        cls.membership1.insert(ignore_permissions=True)
+        cls.membership1.insert()
         cls.test_records.append(cls.membership1)
 
     @classmethod
@@ -98,7 +98,7 @@ class TestSecurityComprehensive(unittest.TestCase):
         """Clean up test data"""
         for record in reversed(cls.test_records):
             try:
-                record.delete(ignore_permissions=True)
+                record.delete()
             except Exception:
                 pass
 
@@ -240,7 +240,7 @@ class TestSecurityComprehensive(unittest.TestCase):
                 "iban": "NL91ABNA0417164300",
                 "status": "Active"}
         )
-        mandate.insert(ignore_permissions=True)
+        mandate.insert()
 
         # Regular user should not modify SEPA mandates
         frappe.set_user(self.regular_user)

@@ -38,7 +38,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                         "full_name": name,
                         "enabled": 1}
                 )
-                user.insert(ignore_permissions=True)
+                user.insert()
 
         # Create test chapter
         cls.test_chapter = "Security Test Chapter"

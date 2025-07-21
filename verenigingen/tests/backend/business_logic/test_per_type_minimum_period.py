@@ -25,7 +25,7 @@ def test_per_type_minimum_period():
             "last_name": "PerType",
             "status": "Active"}
     )
-    member.insert(ignore_permissions=True)
+    member.insert()
     print(f"\n✓ Created test member: {member.email}")
 
     # Create membership type WITH enforcement
@@ -40,7 +40,7 @@ def test_per_type_minimum_period():
             "enforce_minimum_period": 1,  # Enforcement enabled
         }
     )
-    mt_enforced.insert(ignore_permissions=True)
+    mt_enforced.insert()
     print(f"\n✓ Created membership type WITH enforcement: {mt_enforced.name}")
 
     # Create membership type WITHOUT enforcement
@@ -55,7 +55,7 @@ def test_per_type_minimum_period():
             "enforce_minimum_period": 0,  # Enforcement disabled
         }
     )
-    mt_not_enforced.insert(ignore_permissions=True)
+    mt_not_enforced.insert()
     print(f"✓ Created membership type WITHOUT enforcement: {mt_not_enforced.name}")
 
     # Test 1: Membership with enforcement
@@ -92,7 +92,7 @@ def test_per_type_minimum_period():
             "last_name": "PerType2",
             "status": "Active"}
     )
-    member2.insert(ignore_permissions=True)
+    member2.insert()
 
     membership2 = frappe.get_doc(
         {
