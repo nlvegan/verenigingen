@@ -3,59 +3,32 @@ Comprehensive integration tests for Member Contact Request workflow
 Tests the complete flow from portal submission to CRM integration
 """
 
-import unittest
 from unittest.mock import MagicMock, patch
-
 import frappe
 from frappe.utils import add_days, today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestMemberContactRequestIntegration(unittest.TestCase):
+class TestMemberContactRequestIntegration(VereningingenTestCase):
     """Test Member Contact Request integration end-to-end"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test environment"""
-        frappe.set_user("Administrator")
-
     def setUp(self):
-        """Set up test data for each test"""
-        # Create test member
-        self.test_member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "member_name": "John Doe Test",
-                "first_name": "John",
-                "last_name": "Doe",
-                "email_address": "john.doe.test@example.com",
-                "phone_number": "+31612345678",
-                "membership_status": "Active",
-                "status": "Active"}
+        """Set up test data for each test using factory methods"""
+        super().setUp()
+        
+        # Create test member using factory method
+        self.test_member = self.create_test_member(
+            first_name="John",
+            last_name="Doe",
+            email="john.doe.test@example.com",
+            contact_number="+31612345678",
+            status="Active"
         )
-        self.test_member.insert(ignore_permissions=True)
 
         # Clean up any existing contact requests for this member
         frappe.db.delete("Member Contact Request", {"member": self.test_member.name})
         frappe.db.commit()
-
-    def tearDown(self):
-        """Clean up after each test"""
-        # Clean up contact requests
-        frappe.db.delete("Member Contact Request", {"member": self.test_member.name})
-
-        # Clean up CRM leads (if any were created)
-        try:
-            leads = frappe.get_all(
-                "Lead", filters={"custom_member_id": self.test_member.name}, fields=["name"]
-            )
-            for lead in leads:
-                frappe.delete_doc("Lead", lead.name, force=True, ignore_permissions=True)
-        except Exception:
-            pass  # CRM module might not be available
-
-        # Clean up member
-        frappe.delete_doc("Member", self.test_member.name, force=True, ignore_permissions=True)
-        frappe.db.commit()
+        # Base class will handle member cleanup automatically
 
     def test_contact_request_creation_basic(self):
         """Test basic contact request creation"""
@@ -122,7 +95,8 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                     "urgency": "High",
                     "created_by_portal": 1}
             )
-            contact_request.insert(ignore_permissions=True)
+            contact_request.insert()
+            self.track_doc("Member Contact Request", contact_request.name)
 
             # Verify CRM lead reference was set
             self.assertEqual(contact_request.crm_lead, "LEAD-001")
@@ -139,18 +113,19 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                 "request_type": "Technical Support",
                 "status": "Open"}
         )
-        contact_request.insert(ignore_permissions=True)
+        contact_request.insert()
+        self.track_doc("Member Contact Request", contact_request.name)
 
         # Test status change to In Progress
         contact_request.status = "In Progress"
-        contact_request.save(ignore_permissions=True)
+        contact_request.save()
 
         # Verify response date was set
         self.assertIsNotNone(contact_request.response_date)
 
         # Test status change to Resolved
         contact_request.status = "Resolved"
-        contact_request.save(ignore_permissions=True)
+        contact_request.save()
 
         # Verify closed date was set
         self.assertIsNotNone(contact_request.closed_date)
@@ -169,13 +144,14 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                 "request_type": "Complaint",
                 "urgency": "High"}
         )
-        contact_request.insert(ignore_permissions=True)
+        contact_request.insert()
+        self.track_doc("Member Contact Request", contact_request.name)
 
         # Mock sendmail to prevent actual email sending during tests
         with patch("frappe.sendmail") as mock_sendmail:
             # Assign to user
             contact_request.assigned_to = "Administrator"
-            contact_request.save(ignore_permissions=True)
+            contact_request.save()
 
             # Verify follow-up date was set
             self.assertIsNotNone(contact_request.follow_up_date)
@@ -289,7 +265,8 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                 "response_date": add_days(today(), -8),  # 8 days ago
             }
         )
-        resolved_request.insert(ignore_permissions=True)
+        resolved_request.insert()
+        self.track_doc("Member Contact Request", resolved_request.name)
 
         auto_close_resolved_requests()
 
@@ -344,7 +321,8 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
                     "status": req_data["status"],
                     "response_date": today() if req_data["status"] != "Open" else None}
             )
-            contact_request.insert(ignore_permissions=True)
+            contact_request.insert()
+            self.track_doc("Member Contact Request", contact_request.name)
 
         # Test analytics
         analytics = get_contact_request_analytics()
@@ -356,25 +334,8 @@ class TestMemberContactRequestIntegration(unittest.TestCase):
         self.assertIn("monthly_volume", analytics)
 
 
-def run_integration_tests():
-    """Run all integration tests"""
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestMemberContactRequestIntegration)
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-
-    return result.wasSuccessful()
-
-
 if __name__ == "__main__":
-    # Set up Frappe environment
-    frappe.init(site="dev.veganisme.net")
-    frappe.connect()
-
-    try:
-        success = run_integration_tests()
-        print(f"\nIntegration tests {'PASSED' if success else 'FAILED'}")
-    except Exception as e:
-        print(f"Error running integration tests: {str(e)}")
-        frappe.log_error(f"Integration test error: {str(e)}", "Test Error")
-    finally:
-        frappe.destroy()
+    # Can be run via:
+    # bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.integration.test_member_contact_request_integration
+    import unittest
+    unittest.main()

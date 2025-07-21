@@ -326,7 +326,8 @@ class VereningingenTestCase(FrappeTestCase):
             setattr(membership, key, value)
         
         membership.save()
-        if membership.docstatus == 0:
+        # Only submit if the original default was used (submit by default unless explicitly set to 0)
+        if membership.docstatus == 0 and kwargs.get("docstatus", 1) != 0:
             membership.submit()
         self.track_doc("Membership", membership.name)
         return membership

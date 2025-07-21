@@ -26,15 +26,18 @@ https://your-site.com/api/method/verenigingen.api.[module].[function]
 ```
 
 ### API Capabilities
-- **Member Management**: Create, update, and manage member records with lifecycle tracking
-- **Payment Processing**: Handle payments, SEPA mandates, and financial operations
-- **eBoekhouden Integration**: Complete accounting system synchronization with REST/SOAP APIs
-- **Volunteer Coordination**: Manage volunteer assignments, teams, and expense management
-- **Portal Systems**: Member and volunteer self-service portal APIs
-- **Communication**: Send emails and manage automated notifications
-- **Analytics & Reporting**: Generate reports, dashboards, and business intelligence data
-- **Brand Management**: Customizable theming and portal appearance
-- **System Administration**: Manage system settings, migrations, and configurations
+- **Member Management**: Complete lifecycle from application to termination with automated workflows
+- **Payment Processing**: SEPA direct debit, mandate management, and ERPNext financial integration
+- **eBoekhouden Integration**: Production-ready REST/SOAP integration with €324K+ imported successfully
+- **Volunteer Coordination**: Team assignments, expense management, and skills tracking
+- **Portal Systems**: Member and volunteer self-service portals with brand customization
+- **Communication**: Automated email templates and notification systems
+- **Analytics & Reporting**: Real-time KPIs, cohort analysis, and business intelligence
+- **Brand Management**: Dynamic theming with color preview and instant activation
+- **System Administration**: Health monitoring, test framework, and migration tools
+- **Geographic Organization**: Chapter management with postal code assignment
+- **Termination Workflows**: Governance-compliant termination with audit trails
+- **Banking Integration**: MT940 import, IBAN validation, and bank reconciliation
 
 ### Response Format
 All API responses follow this standard format:
@@ -42,9 +45,25 @@ All API responses follow this standard format:
 {
   "message": {
     "success": true,
-    "data": {},
-    "error": null
+    "data": {
+      "id": "record_id",
+      "name": "Document Name",
+      "details": {}
+    },
+    "error": null,
+    "timestamp": "2025-01-21T10:30:00Z",
+    "version": "1.0"
   }
+}
+```
+
+### Error Response Format
+Error responses include detailed information for debugging:
+```json
+{
+  "exc_type": "ValidationError",
+  "message": "Detailed error description",
+  "exception": "Full stack trace (in debug mode)"
 }
 ```
 

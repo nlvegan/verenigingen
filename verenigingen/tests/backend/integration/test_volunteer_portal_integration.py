@@ -1,22 +1,19 @@
-import unittest
 from unittest.mock import patch
 
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from frappe.utils import today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestVolunteerPortalIntegration(FrappeTestCase):
+class TestVolunteerPortalIntegration(VereningingenTestCase):
     """Integration tests for the volunteer portal with approval workflow"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test environment"""
-        super().setUpClass()
-        cls.setup_test_data()
+    def setUp(self):
+        """Set up test environment using factory methods"""
+        super().setUp()
+        self.setup_test_data()
 
-    @classmethod
-    def setup_test_data(cls):
+    def setup_test_data(self):
         """Create comprehensive test data for integration testing"""
         # Create test company
         if not frappe.db.exists("Company", "Integration Test Company"):
@@ -29,19 +26,20 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                     "country": "Netherlands"}
             )
             company.insert()
-            cls.company = company.name
+            self.company = company.name
+            self.track_doc("Company", company.name)
         else:
-            cls.company = "Integration Test Company"
+            self.company = "Integration Test Company"
 
         # Create test users
-        cls.volunteer_email = "integration.volunteer@test.com"
-        cls.board_member_email = "integration.board@test.com"
-        cls.admin_email = "integration.admin@test.com"
+        self.volunteer_email = "integration.volunteer@test.com"
+        self.board_member_email = "integration.board@test.com"
+        self.admin_email = "integration.admin@test.com"
 
         for email, name, roles in [
-            (cls.volunteer_email, "Integration Volunteer", []),
-            (cls.board_member_email, "Integration Board Member", ["Chapter Board Member"]),
-            (cls.admin_email, "Integration Admin", ["System Manager"]),
+            (self.volunteer_email, "Integration Volunteer", []),
+            (self.board_member_email, "Integration Board Member", ["Chapter Board Member"]),
+            (self.admin_email, "Integration Admin", ["System Manager"]),
         ]:
             if not frappe.db.exists("User", email):
                 user = frappe.get_doc(
@@ -53,7 +51,8 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                         "full_name": name,
                         "enabled": 1}
                 )
-                user.insert(ignore_permissions=True)
+                user.insert()
+                self.track_doc("User", user.name)
 
                 # Add roles
                 for role in roles:
@@ -61,23 +60,33 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
                         user.add_roles(role)
 
         # Create test chapter with board structure
-        cls.test_chapter = cls.create_test_chapter()
+        self.test_chapter = self.create_test_chapter(
+            chapter_name="Integration Test Chapter",
+            postal_codes="1000-9999"
+        )
 
-        # Create test team
-        cls.test_team = cls.create_test_team()
+        # Create test members and volunteers using factory methods
+        self.volunteer_member = self.create_test_member(
+            first_name="Integration",
+            last_name="Volunteer",
+            email=self.volunteer_email
+        )
+        self.board_member_member = self.create_test_member(
+            first_name="Integration",
+            last_name="BoardMember",
+            email=self.board_member_email
+        )
 
-        # Create chapter roles
-        cls.setup_chapter_roles()
-
-        # Create test members and volunteers
-        cls.volunteer_member = cls.create_test_member(cls.volunteer_email, "Integration Volunteer")
-        cls.board_member_member = cls.create_test_member(cls.board_member_email, "Integration Board Member")
-
-        cls.test_volunteer = cls.create_test_volunteer(cls.volunteer_member, cls.volunteer_email)
-        cls.board_volunteer = cls.create_test_volunteer(cls.board_member_member, cls.board_member_email)
-
-        # Set up chapter memberships
-        cls.setup_chapter_memberships()
+        self.test_volunteer = self.create_test_volunteer(
+            member=self.volunteer_member.name,
+            volunteer_name="Integration Volunteer",
+            email=self.volunteer_email
+        )
+        self.board_volunteer = self.create_test_volunteer(
+            member=self.board_member_member.name,
+            volunteer_name="Integration Board Member",
+            email=self.board_member_email
+        )
 
         # Set up board positions
         cls.setup_board_positions()
@@ -85,8 +94,7 @@ class TestVolunteerPortalIntegration(FrappeTestCase):
         # Create expense categories
         cls.expense_categories = cls.create_expense_categories()
 
-    @classmethod
-    def create_test_chapter(cls):
+    def create_test_chapter_legacy(self):  # Renamed to avoid conflict with base class method
         """Create test chapter"""
         chapter_name = "Integration Test Chapter"
         if not frappe.db.exists("Chapter", chapter_name):

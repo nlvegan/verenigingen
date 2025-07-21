@@ -64,23 +64,32 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 ### Technology Stack
 - **Backend**: Python 3.10+ with Frappe Framework v15
 - **Frontend**: Modern JavaScript ES6+ with responsive HTML5/CSS3
-- **Database**: MariaDB/MySQL with optimized indexing
-- **Queue System**: Redis for background job processing
-- **API**: RESTful APIs with OpenAPI documentation
+- **Database**: MariaDB/MySQL with optimized indexing and performance monitoring
+- **Queue System**: Redis for background job processing and caching
+- **API**: RESTful APIs with comprehensive endpoint coverage
+- **Testing**: Enhanced testing framework with automatic cleanup and factory methods
+- **Integration**: Production-ready eBoekhouden REST/SOAP API integration
 
 ### Required Dependencies
-- **ERPNext**: Core ERP functionality and financial modules
-- **Payments App**: Payment gateway integrations and processing
+- **ERPNext v15+**: Core ERP functionality and financial modules
+- **Payments App**: Payment gateway integrations and SEPA processing
 - **HRMS App**: Human resources and employee management
-- **CRM App**: Customer relationship management features
+- **CRM App**: Customer relationship management and lead tracking
 - **Banking App** (Alyf-de): Dutch bank reconciliation and MT940 import
 
+### Development Dependencies
+- **Redis**: Background job processing and session management
+- **Node.js**: Frontend asset compilation and JavaScript testing
+- **Git**: Version control with organized commit structure
+
 ### Integration Capabilities
-- **eBoekhouden API**: REST/SOAP integration for accounting synchronization
-- **SEPA Direct Debit**: EU payment processing compliance
-- **Dutch Banking**: MT940, CAMT, and bank reconciliation formats
-- **Email Systems**: SMTP, SendGrid, Mailgun integration
+- **eBoekhouden API**: Production-ready REST/SOAP integration with €324K+ successfully imported
+- **SEPA Direct Debit**: EU payment processing compliance with automated mandate management
+- **Dutch Banking**: MT940, CAMT, and bank reconciliation with automated processing
+- **Email Systems**: SMTP, SendGrid, Mailgun integration with template management
 - **External APIs**: Extensible API framework for third-party integrations
+- **ERPNext Integration**: Deep financial module integration with customer/invoice automation
+- **Brand Management**: Dynamic theming system with real-time color preview
 
 ## 🚀 **Quick Start**
 
@@ -125,6 +134,9 @@ bench version  # Should be v15.0.0+
 - **[🤝 Volunteer Portal](docs/user-manual/VOLUNTEER_PORTAL_GUIDE.md)** - Volunteer coordination guide
 
 #### 🔧 **Technical Documentation**
+- **[🏗️ Technical Architecture](docs/TECHNICAL_ARCHITECTURE.md)** - System architecture and design patterns
+- **[🧪 Testing Framework 2025](docs/TESTING_FRAMEWORK_2025.md)** - Enhanced testing framework and best practices
+- **[👨‍💻 Developer Testing Guide](docs/DEVELOPER_TESTING_GUIDE.md)** - Testing standards and requirements
 - **[🔌 API Documentation](docs/API_DOCUMENTATION.md)** - Complete API reference and examples
 - **[❓ FAQ & Troubleshooting](docs/FAQ_TROUBLESHOOTING.md)** - Common issues and solutions
 - **[🛠️ Developer Guide](CLAUDE.md)** - Development guidelines and technical context

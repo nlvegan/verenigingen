@@ -3,125 +3,37 @@ Member Status Transition Edge Cases Test Suite
 Tests for member lifecycle, status changes, and state validation
 """
 
-import unittest
-
 import frappe
 from frappe.utils import add_days, add_months, today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestMemberStatusTransitions(unittest.TestCase):
+class TestMemberStatusTransitions(VereningingenTestCase):
     """Test member status transition edge cases and validation"""
-
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        cls.test_records = []
-
-        # Create test chapter
-        if not frappe.db.exists("Chapter", "Member Status Test Chapter"):
-            cls.chapter = frappe.get_doc(
-                {
-                    "doctype": "Chapter",
-                    "name": "Member Status Test Chapter",
-                    "chapter_name": "Member Status Test Chapter",
-                    "short_name": "MSTC",
-                    "country": "Netherlands"}
-            )
-            cls.chapter.insert(ignore_permissions=True)
-            cls.test_records.append(cls.chapter)
-        else:
-            cls.chapter = frappe.get_doc("Chapter", "Member Status Test Chapter")
-
-        # Create membership types
-        if not frappe.db.exists("Membership Type", "Regular Member"):
-            cls.regular_type = frappe.get_doc(
-                {
-                    "doctype": "Membership Type",
-                    "membership_type_name": "Regular Member",
-                    "amount": 100.00,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                    "is_active": 1}
-            )
-            cls.regular_type.insert(ignore_permissions=True)
-            cls.test_records.append(cls.regular_type)
-        else:
-            cls.regular_type = frappe.get_doc("Membership Type", "Regular Member")
-
-        if not frappe.db.exists("Membership Type", "Student Member"):
-            cls.student_type = frappe.get_doc(
-                {
-                    "doctype": "Membership Type",
-                    "membership_type_name": "Student Member",
-                    "amount": 50.00,
-                    "currency": "EUR",
-                    "subscription_period": "Annual",
-                    "is_active": 1}
-            )
-            cls.student_type.insert(ignore_permissions=True)
-            cls.test_records.append(cls.student_type)
-        else:
-            cls.student_type = frappe.get_doc("Membership Type", "Student Member")
-
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up test data"""
-        for record in reversed(cls.test_records):
-            try:
-                record.delete(ignore_permissions=True)
-            except Exception:
-                pass
-
-    def setUp(self):
-        """Set up each test"""
-        frappe.set_user("Administrator")
-
-    def tearDown(self):
-        """Clean up after each test"""
-        # Clean up any members created during tests
-        test_members = frappe.get_all("Member", filters={"email": ["like", "%test.status%"]}, fields=["name"])
-
-        for member_data in test_members:
-            try:
-                member = frappe.get_doc("Member", member_data.name)
-                # Delete related records first
-                frappe.db.sql("DELETE FROM `tabMembership` WHERE member = %s", member.name)
-                frappe.db.sql("DELETE FROM `tabSEPA Mandate` WHERE member = %s", member.name)
-                frappe.db.sql("DELETE FROM `tabVolunteer` WHERE member = %s", member.name)
-                member.delete(ignore_permissions=True)
-            except Exception:
-                pass
 
     # ===== BASIC STATUS TRANSITIONS =====
 
     def test_active_to_suspended_transition(self):
         """Test Active → Suspended transition"""
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Active",
-                "last_name": "Member",
-                "email": "active.test.status@test.com",
-                "status": "Active",
-                "chapter": self.chapter.name}
+        # Create member using factory method
+        member = self.create_test_member(
+            first_name="Active",
+            last_name="Member",
+            email="active.test.status@test.com",
+            status="Active"
         )
-        member.insert()
 
-        # Create active membership
-        membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": member.name,
-                "membership_type": self.regular_type.name,
-                "status": "Active",
-                "start_date": frappe.utils.nowdate(),
-                "end_date": frappe.utils.add_days(frappe.utils.nowdate(), 365)}
+        # Create active membership using factory method
+        membership = self.create_test_membership(
+            member=member.name,
+            status="Active"
         )
-        membership.insert()
 
         # Transition to suspended
         member.status = "Suspended"
-        member.suspension_reason = "Payment overdue"
+        # Check if suspension_reason field exists in Member doctype
+        if hasattr(member, 'suspension_reason'):
+            member.suspension_reason = "Payment overdue"
         member.save()
 
         # Verify status change

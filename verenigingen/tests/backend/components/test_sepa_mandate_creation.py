@@ -3,72 +3,27 @@ Test Suite for SEPA Mandate Creation Methods
 Tests the new JavaScript-exposed methods for mandate creation validation and processing
 """
 
-import unittest
-
 import frappe
 from frappe.utils import today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestSEPAMandateCreation(unittest.TestCase):
+class TestSEPAMandateCreation(VereningingenTestCase):
     """Test SEPA mandate creation methods exposed for JavaScript"""
-
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        cls.test_records = []
-
-        # Create test member
-        cls.member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "SEPA",
-                "last_name": "Creation",
-                "email": "sepa.creation@test.com",
-                "full_name": "SEPA Creation",
-                "status": "Active",
-                "iban": "NL13TEST0123456789",  # Use test bank IBAN
-                "bic": "TESTNL2A"}
-        )
-        cls.member.insert(ignore_permissions=True)
-        cls.test_records.append(cls.member)
-
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up test data"""
-        # Clean up any SEPA mandates first
-        mandates = frappe.get_all("SEPA Mandate", filters={"member": cls.member.name})
-        for mandate in mandates:
-            try:
-                frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
-            except Exception:
-                pass
-
-        # Clean up test records
-        for record in reversed(cls.test_records):
-            try:
-                record.delete(ignore_permissions=True, force=True)
-            except Exception:
-                pass
 
     def setUp(self):
         """Set up each test"""
-        frappe.set_user("Administrator")
-
-        # Clean up any existing mandates before each test
-        existing_mandates = frappe.get_all("SEPA Mandate", filters={"member": self.member.name})
-        for mandate in existing_mandates:
-            try:
-                frappe.delete_doc("SEPA Mandate", mandate.name, force=True)
-            except Exception:
-                pass
+        super().setUp()
         
-        # Clean up member's SEPA mandates table
-        try:
-            member_doc = frappe.get_doc("Member", self.member.name)
-            member_doc.sepa_mandates = []
-            member_doc.save()
-        except Exception:
-            pass
+        # Create test member using factory method
+        self.member = self.create_test_member(
+            first_name="SEPA",
+            last_name="Creation",
+            email="sepa.creation@test.com",
+            status="Active",
+            iban="NL13TEST0123456789",  # Use test bank IBAN
+            bic="TESTNL2A"
+        )
 
     # ===== TEST validate_mandate_creation =====
 
@@ -98,7 +53,7 @@ class TestSEPAMandateCreation(unittest.TestCase):
         """Test validate_mandate_creation with duplicate mandate ID"""
         from verenigingen.verenigingen.doctype.member.member import validate_mandate_creation
 
-        # Create existing mandate
+        # Create existing mandate using proper creation and tracking
         existing_mandate = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -110,27 +65,22 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "status": "Active"}
         )
         existing_mandate.insert()
+        self.track_doc("SEPA Mandate", existing_mandate.name)  # Track for cleanup
 
-        try:
-            result = validate_mandate_creation(
-                member=self.member.name,
-                iban="NL82MOCK0123456789",  # Different IBAN
-                mandate_id="DUPLICATE-MANDATE-001",  # Same mandate ID
-            )
+        result = validate_mandate_creation(
+            member=self.member.name,
+            iban="NL82MOCK0123456789",  # Different IBAN
+            mandate_id="DUPLICATE-MANDATE-001",  # Same mandate ID
+        )
 
-            self.assertIn("error", result)
-            self.assertIn("already exists", result["error"])
-        finally:
-            try:
-                existing_mandate.delete()
-            except Exception:
-                frappe.delete_doc("SEPA Mandate", existing_mandate.name, force=True)
+        self.assertIn("error", result)
+        self.assertIn("already exists", result["error"])
 
     def test_validate_mandate_creation_existing_iban_mandate(self):
         """Test validate_mandate_creation with existing mandate for same IBAN"""
         from verenigingen.verenigingen.doctype.member.member import validate_mandate_creation
 
-        # Create existing mandate for same IBAN
+        # Create existing mandate for same IBAN using proper creation and tracking
         existing_mandate = frappe.get_doc(
             {
                 "doctype": "SEPA Mandate",
@@ -143,23 +93,18 @@ class TestSEPAMandateCreation(unittest.TestCase):
                 "is_active": 1}
         )
         existing_mandate.insert()
+        self.track_doc("SEPA Mandate", existing_mandate.name)  # Track for cleanup
 
-        try:
-            result = validate_mandate_creation(
-                member=self.member.name,
-                iban="NL13TEST0123456789",  # Same IBAN
-                mandate_id="NEW-MANDATE-001",  # Different mandate ID
-            )
+        result = validate_mandate_creation(
+            member=self.member.name,
+            iban="NL13TEST0123456789",  # Same IBAN
+            mandate_id="NEW-MANDATE-001",  # Different mandate ID
+        )
 
-            self.assertTrue(result.get("valid"))
-            self.assertIn("existing_mandate", result)
-            self.assertEqual(result["existing_mandate"], "EXISTING-IBAN-001")
-            self.assertIn("warning", result)
-        finally:
-            try:
-                existing_mandate.delete()
-            except Exception:
-                frappe.delete_doc("SEPA Mandate", existing_mandate.name, force=True)
+        self.assertTrue(result.get("valid"))
+        self.assertIn("existing_mandate", result)
+        self.assertEqual(result["existing_mandate"], "EXISTING-IBAN-001")
+        self.assertIn("warning", result)
 
     # ===== TEST derive_bic_from_iban =====
 

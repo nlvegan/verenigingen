@@ -1,7 +1,7 @@
 import unittest
-
 import frappe
 from frappe.utils import add_days, now_datetime, today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 from verenigingen.api.member_management import add_member_to_chapter_roster
 from verenigingen.api.membership_application import (
@@ -28,62 +28,37 @@ def get_member_primary_chapter(member_name):
         return None
 
 
-class TestMembershipApplication(unittest.TestCase):
+class TestMembershipApplication(VereningingenTestCase):
     """Test membership application workflow"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        # Create required Item Group for membership types
-        if not frappe.db.exists("Item Group", "Membership"):
-            item_group = frappe.get_doc(
-                {
-                    "doctype": "Item Group",
-                    "item_group_name": "Membership",
-                    "parent_item_group": "All Item Groups",
-                    "is_group": 0}
-            )
-            item_group.insert()
-
-        # Create required Region for chapters
-        if not frappe.db.exists("Region", "Test Region"):
-            region = frappe.get_doc({"doctype": "Region", "region": "Test Region"})
-            region.insert()
-
-        # Create test membership type
-        if not frappe.db.exists("Membership Type", "Test Membership"):
-            membership_type = frappe.get_doc(
-                {
-                    "doctype": "Membership Type",
-                    "membership_type_name": "Test Membership",
-                    "dues_rate": 100,
-                    "currency": "EUR"}
-            )
-            membership_type.insert()
-            # Dues schedule system handles payment processing automatically
-
-        # Create test chapter
-        if not frappe.db.exists("Chapter", "Test Chapter"):
-            chapter = frappe.get_doc(
-                {
-                    "doctype": "Chapter",
-                    "name": "Test Chapter",
-                    "region": "Test Region",
-                    "postal_codes": "1000-1999",
-                    "published": 1,
-                    "introduction": "Test chapter for basic functionality"}
-            )
-            chapter.insert()
-
-        # Create volunteer interest areas
-        interest_areas = ["Event Planning", "Technical Support", "Community Outreach"]
-        for area in interest_areas:
-            if not frappe.db.exists("Volunteer Interest Area", area):
-                frappe.get_doc({"doctype": "Volunteer Interest Area", "name": area}).insert()
-
     def setUp(self):
-        """Set up for each test"""
+        """Set up for each test using factory methods"""
+        super().setUp()
+        
         self.test_email = f"test_{frappe.generate_hash(length=8)}@example.com"
+        
+        # Create test membership type using factory if available
+        membership_types = frappe.get_all("Membership Type", limit=1)
+        if membership_types:
+            self.test_membership_type = membership_types[0]["name"]
+        else:
+            # Create a basic membership type
+            membership_type = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": "Test Membership",
+                "dues_rate": 100,
+                "currency": "EUR"
+            })
+            membership_type.insert()
+            self.track_doc("Membership Type", membership_type.name)
+            self.test_membership_type = membership_type.name
+        
+        # Create test chapter using factory method
+        self.test_chapter = self.create_test_chapter(
+            chapter_name="Test Chapter Application",
+            postal_codes="1000-1999"
+        )
+        
         self.application_data = {
             "first_name": "Test",
             "last_name": "Applicant",
@@ -93,38 +68,16 @@ class TestMembershipApplication(unittest.TestCase):
             "city": "Amsterdam",
             "postal_code": "1234",
             "country": "Netherlands",
-            "selected_membership_type": "Test Membership",
+            "selected_membership_type": self.test_membership_type,
             "contact_number": "+31612345678",
             "interested_in_volunteering": 1,
             "volunteer_availability": "Monthly",
             "volunteer_interests": ["Event Planning", "Technical Support"],
             "volunteer_skills": "Project management, Python programming",
             "newsletter_opt_in": 1,
-            "application_source": "Website"}
-
-    def tearDown(self):
-        """Clean up after each test"""
-        # Delete test member if exists
-        if frappe.db.exists("Member", {"email": self.test_email}):
-            member = frappe.get_doc("Member", {"email": self.test_email})
-
-            # Delete related records
-            if member.customer:
-                frappe.delete_doc("Customer", member.customer)
-
-            # Delete memberships
-            memberships = frappe.get_all("Membership", filters={"member": member.name})
-            for membership in memberships:
-                frappe.delete_doc("Membership", membership.name)
-
-            # Delete member
-            frappe.delete_doc("Member", member.name)
-
-        # Delete test lead
-        if frappe.db.exists("Lead", {"email_id": self.test_email}):
-            frappe.delete_doc("Lead", {"email_id": self.test_email})
-
-        frappe.db.commit()
+            "application_source": "Website"
+        }
+        # Base class will handle cleanup automatically
 
     def test_submit_application(self):
         """Test application submission"""
