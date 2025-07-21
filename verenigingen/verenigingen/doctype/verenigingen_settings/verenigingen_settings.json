@@ -6,90 +6,121 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "chapter_settings_section",
-  "national_board_chapter",
+  "organization_section",
+  "company",
+  "company_name",
   "organization_email_domain",
   "member_contact_email",
+  "support_email",
+  "creation_user",
+  "column_break_org",
+  "national_board_chapter",
   "enable_chapter_management",
-  "section_break_27",
   "member_id_start",
   "last_member_id",
   "last_member_history_refresh",
-  "financial_settings_section",
-  "company_iban",
-  "company_account_holder",
-  "company_bic",
-  "creditor_id",
-  "company_name",
-  "support_email",
-  "creation_user",
-  "application_settings_section",
+  "membership_section",
+  "default_grace_period_days",
+  "grace_period_auto_apply",
+  "grace_period_notification_days",
+  "column_break_membership",
   "enable_income_calculator",
   "income_percentage_rate",
   "calculator_description",
   "maximum_fee_multiplier",
-  "membership_settings_section",
-  "default_grace_period_days",
-  "grace_period_auto_apply",
-  "grace_period_notification_days",
-  "system_migration_section",
-  "column_break_migration",
-  "migration_notes",
-  "dutch_btw_section",
+  "financial_section",
+  "company_iban",
+  "company_account_holder",
+  "company_bic",
+  "creditor_id",
+  "sepa_mandate_naming_pattern",
+  "sepa_mandate_starting_counter",
+  "column_break_financial",
+  "default_receivable_account",
+  "membership_debit_account",
+  "membership_payment_account",
+  "automate_membership_payment_entries",
+  "invoicing_section",
+  "send_email",
+  "send_invoice",
+  "email_template",
+  "column_break_invoicing",
+  "membership_print_format",
+  "inv_print_format",
+  "membership_webhook_secret",
+  "donations_section",
+  "donation_company",
+  "default_donation_type",
+  "automate_donation_payment_entries",
+  "donation_debit_account",
+  "donation_payment_account",
+  "column_break_donations",
+  "enable_anbi_functionality",
+  "organization_has_anbi_status",
+  "anbi_minimum_reportable_amount",
+  "default_donor_type",
+  "campaign_donation_account",
+  "restricted_donation_account",
+  "tax_section",
   "tax_exempt_for_contributions",
   "default_tax_exemption_type",
   "default_tax_template",
   "kor_exemption_applied",
-  "membership_webhook_secret",
-  "column_break_6",
-  "automate_membership_payment_entries",
-  "company",
-  "membership_debit_account",
-  "membership_payment_account",
-  "default_receivable_account",
-  "column_break_9",
-  "send_email",
-  "send_invoice",
-  "membership_print_format",
-  "inv_print_format",
-  "email_template",
-  "donation_settings_section",
-  "donation_company",
-  "default_donation_type",
-  "column_break_22",
-  "automate_donation_payment_entries",
-  "donation_debit_account",
-  "donation_payment_account",
-  "anbi_donation_settings_section",
-  "enable_anbi_functionality",
-  "organization_has_anbi_status",
-  "anbi_minimum_reportable_amount",
-  "column_break_anbi_donation",
-  "default_donor_type",
-  "campaign_donation_account",
-  "restricted_donation_account",
-  "billing_cycle",
   "automation_section",
   "auto_cancel_sepa_mandates",
   "auto_end_board_positions",
-  "column_break_term_2",
   "send_termination_notifications"
  ],
  "fields": [
   {
-   "fieldname": "billing_cycle",
-   "fieldtype": "Select",
-   "label": "Billing Cycle",
-   "options": "Monthly\nYearly"
-  },
-  {
-   "fieldname": "column_break_6",
+   "fieldname": "organization_section",
    "fieldtype": "Section Break",
-   "label": "Membership Invoicing"
+   "label": "Organization Settings"
   },
   {
-   "fieldname": "column_break_9",
+   "fieldname": "column_break_org",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "membership_section",
+   "fieldtype": "Section Break",
+   "label": "Membership Settings"
+  },
+  {
+   "fieldname": "column_break_membership",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "financial_section",
+   "fieldtype": "Section Break",
+   "label": "Financial & SEPA Settings"
+  },
+  {
+   "fieldname": "column_break_financial",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "invoicing_section",
+   "fieldtype": "Section Break",
+   "label": "Invoicing & Communications"
+  },
+  {
+   "fieldname": "column_break_invoicing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donations_section",
+   "fieldtype": "Section Break",
+   "label": "Donations & ANBI Settings"
+  },
+  {
+   "fieldname": "column_break_donations",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tax_section",
+   "fieldtype": "Section Break",
+   "label": "Tax Settings (Dutch BTW/VAT)"
   },
   {
    "description": "This company will be set for the Memberships created via webhook.",
@@ -106,11 +137,6 @@
    "fieldname": "enable_chapter_management",
    "fieldtype": "Check",
    "label": "Enable Chapter Management"
-  },
-  {
-   "fieldname": "dutch_btw_section",
-   "fieldtype": "Section Break",
-   "label": "Dutch BTW (VAT) Settings"
   },
   {
    "default": "0",
@@ -142,6 +168,21 @@
    "fieldname": "creditor_id",
    "fieldtype": "Data",
    "label": "SEPA Creditor ID (Incassant ID)"
+  },
+  {
+   "default": "MANDATE-.YY.-.MM.-.####",
+   "description": "Naming pattern for SEPA Mandate References (mandate_id) communicated to banks. Use Frappe naming series format with dots. Example: MANDATE-.YY.-.MM.-.####",
+   "fieldname": "sepa_mandate_naming_pattern",
+   "fieldtype": "Data",
+   "label": "SEPA Mandate Naming Pattern"
+  },
+  {
+   "default": "1",
+   "description": "Starting number for SEPA mandate counter. Set this to control where numbering begins (e.g., 1000 to start from MANDATE-25-01-1000).",
+   "fieldname": "sepa_mandate_starting_counter",
+   "fieldtype": "Int",
+   "label": "SEPA Mandate Starting Counter",
+   "min_value": "1"
   },
   {
    "description": "Organization name as it should appear in SEPA communications and member notifications",
@@ -282,31 +323,12 @@
    "reqd": 1
   },
   {
-   "fieldname": "donation_settings_section",
-   "fieldtype": "Section Break",
-   "label": "Donation Settings"
-  },
-  {
-   "fieldname": "column_break_22",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "section_break_27",
-   "fieldtype": "Section Break",
-   "label": "Membership ID counter"
-  },
-  {
    "description": "The user that will be used to create Donations, Memberships, Invoices, and Payment Entries. This user should have the relevant permissions.",
    "fieldname": "creation_user",
    "fieldtype": "Link",
    "label": "Creation User",
    "options": "User",
    "reqd": 1
-  },
-  {
-   "fieldname": "financial_settings_section",
-   "fieldtype": "Section Break",
-   "label": "Financial settings"
   },
   {
    "default": "1000",
@@ -335,11 +357,6 @@
    "fieldname": "tax_exempt_for_contributions",
    "fieldtype": "Check",
    "label": "Tax Exempt for Contributions and Donations"
-  },
-  {
-   "fieldname": "chapter_settings_section",
-   "fieldtype": "Section Break",
-   "label": "Organization Settings"
   },
   {
    "description": "This chapter will be treated as the National Board with restricted access",
@@ -402,11 +419,6 @@
    "reqd": 1
   },
   {
-   "fieldname": "anbi_donation_settings_section",
-   "fieldtype": "Section Break",
-   "label": "ANBI (Tax-Deductible Donations) Settings"
-  },
-  {
    "default": "1",
    "description": "Enable ANBI (Algemeen Nut Beogende Instelling) functionality for tax-deductible donations and periodic donation agreements",
    "fieldname": "enable_anbi_functionality",
@@ -464,11 +476,6 @@
    "options": "Account"
   },
   {
-   "fieldname": "application_settings_section",
-   "fieldtype": "Section Break",
-   "label": "Membership Application Settings"
-  },
-  {
    "default": "0",
    "description": "When enabled, membership application forms will show an income-based contribution calculator",
    "fieldname": "enable_income_calculator",
@@ -500,11 +507,6 @@
    "min_value": 1
   },
   {
-   "fieldname": "membership_settings_section",
-   "fieldtype": "Section Break",
-   "label": "Membership Grace Period Settings"
-  },
-  {
    "fieldname": "default_grace_period_days",
    "fieldtype": "Int",
    "label": "Default Grace Period Days",
@@ -529,15 +531,6 @@
    "min_value": 1,
    "max_value": 30,
    "depends_on": "eval:doc.grace_period_auto_apply"
-  },
-  {
-   "fieldname": "system_migration_section",
-   "fieldtype": "Section Break",
-   "label": "System Migration"
-  },
-  {
-   "fieldname": "column_break_migration",
-   "fieldtype": "Column Break"
   }
  ],
  "index_web_pages_for_search": 1,

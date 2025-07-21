@@ -42,6 +42,11 @@ class MembershipDuesSchedule(Document):
 
         return values
 
+    def before_save(self):
+        """Store document state before save for comparison"""
+        if not self.is_new():
+            self._doc_before_save = frappe.get_doc("Membership Dues Schedule", self.name)
+
     def validate(self):
         self.validate_permissions()
         self.validate_template_or_instance()
@@ -58,12 +63,7 @@ class MembershipDuesSchedule(Document):
         if self.is_new() and not self.is_template and not self.next_invoice_date:
             self.next_invoice_date = today()
 
-        # Track old values for history
-        if not self.is_new() and not self.is_template:
-            old_doc = frappe.get_doc(self.doctype, self.name)
-            self._old_dues_rate = getattr(old_doc, "dues_rate", None)
-            self._old_status = old_doc.status
-            self._old_billing_frequency = old_doc.billing_frequency
+        # Note: Old values tracking moved to before_save() to capture actual previous values
 
     def validate_template_or_instance(self):
         """Validate template vs instance fields"""
@@ -146,8 +146,21 @@ class MembershipDuesSchedule(Document):
 
         user = frappe.session.user
 
-        # System Manager and Administrator always have full access
-        if user in ["Administrator", "System Manager"] or "System Manager" in frappe.get_roles(user):
+        # System Manager and configured creation user always have full access
+        creation_user = None
+        try:
+            settings = frappe.get_single("Verenigingen Settings")
+            creation_user = getattr(settings, "creation_user", None)
+        except Exception:
+            pass
+
+        admin_users = ["System Manager"]
+        if creation_user:
+            admin_users.append(creation_user)
+        else:
+            admin_users.append("Administrator")  # Fallback
+
+        if user in admin_users or "System Manager" in frappe.get_roles(user):
             return
 
         # Check if user has Verenigingen Administrator role
@@ -502,9 +515,14 @@ class MembershipDuesSchedule(Document):
 
     def create_sales_invoice(self):
         """Create a sales invoice for membership dues"""
+        # Get member's customer record
+        member_doc = frappe.get_doc("Member", self.member)
+        if not member_doc.customer:
+            frappe.throw(f"Member {self.member} does not have a customer record")
+
         # Create invoice
         invoice = frappe.new_doc("Sales Invoice")
-        invoice.customer = self.member
+        invoice.customer = member_doc.customer
         invoice.due_date = self.next_invoice_date
         invoice.posting_date = today()
 
@@ -539,9 +557,13 @@ class MembershipDuesSchedule(Document):
         # Save and optionally submit
         invoice.insert()
 
-        # Auto-submit if configured
-        if frappe.db.get_single_value("Verenigingen Settings", "auto_submit_membership_invoices"):
-            invoice.submit()
+        # Auto-submit if configured (check if field exists first)
+        try:
+            if frappe.db.get_single_value("Verenigingen Settings", "auto_submit_membership_invoices"):
+                invoice.submit()
+        except Exception:
+            # Field doesn't exist or other error - skip auto-submit
+            pass
 
         return invoice.name
 
@@ -766,7 +788,10 @@ class MembershipDuesSchedule(Document):
         schedule.member = member_name
         schedule.template_reference = template.name
         schedule.status = "Active"
-        schedule.schedule_name = f"Schedule-{member_name}-{template.membership_type}"
+        # Use new naming pattern with sequence numbers
+        from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
+
+        schedule.schedule_name = generate_dues_schedule_name(member_name, template.membership_type)
 
         # Set member-specific data
         member = frappe.get_doc("Member", member_name)
@@ -789,36 +814,40 @@ class MembershipDuesSchedule(Document):
 
         return schedule.name
 
-    def after_save(self):
-        """Track billing history changes"""
-        if self.is_template or not self.member:
-            return
-
-        # Check if this is a new schedule or if key fields changed
-        if self.is_new():
+    def after_insert(self):
+        """Handle new schedule creation"""
+        if not self.is_template and self.member:
             self.add_billing_history_entry("New Schedule", None, self.dues_rate)
             # Update member's dues_rate field
             self.update_member_dues_rate()
-        else:
-            # Check for dues rate change
-            if hasattr(self, "_old_dues_rate") and self._old_dues_rate != self.dues_rate:
-                self.add_billing_history_entry("Fee Adjustment", self._old_dues_rate, self.dues_rate)
-                # Update member's dues_rate field
-                self.update_member_dues_rate()
 
-            # Check for status change
-            if hasattr(self, "_old_status") and self._old_status != self.status:
-                if self.status == "Cancelled":
-                    self.add_billing_history_entry("Schedule Cancelled", self.dues_rate, self.dues_rate)
-                elif self._old_status == "Paused" and self.status == "Active":
-                    self.add_billing_history_entry("Schedule Resumed", self.dues_rate, self.dues_rate)
+    def on_update(self):
+        """Track billing history changes when schedule is updated"""
+        if self.is_template or not self.member:
+            return
 
-            # Check for billing frequency change
-            if (
-                hasattr(self, "_old_billing_frequency")
-                and self._old_billing_frequency != self.billing_frequency
-            ):
-                self.add_billing_history_entry("Billing Frequency Change", self.dues_rate, self.dues_rate)
+        # Only proceed if we have the old document for comparison
+        if not hasattr(self, "_doc_before_save") or self._doc_before_save is None:
+            return
+
+        old_doc = self._doc_before_save
+
+        # Check for dues rate change
+        if old_doc.dues_rate != self.dues_rate:
+            self.add_billing_history_entry("Fee Adjustment", old_doc.dues_rate, self.dues_rate)
+            # Update member's dues_rate field
+            self.update_member_dues_rate()
+
+        # Check for status change
+        if old_doc.status != self.status:
+            if self.status == "Cancelled":
+                self.add_billing_history_entry("Schedule Cancelled", self.dues_rate, self.dues_rate)
+            elif old_doc.status == "Paused" and self.status == "Active":
+                self.add_billing_history_entry("Schedule Resumed", self.dues_rate, self.dues_rate)
+
+        # Check for billing frequency change
+        if old_doc.billing_frequency != self.billing_frequency:
+            self.add_billing_history_entry("Billing Frequency Change", self.dues_rate, self.dues_rate)
 
     def update_member_dues_rate(self):
         """Update the member's dues_rate field to match the schedule"""

@@ -408,10 +408,10 @@ class Membership(Document):
         # Create dues schedule
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
 
-        # Set required fields
-        dues_schedule.schedule_name = (
-            f"Schedule-{self.member}-{self.membership_type}-{frappe.generate_hash(length=6)}"
-        )
+        # Set required fields using new naming pattern
+        from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
+
+        dues_schedule.schedule_name = generate_dues_schedule_name(self.member, self.membership_type)
         dues_schedule.member = self.member
         dues_schedule.membership_type = self.membership_type
 

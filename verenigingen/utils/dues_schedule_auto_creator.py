@@ -44,7 +44,16 @@ def send_summary_email(created_count, error_count, total_found):
         )
 
         if not admins:
-            admins = ["Administrator"]
+            # Fallback to configured creation user from Verenigingen Settings
+            try:
+                settings = frappe.get_single("Verenigingen Settings")
+                creation_user = getattr(settings, "creation_user", None)
+                if creation_user:
+                    admins = [creation_user]
+                else:
+                    admins = ["Administrator"]  # Final fallback
+            except Exception:
+                admins = ["Administrator"]  # Final fallback
 
         subject = f"Dues Schedule Auto-Creation Summary - {today()}"
 
@@ -193,7 +202,11 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             membership_type_doc = frappe.get_doc("Membership Type", member.membership_type)
 
             dues_schedule = frappe.new_doc("Membership Dues Schedule")
-            dues_schedule.schedule_name = f"Auto-{member.member_name}-{frappe.utils.random_string(6)}"
+            from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
+
+            dues_schedule.schedule_name = generate_dues_schedule_name(
+                member.member_name, member.membership_type
+            )
             dues_schedule.member = member.member_name
             dues_schedule.member_name = member.member_full_name
             dues_schedule.membership = member.membership_name
@@ -267,7 +280,16 @@ def _send_summary_email(result):
     )
 
     if not admins:
-        admins = ["Administrator"]
+        # Fallback to configured creation user from Verenigingen Settings
+        try:
+            settings = frappe.get_single("Verenigingen Settings")
+            creation_user = getattr(settings, "creation_user", None)
+            if creation_user:
+                admins = [creation_user]
+            else:
+                admins = ["Administrator"]  # Final fallback
+        except Exception:
+            admins = ["Administrator"]  # Final fallback
 
     subject = f"Manual Dues Schedule Creation - {today()}"
 
@@ -366,8 +388,10 @@ def create_dues_schedules_for_members(members, send_emails=False):
             # Get membership type details
             membership_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
 
-            # Create dues schedule
-            schedule_name = f"DS-{member_name}-{frappe.utils.nowdate()}"
+            # Create dues schedule with new naming pattern
+            from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
+
+            schedule_name = generate_dues_schedule_name(member_name, membership.membership_type)
             dues_schedule = frappe.get_doc(
                 {
                     "doctype": "Membership Dues Schedule",

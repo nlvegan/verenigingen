@@ -16,8 +16,9 @@ class TestRunner:
 
     QUICK_TESTS = [
         "test_validation_regression.run_validation_regression_suite",
-        "test_runner_wrappers.run_iban_validation_tests",
+        "test_runner_wrappers.run_iban_validation_tests", 
         "test_runner_wrappers.run_special_character_tests",
+        "test_runner_wrappers.run_sepa_mandate_naming_tests",
     ]
 
     COMPREHENSIVE_TESTS = [
@@ -27,6 +28,8 @@ class TestRunner:
         "test_runner_wrappers.run_all_tests",
         "test_runner_wrappers.run_expense_integration_tests",
         "test_runner_wrappers.run_all_sepa_tests",
+        "test_runner_wrappers.run_sepa_mandate_naming_tests",
+        "test_runner_wrappers.run_sepa_mandate_lifecycle_tests",
         "test_runner_wrappers.run_all_portal_tests",
         "test_runner_wrappers.run_all_termination_tests",
         "test_runner_wrappers.run_workflow_tests",

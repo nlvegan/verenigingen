@@ -511,31 +511,24 @@ class VereningingenTestCase(FrappeTestCase):
         return event
 
     def create_test_sepa_mandate(self, **kwargs):
-        """Create a test SEPA mandate with default values"""
+        """Create a test SEPA mandate with default values and configurable naming support"""
         # Create a member first if not provided
-        if "party" not in kwargs and "member" in kwargs:
-            member = frappe.get_doc("Member", kwargs["member"])
-            # Ensure member has a customer
-            if not member.customer:
-                customer = frappe.new_doc("Customer")
-                customer.customer_name = f"{member.first_name} {member.last_name}"
-                customer.customer_type = "Individual"
-                customer.member = member.name  # Direct link to member
-                customer.save()
-                member.customer = customer.name
-                member.save()
-                self.track_doc("Customer", customer.name)
-            kwargs["party"] = member.customer
-            kwargs["party_type"] = "Customer"
+        if "member" not in kwargs:
+            member = self.create_test_member(
+                first_name="SEPA",
+                last_name="TestMember",
+                email=f"sepa.{frappe.generate_hash(length=6)}@example.com"
+            )
+            kwargs["member"] = member.name
         
         defaults = {
-            "party_type": "Customer",
-            "iban": "NL91ABNA0417164300",  # Valid test IBAN
-            "account_holder": "Test Account Holder",
+            "account_holder_name": "Test Account Holder",
+            "iban": self._get_test_iban(),  # Use unique test IBANs
             "mandate_type": "RCUR",
             "status": "Active",
-            "consent_date": frappe.utils.today(),
-            "consent_method": "Online Portal"
+            "sign_date": frappe.utils.today(),
+            "scheme": "SEPA",
+            "used_for_memberships": 1
         }
         defaults.update(kwargs)
         
@@ -543,9 +536,84 @@ class VereningingenTestCase(FrappeTestCase):
         for key, value in defaults.items():
             setattr(mandate, key, value)
         
+        # Don't set mandate_id - let it auto-generate using configurable pattern
+        if "mandate_id" not in kwargs:
+            mandate.mandate_id = None
+        
         mandate.save()
         self.track_doc("SEPA Mandate", mandate.name)
         return mandate
+    
+    def _get_test_iban(self):
+        """Generate a unique valid test IBAN for testing"""
+        try:
+            from verenigingen.utils.validation.iban_validator import generate_test_iban
+            return generate_test_iban("TEST")
+        except (ImportError, ModuleNotFoundError):
+            # Fallback to static test IBANs if test generator not available
+            import random
+            base_ibans = [
+                "NL91ABNA0417164300",
+                "NL39ABNA0417164301", 
+                "NL06ABNA0417164302",
+                "NL73ABNA0417164303",
+                "NL40ABNA0417164304"
+            ]
+            return random.choice(base_ibans)
+    
+    def create_test_sepa_mandate_with_pattern(self, pattern, starting_counter, **kwargs):
+        """Create a test SEPA mandate with specific naming pattern for testing"""
+        # Store current settings
+        settings = frappe.get_single("Verenigingen Settings")
+        original_pattern = getattr(settings, 'sepa_mandate_naming_pattern', None)
+        original_counter = getattr(settings, 'sepa_mandate_starting_counter', None)
+        
+        try:
+            # Set test pattern
+            settings.sepa_mandate_naming_pattern = pattern
+            settings.sepa_mandate_starting_counter = starting_counter
+            settings.save()
+            
+            # Create mandate with test pattern
+            mandate = self.create_test_sepa_mandate(**kwargs)
+            
+            return mandate
+            
+        finally:
+            # Restore original settings
+            if original_pattern is not None:
+                settings.sepa_mandate_naming_pattern = original_pattern
+            if original_counter is not None:
+                settings.sepa_mandate_starting_counter = original_counter
+            settings.save()
+    
+    def assert_sepa_mandate_pattern(self, mandate, expected_prefix, expected_counter=None):
+        """Assert that a SEPA mandate follows expected naming pattern"""
+        self.assertTrue(mandate.mandate_id, "SEPA Mandate should have mandate_id")
+        self.assertTrue(mandate.mandate_id.startswith(expected_prefix), 
+                       f"mandate_id '{mandate.mandate_id}' should start with '{expected_prefix}'")
+        
+        if expected_counter:
+            self.assertIn(str(expected_counter).zfill(4), mandate.mandate_id,
+                         f"mandate_id '{mandate.mandate_id}' should contain counter '{expected_counter}'")
+    
+    def get_sepa_settings_backup(self):
+        """Get current SEPA settings for backup/restore"""
+        settings = frappe.get_single("Verenigingen Settings")
+        return {
+            "pattern": getattr(settings, 'sepa_mandate_naming_pattern', None),
+            "counter": getattr(settings, 'sepa_mandate_starting_counter', None)
+        }
+    
+    def restore_sepa_settings(self, backup):
+        """Restore SEPA settings from backup"""
+        settings = frappe.get_single("Verenigingen Settings")
+        settings.reload()  # Refresh to avoid timestamp issues
+        if backup["pattern"] is not None:
+            settings.sepa_mandate_naming_pattern = backup["pattern"]
+        if backup["counter"] is not None:
+            settings.sepa_mandate_starting_counter = backup["counter"]
+        settings.save()
 
     def create_test_membership_application(self, **kwargs):
         """Create a test membership application with default values"""

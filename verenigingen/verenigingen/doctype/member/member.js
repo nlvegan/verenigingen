@@ -2190,10 +2190,126 @@ function add_consolidated_dues_schedule_buttons(frm) {
 				});
 			}, __('Membership & Dues'));
 
+			// Add manual invoice generation button
+			frm.add_custom_button(__('Generate Invoice'), function() {
+				show_manual_invoice_dialog(frm);
+			}, __('Membership & Dues'));
+
 			// Update current dues schedule field
 			frm.set_value('current_dues_schedule', schedule.name);
 		}
 	}).catch(function(error) {
 		console.error('Dues schedule buttons: Error loading schedule', error);
+	});
+}
+
+// ==================== MANUAL INVOICE GENERATION ====================
+
+function show_manual_invoice_dialog(frm) {
+	// First get member's current dues schedule and invoice info
+	frappe.call({
+		method: 'verenigingen.api.manual_invoice_generation.get_member_invoice_info',
+		args: {
+			member_name: frm.doc.name
+		},
+		callback: function(r) {
+			if (r.message && r.message.success) {
+				const info = r.message;
+
+				if (!info.has_customer) {
+					frappe.msgprint({
+						title: __('Customer Record Required'),
+						message: __('This member needs a customer record to generate invoices. Please create a customer record first.'),
+						indicator: 'red'
+					});
+					return;
+				}
+
+				if (!info.has_dues_schedule) {
+					frappe.msgprint({
+						title: __('No Dues Schedule'),
+						message: __('This member does not have an active dues schedule. Please create a dues schedule first.'),
+						indicator: 'red'
+					});
+					return;
+				}
+
+				// Show confirmation dialog with member info
+				let recent_invoices_html = '';
+				if (info.recent_invoices && info.recent_invoices.length > 0) {
+					recent_invoices_html = '<h5>Recent Invoices:</h5><ul>';
+					info.recent_invoices.forEach(function(invoice) {
+						const status_color = invoice.status === 'Paid' ? 'green' : (invoice.status === 'Overdue' ? 'red' : 'orange');
+						recent_invoices_html += `<li><strong>${invoice.name}</strong> - ${invoice.posting_date} - €${invoice.grand_total} <span style="color: ${status_color};">(${invoice.status})</span></li>`;
+					});
+					recent_invoices_html += '</ul>';
+				}
+
+				const dialog_content = `
+					<p><strong>Member:</strong> ${info.member_name}</p>
+					<p><strong>Current Rate:</strong> €${info.current_rate} (${info.billing_frequency})</p>
+					<p><strong>Dues Schedule:</strong> ${info.dues_schedule_name}</p>
+					${info.next_invoice_date ? `<p><strong>Next Scheduled Invoice:</strong> ${info.next_invoice_date}</p>` : ''}
+					${recent_invoices_html}
+					<p><em>This will generate a new invoice for €${info.current_rate} using the current dues schedule settings.</em></p>
+				`;
+
+				frappe.confirm(
+					dialog_content,
+					function() {
+						// User confirmed - generate the invoice
+						generate_manual_invoice_for_member(frm, info);
+					},
+					function() {
+						// User cancelled - do nothing
+					},
+					__('Generate Manual Invoice'),
+					__('Generate Invoice'),
+					__('Cancel')
+				);
+			} else {
+				frappe.msgprint({
+					title: __('Error'),
+					message: r.message ? r.message.error : __('Failed to retrieve member information'),
+					indicator: 'red'
+				});
+			}
+		}
+	});
+}
+
+function generate_manual_invoice_for_member(frm, member_info) {
+	frappe.call({
+		method: 'verenigingen.api.manual_invoice_generation.generate_manual_invoice',
+		args: {
+			member_name: frm.doc.name
+		},
+		freeze: true,
+		freeze_message: __('Generating invoice...'),
+		callback: function(r) {
+			if (r.message && r.message.success) {
+				frappe.show_alert({
+					message: r.message.message,
+					indicator: 'green'
+				}, 5);
+
+				// Ask if user wants to view the invoice
+				frappe.confirm(
+					__('Invoice {0} has been generated successfully. Would you like to view it now?', [r.message.invoice_name]),
+					function() {
+						frappe.set_route('Form', 'Sales Invoice', r.message.invoice_name);
+					}
+				);
+
+				// Refresh the form to update any payment history
+				frm.reload_doc();
+			} else {
+				frappe.msgprint({
+					title: __('Invoice Generation Failed'),
+					message: r.message ? r.message.error : __('Unknown error occurred'),
+					indicator: 'red'
+				});
+			}
+		}
 	});
 }

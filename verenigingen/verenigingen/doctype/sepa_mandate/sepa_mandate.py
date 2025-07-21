@@ -9,12 +9,107 @@ from frappe.utils import getdate, today
 
 class SEPAMandate(Document):
     def validate(self):
+        self.auto_generate_mandate_id()
         self.validate_dates()
         self.validate_iban()
         self.set_status_based_on_dates()
 
         # Also synchronize status and is_active flag during validation
         self.sync_status_is_active()
+
+    def auto_generate_mandate_id(self):
+        """Auto-generate mandate_id using configurable pattern and starting counter from Verenigingen Settings"""
+        # Only generate if mandate_id is not already set
+        if self.mandate_id:
+            return
+
+        try:
+            # Get the naming pattern and starting counter from Verenigingen Settings
+            settings = frappe.get_single("Verenigingen Settings")
+            naming_pattern = (
+                settings.sepa_mandate_naming_pattern
+                if settings.sepa_mandate_naming_pattern
+                else "MANDATE-.YY.-.MM.-.####"
+            )
+            starting_counter = (
+                int(settings.sepa_mandate_starting_counter) if settings.sepa_mandate_starting_counter else 1
+            )
+
+            # Generate mandate_id with custom counter logic
+            self.mandate_id = self._generate_mandate_id_with_counter(naming_pattern, starting_counter)
+
+        except Exception as e:
+            # Log the error and fallback to default pattern
+            frappe.log_error(f"Error in auto_generate_mandate_id: {str(e)}", "SEPA Mandate ID Generation")
+            from frappe.model.naming import make_autoname
+
+            self.mandate_id = make_autoname("MANDATE-.YY.-.MM.-.####")
+
+    def _generate_mandate_id_with_counter(self, pattern, starting_counter):
+        """Generate mandate_id with custom starting counter support"""
+        import re
+
+        from frappe.utils import now_datetime
+
+        # Replace date tokens
+        now = now_datetime()
+        result = pattern
+        result = result.replace("{YYYY}", str(now.year))
+        result = result.replace("{YY}", str(now.year)[-2:])
+        result = result.replace("{MM}", f"{now.month:02d}")
+        result = result.replace("{DD}", f"{now.day:02d}")
+
+        # Handle Frappe naming series format (dots)
+        result = result.replace(".YYYY.", str(now.year))
+        result = result.replace(".YY.", str(now.year)[-2:])
+        result = result.replace(".MM.", f"{now.month:02d}")
+        result = result.replace(".DD.", f"{now.day:02d}")
+
+        # Find counter pattern (#### or .####)
+        counter_pattern = re.search(r"\.?(#+)\.?", result)
+        if counter_pattern:
+            counter_digits = len(counter_pattern.group(1))
+
+            # Get the base pattern without counter for finding existing mandates
+            base_pattern = re.sub(r"\.?(#+)\.?", "", result)
+
+            # Find existing mandates with this base pattern to determine next counter
+            existing_mandates = frappe.db.sql(
+                """
+                SELECT mandate_id FROM `tabSEPA Mandate`
+                WHERE mandate_id LIKE %s
+                ORDER BY mandate_id DESC
+                LIMIT 1
+            """,
+                (base_pattern + "%",),
+            )
+
+            if existing_mandates:
+                # Extract counter from last mandate and increment
+                last_mandate = existing_mandates[0][0]
+                last_counter_match = re.search(r"(\d+)$", last_mandate)
+                if last_counter_match:
+                    next_counter = int(last_counter_match.group(1)) + 1
+                else:
+                    next_counter = starting_counter
+            else:
+                # No existing mandates, use starting counter
+                next_counter = starting_counter
+
+            # Replace counter pattern with actual counter
+            counter_str = f"{next_counter:0{counter_digits}d}"
+            result = re.sub(r"\.?(#+)\.?", counter_str, result)
+
+            # Ensure uniqueness
+            attempts = 0
+            original_counter = next_counter
+            while frappe.db.exists("SEPA Mandate", {"mandate_id": result}) and attempts < 100:
+                next_counter = original_counter + attempts + 1
+                counter_str = f"{next_counter:0{counter_digits}d}"
+                result = re.sub(r"\d+$", counter_str, result)
+                attempts += 1
+
+        return result
 
     def sync_status_is_active(self):
         """Synchronize status and is_active flag explicitly"""

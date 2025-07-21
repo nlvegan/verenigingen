@@ -43,6 +43,50 @@ def run_special_character_tests():
         return {"success": False, "message": f"Special character tests failed: {str(e)}"}
 
 
+@frappe.whitelist()
+def run_sepa_mandate_naming_tests():
+    """Run SEPA mandate naming configuration tests"""
+    try:
+        import unittest
+        from verenigingen.tests.test_sepa_mandate_naming import TestSEPAMandateNaming
+        
+        suite = unittest.TestLoader().loadTestsFromTestCase(TestSEPAMandateNaming)
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+        
+        return {
+            "success": result.wasSuccessful(),
+            "tests_run": result.testsRun,
+            "failures": len(result.failures),
+            "errors": len(result.errors),
+            "message": f"SEPA mandate naming tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors"
+        }
+    except Exception as e:
+        return {"success": False, "message": f"SEPA mandate naming tests failed: {str(e)}"}
+
+
+@frappe.whitelist()
+def run_sepa_mandate_lifecycle_tests():
+    """Run SEPA mandate lifecycle integration tests"""
+    try:
+        import unittest
+        from verenigingen.tests.test_sepa_mandate_lifecycle import TestSEPAMandateLifecycle
+        
+        suite = unittest.TestLoader().loadTestsFromTestCase(TestSEPAMandateLifecycle)
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+        
+        return {
+            "success": result.wasSuccessful(),
+            "tests_run": result.testsRun,
+            "failures": len(result.failures),
+            "errors": len(result.errors),
+            "message": f"SEPA mandate lifecycle tests: {result.testsRun} run, {len(result.failures)} failures, {len(result.errors)} errors"
+        }
+    except Exception as e:
+        return {"success": False, "message": f"SEPA mandate lifecycle tests failed: {str(e)}"}
+
+
 # Comprehensive test wrappers
 
 
