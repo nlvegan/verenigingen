@@ -173,14 +173,16 @@ def update_donor_bsn(donor_name, bsn):
 def create_sepa_mandate_for_agreement(donor, iban, account_holder):
     """Create SEPA mandate for the agreement"""
     # Check if mandate already exists
-    existing = frappe.db.get_value("SEPA Mandate", {"donor": donor, "iban": iban, "status": "Active"}, "name")
+    existing = frappe.db.get_value(
+        "SEPA Mandate", {"member": donor, "iban": iban, "status": "Active"}, "name"
+    )
 
     if existing:
         return existing
 
     # Create new mandate
     mandate = frappe.new_doc("SEPA Mandate")
-    mandate.donor = donor
+    mandate.member = donor
     mandate.iban = iban
     mandate.account_holder_name = account_holder
     mandate.mandate_type = "RCUR"  # Recurring

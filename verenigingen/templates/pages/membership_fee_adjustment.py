@@ -556,10 +556,10 @@ def get_member_fee_history(member_name):
             filters={"member": member_name},
             fields=[
                 "name",
-                "amount",
+                "dues_rate",
                 "contribution_mode",
                 "status",
-                "effective_date",
+                "next_invoice_date",
                 "custom_amount_reason",
                 "creation",
             ],
@@ -649,10 +649,10 @@ def get_available_membership_types():
     if not membership:
         frappe.throw(_("No active membership found"))
 
-    # Get all published membership types
+    # Get all active membership types
     membership_types = frappe.get_all(
         "Membership Type",
-        filters={"is_published": 1},
+        filters={"is_active": 1},
         fields=["name", "membership_type_name", "amount", "description"],
         order_by="amount",
     )

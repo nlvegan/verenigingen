@@ -41,3 +41,11 @@ repos:
         files: \.(py|json)$
         pass_filenames: false
         stages: [push]
+
+      - id: database-field-validation
+        name: Database Field Validation
+        entry: python scripts/validation/quick_db_field_validator.py
+        language: system
+        files: \.(py)$
+        pass_filenames: false
+        stages: [commit]

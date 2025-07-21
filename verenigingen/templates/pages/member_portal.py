@@ -381,19 +381,31 @@ def get_payment_status(member, membership):
         # Get current fee information
         current_fee_info = member.get_current_membership_fee()
 
-        # Get membership billing frequency
-        billing_frequency = "Monthly"  # Default
+        # Get membership billing frequency from the Membership Type doctype
+        billing_frequency = "Monthly"  # Default fallback
         if membership:
-            membership_doc = frappe.get_doc("Membership", membership.name)
-            if (
-                "kwartaal" in membership.membership_type.lower()
-                or "quarter" in membership.membership_type.lower()
-            ):
-                billing_frequency = "Quarterly"
-            elif (
-                "jaar" in membership.membership_type.lower() or "annual" in membership.membership_type.lower()
-            ):
-                billing_frequency = "Annually"
+            try:
+                # Get the billing period from the Membership Type doctype
+                membership_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
+                billing_period = getattr(membership_type_doc, "billing_period", "Monthly")
+
+                # Map billing periods to display names
+                billing_frequency_map = {
+                    "Daily": "Daily",
+                    "Monthly": "Monthly",
+                    "Quarterly": "Quarterly",
+                    "Biannual": "Biannually",
+                    "Annual": "Annually",
+                    "Lifetime": "Lifetime",
+                    "Custom": "Custom",
+                }
+
+                billing_frequency = billing_frequency_map.get(billing_period, billing_period)
+            except Exception as e:
+                frappe.log_error(
+                    f"Error getting billing frequency for membership {membership.name}: {str(e)}"
+                )
+                billing_frequency = "Monthly"  # Keep default if error
 
         # Get outstanding invoices
         customer = frappe.db.get_value("Member", member.name, "customer")

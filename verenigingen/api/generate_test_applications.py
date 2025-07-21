@@ -226,14 +226,14 @@ def generate_test_members():
             chapter = None
             for city_name, chapter_name in chapter_mapping.items():
                 if city_name in member["city"]:
-                    chapter = frappe.db.get_value("Chapter", {"chapter_name": chapter_name}, "name")
+                    chapter = frappe.db.get_value("Chapter", {"region": chapter_name}, "name")
                     if chapter:
                         app.chapter = chapter
                         break
 
             if not chapter:
-                # Get any active chapter
-                chapter = frappe.db.get_value("Chapter", {"is_active": 1}, "name")
+                # Get any published chapter
+                chapter = frappe.db.get_value("Chapter", {"published": 1}, "name")
                 if chapter:
                     app.chapter = chapter
 

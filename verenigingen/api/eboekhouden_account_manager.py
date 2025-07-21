@@ -71,7 +71,7 @@ def get_account_cleanup_status(company):
         last_migration = frappe.get_all(
             "E-Boekhouden Migration",
             filters={"company": company},
-            fields=["name", "status", "migration_date", "total_accounts"],
+            fields=["name", "migration_status", "start_time", "total_records"],
             order_by="creation desc",
             limit=1,
         )

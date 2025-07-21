@@ -100,9 +100,7 @@ def get_user_board_chapters():
     # Admin users can see all chapters
     admin_roles = ["System Manager", "Verenigingen Administrator"]
     if any(role in frappe.get_roles() for role in admin_roles):
-        return frappe.get_all(
-            "Chapter", fields=["name as chapter_name", "region"], filters={"published": 1}, order_by="name"
-        )
+        return frappe.get_all("Chapter", fields=["name", "region"], filters={"published": 1}, order_by="name")
 
     # Find member record for current user
     member = frappe.db.get_value("Member", {"email": user_email}, "name")

@@ -588,7 +588,7 @@ $(document).ready(function() {
                         <div>
                             <h6 class="mb-1">${type.membership_type_name}${currentBadge}</h6>
                             <p class="mb-0 text-muted small">${type.description || ''}</p>
-                            <p class="mb-0"><strong>{{ _("Fee") }}:</strong> ${frappe.format_value(type.amount, {"fieldtype": "Currency"})}</p>
+                            <p class="mb-0"><strong>{{ _("Fee") }}:</strong> €${parseFloat(type.amount || 0).toFixed(2)}</p>
                         </div>
                         ${!isCurrent ? '<i class="fa fa-chevron-right text-muted"></i>' : ''}
                     </div>

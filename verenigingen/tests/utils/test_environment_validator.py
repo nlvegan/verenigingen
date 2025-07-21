@@ -343,7 +343,7 @@ class TestEnvironmentValidator:
                 test_doc_created = True
 
                 # Clean up immediately
-                test_chapter.delete(, force=True)
+                test_chapter.delete(force=True)
 
             except Exception as e:
                 return {

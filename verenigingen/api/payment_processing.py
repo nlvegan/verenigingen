@@ -495,12 +495,8 @@ def create_application_invoice(member, membership):
 
     # Determine amount to use
     amount = membership_type.amount
-    if (
-        hasattr(membership, "uses_custom_amount")
-        and membership.uses_custom_amount
-        and hasattr(membership, "custom_amount")
-    ):
-        amount = membership.custom_amount
+    # Custom amount handling removed - these fields don't exist in Membership DocType
+    # Custom amounts are handled via Membership Dues Schedule
 
     return create_membership_invoice_with_amount(member, membership, amount)
 

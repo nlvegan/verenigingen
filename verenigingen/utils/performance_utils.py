@@ -113,11 +113,11 @@ class PermissionOptimizer:
         team_members = frappe.db.sql(
             """
             SELECT tm.volunteer, tm.parent as team, tm.role_type, tm.role,
-                   v.member, m.email_id
+                   v.member, m.email as email_id
             FROM `tabTeam Member` tm
             JOIN `tabVolunteer` v ON tm.volunteer = v.name
             JOIN `tabMember` m ON v.member = m.name
-            WHERE m.email_id IN %s AND tm.is_active = 1
+            WHERE m.email IN %s AND tm.is_active = 1
         """,
             [user_emails],
             as_dict=True,
@@ -148,18 +148,18 @@ class PermissionOptimizer:
         # Single query for all chapter memberships
         chapter_members = frappe.db.sql(
             """
-            SELECT cm.parent as chapter, m.email_id
+            SELECT cm.parent as chapter, m.email as email_id
             FROM `tabChapter Member` cm
             JOIN `tabMember` m ON cm.member = m.name
-            WHERE m.email_id IN %s AND cm.is_active = 1
+            WHERE m.email IN %s AND cm.status = 'Active' AND cm.enabled = 1
 
             UNION
 
-            SELECT cbm.parent as chapter, m.email_id
+            SELECT cbm.parent as chapter, m.email as email_id
             FROM `tabChapter Board Member` cbm
             JOIN `tabVolunteer` v ON cbm.volunteer = v.name
             JOIN `tabMember` m ON v.member = m.name
-            WHERE m.email_id IN %s AND cbm.is_active = 1
+            WHERE m.email IN %s AND cbm.is_active = 1
         """,
             [user_emails, user_emails],
             as_dict=True,
@@ -336,22 +336,22 @@ def get_user_chapter_memberships_optimized(user_email: str) -> List[Dict[str, An
         # Single query to get all chapter relationships
         chapter_data = frappe.db.sql(
             """
-            SELECT DISTINCT c.name as chapter_name, c.chapter_name as display_name,
+            SELECT DISTINCT c.name as chapter_name, c.region as display_name,
                    'member' as relationship_type
             FROM `tabChapter Member` cm
             JOIN `tabMember` m ON cm.member = m.name
             JOIN `tabChapter` c ON cm.parent = c.name
-            WHERE m.email_id = %s AND cm.is_active = 1
+            WHERE m.email = %s AND cm.status = 'Active' AND cm.enabled = 1
 
             UNION
 
-            SELECT DISTINCT c.name as chapter_name, c.chapter_name as display_name,
+            SELECT DISTINCT c.name as chapter_name, c.region as display_name,
                    'board_member' as relationship_type
             FROM `tabChapter Board Member` cbm
             JOIN `tabVolunteer` v ON cbm.volunteer = v.name
             JOIN `tabMember` m ON v.member = m.name
             JOIN `tabChapter` c ON cbm.parent = c.name
-            WHERE m.email_id = %s AND cbm.is_active = 1
+            WHERE m.email = %s AND cbm.is_active = 1
         """,
             [user_email, user_email],
             as_dict=True,

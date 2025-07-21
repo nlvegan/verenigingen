@@ -373,7 +373,7 @@ def create_member_from_application(data, application_id, address=None):
                 # chapter_doc = frappe.get_doc("Chapter", selected_chapter)
                 # chapter_display = f"{chapter_doc.chapter_name} ({selected_chapter})"
                 chapter_doc = frappe.get_doc("Chapter", selected_chapter)
-                chapter_display = f"{chapter_doc.chapter_name} ({selected_chapter})"
+                chapter_display = f"{chapter_doc.region} ({selected_chapter})"
             except Exception:
                 chapter_display = selected_chapter
 

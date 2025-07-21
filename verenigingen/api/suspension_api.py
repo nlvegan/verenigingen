@@ -213,15 +213,18 @@ def get_suspension_preview(member_name):
     user_email = frappe.db.get_value("Member", member_name, "user")
     has_user_account = bool(user_email and frappe.db.exists("User", user_email))
 
-    # Get team memberships
+    # Get team memberships through volunteer
     active_teams = 0
     team_details = []
     if user_email:
-        teams = frappe.get_all(
-            "Team Member", filters={"user": user_email, "docstatus": 1}, fields=["parent", "role"]
-        )
-        active_teams = len(teams)
-        team_details = [{"team": t.parent, "role": t.role} for t in teams]
+        # First get volunteer record for this user
+        volunteer = frappe.db.get_value("Volunteer", {"email": user_email}, "name")
+        if volunteer:
+            teams = frappe.get_all(
+                "Team Member", filters={"volunteer": volunteer, "is_active": 1}, fields=["parent", "role"]
+            )
+            active_teams = len(teams)
+            team_details = [{"team": t.parent, "role": t.role} for t in teams]
 
     # Get active memberships
     active_memberships = frappe.get_all(

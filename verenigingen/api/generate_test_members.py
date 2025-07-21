@@ -199,7 +199,7 @@ def generate_test_members():
             # Try to find chapter
             for city_name, chapter_name in chapter_mapping.items():
                 if city_name in member_data["city"]:
-                    chapter = frappe.db.get_value("Chapter", {"chapter_name": chapter_name}, "name")
+                    chapter = frappe.db.get_value("Chapter", {"region": chapter_name}, "name")
                     if chapter:
                         member.primary_chapter = chapter
                         break
@@ -303,7 +303,7 @@ def get_test_members_status():
     test_members = frappe.get_all(
         "Member",
         filters={"email": ["like", "%@testvereniging.nl"]},
-        fields=["name", "full_name", "email", "membership_status", "primary_chapter", "member_since"],
+        fields=["name", "full_name", "email", "membership_status", "current_chapter_display", "member_since"],
     )
 
     # Group by status

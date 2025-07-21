@@ -43,7 +43,7 @@ class DepartmentHierarchyManager:
 
     def _create_chapter_departments(self):
         """Create department for each active chapter"""
-        chapters = frappe.get_all("Chapter", filters={"status": "Active"}, fields=["name", "chapter_name"])
+        chapters = frappe.get_all("Chapter", filters={"published": 1}, fields=["name", "region"])
 
         for chapter in chapters:
             # Main chapter department
@@ -174,7 +174,7 @@ class DepartmentHierarchyManager:
 
     def _sync_chapter_approvers(self):
         """Sync approvers for each chapter"""
-        chapters = frappe.get_all("Chapter", filters={"status": "Active"})
+        chapters = frappe.get_all("Chapter", filters={"published": 1})
 
         for chapter in chapters:
             # chapter_doc = frappe.get_doc("Chapter", chapter.name)

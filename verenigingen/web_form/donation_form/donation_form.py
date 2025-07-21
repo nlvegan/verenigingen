@@ -30,9 +30,7 @@ def get_active_campaigns():
 
 def get_active_chapters():
     """Get list of active chapters that accept donations"""
-    return frappe.get_all(
-        "Chapter", filters={"is_group": 0}, fields=["name", "chapter_name"], order_by="chapter_name"
-    )
+    return frappe.get_all("Chapter", filters={"published": 1}, fields=["name", "region"], order_by="name")
 
 
 def get_existing_donor():

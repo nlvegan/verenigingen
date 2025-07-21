@@ -222,8 +222,11 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
 
         description = "Membership Fee"
         if invoice.membership:
-            membership_year = frappe.db.get_value("Membership", invoice.membership, "membership_year")
-            if membership_year:
+            start_date = frappe.db.get_value("Membership", invoice.membership, "start_date")
+            if start_date:
+                from frappe.utils import getdate
+
+                membership_year = getdate(start_date).year
                 description = f"Membership Fee {membership_year}"
 
         history.append(
@@ -300,7 +303,14 @@ def get_payment_schedule(member=None):
     active_dues_schedule = frappe.get_all(
         "Membership Dues Schedule",
         filters={"member": member, "status": "Active"},
-        fields=["name", "contribution_mode", "billing_frequency", "monthly_amount", "start_date", "end_date"],
+        fields=[
+            "name",
+            "contribution_mode",
+            "billing_frequency",
+            "dues_rate",
+            "next_invoice_date",
+            "last_invoice_date",
+        ],
         limit=1,
     )
 
@@ -324,8 +334,8 @@ def get_payment_schedule(member=None):
         months = 1  # Default to monthly
 
     # Calculate amount based on billing frequency
-    monthly_amount = flt(dues_schedule.monthly_amount, 2)
-    payment_amount = monthly_amount * months
+    dues_rate = flt(dues_schedule.dues_rate, 2)
+    payment_amount = dues_rate * months
 
     current_date = getdate(today())
     for i in range(0, 12, months):
@@ -335,8 +345,8 @@ def get_payment_schedule(member=None):
         if payment_date < getdate(today()):
             continue
 
-        # Check if payment date is within schedule period
-        if dues_schedule.end_date and payment_date > getdate(dues_schedule.end_date):
+        # Check if payment date is beyond last invoice date (if set)
+        if dues_schedule.last_invoice_date and payment_date > getdate(dues_schedule.last_invoice_date):
             break
 
         schedule.append(

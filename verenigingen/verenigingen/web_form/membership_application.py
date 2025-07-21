@@ -13,8 +13,8 @@ def get_context(context):
     context.membership_types = frappe.get_all(
         "Membership Type",
         filters={"is_active": 1},
-        fields=["name", "membership_fee", "description"],
-        order_by="membership_fee",
+        fields=["name", "amount", "description"],
+        order_by="amount",
     )
 
     # Get countries for address

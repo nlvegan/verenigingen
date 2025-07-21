@@ -507,7 +507,7 @@ def validate_batch_mandates(batch_data: Dict) -> Dict:
         # Check for active SEPA mandate
         active_mandates = frappe.get_all(
             "SEPA Mandate",
-            filters={"customer": customer, "status": "Active", "is_active": 1, "used_for_memberships": 1},
+            filters={"member": customer, "status": "Active", "is_active": 1, "used_for_memberships": 1},
             fields=["name", "mandate_id"],
         )
 

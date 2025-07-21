@@ -36,7 +36,7 @@ def get_migration_statistics():
 
         # Get all migrations
         migrations = frappe.db.get_all(
-            "E-Boekhouden Migration", fields=["name", "migration_status", "import_summary"]
+            "E-Boekhouden Migration", fields=["name", "migration_status", "migration_summary"]
         )
 
         for migration in migrations:

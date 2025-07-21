@@ -149,8 +149,9 @@ def approve_membership_application(
     # Handle custom amount if member has fee override
     # Legacy JSON parsing removed - use direct fee override field
     if hasattr(member, "dues_rate") and member.dues_rate:
-        membership.uses_custom_amount = 1
-        membership.custom_amount = member.dues_rate
+        # Custom amount handling is now managed by Membership Dues Schedule
+        # No direct fields on Membership for custom amounts
+        pass  # Custom amount logic handled by Membership Dues Schedule
 
     membership.insert()
 
@@ -629,7 +630,6 @@ def get_pending_applications(chapter=None, days_overdue=None):
             "application_date",
             # "current_chapter_display",  # HTML field - not in database
             "selected_membership_type",
-            "application_source",
             "interested_in_volunteering",
             "age",
         ],
@@ -665,7 +665,7 @@ def get_pending_applications(chapter=None, days_overdue=None):
         type_data = frappe.get_all(
             "Membership Type",
             filters={"name": ["in", list(membership_types)]},
-            fields=["name", "amount", "currency"],
+            fields=["name", "amount"],
         )
         membership_type_data = {mt.name: mt for mt in type_data}
 
@@ -1059,7 +1059,7 @@ def debug_custom_amount_flow(member_name):
         memberships = frappe.get_all(
             "Membership",
             filters={"member": member_name},
-            fields=["name", "uses_custom_amount", "custom_amount"],
+            fields=["name", "membership_type", "status"],
         )
 
         result["memberships"] = memberships
@@ -1069,7 +1069,7 @@ def debug_custom_amount_flow(member_name):
             dues_schedules = frappe.get_all(
                 "Membership Dues Schedule",
                 filters={"member": member_name},
-                fields=["name", "contribution_mode", "monthly_amount", "billing_frequency", "status"],
+                fields=["name", "payment_terms_template", "dues_rate", "billing_frequency", "status"],
             )
             membership["dues_schedules"] = dues_schedules
 
@@ -1122,8 +1122,8 @@ def debug_membership_dues_schedule(membership_name):
 
         result = {
             "membership_name": membership_name,
-            "uses_custom_amount": membership.uses_custom_amount,
-            "custom_amount": membership.custom_amount,
+            # Custom amount fields removed - these don't exist in Membership DocType
+            # Custom amount handling is via Membership Dues Schedule
             "billing_amount": membership.get_billing_amount(),
             "dues_schedules": [],
         }
@@ -1135,11 +1135,11 @@ def debug_membership_dues_schedule(membership_name):
             fields=[
                 "name",
                 "contribution_mode",
-                "monthly_amount",
+                "dues_rate",
                 "billing_frequency",
                 "status",
-                "start_date",
-                "end_date",
+                "next_invoice_date",
+                "last_invoice_date",
             ],
         )
 
@@ -1147,7 +1147,7 @@ def debug_membership_dues_schedule(membership_name):
             schedule_data = {
                 "name": schedule.name,
                 "contribution_mode": schedule.contribution_mode,
-                "monthly_amount": schedule.monthly_amount,
+                "dues_rate": schedule.dues_rate,
                 "billing_frequency": schedule.billing_frequency,
                 "status": schedule.status,
                 "start_date": schedule.start_date,
@@ -1204,7 +1204,7 @@ def check_dues_schedule_invoice_relationship(invoice_name):
                 dues_schedule = frappe.get_all(
                     "Membership Dues Schedule",
                     filters={"member": member, "status": "Active"},
-                    fields=["name", "contribution_mode", "monthly_amount"],
+                    fields=["name", "contribution_mode", "dues_rate"],
                     limit=1,
                 )
                 if dues_schedule:

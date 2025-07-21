@@ -163,7 +163,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
 
         # Clean up
         for member in members_created:
-            member.delete(, force=True)
+            member.delete(force=True)
 
     def test_large_report_generation_performance(self):
         """Test report generation performance with large datasets"""
@@ -282,7 +282,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
         )
 
         # Clean up
-        member.delete(, force=True)
+        member.delete(force=True)
 
     # ===== CONCURRENT OPERATION TESTS =====
 
@@ -353,7 +353,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
         # Clean up
         for member in created_members:
             try:
-                member.delete(, force=True)
+                member.delete(force=True)
             except Exception:
                 pass
 
@@ -569,7 +569,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
                         stress_operations.append(f"Created: {member.name}")
 
                         # Clean up immediately to avoid accumulation
-                        member.delete(, force=True)
+                        member.delete(force=True)
 
                     else:
                         # Document update

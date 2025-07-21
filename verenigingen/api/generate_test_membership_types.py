@@ -169,7 +169,7 @@ def create_dues_schedule_template_for_membership_type(membership_type):
         template.template_name = f"{membership_type.membership_type_name} - Template"
         template.membership_type = membership_type.name
         template.billing_frequency = membership_type.billing_frequency
-        template.monthly_amount = membership_type.amount
+        template.dues_rate = membership_type.amount
         template.currency = membership_type.currency
         template.contribution_mode = "Membership Fee"
         template.is_active = 1
@@ -242,13 +242,13 @@ def get_test_membership_types_status():
     test_types = frappe.get_all(
         "Membership Type",
         filters={"membership_type_name": ["like", "TEST - %"]},
-        fields=["name", "billing_frequency", "amount", "dues_schedule_template", "currency"],
+        fields=["name", "billing_period", "amount", "dues_schedule_template"],
     )
 
-    # Group by billing frequency
+    # Group by billing period
     by_frequency = {}
     for mt in test_types:
-        frequency = mt.billing_frequency
+        frequency = mt.billing_period
         if frequency not in by_frequency:
             by_frequency[frequency] = []
         by_frequency[frequency].append(mt)

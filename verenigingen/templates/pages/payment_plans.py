@@ -36,7 +36,7 @@ def get_context(context):
     dues_schedules = frappe.get_all(
         "Membership Dues Schedule",
         filters={"member": member, "status": ["in", ["Active", "Grace Period"]]},
-        fields=["name", "amount", "billing_frequency"],
+        fields=["name", "dues_rate", "billing_frequency"],
     )
 
     context.has_dues_schedules = len(dues_schedules) > 0
