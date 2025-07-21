@@ -61,12 +61,9 @@ frappe.ui.form.on('Membership', {
 	membership_type: function(frm) {
 		// Handle membership type change
 		if (frm.doc.membership_type) {
-			// Fetch membership type details for dues schedule creation
-			frappe.db.get_doc('Membership Type', frm.doc.membership_type).then(function(doc) {
-				if (doc.amount) {
-					frm.set_value('membership_fee', doc.amount);
-				}
-			});
+			// Note: Dues/fee data is now stored in Membership Dues Schedule
+			// This change will trigger dues schedule creation/update on save
+			frm.trigger('refresh_dues_schedule_info');
 		}
 	},
 

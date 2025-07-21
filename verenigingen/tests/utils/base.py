@@ -39,9 +39,14 @@ class VereningingenTestCase(FrappeTestCase):
         super().setUp()
         self._test_docs = []
         self._original_session_user = frappe.session.user
+        # Track test start time for error monitoring
+        self._test_start_time = frappe.utils.now()
 
     def tearDown(self):
         """Clean up test-specific data"""
+        # Check for errors that occurred during this test BEFORE cleanup
+        self._check_test_errors()
+        
         # Restore original session user
         frappe.session.user = self._original_session_user
 
@@ -57,6 +62,38 @@ class VereningingenTestCase(FrappeTestCase):
                 print(f"Error cleaning up {doc_info['doctype']} {doc_info['name']}: {e}")
 
         super().tearDown()
+        
+    def _check_test_errors(self):
+        """Check for errors that occurred during this test"""
+        try:
+            test_errors = frappe.db.sql('''
+                SELECT error, creation 
+                FROM `tabError Log` 
+                WHERE creation >= %s
+                ORDER BY creation DESC
+                LIMIT 5
+            ''', (self._test_start_time,), as_dict=True)
+            
+            if test_errors:
+                error_summary = []
+                for error in test_errors:
+                    # Truncate long errors for readability
+                    error_text = error.error[:200] + "..." if len(error.error) > 200 else error.error
+                    error_summary.append(f"  - {error.creation}: {error_text}")
+                
+                error_msg = f"Errors occurred during test {self._testMethodName}:\n" + "\n".join(error_summary)
+                
+                # Use frappe.logger to avoid failing tests due to error logging issues
+                frappe.logger().error(f"Test Error Detection: {error_msg}")
+                
+                # For now, just log the errors rather than failing tests
+                # In the future, we can make this configurable or fail on critical errors
+                print(f"WARNING: {error_msg}")
+                
+        except Exception as e:
+            # Don't let error checking itself break tests
+            frappe.logger().error(f"Error during test error checking: {str(e)}")
+            print(f"Warning: Could not check for test errors: {str(e)}")
 
     @classmethod
     def _ensure_test_environment(cls):
@@ -109,15 +146,16 @@ class VereningingenTestCase(FrappeTestCase):
             )
             membership_type.insert(ignore_permissions=True)
 
-        # Ensure test Chapter exists
-        if not frappe.db.exists("Chapter", "Test Chapter"):
+        # Ensure test Chapter exists (unique per test session)
+        cls._test_chapter_name = getattr(cls, '_test_chapter_name', f"Test Chapter {frappe.generate_hash(length=8)}")
+        if not frappe.db.exists("Chapter", cls._test_chapter_name):
             # Get the actual region name after insert
             region_name = frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
             chapter = frappe.get_doc(
                 {
                     "doctype": "Chapter",
-                    "name": "Test Chapter",  # Set name explicitly for prompt autoname
-                    "chapter_name": "Test Chapter",
+                    "name": cls._test_chapter_name,  # Set name explicitly for prompt autoname
+                    "chapter_name": cls._test_chapter_name,
                     "region": region_name,
                     "is_active": 1}
             )
@@ -215,6 +253,11 @@ class VereningingenTestCase(FrappeTestCase):
     def get_test_region_name():
         """Get the actual test region name from database"""
         return frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
+    
+    @classmethod
+    def get_test_chapter_name(cls):
+        """Get the unique test chapter name for this test session"""
+        return getattr(cls, '_test_chapter_name', f"Test Chapter {frappe.generate_hash(length=8)}")
 
     @classmethod
     def track_class_doc(cls, doctype, name):
@@ -354,7 +397,7 @@ class VereningingenTestCase(FrappeTestCase):
             "is_template": 1,
             "schedule_name": f"Test-Template-{membership_type}",
             "membership_type": membership_type,
-            "amount": 15.00,
+            "dues_rate": 15.00,  # Fixed: was "amount", should be "dues_rate"
             "contribution_mode": "Calculator",
             "status": "Active",
             "auto_generate": 1,
@@ -377,21 +420,19 @@ class VereningingenTestCase(FrappeTestCase):
 
     def create_test_chapter(self, **kwargs):
         """Create a test chapter with default values including required region"""
+        # Generate unique chapter name if not provided
+        chapter_name = kwargs.pop("chapter_name", f"Test Chapter {frappe.generate_hash(length=6)}")
+        
         defaults = {
-            "chapter_name": f"Test Chapter {frappe.generate_hash(length=6)}",
             "region": self.get_test_region_name(),  # Use existing test region
             "introduction": "Test chapter for automated testing",
-            "status": "Active",
-            "establishment_date": frappe.utils.today(),
-            "city": "Test City"
+            "published": 1,  # Enable chapter to be found in searches
         }
         defaults.update(kwargs)
         
-        # Generate unique name if not provided
-        if "name" not in defaults:
-            defaults["name"] = defaults["chapter_name"]
-        
         chapter = frappe.new_doc("Chapter")
+        chapter.name = chapter_name  # Set the name directly
+        
         for key, value in defaults.items():
             setattr(chapter, key, value)
         
@@ -777,6 +818,39 @@ class VereningingenTestCase(FrappeTestCase):
         volunteer.save()
         self.track_doc("Volunteer", volunteer.name)
         return volunteer
+
+    def create_test_volunteer_with_realistic_name(self, **kwargs):
+        """Create volunteer with realistic name that could cause duplicates (for production scenario testing)"""
+        common_names = [
+            ("John", "Smith"), ("Mary", "Johnson"), ("James", "Williams"),
+            ("Patricia", "Brown"), ("Robert", "Jones"), ("Jennifer", "Garcia"),
+            ("Michael", "Davis"), ("Linda", "Rodriguez"), ("David", "Martinez"),
+            ("Barbara", "Hernandez"), ("William", "Anderson"), ("Elizabeth", "Taylor")
+        ]
+        
+        # Use deterministic but realistic names based on test context
+        import hashlib
+        test_context = f"{self._testMethodName}_{str(kwargs)}"
+        test_id = hashlib.md5(test_context.encode()).hexdigest()[:4]
+        name_index = int(test_id, 16) % len(common_names)
+        first_name, last_name = common_names[name_index]
+        
+        # Create member with realistic name if not provided
+        if "member" not in kwargs:
+            member = self.create_test_member(
+                first_name=first_name,
+                last_name=last_name,
+                email=f"{first_name.lower()}.{last_name.lower()}.{test_id}@example.com"
+            )
+            kwargs["member"] = member.name
+        
+        # Don't override volunteer_name if explicitly provided
+        if "volunteer_name" not in kwargs:
+            # Get the member to use their name
+            member_doc = frappe.get_doc("Member", kwargs["member"])
+            kwargs["volunteer_name"] = f"{member_doc.first_name} {member_doc.last_name}".strip()
+        
+        return self.create_test_volunteer(**kwargs)
 
     def add_board_member_to_chapter(self, chapter, volunteer, chapter_role, **kwargs):
         """Add a board member to a chapter with proper validation"""

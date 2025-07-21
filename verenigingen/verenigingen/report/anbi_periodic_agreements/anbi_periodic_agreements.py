@@ -88,7 +88,6 @@ def get_data(filters):
             pda.last_donation_date,
             pda.next_expected_donation,
             pda.anbi_eligible,
-            pda.signed_agreement_copy,
             pda.docstatus
         FROM `tabPeriodic Donation Agreement` pda
         WHERE pda.docstatus = 1

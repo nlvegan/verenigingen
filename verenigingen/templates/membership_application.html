@@ -136,8 +136,8 @@
                         <select class="form-control" id="membership_type" name="membership_type" required>
                             <option value="">{{ _("Select...") }}</option>
                             {% for type in membership_types %}
-                            <option value="{{ type.name }}" data-fee="{{ type.membership_fee }}">
-                                {{ type.name }} - {{ frappe.format_value(type.membership_fee, {"fieldtype": "Currency"}) }}/year
+                            <option value="{{ type.name }}" data-fee="{{ type.amount }}">
+                                {{ type.name }} - {{ frappe.format_value(type.amount, {"fieldtype": "Currency"}) }}/year
                             </option>
                             {% endfor %}
                         </select>

@@ -296,6 +296,59 @@ def check_application_eligibility(data):
     return {"eligible": len(eligibility_issues) == 0, "issues": eligibility_issues, "warnings": warnings}
 
 
+@frappe.whitelist()
+def debug_application_eligibility():
+    """Debug function to test application eligibility validation"""
+    # Security check: Only allow debug functions in development or for System Managers
+    if not frappe.conf.get("developer_mode") and "System Manager" not in frappe.get_roles():
+        frappe.throw(_("Debug functions are only available in development mode or for System Managers"))
+
+    # Test data that should pass
+    valid_test_data = {
+        "first_name": "Test",
+        "last_name": "User",
+        "email": f"test-eligibility-{frappe.utils.random_string(8)}@example.com",
+        "birth_date": "1990-01-01",
+        "address_line1": "Test Street 123",
+        "city": "Amsterdam",
+        "postal_code": "1000AA",
+        "country": "Netherlands",
+    }
+
+    # Test data that should fail
+    invalid_test_data = {
+        "first_name": "",  # Missing required field
+        "last_name": "User",
+        "email": "invalid-email",  # Invalid email format
+        "birth_date": "2020-01-01",  # Too young
+        "address_line1": "",  # Missing required field
+        "city": "",  # Missing required field
+        "postal_code": "",  # Missing required field
+        "country": "",  # Missing required field
+    }
+
+    try:
+        # Test valid data
+        valid_result = check_application_eligibility(valid_test_data)
+
+        # Test invalid data
+        invalid_result = check_application_eligibility(invalid_test_data)
+
+        # Check if membership types exist
+        membership_types = frappe.get_all("Membership Type", filters={"is_active": 1}, fields=["name"])
+
+        return {
+            "timestamp": frappe.utils.now(),
+            "valid_test": {"data": valid_test_data, "result": valid_result},
+            "invalid_test": {"data": invalid_test_data, "result": invalid_result},
+            "membership_types_available": len(membership_types),
+            "membership_types": [mt.name for mt in membership_types[:3]],  # Show first 3
+        }
+
+    except Exception as e:
+        return {"error": str(e), "traceback": frappe.get_traceback()}
+
+
 def validate_required_fields(data, required_fields):
     """Validate that all required fields are present and not empty"""
     missing_fields = []

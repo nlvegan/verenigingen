@@ -8,36 +8,27 @@ This test suite validates:
 4. Report filtering logic
 """
 
-import unittest
-
+import unittest.mock
 import frappe
 from frappe.utils import now_datetime
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestChapterMemberStatus(unittest.TestCase):
+class TestChapterMemberStatus(VereningingenTestCase):
     """Test Chapter Member status field and related functionality"""
 
     def setUp(self):
         """Set up test data"""
+        super().setUp()
         self.test_member_email = f"test-status-{int(now_datetime().timestamp())}@example.com"
-        self.test_member_name = None
+        
+        # Use test chapter (create one for this test)
+        self.test_chapter_doc = self.create_test_chapter(
+            chapter_name=f"Test Chapter Status {int(now_datetime().timestamp())}"
+        )
+        self.test_chapter = self.test_chapter_doc.name
 
-        # Use existing chapter to avoid validation issues
-        existing_chapters = frappe.get_all("Chapter", limit=1)
-        if not existing_chapters:
-            self.skipTest("No chapters available for testing")
-        self.test_chapter = existing_chapters[0]["name"]
-
-    def tearDown(self):
-        """Clean up test data"""
-        try:
-            if self.test_member_name:
-                # Remove chapter memberships first
-                frappe.db.sql("DELETE FROM `tabChapter Member` WHERE member = %s", self.test_member_name)
-                if frappe.db.exists("Member", self.test_member_name):
-                    frappe.delete_doc("Member", self.test_member_name, force=True)
-        except Exception as e:
-            print(f"Cleanup error (non-critical): {str(e)}")
+    # tearDown is handled automatically by VereningingenTestCase
 
     def test_chapter_member_status_field_configuration(self):
         """Test that Chapter Member has proper status field configuration"""
@@ -62,17 +53,13 @@ class TestChapterMemberStatus(unittest.TestCase):
         """Test the create_pending_chapter_membership helper function"""
         from verenigingen.utils.application_helpers import create_pending_chapter_membership
 
-        # Create test member
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Status",
-                "last_name": "TestUser",
-                "email": self.test_member_email,
-                "birth_date": "1990-01-01"}
+        # Create test member using factory method
+        member = self.create_test_member(
+            first_name="Status",
+            last_name="TestUser",
+            email=self.test_member_email,
+            birth_date="1990-01-01"
         )
-        member.insert(ignore_permissions=True)
-        self.test_member_name = member.name
 
         # Test function with valid inputs
         create_pending_chapter_membership(member, self.test_chapter)
@@ -91,17 +78,13 @@ class TestChapterMemberStatus(unittest.TestCase):
         """Test the activate_pending_chapter_membership helper function"""
         from verenigingen.utils.application_helpers import activate_pending_chapter_membership
 
-        # Create test member
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Status",
-                "last_name": "TestUser",
-                "email": self.test_member_email,
-                "birth_date": "1990-01-01"}
+        # Create test member using factory method
+        member = self.create_test_member(
+            first_name="Status",
+            last_name="TestUser",
+            email=self.test_member_email,
+            birth_date="1990-01-01"
         )
-        member.insert(ignore_permissions=True)
-        self.test_member_name = member.name
 
         # Test function behavior
         activate_pending_chapter_membership(member, self.test_chapter)
@@ -111,17 +94,13 @@ class TestChapterMemberStatus(unittest.TestCase):
 
     def test_chapter_member_status_database_operations(self):
         """Test basic database operations with status field"""
-        # Create test member
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Status",
-                "last_name": "TestUser",
-                "email": self.test_member_email,
-                "birth_date": "1990-01-01"}
+        # Create test member using factory method
+        member = self.create_test_member(
+            first_name="Status",
+            last_name="TestUser",
+            email=self.test_member_email,
+            birth_date="1990-01-01"
         )
-        member.insert(ignore_permissions=True)
-        self.test_member_name = member.name
 
         # Test direct database operations with status
         test_statuses = ["Pending", "Active", "Inactive"]
@@ -181,16 +160,12 @@ class TestChapterMemberStatus(unittest.TestCase):
         self.assertIsNone(result2, "Should handle None chapter gracefully")
 
         # Test with non-existent chapter
-        member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "Status",
-                "last_name": "TestUser",
-                "email": self.test_member_email,
-                "birth_date": "1990-01-01"}
+        member = self.create_test_member(
+            first_name="Status",
+            last_name="TestUser", 
+            email=self.test_member_email,
+            birth_date="1990-01-01"
         )
-        member.insert(ignore_permissions=True)
-        self.test_member_name = member.name
 
         result3 = create_pending_chapter_membership(member, "NON_EXISTENT_CHAPTER")
         self.assertIsNone(result3, "Should handle non-existent chapter gracefully")
@@ -198,6 +173,8 @@ class TestChapterMemberStatus(unittest.TestCase):
 
 def run_status_tests():
     """Run the Chapter Member status tests"""
+    import unittest
+    
     frappe.init(site="dev.veganisme.net")
     frappe.connect()
 

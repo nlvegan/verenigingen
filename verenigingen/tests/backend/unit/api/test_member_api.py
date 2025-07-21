@@ -28,6 +28,10 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
             email="testapi@example.com"
         )
 
+        # Set up builder for compatibility with legacy test methods
+        from verenigingen.tests.utils.factories import TestDataBuilder
+        self.builder = TestDataBuilder()
+
         # Get or create membership type
         existing_types = frappe.get_all("Membership Type", limit=1)
         if existing_types:
@@ -41,6 +45,12 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
             mt.insert()
             self.track_doc("Membership Type", mt.name)
             self.membership_type = mt.name
+    
+    def tearDown(self):
+        """Clean up test data including builder cleanup"""
+        if hasattr(self, 'builder'):
+            self.builder.cleanup()
+        super().tearDown()
 
     # tearDown handled automatically by VereningingenTestCase
 

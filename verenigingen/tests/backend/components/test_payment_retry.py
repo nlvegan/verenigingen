@@ -1,4 +1,3 @@
-import unittest
 from datetime import datetime
 from unittest.mock import patch
 
@@ -6,107 +5,82 @@ import frappe
 from frappe.utils import add_days, getdate, today
 
 from verenigingen.utils.payment_retry import PaymentRetryManager
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestPaymentRetryManager(unittest.TestCase):
+class TestPaymentRetryManager(VereningingenTestCase):
     """Test automated payment retry functionality"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        # Create test customer
-        if not frappe.db.exists("Customer", "TEST-RETRY-CUSTOMER"):
-            cls.test_customer = frappe.get_doc(
-                {
-                    "doctype": "Customer",
-                    "customer_name": "Test Retry Customer",
-                    "customer_type": "Individual",
-                    "customer_group": frappe.db.get_value("Customer Group", {"is_group": 0}, "name")}
-            ).insert()
-        else:
-            cls.test_customer = frappe.get_doc("Customer", "TEST-RETRY-CUSTOMER")
-
-        # Create test member
-        if not frappe.db.exists("Member", {"email": "retry-test@example.com"}):
-            cls.test_member = frappe.get_doc(
-                {
-                    "doctype": "Member",
-                    "member_name": "Test Retry Member",
-                    "email": "retry-test@example.com",
-                    "customer": cls.test_customer.name}
-            ).insert()
-        else:
-            cls.test_member = frappe.get_doc("Member", {"email": "retry-test@example.com"})
-
-        # Create test membership (required for invoice)
-        cls.test_membership = frappe.get_doc(
-            {
-                "doctype": "Membership",
-                "member": cls.test_member.name,
-                "membership_type": frappe.db.get_value("Membership Type", {"name": ["!=", ""]}, "name"),
-                "from_date": today(),
-                "to_date": add_days(today(), 365),
-                "paid": 0}
-        ).insert()
-
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up test data"""
-        # Delete test data
-        if hasattr(cls, "test_membership") and frappe.db.exists("Membership", cls.test_membership.name):
-            frappe.delete_doc("Membership", cls.test_membership.name, force=True)
-
-        if cls.test_member and frappe.db.exists("Member", cls.test_member.name):
-            frappe.delete_doc("Member", cls.test_member.name, force=True)
-
-        if cls.test_customer and frappe.db.exists("Customer", cls.test_customer.name):
-            frappe.delete_doc("Customer", cls.test_customer.name, force=True)
-
-        frappe.db.commit()
-
     def setUp(self):
-        """Set up for each test"""
-        self.retry_manager = PaymentRetryManager()
-
-        # Create a test invoice
-        self.test_invoice = frappe.get_doc(
-            {
-                "doctype": "Sales Invoice",
-                "customer": self.test_customer.name,
-                "posting_date": today(),
-                "due_date": add_days(today(), -5),  # Already overdue
-                "membership": self.test_membership.name,
-                "items": [
-                    {
-                        "item_code": frappe.db.get_value("Item", {"item_group": {"!=": ""}}, "name"),
-                        "qty": 1,
-                        "rate": 100}
-                ]}
-        ).insert()
-        self.test_invoice.submit()
-
-    def tearDown(self):
-        """Clean up after each test"""
-        # Delete test retry records
-        frappe.db.sql(
-            """
-            DELETE FROM `tabSEPA Payment Retry`
-            WHERE invoice = %s
-        """,
-            self.test_invoice.name,
+        """Set up test data using factory methods"""
+        super().setUp()
+        
+        # Create test member with customer using factory method
+        self.test_member = self.create_test_member(
+            first_name="Test",
+            last_name="Retry Member",
+            email=f"retry-test.{frappe.generate_hash(length=6)}@example.com"
+        )
+        
+        # Get the customer that was automatically created
+        self.test_customer = frappe.get_doc("Customer", self.test_member.customer)
+        
+        # Create test membership using factory method (draft to avoid deletion issues)
+        self.test_membership = self.create_test_membership(
+            member=self.test_member.name,
+            from_date=today(),
+            to_date=add_days(today(), 365),
+            paid=0,
+            docstatus=0  # Keep as draft for easier cleanup
         )
 
-        # Cancel and delete test invoice
-        if frappe.db.exists("Sales Invoice", self.test_invoice.name):
-            self.test_invoice.reload()
-            if self.test_invoice.docstatus == 1:
-                self.test_invoice.cancel()
-            frappe.delete_doc("Sales Invoice", self.test_invoice.name, force=True)
+    def create_test_invoice(self):
+        """Create a test invoice for retry testing"""
+        self.retry_manager = PaymentRetryManager()
 
-        frappe.db.commit()
+        # Create a test invoice using proper factory approach
+        invoice_data = {
+            "doctype": "Sales Invoice",
+            "customer": self.test_customer.name,
+            "posting_date": today(),
+            "due_date": add_days(today(), -5),  # Already overdue
+            "items": [
+                {
+                    "item_code": self.get_or_create_test_item(),
+                    "qty": 1,
+                    "rate": 100
+                }
+            ]
+        }
+        
+        self.test_invoice = frappe.get_doc(invoice_data)
+        # Mock the membership attribute for testing since it's a custom field
+        self.test_invoice.membership = self.test_membership.name
+        self.test_invoice.insert()
+        self.test_invoice.submit()
+        self.track_doc("Sales Invoice", self.test_invoice.name)
+    
+    def get_or_create_test_item(self):
+        """Get or create a test item for invoices"""
+        item_name = "TEST-RETRY-ITEM"
+        if not frappe.db.exists("Item", item_name):
+            item = frappe.get_doc({
+                "doctype": "Item",
+                "item_code": item_name,
+                "item_name": "Test Retry Item",
+                "item_group": "Services",
+                "stock_uom": "Nos",
+                "is_stock_item": 0,
+                "is_sales_item": 1,
+                "is_purchase_item": 0
+            })
+            item.insert()
+            self.track_doc("Item", item_name)
+        return item_name
 
     def test_get_retry_config(self):
         """Test retry configuration retrieval"""
+        self.create_test_invoice()
         config = self.retry_manager.get_retry_config()
 
         # Check default values
@@ -122,6 +96,7 @@ class TestPaymentRetryManager(unittest.TestCase):
     )
     def test_schedule_retry_first_attempt(self, mock_notification):
         """Test scheduling first retry attempt"""
+        self.create_test_invoice()
         result = self.retry_manager.schedule_retry(
             self.test_invoice.name, "INSUFFICIENT_FUNDS", "Not enough balance"
         )
@@ -133,6 +108,7 @@ class TestPaymentRetryManager(unittest.TestCase):
 
         # Check retry record was created
         retry_record = frappe.get_doc("SEPA Payment Retry", {"invoice": self.test_invoice.name})
+        self.track_doc("SEPA Payment Retry", retry_record.name)
         self.assertEqual(retry_record.status, "Scheduled")
         self.assertEqual(retry_record.retry_count, 1)
         self.assertEqual(retry_record.member, self.test_member.name)
@@ -143,16 +119,21 @@ class TestPaymentRetryManager(unittest.TestCase):
 
     def test_calculate_next_retry_date(self):
         """Test retry date calculation"""
+        self.create_test_invoice()
+        
         # Create retry record
         retry_record = frappe.get_doc(
             {
                 "doctype": "SEPA Payment Retry",
                 "invoice": self.test_invoice.name,
+                "membership": self.test_membership.name,
                 "member": self.test_member.name,
                 "original_amount": 100,
                 "retry_count": 0,
                 "status": "Pending"}
-        ).insert()
+        )
+        retry_record.insert()
+        self.track_doc("SEPA Payment Retry", retry_record.name)
 
         # Test first retry (3 days)
         next_date = self.retry_manager.calculate_next_retry_date(retry_record)
@@ -163,7 +144,8 @@ class TestPaymentRetryManager(unittest.TestCase):
             while getdate(expected).weekday() >= 5:
                 expected = add_days(expected, 1)
 
-        self.assertEqual(next_date, expected)
+        # Compare as dates (both should be date objects)
+        self.assertEqual(next_date, getdate(expected))
 
         # Test second retry (7 days)
         retry_record.retry_count = 1
@@ -175,13 +157,15 @@ class TestPaymentRetryManager(unittest.TestCase):
             while getdate(expected).weekday() >= 5:
                 expected = add_days(expected, 1)
 
-        self.assertEqual(next_date, expected)
+        # Compare as dates (both should be date objects)
+        self.assertEqual(next_date, getdate(expected))
 
-        # Clean up
-        retry_record.delete()
+        # Cleanup handled by base class
 
     def test_get_next_business_day(self):
         """Test business day calculation"""
+        self.create_test_invoice()
+        
         # Test weekday
         wednesday = datetime(2024, 1, 3).date()  # Wednesday
         result = self.retry_manager.get_next_business_day(wednesday)
@@ -203,16 +187,21 @@ class TestPaymentRetryManager(unittest.TestCase):
     )
     def test_max_retries_escalation(self, mock_notification):
         """Test escalation after max retries"""
+        self.create_test_invoice()
+        
         # Create retry record at max attempts
         retry_record = frappe.get_doc(
             {
                 "doctype": "SEPA Payment Retry",
                 "invoice": self.test_invoice.name,
+                "membership": self.test_membership.name,
                 "member": self.test_member.name,
                 "original_amount": 100,
                 "retry_count": 3,  # Already at max
                 "status": "Failed"}
-        ).insert()
+        )
+        retry_record.insert()
+        self.track_doc("SEPA Payment Retry", retry_record.name)
 
         # Try to schedule another retry
         result = self.retry_manager.schedule_retry(
@@ -227,16 +216,18 @@ class TestPaymentRetryManager(unittest.TestCase):
         retry_record.reload()
         self.assertEqual(retry_record.status, "Escalated")
 
-        # Clean up
-        retry_record.delete()
+        # Cleanup handled by base class
 
     def test_retry_log_creation(self):
         """Test retry log entries"""
+        self.create_test_invoice()
+        
         # Schedule a retry
         self.retry_manager.schedule_retry(self.test_invoice.name, "AC04", "Closed account")
 
         # Get retry record
         retry_record = frappe.get_doc("SEPA Payment Retry", {"invoice": self.test_invoice.name})
+        self.track_doc("SEPA Payment Retry", retry_record.name)
 
         # Check retry log
         self.assertEqual(len(retry_record.retry_log), 1)
@@ -259,16 +250,21 @@ class TestPaymentRetryManager(unittest.TestCase):
     @patch("frappe.enqueue")
     def test_create_retry_job(self, mock_enqueue):
         """Test scheduled job creation"""
+        self.create_test_invoice()
+        
         # Create retry record
         retry_record = frappe.get_doc(
             {
                 "doctype": "SEPA Payment Retry",
                 "invoice": self.test_invoice.name,
+                "membership": self.test_membership.name,
                 "member": self.test_member.name,
                 "original_amount": 100,
                 "next_retry_date": add_days(today(), 3),
                 "status": "Scheduled"}
-        ).insert()
+        )
+        retry_record.insert()
+        self.track_doc("SEPA Payment Retry", retry_record.name)
 
         # Create job
         self.retry_manager.create_retry_job(retry_record)
@@ -282,21 +278,25 @@ class TestPaymentRetryManager(unittest.TestCase):
         self.assertEqual(call_args[1]["retry_record"], retry_record.name)
         self.assertIn("queue", call_args[1])
 
-        # Clean up
-        retry_record.delete()
+        # Cleanup handled by base class
 
     def test_escalate_payment_failure(self):
         """Test payment failure escalation"""
+        self.create_test_invoice()
+        
         # Create retry record
         retry_record = frappe.get_doc(
             {
                 "doctype": "SEPA Payment Retry",
                 "invoice": self.test_invoice.name,
+                "membership": self.test_membership.name,
                 "member": self.test_member.name,
                 "original_amount": 100,
                 "retry_count": 2,
                 "status": "Failed"}
-        ).insert()
+        )
+        retry_record.insert()
+        self.track_doc("SEPA Payment Retry", retry_record.name)
 
         # Escalate
         self.retry_manager.escalate_payment_failure(retry_record)
@@ -318,33 +318,25 @@ class TestPaymentRetryManager(unittest.TestCase):
 
         self.assertTrue(any("escalated" in c.content.lower() for c in comments))
 
-        # Clean up
-        retry_record.delete()
+        # Cleanup handled by base class
 
     def test_skip_holidays(self):
         """Test holiday skipping"""
+        self.create_test_invoice()
+        
         # This test would require setting up a holiday list
         # For now, just test the method exists and handles no holiday list
         test_date = today()
         result = self.retry_manager.skip_holidays(test_date)
 
         # Should return same date if no holiday list configured
-        self.assertEqual(result, getdate(test_date))
+        # Compare as date objects
+        self.assertEqual(getdate(result), getdate(test_date))
 
     def test_execute_payment_retry(self):
         """Test payment retry execution"""
+        self.create_test_invoice()
+        
         # This would test the actual payment retry execution
         # which involves creating SEPA batches
         pass  # Placeholder for complex integration test
-
-
-def run_tests():
-    """Run all payment retry tests"""
-    suite = unittest.TestLoader().loadTestsFromTestCase(TestPaymentRetryManager)
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-    return result.wasSuccessful()
-
-
-if __name__ == "__main__":
-    unittest.main()

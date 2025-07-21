@@ -33,8 +33,38 @@ def map_payment_method(payment_method):
 
 
 def generate_application_id():
-    """Generate unique application ID"""
-    return f"APP-{frappe.utils.nowdate().replace('-', '')}-{int(time.time() % 10000):04d}"
+    """Generate unique application ID with robust collision handling"""
+    import datetime
+    import os
+    import random
+
+    date_str = frappe.utils.nowdate().replace("-", "")
+    max_attempts = 20  # Reduce attempts but improve strategy
+
+    for attempt in range(max_attempts):
+        # Use different strategies for better distribution
+        if attempt == 0:
+            # First attempt: use timestamp + microseconds for high uniqueness
+            now = datetime.datetime.now()
+            timestamp_part = int(now.timestamp() * 1000) % 10000  # millisecond precision
+            app_id = f"APP-{date_str}-{timestamp_part:04d}"
+        elif attempt < 5:
+            # Early attempts: use timestamp with random offset
+            timestamp_part = int(time.time() % 10000) + random.randint(-500, 500)
+            timestamp_part = abs(timestamp_part) % 10000  # Keep in range
+            app_id = f"APP-{date_str}-{timestamp_part:04d}"
+        else:
+            # Later attempts: pure random with wider range
+            random_part = random.randint(1000, 9999)
+            app_id = f"APP-{date_str}-{random_part}"
+
+        # Simple existence check (database constraint will handle race conditions)
+        if not frappe.db.exists("Member", {"application_id": app_id}):
+            return app_id
+
+    # Final fallback: use process ID + microseconds for maximum uniqueness
+    final_part = f"{os.getpid() % 100:02d}{datetime.datetime.now().microsecond % 100:02d}"
+    return f"APP-{date_str}-{final_part}"
 
 
 def parse_application_data(data_input):
@@ -355,8 +385,36 @@ def create_member_from_application(data, application_id, address=None):
     # Suppress customer creation messages during application submission
     member._suppress_customer_messages = True
     member.flags.ignore_permissions = True
-    member.insert(ignore_permissions=True)
-    return member
+
+    # Handle potential application_id collision with retry logic
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            member.insert(ignore_permissions=True)
+            return member
+        except Exception as e:
+            # Check if this is an IntegrityError related to application_id
+            error_str = str(e)
+            if "Duplicate entry" in error_str and "application_id" in error_str:
+                if attempt < max_attempts - 1:  # Not the last attempt
+                    # Generate new application_id and retry
+                    new_app_id = generate_application_id()
+                    member.application_id = new_app_id
+                    frappe.log_error(
+                        f"Application ID collision detected, retrying with new ID: {new_app_id} (attempt {attempt + 1})",
+                        "Application ID Collision Retry",
+                    )
+                    continue
+                else:
+                    # Last attempt failed, log and re-raise
+                    frappe.log_error(
+                        f"Failed to create member after {max_attempts} attempts due to application_id collision: {error_str}",
+                        "Application ID Collision Fatal",
+                    )
+                    raise
+            else:
+                # Not an application_id collision, re-raise immediately
+                raise
 
 
 def create_volunteer_record(member):
@@ -695,14 +753,25 @@ def create_pending_chapter_membership(member, chapter_name):
         # Get the chapter document to add member to the child table
         chapter_doc = frappe.get_doc("Chapter", chapter_name)
 
+        # Clean up orphaned chapter member records before adding new one
+        members_to_remove = []
+        for i, cm in enumerate(chapter_doc.members):
+            if cm.member and not frappe.db.exists("Member", cm.member):
+                members_to_remove.append(i)
+
+        # Remove orphaned records in reverse order to maintain indices
+        for i in reversed(members_to_remove):
+            chapter_doc.remove(chapter_doc.members[i])
+
         # Add member to the chapter members child table with Pending status
         chapter_member = chapter_doc.append(
             "members",
             {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Pending"},
         )
 
-        # Save the chapter document
-        chapter_doc.save()
+        # Save the chapter document with elevated permissions (members field is permlevel 1)
+        chapter_doc.flags.ignore_permissions = True
+        chapter_doc.save(ignore_permissions=True)
 
         # Add membership history tracking for pending membership
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
@@ -764,8 +833,9 @@ def activate_pending_chapter_membership(member, chapter_name):
         pending_member.status = "Active"
         pending_member.chapter_join_date = today()  # Update join date to approval date
 
-        # Save the chapter document
-        chapter_doc.save()
+        # Save the chapter document with elevated permissions (members field is permlevel 1)
+        chapter_doc.flags.ignore_permissions = True
+        chapter_doc.save(ignore_permissions=True)
 
         # Update membership history to reflect activation
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
@@ -810,7 +880,8 @@ def create_active_chapter_membership(member, chapter_name):
                     if cm.status != "Active":
                         cm.status = "Active"
                         cm.chapter_join_date = today()
-                        chapter_doc.save()
+                        chapter_doc.flags.ignore_permissions = True
+                        chapter_doc.save(ignore_permissions=True)
                         frappe.logger().info(
                             f"Updated existing Chapter Member record to Active for {member.name} in {chapter_name}"
                         )
@@ -823,7 +894,8 @@ def create_active_chapter_membership(member, chapter_name):
             "members", {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Active"}
         )
 
-        chapter_doc.save()
+        chapter_doc.flags.ignore_permissions = True
+        chapter_doc.save(ignore_permissions=True)
 
         # Add membership history tracking for active membership
         from verenigingen.utils.chapter_membership_history_manager import ChapterMembershipHistoryManager
@@ -885,8 +957,9 @@ def remove_pending_chapter_membership(member, chapter_name=None):
             chapter_doc.remove(chapter_doc.members[i])
 
         if members_to_remove:
-            # Save the chapter document
-            chapter_doc.save()
+            # Save the chapter document with elevated permissions (members field is permlevel 1)
+            chapter_doc.flags.ignore_permissions = True
+            chapter_doc.save(ignore_permissions=True)
             frappe.logger().info(
                 f"Removed {len(members_to_remove)} pending Chapter Member record(s) for {member.name} from {chapter_name}"
             )

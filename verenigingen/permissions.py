@@ -496,7 +496,7 @@ def get_termination_permission_query(user):
 
 
 def get_volunteer_permission_query(user):
-    """Permission query for Volunteer doctype"""
+    """Permission query for Volunteer doctype - Enhanced for better volunteer management"""
     if not user:
         user = frappe.session.user
 
@@ -510,13 +510,77 @@ def get_volunteer_permission_query(user):
     if any(role in frappe.get_roles(user) for role in admin_roles):
         return ""
 
-    # Members can view their own volunteer records
+    # Get requesting user's member record
     requesting_member = frappe.db.get_value("Member", {"user": user}, "name")
     if not requesting_member:
         return "1=0"  # No access if not a member
 
-    # Allow access to own volunteer records
-    return f"`tabVolunteer`.member = '{requesting_member}'"
+    user_roles = frappe.get_roles(user)
+
+    # Board members and team leaders get expanded access
+    management_roles = ["Volunteer Coordinator", "Chapter Manager", "Chapter Board Member", "Team Leader"]
+
+    conditions = []
+
+    # Always allow access to own volunteer records
+    conditions.append(f"`tabVolunteer`.member = '{requesting_member}'")
+
+    # If user has management roles, allow broader access
+    if any(role in user_roles for role in management_roles):
+        # Board members can access volunteers in their chapters
+        user_chapters = frappe.db.sql(
+            """
+            SELECT DISTINCT cbm.parent
+            FROM `tabChapter Board Member` cbm
+            JOIN `tabMember` m ON cbm.member = m.name
+            WHERE m.user = %s AND cbm.is_active = 1
+        """,
+            (user,),
+            as_dict=True,
+        )
+
+        if user_chapters:
+            chapter_list = "','".join([c.parent for c in user_chapters])
+            conditions.append(
+                f"""
+                `tabVolunteer`.member IN (
+                    SELECT cm.member
+                    FROM `tabChapter Member` cm
+                    WHERE cm.parent IN ('{chapter_list}') AND cm.enabled = 1
+                )
+            """
+            )
+
+        # Team leaders can access volunteers in their teams
+        user_teams = frappe.db.sql(
+            """
+            SELECT DISTINCT tm.parent
+            FROM `tabTeam Member` tm
+            JOIN `tabVolunteer` v ON tm.volunteer = v.name
+            WHERE v.member = %s AND tm.status = 'Active'
+            AND tm.role_type = 'Leader'
+        """,
+            (requesting_member,),
+            as_dict=True,
+        )
+
+        if user_teams:
+            team_list = "','".join([t.parent for t in user_teams])
+            conditions.append(
+                f"""
+                `tabVolunteer`.name IN (
+                    SELECT tm.volunteer
+                    FROM `tabTeam Member` tm
+                    WHERE tm.parent IN ('{team_list}') AND tm.status = 'Active'
+                )
+            """
+            )
+
+    # Join conditions with OR
+    if len(conditions) > 1:
+        return f"({' OR '.join(conditions)})"
+    else:
+        return conditions[0] if conditions else "1=0"
 
 
 def get_team_member_permission_query(user):

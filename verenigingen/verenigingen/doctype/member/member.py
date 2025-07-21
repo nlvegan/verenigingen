@@ -577,6 +577,7 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         self.update_full_name()
         self.update_membership_status()
         self.calculate_age()
+        self.validate_age_requirements()  # Add age validation
         self.calculate_cumulative_membership_duration()
         self.validate_payment_method()
         self.set_payment_reference()
@@ -659,6 +660,61 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
                 self.age = None
         except Exception as e:
             frappe.log_error(f"Error calculating age: {str(e)}", "Member Error")
+
+    def validate_age_requirements(self):
+        """Validate age requirements for membership and volunteering"""
+        if not self.birth_date:
+            return  # Skip validation if no birth date provided
+
+        try:
+            from verenigingen.utils.config_manager import ConfigManager
+
+            # Get minimum age from configuration (default: 16)
+            min_membership_age = ConfigManager.get("min_membership_age", 16)
+
+            if hasattr(self, "age") and self.age is not None:
+                # Check minimum membership age
+                if self.age < min_membership_age:
+                    # Allow with guardian consent for applications
+                    if self.is_application_member():
+                        frappe.msgprint(
+                            _(
+                                "Member is under {0} years old. Guardian consent is required for membership."
+                            ).format(min_membership_age)
+                        )
+                    else:
+                        # For direct member creation, enforce minimum age
+                        frappe.throw(
+                            _("Members must be at least {0} years old. Current age: {1}").format(
+                                min_membership_age, self.age
+                            ),
+                            frappe.ValidationError,
+                        )
+
+                # Additional validation for volunteering
+                if hasattr(self, "interested_in_volunteering") and self.interested_in_volunteering:
+                    min_volunteer_age = ConfigManager.get("min_volunteer_age", 16)
+                    if self.age < min_volunteer_age:
+                        frappe.throw(
+                            _("Volunteers must be at least {0} years old. Current age: {1}").format(
+                                min_volunteer_age, self.age
+                            ),
+                            frappe.ValidationError,
+                        )
+
+                # Reasonable maximum age check (for data quality)
+                if self.age > 120:
+                    frappe.throw(
+                        _(
+                            "Invalid birth date - calculated age is {0} years. Please verify birth date."
+                        ).format(self.age),
+                        frappe.ValidationError,
+                    )
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error validating age requirements for member {self.name}: {str(e)}", "Age Validation Error"
+            )
 
             # Convert total days to human-readable format
             years = total_days // 365

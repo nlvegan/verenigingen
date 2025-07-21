@@ -2,7 +2,7 @@
  "actions": [],
 
  "app": "verenigingen","allow_rename": 1,
- "autoname": "field:volunteer_name",
+ "autoname": "format:VOL-{member}-{####}",
  "creation": "2017-09-19 16:16:45.676019",
  "doctype": "DocType",
  "editable_grid": 1,

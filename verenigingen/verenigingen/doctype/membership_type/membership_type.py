@@ -117,8 +117,7 @@ class MembershipType(Document):
                 "mode": template.contribution_mode or "Calculator",
                 "minimum": template.minimum_amount or 5.0,
                 "suggested": template.suggested_amount or self.amount or 15.0,
-                "maximum": template.maximum_amount
-                or ((template.suggested_amount or self.amount or 15.0) * 10),
+                "maximum": ((template.suggested_amount or self.amount or 15.0) * 10),
                 "calculator": {
                     "enabled": template.enable_income_calculator
                     if hasattr(template, "enable_income_calculator")
@@ -207,19 +206,24 @@ class MembershipType(Document):
             template.membership_type = self.name
             template.status = "Active"
             # Set required fields to avoid validation errors during creation
-            template.amount = 0.0
+            template.dues_rate = self.amount or 15.0
 
-        # Set/update template fields with sensible defaults
-        template.billing_frequency = "Annual"  # Default billing frequency
-        template.contribution_mode = "Calculator"  # Default contribution mode
-        template.minimum_amount = 5.0  # Default minimum
-        template.suggested_amount = self.amount or 15.0  # Use membership type amount as suggested
-        template.invoice_days_before = 30  # Default invoice days
-        template.auto_generate = 1
-        template.status = "Active"
-        # Ensure amount is set for templates
-        if not template.amount:
-            template.amount = self.amount or 15.0
+        # Set/update template fields with sensible defaults, preserving existing values
+        if not template.billing_frequency:
+            template.billing_frequency = "Annual"  # Only set default if not already set
+        if not template.contribution_mode:
+            template.contribution_mode = "Calculator"  # Only set default if not already set
+        if not template.minimum_amount:
+            template.minimum_amount = 5.0  # Only set default if not already set
+        if not template.suggested_amount:
+            template.suggested_amount = self.amount or 15.0  # Only set default if not already set
+        if not template.invoice_days_before:
+            template.invoice_days_before = 30  # Only set default if not already set
+        template.auto_generate = 1  # Always ensure auto_generate is enabled
+        template.status = "Active"  # Always ensure template is active
+        # Ensure dues_rate is set for templates (amount field doesn't exist in template schema)
+        if not template.dues_rate:
+            template.dues_rate = self.amount or 15.0
 
         if existing_template:
             template.save()
