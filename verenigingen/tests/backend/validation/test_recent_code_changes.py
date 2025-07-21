@@ -30,7 +30,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                     "country": "Netherlands",
                     "city": "Test City"}
             )
-            cls.test_chapter.insert(ignore_permissions=True)
+            cls.test_chapter.insert()
             cls.test_records.append(cls.test_chapter)
         else:
             cls.test_chapter = frappe.get_doc("Chapter", "TEST-CHAPTER-RC")
@@ -50,7 +50,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                     "country": "Netherlands",
                     "pincode": "1234AB"}
             )
-            cls.test_address.insert(ignore_permissions=True)
+            cls.test_address.insert()
             cls.test_records.append(cls.test_address)
         else:
             cls.test_address = frappe.get_doc("Address", existing_address[0].name)
@@ -70,7 +70,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                         "full_name": f"{first_name} Test",
                         "enabled": 1}
                 )
-                user.insert(ignore_permissions=True)
+                user.insert()
                 cls.test_records.append(user)
 
     @classmethod
@@ -79,7 +79,7 @@ class TestRecentCodeChanges(FrappeTestCase):
         for record in reversed(cls.test_records):
             try:
                 if frappe.db.exists(record.doctype, record.name):
-                    frappe.delete_doc(record.doctype, record.name, ignore_permissions=True)
+                    frappe.delete_doc(record.doctype, record.name, )
             except Exception as e:
                 print(f"Warning: Could not delete {record.doctype} {record.name}: {e}")
         super().tearDownClass()
@@ -96,7 +96,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "primary_address": self.test_address.name,
                 "birth_date": "1990-01-01"}
         )
-        member1.insert(ignore_permissions=True)
+        member1.insert()
         self.test_records.append(member1)
 
         # Create second member at same address
@@ -109,7 +109,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "primary_address": self.test_address.name,
                 "birth_date": "1995-01-01"}
         )
-        member2.insert(ignore_permissions=True)
+        member2.insert()
         self.test_records.append(member2)
 
         # Test get_other_members_at_address method
@@ -143,7 +143,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 # No primary_address
             }
         )
-        member3.insert(ignore_permissions=True)
+        member3.insert()
         self.test_records.append(member3)
 
         isolated_members = member3.get_other_members_at_address()
@@ -160,7 +160,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "primary_address": self.test_address.name,
                 "birth_date": "1990-01-01"}
         )
-        member1.insert(ignore_permissions=True)
+        member1.insert()
         self.test_records.append(member1)
 
         # Same last name, similar age - should suggest Partner/Spouse
@@ -184,7 +184,7 @@ class TestRecentCodeChanges(FrappeTestCase):
         member = frappe.get_doc(
             {"doctype": "Member", "first_name": "Age", "last_name": "Test", "email": "age.test@example.com"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
         self.test_records.append(member)
 
         # Test different age groups
@@ -214,7 +214,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "email": "expense.volunteer@example.com",
                 "status": "Active"}
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         self.test_records.append(volunteer)
 
         # Test get_default_expense_approver method
@@ -243,7 +243,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "email": self.treasurer_email,
                 "status": "Active"}
         )
-        treasurer_volunteer.insert(ignore_permissions=True)
+        treasurer_volunteer.insert()
         self.test_records.append(treasurer_volunteer)
 
         # Skip board member creation if it causes link validation errors
@@ -260,7 +260,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                     "chapter_role": "Board Member",  # Use generic role to avoid validation issues
                     "is_active": 1}
             )
-            board_member.insert(ignore_permissions=True)
+            board_member.insert()
             self.test_records.append(board_member)
         except Exception as e:
             print(f"Skipping board member creation due to validation: {e}")
@@ -273,7 +273,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "email": "settings.volunteer@example.com",
                 "status": "Active"}
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         self.test_records.append(volunteer)
 
         # Test expense approver detection
@@ -291,7 +291,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "email": "query.test@example.com",
                 "status": "Active"}
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         self.test_records.append(volunteer)
 
         # This should not raise any SQL errors
@@ -308,7 +308,7 @@ class TestRecentCodeChanges(FrappeTestCase):
         member = frappe.get_doc(
             {"doctype": "Member", "first_name": "Date", "last_name": "Test", "email": "date.test@example.com"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
         self.test_records.append(member)
 
         # Check that chapter_assigned_date field doesn't exist in the schema
@@ -336,7 +336,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "email": "form.integration@example.com",
                 "primary_address": self.test_address.name}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
         self.test_records.append(member)
 
         # Test that required field exists in doctype
@@ -365,7 +365,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "last_name": "Creation Test",
                 "email": "volunteer.creation@example.com"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
         self.test_records.append(member)
 
         # Create volunteer - this should work without errors
@@ -377,7 +377,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "member": member.name,
                 "status": "Active"}
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         self.test_records.append(volunteer)
 
         # Should have created successfully
@@ -400,7 +400,7 @@ class TestRecentCodeChanges(FrappeTestCase):
                 "last_name": "Test",
                 "email": "debug.test@example.com"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
         self.test_records.append(member)
 
         # Member should save and load normally without debug interference

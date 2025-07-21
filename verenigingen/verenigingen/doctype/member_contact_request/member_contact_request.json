@@ -63,7 +63,7 @@
    "reqd": 1
   },
   {
-   "fetch_from": "member.member_name",
+   "fetch_from": "member.full_name",
    "fieldname": "member_name",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -71,14 +71,14 @@
    "read_only": 1
   },
   {
-   "fetch_from": "member.email_address",
+   "fetch_from": "member.email",
    "fieldname": "email",
    "fieldtype": "Data",
    "label": "Email",
    "read_only": 1
   },
   {
-   "fetch_from": "member.phone_number",
+   "fetch_from": "member.contact_number",
    "fieldname": "phone",
    "fieldtype": "Data",
    "label": "Phone",
@@ -227,7 +227,6 @@
    "label": "Created by Portal"
   },
   {
-   "fetch_from": "member.organization",
    "fieldname": "organization",
    "fieldtype": "Link",
    "label": "Organization",

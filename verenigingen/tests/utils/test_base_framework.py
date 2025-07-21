@@ -39,7 +39,7 @@ class VerenigingenTestCase(unittest.TestCase):
         for doctype, name in self.test_records:
             try:
                 if frappe.db.exists(doctype, name):
-                    frappe.delete_doc(doctype, name, force=True, ignore_permissions=True)
+                    frappe.delete_doc(doctype, name, force=True, )
             except Exception:
                 pass
         

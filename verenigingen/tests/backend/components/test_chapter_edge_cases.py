@@ -60,7 +60,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "contact_number": "+31612345678",
                 "payment_method": "Bank Transfer"}
         )
-        self.test_member.insert(ignore_permissions=True)
+        self.test_member.insert()
         self.docs_to_cleanup.append(("Member", self.test_member.name))
 
         # Create test chapter role if needed
@@ -68,7 +68,7 @@ class TestChapterEdgeCases(FrappeTestCase):
             test_role = frappe.get_doc(
                 {"doctype": "Chapter Role", "role_name": "Test Role", "permissions_level": "Admin"}
             )
-            test_role.insert(ignore_permissions=True)
+            test_role.insert()
             self.docs_to_cleanup.append(("Chapter Role", "Test Role"))
 
     def create_test_chapter(self, **kwargs):
@@ -91,7 +91,7 @@ class TestChapterEdgeCases(FrappeTestCase):
             defaults["name"] = f"{kwargs['name']} {unique_suffix}"
 
         chapter = frappe.get_doc(defaults)
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()
         self.docs_to_cleanup.append(("Chapter", chapter.name))
         return chapter
 
@@ -182,14 +182,14 @@ class TestChapterEdgeCases(FrappeTestCase):
                     "contact_number": f"+3161234{i:04d}",
                     "payment_method": "Bank Transfer"}
             )
-            member.insert(ignore_permissions=True)
+            member.insert()
             members.append(member)
             self.docs_to_cleanup.append(("Member", member.name))
 
             # Add to chapter roster
             chapter.append("members", {"member": member.name, "member_name": member.full_name, "enabled": 1})
 
-        chapter.save(ignore_permissions=True)
+        chapter.save()
         chapter.reload()
 
         # Verify large roster handling
@@ -205,7 +205,7 @@ class TestChapterEdgeCases(FrappeTestCase):
             "members",
             {"member": duplicate_member.name, "member_name": duplicate_member.full_name, "enabled": 1},
         )
-        chapter.save(ignore_permissions=True)
+        chapter.save()
         chapter.reload()
 
         # Should now have duplicate (current implementation doesn't prevent this automatically)
@@ -222,13 +222,13 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "contact_number": "+31612340000",
                 "payment_method": "Bank Transfer"}
         )
-        special_member.insert(ignore_permissions=True)
+        special_member.insert()
         self.docs_to_cleanup.append(("Member", special_member.name))
 
         chapter.append(
             "members", {"member": special_member.name, "member_name": special_member.full_name, "enabled": 1}
         )
-        chapter.save(ignore_permissions=True)
+        chapter.save()
 
         # Verify special character member in roster
         chapter.reload()
@@ -257,7 +257,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "status": "Active",
                 "start_date": today()}
         )
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
         self.docs_to_cleanup.append(("Volunteer", volunteer.name))
 
         # Test adding board member
@@ -265,7 +265,7 @@ class TestChapterEdgeCases(FrappeTestCase):
             "board_members",
             {"volunteer": volunteer.name, "chapter_role": "Test Role", "is_active": 1, "start_date": today()},
         )
-        chapter.save(ignore_permissions=True)
+        chapter.save()
 
         # Verify board member was added
         chapter.reload()
@@ -280,7 +280,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 test_role2 = frappe.get_doc(
                     {"doctype": "Chapter Role", "role_name": "Test Role 2", "permissions_level": "Membership"}
                 )
-                test_role2.insert(ignore_permissions=True)
+                test_role2.insert()
                 self.docs_to_cleanup.append(("Chapter Role", "Test Role 2"))
 
             chapter.append(
@@ -291,7 +291,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                     "is_active": 1,
                     "start_date": today()},
             )
-            chapter.save(ignore_permissions=True)
+            chapter.save()
             chapter.reload()
 
             # Should allow multiple roles for same volunteer
@@ -304,7 +304,7 @@ class TestChapterEdgeCases(FrappeTestCase):
         # Test deactivating board member
         chapter.board_members[0].is_active = 0
         chapter.board_members[0].end_date = today()
-        chapter.save(ignore_permissions=True)
+        chapter.save()
 
         chapter.reload()
         self.assertEqual(chapter.board_members[0].is_active, 0, "Board member should be deactivated")
@@ -351,7 +351,7 @@ class TestChapterEdgeCases(FrappeTestCase):
 
         # Test publishing
         unpublished_chapter.published = 1
-        unpublished_chapter.save(ignore_permissions=True)
+        unpublished_chapter.save()
         unpublished_chapter.reload()
         self.assertEqual(unpublished_chapter.published, 1, "Chapter should be published")
         print("✅ Publication status change handled")
@@ -360,7 +360,7 @@ class TestChapterEdgeCases(FrappeTestCase):
         for i in range(5):
             status = i % 2  # Alternate between 0 and 1
             unpublished_chapter.published = status
-            unpublished_chapter.save(ignore_permissions=True)
+            unpublished_chapter.save()
             unpublished_chapter.reload()
             self.assertEqual(unpublished_chapter.published, status, f"Status change {i} should work")
 
@@ -424,7 +424,7 @@ class TestChapterEdgeCases(FrappeTestCase):
         # Test rapid successive updates
         for i in range(10):
             chapter.introduction = f"Updated introduction {i}"
-            chapter.save(ignore_permissions=True)
+            chapter.save()
             chapter.reload()
 
         # Verify final state
@@ -441,8 +441,8 @@ class TestChapterEdgeCases(FrappeTestCase):
         chapter2.meetup_embed_html = "<div>Meetup embed</div>"
 
         # Save both (second save might overwrite first)
-        chapter1.save(ignore_permissions=True)
-        chapter2.save(ignore_permissions=True)
+        chapter1.save()
+        chapter2.save()
 
         # Reload and verify final state
         final_chapter = frappe.get_doc("Chapter", chapter.name)
@@ -471,7 +471,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "contact_number": "+31612345679",
                 "payment_method": "Bank Transfer"}
         )
-        member_with_chapter.insert(ignore_permissions=True)
+        member_with_chapter.insert()
         self.docs_to_cleanup.append(("Member", member_with_chapter.name))
 
         # Add member to chapter via Chapter Member table
@@ -483,7 +483,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "enabled": 1,
                 "chapter_join_date": today()},
         )
-        chapter.save(ignore_permissions=True)
+        chapter.save()
 
         # Test deletion with dependencies
         try:
@@ -495,7 +495,7 @@ class TestChapterEdgeCases(FrappeTestCase):
         # Clean up member from chapter roster first, then chapter should be deletable
         chapter.reload()
         chapter.members = []  # Remove all members from roster
-        chapter.save(ignore_permissions=True)
+        chapter.save()
 
         try:
             frappe.delete_doc("Chapter", chapter_name, force=True)
@@ -551,7 +551,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "region": "Minimal Region",  # Only required field besides name
             }
         )
-        minimal_chapter.insert(ignore_permissions=True)
+        minimal_chapter.insert()
         self.docs_to_cleanup.append(("Chapter", minimal_chapter.name))
 
         self.assertEqual(minimal_chapter.region, "Minimal Region")
@@ -572,7 +572,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                     "region": "Test Region",
                     field: value}
                 invalid_chapter = frappe.get_doc(test_data)
-                invalid_chapter.insert(ignore_permissions=True)
+                invalid_chapter.insert()
                 self.docs_to_cleanup.append(("Chapter", invalid_chapter.name))
                 print(f"⚠️ {description} was accepted (might be valid)")
             except Exception as e:

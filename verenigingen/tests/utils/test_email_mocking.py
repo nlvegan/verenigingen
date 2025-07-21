@@ -65,7 +65,7 @@ class TestEmailMocking(VerenigingenTestCase):
             "email": "silent-test@example.com",
             "status": "Active"
         })
-        test_member.insert(ignore_permissions=True)
+        test_member.insert()
         self.track_test_record("Member", test_member.name)
         
         # Verify no emails were sent

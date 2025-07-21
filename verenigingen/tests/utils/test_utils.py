@@ -121,7 +121,7 @@ def cleanup_test_data(*doctypes):
         
         for record in test_records:
             try:
-                frappe.delete_doc(doctype, record, force=True, ignore_permissions=True)
+                frappe.delete_doc(doctype, record, force=True, )
             except Exception:
                 pass
     
@@ -149,7 +149,7 @@ class TestDataFactory:
             "new_password": "test_password_123",
             "roles": [{"role": role} for role in (roles or [])]
         })
-        user.insert(ignore_permissions=True)
+        user.insert()
         return user
     
     @staticmethod
@@ -169,7 +169,7 @@ class TestDataFactory:
         member_data.update(kwargs)
         
         member = frappe.get_doc(member_data)
-        member.insert(ignore_permissions=True)
+        member.insert()
         return member
 
 

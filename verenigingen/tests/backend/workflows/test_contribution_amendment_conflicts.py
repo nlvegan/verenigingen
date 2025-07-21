@@ -33,7 +33,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "email": self.test_member_email,
                 "birth_date": "1990-01-01"}
         )
-        self.test_member.insert(ignore_permissions=True)
+        self.test_member.insert()
         self.test_member_name = self.test_member.name
 
         # Create test membership
@@ -51,7 +51,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "status": "Active",
                 "start_date": today()}
         )
-        self.test_membership.insert(ignore_permissions=True)
+        self.test_membership.insert()
         self.test_membership_name = self.test_membership.name
         
         # Create initial dues schedule for testing
@@ -66,7 +66,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
             "custom_amount_approved": 1,
             "status": "Active"
         })
-        self.test_dues_schedule.insert(ignore_permissions=True)
+        self.test_dues_schedule.insert()
 
     def tearDown(self):
         """Clean up test data"""
@@ -105,7 +105,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "effective_date": add_days(today(), 30),
                 "status": "Pending Approval"}
         )
-        amendment1.insert(ignore_permissions=True)
+        amendment1.insert()
         self.test_amendments.append(amendment1.name)
 
         # Try to create second amendment (should be prevented by validation)
@@ -121,7 +121,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                     "effective_date": add_days(today(), 30),
                     "status": "Pending Approval"}
             )
-            amendment2.insert(ignore_permissions=True)
+            amendment2.insert()
 
         self.assertIn("pending amendments", str(context.exception))
 
@@ -139,7 +139,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "effective_date": add_days(today(), 30),
                 "status": "Pending Approval"}
         )
-        amendment1.insert(ignore_permissions=True)
+        amendment1.insert()
         self.test_amendments.append(amendment1.name)
 
         # Manually change to approved to simulate having multiple approved (legacy scenario)
@@ -163,7 +163,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
         )
         # Bypass validation for testing
         amendment2.flags.ignore_validate = True
-        amendment2.insert(ignore_permissions=True)
+        amendment2.insert()
         self.test_amendments.append(amendment2.name)
 
         # Manually set to pending approval
@@ -197,7 +197,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "effective_date": add_days(today(), 30),
                 "status": "Approved"}
         )
-        amendment1.insert(ignore_permissions=True)
+        amendment1.insert()
         self.test_amendments.append(amendment1.name)
 
         amendment2 = frappe.get_doc(
@@ -213,7 +213,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
         )
         # Bypass validation for testing
         amendment2.flags.ignore_validate = True
-        amendment2.insert(ignore_permissions=True)
+        amendment2.insert()
         self.test_amendments.append(amendment2.name)
 
         # Create third amendment to test the cancellation
@@ -229,7 +229,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "status": "Pending Approval"}
         )
         amendment3.flags.ignore_validate = True
-        amendment3.insert(ignore_permissions=True)
+        amendment3.insert()
         self.test_amendments.append(amendment3.name)
 
         # Test the cancellation method
@@ -260,7 +260,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "effective_date": add_days(today(), 30),
                 "status": "Pending Approval"}
         )
-        amendment.insert(ignore_permissions=True)
+        amendment.insert()
         self.test_amendments.append(amendment.name)
 
         # Approve it - should work without issues
@@ -286,7 +286,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "effective_date": add_days(today(), 30),
                 "status": "Cancelled"}
         )
-        amendment1.insert(ignore_permissions=True)
+        amendment1.insert()
         self.test_amendments.append(amendment1.name)
 
         # Create second amendment - this should be allowed since first is cancelled
@@ -301,7 +301,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "effective_date": add_days(today(), 30),
                 "status": "Pending Approval"}
         )
-        amendment2.insert(ignore_permissions=True)
+        amendment2.insert()
         self.test_amendments.append(amendment2.name)
 
         # Should succeed without validation errors
@@ -321,7 +321,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "effective_date": add_days(today(), 30),
                 "status": "Applied"}
         )
-        amendment1.insert(ignore_permissions=True)
+        amendment1.insert()
         self.test_amendments.append(amendment1.name)
 
         # Create second amendment - this should be allowed since first is applied
@@ -336,7 +336,7 @@ class TestContributionAmendmentConflicts(unittest.TestCase):
                 "effective_date": add_days(today(), 30),
                 "status": "Pending Approval"}
         )
-        amendment2.insert(ignore_permissions=True)
+        amendment2.insert()
         self.test_amendments.append(amendment2.name)
 
         # Should succeed without validation errors

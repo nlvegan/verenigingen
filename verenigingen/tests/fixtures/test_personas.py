@@ -86,7 +86,7 @@ class TestPersonas:
         member = test_data["member"]
         member.payment_failure_count = 2
         member.last_payment_failure_date = today()
-        member.save(ignore_permissions=True)
+        member.save()
 
         return test_data
 
@@ -133,7 +133,7 @@ class TestPersonas:
             "custom_amount_reason": "Student discount",
             "effective_date": today()
         })
-        dues_schedule.insert(ignore_permissions=True)
+        dues_schedule.insert()
         test_data["dues_schedule"] = dues_schedule
 
         return test_data
@@ -183,7 +183,7 @@ class TestPersonas:
             "effective_date": add_days(today(), -90),
             "applied_date": add_days(today(), -88)
         })
-        past_request.insert(ignore_permissions=True)
+        past_request.insert()
         test_data["past_type_change"] = past_request
 
         return test_data
@@ -230,7 +230,7 @@ class TestPersonas:
         # Mark some expenses as approved
         if "expenses" in test_data:
             test_data["expenses"][0].status = "Approved"
-            test_data["expenses"][0].save(ignore_permissions=True)
+            test_data["expenses"][0].save()
 
         return test_data
 
@@ -271,7 +271,7 @@ class TestPersonas:
         member.termination_reason = "Non-payment"
         member.termination_date = today()
         member.status = "Pending Termination"
-        member.save(ignore_permissions=True)
+        member.save()
 
         return test_data
 
@@ -308,7 +308,7 @@ class TestPersonas:
         member.suspension_date = add_days(today(), -30)
         member.suspension_reason = "Payment failure"
         member.suspension_lifted_date = None
-        member.save(ignore_permissions=True)
+        member.save()
 
         return test_data
 
@@ -409,7 +409,7 @@ class TestPersonas:
                     "enabled": 1,
                     "status": "Active"},
             )
-            rotterdam_chapter.save(ignore_permissions=True)
+            rotterdam_chapter.save()
 
         return test_data
 

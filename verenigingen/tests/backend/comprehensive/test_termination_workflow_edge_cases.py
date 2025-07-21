@@ -26,7 +26,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "short_name": "TTC",
                 "country": "Netherlands"}
         )
-        cls.chapter.insert(ignore_permissions=True)
+        cls.chapter.insert()
         cls.test_records.append(cls.chapter)
 
         # Create membership type
@@ -37,7 +37,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "annual_fee": 100.00,
                 "currency": "EUR"}
         )
-        cls.membership_type.insert(ignore_permissions=True)
+        cls.membership_type.insert()
         cls.test_records.append(cls.membership_type)
 
         # Create test members
@@ -50,7 +50,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "status": "Active",
                 "chapter": cls.chapter.name}
         )
-        cls.member1.insert(ignore_permissions=True)
+        cls.member1.insert()
         cls.test_records.append(cls.member1)
 
         cls.member2 = frappe.get_doc(
@@ -62,7 +62,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "status": "Active",
                 "chapter": cls.chapter.name}
         )
-        cls.member2.insert(ignore_permissions=True)
+        cls.member2.insert()
         cls.test_records.append(cls.member2)
 
     @classmethod
@@ -76,7 +76,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
 
         for record in reversed(cls.test_records):
             try:
-                record.delete(ignore_permissions=True)
+                record.delete()
             except Exception:
                 pass
 

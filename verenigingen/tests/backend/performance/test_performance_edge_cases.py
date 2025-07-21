@@ -145,7 +145,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
                     "status": "Active",
                     "chapter": chapter.name}
             )
-            member.insert(ignore_permissions=True)
+            member.insert()
             members_created.append(member)
 
         creation_time = time.time() - start_time
@@ -163,7 +163,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
 
         # Clean up
         for member in members_created:
-            member.delete(ignore_permissions=True, force=True)
+            member.delete(, force=True)
 
     def test_large_report_generation_performance(self):
         """Test report generation performance with large datasets"""
@@ -261,7 +261,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
         )
 
         # Test creation
-        create_result, create_time = self.measure_time(lambda: member.insert(ignore_permissions=True))
+        create_result, create_time = self.measure_time(lambda: member.insert())
 
         self.assertLess(create_time, 2.0, f"Large document creation too slow: {create_time:.2f}s")
 
@@ -282,7 +282,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
         )
 
         # Clean up
-        member.delete(ignore_permissions=True, force=True)
+        member.delete(, force=True)
 
     # ===== CONCURRENT OPERATION TESTS =====
 
@@ -309,7 +309,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
                             "status": "Active",
                             "chapter": chapter.name}
                     )
-                    member.insert(ignore_permissions=True)
+                    member.insert()
                     thread_members.append(member)
 
                 created_members.extend(thread_members)
@@ -353,7 +353,7 @@ class TestPerformanceEdgeCases(unittest.TestCase):
         # Clean up
         for member in created_members:
             try:
-                member.delete(ignore_permissions=True, force=True)
+                member.delete(, force=True)
             except Exception:
                 pass
 
@@ -565,11 +565,11 @@ class TestPerformanceEdgeCases(unittest.TestCase):
                                 "status": "Active",
                                 "chapter": chapter.name}
                         )
-                        member.insert(ignore_permissions=True)
+                        member.insert()
                         stress_operations.append(f"Created: {member.name}")
 
                         # Clean up immediately to avoid accumulation
-                        member.delete(ignore_permissions=True, force=True)
+                        member.delete(, force=True)
 
                     else:
                         # Document update

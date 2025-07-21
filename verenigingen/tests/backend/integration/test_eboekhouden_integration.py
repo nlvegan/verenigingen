@@ -31,7 +31,7 @@ class TestEBoekhoudenIntegration(FrappeTestCase):
                 "country": "Netherlands",
                 "default_currency": "EUR"
             })
-            company.insert(ignore_permissions=True)
+            company.insert()
             
     def setUp(self):
         """Set up test environment"""
@@ -54,7 +54,7 @@ class TestEBoekhoudenIntegration(FrappeTestCase):
             "account_type": "Bank",
             "company": "Test Company"
         })
-        mapping.insert(ignore_permissions=True)
+        mapping.insert()
         
         # Verify mapping
         self.assertEqual(mapping.eboekhouden_account_code, "1000")
@@ -71,7 +71,7 @@ class TestEBoekhoudenIntegration(FrappeTestCase):
         })
         
         with self.assertRaises(frappe.DuplicateEntryError):
-            duplicate.insert(ignore_permissions=True)
+            duplicate.insert()
             
         # Cleanup
         mapping.delete()
@@ -89,7 +89,7 @@ class TestEBoekhoudenIntegration(FrappeTestCase):
             "target_doctype": "Sales Invoice",
             "company": "Test Company"
         })
-        payment_mapping.insert(ignore_permissions=True)
+        payment_mapping.insert()
         
         # Test mapping retrieval
         self.assertEqual(payment_mapping.mapping_type, "Membership")

@@ -55,8 +55,8 @@ class TestMemberContactRequestIntegration(VereningingenTestCase):
         self.assertEqual(contact_request.member, self.test_member.name)
         self.assertEqual(contact_request.subject, "Test Integration Request")
         self.assertEqual(contact_request.status, "Open")
-        self.assertEqual(contact_request.member_name, self.test_member.member_name)
-        self.assertEqual(contact_request.email, self.test_member.email_address)
+        self.assertEqual(contact_request.member_name, self.test_member.full_name)
+        self.assertEqual(contact_request.email, self.test_member.email)
         self.assertTrue(contact_request.created_by_portal)
 
     @patch("frappe.get_doc")
@@ -71,11 +71,14 @@ class TestMemberContactRequestIntegration(VereningingenTestCase):
         def mock_get_doc_side_effect(data_or_doctype, name=None):
             if isinstance(data_or_doctype, dict) and data_or_doctype.get("doctype") == "Lead":
                 return mock_lead
-            elif data_or_doctype == "Member":
+            elif data_or_doctype == "Member" and name:
                 return self.test_member
+            elif isinstance(data_or_doctype, dict) and data_or_doctype.get("doctype") == "Member Contact Request":
+                # Let the actual contact request be created
+                return frappe.get_doc(data_or_doctype)
             else:
-                # For other doctypes, call the real function
-                return frappe.get_doc.__wrapped__(data_or_doctype, name)
+                # Skip other calls
+                return mock_lead
 
         mock_get_doc.side_effect = mock_get_doc_side_effect
 
@@ -173,7 +176,7 @@ class TestMemberContactRequestIntegration(VereningingenTestCase):
                     "request_type": "General Inquiry",
                     "status": "Open" if i % 2 == 0 else "Resolved"}
             )
-            contact_request.insert(ignore_permissions=True)
+            contact_request.insert()
 
         # Test API call
         requests = get_member_contact_requests(self.test_member.name, limit=5)
@@ -194,7 +197,7 @@ class TestMemberContactRequestIntegration(VereningingenTestCase):
             "preferred_time": "Weekdays 9-17"}
 
         # Mock session user as the test member
-        with patch("frappe.session.user", self.test_member.email_address):
+        with patch("frappe.session.user", self.test_member.email):
             # Mock member lookup to return our test member
             with patch("frappe.db.get_value") as mock_get_value:
                 mock_get_value.return_value = self.test_member.name
@@ -245,7 +248,7 @@ class TestMemberContactRequestIntegration(VereningingenTestCase):
                 "follow_up_date": today(),  # Due today
                 "assigned_to": "Administrator"}
         )
-        overdue_request.insert(ignore_permissions=True)
+        overdue_request.insert()
 
         # Test follow-up reminders
         send_follow_up_reminders()
@@ -282,19 +285,26 @@ class TestMemberContactRequestIntegration(VereningingenTestCase):
         )
 
         # Test guest user access (should fail)
-        with patch("frappe.session.user", "Guest"):
+        original_user = frappe.session.user
+        try:
+            frappe.session.user = "Guest"
             with self.assertRaises(frappe.exceptions.PermissionError):
                 create_contact_request(
                     member=self.test_member.name, subject="Unauthorized Test", message="This should fail"
                 )
+        finally:
+            frappe.session.user = original_user
 
         # Test user without member record (should fail)
-        with patch("frappe.session.user", "no.member@example.com"):
+        try:
+            frappe.session.user = "no.member@example.com"
             with patch("frappe.db.get_value", return_value=None):
                 with self.assertRaises(frappe.exceptions.DoesNotExistError):
                     create_contact_request(
                         member=self.test_member.name, subject="No Member Test", message="This should fail"
                     )
+        finally:
+            frappe.session.user = original_user
 
     def test_analytics_and_reporting(self):
         """Test analytics and reporting functionality"""

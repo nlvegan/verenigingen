@@ -25,7 +25,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "short_name": "STC",
                 "country": "Netherlands"}
         )
-        cls.chapter.insert(ignore_permissions=True)
+        cls.chapter.insert()
         cls.test_records.append(cls.chapter)
 
         # Create test member
@@ -38,7 +38,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                 "status": "Active",
                 "chapter": cls.chapter.name}
         )
-        cls.member.insert(ignore_permissions=True)
+        cls.member.insert()
         cls.test_records.append(cls.member)
 
         # Valid IBAN test cases
@@ -68,7 +68,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
         """Clean up test data"""
         for record in reversed(cls.test_records):
             try:
-                record.delete(ignore_permissions=True)
+                record.delete()
             except Exception:
                 pass
 

@@ -111,7 +111,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
                 "email": "helper.test.member@example.com",
                 "application_status": "Pending"}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
         self.add_cleanup_record("Member", member.name)
 
         # Set volunteer interest

@@ -82,7 +82,7 @@ class ExtendedTestDataFactory(TestDataFactory):
         team.team_name = team_name
         team.description = f"Test team for {team_name}"
         team.is_active = 1
-        team.insert(ignore_permissions=True)
+        team.insert()
         self.created_docs.append(team)
         
         # Create volunteers
@@ -108,7 +108,7 @@ class ExtendedTestDataFactory(TestDataFactory):
                 skill_doc.volunteer = volunteer.name
                 skill_doc.skill = skill
                 skill_doc.proficiency = random.choice(["Beginner", "Intermediate", "Expert"])
-                skill_doc.insert(ignore_permissions=True)
+                skill_doc.insert()
                 self.created_docs.append(skill_doc)
                 
         # Create assignments
@@ -119,7 +119,7 @@ class ExtendedTestDataFactory(TestDataFactory):
             assignment.role = "Team Leader" if is_leader else "Team Member"
             assignment.start_date = add_months(getdate(), -6)
             assignment.is_active = 1
-            assignment.insert(ignore_permissions=True)
+            assignment.insert()
             self.created_docs.append(assignment)
             
         return volunteer
@@ -241,7 +241,7 @@ class ExtendedTestDataFactory(TestDataFactory):
             if is_primary:
                 board_member.is_primary_contact = 1
                 
-            board_member.insert(ignore_permissions=True)
+            board_member.insert()
             self.created_docs.append(board_member)
             board_members.append(board_member)
             
@@ -262,7 +262,7 @@ class ExtendedTestDataFactory(TestDataFactory):
             event.starts_on = datetime.combine(event_date, datetime.min.time()) + timedelta(hours=19)
             event.ends_on = event.starts_on + timedelta(hours=2)
             event.status = "Open"
-            event.insert(ignore_permissions=True)
+            event.insert()
             self.created_docs.append(event)
             
             # Add random attendees
@@ -306,7 +306,7 @@ class ExtendedTestDataFactory(TestDataFactory):
         termination.member = member.name
         termination.reason = "Personal reasons"
         termination.termination_date = add_days(getdate(), 30)
-        termination.insert(ignore_permissions=True)
+        termination.insert()
         self.created_docs.append(termination)
         
         return {"member": member, "termination": termination}
@@ -320,7 +320,7 @@ class ExtendedTestDataFactory(TestDataFactory):
         appeal.termination_request = scenario["termination"].name
         appeal.appeal_reason = "Circumstances have changed"
         appeal.submitted_date = getdate()
-        appeal.insert(ignore_permissions=True)
+        appeal.insert()
         self.created_docs.append(appeal)
         
         scenario["appeal"] = appeal
@@ -340,7 +340,7 @@ class ExtendedTestDataFactory(TestDataFactory):
             termination.reason = "Non-payment"
             termination.termination_date = add_days(getdate(), 30)
             termination.is_bulk = 1
-            termination.insert(ignore_permissions=True)
+            termination.insert()
             self.created_docs.append(termination)
             
             terminations.append({
@@ -366,7 +366,7 @@ class ExtendedTestDataFactory(TestDataFactory):
         termination.reason = "Non-payment"
         termination.termination_date = add_days(getdate(), 30)
         termination.outstanding_amount = 150
-        termination.insert(ignore_permissions=True)
+        termination.insert()
         self.created_docs.append(termination)
         
         return {
@@ -396,7 +396,7 @@ class ExtendedTestDataFactory(TestDataFactory):
         edge_cases["minimal_member"] = frappe.new_doc("Member")
         edge_cases["minimal_member"].full_name = "Minimal"
         edge_cases["minimal_member"].email = f"minimal_{self.random_string(6)}@test.com"
-        edge_cases["minimal_member"].insert(ignore_permissions=True)
+        edge_cases["minimal_member"].insert()
         self.created_docs.append(edge_cases["minimal_member"])
         
         # Maximum relationships
@@ -508,7 +508,7 @@ class ExtendedTestDataFactory(TestDataFactory):
             )
             
             for record in test_records:
-                frappe.delete_doc(doctype, record, force=True, ignore_permissions=True)
+                frappe.delete_doc(doctype, record, force=True, )
                 
         frappe.db.commit()
         print("Test environment reset complete")

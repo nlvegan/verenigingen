@@ -34,13 +34,13 @@ class TestUserFactory:
         )
 
         user.append("roles", {"role": "Member"})
-        user.insert(ignore_permissions=True)
+        user.insert()
 
         # Link to member if provided
         if member_name:
             member = frappe.get_doc("Member", member_name)
             member.user = user.name
-            member.save(ignore_permissions=True)
+            member.save()
 
         return user
 
@@ -62,7 +62,7 @@ class TestUserFactory:
 
         user.append("roles", {"role": "Volunteer"})
         user.append("roles", {"role": "Member"})
-        user.insert(ignore_permissions=True)
+        user.insert()
 
         return user
 
@@ -84,7 +84,7 @@ class TestUserFactory:
 
         user.append("roles", {"role": "Verenigingen Administrator"})
         user.append("roles", {"role": "System Manager"})
-        user.insert(ignore_permissions=True)
+        user.insert()
 
         return user
 
@@ -246,7 +246,7 @@ class TestDataBuilder:
                         "country": "Netherlands",
                         "is_active": 1}
                 )
-                test_region.insert(ignore_permissions=True)
+                test_region.insert()
                 region = test_region.name
 
         if not postal_codes:
@@ -264,7 +264,7 @@ class TestDataBuilder:
                     "postal_codes": postal_codes,
                     "introduction": "Test chapter"}
             )
-            chapter.insert(ignore_permissions=True)
+            chapter.insert()
 
         self._data["chapter"] = chapter
         self._cleanup_manager.register("Chapter", chapter.name)
@@ -297,7 +297,7 @@ class TestDataBuilder:
             member_data["primary_chapter"] = self._data["chapter"].name
 
         member = frappe.get_doc(member_data)
-        member.insert(ignore_permissions=True)
+        member.insert()
 
         # Add to chapter if chapter exists
         if "chapter" in self._data:
@@ -306,7 +306,7 @@ class TestDataBuilder:
                 "members",
                 {"member": member.name, "chapter_join_date": today(), "enabled": 1, "status": "Active"},
             )
-            chapter.save(ignore_permissions=True)
+            chapter.save()
 
         self._data["member"] = member
         self._cleanup_manager.register("Member", member.name)
@@ -331,7 +331,7 @@ class TestDataBuilder:
         membership_data.update(kwargs)
 
         membership = frappe.get_doc(membership_data)
-        membership.insert(ignore_permissions=True)
+        membership.insert()
 
         self._data["membership"] = membership
         self._cleanup_manager.register(
@@ -355,7 +355,7 @@ class TestDataBuilder:
         volunteer_data.update(kwargs)
 
         volunteer = frappe.get_doc(volunteer_data)
-        volunteer.insert(ignore_permissions=True)
+        volunteer.insert()
 
         self._data["volunteer"] = volunteer
         self._cleanup_manager.register(
@@ -384,7 +384,7 @@ class TestDataBuilder:
             )
             if "chapter" in self._data:
                 team.chapter = self._data["chapter"].name
-            team.insert(ignore_permissions=True)
+            team.insert()
             self._cleanup_manager.register("Team", team.name)
         else:
             team = frappe.get_doc("Team", team_name)
@@ -401,7 +401,7 @@ class TestDataBuilder:
                 "is_active": 1,
                 "status": "Active"},
         )
-        team.save(ignore_permissions=True)
+        team.save()
 
         if "teams" not in self._data:
             self._data["teams"] = []
@@ -440,7 +440,7 @@ class TestDataBuilder:
                         "category_name": "Test Expenses",
                         "expense_account": expense_account[0].name}
                 )
-                test_category.insert(ignore_permissions=True)
+                test_category.insert()
                 expense_data["category"] = test_category.name
 
         # If chapter exists in test data, use it
@@ -458,7 +458,7 @@ class TestDataBuilder:
         expense_data.update(kwargs)
 
         expense = frappe.get_doc(expense_data)
-        expense.insert(ignore_permissions=True)
+        expense.insert()
 
         if "expenses" not in self._data:
             self._data["expenses"] = []
@@ -503,7 +503,7 @@ class TestDataBuilder:
                     "amount": 100,
                     "currency": "EUR"}
             )
-            membership_type.insert(ignore_permissions=True)
+            membership_type.insert()
             self._cleanup_manager.register("Membership Type", membership_type.name)
 
             return membership_type.name

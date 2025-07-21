@@ -85,7 +85,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "postal_codes": "3000-7999",
                 "introduction": "Test chapter for payment failure testing"}
         )
-        chapter.insert(ignore_permissions=True)
+        chapter.insert()
         self.track_doc("Chapter", chapter.name)
         return chapter
 
@@ -104,7 +104,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "status": "Active",
                 "primary_chapter": self.test_chapter.name}
         )
-        member.insert(ignore_permissions=True)
+        member.insert()
 
         # Add to chapter
         member.append(
@@ -115,7 +115,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "enabled": 1,
                 "status": "Active"},
         )
-        member.save(ignore_permissions=True)
+        member.save()
 
         # Create SEPA mandate
         sepa_mandate = frappe.get_doc(
@@ -130,7 +130,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "status": "Active",
                 "mandate_type": "Recurring"}
         )
-        sepa_mandate.insert(ignore_permissions=True)
+        sepa_mandate.insert()
 
         # Create customer in ERPNext
         customer = frappe.get_doc(
@@ -141,11 +141,11 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "customer_group": "All Customer Groups",
                 "territory": "Netherlands"}
         )
-        customer.insert(ignore_permissions=True)
+        customer.insert()
 
         # Link customer to member
         member.customer = customer.name
-        member.save(ignore_permissions=True)
+        member.save()
 
         # Create membership
         membership = frappe.get_doc(
@@ -157,7 +157,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 "end_date": add_months(today(), 12),
                 "status": "Active"}
         )
-        membership.insert(ignore_permissions=True)
+        membership.insert()
 
         # Record state
         self.state_manager.record_state("Member", member.name, "Created with SEPA")
@@ -208,7 +208,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                             "amount": 100.00}
                     ]}
             )
-            invoice.insert(ignore_permissions=True)
+            invoice.insert()
             invoice.submit()
 
             # Simulate payment attempt and failure
@@ -235,11 +235,11 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
             )
 
             try:
-                payment_entry.insert(ignore_permissions=True)
+                payment_entry.insert()
                 # Mark as failed
                 payment_entry.docstatus = 2  # Cancelled
                 payment_entry.add_comment("Comment", "Payment failed - insufficient funds")
-                payment_entry.save(ignore_permissions=True)
+                payment_entry.save()
 
                 failure_recorded = True
             except Exception:
@@ -254,7 +254,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                         "amount": 100.00,
                         "retry_count": 0}
                 )
-                failure_log.insert(ignore_permissions=True)
+                failure_log.insert()
                 failure_recorded = True
 
         # Record state
@@ -305,7 +305,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                         "reference_doctype": "Member",
                         "reference_name": member_name}
                 )
-                communication.insert(ignore_permissions=True)
+                communication.insert()
                 notifications_sent.append("fallback_notification")
 
             # Send notification to admin
@@ -321,7 +321,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                         "reference_doctype": "Member",
                         "reference_name": member_name}
                 )
-                admin_communication.insert(ignore_permissions=True)
+                admin_communication.insert()
                 notifications_sent.append("admin_notification")
             except Exception:
                 pass
@@ -387,11 +387,11 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 )
 
                 try:
-                    retry_payment.insert(ignore_permissions=True)
+                    retry_payment.insert()
                     # This retry also fails
                     retry_payment.docstatus = 2
                     retry_payment.add_comment("Comment", "Payment retry failed - still insufficient funds")
-                    retry_payment.save(ignore_permissions=True)
+                    retry_payment.save()
                     payment_retry_success = False
                 except Exception:
                     payment_retry_success = False
@@ -430,7 +430,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                             "amount": 100.00,
                             "retry_count": i}
                     )
-                    failure_log.insert(ignore_permissions=True)
+                    failure_log.insert()
                 except Exception:
                     pass
 
@@ -452,7 +452,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 member.status = "Suspended"
                 member.suspension_reason = "Multiple payment failures"
                 member.suspension_date = today()
-                member.save(ignore_permissions=True)
+                member.save()
                 member_suspended = True
 
         # Record state
@@ -501,7 +501,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                                 "allocated_amount": 100.00}
                         ]}
                 )
-                recovery_payment.insert(ignore_permissions=True)
+                recovery_payment.insert()
                 recovery_payment.submit()
                 payment_recovered = True
             except Exception:
@@ -509,7 +509,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                 invoice = frappe.get_doc("Sales Invoice", invoice_name)
                 invoice.outstanding_amount = 0
                 invoice.status = "Paid"
-                invoice.save(ignore_permissions=True)
+                invoice.save()
                 payment_recovered = True
 
             # Reactivate member
@@ -529,7 +529,7 @@ class TestPaymentFailureRecovery(VereningingenWorkflowTestCase):
                     member.status = "Active"
                     member.reactivation_date = today()
                     member.reactivation_reason = "Payment recovered"
-                    member.save(ignore_permissions=True)
+                    member.save()
                     member_reactivated = True
             else:
                 member_reactivated = False

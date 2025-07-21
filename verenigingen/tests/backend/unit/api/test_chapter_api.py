@@ -27,9 +27,32 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
             chapter_name=f"Test Chapter API {random_string(8)}",
             postal_codes="1000-9999"
         )
+        
+        # Create test chapter roles if they don't exist
+        self._create_test_chapter_roles()
 
 
     # tearDown handled automatically by VereningingenTestCase
+
+    def _create_test_chapter_roles(self):
+        """Create test chapter roles for testing"""
+        roles = [
+            "Board Member",
+            "President", 
+            "Secretary",
+            "Treasurer"
+        ]
+        
+        for role_name in roles:
+            if not frappe.db.exists("Chapter Role", role_name):
+                role = frappe.get_doc({
+                    "doctype": "Chapter Role",
+                    "role_name": role_name,
+                    "is_active": 1,
+                    "is_unique": 0
+                })
+                role.insert()
+                self.track_doc("Chapter Role", role.name)
 
     def _create_test_chapter(self):
         """Helper to create a test chapter"""
@@ -53,10 +76,8 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         # Create volunteer for the member first
         volunteer = self.create_test_volunteer(member=member)
 
-        # Test via API call (simulating JavaScript)
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-            doc=chapter.as_dict(),
+        # Test via API call (simulating JavaScript) - instance method via doc.run_method
+        result = chapter.add_board_member(
             volunteer=volunteer.name,
             role="Board Member",
             from_date=today(),
@@ -74,18 +95,14 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         volunteer = self.create_test_volunteer(member=member)
 
         # First add a board member via API
-        frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-            doc=chapter.as_dict(),
+        chapter.add_board_member(
             volunteer=volunteer.name,
             role="Treasurer",
             from_date=today(),
         )
 
         # Remove board member
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.remove_board_member",
-            doc=chapter.as_dict(),
+        result = chapter.remove_board_member(
             volunteer=volunteer.name,
             end_date=today(),
         )
@@ -100,18 +117,14 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         volunteer = self.create_test_volunteer(member=member)
 
         # Add board member with initial role via API
-        frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-            doc=chapter.as_dict(),
+        chapter.add_board_member(
             volunteer=volunteer.name,
             role="Board Member",
             from_date=add_days(today(), -90),
         )
 
         # Transition to new role
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.transition_board_role",
-            doc=chapter.as_dict(),
+        result = chapter.transition_board_role(
             volunteer=volunteer.name,
             new_role="President",
             transition_date=today(),
@@ -132,18 +145,14 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
             volunteers.append(volunteer.name)
             
             # Add via API
-            frappe.call(
-                "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-                doc=chapter.as_dict(),
+            chapter.add_board_member(
                 volunteer=volunteer.name,
                 role="Board Member",
                 from_date=today(),
             )
 
         # Remove first two members
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.bulk_remove_board_members",
-            doc=chapter.as_dict(),
+        result = chapter.bulk_remove_board_members(
             board_members=volunteers[:2],
         )
 
@@ -162,18 +171,14 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
             volunteers.append(volunteer.name)
             
             # Add via API
-            frappe.call(
-                "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-                doc=chapter.as_dict(),
+            chapter.add_board_member(
                 volunteer=volunteer.name,
                 role="Board Member",
                 from_date=today(),
             )
 
         # Deactivate all board members
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.bulk_deactivate_board_members",
-            doc=chapter.as_dict(),
+        result = chapter.bulk_deactivate_board_members(
             board_members=volunteers,
         )
 
@@ -194,9 +199,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
             })
 
         # Bulk add members
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.bulk_add_members",
-            doc=chapter.as_dict(),
+        result = chapter.bulk_add_members(
             member_data_list=member_data_list,
         )
 
@@ -213,9 +216,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
             chapter.add_member(member.name, introduction=f"Test member {i}")
 
         # Test newsletter sending
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.send_chapter_newsletter",
-            doc=chapter.as_dict(),
+        result = chapter.send_chapter_newsletter(
             subject="Test Newsletter",
             content="Test content",
             recipient_filter="all",
@@ -228,16 +229,12 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         """Test validate_postal_codes method"""
         chapter = self._create_test_chapter()
 
-        # Add postal codes directly to chapter document
-        chapter.append("postal_codes", {"postal_code": "1234"})
-        chapter.append("postal_codes", {"postal_code": "5678"})
+        # Add postal codes to the text field (not child table)
+        chapter.postal_codes = "1234,5678"
         chapter.save()
 
         # Validate postal codes
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.validate_postal_codes",
-            doc=chapter.as_dict(),
-        )
+        result = chapter.validate_postal_codes()
 
         # Verify validation result structure
         self.assertIsNotNone(result)
@@ -249,9 +246,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         volunteer = self.create_test_volunteer(member=member)
 
         # Add board membership via API
-        frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-            doc=chapter.as_dict(),
+        chapter.add_board_member(
             volunteer=volunteer.name,
             role="Secretary",
             from_date=today(),
@@ -276,9 +271,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
             volunteer = self.create_test_volunteer(member=member)
             
             # Add via API 
-            frappe.call(
-                "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-                doc=chapter.as_dict(),
+            chapter.add_board_member(
                 volunteer=volunteer.name,
                 role="Board Member",
                 from_date=add_days(today(), -365 + i * 30),
@@ -286,9 +279,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
             
             # Remove first two members
             if i < 2:
-                frappe.call(
-                    "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.remove_board_member",
-                    doc=chapter.as_dict(),
+                chapter.remove_board_member(
                     volunteer=volunteer.name,
                     end_date=add_days(today(), -335 + i * 30),
                 )
@@ -318,9 +309,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
             if i < 2:  # First 2 as board members
                 volunteer = self.create_test_volunteer(member=member)
-                frappe.call(
-                    "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-                    doc=chapter.as_dict(),
+                chapter.add_board_member(
                     volunteer=volunteer.name,
                     role="Board Member",
                     from_date=today(),
@@ -345,19 +334,26 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         member.save()
 
         # Create chapters with postal codes
-        chapter1 = self._create_test_chapter()
-        chapter1.append("postal_codes", {"postal_code": "1234"})
+        from frappe.utils import random_string
+        chapter1 = self.create_test_chapter(
+            chapter_name=f"Test Chapter 1 {random_string(8)}",
+            postal_codes="1234"
+        )
+        chapter1.postal_codes = "1234"
         chapter1.save()
 
-        chapter2 = self._create_test_chapter()
-        chapter2.append("postal_codes", {"postal_code": "5678"})
+        chapter2 = self.create_test_chapter(
+            chapter_name=f"Test Chapter 2 {random_string(8)}",
+            postal_codes="5678"
+        )
+        chapter2.postal_codes = "5678"
         chapter2.save()
 
         # Try to get suggestions (may not exist)
         try:
             suggestions = frappe.call(
                 "verenigingen.verenigingen.doctype.chapter.chapter.suggest_chapters_for_member",
-                member_name=member.name,
+                member=member.name,
             )
             # If method exists, verify it returns a list
             self.assertIsInstance(suggestions, list)
@@ -415,9 +411,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         volunteer = self.create_test_volunteer(member=member)
 
         # Add board member with status field
-        result = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-            doc=chapter.as_dict(),
+        result = chapter.add_board_member(
             volunteer=volunteer.name,
             role="President",
             from_date=today(),
@@ -427,9 +421,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         self.assertIsNotNone(result)
 
         # Test status field updates
-        result2 = frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.remove_board_member",
-            doc=chapter.as_dict(),
+        result2 = chapter.remove_board_member(
             volunteer=volunteer.name,
             end_date=today(),
         )
@@ -444,10 +436,12 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         volunteer = self.create_test_volunteer(member=member)
 
         # Create a non-admin user
+        from frappe.utils import random_string
+        test_email = f"test.chapter.{random_string(8)}@example.com"
         test_user = frappe.get_doc(
             {
                 "doctype": "User",
-                "email": "test.chapter@example.com",
+                "email": test_email,
                 "first_name": "Test",
                 "last_name": "User",
                 "enabled": 1,
@@ -457,12 +451,10 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         self.track_doc("User", test_user.name)
 
         # Test as non-admin user
-        with self.as_user("test.chapter@example.com"):
+        with self.as_user(test_email):
             # Should not be able to add board member without permissions
             with self.assertRaises(frappe.PermissionError):
-                frappe.call(
-                    "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-                    doc=chapter.as_dict(),
+                chapter.add_board_member(
                     volunteer=volunteer.name,
                     role="Board Member",
                     from_date=today(),
@@ -474,9 +466,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
         # Test removing non-existent board member
         with self.assertRaises(Exception):
-            frappe.call(
-                "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.remove_board_member",
-                doc=chapter.as_dict(),
+            chapter.remove_board_member(
                 volunteer="non-existent-volunteer",
                 end_date=today(),
             )
@@ -500,9 +490,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
         volunteer = self.create_test_volunteer(member=member)
 
         # Test duplicate board member prevention
-        frappe.call(
-            "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-            doc=chapter.as_dict(),
+        chapter.add_board_member(
             volunteer=volunteer.name,
             role="Treasurer",
             from_date=today(),
@@ -510,9 +498,7 @@ class TestChapterWhitelistMethods(VereningingenTestCase):
 
         # Try to add same volunteer again with active role (may or may not raise error)
         try:
-            frappe.call(
-                "verenigingen.verenigingen.doctype.chapter.chapter.Chapter.add_board_member",
-                doc=chapter.as_dict(),
+            chapter.add_board_member(
                 volunteer=volunteer.name,
                 role="Secretary",
                 from_date=today(),
