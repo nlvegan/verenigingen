@@ -521,12 +521,32 @@ class VereningingenTestCase(FrappeTestCase):
             )
             kwargs["member"] = member.name
         
+        # Handle party/customer relationship (from main branch)
+        if "party" not in kwargs and "member" in kwargs:
+            member = frappe.get_doc("Member", kwargs["member"])
+            # Ensure member has a customer
+            if not member.customer:
+                customer = frappe.new_doc("Customer")
+                customer.customer_name = f"{member.first_name} {member.last_name}"
+                customer.customer_type = "Individual"
+                customer.member = member.name  # Direct link to member
+                customer.save()
+                member.customer = customer.name
+                member.save()
+                self.track_doc("Customer", customer.name)
+            kwargs["party"] = member.customer
+            kwargs["party_type"] = "Customer"
+        
         defaults = {
+            "party_type": "Customer",
             "account_holder_name": "Test Account Holder",
-            "iban": self._get_test_iban(),  # Use unique test IBANs
+            "account_holder": "Test Account Holder",  # Support both field names
+            "iban": self._get_test_iban(),  # Use unique test IBANs from develop branch
             "mandate_type": "RCUR",
             "status": "Active",
             "sign_date": frappe.utils.today(),
+            "consent_date": frappe.utils.today(),  # Support both field names
+            "consent_method": "Online Portal",
             "scheme": "SEPA",
             "used_for_memberships": 1
         }
