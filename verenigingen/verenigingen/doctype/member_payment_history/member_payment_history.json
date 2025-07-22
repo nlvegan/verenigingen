@@ -123,7 +123,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Payment Status",
-   "options": "Unpaid\nPartially Paid\nPaid\nOverdue\nCancelled",
+   "options": "Draft\nUnpaid\nPartially Paid\nPaid\nOverdue\nCancelled",
    "read_only": 1
   },
   {

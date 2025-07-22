@@ -98,7 +98,17 @@ def approve_membership_application(
         # Field might not exist in the database yet, log but continue
         frappe.logger().warning(f"Could not set selected_membership_type field on member {member.name}")
 
-    member.save()
+    # Save with concurrency handling
+    try:
+        member.save()
+    except frappe.TimestampMismatchError:
+        # Reload member and retry save once
+        member.reload()
+        try:
+            member.selected_membership_type = membership_type
+        except AttributeError:
+            pass
+        member.save()
 
     # Create employee record for volunteers whose applications are now approved
     if hasattr(member, "interested_in_volunteering") and member.interested_in_volunteering:

@@ -24,6 +24,13 @@ frappe.query_reports["Members Without Active Memberships"] = {
 			"options": "Active\nPending\nSuspended\nTerminated",
 			"description": "Filter by specific member status"
 		},
+		{
+			"fieldname": "include_dues_schedule_info",
+			"label": __("Include Dues Schedule Information"),
+			"fieldtype": "Check",
+			"default": 0,
+			"description": "Add columns showing dues schedule status, next invoice date, and coverage gaps"
+		},
 		// Chapter filter disabled - field is computed/HTML
 		// {
 		// 	"fieldname": "chapter",
@@ -52,6 +59,24 @@ frappe.query_reports["Members Without Active Memberships"] = {
 			if (value == "Cancelled") {
 				value = `<span style="color: red;">${value}</span>`;
 			} else if (value == "Expired") {
+				value = `<span style="color: orange;">${value}</span>`;
+			}
+		}
+
+		// Format dues schedule status
+		if (column.fieldname == "dues_schedule_status") {
+			if (value == "None") {
+				value = `<span style="color: red;">${value}</span>`;
+			} else if (value == "Active") {
+				value = `<span style="color: green;">${value}</span>`;
+			}
+		}
+
+		// Format days overdue
+		if (column.fieldname == "days_overdue" && value && value > 0) {
+			if (value > 7) {
+				value = `<span style="color: red; font-weight: bold;">${value}</span>`;
+			} else {
 				value = `<span style="color: orange;">${value}</span>`;
 			}
 		}

@@ -48,7 +48,7 @@ class OpeningBalanceProcessor(BaseTransactionProcessor):
         # Check if account is a stock account (should be skipped)
         account = self.get_opening_balance_account(mutation)
         if account and self.is_stock_account(account):
-            self.add_debug_info(f"Skipping stock account {account} - not allowed in opening balances")
+            self.add_debug_info(f"Skipping stock account {account} - excluded from opening balances")
             return False
 
         return True

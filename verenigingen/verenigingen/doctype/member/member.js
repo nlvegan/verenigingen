@@ -1256,6 +1256,10 @@ function load_dues_schedule_summary(frm) {
 				if (r.message.dues_rate !== undefined) {
 					frm.set_value('dues_rate', r.message.dues_rate);
 				}
+				// Update next invoice date from schedule
+				if (r.message.next_invoice_date !== undefined) {
+					frm.set_value('next_invoice_date', r.message.next_invoice_date);
+				}
 
 				// Add button to view dues schedule if it exists
 				if (!frm.custom_buttons[__('View Dues Schedule')]) {
@@ -1264,8 +1268,9 @@ function load_dues_schedule_summary(frm) {
 					}, __('View'));
 				}
 			} else {
-				// Clear the field if no dues schedule found
+				// Clear the fields if no dues schedule found
 				frm.set_value('current_dues_schedule', '');
+				frm.set_value('next_invoice_date', '');
 			}
 		}
 	});

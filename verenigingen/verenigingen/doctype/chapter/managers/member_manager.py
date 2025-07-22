@@ -94,8 +94,23 @@ class MemberManager(BaseManager):
             # Note: Primary chapter concept is handled through Chapter Member ordering
             # The first (most recent) chapter membership is considered primary
 
-            # Save chapter
-            self.chapter_doc.save()
+            # Save chapter with concurrency handling
+            try:
+                self.chapter_doc.save()
+            except frappe.TimestampMismatchError:
+                # Reload chapter and retry save once
+                self.chapter_doc.reload()
+                # Re-add the member to the reloaded document if not exists
+                if not any(m.member == member_id for m in self.chapter_doc.members):
+                    self.chapter_doc.append(
+                        "members",
+                        {
+                            "member": member_id,
+                            "chapter_join_date": today(),
+                            "enabled": enabled,
+                        },
+                    )
+                    self.chapter_doc.save()
 
             # Add membership history tracking
             ChapterMembershipHistoryManager.add_membership_history(

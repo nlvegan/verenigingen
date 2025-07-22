@@ -405,7 +405,18 @@ def submit_application(**kwargs):
                 member.suggested_chapter = suggested_chapter
             else:
                 member.current_chapter_display = suggested_chapter
-            member.save()
+
+            # Handle concurrency with retry logic
+            try:
+                member.save()
+            except frappe.TimestampMismatchError:
+                # Reload member and retry save once
+                member.reload()
+                if hasattr(member, "suggested_chapter"):
+                    member.suggested_chapter = suggested_chapter
+                else:
+                    member.current_chapter_display = suggested_chapter
+                member.save()
 
         # Create volunteer record if interested
         if data.get("interested_in_volunteering"):

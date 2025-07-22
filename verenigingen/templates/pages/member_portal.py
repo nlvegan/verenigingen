@@ -19,6 +19,18 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Member Portal")
 
+    # Get brand settings for logo (needed even if no member record)
+    try:
+        brand_settings = frappe.get_all(
+            "Brand Settings", fields=["name", "logo", "primary_color"], limit=1, order_by="modified desc"
+        )
+        if brand_settings:
+            context.brand_logo = brand_settings[0].logo
+        else:
+            context.brand_logo = None
+    except Exception:
+        context.brand_logo = None
+
     # Get member record
     member = frappe.db.get_value("Member", {"email": frappe.session.user})
     if not member:

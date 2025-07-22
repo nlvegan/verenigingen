@@ -244,9 +244,51 @@ def get_dues_schedule_metrics():
             safe_key = freq.billing_frequency.lower().replace(" ", "_")
             metrics[f"frappe.dues_schedules.frequency.{safe_key}"] = freq.count
             
+        # NEW MONITORING METRICS REQUESTED
+        
+        # Past next invoice dates (schedules with overdue next_invoice_date)
+        past_invoice_dates = frappe.db.sql("""
+            SELECT COUNT(*) 
+            FROM `tabMembership Dues Schedule` 
+            WHERE status = 'Active' 
+            AND next_invoice_date < CURDATE()
+            AND next_invoice_date IS NOT NULL
+        """)[0][0] or 0
+        metrics["frappe.dues_schedules.past_invoice_dates"] = past_invoice_dates
+        
+        # Members without membership (active members without active membership record)
+        members_without_membership = frappe.db.sql("""
+            SELECT COUNT(*) 
+            FROM `tabMember` m
+            WHERE m.status = 'Active' 
+            AND NOT EXISTS (
+                SELECT 1 FROM `tabMembership` mb 
+                WHERE mb.member = m.name 
+                AND mb.status = 'Active' 
+                AND mb.docstatus = 1
+            )
+        """)[0][0] or 0
+        metrics["frappe.members.without_membership"] = members_without_membership
+        
+        # Members without billing dues schedule (active members without active dues schedule)
+        members_without_dues_schedule = frappe.db.sql("""
+            SELECT COUNT(*) 
+            FROM `tabMember` m
+            WHERE m.status = 'Active' 
+            AND NOT EXISTS (
+                SELECT 1 FROM `tabMembership Dues Schedule` mds 
+                WHERE mds.member = m.name 
+                AND mds.status = 'Active'
+            )
+        """)[0][0] or 0
+        metrics["frappe.members.without_dues_schedule"] = members_without_dues_schedule
+            
     except Exception as e:
         frappe.log_error(f"Error getting dues schedule metrics: {str(e)}")
         metrics["frappe.dues_schedules.active"] = 0
+        metrics["frappe.dues_schedules.past_invoice_dates"] = 0
+        metrics["frappe.members.without_membership"] = 0
+        metrics["frappe.members.without_dues_schedule"] = 0
     
     # Invoices generated today
     try:

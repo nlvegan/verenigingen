@@ -72,8 +72,25 @@ class BoardManager(BaseManager):
             # Add to chapter members if not already a member
             self._add_to_chapter_members(member_doc.name)
 
-            # Save chapter
-            self.chapter_doc.save()
+            # Save chapter with concurrency handling
+            try:
+                self.chapter_doc.save()
+            except frappe.TimestampMismatchError:
+                # Reload chapter and retry save once
+                self.chapter_doc.reload()
+                # Re-add the board member to the reloaded document
+                if not any(bm.volunteer == volunteer for bm in self.chapter_doc.board_members):
+                    self.chapter_doc.append(
+                        "board_members",
+                        {
+                            "volunteer": volunteer,
+                            "chapter_role": role,
+                            "from_date": from_date,
+                            "is_active": 1,
+                        },
+                    )
+                    self._add_to_chapter_members(member_doc.name)
+                    self.chapter_doc.save()
 
             # Add to volunteer assignment history
             self.add_volunteer_assignment_history(volunteer, role, from_date)

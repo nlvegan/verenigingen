@@ -3,6 +3,8 @@
 {% block title %}{{ _("Adjust Membership Fee") }}{% endblock %}
 
 {% block head_include %}
+<!-- Bootstrap CSS for modal functionality -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
 {% endblock %}
 
 {% block style %}
@@ -119,11 +121,11 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Membership Type") }}:</span> {{ membership_type.membership_type_name }}</p>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Fee") }}:</span> {{ frappe.format_value(membership_type.amount, {"fieldtype": "Currency"}) }}</p>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Fee") }}:</span> {{ frappe.format_value(current_fee.amount, {"fieldtype": "Currency"}) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Fee") }}:</span> €{{ "%.2f"|format(membership_type.amount) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Fee") }}:</span> €{{ "%.2f"|format(current_fee.amount) }}</p>
                     </div>
                     <div>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Minimum Allowed") }}:</span> {{ frappe.format_value(minimum_fee, {"fieldtype": "Currency"}) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Minimum Allowed") }}:</span> €{{ "%.2f"|format(minimum_fee) }}</p>
                     </div>
                 </div>
             </div>
@@ -138,7 +140,7 @@
                         <div>
                             {% if request.amendment_type == 'Fee Change' %}
                                 <p class="mb-1"><span class="font-medium">{{ _("Type") }}:</span> {{ _("Fee Adjustment") }}</p>
-                                <p class="mb-1"><span class="font-medium">{{ _("Requested Amount") }}:</span> {{ frappe.format_value(request.requested_amount, {"fieldtype": "Currency"}) }}</p>
+                                <p class="mb-1"><span class="font-medium">{{ _("Requested Amount") }}:</span> €{{ "%.2f"|format(request.requested_amount) }}</p>
                             {% elif request.amendment_type == 'Membership Type Change' %}
                                 <p class="mb-1"><span class="font-medium">{{ _("Type") }}:</span> {{ _("Membership Type Change") }}</p>
                                 <p class="mb-1"><span class="font-medium">{{ _("Requested Type") }}:</span> {{ request.requested_membership_type }}</p>
@@ -165,8 +167,8 @@
                     <h6 class="font-medium text-primary-800 mb-2">{{ _("Important Information") }}</h6>
                     <ul class="text-sm text-primary-700 space-y-1">
                         <li>{{ _("You can adjust your membership fee up to {0} times per year").format(settings.max_adjustments_per_year) }}</li>
-                        <li>{{ _("Minimum fee is {0}").format(frappe.format_value(minimum_fee, {"fieldtype": "Currency"})) }}</li>
-                        <li>{{ _("Maximum fee via this form is {0}").format(frappe.format_value(minimum_fee * maximum_fee_multiplier, {"fieldtype": "Currency"})) }}</li>
+                        <li>{{ _("Minimum fee is €%.2f")|format(minimum_fee) }}</li>
+                        <li>{{ _("Maximum fee via this form is €%.2f")|format(minimum_fee * maximum_fee_multiplier) }}</li>
                         <li>{{ _("For higher amounts, please contact us directly") }}</li>
                         {% if settings.require_approval_for_decreases %}
                         <li>{{ _("Fee reductions require approval") }}</li>
@@ -203,7 +205,7 @@
                             </div>
                             <div class="flex items-center justify-center">
                                 <div class="text-2xl font-bold text-primary-600" id="fee-display">
-                                    {{ frappe.format_value(current_fee.amount, {"fieldtype": "Currency"}) }}
+                                    €{{ "%.2f"|format(current_fee.amount) }}
                                 </div>
                             </div>
                         </div>
@@ -317,6 +319,8 @@
 {% endblock %}
 
 {% block script %}
+<!-- Bootstrap JS for modal functionality -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
 <script>
 $(document).ready(function() {
     const feeSlider = $('#fee-slider');
@@ -471,9 +475,13 @@ $(document).ready(function() {
     // Form submission
     form.on('submit', function(e) {
         e.preventDefault();
+        console.log('Fee adjustment form submitted');
 
         const newAmount = parseFloat(feeInput.val());
         const reason = $('#adjustment-reason').val();
+
+        console.log('New amount:', newAmount);
+        console.log('Reason:', reason);
 
         // Validate
         if (isNaN(newAmount) || newAmount < parseFloat(feeSlider.attr('min'))) {
@@ -554,24 +562,32 @@ $(document).ready(function() {
 
     // Membership Type Change Functionality
     $('#change-membership-type-btn').on('click', function() {
+        console.log('Membership type change button clicked');
+
         // Get available membership types
         frappe.call({
             method: 'verenigingen.templates.pages.membership_fee_adjustment.get_available_membership_types',
             args: {},
             callback: function(r) {
+                console.log('Membership types API response:', r);
                 if (r.message && r.message.membership_types) {
+                    console.log('Showing membership type dialog with types:', r.message.membership_types);
                     showMembershipTypeDialog(r.message.membership_types, r.message.current_type);
                 } else {
+                    console.error('No membership types in response:', r);
                     showMessage('{{ _("Unable to load membership types") }}', 'danger');
                 }
             },
             error: function(r) {
+                console.error('Error loading membership types:', r);
                 showMessage('{{ _("An error occurred loading membership types") }}', 'danger');
             }
         });
     });
 
     function showMembershipTypeDialog(membershipTypes, currentType) {
+        console.log('showMembershipTypeDialog called with:', membershipTypes, 'current:', currentType);
+
         // Create dialog content
         let dialogHtml = '<div class="membership-type-selection">';
         dialogHtml += '<p class="mb-4">{{ _("Select the membership type you would like to switch to:") }}</p>';
@@ -579,15 +595,15 @@ $(document).ready(function() {
 
         membershipTypes.forEach(function(type) {
             const isCurrent = type.name === currentType;
-            const isDisabled = isCurrent ? 'disabled' : '';
             const currentBadge = isCurrent ? '<span class="badge badge-info ml-2">{{ _("Current") }}</span>' : '';
 
             dialogHtml += `
-                <div class="membership-type-option mb-3 p-3 border rounded ${isCurrent ? 'bg-gray-100' : 'hover:bg-gray-50 cursor-pointer'}" data-type="${type.name}">
-                    <div class="d-flex justify-content-between align-items-center">
+                <div class="membership-type-option mb-3 p-3 border rounded ${isCurrent ? 'bg-gray-100 cursor-not-allowed' : 'cursor-pointer'}"
+                     data-type="${type.name}" ${isCurrent ? 'data-disabled="true"' : ''}>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <h6 class="mb-1">${type.membership_type_name}${currentBadge}</h6>
-                            <p class="mb-0 text-muted small">${type.description || ''}</p>
+                            <p class="mb-0 text-muted" style="font-size: 0.875rem;">${type.description || ''}</p>
                             <p class="mb-0"><strong>{{ _("Fee") }}:</strong> €${parseFloat(type.amount || 0).toFixed(2)}</p>
                         </div>
                         ${!isCurrent ? '<i class="fa fa-chevron-right text-muted"></i>' : ''}
@@ -598,42 +614,106 @@ $(document).ready(function() {
 
         dialogHtml += '</div>';
         dialogHtml += '<div class="mt-4">';
-        dialogHtml += '<label for="change-reason">{{ _("Reason for change") }} <span class="text-red-500">*</span></label>';
+        dialogHtml += '<label for="change-reason">{{ _("Reason for change") }} <span class="text-danger">*</span></label>';
         dialogHtml += '<textarea id="change-reason" class="form-control" rows="3" placeholder="{{ _("Please explain why you want to change your membership type...") }}" required></textarea>';
         dialogHtml += '</div>';
         dialogHtml += '</div>';
 
-        const dialog = frappe.msgprint({
-            title: '{{ _("Change Membership Type") }}',
-            message: dialogHtml,
-            primary_action_label: '{{ _("Submit Request") }}',
-            primary_action: function() {
-                const selectedType = $('.membership-type-option.selected').data('type');
-                const reason = $('#change-reason').val();
+        // Create a simple Bootstrap modal since we're in web context
+        const modalHtml = `
+            <div class="modal fade" id="membershipTypeModal" tabindex="-1" role="dialog">
+                <div class="modal-dialog modal-lg" role="document">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">{{ _("Change Membership Type") }}</h5>
+                            <button type="button" class="close" data-dismiss="modal">
+                                <span>&times;</span>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            ${dialogHtml}
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ _("Cancel") }}</button>
+                            <button type="button" class="btn btn-primary" id="submit-membership-change">{{ _("Submit Request") }}</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if any
+        $('#membershipTypeModal').remove();
+
+        // Add modal to page
+        $('body').append(modalHtml);
+
+        // Show modal
+        $('#membershipTypeModal').modal('show');
+
+        // Add click handlers for membership type selection
+        setTimeout(function() {
+            console.log('Setting up click handlers for membership type options');
+            const options = $('#membershipTypeModal .membership-type-option');
+            console.log('Found', options.length, 'membership type options');
+
+            options.on('click', function() {
+                console.log('Membership type option clicked:', $(this).data('type'));
+
+                // Don't allow selection of current type
+                if ($(this).data('disabled')) {
+                    console.log('Option is disabled, ignoring click');
+                    return;
+                }
+
+                // Remove selection from all options
+                $('#membershipTypeModal .membership-type-option').removeClass('selected').css({
+                    'border-color': '',
+                    'background-color': ''
+                });
+
+                // Add selection to clicked option
+                $(this).addClass('selected').css({
+                    'border-color': '#3b82f6',
+                    'background-color': '#eff6ff'
+                });
+
+                console.log('Selected membership type:', $(this).data('type'));
+            });
+
+            // Handle submit button click
+            $('#submit-membership-change').on('click', function() {
+                console.log('Submit button clicked');
+                const selectedElement = $('#membershipTypeModal .membership-type-option.selected');
+                const selectedType = selectedElement.data('type');
+                const reason = $('#membershipTypeModal #change-reason').val();
+
+                console.log('Selected element:', selectedElement.length);
+                console.log('Selected type:', selectedType);
+                console.log('Reason:', reason);
 
                 if (!selectedType) {
-                    frappe.msgprint('{{ _("Please select a membership type") }}');
-                    return false;
+                    console.log('No membership type selected');
+                    showMessage('{{ _("Please select a membership type") }}', 'warning');
+                    return;
                 }
 
-                if (!reason.trim()) {
-                    frappe.msgprint('{{ _("Please provide a reason for the change") }}');
-                    return false;
+                if (!reason || !reason.trim()) {
+                    console.log('No reason provided');
+                    showMessage('{{ _("Please provide a reason for the change") }}', 'warning');
+                    return;
                 }
 
+                console.log('Submitting membership type change request');
+                $('#membershipTypeModal').modal('hide');
                 submitMembershipTypeChange(selectedType, reason);
-                dialog.hide();
-            }
-        });
-
-        // Add click handler for membership type selection
-        $('.membership-type-option:not(.bg-gray-100)').on('click', function() {
-            $('.membership-type-option').removeClass('selected border-primary-500');
-            $(this).addClass('selected border-primary-500');
-        });
+            });
+        }, 100);
     }
 
     function submitMembershipTypeChange(newType, reason) {
+        console.log('submitMembershipTypeChange called with:', newType, reason);
+
         frappe.call({
             method: 'verenigingen.templates.pages.membership_fee_adjustment.submit_membership_type_change_request',
             args: {
@@ -641,7 +721,9 @@ $(document).ready(function() {
                 reason: reason
             },
             callback: function(r) {
+                console.log('Membership type change response:', r);
                 if (r.message && r.message.success) {
+                    console.log('Success response received');
                     showMessage(r.message.message, 'success');
 
                     // Reload page after 2 seconds
@@ -649,10 +731,12 @@ $(document).ready(function() {
                         window.location.reload();
                     }, 2000);
                 } else {
+                    console.log('No success in response:', r);
                     showMessage('{{ _("An error occurred. Please try again.") }}', 'danger');
                 }
             },
             error: function(r) {
+                console.error('Error submitting membership type change:', r);
                 let errorMsg = '{{ _("An error occurred. Please try again.") }}';
                 if (r && r._server_messages) {
                     try {

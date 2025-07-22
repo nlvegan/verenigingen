@@ -398,8 +398,20 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         self.reviewed_by = frappe.session.user
         self.review_date = now_datetime()
 
-        # Save the member
-        self.save()
+        # Save the member with concurrency handling
+        try:
+            self.save()
+        except frappe.TimestampMismatchError:
+            # Reload member and retry save once
+            self.reload()
+            # Re-apply the approval changes
+            if not self.member_id:
+                self.member_id = self.generate_member_id()
+            self.application_status = "Approved"
+            self.status = "Active"
+            self.reviewed_by = frappe.session.user
+            self.review_date = now_datetime()
+            self.save()
 
         # Create user account if not exists
         if not self.user:
@@ -506,7 +518,16 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
             self.reload()
             self.application_invoice = invoice.name
             self.application_payment_status = "Pending"
-            self.save()
+
+            # Handle concurrency with retry logic
+            try:
+                self.save()
+            except frappe.TimestampMismatchError:
+                # Reload member and retry save once
+                self.reload()
+                self.application_invoice = invoice.name
+                self.application_payment_status = "Pending"
+                self.save()
 
             return membership
 
@@ -530,8 +551,19 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         self.review_date = now_datetime()
         self.rejection_reason = reason
 
-        # Save the member
-        self.save()
+        # Save the member with concurrency handling
+        try:
+            self.save()
+        except frappe.TimestampMismatchError:
+            # Reload member and retry save once
+            self.reload()
+            # Re-apply the rejection changes
+            self.application_status = "Rejected"
+            self.status = "Rejected"
+            self.reviewed_by = frappe.session.user
+            self.review_date = now_datetime()
+            self.rejection_reason = reason
+            self.save()
 
         # Remove pending Chapter Member records
         try:

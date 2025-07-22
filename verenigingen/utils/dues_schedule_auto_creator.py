@@ -6,7 +6,24 @@ Scheduled task to auto-create missing dues schedules for members with assigned m
 """
 
 import frappe
-from frappe.utils import getdate, today
+from frappe.utils import add_days, add_months, add_years, getdate, today
+
+
+def _calculate_next_invoice_date(billing_frequency):
+    """Calculate next invoice date based on billing frequency"""
+    if billing_frequency == "Daily":
+        return add_days(today(), 1)
+    elif billing_frequency == "Monthly":
+        return add_months(today(), 1)
+    elif billing_frequency == "Quarterly":
+        return add_months(today(), 3)
+    elif billing_frequency == "Semi-Annual":
+        return add_months(today(), 6)
+    elif billing_frequency == "Annual":
+        return add_years(today(), 1)
+    else:
+        # Default to monthly for other frequencies
+        return add_months(today(), 1)
 
 
 def auto_create_missing_dues_schedules_scheduled():
@@ -213,13 +230,15 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             dues_schedule.membership_type = member.membership_type
             dues_schedule.status = "Active"
             # Get billing frequency from template if available
-            billing_frequency = "Annual"  # Default
+            billing_frequency = "Monthly"  # Better default than Annual
             if membership_type_doc.dues_schedule_template:
                 try:
                     template = frappe.get_doc(
                         "Membership Dues Schedule", membership_type_doc.dues_schedule_template
                     )
-                    billing_frequency = template.billing_frequency or "Annual"
+                    # Only use template frequency if it's explicitly set and not empty
+                    if template.billing_frequency and template.billing_frequency.strip():
+                        billing_frequency = template.billing_frequency
                 except Exception:
                     pass
             dues_schedule.billing_frequency = billing_frequency
@@ -234,7 +253,8 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             dues_schedule.custom_amount_approved_date = today()
             dues_schedule.auto_generate = 1
             dues_schedule.effective_date = today()
-            dues_schedule.next_invoice_date = today()
+            # Set next invoice date based on billing frequency
+            dues_schedule.next_invoice_date = _calculate_next_invoice_date(billing_frequency)
             dues_schedule.notes = f"Auto-created via manual trigger on {today()}"
 
             dues_schedule.insert(ignore_permissions=True)
@@ -404,7 +424,7 @@ def create_dues_schedules_for_members(members, send_emails=False):
                     "billing_frequency": "Monthly",
                     "status": "Active",
                     "effective_date": frappe.utils.today(),
-                    "next_invoice_date": frappe.utils.add_days(frappe.utils.today(), 30),
+                    "next_invoice_date": _calculate_next_invoice_date("Monthly"),
                     "contribution_mode": "Custom",  # Use Custom mode for auto-created
                     "uses_custom_amount": 1,  # Mark as custom amount
                     "custom_amount_approved": 1,  # Auto-approve for system creation

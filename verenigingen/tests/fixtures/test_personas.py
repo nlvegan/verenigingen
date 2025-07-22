@@ -514,6 +514,8 @@ class TestPersonas:
     @staticmethod
     def create_all_personas():
         """Create all test personas and return them in a dict"""
+        from verenigingen.tests.fixtures.billing_transition_personas import BillingTransitionPersonas
+        
         personas = {
             "happy_hannah": TestPersonas.create_happy_path_hannah(),
             "payment_peter": TestPersonas.create_payment_problem_peter(),
@@ -523,6 +525,10 @@ class TestPersonas:
             "new_nancy": TestPersonas.create_new_member_nancy(),
             "board_bob": TestPersonas.create_board_member_bob(),
             "multi_mary": TestPersonas.create_multi_chapter_mary()}
+        
+        # Add billing transition personas
+        billing_personas = BillingTransitionPersonas.create_all_billing_personas()
+        personas.update(billing_personas)
 
         return personas
 
@@ -539,6 +545,13 @@ class TestPersonas:
             "nancy.new@test.com",
             "bob.board@test.com",
             "mary.multi@test.com",
+            # Billing transition personas
+            "mike.monthlyannual@test.com",
+            "anna.annualquarterly@test.com",
+            "quinn.quarterlymonthly@test.com",
+            "diana.dailyannual@test.com",
+            "sam.switchy@test.com",
+            "betty.backdated@test.com",
         ]
 
         for email in persona_emails:

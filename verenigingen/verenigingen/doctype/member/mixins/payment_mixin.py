@@ -29,11 +29,22 @@ class PaymentMixin:
 
         self.payment_history = []
 
-        # 1. Get all submitted invoices for this customer
+        # 1. Get all invoices for this customer (including drafts)
         invoices = frappe.get_all(
             "Sales Invoice",
-            filters={"customer": self.customer, "docstatus": 1},
-            fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount", "status"],
+            filters={
+                "customer": self.customer,
+                "docstatus": ["in", [0, 1]],
+            },  # Include both draft and submitted
+            fields=[
+                "name",
+                "posting_date",
+                "due_date",
+                "grand_total",
+                "outstanding_amount",
+                "status",
+                "docstatus",
+            ],
             order_by="posting_date desc",
         )
 
@@ -86,7 +97,9 @@ class PaymentMixin:
                     reconciled = 1
 
             # Set payment status based on invoice and payment data
-            if invoice.status == "Paid":
+            if invoice.docstatus == 0:
+                payment_status = "Draft"
+            elif invoice.status == "Paid":
                 payment_status = "Paid"
             elif invoice.status == "Overdue":
                 payment_status = "Overdue"

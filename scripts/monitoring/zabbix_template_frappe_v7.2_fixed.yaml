@@ -705,6 +705,158 @@ zabbix_export:
               error_handler: CUSTOM_VALUE
               error_handler_params: '0'
 
+        # NEW MEMBERSHIP MONITORING ITEMS
+        - uuid: f1234567890abcdef1234567890abcd1
+          name: Past Next Invoice Dates
+          type: HTTP_AGENT
+          key: frappe.dues_schedules.past_invoice_dates
+          delay: 5m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          units: schedules
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.dues_schedules.past_invoice_dates"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          triggers:
+            - uuid: f1234567890abcdef1234567890abcd2
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.dues_schedules.past_invoice_dates)>0'
+              name: 'Dues schedules with past invoice dates detected'
+              event_name: 'Past invoice dates: {ITEM.VALUE} schedules'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: business
+                - tag: component
+                  value: billing
+            - uuid: f1234567890abcdef1234567890abcd3
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.dues_schedules.past_invoice_dates)>{$PAST_INVOICE_DATES_HIGH}'
+              name: 'High number of dues schedules with past invoice dates'
+              event_name: 'Critical past invoice dates: {ITEM.VALUE} schedules'
+              priority: HIGH
+              tags:
+                - tag: scope
+                  value: business
+                - tag: component
+                  value: billing
+          tags:
+            - tag: component
+              value: billing
+
+        - uuid: f1234567890abcdef1234567890abcd4
+          name: Members Without Membership
+          type: HTTP_AGENT
+          key: frappe.members.without_membership
+          delay: 10m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          units: members
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.members.without_membership"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          triggers:
+            - uuid: f1234567890abcdef1234567890abcd5
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.members.without_membership)>0'
+              name: 'Active members without membership record detected'
+              event_name: 'Members without membership: {ITEM.VALUE}'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: business
+                - tag: component
+                  value: membership
+            - uuid: f1234567890abcdef1234567890abcd6
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.members.without_membership)>{$MEMBERS_WITHOUT_MEMBERSHIP_HIGH}'
+              name: 'High number of members without membership record'
+              event_name: 'Critical members without membership: {ITEM.VALUE}'
+              priority: HIGH
+              tags:
+                - tag: scope
+                  value: business
+                - tag: component
+                  value: membership
+          tags:
+            - tag: component
+              value: membership
+
+        - uuid: f1234567890abcdef1234567890abcd7
+          name: Members Without Dues Schedule
+          type: HTTP_AGENT
+          key: frappe.members.without_dues_schedule
+          delay: 10m
+          history: 30d
+          trends: 90d
+          value_type: UNSIGNED
+          units: members
+          url: '{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix'
+          headers:
+            - name: Authorization
+              value: 'token {$FRAPPE_API_KEY}:{$FRAPPE_API_SECRET}'
+          timeout: 10s
+          follow_redirects: 'YES'
+          output_format: JSON
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - $.message.metrics["frappe.members.without_dues_schedule"]
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          triggers:
+            - uuid: f1234567890abcdef1234567890abcd8
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.members.without_dues_schedule)>0'
+              name: 'Active members without dues schedule detected'
+              event_name: 'Members without dues schedule: {ITEM.VALUE}'
+              priority: INFO
+              tags:
+                - tag: scope
+                  value: business
+                - tag: component
+                  value: billing
+            - uuid: f1234567890abcdef1234567890abcd9
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.members.without_dues_schedule)>{$MEMBERS_WITHOUT_DUES_SCHEDULE_WARN}'
+              name: 'Many members without dues schedule'
+              event_name: 'Warning members without dues schedule: {ITEM.VALUE}'
+              priority: WARNING
+              tags:
+                - tag: scope
+                  value: business
+                - tag: component
+                  value: billing
+            - uuid: f1234567890abcdef1234567890abcda
+              expression: 'last(/Template Frappe Cloud Monitoring/frappe.members.without_dues_schedule)>{$MEMBERS_WITHOUT_DUES_SCHEDULE_HIGH}'
+              name: 'Critical number of members without dues schedule'
+              event_name: 'Critical members without dues schedule: {ITEM.VALUE}'
+              priority: HIGH
+              tags:
+                - tag: scope
+                  value: business
+                - tag: component
+                  value: billing
+          tags:
+            - tag: component
+              value: billing
+
       tags:
         - tag: class
           value: application
@@ -759,6 +911,18 @@ zabbix_export:
         - macro: '{$OUTSTANDING_AMOUNT_HIGH}'
           value: '50000'
           description: 'High threshold for outstanding amount (EUR)'
+        - macro: '{$PAST_INVOICE_DATES_HIGH}'
+          value: '10'
+          description: 'High threshold for dues schedules with past invoice dates'
+        - macro: '{$MEMBERS_WITHOUT_MEMBERSHIP_HIGH}'
+          value: '10'
+          description: 'High threshold for members without membership record'
+        - macro: '{$MEMBERS_WITHOUT_DUES_SCHEDULE_WARN}'
+          value: '20'
+          description: 'Warning threshold for members without dues schedule'
+        - macro: '{$MEMBERS_WITHOUT_DUES_SCHEDULE_HIGH}'
+          value: '50'
+          description: 'High threshold for members without dues schedule'
 
       valuemaps:
         - uuid: 856d69d9e5b74eb8a64bc32b6e12a671

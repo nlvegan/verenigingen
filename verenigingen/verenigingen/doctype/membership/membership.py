@@ -59,16 +59,30 @@ class Membership(Document):
                 # Update member record with dues schedule link
                 member = frappe.get_doc("Member", self.member)
                 member.dues_schedule = schedule_name
-                member.save()
+
+                # Handle timestamp mismatch by reloading and retrying once
+                try:
+                    member.save()
+                except frappe.TimestampMismatchError:
+                    # Reload member and retry save once
+                    member.reload()
+                    member.dues_schedule = schedule_name
+                    member.save()
 
             except Exception as e:
+                # Create shorter error message for log title to avoid character limit
+                error_msg = str(e)
+                if len(error_msg) > 100:
+                    error_msg = error_msg[:97] + "..."
+
                 frappe.log_error(
-                    f"Error creating dues schedule for member {self.member}: {str(e)}",
-                    "Membership Dues Schedule Creation",
+                    f"Full error details:\nMember: {self.member}\nError: {str(e)}",
+                    f"Dues Schedule Error: {self.member}",
                 )
                 # Don't fail the membership creation if dues schedule fails
                 frappe.msgprint(
-                    f"Warning: Could not create dues schedule automatically. Error: {str(e)}", alert=True
+                    "Warning: Could not create dues schedule automatically. Please create manually if needed.",
+                    alert=True,
                 )
 
     def pause_dues_schedule(self):

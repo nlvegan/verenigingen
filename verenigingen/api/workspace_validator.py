@@ -54,7 +54,7 @@ class WorkspaceValidator:
             )
 
             if not workspace:
-                self.errors.append(f"Workspace '{self.workspace_name}' not found in database")
+                self.errors.append(f"Workspace '{self.workspace_name}' was not found")
                 return
 
             if not workspace.public:

@@ -33,6 +33,7 @@
   "membership_tab",
   "current_membership_details",
   "current_dues_schedule",
+  "next_invoice_date",
   "current_membership_type",
   "current_membership_start",
   "current_membership_end",
@@ -541,6 +542,13 @@
    "label": "Current Dues Schedule",
    "options": "Membership Dues Schedule",
    "read_only": 1
+  },
+  {
+   "fieldname": "next_invoice_date",
+   "fieldtype": "Date",
+   "label": "Next Invoice Date",
+   "read_only": 1,
+   "description": "Next scheduled invoice date from the dues schedule"
   },
   {
    "fetch_from": "current_membership_details.membership_type",

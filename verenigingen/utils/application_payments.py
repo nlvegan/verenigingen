@@ -26,7 +26,31 @@ def create_membership_invoice_with_amount(member, membership, amount):
 
     # Legacy subscription period calculation replaced by dues schedule system
 
-    # Determine invoice description based on amount type and dues schedule
+    # Calculate coverage period for the first billing cycle
+    from frappe.utils import add_months, add_years, getdate
+
+    billing_period = getattr(membership_type, "billing_period", "Annual")
+    period_start = today()
+
+    # Calculate period end based on billing frequency
+    if billing_period == "Daily":
+        period_end = add_days(period_start, 1)
+    elif billing_period == "Monthly":
+        period_end = add_months(period_start, 1)
+    elif billing_period == "Quarterly":
+        period_end = add_months(period_start, 3)
+    elif billing_period == "Biannual":
+        period_end = add_months(period_start, 6)
+    elif billing_period == "Annual":
+        period_end = add_years(period_start, 1)
+    elif billing_period == "Custom" and hasattr(membership_type, "billing_period_in_months"):
+        months = getattr(membership_type, "billing_period_in_months", 12) or 12
+        period_end = add_months(period_start, months)
+    else:
+        # Default to annual
+        period_end = add_years(period_start, 1)
+
+    # Determine invoice description with coverage period
     description = f"Membership Fee - {membership_type.membership_type_name}"
     if hasattr(membership, "uses_custom_amount") and membership.uses_custom_amount:
         if amount > membership_type.amount:
@@ -34,10 +58,11 @@ def create_membership_invoice_with_amount(member, membership, amount):
         elif amount < membership_type.amount:
             description += " (Reduced Rate)"
 
-    # Add billing period to description if available
-    billing_period = getattr(membership_type, "billing_period", "Annual")
-    if billing_period and billing_period != "Annual":
-        description += f" - {billing_period} Billing"
+    # Add coverage period to description
+    if billing_period == "Daily":
+        description += f" - {billing_period} fee for {period_start}"
+    else:
+        description += f" - {billing_period} period: {period_start} to {period_end}"
 
     # Create invoice with dues schedule system
     invoice_data = {
@@ -55,7 +80,7 @@ def create_membership_invoice_with_amount(member, membership, amount):
                 "description": description,
             }
         ],
-        "remarks": f"Membership application invoice for {member.full_name}",
+        "remarks": f"Membership application invoice for {member.full_name}\nFirst billing period: {period_start} to {period_end}",
     }
 
     # The dues schedule system handles billing periods automatically
@@ -154,7 +179,15 @@ def process_application_payment(member_name, payment_method, payment_reference=N
 
     # Update member payment status
     member.application_payment_status = "Paid"
-    member.save()
+
+    # Handle concurrency with retry logic
+    try:
+        member.save()
+    except frappe.TimestampMismatchError:
+        # Reload member and retry save once
+        member.reload()
+        member.application_payment_status = "Paid"
+        member.save()
 
     # Activate membership
     membership = frappe.get_doc("Membership", invoice.membership)

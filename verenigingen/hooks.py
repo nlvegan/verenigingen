@@ -76,9 +76,11 @@ doc_events = {
         "before_validate": ["verenigingen.utils.apply_tax_exemption_from_source"],
         "validate": ["verenigingen.overrides.sales_invoice.custom_validate"],
         "after_validate": ["verenigingen.overrides.sales_invoice.after_validate"],
-        "on_submit": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history_from_invoice",
-        "on_update_after_submit": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history_from_invoice",
-        "on_cancel": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history_from_invoice",
+        # Event-driven approach for payment history updates
+        # This prevents validation errors from blocking invoice submission
+        "on_submit": "verenigingen.events.invoice_events.emit_invoice_submitted",
+        "on_update_after_submit": "verenigingen.events.invoice_events.emit_invoice_updated_after_submit",
+        "on_cancel": "verenigingen.events.invoice_events.emit_invoice_cancelled",
     },
     # Termination system events
     "Membership Termination Request": {
@@ -139,6 +141,8 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments",
         # Auto-create missing dues schedules
         "verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
+        # Generate invoices from membership dues schedules
+        "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.generate_dues_invoices",
         # Analytics and goals updates
         "verenigingen.verenigingen.doctype.membership_goal.membership_goal.update_all_goals",
         # Termination system maintenance

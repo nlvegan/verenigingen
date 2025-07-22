@@ -231,9 +231,20 @@ def update_member_status_safe(member_name, termination_type, termination_date, t
         else:
             member.notes = termination_note
 
-        # Save the member
+        # Save the member with concurrency handling
         member.flags.ignore_permissions = True
-        member.save()
+        try:
+            member.save()
+        except frappe.TimestampMismatchError:
+            # Reload member and retry save once
+            member.reload()
+            member.status = status_mapping.get(termination_type, "Suspended")
+            if member.notes:
+                member.notes += f"\n\n{termination_note}"
+            else:
+                member.notes = termination_note
+            member.flags.ignore_permissions = True
+            member.save()
 
         frappe.logger().info(f"Updated member {member_name} status to {member.status}")
         return True
@@ -495,7 +506,20 @@ def suspend_member_safe(
             member.pre_suspension_status = original_status
 
         member.flags.ignore_permissions = True
-        member.save()
+        try:
+            member.save()
+        except frappe.TimestampMismatchError:
+            # Reload member and retry save once
+            member.reload()
+            member.status = "Suspended"
+            if member.notes:
+                member.notes += f"\n\n{suspension_note}"
+            else:
+                member.notes = suspension_note
+            if hasattr(member, "pre_suspension_status"):
+                member.pre_suspension_status = original_status
+            member.flags.ignore_permissions = True
+            member.save()
 
         results["member_suspended"] = True
         results["actions_taken"].append(f"Member status changed from {original_status} to Suspended")
@@ -577,7 +601,20 @@ def unsuspend_member_safe(member_name, unsuspension_reason, restore_teams=True):
             member.pre_suspension_status = None
 
         member.flags.ignore_permissions = True
-        member.save()
+        try:
+            member.save()
+        except frappe.TimestampMismatchError:
+            # Reload member and retry save once
+            member.reload()
+            member.status = restore_status
+            if member.notes:
+                member.notes += f"\n\n{unsuspension_note}"
+            else:
+                member.notes = unsuspension_note
+            if hasattr(member, "pre_suspension_status"):
+                member.pre_suspension_status = None
+            member.flags.ignore_permissions = True
+            member.save()
 
         results["member_unsuspended"] = True
         results["actions_taken"].append(f"Member status restored to {restore_status}")

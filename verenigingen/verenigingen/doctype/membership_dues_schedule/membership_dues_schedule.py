@@ -119,9 +119,51 @@ class MembershipDuesSchedule(Document):
 
     def validate_dates(self):
         """Validate schedule dates"""
+        today_date = getdate(today())
+
         if self.last_invoice_date and self.next_invoice_date:
             if getdate(self.last_invoice_date) >= getdate(self.next_invoice_date):
                 frappe.throw("Next Invoice Date must be after Last Invoice Date")
+
+        # Validate next_invoice_date is not unreasonably far in the future
+        if self.next_invoice_date:
+            next_date = getdate(self.next_invoice_date)
+
+            # Determine reasonable future limit based on billing frequency
+            if self.billing_frequency == "Daily":
+                max_future_days = 7  # Daily billing should not be scheduled more than a week ahead
+            elif self.billing_frequency == "Weekly":
+                max_future_days = 14  # Weekly billing should not be more than 2 weeks ahead
+            elif self.billing_frequency == "Monthly":
+                max_future_days = 62  # Monthly billing should not be more than 2 months ahead
+            elif self.billing_frequency == "Quarterly":
+                max_future_days = 100  # Quarterly billing should not be more than ~3 months ahead
+            elif self.billing_frequency == "Annual":
+                max_future_days = 400  # Annual billing can be up to ~13 months ahead
+            else:
+                max_future_days = 30  # Default conservative limit
+
+            max_future_date = add_days(today_date, max_future_days)
+
+            if next_date > max_future_date:
+                # Auto-correct the date instead of throwing error (better UX)
+                self.next_invoice_date = today_date
+                frappe.msgprint(
+                    f"Next Invoice Date was too far in the future ({next_date}). "
+                    f"Automatically corrected to {today_date} for {self.billing_frequency} billing.",
+                    alert=True,
+                )
+
+            # Also check for very old dates (more than 6 months in the past)
+            min_past_date = add_days(today_date, -180)  # 6 months ago
+            if next_date < min_past_date:
+                # Auto-correct old dates
+                self.next_invoice_date = today_date
+                frappe.msgprint(
+                    f"Next Invoice Date was too far in the past ({next_date}). "
+                    f"Automatically corrected to {today_date}.",
+                    alert=True,
+                )
 
     def validate_custom_frequency(self):
         """Validate custom frequency settings"""
@@ -523,8 +565,18 @@ class MembershipDuesSchedule(Document):
         # Create invoice
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = member_doc.customer
-        invoice.due_date = self.next_invoice_date
         invoice.posting_date = today()
+
+        # Set proper due date - use payment terms or default to 30 days from posting date
+        from frappe.utils import add_days
+
+        if self.payment_terms_template:
+            # Let ERPNext calculate due date from payment terms
+            invoice.payment_terms_template = self.payment_terms_template
+            # Due date will be calculated automatically
+        else:
+            # Default to 30 days from posting date for membership invoices
+            invoice.due_date = add_days(today(), 30)
 
         # Set payment method based on member's preferences
         payment_method = self.get_member_payment_method()
@@ -534,9 +586,7 @@ class MembershipDuesSchedule(Document):
                 # Set SEPA-specific fields on invoice if needed
                 invoice.sepa_mandate_id = active_mandate
 
-        # Set payment terms if specified
-        if self.payment_terms_template:
-            invoice.payment_terms_template = self.payment_terms_template
+        # Payment terms template already set above if specified
 
         # Add membership dues item
         invoice.append(
@@ -557,13 +607,23 @@ class MembershipDuesSchedule(Document):
         # Save and optionally submit
         invoice.insert()
 
-        # Auto-submit if configured (check if field exists first)
+        # Auto-submit if configured (default to True for membership invoices)
         try:
-            if frappe.db.get_single_value("Verenigingen Settings", "auto_submit_membership_invoices"):
+            auto_submit = frappe.db.get_single_value(
+                "Verenigingen Settings", "auto_submit_membership_invoices"
+            )
+            # Default to auto-submit if setting doesn't exist (better UX)
+            if auto_submit is None or auto_submit:
                 invoice.submit()
         except Exception:
-            # Field doesn't exist or other error - skip auto-submit
-            pass
+            # If setting doesn't exist, default to auto-submit for membership invoices
+            try:
+                invoice.submit()
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to auto-submit invoice {invoice.name}: {str(e)}", "Invoice Auto-Submit"
+                )
+                pass
 
         return invoice.name
 
@@ -589,11 +649,20 @@ class MembershipDuesSchedule(Document):
         return item_name
 
     def get_invoice_description(self):
-        """Generate invoice description"""
+        """Generate invoice description with appropriate period formatting"""
         period_start = self.last_invoice_date or self.next_invoice_date
         period_end = self.calculate_next_billing_date(self.next_invoice_date)
 
-        return f"Membership dues for {self.member_name} ({self.membership_type}) - Period: {period_start} to {period_end}"
+        # Format period description based on billing frequency
+        if self.billing_frequency == "Daily":
+            # For daily billing, show the specific date
+            return f"Membership dues for {self.member_name} ({self.membership_type}) - Daily fee for {period_start}"
+        elif self.billing_frequency in ["Monthly", "Quarterly", "Semi-Annual", "Annual"]:
+            # For longer periods, show the range
+            return f"Membership dues for {self.member_name} ({self.membership_type}) - {self.billing_frequency} period: {period_start} to {period_end}"
+        else:
+            # For custom or other frequencies, show the generic range
+            return f"Membership dues for {self.member_name} ({self.membership_type}) - Period: {period_start} to {period_end}"
 
     def update_schedule_dates(self):
         """Update schedule dates after invoice generation"""
@@ -807,10 +876,18 @@ class MembershipDuesSchedule(Document):
         # Insert and return
         schedule.insert()
 
-        # Link back to member
+        # Link back to member with concurrency handling
         member.dues_schedule = schedule.name
         member.dues_rate = schedule.dues_rate
-        member.save()
+
+        try:
+            member.save()
+        except frappe.TimestampMismatchError:
+            # Reload member and retry save once
+            member.reload()
+            member.dues_schedule = schedule.name
+            member.dues_rate = schedule.dues_rate
+            member.save()
 
         return schedule.name
 
@@ -1199,3 +1276,102 @@ def test_template_daglid_fix():
         "preserved": before_frequency == after_frequency,
         "test_result": "PASS" if before_frequency == after_frequency else "FAIL",
     }
+
+
+@frappe.whitelist()
+def validate_and_fix_schedule_dates():
+    """
+    Validate and fix all dues schedule dates to prevent issues like Assoc-Member-2025-07-0030
+    Returns a report of issues found and fixed
+    """
+    from frappe.utils import add_days, getdate, today
+
+    today_date = getdate(today())
+    results = {"total_schedules": 0, "issues_found": 0, "fixes_applied": 0, "issues": [], "success": True}
+
+    try:
+        # Get all active schedules
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"status": "Active", "is_template": 0},
+            fields=[
+                "name",
+                "member",
+                "billing_frequency",
+                "next_invoice_date",
+                "last_invoice_date",
+                "modified",
+            ],
+        )
+
+        results["total_schedules"] = len(schedules)
+
+        for schedule_data in schedules:
+            issues = []
+            fixes = []
+
+            try:
+                schedule = frappe.get_doc("Membership Dues Schedule", schedule_data.name)
+
+                if schedule.next_invoice_date:
+                    next_date = getdate(schedule.next_invoice_date)
+
+                    # Check for unreasonably far future dates
+                    if schedule.billing_frequency == "Daily":
+                        max_future_days = 7
+                    elif schedule.billing_frequency == "Weekly":
+                        max_future_days = 14
+                    elif schedule.billing_frequency == "Monthly":
+                        max_future_days = 62
+                    elif schedule.billing_frequency == "Quarterly":
+                        max_future_days = 100
+                    elif schedule.billing_frequency == "Annual":
+                        max_future_days = 400
+                    else:
+                        max_future_days = 30
+
+                    max_future_date = add_days(today_date, max_future_days)
+
+                    if next_date > max_future_date:
+                        issues.append(f"Next invoice date too far in future: {next_date}")
+                        schedule.next_invoice_date = today_date
+                        fixes.append(f"Corrected next_invoice_date from {next_date} to {today_date}")
+
+                    # Check for very old dates
+                    min_past_date = add_days(today_date, -180)  # 6 months ago
+                    if next_date < min_past_date:
+                        issues.append(f"Next invoice date too far in past: {next_date}")
+                        schedule.next_invoice_date = today_date
+                        fixes.append(f"Corrected next_invoice_date from {next_date} to {today_date}")
+
+                # If we made fixes, save the schedule
+                if fixes:
+                    schedule.save()
+                    results["fixes_applied"] += 1
+
+                    results["issues"].append(
+                        {
+                            "schedule": schedule_data.name,
+                            "member": schedule_data.member,
+                            "billing_frequency": schedule_data.billing_frequency,
+                            "issues": issues,
+                            "fixes": fixes,
+                        }
+                    )
+
+            except Exception as e:
+                results["issues"].append(
+                    {
+                        "schedule": schedule_data.name,
+                        "member": schedule_data.member,
+                        "error": f"Failed to process: {str(e)}",
+                    }
+                )
+
+        results["issues_found"] = len([i for i in results["issues"] if "fixes" in i])
+
+    except Exception as e:
+        results["success"] = False
+        results["error"] = str(e)
+
+    return results

@@ -2155,7 +2155,7 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
                 root_type = account_doc.root_type
                 account_type = account_doc.account_type
             except frappe.DoesNotExistError:
-                debug_info.append(f"Account {account} not found in ERPNext, skipping")
+                debug_info.append(f"Account {account} was not found, skipping")
                 continue
             except Exception as e:
                 debug_info.append(f"Error accessing account {account}: {str(e)}, skipping")
@@ -2393,7 +2393,7 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
                 root_type = account_doc.root_type
                 account_type = account_doc.account_type
             except frappe.DoesNotExistError:
-                debug_info.append(f"Account {account} not found in ERPNext, skipping")
+                debug_info.append(f"Account {account} was not found, skipping")
                 continue
             except Exception as e:
                 debug_info.append(f"Error accessing account {account}: {str(e)}, skipping")

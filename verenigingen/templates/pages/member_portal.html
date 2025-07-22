@@ -14,6 +14,11 @@
 
         <!-- Header -->
         <div class="text-center mb-8 animate-fade-in">
+            {% if brand_logo %}
+            <div class="mb-6">
+                <img src="{{ brand_logo }}" alt="Organization Logo" class="mx-auto h-16 md:h-20 lg:h-24 w-auto object-contain">
+            </div>
+            {% endif %}
             <h1 class="text-4xl font-bold text-gray-900 mb-4">{{ _("Welcome to Your Member Portal") }}</h1>
             <p class="text-xl text-gray-600 max-w-3xl mx-auto">{{ _("Manage your membership, update your details, and access member services") }}</p>
         </div>
@@ -22,6 +27,11 @@
         <!-- No Member Record Error -->
         <div class="max-w-2xl mx-auto">
             <div class="bg-warning-100 border-2 border-warning-300 rounded-lg p-8 text-center">
+                {% if brand_logo %}
+                <div class="mb-6">
+                    <img src="{{ brand_logo }}" alt="Organization Logo" class="mx-auto h-12 md:h-16 w-auto object-contain opacity-75">
+                </div>
+                {% endif %}
                 <div class="mb-4">
                     <svg class="w-16 h-16 text-warning-600 mx-auto" fill="currentColor" viewBox="0 0 20 20">
                         <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
