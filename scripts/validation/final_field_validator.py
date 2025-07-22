@@ -191,23 +191,219 @@ class FinalFieldValidator:
             
         return violations
     
-    def validate_app(self) -> List[Dict]:
-        """Validate the entire app"""
+    def validate_file_comprehensive(self, file_path: Path) -> List[Dict]:
+        """Validate a file with comprehensive DocType detection"""
         violations = []
         
-        # Only check Python files in doctype directories
-        for doctype_dir in self.app_path.rglob("**/doctype/*/"):
-            for py_file in doctype_dir.glob("*.py"):
-                if py_file.name.startswith('test_'):
-                    continue
-                    
-                file_violations = self.validate_file(py_file)
-                violations.extend(file_violations)
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+            # Parse AST for better accuracy
+            try:
+                tree = ast.parse(content)
+                source_lines = content.splitlines()
+                
+                # Find attribute access patterns
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Attribute):
+                        attr_name = node.attr
+                        
+                        # Skip common non-field attributes
+                        if attr_name in {'name', 'insert', 'save', 'delete', 'get', 'set', 
+                                       'append', 'remove', 'update', 'keys', 'values', 
+                                       'items', 'format', 'replace', 'split', 'join',
+                                       'strip', 'lower', 'upper', 'startswith', 'endswith'}:
+                            continue
+                            
+                        # Try to determine context and validate field
+                        violation = self.check_field_access_comprehensive(
+                            node, attr_name, file_path, source_lines
+                        )
+                        if violation:
+                            violations.append(violation)
+                            
+            except SyntaxError:
+                # If AST parsing fails, fall back to regex
+                violations.extend(self.validate_with_regex(content, file_path))
+                
+        except Exception as e:
+            print(f"Error parsing {file_path}: {e}")
+            
+        return violations
+    
+    def check_field_access_comprehensive(self, node: ast.Attribute, attr_name: str, 
+                                       file_path: Path, source_lines: List[str]) -> Optional[Dict]:
+        """Check if field access is valid with comprehensive DocType detection"""
+        
+        # Get the line content for context
+        line_no = node.lineno - 1
+        if line_no < len(source_lines):
+            line_content = source_lines[line_no].strip()
+        else:
+            line_content = ""
+            
+        # Detect potential DocType references in various patterns
+        detected_doctypes = self.detect_doctypes_in_context(node, line_content, source_lines, line_no)
+        
+        # Check if the field exists in any of the detected DocTypes
+        for doctype in detected_doctypes:
+            if doctype in self.doctypes and attr_name in self.doctypes[doctype]:
+                return None  # Valid field access
+                
+        # If we detected specific DocTypes and the field doesn't exist in any of them
+        if detected_doctypes:
+            return {
+                "file": str(file_path),
+                "line": node.lineno,
+                "content": line_content,
+                "field": attr_name,
+                "detected_doctypes": detected_doctypes,
+                "type": "invalid_field_access"
+            }
+            
+        # For unknown context, check if it's a known problematic pattern
+        if self.is_suspicious_field_pattern(attr_name, line_content):
+            return {
+                "file": str(file_path),
+                "line": node.lineno,
+                "content": line_content,
+                "field": attr_name,
+                "detected_doctypes": ["Unknown"],
+                "type": "suspicious_field_access"
+            }
+            
+        return None
+    
+    def detect_doctypes_in_context(self, node: ast.Attribute, line_content: str, 
+                                  source_lines: List[str], line_no: int) -> List[str]:
+        """Detect which DocTypes might be referenced in the current context"""
+        detected = []
+        
+        # Method 1: Look for explicit DocType references in the line
+        line_lower = line_content.lower()
+        for doctype in self.doctypes.keys():
+            if doctype.lower().replace(' ', '') in line_lower or \
+               doctype.lower().replace(' ', '_') in line_lower:
+                detected.append(doctype)
+                
+        # Method 2: Look for frappe.get_doc patterns
+        import re
+        get_doc_patterns = [
+            r'frappe\.get_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.new_doc\(\s*["\']([^"\']+)["\']',
+            r'doctype\s*=\s*["\']([^"\']+)["\']'
+        ]
+        
+        for pattern in get_doc_patterns:
+            matches = re.findall(pattern, line_content)
+            detected.extend(matches)
+            
+        # Method 3: Look for table alias patterns (like mt.amount -> Membership Type)
+        alias_patterns = {
+            'mt': 'Membership Type',
+            'mem': 'Member', 
+            'schedule': 'Membership Dues Schedule',
+            'membership_type': 'Membership Type',
+            'member': 'Member'
+        }
+        
+        # Extract the object being accessed (before the dot)
+        if hasattr(node, 'value') and hasattr(node.value, 'id'):
+            obj_name = node.value.id
+            if obj_name in alias_patterns:
+                detected.append(alias_patterns[obj_name])
+                
+        # Method 4: Look at surrounding context (previous lines for variable assignments)
+        context_lines = max(0, line_no - 5)
+        for i in range(context_lines, line_no):
+            if i < len(source_lines):
+                prev_line = source_lines[i]
+                for doctype in self.doctypes.keys():
+                    if doctype in prev_line and ('=' in prev_line or 'get_doc' in prev_line):
+                        detected.append(doctype)
+                        
+        return list(set(detected))  # Remove duplicates
+    
+    def is_suspicious_field_pattern(self, attr_name: str, line_content: str) -> bool:
+        """Check if this looks like a suspicious field access pattern"""
+        
+        # Known problematic patterns we want to catch
+        suspicious_patterns = [
+            'amount',  # The specific field we were missing
+            'suggested_contribution',
+            'minimum_contribution', 
+            'maximum_contribution'
+        ]
+        
+        if attr_name in suspicious_patterns:
+            # Additional context checks to reduce false positives
+            if any(indicator in line_content.lower() for indicator in [
+                'membership', 'member', 'dues', 'billing', 'contribution'
+            ]):
+                return True
+                
+        return False
+    
+    def validate_with_regex(self, content: str, file_path: Path) -> List[Dict]:
+        """Fallback regex validation for when AST parsing fails"""
+        violations = []
+        import re
+        
+        # Pattern to catch .amount and similar suspicious patterns
+        pattern = r'(\w+)\.(' + '|'.join([
+            'amount(?!_)', 'suggested_contribution', 'minimum_contribution', 
+            'maximum_contribution'
+        ]) + r')\b'
+        
+        lines = content.splitlines()
+        for line_no, line in enumerate(lines, 1):
+            matches = re.finditer(pattern, line)
+            for match in matches:
+                violations.append({
+                    "file": str(file_path),
+                    "line": line_no,
+                    "content": line.strip(),
+                    "field": match.group(2),
+                    "detected_doctypes": ["RegexDetected"],
+                    "type": "regex_detected_suspicious"
+                })
                 
         return violations
     
+    def validate_app(self) -> List[Dict]:
+        """Validate the entire app with comprehensive coverage"""
+        violations = []
+        files_checked = 0
+        
+        print(f"🔍 Scanning all Python files in {self.app_path}...")
+        
+        # Check ALL Python files, not just those in doctype directories
+        for py_file in self.app_path.rglob("**/*.py"):
+            # Skip certain directories and files
+            if any(skip in str(py_file) for skip in [
+                'node_modules', '__pycache__', '.git', 'migrations',
+                'archived_unused', 'backup', '.disabled', 'patches'
+            ]):
+                continue
+                
+            # Skip test files for now (they have different patterns)
+            if py_file.name.startswith('test_') or '/tests/' in str(py_file):
+                continue
+            
+            files_checked += 1
+            
+            # Use comprehensive validation for all files
+            file_violations = self.validate_file_comprehensive(py_file)
+            if file_violations:
+                print(f"  - Found {len(file_violations)} issues in {py_file.relative_to(self.app_path)}")
+            violations.extend(file_violations)
+        
+        print(f"📊 Checked {files_checked} Python files")
+        return violations
+    
     def generate_report(self, violations: List[Dict]) -> str:
-        """Generate a focused report"""
+        """Generate a comprehensive report"""
         if not violations:
             return "✅ No field reference issues found!"
             
@@ -215,28 +411,44 @@ class FinalFieldValidator:
         report.append(f"❌ Found {len(violations)} field reference issues:")
         report.append("")
         
-        # Group by doctype
-        by_doctype = {}
+        # Group by type and severity
+        by_type = {}
         for violation in violations:
-            doctype = violation['doctype']
-            if doctype not in by_doctype:
-                by_doctype[doctype] = []
-            by_doctype[doctype].append(violation)
+            violation_type = violation.get('type', 'unknown')
+            if violation_type not in by_type:
+                by_type[violation_type] = []
+            by_type[violation_type].append(violation)
+        
+        # Report by type
+        for vtype, type_violations in by_type.items():
+            report.append(f"## {vtype.replace('_', ' ').title()} ({len(type_violations)} issues)")
             
-        for doctype, doctype_violations in by_doctype.items():
-            report.append(f"## {doctype} ({len(doctype_violations)} issues)")
+            # Group by file for cleaner presentation
+            by_file = {}
+            for violation in type_violations:
+                file_path = violation['file']
+                if file_path not in by_file:
+                    by_file[file_path] = []
+                by_file[file_path].append(violation)
             
-            # Show each violation with context
-            for violation in doctype_violations:
-                report.append(f"- Field `{violation['field']}` does not exist")
-                report.append(f"  - File: {violation['file']}:{violation['line']}")
-                report.append(f"  - Context: `{violation['context']}`")
+            for file_path, file_violations in by_file.items():
+                report.append(f"\n### {file_path}")
                 
-                # Suggest similar fields
-                similar = self.find_similar_fields(violation['field'], violation['doctype'])
-                if similar:
-                    report.append(f"  - Similar fields: {', '.join(f'`{f}`' for f in similar)}")
+                for violation in file_violations:
+                    report.append(f"- Line {violation['line']}: Field `{violation['field']}`")
+                    report.append(f"  - Context: `{violation.get('content', 'N/A')}`")
                     
+                    # Show detected doctypes if available
+                    if violation.get('detected_doctypes'):
+                        detected = ', '.join(violation['detected_doctypes'])
+                        report.append(f"  - Detected DocTypes: {detected}")
+                    
+                    # Show suggestions for old doctype-based validation
+                    if 'doctype' in violation:
+                        similar = self.find_similar_fields(violation['field'], violation['doctype'])
+                        if similar:
+                            report.append(f"  - Similar fields: {', '.join(f'`{f}`' for f in similar)}")
+                
                 report.append("")
                 
         return '\n'.join(report)
@@ -262,24 +474,36 @@ class FinalFieldValidator:
 
 
 def main():
-    """Main function"""
+    """Main function with enhanced reporting"""
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
     
-    print("🔍 Running final field validation (ultra-precise)...")
+    print("🔍 Running enhanced field validation (comprehensive)...")
     validator = FinalFieldValidator(app_path)
     
-    print(f"📋 Loaded {len(validator.doctypes)} doctypes")
+    print(f"📋 Loaded {len(validator.doctypes)} doctypes with field definitions")
     
     violations = validator.validate_app()
     
+    print("\n" + "="*50)
     report = validator.generate_report(violations)
     print(report)
     
     if violations:
-        print(f"\n💡 Found {len(violations)} actual field reference issues")
+        print(f"\n💡 Summary: Found {len(violations)} field reference issues across the codebase")
+        
+        # Show breakdown by issue type
+        by_type = {}
+        for violation in violations:
+            vtype = violation.get('type', 'unknown')
+            by_type[vtype] = by_type.get(vtype, 0) + 1
+            
+        print("\n📊 Issue breakdown:")
+        for vtype, count in by_type.items():
+            print(f"   - {vtype.replace('_', ' ').title()}: {count}")
+        
         return 1
     else:
-        print("✅ No field reference issues found!")
+        print("✅ All field references validated successfully!")
         return 0
 
 

@@ -9,6 +9,7 @@
         "is_template",
         "section_membership",
         "member",
+        "membership",
         "member_name",
         "membership_type",
         "template_reference",
@@ -76,6 +77,14 @@
             "label": "Member",
             "mandatory_depends_on": "eval:!doc.is_template",
             "options": "Member"
+        },
+        {
+            "depends_on": "eval:!doc.is_template",
+            "fieldname": "membership",
+            "fieldtype": "Link",
+            "label": "Membership",
+            "options": "Membership",
+            "description": "The membership record this dues schedule is linked to"
         },
         {
             "fieldname": "membership_type",

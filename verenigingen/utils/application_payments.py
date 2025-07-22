@@ -53,9 +53,15 @@ def create_membership_invoice_with_amount(member, membership, amount):
     # Determine invoice description with coverage period
     description = f"Membership Fee - {membership_type.membership_type_name}"
     if hasattr(membership, "uses_custom_amount") and membership.uses_custom_amount:
-        if amount > membership_type.amount:
+        # Get suggested amount from template for comparison
+        if not membership_type.dues_schedule_template:
+            frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+        suggested_amount = template.suggested_amount or 0
+
+        if amount > suggested_amount:
             description += " (Supporter Contribution)"
-        elif amount < membership_type.amount:
+        elif amount < suggested_amount:
             description += " (Reduced Rate)"
 
     # Add coverage period to description
@@ -285,7 +291,11 @@ def get_payment_instructions_html(invoice, payment_url):
 
 def calculate_membership_amount_with_discounts(membership_type, data):
     """Calculate membership amount considering any applicable discounts"""
-    base_amount = float(membership_type.amount)
+    # Get base amount from template
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    base_amount = float(template.suggested_amount or 0)
     final_amount = base_amount
     discounts_applied = []
 
@@ -351,7 +361,11 @@ def validate_payment_amount(invoice, received_amount):
 def create_membership_invoice(member, membership, membership_type, amount=None):
     """Create invoice for membership with optional custom amount"""
     if amount is None:
-        amount = membership_type.amount
+        # Get default amount from template
+        if not membership_type.dues_schedule_template:
+            frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+        amount = template.suggested_amount or 0
 
     return create_membership_invoice_with_amount(member, membership, amount)
 

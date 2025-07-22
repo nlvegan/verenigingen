@@ -112,9 +112,13 @@ def calculate_projected_revenue(year):
         if member_doc.dues_rate:
             annual_fee = member_doc.dues_rate
         else:
-            # Get standard fee
+            # Get standard fee from template
             membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-            annual_fee = membership_type.amount or 0
+            if membership_type.dues_schedule_template:
+                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+                annual_fee = template.suggested_amount or 0
+            else:
+                annual_fee = 0
 
         total_revenue += annual_fee
 
@@ -158,7 +162,9 @@ def get_growth_trend(year, period="year", filters=None):
 def get_revenue_projection(year, filters=None):
     """Get revenue projection by membership type"""
     filters = filters or {}
-    membership_types = frappe.get_all("Membership Type", filters={"is_active": 1}, fields=["name", "amount"])
+    membership_types = frappe.get_all(
+        "Membership Type", filters={"is_active": 1}, fields=["name", "minimum_amount"]
+    )
 
     revenue_data = []
 
@@ -167,7 +173,7 @@ def get_revenue_projection(year, filters=None):
         member_count = frappe.db.sql(
             """
             SELECT COUNT(DISTINCT m.member) as count,
-                   SUM(COALESCE(mem.dues_rate, mt.amount)) as revenue
+                   SUM(COALESCE(mem.dues_rate, mt.minimum_amount)) as revenue
             FROM `tabMembership` m
             JOIN `tabMember` mem ON m.member = mem.name
             JOIN `tabMembership Type` mt ON m.membership_type = mt.name
@@ -183,7 +189,7 @@ def get_revenue_projection(year, filters=None):
                 "membership_type": mt.name,
                 "member_count": member_count.count or 0,
                 "revenue": member_count.revenue or 0,
-                "average_fee": mt.amount,
+                "average_fee": mt.minimum_amount,
             }
         )
 
@@ -199,7 +205,7 @@ def get_membership_breakdown(year, filters=None):
         SELECT
             m.membership_type,
             COUNT(DISTINCT m.member) as count,
-            SUM(COALESCE(mem.dues_rate, mt.amount)) as revenue
+            SUM(COALESCE(mem.dues_rate, mt.minimum_amount)) as revenue
         FROM `tabMembership` m
         JOIN `tabMember` mem ON m.member = mem.name
         JOIN `tabMembership Type` mt ON m.membership_type = mt.name
@@ -428,7 +434,7 @@ def get_chapter_segmentation(year, filter_conditions):
             COUNT(*) as total_members,
             SUM(CASE WHEN YEAR(member_since) = {year} THEN 1 ELSE 0 END) as new_members,
             AVG(COALESCE(dues_rate,
-                (SELECT amount FROM `tabMembership Type` mt
+                (SELECT minimum_amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'
                  LIMIT 1), 0)) as avg_fee
@@ -484,7 +490,7 @@ def get_age_segmentation(year, filter_conditions):
             END as name,
             COUNT(*) as total_members,
             AVG(COALESCE(dues_rate,
-                (SELECT amount FROM `tabMembership Type` mt
+                (SELECT minimum_amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'
                  LIMIT 1), 0)) as avg_fee
@@ -521,7 +527,7 @@ def get_join_year_segmentation(year, filter_conditions):
             COUNT(*) as total_members,
             AVG(total_membership_days) as avg_tenure_days,
             AVG(COALESCE(dues_rate,
-                (SELECT amount FROM `tabMembership Type` mt
+                (SELECT minimum_amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'
                  LIMIT 1), 0)) as avg_fee

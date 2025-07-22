@@ -20,13 +20,51 @@ class TestDuesScheduleDateValidation(VereningingenTestCase):
         
     def test_daily_schedule_creation_dates(self):
         """Test that daily schedules are created with correct dates"""
-        member = self.create_test_member()
+        # Create member with application workflow to ensure proper setup
+        member = self.create_test_member(
+            email="daily.schedule@test.com"
+        )
         
-        # Create an active membership for the member
+        # Create the membership type and template if not exists
+        membership_type_name = "Daily Test"
+        if not frappe.db.exists("Membership Type", membership_type_name):
+            # Create membership type first (without template reference)
+            membership_type = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": membership_type_name,
+                "billing_period": "Daily",
+                "minimum_amount": 5.0
+            })
+            membership_type.flags.ignore_mandatory = True
+            membership_type.insert()
+            self.track_doc("Membership Type", membership_type.name)
+            
+            # Create template
+            template = frappe.get_doc({
+                "doctype": "Membership Dues Schedule",
+                "is_template": 1,
+                "schedule_name": f"Template-{membership_type_name}-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}",
+                "membership_type": membership_type_name,
+                "billing_frequency": "Daily",
+                "suggested_amount": 5.0,
+                "minimum_amount": 5.0,
+                "dues_rate": 5.0,
+                "status": "Active",
+                "contribution_mode": "Calculator",
+                "auto_generate": 1
+            })
+            template.insert()
+            self.track_doc("Membership Dues Schedule", template.name)
+            
+            # Update membership type with template reference
+            membership_type.dues_schedule_template = template.name
+            membership_type.save()
+        
+        # Create active membership
         membership = frappe.get_doc({
             "doctype": "Membership",
             "member": member.name,
-            "membership_type": "Daglid",  # Use existing membership type
+            "membership_type": membership_type_name,
             "start_date": today(),
             "status": "Active"
         })
@@ -34,18 +72,18 @@ class TestDuesScheduleDateValidation(VereningingenTestCase):
         membership.submit()
         self.track_doc("Membership", membership.name)
         
-        # Skip membership validation for testing
+        # Now create the dues schedule properly
         schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
             "schedule_name": f"Test-Schedule-Daily-{member.name}",
             "member": member.name,
-            "membership_type": "Daglid",
+            "membership": membership.name,
+            "membership_type": membership_type_name,
             "billing_frequency": "Daily",
             "dues_rate": 5.0,
             "status": "Active",
             "auto_generate": 1
         })
-        schedule._skip_membership_validation = True
         schedule.insert()
         
         # The next invoice date should be today or tomorrow, never a year ahead
@@ -61,12 +99,63 @@ class TestDuesScheduleDateValidation(VereningingenTestCase):
     
     def test_weekly_schedule_creation_dates(self):
         """Test that weekly schedules are created with correct dates"""
-        member = self.create_test_member()
+        member = self.create_test_member(
+            email="weekly.schedule@test.com"
+        )
+        
+        # Create membership type and template if not exists
+        membership_type_name = "Weekly Test"
+        if not frappe.db.exists("Membership Type", membership_type_name):
+            # Create membership type first
+            membership_type = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": membership_type_name,
+                "billing_period": "Weekly",
+                "minimum_amount": 10.0
+            })
+            membership_type.flags.ignore_mandatory = True
+            membership_type.insert()
+            self.track_doc("Membership Type", membership_type.name)
+            
+            # Create template
+            template = frappe.get_doc({
+                "doctype": "Membership Dues Schedule",
+                "is_template": 1,
+                "schedule_name": f"Template-{membership_type_name}-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}",
+                "membership_type": membership_type_name,
+                "billing_frequency": "Weekly",
+                "suggested_amount": 10.0,
+                "minimum_amount": 10.0,
+                "dues_rate": 10.0,
+                "status": "Active",
+                "contribution_mode": "Calculator",
+                "auto_generate": 1
+            })
+            template.insert()
+            self.track_doc("Membership Dues Schedule", template.name)
+            
+            # Update membership type with template reference
+            membership_type.dues_schedule_template = template.name
+            membership_type.save()
+        
+        # Create active membership
+        membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": member.name,
+            "membership_type": membership_type_name,
+            "start_date": today(),
+            "status": "Active"
+        })
+        membership.insert()
+        membership.submit()
+        self.track_doc("Membership", membership.name)
         
         schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
             "schedule_name": f"Test-Schedule-Weekly-{member.name}",
             "member": member.name,
+            "membership": membership.name,
+            "membership_type": membership_type_name,
             "billing_frequency": "Weekly",
             "dues_rate": 10.0,
             "status": "Active",
@@ -83,12 +172,63 @@ class TestDuesScheduleDateValidation(VereningingenTestCase):
     
     def test_monthly_schedule_creation_dates(self):
         """Test that monthly schedules are created with correct dates"""
-        member = self.create_test_member()
+        member = self.create_test_member(
+            email="monthly.schedule@test.com"
+        )
+        
+        # Create membership type and template if not exists
+        membership_type_name = "Monthly Test"
+        if not frappe.db.exists("Membership Type", membership_type_name):
+            # Create membership type first
+            membership_type = frappe.get_doc({
+                "doctype": "Membership Type",
+                "membership_type_name": membership_type_name,
+                "billing_period": "Monthly",
+                "minimum_amount": 25.0
+            })
+            membership_type.flags.ignore_mandatory = True
+            membership_type.insert()
+            self.track_doc("Membership Type", membership_type.name)
+            
+            # Create template
+            template = frappe.get_doc({
+                "doctype": "Membership Dues Schedule",
+                "is_template": 1,
+                "schedule_name": f"Template-{membership_type_name}-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}",
+                "membership_type": membership_type_name,
+                "billing_frequency": "Monthly",
+                "suggested_amount": 25.0,
+                "minimum_amount": 25.0,
+                "dues_rate": 25.0,
+                "status": "Active",
+                "contribution_mode": "Calculator",
+                "auto_generate": 1
+            })
+            template.insert()
+            self.track_doc("Membership Dues Schedule", template.name)
+            
+            # Update membership type with template reference
+            membership_type.dues_schedule_template = template.name
+            membership_type.save()
+        
+        # Create active membership
+        membership = frappe.get_doc({
+            "doctype": "Membership",
+            "member": member.name,
+            "membership_type": membership_type_name,
+            "start_date": today(),
+            "status": "Active"
+        })
+        membership.insert()
+        membership.submit()
+        self.track_doc("Membership", membership.name)
         
         schedule = frappe.get_doc({
             "doctype": "Membership Dues Schedule",
             "schedule_name": f"Test-Schedule-Monthly-{member.name}",
-            "member": member.name, 
+            "member": member.name,
+            "membership": membership.name,
+            "membership_type": membership_type_name,
             "billing_frequency": "Monthly",
             "dues_rate": 25.0,
             "status": "Active",

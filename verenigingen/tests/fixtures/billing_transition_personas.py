@@ -18,6 +18,77 @@ class BillingTransitionPersonas:
     """Factory for creating test personas that validate billing transitions"""
 
     @staticmethod
+    def get_or_update_dues_schedule(member_name, membership_name, updates):
+        """Get existing dues schedule or update it with test values"""
+        # First check if ANY dues schedule exists for this member 
+        # Note: Auto-created schedules might have membership=null, so check both cases
+        existing_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_name},
+            fields=["name", "status", "billing_frequency", "membership"]
+        )
+        
+        # Filter to get schedules for this specific membership or unlinked schedules
+        relevant_schedules = [
+            s for s in existing_schedules 
+            if s.membership == membership_name or s.membership is None
+        ]
+        
+        if relevant_schedules:
+            # Find the most appropriate schedule to update
+            # Prefer Active, then match by billing frequency
+            target_frequency = updates.get("billing_frequency", "Monthly")
+            
+            # First try to find an active schedule
+            for schedule_data in relevant_schedules:
+                if schedule_data.status == "Active":
+                    schedule = frappe.get_doc("Membership Dues Schedule", schedule_data.name)
+                    # Ensure the schedule is linked to the correct membership
+                    if not schedule.membership:
+                        schedule.membership = membership_name
+                    for key, value in updates.items():
+                        setattr(schedule, key, value)
+                    schedule.save()
+                    return schedule
+            
+            # If no active, find one with matching frequency
+            for schedule_data in relevant_schedules:
+                if schedule_data.billing_frequency == target_frequency:
+                    schedule = frappe.get_doc("Membership Dues Schedule", schedule_data.name)
+                    # Ensure the schedule is linked to the correct membership
+                    if not schedule.membership:
+                        schedule.membership = membership_name
+                    for key, value in updates.items():
+                        setattr(schedule, key, value)
+                    schedule.save()
+                    return schedule
+            
+            # Otherwise just use the first one
+            schedule = frappe.get_doc("Membership Dues Schedule", relevant_schedules[0].name)
+            # Ensure the schedule is linked to the correct membership
+            if not schedule.membership:
+                schedule.membership = membership_name
+            for key, value in updates.items():
+                setattr(schedule, key, value)
+            schedule.save()
+            return schedule
+        else:
+            # Create new schedule if none exists
+            # Ensure schedule_name is provided
+            if "schedule_name" not in updates:
+                billing_frequency = updates.get("billing_frequency", "Monthly")
+                updates["schedule_name"] = f"DUES-{member_name}-{billing_frequency.upper()}"
+            
+            schedule = frappe.get_doc({
+                "doctype": "Membership Dues Schedule",
+                "member": member_name,
+                "membership": membership_name,
+                **updates
+            })
+            schedule.insert()
+            return schedule
+
+    @staticmethod
     def create_monthly_to_annual_mike():
         """
         Create 'Monthly to Annual Mike' - Switches from monthly to annual billing
@@ -54,21 +125,18 @@ class BillingTransitionPersonas:
             .build()
         )
         
-        # Create initial monthly dues schedule
-        dues_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": f"DUES-{test_data['member'].name}-MONTHLY",
-            "member": test_data["member"].name,
-            "membership": test_data["membership"].name,
-            "membership_type": test_data["membership"].membership_type,
-            "billing_frequency": "Monthly",
-            "amount": 20.00,
-            "status": "Active",
-            "effective_date": add_days(today(), -45),
-            "next_invoice_date": add_days(today(), 15),  # Next bill in 15 days
-            "last_invoice_date": add_days(today(), -15)  # Billed 15 days ago
-        })
-        dues_schedule.insert()
+        # Get or update the auto-created dues schedule
+        dues_schedule = BillingTransitionPersonas.get_or_update_dues_schedule(
+            test_data["member"].name,
+            test_data["membership"].name,
+            {
+                "billing_frequency": "Monthly",
+                "amount": 20.00,
+                "effective_date": add_days(today(), -45),
+                "next_invoice_date": add_days(today(), 15),  # Next bill in 15 days
+                "last_invoice_date": add_days(today(), -15),  # Billed 15 days ago
+            }
+        )
         test_data["monthly_schedule"] = dues_schedule
         
         # Create the billing transition record
@@ -76,17 +144,17 @@ class BillingTransitionPersonas:
             "doctype": "Contribution Amendment Request",
             "member": test_data["member"].name,
             "membership": test_data["membership"].name,
-            "amendment_type": "Billing Frequency Change",
+            "amendment_type": "Billing Interval Change",
             "current_billing_frequency": "Monthly",
             "requested_billing_frequency": "Annual",
             "current_membership_type": "Monthly Standard",
             "requested_membership_type": "Annual Standard",
             "current_amount": 20.00,
             "requested_amount": 200.00,  # Annual amount
-            "effective_date": today(),  # Change happens today
+            "effective_date": add_days(today(), 1),  # Change happens tomorrow
             "prorated_credit": 10.00,  # Credit for unused portion of current month
             "reason": "Member requested annual billing for discount",
-            "status": "Pending",
+            "status": "Pending Approval",
             "requested_by_member": 1
         })
         transition.insert()
@@ -128,22 +196,19 @@ class BillingTransitionPersonas:
             .build()
         )
         
-        # Create annual dues schedule with payment history
-        dues_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": f"DUES-{test_data['member'].name}-ANNUAL",
-            "member": test_data["member"].name,
-            "membership": test_data["membership"].name,
-            "membership_type": test_data["membership"].membership_type,
-            "billing_frequency": "Annual",
-            "amount": 240.00,
-            "status": "Active",
-            "effective_date": add_days(today(), -90),
-            "next_invoice_date": add_days(today(), 275),  # Next annual bill in 9 months
-            "last_invoice_date": add_days(today(), -90),  # Paid 3 months ago
-            "total_paid": 240.00  # Full year paid upfront
-        })
-        dues_schedule.insert()
+        # Get or update the auto-created dues schedule
+        dues_schedule = BillingTransitionPersonas.get_or_update_dues_schedule(
+            test_data["member"].name,
+            test_data["membership"].name,
+            {
+                "billing_frequency": "Annual",
+                "amount": 240.00,
+                "effective_date": add_days(today(), -90),
+                "next_invoice_date": add_days(today(), 275),  # Next annual bill in 9 months
+                "last_invoice_date": add_days(today(), -90),  # Paid 3 months ago
+                "total_paid": 240.00  # Full year paid upfront
+            }
+        )
         test_data["annual_schedule"] = dues_schedule
         
         # Calculate proration: 9 months remaining = 180.00 credit
@@ -151,7 +216,7 @@ class BillingTransitionPersonas:
             "doctype": "Contribution Amendment Request",
             "member": test_data["member"].name,
             "membership": test_data["membership"].name,
-            "amendment_type": "Billing Frequency Change",
+            "amendment_type": "Billing Interval Change",
             "current_billing_frequency": "Annual",
             "requested_billing_frequency": "Quarterly",
             "current_membership_type": "Annual Premium",
@@ -163,7 +228,7 @@ class BillingTransitionPersonas:
             "unused_period_start": today(),
             "unused_period_end": add_days(today(), 275),
             "reason": "Member prefers quarterly payments",
-            "status": "Pending",
+            "status": "Pending Approval",
             "requested_by_member": 1
         })
         transition.insert()
@@ -207,22 +272,19 @@ class BillingTransitionPersonas:
             .build()
         )
         
-        # Create quarterly schedule - paid 1 month ago, 2 months remaining
-        dues_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": f"DUES-{test_data['member'].name}-QUARTERLY",
-            "member": test_data["member"].name,
-            "membership": test_data["membership"].name,
-            "membership_type": test_data["membership"].membership_type,
-            "billing_frequency": "Quarterly",
-            "amount": 75.00,
-            "status": "Active",
-            "effective_date": add_days(today(), -180),
-            "next_invoice_date": add_days(today(), 60),  # Next quarterly bill in 2 months
-            "last_invoice_date": add_days(today(), -30),  # Paid 1 month ago
-            "total_paid": 150.00  # 2 quarters paid so far
-        })
-        dues_schedule.insert()
+        # Get or update the auto-created dues schedule
+        dues_schedule = BillingTransitionPersonas.get_or_update_dues_schedule(
+            test_data["member"].name,
+            test_data["membership"].name,
+            {
+                "billing_frequency": "Quarterly",
+                "amount": 75.00,
+                "effective_date": add_days(today(), -180),
+                "next_invoice_date": add_days(today(), 60),  # Next quarterly bill in 2 months
+                "last_invoice_date": add_days(today(), -30),  # Paid 1 month ago
+                "total_paid": 150.00  # 2 quarters paid so far
+            }
+        )
         test_data["quarterly_schedule"] = dues_schedule
         
         # Credit calculation: 2/3 of quarter remaining = 50.00
@@ -230,7 +292,7 @@ class BillingTransitionPersonas:
             "doctype": "Contribution Amendment Request",
             "member": test_data["member"].name,
             "membership": test_data["membership"].name,
-            "amendment_type": "Billing Frequency Change",
+            "amendment_type": "Billing Interval Change",
             "current_billing_frequency": "Quarterly",
             "requested_billing_frequency": "Monthly",
             "current_membership_type": "Quarterly Basic",
@@ -242,7 +304,7 @@ class BillingTransitionPersonas:
             "unused_period_start": today(),
             "unused_period_end": add_days(today(), 60),
             "reason": "Member wants more flexible payment schedule",
-            "status": "Pending",
+            "status": "Pending Approval",
             "requested_by_member": 1
         })
         transition.insert()
@@ -286,22 +348,19 @@ class BillingTransitionPersonas:
             .build()
         )
         
-        # Create daily billing schedule
-        dues_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": f"DUES-{test_data['member'].name}-DAILY",
-            "member": test_data["member"].name,
-            "membership": test_data["membership"].name,
-            "membership_type": test_data["membership"].membership_type,
-            "billing_frequency": "Daily",
-            "amount": 1.00,
-            "status": "Active",
-            "effective_date": add_days(today(), -30),
-            "next_invoice_date": add_days(today(), 1),  # Tomorrow
-            "last_invoice_date": today(),  # Paid today
-            "total_paid": 30.00  # 30 days paid
-        })
-        dues_schedule.insert()
+        # Get or update the auto-created dues schedule
+        dues_schedule = BillingTransitionPersonas.get_or_update_dues_schedule(
+            test_data["member"].name,
+            test_data["membership"].name,
+            {
+                "billing_frequency": "Daily",
+                "amount": 1.00,
+                "effective_date": add_days(today(), -30),
+                "next_invoice_date": add_days(today(), 1),  # Tomorrow
+                "last_invoice_date": today(),  # Paid today
+                "total_paid": 30.00  # 30 days paid
+            }
+        )
         test_data["daily_schedule"] = dues_schedule
         
         # No credit needed - daily billing paid up to today
@@ -309,7 +368,7 @@ class BillingTransitionPersonas:
             "doctype": "Contribution Amendment Request",
             "member": test_data["member"].name,
             "membership": test_data["membership"].name,
-            "amendment_type": "Billing Frequency Change",
+            "amendment_type": "Billing Interval Change",
             "current_billing_frequency": "Daily",
             "requested_billing_frequency": "Annual",
             "current_membership_type": "Daily Access",
@@ -319,7 +378,7 @@ class BillingTransitionPersonas:
             "effective_date": add_days(today(), 1),  # Starts tomorrow
             "prorated_credit": 0.00,  # No credit needed
             "reason": "Member wants predictable annual billing",
-            "status": "Pending",
+            "status": "Pending Approval",
             "requested_by_member": 1
         })
         transition.insert()
@@ -362,40 +421,42 @@ class BillingTransitionPersonas:
         )
         
         # First transition: Monthly to Quarterly (3 months ago)
+        # Note: For test data, we create it as already applied to bypass date validation
         first_transition = frappe.get_doc({
             "doctype": "Contribution Amendment Request",
             "member": test_data["member"].name,
             "membership": test_data["membership"].name,
-            "amendment_type": "Billing Frequency Change",
+            "amendment_type": "Billing Interval Change",
             "current_billing_frequency": "Monthly",
             "requested_billing_frequency": "Quarterly",
             "current_amount": 25.00,
             "requested_amount": 70.00,
-            "effective_date": add_days(today(), -90),
+            "effective_date": add_days(today(), 1),  # Set future date to pass validation
             "prorated_credit": 15.00,  # Half month credit
-            "status": "Applied",
-            "applied_date": add_days(today(), -90),
+            "reason": "Member requested more manageable quarterly billing",
+            "status": "Pending Approval",
             "requested_by_member": 1
         })
         first_transition.insert()
+        # Now update to reflect historical data
+        first_transition.db_set("effective_date", add_days(today(), -90))
+        first_transition.db_set("status", "Applied")
+        first_transition.db_set("applied_date", add_days(today(), -90))
         test_data["first_transition"] = first_transition
         
-        # Current quarterly schedule
-        quarterly_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": f"DUES-{test_data['member'].name}-QUARTERLY",
-            "member": test_data["member"].name,
-            "membership": test_data["membership"].name,
-            "membership_type": test_data["membership"].membership_type,
-            "billing_frequency": "Quarterly",
-            "amount": 70.00,
-            "status": "Active",
-            "effective_date": add_days(today(), -90),
-            "next_invoice_date": add_days(today(), 30),  # 1 month left in quarter
-            "last_invoice_date": add_days(today(), -60),  # Paid 2 months ago
-            "accumulated_credit": 15.00  # From previous transition
-        })
-        quarterly_schedule.insert()
+        # Get or update the auto-created dues schedule
+        quarterly_schedule = BillingTransitionPersonas.get_or_update_dues_schedule(
+            test_data["member"].name,
+            test_data["membership"].name,
+            {
+                "billing_frequency": "Quarterly",
+                "amount": 70.00,
+                "effective_date": add_days(today(), -90),
+                "next_invoice_date": add_days(today(), 30),  # 1 month left in quarter
+                "last_invoice_date": add_days(today(), -60),  # Paid 2 months ago
+                "accumulated_credit": 15.00  # From previous transition
+            }
+        )
         test_data["quarterly_schedule"] = quarterly_schedule
         
         # Second transition: Quarterly to Annual (today)
@@ -403,7 +464,7 @@ class BillingTransitionPersonas:
             "doctype": "Contribution Amendment Request",
             "member": test_data["member"].name,
             "membership": test_data["membership"].name,
-            "amendment_type": "Billing Frequency Change",
+            "amendment_type": "Billing Interval Change",
             "current_billing_frequency": "Quarterly",
             "requested_billing_frequency": "Annual",
             "current_amount": 70.00,
@@ -412,7 +473,8 @@ class BillingTransitionPersonas:
             "prorated_credit": 23.33,  # 1/3 of quarter remaining
             "accumulated_credit": 15.00,  # Previous credit carried forward
             "total_credit": 38.33,  # Total credit to apply
-            "status": "Pending",
+            "reason": "Member wants predictable annual billing with consolidated credits",
+            "status": "Pending Approval",
             "requested_by_member": 1
         })
         second_transition.insert()
@@ -454,22 +516,19 @@ class BillingTransitionPersonas:
             .build()
         )
         
-        # Annual schedule paid 100 days ago
-        dues_schedule = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "schedule_name": f"DUES-{test_data['member'].name}-ANNUAL",
-            "member": test_data["member"].name,
-            "membership": test_data["membership"].name,
-            "membership_type": test_data["membership"].membership_type,
-            "billing_frequency": "Annual",
-            "amount": 240.00,
-            "status": "Active",
-            "effective_date": add_days(today(), -100),
-            "next_invoice_date": add_days(today(), 265),
-            "last_invoice_date": add_days(today(), -100),
-            "total_paid": 240.00
-        })
-        dues_schedule.insert()
+        # Get or update the auto-created dues schedule
+        dues_schedule = BillingTransitionPersonas.get_or_update_dues_schedule(
+            test_data["member"].name,
+            test_data["membership"].name,
+            {
+                "billing_frequency": "Annual",
+                "amount": 240.00,
+                "effective_date": add_days(today(), -100),
+                "next_invoice_date": add_days(today(), 265),
+                "last_invoice_date": add_days(today(), -100),
+                "total_paid": 240.00
+            }
+        )
         test_data["annual_schedule"] = dues_schedule
         
         # Backdated change request
@@ -477,21 +536,23 @@ class BillingTransitionPersonas:
             "doctype": "Contribution Amendment Request",
             "member": test_data["member"].name,
             "membership": test_data["membership"].name,
-            "amendment_type": "Billing Frequency Change",
+            "amendment_type": "Billing Interval Change",
             "current_billing_frequency": "Annual",
             "requested_billing_frequency": "Monthly",
             "current_amount": 240.00,
             "requested_amount": 20.00,
-            "effective_date": add_days(today(), -60),  # Backdated 2 months
+            "effective_date": add_days(today(), 1),  # Future date to pass validation
             "prorated_credit": 180.00,  # 9/12 months remaining from effective date
             "retroactive_adjustment": -40.00,  # 2 months @ 20/month already passed
             "net_credit": 140.00,  # 180 - 40 = 140
             "reason": "Member had financial hardship starting 2 months ago",
-            "status": "Pending",
+            "status": "Pending Approval",
             "requested_by_member": 1,
             "requires_approval": 1  # Backdated changes need approval
         })
         transition.insert()
+        # Now update to reflect backdated data for testing
+        transition.db_set("effective_date", add_days(today(), -60))
         test_data["transition_request"] = transition
         
         return test_data

@@ -22,23 +22,49 @@ class MembershipDuesSchedule(Document):
             "invoice_days_before": 30,
         }
 
-        # Get values from template if available
-        if membership_type.dues_schedule_template:
-            try:
-                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                values.update(
-                    {
-                        "minimum_amount": template.minimum_amount or 0,
-                        "suggested_amount": template.suggested_amount or 0,
-                        "billing_frequency": template.billing_frequency or "Annual",
-                        "invoice_days_before": template.invoice_days_before or 30,
-                    }
-                )
-            except Exception:
-                pass
+        # Get values from template (now required)
+        if not membership_type.dues_schedule_template:
+            frappe.throw(
+                f"Membership Type '{membership_type.name}' must have a dues schedule template assigned"
+            )
 
-        # Fallback to membership type defaults
-        values["suggested_amount"] = values["suggested_amount"] or membership_type.amount or 0
+        try:
+            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+            values.update(
+                {
+                    "minimum_amount": template.minimum_amount or 0,
+                    "suggested_amount": template.suggested_amount or 0,
+                    "billing_frequency": template.billing_frequency or "Annual",
+                    "invoice_days_before": template.invoice_days_before or 30,
+                }
+            )
+        except Exception as e:
+            frappe.throw(
+                f"Failed to load dues schedule template '{membership_type.dues_schedule_template}': {str(e)}"
+            )
+
+        # Validate template has required values
+        if not values["suggested_amount"]:
+            frappe.throw(
+                f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+            )
+
+        # Validate template respects membership type minimum
+        membership_type_minimum = membership_type.minimum_amount or 0
+        template_minimum = values["minimum_amount"] or 0
+        template_suggested = values["suggested_amount"] or 0
+
+        if template_minimum < membership_type_minimum:
+            frappe.throw(
+                f"Template minimum amount (€{template_minimum:.2f}) cannot be less than "
+                f"membership type minimum (€{membership_type_minimum:.2f})"
+            )
+
+        if template_suggested < membership_type_minimum:
+            frappe.throw(
+                f"Template suggested amount (€{template_suggested:.2f}) cannot be less than "
+                f"membership type minimum (€{membership_type_minimum:.2f})"
+            )
 
         return values
 
@@ -385,7 +411,15 @@ class MembershipDuesSchedule(Document):
             # Check if dues rate is within reasonable multiplier of suggested amount
             if self.membership_type:
                 membership_type = frappe.get_doc("Membership Type", self.membership_type)
-                suggested_amount = membership_type.amount or 0
+
+                # Get suggested amount from template (explicit configuration)
+                if not membership_type.dues_schedule_template:
+                    frappe.throw(
+                        f"Membership Type '{membership_type.name}' must have a dues schedule template"
+                    )
+
+                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+                suggested_amount = template.suggested_amount or 0
 
                 if suggested_amount > 0:
                     multiplier = float(self.dues_rate) / float(suggested_amount)
@@ -440,8 +474,8 @@ class MembershipDuesSchedule(Document):
         # Check maximum contribution from Verenigingen Settings
         settings = frappe.get_single("Verenigingen Settings")
         if settings.maximum_fee_multiplier:
-            # Use suggested_amount from template for consistency with Calculator mode
-            base_amount = template_values.get("suggested_amount", 0) or membership_type.amount
+            # Use suggested_amount from template (explicit configuration)
+            base_amount = template_values.get("suggested_amount", 0)
             max_dues_rate = base_amount * settings.maximum_fee_multiplier
 
             if self.dues_rate > max_dues_rate:
@@ -485,13 +519,12 @@ class MembershipDuesSchedule(Document):
                     self.member_name = member_doc.full_name
 
     def set_dues_rate_from_membership_type(self):
-        """Set dues rate based on membership type if not already set"""
+        """Set dues rate based on membership type template if not already set"""
         if not self.dues_rate and self.membership_type:
-            # Get the fee from template values or membership type
+            # Get the fee from template values (explicit configuration)
             template_values = self.get_template_values()
-            membership_type_doc = frappe.get_doc("Membership Type", self.membership_type)
-            # Use suggested_amount from template first, fallback to membership type amount
-            self.dues_rate = template_values.get("suggested_amount", 0) or membership_type_doc.amount
+            # Template is now required and must have suggested_amount
+            self.dues_rate = template_values.get("suggested_amount", 0)
 
     def can_generate_invoice(self):
         """Check if invoice can be generated"""
@@ -769,7 +802,7 @@ class MembershipDuesSchedule(Document):
             template.billing_frequency = "Annual"
             template.contribution_mode = "Calculator"
             template.minimum_amount = 0
-            template.suggested_amount = membership_type_doc.amount or 15.0
+            template.suggested_amount = 15.0  # Default template value
             template.invoice_days_before = 30
             template.auto_generate = 1
 
@@ -789,41 +822,75 @@ class MembershipDuesSchedule(Document):
             raise frappe.ValidationError(f"Could not create default template for {membership_type}: {str(e)}")
 
     @staticmethod
-    def create_from_template(member_name, template_name=None, membership_type=None):
-        """Create an individual dues schedule from a template"""
+    def create_from_template(member_name, template_name=None, membership_type=None, membership_name=None):
+        """Create an individual dues schedule from a template
 
-        # Determine template to use
+        Args:
+            member_name: Name of the member to create schedule for
+            template_name: Explicit template name to use (optional)
+            membership_type: Membership type to get template from (optional)
+            membership_name: Name of membership to link to (optional)
+
+        Note: Either template_name OR membership_type must be provided.
+        If membership_type is provided, uses the explicit dues_schedule_template
+        from the Membership Type (NO implicit lookup).
+        """
+
+        # Determine template to use and get membership info
+        membership_id = membership_name
+        template = None
+
         if template_name:
+            # Explicit template provided
             template = frappe.get_doc("Membership Dues Schedule", template_name)
             if not template.is_template:
                 frappe.throw(f"{template_name} is not a template")
+
         elif membership_type:
-            # Find template for membership type
-            template_name = frappe.db.get_value(
-                "Membership Dues Schedule", {"membership_type": membership_type, "is_template": 1}, "name"
-            )
-            if not template_name:
-                # Create a basic template automatically
-                template = MembershipDuesSchedule.create_default_template(membership_type)
-            else:
-                template = frappe.get_doc("Membership Dues Schedule", template_name)
+            # Get template from membership type's explicit assignment
+            membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+
+            if not membership_type_doc.dues_schedule_template:
+                frappe.throw(
+                    f"Membership Type '{membership_type}' has no dues schedule template assigned. "
+                    f"Please assign a template to the membership type before creating schedules."
+                )
+
+            template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
+            if not template.is_template:
+                frappe.throw(
+                    f"Template '{membership_type_doc.dues_schedule_template}' is not marked as a template"
+                )
+
         else:
-            # Auto-detect from member's membership type
+            # Auto-detect from member's membership type (fallback)
             active_membership = frappe.db.get_value(
                 "Membership",
                 {"member": member_name, "status": "Active", "docstatus": 1},
                 ["membership_type", "name"],
+                as_dict=True,
             )
             if not active_membership:
                 frappe.throw(f"Member {member_name} has no active membership")
 
-            membership_type = active_membership[0]
-            template_name = frappe.db.get_value(
-                "Membership Dues Schedule", {"membership_type": membership_type, "is_template": 1}, "name"
-            )
-            if not template_name:
-                frappe.throw(f"No template found for membership type {membership_type}")
-            template = frappe.get_doc("Membership Dues Schedule", template_name)
+            membership_type = active_membership.membership_type
+            membership_id = active_membership.name
+
+            # Get template from membership type's explicit assignment (NO implicit lookup)
+            membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+
+            if not membership_type_doc.dues_schedule_template:
+                frappe.throw(
+                    f"Membership Type '{membership_type}' has no dues schedule template assigned. "
+                    f"Cannot create dues schedule for member {member_name}. "
+                    f"Please assign a template to the membership type first."
+                )
+
+            template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
+            if not template.is_template:
+                frappe.throw(
+                    f"Template '{membership_type_doc.dues_schedule_template}' is not marked as a template"
+                )
 
         # Check if member already has a schedule
         existing = frappe.db.exists("Membership Dues Schedule", {"member": member_name, "is_template": 0})
@@ -857,6 +924,11 @@ class MembershipDuesSchedule(Document):
         schedule.member = member_name
         schedule.template_reference = template.name
         schedule.status = "Active"
+
+        # CRITICAL: Set the membership field if available
+        if membership_id:
+            schedule.membership = membership_id
+
         # Use new naming pattern with sequence numbers
         from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
 
@@ -1035,7 +1107,9 @@ def create_schedule_from_template(member_name, template_name=None):
 def create_template_for_membership_type(membership_type, template_name=None):
     """Create a new template for a membership type"""
     if not template_name:
-        template_name = f"Template-{membership_type}"
+        # Use membership type name for more descriptive template naming
+        membership_type_doc = frappe.get_doc("Membership Type", membership_type)
+        template_name = f"Template-{membership_type_doc.membership_type_name}"
 
     # Check if template already exists
     existing = frappe.db.exists(
@@ -1058,7 +1132,7 @@ def create_template_for_membership_type(membership_type, template_name=None):
     template.billing_frequency = "Annual"  # Default, since this is now owned by dues schedule
     template.contribution_mode = getattr(membership_type_doc, "contribution_mode", "Calculator")
     template.minimum_amount = 0  # Will be set per schedule
-    template.suggested_amount = membership_type_doc.amount or 0  # Use base amount from type
+    template.suggested_amount = 15.0  # Default template value - should be configured explicitly
     template.invoice_days_before = 30  # Default
     template.auto_generate = 1
 

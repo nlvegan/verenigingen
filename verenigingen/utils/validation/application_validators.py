@@ -176,7 +176,7 @@ def validate_membership_amount_selection(membership_type, amount, uses_custom):
     """Validate membership amount selection"""
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
-        standard_amount = membership_type_doc.amount
+        standard_amount = membership_type_doc.minimum_amount
 
         # Convert to float for comparison
         amount = float(amount) if amount else 0
@@ -211,7 +211,7 @@ def validate_custom_amount(membership_type, amount):
     """Validate custom membership amount"""
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
-        standard_amount = float(membership_type_doc.amount)
+        standard_amount = float(membership_type_doc.minimum_amount)
 
         # Handle null, empty, or invalid amount values
         if amount is None or amount == "null" or amount == "":

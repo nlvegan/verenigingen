@@ -493,9 +493,11 @@ def create_application_invoice(member, membership):
 
     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
 
-    # Determine amount to use
-    amount = membership_type.amount
-    # Custom amount handling removed - these fields don't exist in Membership DocType
+    # Determine amount to use from template
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    amount = template.suggested_amount or 0
     # Custom amounts are handled via Membership Dues Schedule
 
     return create_membership_invoice_with_amount(member, membership, amount)

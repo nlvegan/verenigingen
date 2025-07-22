@@ -26,36 +26,59 @@ class TestComprehensiveProrating(BaseTestCase):
         self.create_test_membership_types()
     
     def create_test_membership_types(self):
-        """Create membership types for prorating tests"""
-        membership_types = [
+        """Create membership types with explicit dues schedule templates"""
+        membership_types_data = [
             {
                 "membership_type_name": "Monthly Basic",
                 "billing_period": "Monthly",
-                "amount": 25.00,
+                "minimum_amount": 25.00,
                 "description": "Basic monthly membership"
             },
             {
                 "membership_type_name": "Annual Premium",
                 "billing_period": "Annual", 
-                "amount": 300.00,
+                "minimum_amount": 300.00,
                 "description": "Premium annual membership"
             },
             {
                 "membership_type_name": "Quarterly Standard",
                 "billing_period": "Quarterly",
-                "amount": 75.00,
+                "minimum_amount": 75.00,
                 "description": "Standard quarterly membership"
             }
         ]
         
-        for type_data in membership_types:
+        for type_data in membership_types_data:
             if not frappe.db.exists("Membership Type", type_data["membership_type_name"]):
+                # Create membership type first (without template reference)
                 membership_type = frappe.get_doc({
                     "doctype": "Membership Type",
                     **type_data
                 })
+                # Temporarily remove dues_schedule_template requirement for creation
+                membership_type.flags.ignore_mandatory = True
                 membership_type.insert()
                 self.track_doc("Membership Type", membership_type.name)
+                
+                # Now create corresponding dues schedule template
+                template = frappe.new_doc("Membership Dues Schedule")
+                template.is_template = 1
+                template.schedule_name = f"Template-{type_data['membership_type_name']}-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}"
+                template.membership_type = type_data["membership_type_name"]  # Now the membership type exists
+                template.billing_frequency = type_data["billing_period"]
+                template.suggested_amount = type_data["minimum_amount"]
+                template.minimum_amount = type_data["minimum_amount"]
+                template.dues_rate = type_data["minimum_amount"]
+                template.status = "Active"
+                template.contribution_mode = "Calculator"
+                template.invoice_days_before = 30
+                template.auto_generate = 1
+                template.insert()
+                self.track_doc("Membership Dues Schedule", template.name)
+                
+                # Update membership type with template reference
+                membership_type.dues_schedule_template = template.name
+                membership_type.save()
     
     def test_monthly_to_annual_upgrade_prorating(self):
         """

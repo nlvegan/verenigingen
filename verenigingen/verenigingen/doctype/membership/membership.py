@@ -53,7 +53,7 @@ class Membership(Document):
                 )
 
                 schedule_name = MembershipDuesSchedule.create_from_template(
-                    self.member, membership_type=self.membership_type
+                    self.member, membership_type=self.membership_type, membership_name=self.name
                 )
 
                 # Update member record with dues schedule link
@@ -389,10 +389,16 @@ class Membership(Document):
             "Deprecated Function",
         )
 
-        # Return basic amount from membership type for backward compatibility
+        # Get amount from dues schedule template (explicit configuration)
         if self.membership_type:
             membership_type = frappe.get_cached_doc("Membership Type", self.membership_type)
-            return membership_type.amount
+            if membership_type.dues_schedule_template:
+                template = frappe.get_cached_doc(
+                    "Membership Dues Schedule", membership_type.dues_schedule_template
+                )
+                return template.suggested_amount or 0
+            else:
+                frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
         return 0
 
     def get_billing_amount(self):
@@ -405,10 +411,14 @@ class Membership(Document):
             if dues_schedule:
                 return dues_schedule
 
-        # Fallback to membership type amount
+        # Fallback to membership type template amount
         if self.membership_type:
             membership_type = frappe.get_doc("Membership Type", self.membership_type)
-            return membership_type.amount
+            if membership_type.dues_schedule_template:
+                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+                return template.suggested_amount or 0
+            else:
+                frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
 
         return 0
 
@@ -428,6 +438,8 @@ class Membership(Document):
         dues_schedule.schedule_name = generate_dues_schedule_name(self.member, self.membership_type)
         dues_schedule.member = self.member
         dues_schedule.membership_type = self.membership_type
+        # CRITICAL: Set the membership field to link back to this membership
+        dues_schedule.membership = self.name
 
         # Set dues rate from billing amount or membership type
         billing_amount = self.get_billing_amount() if hasattr(self, "get_billing_amount") else None
@@ -438,11 +450,9 @@ class Membership(Document):
             membership_type = frappe.get_doc("Membership Type", self.membership_type)
             if membership_type.dues_schedule_template:
                 template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                dues_schedule.dues_rate = (
-                    template.suggested_amount or template.dues_rate or membership_type.amount
-                )
+                dues_schedule.dues_rate = template.suggested_amount or template.dues_rate or 0
             else:
-                dues_schedule.dues_rate = membership_type.amount or 0
+                frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
 
         # Set billing frequency based on membership type
         if self.membership_type:
@@ -1001,9 +1011,12 @@ def revert_to_standard_amount(membership_name, reason=None):
     membership.flags.ignore_validate_update_after_submit = True
     membership.save()
 
-    # Get standard amount
+    # Get standard amount from template
     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-    standard_amount = membership_type.amount
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    standard_amount = template.suggested_amount or 0
 
     return {
         "success": True,

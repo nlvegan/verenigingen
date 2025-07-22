@@ -1338,9 +1338,12 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
         active_membership = self.get_active_membership()
         if active_membership and active_membership.membership_type:
             membership_type = frappe.get_doc("Membership Type", active_membership.membership_type)
+            if not membership_type.dues_schedule_template:
+                frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
             return {
-                "amount": membership_type.amount,
-                "source": "membership_type",
+                "amount": template.suggested_amount or 0,
+                "source": "template",
                 "membership_type": membership_type.membership_type_name,
             }
 

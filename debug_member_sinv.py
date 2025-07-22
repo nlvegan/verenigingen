@@ -90,20 +90,19 @@ def debug_member_sinv():
         dues_schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member.name},
-            fields=["name", "due_date", "amount", "status", "invoice", "creation"],
-            order_by="due_date desc",
+            fields=["name", "next_invoice_date", "dues_rate", "status", "creation"],
+            order_by="next_invoice_date desc",
         )
 
         if dues_schedules:
             today_date = getdate(today())
             for dues in dues_schedules:
-                due_date = getdate(dues.due_date)
-                is_due_today = due_date == today_date
+                next_invoice_date = getdate(dues.next_invoice_date) if dues.next_invoice_date else None
+                is_due_today = next_invoice_date == today_date if next_invoice_date else False
                 print(f"Schedule: {dues.name}")
-                print(f"  Due Date: {dues.due_date} {'(TODAY!)' if is_due_today else ''}")
-                print(f"  Amount: {dues.amount}")
+                print(f"  Next Invoice Date: {dues.next_invoice_date} {'(TODAY!)' if is_due_today else ''}")
+                print(f"  Dues Rate: {dues.dues_rate}")
                 print(f"  Status: {dues.status}")
-                print(f"  Invoice: {dues.invoice}")
                 print(f"  Created: {dues.creation}")
         else:
             print("No dues schedules found")

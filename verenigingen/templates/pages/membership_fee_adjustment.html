@@ -121,7 +121,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Membership Type") }}:</span> {{ membership_type.membership_type_name }}</p>
-                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Fee") }}:</span> €{{ "%.2f"|format(membership_type.amount) }}</p>
+                        <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Standard Fee") }}:</span> €{{ "%.2f"|format(standard_fee) }}</p>
                         <p class="mb-2"><span class="font-medium text-gray-700">{{ _("Your Current Fee") }}:</span> €{{ "%.2f"|format(current_fee.amount) }}</p>
                     </div>
                     <div>
@@ -359,7 +359,7 @@ $(document).ready(function() {
         const maxFee = parseFloat(feeSlider.attr('max'));
         const currentFee = {{ current_fee.amount }};
         const maximumFeeMultiplier = {{ maximum_fee_multiplier }};
-        const baseFee = {{ membership_type.amount }};
+        const baseFee = {{ standard_fee }};
 
         if (amount < minFee || amount > maxFee) {
             submitBtn.prop('disabled', true);

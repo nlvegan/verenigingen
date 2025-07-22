@@ -14,7 +14,7 @@
   "default_for_new_members",
   "enforce_minimum_period",
   "pricing_section",
-  "amount",
+  "minimum_amount",
   "billing_settings_section",
   "dues_schedule_template"
  ],
@@ -75,16 +75,16 @@
   {
    "fieldname": "pricing_section",
    "fieldtype": "Section Break",
-   "label": "Default Pricing"
+   "label": "Minimum Pricing"
   },
   {
-   "fieldname": "amount",
+   "fieldname": "minimum_amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
-   "label": "Default Amount",
+   "label": "Minimum Amount",
    "options": "currency",
    "reqd": 1,
-   "description": "Default amount for new dues schedules"
+   "description": "Minimum allowable amount for this membership type. Templates cannot set amounts below this floor."
   },
   {
    "fieldname": "billing_settings_section",
@@ -96,6 +96,7 @@
    "fieldtype": "Link",
    "label": "Default Dues Schedule Template",
    "options": "Membership Dues Schedule",
+   "reqd": 1,
    "get_query": "verenigingen.verenigingen.doctype.membership_type.membership_type.get_template_query",
    "description": "Template dues schedule to use for new memberships of this type"
   }

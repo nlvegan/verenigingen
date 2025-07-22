@@ -26,37 +26,59 @@ class TestBillingTransitionProper(BaseTestCase):
         self.create_test_membership_types()
     
     def create_test_membership_types(self):
-        """Create membership types using BaseTestCase patterns"""
-        # Use the existing factory pattern for membership types
-        membership_types = [
+        """Create membership types with explicit template assignments"""
+        membership_types_data = [
             {
                 "membership_type_name": "Monthly Test Type",
                 "billing_period": "Monthly", 
-                "amount": 25.00,
+                "minimum_amount": 25.00,
                 "description": "Test monthly membership for billing transitions"
             },
             {
                 "membership_type_name": "Annual Test Type",
                 "billing_period": "Annual",
-                "amount": 250.00, 
+                "minimum_amount": 250.00, 
                 "description": "Test annual membership for billing transitions"
             },
             {
                 "membership_type_name": "Quarterly Test Type",
                 "billing_period": "Quarterly",
-                "amount": 75.00,
+                "minimum_amount": 75.00,
                 "description": "Test quarterly membership for billing transitions"
             }
         ]
         
-        for type_data in membership_types:
+        for type_data in membership_types_data:
             if not frappe.db.exists("Membership Type", type_data["membership_type_name"]):
+                # Create membership type first
                 membership_type = frappe.get_doc({
                     "doctype": "Membership Type",
                     **type_data
                 })
+                membership_type.flags.ignore_mandatory = True
                 membership_type.insert()
                 self.track_doc("Membership Type", membership_type.name)
+                
+                # Create template
+                template = frappe.get_doc({
+                    "doctype": "Membership Dues Schedule",
+                    "is_template": 1,
+                    "schedule_name": f"Template-{type_data['membership_type_name']}-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}",
+                    "membership_type": type_data["membership_type_name"],
+                    "billing_frequency": type_data["billing_period"],
+                    "suggested_amount": type_data["minimum_amount"],
+                    "minimum_amount": type_data["minimum_amount"],
+                    "dues_rate": type_data["minimum_amount"],
+                    "status": "Active",
+                    "contribution_mode": "Calculator",
+                    "auto_generate": 1
+                })
+                template.insert()
+                self.track_doc("Membership Dues Schedule", template.name)
+                
+                # Update membership type with template reference
+                membership_type.dues_schedule_template = template.name
+                membership_type.save()
     
     def test_member_with_monthly_billing_creation(self):
         """Test creating a member with proper monthly billing workflow"""

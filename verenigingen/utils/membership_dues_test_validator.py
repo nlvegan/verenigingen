@@ -139,7 +139,7 @@ def run_quick_membership_dues_tests():
         results.append("Testing membership type with tiers...")
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Quick Test Tier Type {frappe.generate_hash(length=6)}"
-        membership_type.amount = 25.0
+        membership_type.minimum_amount = 25.0
         membership_type.billing_period = "Monthly"
         membership_type.is_active = 1
 
@@ -157,7 +157,7 @@ def run_quick_membership_dues_tests():
         template.suggested_amount = 25.0
         template.invoice_days_before = 30
         template.auto_generate = 1
-        template.amount = template.suggested_amount
+        template.dues_rate = template.suggested_amount
         template.insert()
 
         # Link template to membership type

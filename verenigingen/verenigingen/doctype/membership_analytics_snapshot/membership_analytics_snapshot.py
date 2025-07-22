@@ -264,7 +264,7 @@ def calculate_segmentation_data(snapshot, period):
             YEAR(member_since) as join_year,
             COUNT(*) as member_count,
             AVG(COALESCE(dues_rate,
-                (SELECT amount FROM `tabMembership Type` mt
+                (SELECT minimum_amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'
                  LIMIT 1), 0)) as avg_fee

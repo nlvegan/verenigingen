@@ -129,7 +129,7 @@ def generate_test_membership_types():
                 {
                     "name": membership_type.name,
                     "billing_frequency": membership_type.billing_frequency,
-                    "amount": membership_type.amount,
+                    "minimum_amount": membership_type.minimum_amount,
                     "dues_schedule_template": getattr(membership_type, "dues_schedule_template", None),
                     "action": action,
                 }
@@ -169,7 +169,7 @@ def create_dues_schedule_template_for_membership_type(membership_type):
         template.template_name = f"{membership_type.membership_type_name} - Template"
         template.membership_type = membership_type.name
         template.billing_frequency = membership_type.billing_frequency
-        template.dues_rate = membership_type.amount
+        template.dues_rate = 15.0  # Default template amount
         template.currency = membership_type.currency
         template.contribution_mode = "Membership Fee"
         template.is_active = 1

@@ -51,7 +51,14 @@ class ContributionAmendmentRequest(Document):
                 membership = frappe.get_doc("Membership", self.membership)
                 if membership.membership_type:
                     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-                    base_amount = membership_type.amount
+                    if not membership_type.dues_schedule_template:
+                        frappe.throw(
+                            f"Membership Type '{membership_type.name}' must have a dues schedule template"
+                        )
+                    template = frappe.get_doc(
+                        "Membership Dues Schedule", membership_type.dues_schedule_template
+                    )
+                    base_amount = template.suggested_amount or 0
 
                     # Calculate minimum fee (30% of base or €5, whichever is higher)
                     minimum_fee = max(base_amount * 0.3, 5.0)
@@ -1280,15 +1287,18 @@ def validate_billing_consistency():
 
         # Get all membership types
         membership_types = frappe.get_all(
-            "Membership Type", fields=["name", "billing_period"], order_by="name"
+            "Membership Type", fields=["name", "billing_period", "dues_schedule_template"], order_by="name"
         )
 
         # Check each membership type against its template
         for mt in membership_types:
-            template_name = f"Template-{mt.name}"
+            # Use explicit template assignment instead of name generation
+            if not mt.dues_schedule_template:
+                continue  # Skip membership types without templates
+
             template = frappe.db.get_value(
                 "Membership Dues Schedule",
-                {"schedule_name": template_name, "member": ["is", "not set"]},
+                {"name": mt.dues_schedule_template, "is_template": 1},
                 ["name", "billing_frequency"],
                 as_dict=True,
             )

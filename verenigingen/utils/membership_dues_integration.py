@@ -39,7 +39,14 @@ def create_dues_schedule_from_application(membership_application):
     first_invoice_date = today()
 
     # Get amount
-    amount = membership_application.fee_amount or membership_type.amount
+    if not membership_application.fee_amount:
+        # Fallback to template amount
+        if not membership_type.dues_schedule_template:
+            frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+        amount = membership_application.fee_amount or (template.suggested_amount or 0)
+    else:
+        amount = membership_application.fee_amount
 
     # Create dues schedule
     dues_schedule = frappe.new_doc("Membership Dues Schedule")

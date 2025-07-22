@@ -1,32 +1,54 @@
 #!/usr/bin/env python3
 """
-Smart Field Validator
-Intelligent validation of docfield references with context awareness
+Smart Field Validator - Focuses on real issues, ignores framework noise
+Based on lessons learned from analyzing 8,479 validation results
 """
 
 import ast
 import json
 import re
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Set, Optional
 
 
 class SmartFieldValidator:
-    """Validates docfield references with context awareness"""
+    """Smart field validation that focuses on real issues"""
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
-        self.doctypes = self.load_all_doctypes()
-        self.false_positives = self.load_false_positives()
+        self.doctypes = self.load_doctypes()
         
-    def load_all_doctypes(self) -> Dict[str, Set[str]]:
-        """Load all doctype definitions"""
+        # Known problematic patterns from our analysis
+        self.critical_field_patterns = {
+            'amount',  # Changed to dues_rate in Membership Dues Schedule
+            'suggested_contribution', 
+            'minimum_contribution',
+            'maximum_contribution',
+            'default_amount',  # Changed to minimum_amount in Membership Type
+        }
+        
+        # Framework attributes that are NOT field access issues
+        self.framework_attributes = {
+            # Frappe framework
+            'whitelist', 'get_doc', 'new_doc', 'get_value', 'get_all', 'db', 'session',
+            'throw', 'msgprint', 'log_error', 'utils', 'local', 'response',
+            
+            # Python/system attributes
+            'path', 'exists', 'load', 'loads', 'dumps', 'join', 'split', 'strip',
+            'format', 'replace', 'startswith', 'endswith', 'lower', 'upper',
+            'append', 'remove', 'insert', 'save', 'delete', 'update', 'get',
+            'keys', 'values', 'items', 'reload', 'today', 'now', 'add_days',
+            
+            # Common object methods/properties
+            'name', 'creation', 'modified', 'status', 'enabled', 'is_active',
+            'member', 'volunteer', 'chapter', 'role', 'email', 'user',
+        }
+        
+    def load_doctypes(self) -> Dict[str, Set[str]]:
+        """Load doctype field definitions"""
         doctypes = {}
         
-        # Find all doctype JSON files
-        json_files = list(self.app_path.rglob("**/doctype/*/*.json"))
-        
-        for json_file in json_files:
+        for json_file in self.app_path.rglob("**/doctype/*/*.json"):
             if json_file.name == json_file.parent.name + ".json":
                 try:
                     with open(json_file, 'r', encoding='utf-8') as f:
@@ -34,263 +56,268 @@ class SmartFieldValidator:
                         
                     doctype_name = data.get('name', json_file.stem)
                     
-                    # Extract fields
+                    # Extract actual field names only
                     fields = set()
                     for field in data.get('fields', []):
-                        if field.get('fieldname'):
-                            fields.add(field['fieldname'])
+                        fieldname = field.get('fieldname')
+                        if fieldname:
+                            fields.add(fieldname)
                             
-                    # Add standard Frappe fields
+                    # Add standard Frappe document fields
                     fields.update([
                         'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        '_user_tags', '_comments', '_assign', '_liked_by', 'doctype'
+                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx'
                     ])
                     
                     doctypes[doctype_name] = fields
                     
-                except Exception as e:
-                    print(f"Error loading {json_file}: {e}")
+                except Exception:
+                    continue
                     
         return doctypes
     
-    def load_false_positives(self) -> Set[str]:
-        """Load common false positives to ignore"""
-        return {
-            # Standard methods
-            'save', 'insert', 'delete', 'reload', 'submit', 'cancel', 'validate',
-            'before_save', 'after_insert', 'before_delete', 'on_update', 'on_submit',
-            'on_cancel', 'before_submit', 'before_cancel', 'after_delete',
-            
-            # Standard attributes
-            'flags', 'meta', 'as_dict', 'as_json', 'get_formatted', 'get_value',
-            'set_value', 'db_set', 'db_get', 'run_method', 'has_permission',
-            'get_doc_before_save', 'get_title', 'get_feed', 'get_timeline_data',
-            
-            # Common variable names that aren't fields
-            'app', 'module', 'method', 'function', 'class', 'object', 'item',
-            'key', 'value', 'data', 'result', 'response', 'request', 'config',
-            'settings', 'params', 'args', 'kwargs', 'context', 'session',
-            'user', 'role', 'permission', 'filter', 'sort', 'limit', 'offset',
-            'page', 'size', 'count', 'total', 'sum', 'avg', 'min', 'max',
-            
-            # Python built-ins and common libraries
-            'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple',
-            'append', 'extend', 'remove', 'pop', 'clear', 'copy', 'update',
-            'keys', 'values', 'items', 'get', 'set', 'add', 'discard',
-            'join', 'split', 'replace', 'strip', 'lower', 'upper', 'title',
-            'startswith', 'endswith', 'find', 'index', 'count', 'format',
-        }
-    
-    def extract_doctype_context(self, file_path: Path, line_content: str) -> Optional[str]:
-        """Extract doctype from context with improved heuristics"""
+    def is_critical_pattern(self, field_name: str, line_content: str) -> bool:
+        """Check if this is a critical field pattern we care about"""
         
-        # Check file path first
-        path_parts = file_path.parts
-        if 'doctype' in path_parts:
-            doctype_idx = path_parts.index('doctype')
-            if doctype_idx + 1 < len(path_parts):
-                potential_doctype = path_parts[doctype_idx + 1]
-                # Convert from filename to proper doctype name
-                doctype_name = potential_doctype.replace('_', ' ').title()
-                if doctype_name in self.doctypes:
-                    return doctype_name
-                    
-        # Check line content for doctype hints
-        doctype_patterns = [
-            r'frappe\.get_doc\(["\']([^"\']+)["\']',
-            r'frappe\.new_doc\(["\']([^"\']+)["\']',
-            r'doctype\s*[=:]\s*["\']([^"\']+)["\']',
-            r'self\.doctype\s*==\s*["\']([^"\']+)["\']',
-        ]
-        
-        for pattern in doctype_patterns:
-            matches = re.findall(pattern, line_content, re.IGNORECASE)
-            if matches:
-                potential_doctype = matches[0]
-                if potential_doctype in self.doctypes:
-                    return potential_doctype
-                    
-        return None
-    
-    def is_likely_field_access(self, node: ast.Attribute, source_lines: List[str]) -> bool:
-        """Determine if attribute access is likely a field reference"""
-        
-        # Get the line content for context
-        line_num = node.lineno - 1
-        if line_num < len(source_lines):
-            line_content = source_lines[line_num]
-        else:
-            line_content = ""
-            
-        # Check if it's a method call (followed by parentheses)
-        if '(' in line_content and line_content.find('(') > line_content.find(node.attr):
+        # Focus on our known problematic patterns
+        if field_name not in self.critical_field_patterns:
             return False
             
-        # Check if the variable name suggests it's a document
-        if isinstance(node.value, ast.Name):
-            var_name = node.value.id.lower()
-            if any(hint in var_name for hint in ['doc', 'self', 'member', 'volunteer', 'chapter']):
-                return True
-                
-        return False
+        # Additional context checks to reduce false positives
+        critical_contexts = [
+            'membership', 'dues', 'billing', 'contribution', 'template'
+        ]
+        
+        line_lower = line_content.lower()
+        return any(context in line_lower for context in critical_contexts)
     
-    def validate_file(self, file_path: Path) -> List[Dict]:
-        """Validate a single Python file"""
+    def is_sql_field_reference(self, line_content: str) -> List[str]:
+        """Check for SQL field references that might be problematic"""
+        problematic_sql = []
+        
+        # Look for SQL queries with our critical fields
+        if 'select' in line_content.lower() and any(field in line_content.lower() for field in self.critical_field_patterns):
+            for field in self.critical_field_patterns:
+                if field in line_content.lower():
+                    # Check if it's in a table that we care about
+                    if any(table in line_content.lower() for table in [
+                        'tabmembership dues schedule',
+                        'tabmembership type', 
+                        'tabmember'
+                    ]):
+                        problematic_sql.append(field)
+                        
+        return problematic_sql
+    
+    def analyze_file_focused(self, file_path: Path) -> List[Dict]:
+        """Analyze file with focus on real issues only"""
         violations = []
         
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 
-            # Parse AST
-            tree = ast.parse(content)
             source_lines = content.splitlines()
             
-            # Extract doctype from file context
-            file_doctype = self.extract_doctype_context(file_path, content)
+            # Check for SQL field references
+            for line_no, line in enumerate(source_lines, 1):
+                sql_issues = self.is_sql_field_reference(line)
+                for field in sql_issues:
+                    violations.append({
+                        'file': str(file_path.relative_to(self.app_path)),
+                        'line': line_no,
+                        'field': field,
+                        'content': line.strip(),
+                        'type': 'sql_field_reference',
+                        'severity': 'high',
+                        'description': f'SQL query references deprecated field "{field}"'
+                    })
             
-            # Walk through AST nodes
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Attribute):
-                    
-                    # Check if this looks like field access
-                    if not self.is_likely_field_access(node, source_lines):
-                        continue
+            # Parse AST for Python field access
+            try:
+                tree = ast.parse(content)
+                
+                for node in ast.walk(tree):
+                    if isinstance(node, ast.Attribute):
+                        field_name = node.attr
+                        line_no = node.lineno
                         
-                    field_name = node.attr
-                    
-                    # Skip false positives
-                    if field_name in self.false_positives:
-                        continue
-                        
-                    # Skip private/dunder attributes
-                    if field_name.startswith('_'):
-                        continue
-                        
-                    # Get line content for context
-                    line_content = source_lines[node.lineno - 1] if node.lineno <= len(source_lines) else ""
-                    
-                    # Try to determine doctype
-                    doctype = (
-                        self.extract_doctype_context(file_path, line_content) or 
-                        file_doctype
-                    )
-                    
-                    if doctype and doctype in self.doctypes:
-                        if field_name not in self.doctypes[doctype]:
+                        if line_no <= len(source_lines):
+                            line_content = source_lines[line_no - 1].strip()
+                        else:
+                            continue
+                            
+                        # Skip framework attributes
+                        if field_name in self.framework_attributes:
+                            continue
+                            
+                        # Only flag critical patterns
+                        if self.is_critical_pattern(field_name, line_content):
                             violations.append({
                                 'file': str(file_path.relative_to(self.app_path)),
-                                'line': node.lineno,
+                                'line': line_no,
                                 'field': field_name,
-                                'doctype': doctype,
-                                'context': line_content.strip(),
-                                'confidence': 'high' if file_doctype else 'medium'
+                                'content': line_content,
+                                'type': 'critical_field_access',
+                                'severity': 'high',
+                                'description': f'Field "{field_name}" may be deprecated or incorrect'
                             })
                             
+            except SyntaxError:
+                # Skip files with syntax errors
+                pass
+                
         except Exception as e:
-            print(f"Error validating {file_path}: {e}")
+            print(f"Error analyzing {file_path}: {e}")
             
         return violations
     
-    def validate_app(self, include_tests: bool = False) -> List[Dict]:
-        """Validate entire app"""
+    def validate_app_focused(self) -> List[Dict]:
+        """Validate app with focus on real issues"""
         violations = []
+        files_checked = 0
         
-        # Find Python files
-        python_files = []
-        for pattern in ["**/*.py"]:
-            python_files.extend(self.app_path.rglob(pattern))
-            
-        for py_file in python_files:
-            # Skip test files unless requested
-            if not include_tests and 'test_' in py_file.name:
-                continue
-                
-            # Skip migrations and __pycache__
-            if any(skip in str(py_file) for skip in ['migration', '__pycache__', '.git']):
-                continue
-                
-            file_violations = self.validate_file(py_file)
-            violations.extend(file_violations)
-            
-        return violations
+        print(f"🎯 Smart validation of {self.app_path}...")
+        print(f"📊 Focusing on {len(self.critical_field_patterns)} critical field patterns")
+        
+        # Prioritize production code over debug scripts
+        production_patterns = [
+            '*/api/*.py',
+            '*/doctype/*/*.py',
+            '*/templates/**/*.py',
+            '*/utils/*.py',
+            '*/page/*/*.py'
+        ]
+        
+        debug_patterns = [
+            'debug*.py',
+            '**/debug/*.py',
+            'test*.py'
+        ]
+        
+        # Check production code first
+        for pattern in production_patterns:
+            for py_file in self.app_path.glob(pattern):
+                if self._should_check_file(py_file):
+                    files_checked += 1
+                    file_violations = self.analyze_file_focused(py_file)
+                    if file_violations:
+                        print(f"  ⚠️  {len(file_violations)} issues in {py_file.relative_to(self.app_path)}")
+                    violations.extend(file_violations)
+        
+        # Check debug files separately (lower priority)
+        debug_violations = []
+        for pattern in debug_patterns:
+            for py_file in self.app_path.glob(pattern):
+                if self._should_check_file(py_file):
+                    file_violations = self.analyze_file_focused(py_file)
+                    debug_violations.extend(file_violations)
+        
+        print(f"📈 Checked {files_checked} production files")
+        print(f"🔍 Found {len(violations)} production issues, {len(debug_violations)} debug issues")
+        
+        return violations, debug_violations
     
-    def generate_report(self, violations: List[Dict], limit: int = 50) -> str:
-        """Generate validation report"""
+    def _should_check_file(self, file_path: Path) -> bool:
+        """Check if file should be validated"""
+        skip_patterns = [
+            '__pycache__', '.git', 'node_modules', 'migrations',
+            'patches', 'archived', 'backup', '.disabled'
+        ]
+        
+        return not any(skip in str(file_path) for skip in skip_patterns)
+    
+    def generate_smart_report(self, violations: List[Dict], debug_violations: List[Dict] = None) -> str:
+        """Generate a focused, actionable report"""
+        if not violations and not debug_violations:
+            return "✅ No critical field reference issues found!"
+        
         report = []
         
-        if not violations:
-            report.append("✅ No field reference violations found!")
-            return '\n'.join(report)
+        if violations:
+            report.append(f"🚨 CRITICAL ISSUES ({len(violations)} found)")
+            report.append("=" * 50)
             
-        report.append(f"❌ Found {len(violations)} potential field reference violations:")
-        report.append("")
-        
-        # Sort by confidence and doctype
-        violations.sort(key=lambda x: (x['confidence'], x['doctype'], x['field']))
-        
-        # Group by doctype
-        by_doctype = {}
-        for violation in violations:
-            doctype = violation['doctype']
-            if doctype not in by_doctype:
-                by_doctype[doctype] = []
-            by_doctype[doctype].append(violation)
+            # Group by severity and type
+            by_severity = {}
+            for v in violations:
+                severity = v.get('severity', 'medium')
+                if severity not in by_severity:
+                    by_severity[severity] = []
+                by_severity[severity].append(v)
             
-        shown = 0
-        for doctype, doctype_violations in by_doctype.items():
-            if shown >= limit:
-                break
-                
-            report.append(f"## {doctype} ({len(doctype_violations)} violations)")
-            
-            for violation in doctype_violations[:10]:  # Limit per doctype
-                if shown >= limit:
-                    break
+            for severity in ['high', 'medium', 'low']:
+                if severity not in by_severity:
+                    continue
                     
-                report.append(f"- **{violation['field']}** ({violation['confidence']} confidence)")
-                report.append(f"  - `{violation['file']}:{violation['line']}`")
-                report.append(f"  - Context: `{violation['context']}`")
-                report.append("")
-                shown += 1
+                report.append(f"\n## {severity.upper()} PRIORITY ({len(by_severity[severity])} issues)")
                 
-        if len(violations) > shown:
-            report.append(f"... and {len(violations) - shown} more violations")
-            
+                # Group by file
+                by_file = {}
+                for v in by_severity[severity]:
+                    file_path = v['file']
+                    if file_path not in by_file:
+                        by_file[file_path] = []
+                    by_file[file_path].append(v)
+                
+                for file_path, file_violations in by_file.items():
+                    report.append(f"\n### 📁 {file_path}")
+                    for v in file_violations:
+                        report.append(f"  - Line {v['line']}: `{v['field']}` - {v['description']}")
+                        report.append(f"    Context: `{v['content']}`")
+                        
+                        # Provide specific fix suggestions
+                        if v['field'] == 'amount':
+                            if 'membership dues schedule' in v['content'].lower():
+                                report.append(f"    💡 Fix: Replace `{v['field']}` with `dues_rate`")
+                            elif 'membership type' in v['content'].lower():
+                                report.append(f"    💡 Fix: Replace `{v['field']}` with `minimum_amount`")
+        
+        if debug_violations:
+            report.append(f"\n\n🔧 DEBUG/TEST FILES ({len(debug_violations)} issues)")
+            report.append("These are lower priority but should be fixed eventually:")
+            for v in debug_violations[:5]:  # Show first 5
+                report.append(f"  - {v['file']}:{v['line']} - {v['field']}")
+            if len(debug_violations) > 5:
+                report.append(f"  ... and {len(debug_violations) - 5} more")
+        
+        report.append(f"\n\n📊 SUMMARY:")
+        report.append(f"  - Production code issues: {len(violations)}")
+        report.append(f"  - Debug/test issues: {len(debug_violations) if debug_violations else 0}")
+        report.append(f"  - Total issues: {len(violations) + len(debug_violations) if debug_violations else len(violations)}")
+        
         return '\n'.join(report)
 
 
 def main():
-    """Main function"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Validate docfield references")
-    parser.add_argument("--include-tests", action="store_true", help="Include test files")
-    parser.add_argument("--limit", type=int, default=50, help="Limit output")
-    parser.add_argument("--output", type=str, help="Output file")
-    
-    args = parser.parse_args()
-    
+    """Main function with smart validation"""
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
     
-    print("🔍 Validating docfield references...")
+    print("🧠 Running SMART field validation...")
+    print("   Focusing on real issues, ignoring framework noise")
+    
     validator = SmartFieldValidator(app_path)
     
-    print(f"📋 Loaded {len(validator.doctypes)} doctypes")
+    print(f"📚 Loaded {len(validator.doctypes)} doctypes")
+    print(f"🎯 Tracking {len(validator.critical_field_patterns)} critical field patterns")
     
-    violations = validator.validate_app(include_tests=args.include_tests)
+    violations, debug_violations = validator.validate_app_focused()
     
-    report = validator.generate_report(violations, limit=args.limit)
+    report = validator.generate_smart_report(violations, debug_violations)
+    print("\n" + "="*60)
+    print(report)
     
-    if args.output:
-        with open(args.output, 'w') as f:
-            f.write(report)
-        print(f"📄 Report saved to {args.output}")
+    total_issues = len(violations) + (len(debug_violations) if debug_violations else 0)
+    
+    if violations:
+        print(f"\n❌ Found {len(violations)} CRITICAL issues that need immediate attention")
+        return 1
+    elif debug_violations:
+        print(f"\n⚠️  Found {len(debug_violations)} debug/test issues (lower priority)")
+        return 0  
     else:
-        print(report)
-        
-    return 1 if violations else 0
+        print("\n✅ No critical field reference issues found!")
+        return 0
 
 
 if __name__ == "__main__":

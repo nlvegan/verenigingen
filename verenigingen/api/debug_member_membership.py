@@ -739,34 +739,27 @@ def debug_specific_member_sinv_issue():
             filters={"member": member.name},
             fields=[
                 "name",
-                "due_date",
-                "amount",
+                "dues_rate",
                 "status",
-                "invoice",
                 "creation",
                 "billing_frequency",
                 "next_invoice_date",
             ],
-            order_by="due_date desc",
+            order_by="next_invoice_date desc",
         )
 
         result["dues_schedules"] = []
         for dues in dues_schedules:
-            due_date = getdate(dues.due_date) if dues.due_date else None
             next_invoice_date = getdate(dues.next_invoice_date) if dues.next_invoice_date else None
-            is_due_today = due_date == today_date if due_date else False
             should_invoice_today = next_invoice_date == today_date if next_invoice_date else False
 
             schedule_info = {
                 "name": dues.name,
-                "due_date": str(dues.due_date) if dues.due_date else None,
                 "next_invoice_date": str(dues.next_invoice_date) if dues.next_invoice_date else None,
-                "amount": float(dues.amount) if dues.amount else 0.0,
+                "dues_rate": float(dues.dues_rate) if dues.dues_rate else 0.0,
                 "status": dues.status,
                 "billing_frequency": dues.billing_frequency,
-                "invoice": dues.invoice,
                 "creation": str(dues.creation),
-                "is_due_today": is_due_today,
                 "should_invoice_today": should_invoice_today,
             }
             result["dues_schedules"].append(schedule_info)

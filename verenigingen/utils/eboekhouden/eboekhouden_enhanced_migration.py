@@ -472,18 +472,24 @@ class EnhancedEBoekhoudenMigration:
         return data
 
     def _get_receivable_account(self):
-        """Get receivable account from mappings or default"""
+        """Get receivable account from explicit mappings"""
         if "receivable_account" in self.payment_mappings:
             return self.payment_mappings["receivable_account"]
 
-        return frappe.db.get_value("Account", {"company": self.company, "account_type": "Receivable"}, "name")
+        frappe.throw(
+            "Receivable account must be explicitly configured in payment mappings. "
+            "Implicit account lookup by type has been disabled for data safety."
+        )
 
     def _get_payable_account(self):
-        """Get payable account from mappings or default"""
+        """Get payable account from explicit mappings"""
         if "payable_account" in self.payment_mappings:
             return self.payment_mappings["payable_account"]
 
-        return frappe.db.get_value("Account", {"company": self.company, "account_type": "Payable"}, "name")
+        frappe.throw(
+            "Payable account must be explicitly configured in payment mappings. "
+            "Implicit account lookup by type has been disabled for data safety."
+        )
 
     def _process_purchase_invoices(self, mutations, checkpoint):
         """Process purchase invoice mutations"""

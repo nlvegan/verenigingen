@@ -20,8 +20,9 @@ class MembershipType(Document):
             try:
                 template = frappe.get_doc("Membership Dues Schedule", self.dues_schedule_template)
 
-                # Update template with the basic amount from membership type
-                template.suggested_amount = self.amount or 0
+                # Update template with default amount (preserve existing if set)
+                if not template.suggested_amount:
+                    template.suggested_amount = 15.0
 
                 template.save()
             except Exception as e:
@@ -44,13 +45,13 @@ class MembershipType(Document):
             self.billing_period_in_months = None
 
     def validate_amount(self):
-        # Ensure amount is positive
-        if flt(self.amount) < 0:
-            frappe.throw(_("Amount cannot be negative"))
+        # Ensure minimum amount is positive
+        if flt(self.minimum_amount) < 0:
+            frappe.throw(_("Minimum amount cannot be negative"))
 
         # Round monetary amounts to 2 decimal places
-        if hasattr(self, "amount"):
-            self.amount = flt(self.amount, 2)
+        if hasattr(self, "minimum_amount"):
+            self.minimum_amount = flt(self.minimum_amount, 2)
 
     # Updated to use dues schedule system
 
@@ -97,9 +98,9 @@ class MembershipType(Document):
             # Return basic defaults if no template
             return {
                 "mode": "Calculator",
-                "minimum": 5.0,
-                "suggested": self.amount or 15.0,
-                "maximum": (self.amount or 15.0) * 10,
+                "minimum": self.minimum_amount or 5.0,
+                "suggested": 15.0,
+                "maximum": 15.0 * 10,
                 "calculator": {
                     "enabled": True,
                     "percentage": 0.75,
@@ -116,9 +117,8 @@ class MembershipType(Document):
             options = {
                 "mode": template.contribution_mode or "Calculator",
                 "minimum": template.minimum_amount or 5.0,
-                "suggested": template.suggested_amount or self.amount or 15.0,
-                "maximum": template.maximum_amount
-                or ((template.suggested_amount or self.amount or 15.0) * 10),
+                "suggested": template.suggested_amount or 15.0,
+                "maximum": template.maximum_amount or ((template.suggested_amount or 15.0) * 10),
                 "calculator": {
                     "enabled": template.enable_income_calculator
                     if hasattr(template, "enable_income_calculator")
@@ -171,9 +171,9 @@ class MembershipType(Document):
             # Return defaults on error
             return {
                 "mode": "Calculator",
-                "minimum": 5.0,
-                "suggested": self.amount or 15.0,
-                "maximum": (self.amount or 15.0) * 10,
+                "minimum": self.minimum_amount or 5.0,
+                "suggested": 15.0,
+                "maximum": 15.0 * 10,
                 "calculator": {
                     "enabled": True,
                     "percentage": 0.75,
@@ -203,11 +203,11 @@ class MembershipType(Document):
             # Create new template
             template = frappe.new_doc("Membership Dues Schedule")
             template.is_template = 1
-            template.schedule_name = f"Template-{self.name}"
+            template.schedule_name = f"Template-{self.membership_type_name}"  # Use descriptive name
             template.membership_type = self.name
             template.status = "Active"
             # Set required fields to avoid validation errors during creation
-            template.dues_rate = self.amount or 15.0
+            template.suggested_amount = 15.0  # Default template amount
 
         # Set/update template fields with sensible defaults, preserving existing values
         if not template.billing_frequency:
@@ -217,14 +217,14 @@ class MembershipType(Document):
         if not template.minimum_amount:
             template.minimum_amount = 5.0  # Only set default if not already set
         if not template.suggested_amount:
-            template.suggested_amount = self.amount or 15.0  # Only set default if not already set
+            template.suggested_amount = 15.0  # Default template suggested amount
         if not template.invoice_days_before:
             template.invoice_days_before = 30  # Only set default if not already set
         template.auto_generate = 1  # Always ensure auto_generate is enabled
         template.status = "Active"  # Always ensure template is active
         # Ensure dues_rate is set for templates (field confirmed in JSON schema)
         if not template.dues_rate:
-            template.dues_rate = self.amount or 15.0
+            template.dues_rate = 15.0  # Default template dues rate
 
         if existing_template:
             template.save()

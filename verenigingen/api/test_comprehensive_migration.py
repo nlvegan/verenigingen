@@ -30,7 +30,7 @@ def test_complete_migration_workflow():
         # Step 2: Create membership type and membership
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Migration Type {frappe.generate_hash(length=6)}"
-        membership_type.amount = 20.0
+        membership_type.minimum_amount = 20.0
         membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.save()
@@ -154,7 +154,7 @@ def test_migration_edge_cases():
 
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Edge Type {frappe.generate_hash(length=6)}"
-        membership_type.amount = 20.0
+        membership_type.minimum_amount = 20.0
         membership_type.billing_frequency = "Monthly"
         membership_type.is_active = 1
         membership_type.save()

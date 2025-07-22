@@ -370,7 +370,12 @@ class PaymentMixin:
             active_membership = self.get_active_membership()
             if active_membership and active_membership.membership_type:
                 membership_type = frappe.get_doc("Membership Type", active_membership.membership_type)
-                self.payment_amount = membership_type.amount
+                if not membership_type.dues_schedule_template:
+                    frappe.throw(
+                        f"Membership Type '{membership_type.name}' must have a dues schedule template"
+                    )
+                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+                self.payment_amount = template.suggested_amount or 0
 
     def create_payment_entry(self, payment_date=None, amount=None):
         """Create a payment entry for this membership"""

@@ -82,9 +82,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         from verenigingen.api.enhanced_membership_application import validate_contribution_amount
         
         membership_type = self.create_test_membership_type(
-            minimum_contribution=10.00,
-            suggested_contribution=25.00,
-            maximum_contribution=100.00
+            minimum_amount=10.00
         )
         
         # Test valid amount
@@ -218,10 +216,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
     def test_custom_amount_validation_and_approval(self):
         """Test custom amount validation and approval workflow"""
         membership_type = self.create_test_membership_type(
-            minimum_contribution=10.00,
-            suggested_contribution=25.00,
-            maximum_contribution=100.00,
-            custom_amount_requires_approval=1
+            minimum_amount=10.00
         )
         
         # Test custom amount within limits
@@ -237,7 +232,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
     def test_custom_amount_below_minimum_validation(self):
         """Test custom amount below minimum is rejected"""
         membership_type = self.create_test_membership_type(
-            minimum_contribution=10.00
+            minimum_amount=10.00
         )
         
         # Try to create with amount below minimum
@@ -251,7 +246,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
     def test_custom_amount_above_maximum_handling(self):
         """Test custom amount above maximum with reason"""
         membership_type = self.create_test_membership_type(
-            maximum_contribution=100.00
+            billing_period="Monthly"  # Remove maximum_contribution - no longer supported
         )
         
         # Create with amount above maximum but with valid reason
@@ -401,11 +396,28 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         self.track_doc("Member", no_date_member.name)
         
         membership_type = self.create_test_membership_type()
-        dues_schedule = self.create_test_dues_schedule_for_member(
-            no_date_member, membership_type
+        
+        # Create membership which should auto-create a dues schedule
+        membership = frappe.new_doc("Membership")
+        membership.member = no_date_member.name
+        membership.membership_type = membership_type.name
+        membership.start_date = today()
+        membership.status = "Active"
+        membership.insert()
+        membership.submit()
+        self.track_doc("Membership", membership.name)
+        
+        # Find the automatically created dues schedule
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": no_date_member.name, "status": "Active"},
+            fields=["name", "billing_day"]
         )
         
-        # Should default to 1
+        self.assertEqual(len(dues_schedules), 1)
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
+        
+        # Should default to 1 when member has no member_since date
         self.assertEqual(dues_schedule.billing_day, 1)
         
     # Payment Method Integration Tests
@@ -542,7 +554,9 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         dues_schedule.contribution_mode = "Calculator"
         dues_schedule.selected_tier = None
         dues_schedule.base_multiplier = 2.0  # Earning more now
-        dues_schedule.dues_rate = membership_type.suggested_contribution * 2.0  # TODO: Update to use dues schedule template
+        # Get amount from the dues schedule template
+        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+        dues_schedule.dues_rate = template.dues_rate * 2.0
         dues_schedule.save()
         
         # Stage 3: Member becomes senior, switches to professional tier
@@ -590,9 +604,8 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
     def test_financial_hardship_custom_amount_workflow(self):
         """Test financial hardship workflow with custom amounts and approval"""
         membership_type = self.create_test_membership_type(
-            minimum_contribution=15.00,
-            suggested_contribution=30.00,
-            custom_amount_requires_approval=1
+            minimum_amount=15.00,
+            # custom_amount_requires_approval field no longer exists
         )
         
         # Member requests financial hardship adjustment
@@ -614,9 +627,8 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
     def test_wealthy_supporter_high_contribution_workflow(self):
         """Test wealthy supporter with very high contribution amounts"""
         membership_type = self.create_test_membership_type(
-            minimum_contribution=10.00,
-            suggested_contribution=25.00,
-            maximum_contribution=500.00
+            minimum_amount=10.00,
+            billing_period="Monthly"  # Remove maximum_contribution - no longer supported
         )
         
         # Wealthy supporter wants to contribute significantly more
@@ -637,8 +649,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         family_type = self.create_test_membership_type(
             membership_type_name="Family Membership",
             contribution_mode="Tiers",
-            minimum_contribution=25.00,
-            suggested_contribution=75.00
+            minimum_amount=25.00
         )
         
         # Add family tiers
@@ -679,8 +690,8 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         """Test seasonal membership with mid-year starts and prorated amounts"""
         seasonal_type = self.create_test_membership_type(
             membership_type_name="Seasonal Summer Membership",
-            suggested_contribution=100.00,  # Full year rate
-            billing_frequency="Annual"
+            minimum_amount=100.00,  # Full year rate
+            billing_period="Annual"
         )
         
         # Member joins mid-year (hypothetically June)
@@ -703,7 +714,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         """Test international member with different payment methods"""
         intl_type = self.create_test_membership_type(
             membership_type_name="International Membership",
-            suggested_contribution=30.00  # EUR base
+            minimum_amount=30.00  # EUR base
         )
         
         # Create international member
@@ -743,7 +754,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         # Organization rebrands and creates new membership type
         new_type = self.create_test_membership_type(
             membership_type_name="New Rebranded Membership",
-            suggested_contribution=35.00  # Slight increase
+            minimum_amount=35.00  # Slight increase
         )
         
         # Migrate existing member to new type
@@ -758,8 +769,8 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
     def test_dues_schedule_with_payment_plan_integration(self):
         """Test dues schedule integration with payment plan features"""
         membership_type = self.create_test_membership_type(
-            suggested_contribution=120.00,  # Annual amount
-            billing_frequency="Annual"
+            minimum_amount=120.00,  # Annual amount
+            billing_period="Annual"
         )
         
         # Member wants to pay annually but in monthly installments
@@ -784,7 +795,8 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         """Create a test membership type with flexible options"""
         defaults = {
             "membership_type_name": f"Enhanced Type {frappe.generate_hash(length=6)}",
-            "amount": 25.0,
+            "minimum_amount": 25.0,
+            "billing_period": "Monthly",
             "is_active": 1,
             "contribution_mode": "Calculator",
             "enable_income_calculator": 1,
@@ -792,13 +804,35 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
             "calculator_description": "We suggest 0.75% of your monthly net income"}
         defaults.update(kwargs)
         
+        # Create membership type first (without template reference)
         membership_type = frappe.new_doc("Membership Type")
         for key, value in defaults.items():
             if hasattr(membership_type, key):
                 setattr(membership_type, key, value)
         
-        membership_type.save()
+        membership_type.flags.ignore_mandatory = True
+        membership_type.insert()
         self.track_doc("Membership Type", membership_type.name)
+        
+        # Create dues schedule template
+        template = frappe.new_doc("Membership Dues Schedule")
+        template.is_template = 1
+        template.schedule_name = f"Template-{defaults['membership_type_name']}-{frappe.utils.now_datetime().strftime('%Y%m%d%H%M%S')}"
+        template.membership_type = defaults["membership_type_name"]
+        template.billing_frequency = defaults.get("billing_period", "Monthly")
+        template.suggested_amount = defaults["minimum_amount"]
+        template.minimum_amount = defaults["minimum_amount"]
+        template.dues_rate = defaults["minimum_amount"]
+        template.status = "Active"
+        template.contribution_mode = defaults.get("contribution_mode", "Calculator")
+        template.auto_generate = 1
+        template.insert()
+        self.track_doc("Membership Dues Schedule", template.name)
+        
+        # Update membership type with template reference
+        membership_type.dues_schedule_template = template.name
+        membership_type.save()
+        
         return membership_type
         
     def create_test_membership_type_with_tiers(self):
@@ -853,6 +887,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         membership.save()
         
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        dues_schedule.schedule_name = f"Test-Dues-{self.test_member.name}-{membership_type.name}"
         dues_schedule.member = self.test_member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
@@ -863,7 +898,9 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
             dues_schedule.uses_custom_amount = 1
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.dues_rate = membership_type.suggested_contribution  # TODO: Update to use dues schedule template
+            # Get amount from the dues schedule template
+            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+            dues_schedule.dues_rate = template.dues_rate
             
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = payment_method
@@ -886,10 +923,12 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         membership.membership_type = membership_type.name
         membership.start_date = today()
         membership.status = "Active"
-        membership.save()
+        membership.insert()
+        membership.submit()
         self.track_doc("Membership", membership.name)
         
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        dues_schedule.schedule_name = f"Test-Schedule-{member.name}-{membership_type.name}"
         dues_schedule.member = member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
@@ -900,7 +939,9 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
             dues_schedule.uses_custom_amount = 1
         else:
             dues_schedule.contribution_mode = "Calculator"
-            dues_schedule.dues_rate = membership_type.suggested_contribution  # TODO: Update to use dues schedule template
+            # Get amount from the dues schedule template
+            template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+            dues_schedule.dues_rate = template.dues_rate
             
         dues_schedule.billing_frequency = frequency
         dues_schedule.payment_method = "Bank Transfer"
@@ -918,6 +959,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         membership.save()
         
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        dues_schedule.schedule_name = f"Test-Custom-{self.test_member.name}-{membership_type.name}"
         dues_schedule.member = self.test_member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name

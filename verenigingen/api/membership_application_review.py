@@ -211,7 +211,7 @@ def approve_membership_application(
         "success": True,
         "message": message,
         "invoice": invoice.name,
-        "amount": membership_type_doc.amount,
+        "amount": membership_type_doc.minimum_amount,
         "user_account": user_creation_result,
     }
 
@@ -687,7 +687,7 @@ def get_pending_applications(chapter=None, days_overdue=None):
         # Get membership type amount from cached data
         if app.selected_membership_type and app.selected_membership_type in membership_type_data:
             mt = membership_type_data[app.selected_membership_type]
-            app["membership_amount"] = mt.amount
+            app["membership_amount"] = mt.minimum_amount
             app["membership_currency"] = mt.currency
 
         # Get chapter information from pre-loaded data
@@ -1177,11 +1177,16 @@ def debug_membership_type_settings(membership_type_name):
     try:
         membership_type = frappe.get_doc("Membership Type", membership_type_name)
 
+        # Get amount from template
+        if not membership_type.dues_schedule_template:
+            frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+
         result = {
             "membership_type_name": membership_type_name,
             "membership_type_details": {
                 "membership_type_name": membership_type.membership_type_name,
-                "amount": membership_type.amount,
+                "amount": template.suggested_amount or 0,
                 "description": membership_type.description,
             },
         }
@@ -1533,7 +1538,7 @@ def validate_membership_type_for_approval(membership_type, member):
     if not template.billing_frequency:
         validation_errors.append(_("Billing frequency is not set"))
 
-    if not template.amount or template.amount <= 0:
+    if not template.dues_rate or template.dues_rate <= 0:
         validation_errors.append(_("Amount must be greater than 0"))
 
     if not template.contribution_mode:

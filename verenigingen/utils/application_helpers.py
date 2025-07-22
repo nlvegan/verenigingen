@@ -529,7 +529,7 @@ def get_membership_fee_info(membership_type):
         return {
             "success": True,
             "membership_type": membership_type,
-            "standard_amount": membership_type_doc.amount,
+            "standard_amount": membership_type_doc.minimum_amount,
             "currency": membership_type_doc.currency or "EUR",
             "description": membership_type_doc.description,
             "billing_period": getattr(
@@ -550,7 +550,7 @@ def get_membership_type_details(membership_type):
 
         # Calculate suggested amounts (if custom amounts allowed)
         suggested_amounts = []
-        base_amount = float(membership_type_doc.amount)
+        base_amount = float(membership_type_doc.minimum_amount)
 
         # Standard amount
         suggested_amounts.append(
@@ -572,7 +572,7 @@ def get_membership_type_details(membership_type):
             "name": membership_type_doc.name,
             "membership_type_name": membership_type_doc.membership_type_name,
             "description": membership_type_doc.description,
-            "amount": membership_type_doc.amount,
+            "amount": membership_type_doc.minimum_amount,
             "currency": membership_type_doc.currency or "EUR",
             "billing_period": getattr(
                 membership_type_doc,
@@ -580,8 +580,8 @@ def get_membership_type_details(membership_type):
                 getattr(membership_type_doc, "billing_frequency", "Annual"),
             ),
             "allow_custom_amount": True,  # Enable custom amounts for all membership types
-            "minimum_amount": membership_type_doc.amount * 0.5,  # 50% of standard amount
-            "maximum_amount": membership_type_doc.amount * 5,  # 5x standard amount
+            "minimum_amount": membership_type_doc.minimum_amount * 0.5,  # 50% of standard amount
+            "maximum_amount": membership_type_doc.minimum_amount * 5,  # 5x standard amount
             "custom_amount_note": "You can adjust your contribution amount. Minimum is 50% of standard fee.",
             "suggested_amounts": suggested_amounts,
         }
@@ -609,7 +609,10 @@ def suggest_membership_amounts(membership_type_name):
     """Suggest membership amounts based on type"""
     try:
         membership_type = frappe.get_doc("Membership Type", membership_type_name)
-        base_amount = float(membership_type.amount)
+        if not membership_type.dues_schedule_template:
+            frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+        template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+        base_amount = float(template.suggested_amount or 0)
         currency = membership_type.currency or "EUR"
 
         suggestions = [

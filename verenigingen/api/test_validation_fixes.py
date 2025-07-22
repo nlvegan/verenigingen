@@ -41,8 +41,8 @@ def test_dues_rate_validation():
         results = {
             "test_member": f"{test_member.full_name} ({test_member.name})",
             "membership_type": membership_type,
-            "suggested_contribution": membership_type_doc.suggested_contribution,
-            "minimum_contribution": getattr(membership_type_doc, "minimum_contribution", None),
+            "suggested_contribution": getattr(membership_type_doc, "suggested_contribution", None),
+            "minimum_contribution": getattr(membership_type_doc, "minimum_amount", None),
             "tests": {},
         }
 
@@ -62,8 +62,8 @@ def test_dues_rate_validation():
         }
 
         # Test 3: Minimum enforcement
-        if membership_type_doc.minimum_contribution:
-            min_contrib = membership_type_doc.minimum_contribution
+        if membership_type_doc.minimum_amount:
+            min_contrib = membership_type_doc.minimum_amount
 
             # Test below minimum
             dues_schedule.dues_rate = min_contrib - 1.0
@@ -106,7 +106,7 @@ def test_dues_rate_validation():
         max_multiplier = getattr(settings, "maximum_fee_multiplier", None)
 
         if max_multiplier:
-            base_amount = membership_type_doc.suggested_contribution or membership_type_doc.amount
+            base_amount = membership_type_doc.minimum_amount
             max_amount = base_amount * max_multiplier
             over_max_amount = max_amount + 10.0
 

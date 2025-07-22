@@ -191,8 +191,11 @@ def get_effective_fee_for_member(member, membership):
 
 def get_minimum_fee(member, membership_type, membership=None):
     """Calculate minimum fee for a member considering billing frequency"""
-    # Get the base amount from membership type
-    base_amount = membership_type.amount
+    # Get the base amount from template for calculations
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    base_amount = template.suggested_amount or 0
 
     # For quarterly memberships, we need to consider the quarterly amount
     if membership and (
@@ -205,12 +208,12 @@ def get_minimum_fee(member, membership_type, membership=None):
 
     # Student discount
     if getattr(member, "student_status", False):
-        base_minimum = max(base_minimum, flt(membership_type.amount * 0.5))  # Students minimum 50%
+        base_minimum = max(base_minimum, flt(membership_type.minimum_amount * 0.5))  # Students minimum 50%
 
     # Income-based minimum (if available)
     if hasattr(member, "annual_income") and member.annual_income:
         if member.annual_income in ["Under €25,000", "€25,000 - €40,000"]:
-            base_minimum = max(base_minimum, flt(membership_type.amount * 0.4))  # Low income 40%
+            base_minimum = max(base_minimum, flt(membership_type.minimum_amount * 0.4))  # Low income 40%
 
     # Ensure minimum is at least €5
     return max(base_minimum, 5.0)
@@ -298,8 +301,11 @@ def submit_fee_adjustment_request(new_amount, reason=""):
     # Get maximum fee multiplier from settings
     verenigingen_settings = frappe.get_single("Verenigingen Settings")
     maximum_fee_multiplier = getattr(verenigingen_settings, "maximum_fee_multiplier", 10)
-    # Use membership type amount as base (not minimum fee) for calculating maximum
-    maximum_fee = membership_type.amount * maximum_fee_multiplier
+    # Use template suggested amount as base for calculating maximum
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    maximum_fee = (template.suggested_amount or 0) * maximum_fee_multiplier
 
     if new_amount < minimum_fee:
         frappe.throw(
@@ -324,7 +330,11 @@ def submit_fee_adjustment_request(new_amount, reason=""):
 
     # Get current fee
     current_fee = member_doc.get_current_membership_fee()
-    current_amount = current_fee.get("amount", membership_type.amount)
+    # Fallback to template suggested amount if no current fee
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    current_amount = current_fee.get("amount", template.suggested_amount or 0)
 
     # Validate amount is different and reasonable
     if abs(new_amount - current_amount) < 0.01:
@@ -528,7 +538,10 @@ def get_fee_calculation_info():
     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
 
     # Calculate fees using new priority system
-    standard_fee = membership_type.amount
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+    standard_fee = template.suggested_amount or 0
     minimum_fee = get_minimum_fee(member_doc, membership_type)
     current_fee = get_effective_fee_for_member(member_doc, membership)
 
@@ -725,8 +738,8 @@ def submit_membership_type_change_request(new_membership_type, reason=""):
             "amendment_type": "Membership Type Change",
             "current_membership_type": membership.membership_type,
             "requested_membership_type": new_membership_type,
-            "current_amount": old_type_doc.amount,
-            "requested_amount": new_type_doc.amount,
+            "current_amount": old_type_doc.minimum_amount,
+            "requested_amount": new_type_doc.minimum_amount,
             "reason": reason,
             "status": "Pending Approval",  # All membership type changes require approval
             "requested_by_member": 1,
@@ -777,8 +790,8 @@ def send_membership_type_change_notification(member, old_type, new_type, reason)
                 message=f"""
                 <h3>Membership Type Change Request</h3>
                 <p><strong>Member:</strong> {member.full_name} ({member.name})</p>
-                <p><strong>Current Type:</strong> {old_type.membership_type_name} (€{old_type.amount:.2f})</p>
-                <p><strong>Requested Type:</strong> {new_type.membership_type_name} (€{new_type.amount:.2f})</p>
+                <p><strong>Current Type:</strong> {old_type.membership_type_name} (€{old_type.minimum_amount:.2f})</p>
+                <p><strong>Requested Type:</strong> {new_type.membership_type_name} (€{new_type.minimum_amount:.2f})</p>
                 <p><strong>Reason:</strong> {reason}</p>
                 <p><strong>Submitted:</strong> {frappe.utils.now_datetime()}</p>
                 <br>
