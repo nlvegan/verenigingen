@@ -32,14 +32,12 @@ def test_dutch_payroll_timing():
     return True
 
 
-def test_enhanced_sepa_processor_import():
+def test_sepa_processor_import():
     """Test Enhanced SEPA Processor can be imported"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
-            EnhancedSEPAProcessor,
-        )
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         print("✅ Enhanced SEPA Processor imported and initialized successfully")
         return True
     except Exception as e:
@@ -50,7 +48,7 @@ def test_enhanced_sepa_processor_import():
 def test_api_endpoints():
     """Test Option A+C API endpoints"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch,
             get_sepa_batch_preview,
             verify_invoice_coverage_status,
@@ -120,11 +118,9 @@ def test_sequence_type_validation():
 def test_invoice_coverage_verification():
     """Test invoice coverage verification"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
-            EnhancedSEPAProcessor,
-        )
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         result = processor.verify_invoice_coverage(today())
 
         print(f"✅ Invoice coverage verification working:")
@@ -141,11 +137,9 @@ def test_invoice_coverage_verification():
 def test_rolling_period_validation():
     """Test rolling period validation logic"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
-            EnhancedSEPAProcessor,
-        )
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
 
         test_cases = [
             {
@@ -178,7 +172,7 @@ def test_all_components():
     print("=" * 65)
 
     tests = [
-        ("Enhanced SEPA Processor Import", test_enhanced_sepa_processor_import),
+        ("Enhanced SEPA Processor Import", test_sepa_processor_import),
         ("Custom Fields Setup", test_custom_fields),
         ("Dutch Payroll Timing Logic", test_dutch_payroll_timing),
         ("API Endpoints", test_api_endpoints),

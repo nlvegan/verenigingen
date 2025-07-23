@@ -141,16 +141,14 @@ def test_config_manager():
         return False
 
 
-def test_enhanced_sepa_processor():
+def test_sepa_processor():
     """Test the optimized Enhanced SEPA Processor"""
     print("🔍 Testing Enhanced SEPA Processor...")
 
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
-            EnhancedSEPAProcessor,
-        )
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
 
         # Test that all services are initialized
         print(f"✅ Processor initialized with config manager: {processor.config_manager is not None}")
@@ -178,7 +176,7 @@ def test_monthly_batch_creation():
     print("🔍 Testing Monthly Batch Creation...")
 
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch,
         )
 
@@ -282,7 +280,7 @@ def test_all_optimizations():
         ("Database Indexes", test_database_indexes),
         ("Error Handler & Retry Logic", test_error_handler),
         ("Configuration Manager", test_config_manager),
-        ("Enhanced SEPA Processor", test_enhanced_sepa_processor),
+        ("Enhanced SEPA Processor", test_sepa_processor),
         ("Monthly Batch Creation", test_monthly_batch_creation),
         ("API Endpoints", test_api_endpoints),
         ("Performance Improvements", test_performance_improvements),

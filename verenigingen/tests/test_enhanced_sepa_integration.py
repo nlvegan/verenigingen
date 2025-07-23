@@ -9,19 +9,19 @@ from frappe.utils import add_days, add_months, today, getdate
 
 
 def test_enhanced_sepa_integration():
-    """Test the enhanced SEPA processor integration with Option A+C workflow"""
+    """Test the SEPA processor integration with Option A+C workflow"""
 
-    print("Testing Enhanced SEPA Integration - Option A+C Workflow")
+    print("Testing SEPA Integration - Option A+C Workflow")
     print("=" * 60)
 
     try:
-        # Test 1: Import and initialize the enhanced processor
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
-            EnhancedSEPAProcessor,
+        # Test 1: Import and initialize the SEPA processor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
+            SEPAProcessor,
         )
 
-        processor = EnhancedSEPAProcessor()
-        print("✓ Enhanced SEPA processor imported successfully")
+        processor = SEPAProcessor()
+        print("✓ SEPA processor imported successfully")
         
         # Test optimization integrations
         print(f"✓ Config manager integrated: {processor.config_manager is not None}")
@@ -102,7 +102,7 @@ def test_enhanced_sepa_integration():
 def test_sepa_configuration():
     """Test SEPA configuration validation"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             validate_sepa_configuration,
         )
 
@@ -180,7 +180,7 @@ def test_option_ac_api_endpoints():
     """Test Option A+C specific API endpoints"""
     try:
         # Test the new API functions
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch,
             verify_invoice_coverage_status,
             get_sepa_batch_preview
@@ -289,7 +289,7 @@ def test_sequence_type_integration():
 def test_batch_preview_functionality():
     """Test batch preview functionality"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import get_sepa_batch_preview
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import get_sepa_batch_preview
         
         preview = get_sepa_batch_preview()
         required_keys = ["success", "collection_date", "unpaid_invoices_found", "total_amount"]
@@ -307,7 +307,7 @@ def test_batch_preview_functionality():
 def test_upcoming_collections():
     """Test upcoming collections retrieval"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             get_upcoming_dues_collections,
         )
 
@@ -381,7 +381,7 @@ def test_api_endpoints():
         # Test the whitelisted functions exist
         import inspect
 
-        from verenigingen.verenigingen.doctype.direct_debit_batch import enhanced_sepa_processor
+        from verenigingen.verenigingen.doctype.direct_debit_batch import sepa_processor
 
         required_functions = [
             "create_monthly_dues_collection_batch",
@@ -390,8 +390,8 @@ def test_api_endpoints():
         ]
 
         for func_name in required_functions:
-            if hasattr(enhanced_sepa_processor, func_name):
-                func = getattr(enhanced_sepa_processor, func_name)
+            if hasattr(sepa_processor, func_name):
+                func = getattr(sepa_processor, func_name)
                 if hasattr(func, "__wrapped__"):  # Check if it's whitelisted
                     continue
             else:

@@ -502,7 +502,6 @@ class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, Termination
                     "membership_type": self.selected_membership_type,
                     "start_date": today(),
                     "status": "Pending",  # Will become Active after payment
-                    "auto_renew": 1,
                 }
             )
             membership.insert()

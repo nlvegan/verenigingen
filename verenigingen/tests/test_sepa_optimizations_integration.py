@@ -95,11 +95,11 @@ class TestSEPAOptimizations(VereningingenTestCase):
         should_not_retry_validation = handler.should_retry(validation_error, attempt=1)
         self.assertFalse(should_not_retry_validation)
     
-    def test_enhanced_sepa_processor_optimization(self):
+    def test_sepa_processor_optimization(self):
         """Test Enhanced SEPA Processor with optimizations"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         
         # Test that all optimization services are integrated
         self.assertIsNotNone(processor.config_manager)
@@ -233,7 +233,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_monthly_batch_creation_optimization(self):
         """Test optimized monthly batch creation"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch
         )
         

@@ -44,8 +44,8 @@ def validate_membership_dues_test_environment():
         ("verenigingen.api.enhanced_membership_application", "get_membership_types_for_application"),
         ("verenigingen.api.payment_plan_management", "request_payment_plan"),
         (
-            "verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor",
-            "EnhancedSEPAProcessor",
+            "verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor",
+            "SEPAProcessor",
         ),
     ]
 
@@ -90,7 +90,7 @@ def validate_membership_dues_test_environment():
         scheduler_tasks = hooks.scheduler_events.get("daily", [])
 
         expected_tasks = [
-            "verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor.create_monthly_dues_collection_batch",
+            "verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch",
             "verenigingen.verenigingen.doctype.payment_plan.payment_plan.process_overdue_installments",
         ]
 
@@ -214,11 +214,9 @@ def run_quick_membership_dues_tests():
     try:
         # Test 3: Enhanced SEPA processor
         results.append("\nTesting enhanced SEPA processor...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
-            EnhancedSEPAProcessor,
-        )
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         results.append("  ✅ Enhanced SEPA processor initialized")
 
         # Test eligibility check

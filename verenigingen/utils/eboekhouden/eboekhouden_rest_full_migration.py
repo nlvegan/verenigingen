@@ -2923,9 +2923,9 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
     - Automatic payment reconciliation
     """
     # Use enhanced payment handler
-    from verenigingen.utils.eboekhouden.enhanced_payment_import import create_enhanced_payment_entry
+    from verenigingen.utils.eboekhouden.eboekhouden_payment_import import create_payment_entry
 
-    payment_name = create_enhanced_payment_entry(mutation, company, cost_center, debug_info)
+    payment_name = create_payment_entry(mutation, company, cost_center, debug_info)
     if payment_name:
         return frappe.get_doc("Payment Entry", payment_name)
     else:

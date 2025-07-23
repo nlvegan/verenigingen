@@ -16,7 +16,7 @@ IMPORT_FIXES = {
     'from verenigingen.utils.eboekhouden_cost_center_fix': 'from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix',
     'from verenigingen.utils.eboekhouden_enhanced_migration': 'from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration',
     'from verenigingen.utils.eboekhouden_migration_enhancements': 'from verenigingen.utils.eboekhouden.eboekhouden_migration_enhancements',
-    'from verenigingen.utils.eboekhouden_enhanced_coa_import': 'from verenigingen.utils.eboekhouden.eboekhouden_enhanced_coa_import',
+    'from verenigingen.utils.eboekhouden_coa_import': 'from verenigingen.utils.eboekhouden.eboekhouden_coa_import',
     'from verenigingen.utils.eboekhouden_rest_iterator': 'from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator',
 }
 

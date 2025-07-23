@@ -1,5 +1,5 @@
 """
-Enhanced payment import function that replaces the hardcoded implementation.
+Payment import function for E-Boekhouden integration.
 
 This module provides the main entry point for processing E-Boekhouden payment
 mutations with proper bank account mapping and multi-invoice support.
@@ -11,12 +11,12 @@ from frappe import _
 from verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler import PaymentEntryHandler
 
 
-def create_enhanced_payment_entry(mutation_detail, company, cost_center, debug_info):
+def create_payment_entry(mutation_detail, company, cost_center, debug_info):
     """
-    Create Payment Entry with enhanced bank account mapping and invoice reconciliation.
+    Create Payment Entry with bank account mapping and invoice reconciliation.
 
     This function replaces the hardcoded _create_payment_entry implementation
-    with a sophisticated handler that:
+    with a handler that:
     - Maps E-Boekhouden ledger IDs to correct bank accounts
     - Handles multi-invoice payments with comma-separated invoice numbers
     - Allocates payments to specific invoices based on row data

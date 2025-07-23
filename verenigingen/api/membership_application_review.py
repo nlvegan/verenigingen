@@ -152,7 +152,6 @@ def approve_membership_application(
             "membership_type": membership_type,
             "start_date": today(),
             "status": "Draft",  # Will be activated after payment
-            "auto_renew": 1,
         }
     )
 

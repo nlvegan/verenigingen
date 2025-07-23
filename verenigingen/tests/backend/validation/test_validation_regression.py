@@ -262,7 +262,7 @@ class TestValidationRegression(unittest.TestCase):
             # Get the correct app path 
             app_path = Path(__file__).resolve().parents[4]  # Go up to /home/frappe/frappe-bench/apps/verenigingen
             scripts_path = app_path / 'scripts' / 'validation'
-            validator_path = scripts_path / 'final_field_validator.py'
+            validator_path = scripts_path / 'field_validator.py'
             
             # Verify the file exists
             if not validator_path.exists():
@@ -271,7 +271,7 @@ class TestValidationRegression(unittest.TestCase):
             # Try importing with direct execution
             import importlib.util
             sys.path.insert(0, str(scripts_path))
-            spec = importlib.util.spec_from_file_location("final_field_validator", validator_path)
+            spec = importlib.util.spec_from_file_location("field_validator", validator_path)
             validator_module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(validator_module)
             FinalFieldValidator = validator_module.FinalFieldValidator

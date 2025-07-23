@@ -63,7 +63,7 @@ class TestAllImports(FrappeTestCase):
         import verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler
         
         # Enhanced features
-        import verenigingen.utils.eboekhouden.enhanced_payment_import
+        import verenigingen.utils.eboekhouden.eboekhouden_payment_import
         
         self.assertTrue(True, "All utils imports successful")
         

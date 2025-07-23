@@ -684,7 +684,7 @@ def show_payment_history(membership_name):
         return []
 
     # Get payment history from dues schedule system
-    from verenigingen.verenigingen.doctype.membership.enhanced_dues_schedule import (
+    from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
         get_membership_payment_history,
     )
 
@@ -814,7 +814,7 @@ def show_all_invoices(membership_name):
 
     # Get invoices from dues schedule if available
     if membership.dues_schedule:
-        from verenigingen.verenigingen.doctype.membership.enhanced_dues_schedule import (
+        from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
             get_membership_payment_history,
         )
 

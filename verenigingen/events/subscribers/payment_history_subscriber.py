@@ -1,231 +1,158 @@
 """
-Payment History Event Subscriber
+Alternative Payment History Event Subscriber with better concurrency handling
 
-This module handles updating member payment history in response to invoice events.
-It's decoupled from the invoice submission process to prevent validation errors
-from blocking core business operations.
+This version uses a different approach to handle concurrent updates:
+1. Delays processing to batch updates
+2. Uses document locking to prevent conflicts
+3. Implements eventual consistency pattern
 """
 
 import time
 
 import frappe
 from frappe import _
-from frappe.utils import cint
-from frappe.utils.background_jobs import enqueue
+from frappe.utils import add_to_date, cint, now_datetime
 
 
-def _serialize_member_updates(member_name):
+def handle_invoice_events_batched():
     """
-    Create a serialization key for member updates to prevent concurrent modifications.
+    Process invoice events in batches to update member payment history.
 
-    This uses Frappe's enqueue deduplication feature to ensure only one
-    update job runs per member at a time.
+    This should be called by a scheduled job every few minutes to process
+    all pending payment history updates in a controlled manner.
     """
-    return f"payment_history_update_{member_name}"
+    # Get unique members that need payment history updates
+    # Look for recent invoices that might need syncing
+    cutoff_time = add_to_date(now_datetime(), minutes=-30)
 
+    members_to_update = frappe.db.sql(
+        """
+        SELECT DISTINCT m.name as member_name
+        FROM `tabMember` m
+        INNER JOIN `tabSales Invoice` si ON si.customer = m.customer
+        WHERE si.modified >= %s
+        AND si.docstatus = 1
+        AND m.customer IS NOT NULL
+        AND m.customer != ''
+        ORDER BY si.modified DESC
+        LIMIT 50
+    """,
+        cutoff_time,
+        as_dict=True,
+    )
 
-def handle_invoice_submitted(event_name=None, event_data=None):
-    """
-    Handle the invoice_submitted event by updating member payment history.
+    updated_count = 0
+    error_count = 0
 
-    This runs asynchronously in the background, so any failures here
-    won't affect the invoice submission.
-    """
-    if not event_data:
-        return
+    for member_data in members_to_update:
+        try:
+            _update_member_payment_history_with_lock(member_data.member_name)
+            updated_count += 1
+        except Exception as e:
+            error_count += 1
+            if "document has been modified" not in str(e).lower():
+                frappe.log_error(
+                    f"Failed to update payment history for {member_data.member_name}: {str(e)}",
+                    "Batch Payment History Update Error",
+                )
 
-    invoice_name = event_data.get("invoice")
-    customer = event_data.get("customer")
-
-    if not invoice_name or not customer:
-        frappe.log_error(
-            f"Invalid event data for invoice_submitted: {event_data}", "Payment History Subscriber Error"
-        )
-        return
-
-    try:
-        # Find all members associated with this customer
-        members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
-
-        if not members:
-            # No members to update - this is fine
-            return
-
-        # Update each member's payment history
-        for member_data in members:
-            _update_member_payment_history_safe(member_data.name, invoice_name, "submitted")
-
-        frappe.logger("events").info(
-            f"Successfully updated payment history for {len(members)} members after invoice {invoice_name} submission"
-        )
-
-    except Exception as e:
-        # Log the error but don't raise - this should never fail silently in production
-        frappe.log_error(
-            f"Failed to update payment history for invoice {invoice_name}: {str(e)}\n"
-            f"Event data: {event_data}",
-            "Payment History Update Failed",
+    if updated_count > 0 or error_count > 0:
+        frappe.logger("payment_history").info(
+            f"Batch payment history update completed. Updated: {updated_count}, Errors: {error_count}"
         )
 
-
-def handle_invoice_cancelled(event_name=None, event_data=None):
-    """Handle the invoice_cancelled event"""
-    if not event_data:
-        return
-
-    invoice_name = event_data.get("invoice")
-    customer = event_data.get("customer")
-
-    if not invoice_name or not customer:
-        return
-
-    try:
-        members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
-
-        for member_data in members:
-            _update_member_payment_history_safe(member_data.name, invoice_name, "cancelled")
-
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to update payment history for cancelled invoice {invoice_name}: {str(e)}",
-            "Payment History Update Failed",
-        )
+    return {"updated": updated_count, "errors": error_count}
 
 
-def handle_invoice_updated(event_name=None, event_data=None):
-    """Handle the invoice_updated_after_submit event"""
-    if not event_data:
-        return
-
-    invoice_name = event_data.get("invoice")
-    customer = event_data.get("customer")
-
-    if not invoice_name or not customer:
-        return
-
-    try:
-        members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
-
-        for member_data in members:
-            _update_member_payment_history_safe(member_data.name, invoice_name, "updated")
-
-    except Exception as e:
-        frappe.log_error(
-            f"Failed to update payment history for updated invoice {invoice_name}: {str(e)}",
-            "Payment History Update Failed",
-        )
-
-
-def _update_member_payment_history_safe(member_name, invoice_name, action):
+def _update_member_payment_history_with_lock(member_name):
     """
-    Safely update a single member's payment history.
-
-    This function includes retry logic and validation error handling
-    to ensure robustness. It specifically handles document modification
-    conflicts that occur when multiple processes update the same member.
+    Update member payment history using document locking to prevent conflicts.
     """
     max_retries = 3
     retry_count = 0
 
     while retry_count < max_retries:
         try:
-            # Get fresh copy of member document
-            member = frappe.get_doc("Member", member_name)
+            # Use Frappe's document locking mechanism
+            with frappe.utils.document_lock.lock(
+                "Member", member_name, timeout=10  # Wait up to 10 seconds for lock
+            ):
+                # Now we have exclusive access to the member document
+                member = frappe.get_doc("Member", member_name)
 
-            # Reload payment history
-            if hasattr(member, "load_payment_history"):
-                member.load_payment_history()
-            else:
-                # Fallback if method doesn't exist
-                frappe.log_error(
-                    f"Member {member_name} doesn't have load_payment_history method",
-                    "Payment History Method Missing",
-                )
-                return
-
-            # Save with validation
-            member.save(ignore_permissions=True)
-
-            # Success - exit retry loop
-            return
-
-        except frappe.TimestampMismatchError:
-            # This is the "document has been modified" error
-            retry_count += 1
-
-            if retry_count >= max_retries:
-                # Log but don't fail - this is expected in concurrent scenarios
-                frappe.logger("events").info(
-                    f"Payment history sync skipped for member {member_name} "
-                    f"after {action} invoice {invoice_name} due to concurrent updates. "
-                    f"This is expected behavior and payment history will be updated "
-                    f"on the next sync."
-                )
-
-                # Add a comment to track this
-                try:
-                    member = frappe.get_doc("Member", member_name)
-                    member.add_comment(
-                        "Comment",
-                        f"Payment history sync skipped for invoice {invoice_name} ({action}) "
-                        f"due to concurrent update. Payment history will sync on next update.",
+                if hasattr(member, "load_payment_history"):
+                    member.load_payment_history()
+                    member.save(ignore_permissions=True)
+                    return True
+                else:
+                    frappe.log_error(
+                        f"Member {member_name} missing load_payment_history method",
+                        "Payment History Method Missing",
                     )
-                except:
-                    pass
-            else:
-                # Wait with exponential backoff before retry
-                time.sleep(0.1 * (2**retry_count))
-                continue
+                    return False
 
-        except frappe.ValidationError as e:
-            retry_count += 1
-
-            if retry_count >= max_retries:
-                # Log validation error after all retries exhausted
-                frappe.log_error(
-                    f"Validation error updating payment history for member {member_name} "
-                    f"after {action} invoice {invoice_name}: {str(e)}\n"
-                    f"This error occurred {max_retries} times.",
-                    "Payment History Validation Error",
-                )
-
-                # Try to save without the payment history update as last resort
-                try:
-                    member = frappe.get_doc("Member", member_name)
-                    member.add_comment(
-                        "Comment",
-                        f"Payment history sync failed for invoice {invoice_name} ({action}). "
-                        f"Error: {str(e)}",
-                    )
-                except:
-                    pass  # Even commenting failed, give up
+        except frappe.utils.document_lock.LockTimeoutError:
+            # Another process has the lock, skip this member
+            frappe.logger("payment_history").info(
+                f"Skipped payment history update for {member_name} - document locked by another process"
+            )
+            return False
 
         except Exception as e:
-            # Check if this is a document modified error with different exception type
-            error_message = str(e).lower()
-            if "document has been modified" in error_message or "timestamp mismatch" in error_message:
-                # Treat as TimestampMismatchError
+            if "document has been modified" in str(e).lower():
                 retry_count += 1
-
-                if retry_count >= max_retries:
-                    frappe.logger("events").info(
-                        f"Payment history sync skipped for member {member_name} "
-                        f"after {action} invoice {invoice_name} due to concurrent updates."
-                    )
-                else:
-                    time.sleep(0.1 * (2**retry_count))
+                if retry_count < max_retries:
+                    time.sleep(0.5 * retry_count)
                     continue
-            else:
-                # Other unexpected errors
-                retry_count += 1
-
-                if retry_count >= max_retries:
-                    frappe.log_error(
-                        f"Unexpected error updating payment history for member {member_name} "
-                        f"after {action} invoice {invoice_name}: {str(e)}",
-                        "Payment History Update Error",
+                else:
+                    # Skip after max retries
+                    frappe.logger("payment_history").info(
+                        f"Skipped payment history update for {member_name} after {max_retries} retries"
                     )
-                    break
+                    return False
+            else:
+                # Other errors should be logged
+                raise
 
-                # Wait a bit before retry
-                time.sleep(0.5 * retry_count)
+    return False
+
+
+def handle_invoice_submitted_immediate(event_name=None, event_data=None):
+    """
+    Immediate handler that just marks the member for update.
+
+    The actual update happens in the scheduled batch job.
+    """
+    if not event_data:
+        return
+
+    customer = event_data.get("customer")
+    invoice = event_data.get("invoice")
+
+    if not customer or not invoice:
+        return
+
+    # Just log that this member needs update
+    # The batch job will pick it up based on invoice modified time
+    frappe.logger("payment_history").info(
+        f"Invoice {invoice} submitted for customer {customer}. "
+        f"Payment history will be updated in next batch run."
+    )
+
+
+# Scheduler method to be called periodically
+def sync_payment_histories():
+    """
+    Scheduled method to sync payment histories.
+
+    Add this to hooks.py scheduler_events:
+    "*/5 * * * *": [
+        "vereiningen.events.subscribers.payment_history_subscriber.sync_payment_histories"
+    ]
+    """
+    try:
+        result = handle_invoice_events_batched()
+        if result["updated"] > 0:
+            frappe.db.commit()
+    except Exception as e:
+        frappe.log_error(str(e), "Payment History Sync Error")

@@ -465,14 +465,14 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         
     def test_dues_collection_for_schedule(self, dues_schedule):
         """Test dues collection for a schedule"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         # Make schedule eligible for collection
         dues_schedule.next_invoice_date = today()
         dues_schedule.test_mode = 0
         dues_schedule.save()
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         eligible = processor.get_eligible_dues_schedules(today())
         
         # Should find our schedule

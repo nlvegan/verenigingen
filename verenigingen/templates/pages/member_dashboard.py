@@ -38,7 +38,6 @@ def get_context(context):
             "start_date",
             "renewal_date",
             "status",
-            "auto_renew",
             "grace_period_status",
             "grace_period_expiry_date",
             "grace_period_reason",

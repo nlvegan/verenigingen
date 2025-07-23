@@ -19,9 +19,9 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
         
     def test_01_processor_initialization(self):
         """Test Enhanced SEPA Processor can be initialized"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
-        self.processor = EnhancedSEPAProcessor()
+        self.processor = SEPAProcessor()
         self.assertIsNotNone(self.processor, "Enhanced SEPA Processor should initialize successfully")
         self.assertIsNotNone(self.processor.company, "Processor should have company reference")
         
@@ -139,7 +139,7 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
     def test_06_api_endpoints_option_ac(self):
         """Test Option A+C specific API endpoints"""
         # Test imports
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch,
             verify_invoice_coverage_status,
             get_sepa_batch_preview
@@ -253,7 +253,7 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
         """Test that all Option A+C components are properly integrated"""
         # Verify all key components are available
         components = {
-            "Enhanced SEPA Processor": "verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor.EnhancedSEPAProcessor",
+            "Enhanced SEPA Processor": "verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor.SEPAProcessor",
             "Direct Debit Batch": "verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch.DirectDebitBatch", 
             "Batch Scheduler": "verenigingen.api.dd_batch_scheduler.daily_batch_optimization",
             "Notification System": "verenigingen.api.sepa_batch_notifications.handle_automated_batch_validation"

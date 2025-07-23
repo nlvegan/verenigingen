@@ -14,7 +14,6 @@ class MembershipTestUtilities:
         period="Monthly",
         amount=100.0,
         create_item=True,
-        allow_auto_renewal=True,
         require_approval=False,
         enforce_minimum_period=True,
     ):
@@ -26,7 +25,6 @@ class MembershipTestUtilities:
             period: One of Daily, Monthly, Quarterly, Biannual, Annual, Lifetime, Custom
             amount: Membership fee amount
             create_item: Whether to create linked item
-            allow_auto_renewal: Whether to allow auto-renewal
             require_approval: Whether new memberships require approval
             enforce_minimum_period: Whether to enforce 1-year minimum period for this type
 
@@ -157,7 +155,6 @@ class MembershipTestUtilities:
                 period=config["period"],
                 amount=config["amount"],
                 require_approval=config.get("require_approval", False),
-                allow_auto_renewal=config.get("allow_auto_renewal", True),
             )
             created_types.append(result)
 
@@ -194,7 +191,7 @@ class MembershipTestUtilities:
             "member": member.name,
             "membership_type": membership_type.name,
             "start_date": start_date,
-            "auto_renew": 1 if membership_type.allow_auto_renewal else 0}
+            }
 
         # Add custom amount if provided
         if custom_amount is not None:

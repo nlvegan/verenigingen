@@ -17,22 +17,22 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         self.test_member = self.create_test_member()
         self.test_membership_type = self.create_test_membership_type()
         
-    def test_enhanced_sepa_processor_initialization(self):
+    def test_sepa_processor_initialization(self):
         """Test Enhanced SEPA processor initialization"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         self.assertIsNotNone(processor.settings)
         self.assertIsNotNone(processor.company)
         
     def test_eligible_dues_schedules_detection(self):
         """Test detection of eligible dues schedules for collection"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         # Create dues schedule ready for collection
         dues_schedule = self.create_test_dues_schedule_for_collection()
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         eligible_schedules = processor.get_eligible_dues_schedules(today())
         
         # Should find our test schedule
@@ -41,13 +41,13 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         
     def test_dues_collection_batch_creation(self):
         """Test creating dues collection batch"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         # Create eligible dues schedules
         dues_schedule1 = self.create_test_dues_schedule_for_collection()
         dues_schedule2 = self.create_test_dues_schedule_for_collection()
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         batch = processor.create_dues_collection_batch(today())
         
         if batch:  # Only test if we have eligible schedules
@@ -67,11 +67,11 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
                 
     def test_dues_invoice_creation(self):
         """Test creating dues invoice for schedule"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         dues_schedule = self.create_test_dues_schedule_for_collection()
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         invoice = processor.create_dues_invoice(dues_schedule, today())
         
         if invoice:  # Only test if invoice was created
@@ -92,9 +92,9 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             
     def test_invoice_description_generation(self):
         """Test invoice description generation for different contribution modes"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         
         # Test tier-based description
         tier_schedule = self.create_test_dues_schedule_tier_based()
@@ -118,12 +118,12 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             
     def test_sepa_mandate_integration(self):
         """Test SEPA mandate integration with dues collection"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         # Create dues schedule with SEPA mandate
         dues_schedule = self.create_test_dues_schedule_with_sepa()
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         mandate = processor.get_active_mandate(dues_schedule)
         
         if mandate:  # Only test if mandate exists
@@ -132,11 +132,11 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
             
     def test_payment_failure_handling(self):
         """Test payment failure handling workflow"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         # Create batch with invoice
         dues_schedule = self.create_test_dues_schedule_for_collection()
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         
         # Simulate batch creation
         batch = frappe.new_doc("Direct Debit Batch")
@@ -202,7 +202,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         
     def test_upcoming_collections_api(self):
         """Test upcoming dues collections API"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import get_upcoming_dues_collections
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import get_upcoming_dues_collections
         
         # Create future dues schedule
         dues_schedule = self.create_test_dues_schedule_for_collection()
@@ -217,7 +217,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         
     def test_sepa_configuration_validation(self):
         """Test SEPA configuration validation"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import validate_sepa_configuration
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import validate_sepa_configuration
         
         result = validate_sepa_configuration()
         
@@ -287,9 +287,9 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         
     def test_invoice_item_generation(self):
         """Test automatic invoice item generation"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         item_code = processor.get_or_create_dues_item(self.create_test_dues_schedule_for_collection())
         
         # Validate item was created/found
@@ -304,7 +304,7 @@ class TestEnhancedSEPAProcessing(VereningingenTestCase):
         
     def test_scheduled_collection_task(self):
         """Test scheduled dues collection task"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import create_monthly_dues_collection_batch
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import create_monthly_dues_collection_batch
         
         # Run scheduled task
         batch_name = create_monthly_dues_collection_batch()

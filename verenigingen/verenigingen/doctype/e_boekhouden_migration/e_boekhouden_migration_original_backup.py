@@ -1450,7 +1450,7 @@ class EBoekhoudenMigration(Document):
         Enhanced Bank Account creation for Chart of Accounts bank account
         """
         try:
-            from verenigingen.utils.eboekhouden.eboekhouden_enhanced_coa_import import (
+            from verenigingen.utils.eboekhouden.eboekhouden_coa_import import (
                 create_bank_account_record,
                 extract_bank_info_from_account_name,
                 get_or_create_bank,

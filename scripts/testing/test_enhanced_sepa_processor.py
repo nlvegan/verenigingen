@@ -11,7 +11,7 @@ app_dir = "/home/frappe/frappe-bench/apps/verenigingen"
 if app_dir not in sys.path:
     sys.path.insert(0, app_dir)
 
-def test_enhanced_sepa_processor():
+def test_sepa_processor():
     """Test the Enhanced SEPA Processor with Option A+C workflow"""
     print("=" * 60)
     print("Testing Enhanced SEPA Processor - Option A+C Workflow")
@@ -20,8 +20,8 @@ def test_enhanced_sepa_processor():
     try:
         # Test 1: Import the processor
         print("\n1. Testing processor import...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
-        processor = EnhancedSEPAProcessor()
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        processor = SEPAProcessor()
         print("✅ Enhanced SEPA Processor imported successfully")
         
         # Test 2: Test invoice coverage verification
@@ -39,14 +39,14 @@ def test_enhanced_sepa_processor():
         
         # Test 4: Test batch preview
         print("\n4. Testing SEPA batch preview...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import get_sepa_batch_preview
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import get_sepa_batch_preview
         preview_result = get_sepa_batch_preview()
         print(f"✅ Batch preview completed: {preview_result['unpaid_invoices_found']} invoices, "
               f"€{preview_result.get('total_amount', 0):.2f} total")
         
         # Test 5: Test monthly scheduler function
         print("\n5. Testing monthly scheduler function...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import create_monthly_dues_collection_batch
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import create_monthly_dues_collection_batch
         from frappe.utils import getdate
         
         current_date = getdate(today())
@@ -104,7 +104,7 @@ def test_scheduler_integration():
         
         # Test Enhanced SEPA processor integration
         print("\n2. Testing Enhanced SEPA processor integration...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import create_monthly_dues_collection_batch
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import create_monthly_dues_collection_batch
         print("✅ Monthly SEPA processor function available")
         
         print("\n3. Integration status:")
@@ -129,7 +129,7 @@ if __name__ == "__main__":
     success = True
     
     # Run the tests
-    success &= test_enhanced_sepa_processor()
+    success &= test_sepa_processor()
     success &= test_scheduler_integration()
     
     print("\n" + "=" * 80)

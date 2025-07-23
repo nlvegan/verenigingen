@@ -1,5 +1,5 @@
 """
-Enhanced SEPA Direct Debit processor for the flexible membership dues system
+SEPA Direct Debit processor for the flexible membership dues system
 """
 
 import xml.etree.ElementTree as ET
@@ -14,8 +14,8 @@ from verenigingen.utils.sepa_error_handler import get_sepa_error_handler, sepa_r
 from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
 
 
-class EnhancedSEPAProcessor:
-    """Enhanced SEPA processor that handles the new membership dues schedules"""
+class SEPAProcessor:
+    """SEPA processor that handles membership dues schedules"""
 
     def __init__(self):
         self.config_manager = get_sepa_config_manager()
@@ -888,7 +888,7 @@ def create_monthly_dues_collection_batch():
     error_handler = get_sepa_error_handler()
 
     def create_batch_operation():
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         return processor.create_dues_collection_batch(collection_date=processing_date)
 
     result = error_handler.execute_with_retry(create_batch_operation)
@@ -926,7 +926,7 @@ def create_monthly_dues_collection_batch():
 @frappe.whitelist()
 def process_sepa_returns(batch_name, return_file):
     """Process SEPA return file for a batch"""
-    processor = EnhancedSEPAProcessor()
+    processor = SEPAProcessor()
     failed_count = processor.process_batch_returns(batch_name, return_file)
 
     frappe.msgprint(_("Processed {0} failed payments from SEPA return file").format(failed_count))
@@ -937,7 +937,7 @@ def process_sepa_returns(batch_name, return_file):
 @frappe.whitelist()
 def verify_invoice_coverage_status(collection_date=None):
     """API to check invoice coverage for a specific date"""
-    processor = EnhancedSEPAProcessor()
+    processor = SEPAProcessor()
     if not collection_date:
         collection_date = today()
 
@@ -948,7 +948,7 @@ def verify_invoice_coverage_status(collection_date=None):
 @frappe.whitelist()
 def get_sepa_batch_preview(collection_date=None):
     """Preview what SEPA batch would be created without actually creating it"""
-    processor = EnhancedSEPAProcessor()
+    processor = SEPAProcessor()
     if not collection_date:
         collection_date = today()
 

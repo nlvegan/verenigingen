@@ -366,7 +366,7 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
                 
     def test_sepa_processor_scalability(self):
         """Test SEPA processor performance with many dues schedules"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         membership_type = self.create_performance_membership_type()
         
@@ -398,7 +398,7 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
         print(f"  - Created {len(sepa_schedules)} SEPA-enabled schedules")
         
         # Test SEPA processor performance
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         
         # Test eligibility detection
         start_time = time.time()

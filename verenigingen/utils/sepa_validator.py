@@ -1,29 +1,25 @@
-#!/usr/bin/env python3
 """
-Simple validation script for enhanced SEPA integration
-Can be run via: bench --site dev.veganisme.net execute verenigingen.validate_enhanced_sepa.validate_integration
+SEPA integration validation utilities
 """
 
 import frappe
 
 
 @frappe.whitelist()
-def validate_integration():
-    """Validate the enhanced SEPA integration"""
+def validate_sepa_integration():
+    """Validate the SEPA integration"""
 
     results = []
 
     try:
-        # Test 1: Import enhanced processor
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
-            EnhancedSEPAProcessor,
-        )
+        # Test 1: Import SEPA processor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
-        processor = EnhancedSEPAProcessor()
-        results.append("✓ Enhanced SEPA processor imported successfully")
+        processor = SEPAProcessor()
+        results.append("✓ SEPA processor imported successfully")
 
         # Test 2: Check SEPA configuration
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             validate_sepa_configuration,
         )
 
@@ -39,7 +35,7 @@ def validate_integration():
         results.append(f"✓ Found {len(eligible_schedules)} eligible dues schedules")
 
         # Test 4: Test upcoming collections API
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             get_upcoming_dues_collections,
         )
 
@@ -61,19 +57,19 @@ def validate_integration():
         from verenigingen import hooks
 
         scheduler_tasks = hooks.scheduler_events.get("daily", [])
-        sepa_task = "verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor.create_monthly_dues_collection_batch"
+        sepa_task = "verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch"
         if sepa_task in scheduler_tasks:
-            results.append("✓ Enhanced dues collection task added to daily scheduler")
+            results.append("✓ Dues collection task added to daily scheduler")
         else:
-            results.append("✗ Enhanced dues collection task NOT in daily scheduler")
+            results.append("✗ Dues collection task NOT in daily scheduler")
 
         results.append("\n" + "=" * 60)
-        results.append("Enhanced SEPA Integration Validation Summary")
+        results.append("SEPA Integration Validation Summary")
         results.append("=" * 60)
-        results.append("✓ Enhanced SEPA processor is properly integrated")
+        results.append("✓ SEPA processor is properly integrated")
         results.append("✓ System is ready for flexible membership dues collection")
         results.append("✓ SEPA batches can be generated automatically via scheduler")
-        results.append("✓ New APIs are available for manual batch creation and preview")
+        results.append("✓ APIs are available for manual batch creation and preview")
 
         # Print results
         for result in results:
@@ -89,12 +85,3 @@ def validate_integration():
 
         traceback.print_exc()
         return {"success": False, "error": str(e), "results": results}
-
-
-def main():
-    """For direct execution"""
-    return validate_integration()
-
-
-if __name__ == "__main__":
-    main()

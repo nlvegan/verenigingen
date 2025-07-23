@@ -1,5 +1,5 @@
 """
-Enhanced Chart of Accounts import with automatic Bank and Bank Account creation
+Chart of Accounts import with automatic Bank and Bank Account creation
 """
 
 import json
@@ -9,9 +9,9 @@ import frappe
 
 
 @frappe.whitelist()
-def enhanced_coa_import_with_bank_accounts(migration_doc_name):
+def coa_import_with_bank_accounts(migration_doc_name):
     """
-    Enhanced CoA import that creates Bank and Bank Account records for bank accounts
+    CoA import that creates Bank and Bank Account records for bank accounts
     """
     try:
         # Get the migration document

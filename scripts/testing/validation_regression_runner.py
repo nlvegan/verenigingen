@@ -73,7 +73,7 @@ def run_field_validation():
     print("-" * 40)
     
     try:
-        cmd = ["python", "scripts/validation/final_field_validator.py"]
+        cmd = ["python", "scripts/validation/field_validator.py"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:

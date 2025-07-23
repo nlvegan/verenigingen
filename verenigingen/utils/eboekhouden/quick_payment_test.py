@@ -100,7 +100,7 @@ def check_migration_status():
 
     # Check if enhanced import is present
     if (
-        "from verenigingen.utils.eboekhouden.enhanced_payment_import import create_enhanced_payment_entry"
+        "from verenigingen.utils.eboekhouden.eboekhouden_payment_import import create_payment_entry"
         in content
     ):
         results["checks"].append("✓ Enhanced import statement found")

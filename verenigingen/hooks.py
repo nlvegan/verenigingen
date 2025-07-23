@@ -170,8 +170,8 @@ scheduler_events = {
         "verenigingen.api.dd_batch_scheduler.daily_batch_optimization",
         # Create daily analytics snapshots
         "verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_scheduled_snapshots",
-        # Enhanced membership dues collection processing
-        "verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor.create_monthly_dues_collection_batch",
+        # Membership dues collection processing
+        "verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch",
         # Payment plan processing
         "verenigingen.verenigingen.doctype.payment_plan.payment_plan.process_overdue_installments",
     ],

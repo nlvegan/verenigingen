@@ -91,11 +91,11 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         print(f"  Cached config: {cached_time:.3f}s")
         self.assertLess(cached_time, 0.01, "Cached config should be < 10ms")
     
-    def test_enhanced_sepa_processor_performance(self):
+    def test_sepa_processor_performance(self):
         """Test Enhanced SEPA Processor performance"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         
         # Test invoice lookup performance
         result, exec_time = self.measure_execution_time(

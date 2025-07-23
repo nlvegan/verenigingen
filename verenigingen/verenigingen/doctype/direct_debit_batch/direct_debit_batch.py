@@ -577,7 +577,7 @@ def generate_direct_debit_batch(date=None):
     This can be called via JS or scheduled jobs
     """
     try:
-        from verenigingen.verenigingen.doctype.membership.enhanced_dues_schedule import (
+        from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
             create_direct_debit_batch,
         )
 
@@ -649,7 +649,7 @@ def create_direct_debit_batch_for_unpaid_memberships():
     This is meant to be scheduled daily via hooks.py
     """
     try:
-        from verenigingen.verenigingen.doctype.membership.enhanced_dues_schedule import (
+        from verenigingen.verenigingen.doctype.membership.dues_schedule_manager import (
             get_unpaid_membership_invoices,
         )
 
@@ -710,11 +710,9 @@ def create_enhanced_dues_batch(collection_date=None):
     This is the new enhanced method that works with the flexible dues system
     """
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
-            EnhancedSEPAProcessor,
-        )
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
-        processor = EnhancedSEPAProcessor()
+        processor = SEPAProcessor()
         batch = processor.create_dues_collection_batch(collection_date)
 
         if batch:
@@ -741,7 +739,7 @@ def get_dues_collection_preview(collection_date=None, days_ahead=30):
     Get a preview of upcoming dues collections without creating batches
     """
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             get_upcoming_dues_collections,
         )
 

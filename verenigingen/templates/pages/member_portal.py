@@ -64,7 +64,7 @@ def get_context(context):
     membership = frappe.db.get_value(
         "Membership",
         {"member": member, "status": "Active", "docstatus": 1},
-        ["name", "membership_type", "start_date", "renewal_date", "status", "auto_renew"],
+        ["name", "membership_type", "start_date", "renewal_date", "status"],
         as_dict=True,
     )
     context.membership = membership

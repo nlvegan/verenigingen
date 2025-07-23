@@ -36,14 +36,14 @@ def run_tests():
     
     # Test 1: Processor import and initialization
     def test_processor_import():
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
-        processor = EnhancedSEPAProcessor()
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        processor = SEPAProcessor()
         assert processor is not None, "Processor should be created successfully"
     
     # Test 2: Invoice coverage verification
     def test_invoice_coverage():
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
-        processor = EnhancedSEPAProcessor()
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        processor = SEPAProcessor()
         result = processor.verify_invoice_coverage(today())
         assert isinstance(result, dict), "Coverage verification should return dict"
         assert "total_checked" in result, "Result should include total_checked"
@@ -51,15 +51,15 @@ def run_tests():
     
     # Test 3: Unpaid invoice lookup
     def test_unpaid_invoices():
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
-        processor = EnhancedSEPAProcessor()
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        processor = SEPAProcessor()
         invoices = processor.get_existing_unpaid_sepa_invoices(today())
         assert isinstance(invoices, list), "Should return list of invoices"
     
     # Test 4: Coverage period validation
     def test_coverage_validation():
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import EnhancedSEPAProcessor
-        processor = EnhancedSEPAProcessor()
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        processor = SEPAProcessor()
         
         # Test valid monthly period
         test_schedule = {
@@ -73,7 +73,7 @@ def run_tests():
     
     # Test 5: API functions
     def test_api_functions():
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import (
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
             verify_invoice_coverage_status,
             get_sepa_batch_preview
         )
@@ -89,7 +89,7 @@ def run_tests():
     
     # Test 6: Monthly scheduler function
     def test_scheduler_function():
-        from verenigingen.verenigingen.doctype.direct_debit_batch.enhanced_sepa_processor import create_monthly_dues_collection_batch
+        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import create_monthly_dues_collection_batch
         
         # Check if function is callable (we won't actually run it)
         assert callable(create_monthly_dues_collection_batch), "Scheduler function should be callable"

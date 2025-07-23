@@ -30,7 +30,7 @@ def debug_portal_settings():
         return {"success": False, "error": str(e)}
 
 
-def get_enhanced_portal_menu_items():
+def get_membership_portal_menu_items():
     """Get portal menu items with submenus for member portal"""
 
     # Start with custom member-specific items that may not be in Portal Settings
@@ -220,7 +220,7 @@ def get_user_portal_menu():
         user = frappe.session.user
         user_roles = frappe.get_roles(user)
 
-        enhanced_menu = get_enhanced_portal_menu_items()
+        enhanced_menu = get_membership_portal_menu_items()
 
         # Filter menu items based on user roles
         filtered_menu = []

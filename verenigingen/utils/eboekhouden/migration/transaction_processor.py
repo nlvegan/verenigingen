@@ -214,12 +214,10 @@ class TransactionProcessor:
         """Create a Payment Entry from E-Boekhouden data"""
         try:
             # Use enhanced payment import if available
-            from verenigingen.utils.eboekhouden.enhanced_payment_import import create_enhanced_payment_entry
+            from verenigingen.utils.eboekhouden.eboekhouden_payment_import import create_payment_entry
 
             debug_info = []
-            payment_name = create_enhanced_payment_entry(
-                payment_data, self.company, None, debug_info  # cost_center
-            )
+            payment_name = create_payment_entry(payment_data, self.company, None, debug_info)  # cost_center
 
             if debug_info:
                 for info in debug_info:
