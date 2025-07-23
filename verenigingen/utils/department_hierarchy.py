@@ -98,7 +98,7 @@ class DepartmentHierarchyManager:
 
         if board_positions:
             chapter = frappe.get_doc("Chapter", board_positions[0].parent)
-            return f"Chapter {chapter.chapter_name} Board"
+            return f"Chapter {chapter.name} Board"
 
         # Priority 2: Team leadership positions
         team_leadership = frappe.db.sql(
@@ -120,7 +120,7 @@ class DepartmentHierarchyManager:
             team = team_leadership[0]
             if team.chapter:
                 chapter = frappe.get_doc("Chapter", team.chapter)
-                return f"Chapter {chapter.chapter_name} Teams"
+                return f"Chapter {chapter.name} Teams"
             else:
                 return f"{team.team_name} ({team.team_type or 'Team'})"
 

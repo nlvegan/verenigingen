@@ -16,3 +16,4 @@ verenigingen.patches.rename_amount_to_dues_rate
 verenigingen.patches.v2_0.add_workflow_demo_to_workspace
 verenigingen.patches.v2_0.migrate_membership_type_billing_to_dues_schedule
 verenigingen.patches.add_customer_member_link_field
+verenigingen.patches.v2_0.remove_membership_legacy_fields

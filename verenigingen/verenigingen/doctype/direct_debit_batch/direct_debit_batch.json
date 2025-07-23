@@ -14,6 +14,10 @@
   "currency",
   "entry_count",
   "status",
+  "validation_section",
+  "validation_status",
+  "validation_errors",
+  "validation_warnings",
   "invoices_section",
   "invoices",
   "sepa_file_section",
@@ -87,6 +91,33 @@
    "options": "Draft\nGenerated\nSubmitted\nProcessed\nFailed",
    "read_only": 1,
    "allow_on_submit": 1
+  },
+  {
+   "fieldname": "validation_section",
+   "fieldtype": "Section Break",
+   "label": "Sequence Type Validation"
+  },
+  {
+   "fieldname": "validation_status",
+   "fieldtype": "Select",
+   "label": "Validation Status",
+   "options": "Passed\nWarnings\nCritical Errors\nValidation Failed",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "validation_errors",
+   "fieldtype": "Long Text",
+   "label": "Critical Errors",
+   "read_only": 1,
+   "depends_on": "eval:doc.validation_status == 'Critical Errors' || doc.validation_status == 'Validation Failed'"
+  },
+  {
+   "fieldname": "validation_warnings",
+   "fieldtype": "Long Text",
+   "label": "Warnings",
+   "read_only": 1,
+   "depends_on": "eval:doc.validation_status == 'Warnings' || doc.validation_errors"
   },
   {
    "fieldname": "invoices_section",

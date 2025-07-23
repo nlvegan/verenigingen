@@ -62,13 +62,13 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             member=self.member.name,
             membership=self.membership.name,
             membership_type=self.membership_type.name,
-            amount=self.membership_type.amount
+            amount=self.membership_type.minimum_amount
         )
     
     def test_fee_increase_without_approval(self):
         """Test that fee increases within limits don't require approval"""
         # Create fee increase request (2x base amount, within 3x limit)
-        new_amount = self.membership_type.amount * 2
+        new_amount = self.membership_type.minimum_amount * 2
         
         # Set session user to be the member
         original_user = frappe.session.user
@@ -91,7 +91,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "member": self.member.name,
                 "membership": self.membership.name,
                 "amendment_type": "Fee Change",
-                "current_amount": self.membership_type.amount,
+                "current_amount": self.membership_type.minimum_amount,
                 "requested_amount": new_amount,
                 "reason": "Want to contribute more",
                 "requested_by_member": 1,
@@ -124,14 +124,14 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
     def test_fee_increase_exceeding_limit_requires_approval(self):
         """Test that fee increases beyond maximum multiplier require approval"""
         # Create fee increase request (4x base amount, exceeds 3x limit)
-        new_amount = self.membership_type.amount * 4
+        new_amount = self.membership_type.minimum_amount * 4
         
         request = frappe.get_doc({
             "doctype": "Contribution Amendment Request",
             "member": self.member.name,
             "membership": self.membership.name,
             "amendment_type": "Fee Change",
-            "current_amount": self.membership_type.amount,
+            "current_amount": self.membership_type.minimum_amount,
             "requested_amount": new_amount,
             "reason": "Want to contribute much more",
             "status": "Pending Approval",
@@ -146,14 +146,14 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
     def test_fee_decrease_always_requires_approval(self):
         """Test that fee decreases always require approval"""
         # Create fee decrease request
-        new_amount = self.membership_type.amount * 0.5
+        new_amount = self.membership_type.minimum_amount * 0.5
         
         request = frappe.get_doc({
             "doctype": "Contribution Amendment Request",
             "member": self.member.name,
             "membership": self.membership.name,
             "amendment_type": "Fee Change",
-            "current_amount": self.membership_type.amount,
+            "current_amount": self.membership_type.minimum_amount,
             "requested_amount": new_amount,
             "reason": "Financial difficulties",
             "status": "Pending Approval",
@@ -173,8 +173,8 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             "member": self.member.name,
             "membership": self.membership.name,
             "amendment_type": "Fee Change",
-            "current_amount": self.membership_type.amount,
-            "requested_amount": self.membership_type.amount * 1.5,
+            "current_amount": self.membership_type.minimum_amount,
+            "requested_amount": self.membership_type.minimum_amount * 1.5,
             "reason": "First adjustment",
             "status": "Applied",
             "requested_by_member": 1,
@@ -193,8 +193,8 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             "member": self.member.name,
             "membership": self.membership.name,
             "amendment_type": "Fee Change",
-            "current_amount": self.membership_type.amount * 1.5,
-            "requested_amount": self.membership_type.amount * 2,
+            "current_amount": self.membership_type.minimum_amount * 1.5,
+            "requested_amount": self.membership_type.minimum_amount * 2,
             "reason": "Second adjustment",
             "status": "Applied",
             "requested_by_member": 1,
@@ -228,8 +228,8 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "member": self.member.name,
                 "membership": self.membership.name,
                 "amendment_type": "Fee Change",
-                "current_amount": self.membership_type.amount * 2,
-                "requested_amount": self.membership_type.amount * 2.5,
+                "current_amount": self.membership_type.minimum_amount * 2,
+                "requested_amount": self.membership_type.minimum_amount * 2.5,
                 "reason": "Third adjustment",
                 "status": "Pending Approval",
                 "requested_by_member": 1,
@@ -247,8 +247,8 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             "member": self.member.name,
             "membership": self.membership.name,
             "amendment_type": "Fee Change",
-            "current_amount": self.membership_type.amount,
-            "requested_amount": self.membership_type.amount * 1.5,
+            "current_amount": self.membership_type.minimum_amount,
+            "requested_amount": self.membership_type.minimum_amount * 1.5,
             "reason": "Old adjustment",
             "status": "Applied",
             "requested_by_member": 1,
@@ -281,8 +281,8 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             "member": self.member.name,
             "membership": self.membership.name,
             "amendment_type": "Fee Change",
-            "current_amount": self.membership_type.amount,
-            "requested_amount": self.membership_type.amount * 2,
+            "current_amount": self.membership_type.minimum_amount,
+            "requested_amount": self.membership_type.minimum_amount * 2,
             "reason": "New adjustment",
             "status": "Auto-Approved",
             "requested_by_member": 1,
@@ -301,8 +301,8 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "member": self.member.name,
                 "membership": self.membership.name,
                 "amendment_type": "Fee Change",
-                "current_amount": self.membership_type.amount,
-                "requested_amount": self.membership_type.amount,
+                "current_amount": self.membership_type.minimum_amount,
+                "requested_amount": self.membership_type.minimum_amount,
                 "reason": "No change",
                 "status": "Pending Approval",
                 "requested_by_member": 1,
@@ -315,7 +315,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
     def test_minimum_fee_enforcement(self):
         """Test that fees cannot go below minimum"""
         # Calculate minimum fee (30% of base or €5, whichever is higher)
-        minimum_fee = max(self.membership_type.amount * 0.3, 5.0)
+        minimum_fee = max(self.membership_type.minimum_amount * 0.3, 5.0)
         
         # Try to set fee below minimum
         with self.assertRaises(frappe.ValidationError) as cm:
@@ -324,7 +324,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "member": self.member.name,
                 "membership": self.membership.name,
                 "amendment_type": "Fee Change",
-                "current_amount": self.membership_type.amount,
+                "current_amount": self.membership_type.minimum_amount,
                 "requested_amount": minimum_fee - 1,  # Below minimum
                 "reason": "Too low",
                 "status": "Pending Approval",
@@ -343,7 +343,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
         self.member.save()
         
         # Student minimum is 50% of base
-        student_minimum = max(self.membership_type.amount * 0.5, 5.0)
+        student_minimum = max(self.membership_type.minimum_amount * 0.5, 5.0)
         
         # Should be able to set fee at student minimum
         request = frappe.get_doc({
@@ -351,7 +351,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
             "member": self.member.name,
             "membership": self.membership.name,
             "amendment_type": "Fee Change",
-            "current_amount": self.membership_type.amount,
+            "current_amount": self.membership_type.minimum_amount,
             "requested_amount": student_minimum,
             "reason": "Student discount",
             "status": "Pending Approval",
@@ -371,7 +371,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
                 "member": self.member.name,
                 "membership": self.membership.name,
                 "amendment_type": "Fee Change",
-                "current_amount": self.membership_type.amount,
+                "current_amount": self.membership_type.minimum_amount,
                 "requested_amount": 0,
                 "reason": "Want free membership",
                 "status": "Pending Approval",
@@ -385,14 +385,14 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
     def test_dues_schedule_update_on_approval(self):
         """Test that dues schedule is properly updated when fee change is approved"""
         # Create fee change request
-        new_amount = self.membership_type.amount * 1.5
+        new_amount = self.membership_type.minimum_amount * 1.5
         
         request = frappe.get_doc({
             "doctype": "Contribution Amendment Request",
             "member": self.member.name,
             "membership": self.membership.name,
             "amendment_type": "Fee Change",
-            "current_amount": self.membership_type.amount,
+            "current_amount": self.membership_type.minimum_amount,
             "requested_amount": new_amount,
             "reason": "Increasing contribution",
             "status": "Auto-Approved",

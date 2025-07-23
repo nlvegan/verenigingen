@@ -91,7 +91,7 @@ def analyze_specific_mutations():
     generate_recommendations(results)
 
     # Save detailed results
-    output_file = f"/home/frappe/frappe-bench/apps/vereinigingen/payment_mutation_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    output_file = f"/home/frappe/frappe-bench/apps/verenigingen/payment_mutation_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
     with open(output_file, "w") as f:
         json.dump(results, f, indent=2, default=str)
 

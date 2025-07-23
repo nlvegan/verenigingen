@@ -31,19 +31,19 @@ class TestRevenueRecognitionAutomation(BaseTestCase):
             {
                 "membership_type_name": "Annual Standard",
                 "billing_period": "Annual",
-                "amount": 240.00,
+                "minimum_amount": 240.00,
                 "description": "Annual membership for revenue recognition testing"
             },
             {
                 "membership_type_name": "Quarterly Premium", 
                 "billing_period": "Quarterly",
-                "amount": 75.00,
+                "minimum_amount": 75.00,
                 "description": "Quarterly membership for revenue recognition testing"
             },
             {
                 "membership_type_name": "Monthly Basic",
                 "billing_period": "Monthly",
-                "amount": 20.00,
+                "minimum_amount": 20.00,
                 "description": "Monthly membership for revenue recognition testing"
             }
         ]
@@ -88,7 +88,7 @@ class TestRevenueRecognitionAutomation(BaseTestCase):
             monthly_revenue = {
                 "member": member.name,
                 "recognition_date": recognition_date,
-                "amount": monthly_recognition_amount,
+                "minimum_amount": monthly_recognition_amount,
                 "period": f"Month {month + 1}",
                 "cumulative": monthly_recognition_amount * (month + 1)
             }
@@ -205,7 +205,7 @@ class TestRevenueRecognitionAutomation(BaseTestCase):
             monthly_entry = {
                 "member": member.name,
                 "recognition_date": recognition_date,
-                "amount": monthly_recognition,
+                "minimum_amount": monthly_recognition,
                 "month": month + 1,
                 "cumulative": monthly_recognition * (month + 1)
             }

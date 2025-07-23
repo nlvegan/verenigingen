@@ -10,7 +10,7 @@ def setup_membership_scheduler_events():
         "daily": [
             "verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships",
             "verenigingen.verenigingen.doctype.membership.scheduler.send_renewal_reminders",
-            "verenigingen.verenigingen.doctype.membership.scheduler.process_auto_renewals",
+            # Note: Auto-renewal removed - renewal is handled by the billing/dues schedule system
         ]
     }
 
@@ -178,49 +178,11 @@ def send_renewal_reminders():
 
 
 def process_auto_renewals():
-    """Process automatic renewals for memberships"""
-    # Get memberships that are set to auto-renew and expiring today
-    memberships = frappe.get_all(
-        "Membership",
-        filters={"status": "Active", "renewal_date": today(), "auto_renew": 1, "docstatus": 1},
-        fields=["name"],
-    )
-
-    count = 0
-    for membership in memberships:
-        try:
-            doc = frappe.get_doc("Membership", membership.name)
-
-            # Create a new membership as a renewal
-            new_membership_name = doc.renew_membership()
-
-            if new_membership_name:
-                # Submit the new membership
-                new_membership = frappe.get_doc("Membership", new_membership_name)
-                new_membership.docstatus = 1
-                new_membership.save()
-
-                # Process dues schedule if one exists
-                if doc.dues_schedule:
-                    dues_schedule = frappe.get_doc("Membership Dues Schedule", doc.dues_schedule)
-
-                    # Check if dues schedule is still active
-                    if dues_schedule.status == "Active":
-                        # Create new dues schedule for the renewed membership
-                        new_membership.create_dues_schedule_from_membership()
-                        new_membership.save()
-
-                # Log the renewal
-                frappe.logger().info(f"Auto-renewed membership {doc.name} to {new_membership_name}")
-                count += 1
-
-        except Exception as e:
-            frappe.logger().error(f"Error auto-renewing membership {membership.name}: {str(e)}")
-
-    if count:
-        frappe.logger().info(f"Auto-renewed {count} memberships")
-
-    return count
+    """DEPRECATED: Auto-renewal is now handled by the billing/dues schedule system"""
+    # Auto-renewal functionality has been moved to the dues schedule system
+    # This function is kept for backward compatibility but does nothing
+    frappe.logger().info("Auto-renewal is now handled by the billing/dues schedule system")
+    return 0
 
 
 def generate_direct_debit_batch():
@@ -288,5 +250,9 @@ def enqueue_send_renewal_reminders():
 
 @frappe.whitelist()
 def enqueue_process_auto_renewals():
-    """Enqueue processing of auto renewals as a background job"""
-    return enqueue(process_auto_renewals, queue="long", timeout=30000, job_name="process_auto_renewals")
+    """DEPRECATED: Auto-renewal is now handled by the billing/dues schedule system"""
+    frappe.logger().info("Auto-renewal is now handled by the billing/dues schedule system")
+    return {
+        "status": "deprecated",
+        "message": "Auto-renewal is now handled by the billing/dues schedule system",
+    }

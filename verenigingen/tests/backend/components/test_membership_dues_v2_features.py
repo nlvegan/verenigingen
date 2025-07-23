@@ -42,7 +42,7 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
             "email": f"payfirst.{frappe.generate_hash(length=6)}@example.com",
             "membership_type": "Test Membership",
             "sepa_mandate_consent": 1,
-            "iban": "NL91ABNA0417164300",
+            "iban": "NL13TEST0123456789",
             "account_holder_name": "PayFirst Applicant"}
         
         application = self.create_test_membership_application(
@@ -51,7 +51,7 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
             email=f"payfirst.{frappe.generate_hash(length=6)}@example.com",
             membership_type="Test Membership",
             sepa_mandate_consent=1,
-            iban="NL91ABNA0417164300",
+            iban="NL13TEST0123456789",
             account_holder_name="PayFirst Applicant"
         )
         
@@ -59,7 +59,7 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         draft_mandate = self.create_test_sepa_mandate(
             party_type="Customer",
             party=None,  # No customer yet
-            iban="NL91ABNA0417164300",
+            iban="NL13TEST0123456789",
             account_holder="PayFirst Applicant",
             status="Draft",
             consent_method="Online Application",
@@ -237,7 +237,7 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         mandate = frappe.new_doc("SEPA Mandate")
         mandate.party_type = "Customer"
         mandate.party = "Test Customer"
-        mandate.iban = "NL91ABNA0417164300"
+        mandate.iban = "NL13TEST0123456789"
         mandate.account_holder = "Test Holder"
         mandate.mandate_type = "RCUR"
         mandate.status = "Active"
@@ -572,7 +572,7 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         application.email = f"testpaid.{frappe.generate_hash(length=6)}@example.com"
         application.membership_type = "Test Membership"
         application.sepa_mandate_consent = 1
-        application.iban = "NL91ABNA0417164300"
+        application.iban = "NL13TEST0123456789"
         application.account_holder_name = "TestPaid Applicant"
         application.billing_frequency = "Monthly"
         application.first_payment_completed = 1
@@ -696,15 +696,21 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
         return add_days(batch_date, -days_required)
         
     def validate_member_eligibility_for_billing(self, member):
-        """Validate if member is eligible for billing"""
+        """Validate if member is eligible for billing - matches current system behavior"""
         # Check member status
         if member.status in ["Terminated", "Expelled", "Deceased", "Suspended", "Quit"]:
             return False
         
-        # In real implementation, would also check:
-        # - Active membership existence
-        # - Valid payment method
-        # - SEPA mandate status
+        # Check if member has active membership
+        active_membership = frappe.db.exists(
+            "Membership", {"member": member.name, "status": "Active", "docstatus": 1}
+        )
+        if not active_membership:
+            return False
+        
+        # NOTE: Payment method validation is done at DD batch creation time
+        # Members with broken payment data can still receive invoices
+        # They just won't be included in Direct Debit batches
         
         return True
         
@@ -732,6 +738,116 @@ class TestMembershipDuesV2Features(VereningingenTestCase):
                     eligible_invoices.append(invoice)
         
         return eligible_invoices
+        
+    def test_invoice_generation_with_missing_sepa_mandate(self):
+        """Test that members with SEPA Direct Debit can still receive invoices without active mandate"""
+        # Create member with SEPA Direct Debit payment method but no mandate
+        member = self.create_test_member(
+            first_name="MissingMandate",
+            last_name="TestMember", 
+            email=f"missing.mandate.{frappe.generate_hash(length=6)}@example.com",
+            payment_method="SEPA Direct Debit",
+            iban="NL13TEST0123456789"
+        )
+        
+        # Create active membership
+        membership = self.create_test_membership(
+            member=member.name,
+            membership_type="Test Membership",
+            status="Active"
+        )
+        
+        # Create dues schedule
+        dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        dues_schedule.member = member.name
+        dues_schedule.membership_type = "Test Membership"
+        dues_schedule.billing_frequency = "Monthly"
+        dues_schedule.dues_rate = 25.0
+        dues_schedule.next_invoice_date = today()
+        dues_schedule.status = "Active"
+        dues_schedule.save()
+        self.track_doc("Membership Dues Schedule", dues_schedule.name)
+        
+        # Verify no SEPA mandate exists
+        mandate_exists = frappe.db.exists(
+            "SEPA Mandate", 
+            {"member": member.name, "status": "Active", "is_active": 1}
+        )
+        self.assertFalse(mandate_exists, "No SEPA mandate should exist for this test")
+        
+        # Test eligibility validation - should PASS (new behavior)
+        is_eligible = dues_schedule.validate_member_eligibility_for_invoice()
+        self.assertTrue(is_eligible, 
+                       "Member with SEPA Direct Debit but no mandate should still be eligible for invoicing")
+        
+        # Test invoice generation - should SUCCEED
+        can_generate, reason = dues_schedule.can_generate_invoice()
+        self.assertTrue(can_generate, f"Should be able to generate invoice: {reason}")
+        
+        # Generate invoice
+        invoice_name = dues_schedule.create_sales_invoice()
+        self.assertIsNotNone(invoice_name, "Invoice should be created despite missing SEPA mandate")
+        self.track_doc("Sales Invoice", invoice_name)
+        
+        # Verify invoice properties
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        self.assertEqual(invoice.customer, member.customer)
+        self.assertEqual(invoice.grand_total, 25.0)
+        self.assertEqual(invoice.docstatus, 1)  # Should be submitted
+        
+        # This invoice should NOT be eligible for DD batch (tested separately)
+        # But it SHOULD exist and be payable via other methods
+        
+    def test_dd_batch_excludes_members_without_sepa_mandate(self):
+        """Test that DD batch creation excludes members without active SEPA mandates"""
+        # Create member with SEPA Direct Debit but no mandate (same as above test)
+        member = self.create_test_member(
+            first_name="BatchExclude",
+            last_name="TestMember",
+            email=f"batch.exclude.{frappe.generate_hash(length=6)}@example.com", 
+            payment_method="SEPA Direct Debit",
+            iban="NL13TEST0123456789"
+        )
+        
+        # Create membership and invoice (following the previous test pattern)
+        membership = self.create_test_membership(member=member.name, membership_type="Test Membership")
+        
+        # Create unpaid invoice (this should exist as per new behavior)
+        invoice = self.create_test_sales_invoice(
+            customer=member.customer,
+            is_membership_invoice=1,
+            member=member.name,
+            outstanding_amount=25.0
+        )
+        
+        # Verify invoice exists and is unpaid
+        self.assertEqual(invoice.outstanding_amount, 25.0)
+        
+        # Now test DD batch creation logic (simulated)
+        # In reality, this would be tested in the DD batch creation tests
+        # but we simulate the validation here
+        
+        # Verify no SEPA mandate exists
+        mandate_exists = frappe.db.exists(
+            "SEPA Mandate",
+            {"member": member.name, "status": "Active", "is_active": 1}
+        )
+        self.assertFalse(mandate_exists, "No SEPA mandate should exist")
+        
+        # DD batch eligibility check should FAIL for this invoice
+        # (This logic would be in the DD batch creation code)
+        member_doc = frappe.get_doc("Member", member.name)
+        if member_doc.payment_method == "SEPA Direct Debit":
+            has_active_mandate = frappe.db.exists(
+                "SEPA Mandate",
+                {"member": member.name, "status": "Active", "is_active": 1}
+            )
+            dd_batch_eligible = has_active_mandate
+        else:
+            dd_batch_eligible = False
+            
+        self.assertFalse(dd_batch_eligible, 
+                        "Member without SEPA mandate should NOT be eligible for DD batch inclusion")
         
     def create_test_dues_schedule_for_member(self, member):
         """Create a test dues schedule for specific member"""

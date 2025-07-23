@@ -3,10 +3,6 @@ frappe.ui.form.on('Membership', {
 	refresh: function(frm) {
 		// Set up dues schedule buttons
 		if (frm.doc.docstatus === 1) {
-			frm.add_custom_button(__('Sync Payment Details'), function() {
-				frm.call('sync_payment_details_from_dues_schedule');
-			});
-
 			// Check for any active dues schedule for this member
 			if (frm.doc.member) {
 				frappe.db.get_value('Membership Dues Schedule', {
@@ -22,12 +18,8 @@ frappe.ui.form.on('Membership', {
 				});
 			}
 
-			// Show linked dues schedule if available
-			if (frm.doc.dues_schedule) {
-				frm.add_custom_button(__('View Linked Dues Schedule'), function() {
-					frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule);
-				}, __('Dues Schedule'));
-			}
+			// Note: dues_schedule field no longer exists on Membership
+			// Dues schedules are managed separately and linked through member
 		}
 
 		// Add custom button for creating dues schedule if not exists

@@ -58,7 +58,7 @@ class ANBITestPersonas:
         mandate = frappe.new_doc("SEPA Mandate")
         mandate.donor = donor.name
         mandate.mandate_id = f"ANNA-SEPA-{frappe.utils.now_datetime().strftime('%Y%m%d')}"
-        mandate.iban = "NL91ABNA0417164300"
+        mandate.iban = "NL13TEST0123456789"  # Valid test IBAN
         mandate.bic = "ABNANL2A"
         mandate.account_holder_name = "Anna de Vries"
         mandate.mandate_type = "RCUR"

@@ -165,7 +165,7 @@ class Donation(Document):
         elif self.donation_purpose_type == "Campaign":
             return f"Campaign: {self.donation_campaign}"
         elif self.donation_purpose_type == "Chapter":
-            chapter_name = frappe.db.get_value("Chapter", self.chapter_reference, "chapter_name")
+            chapter_name = frappe.db.get_value("Chapter", self.chapter_reference, "name")
             return f"Chapter: {chapter_name or self.chapter_reference}"
         elif self.donation_purpose_type == "Specific Goal":
             return (

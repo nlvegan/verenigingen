@@ -56,55 +56,55 @@ class TestBillingTransitions(BaseTestCase):
             {
                 "membership_type_name": "Monthly Standard",
                 "billing_period": "Monthly",
-                "amount": 20.00,
+                "minimum_amount": 20.00,
                 "description": "Standard monthly membership"
             },
             {
                 "membership_type_name": "Annual Standard",
                 "billing_period": "Annual", 
-                "amount": 200.00,
+                "minimum_amount": 200.00,
                 "description": "Standard annual membership"
             },
             {
                 "membership_type_name": "Annual Premium",
                 "billing_period": "Annual",
-                "amount": 240.00,
+                "minimum_amount": 240.00,
                 "description": "Premium annual membership"
             },
             {
                 "membership_type_name": "Quarterly Premium",
                 "billing_period": "Quarterly",
-                "amount": 80.00,
+                "minimum_amount": 80.00,
                 "description": "Premium quarterly membership"
             },
             {
                 "membership_type_name": "Quarterly Basic",
                 "billing_period": "Quarterly",
-                "amount": 75.00,
+                "minimum_amount": 75.00,
                 "description": "Basic quarterly membership"
             },
             {
                 "membership_type_name": "Monthly Basic",
                 "billing_period": "Monthly",
-                "amount": 30.00,
+                "minimum_amount": 30.00,
                 "description": "Basic monthly membership"
             },
             {
                 "membership_type_name": "Daily Access",
                 "billing_period": "Daily",
-                "amount": 1.00,
+                "minimum_amount": 1.00,
                 "description": "Daily access membership"
             },
             {
                 "membership_type_name": "Annual Access",
                 "billing_period": "Annual",
-                "amount": 300.00,
+                "minimum_amount": 300.00,
                 "description": "Annual access membership"
             },
             {
                 "membership_type_name": "Flexible Membership",
                 "billing_period": "Monthly",
-                "amount": 25.00,
+                "minimum_amount": 25.00,
                 "description": "Flexible membership for testing transitions"
             }
         ]

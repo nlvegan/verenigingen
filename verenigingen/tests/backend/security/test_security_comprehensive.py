@@ -237,7 +237,7 @@ class TestSecurityComprehensive(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member1.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": "NL13TEST0123456789",
                 "status": "Active"}
         )
         mandate.insert()
@@ -245,7 +245,7 @@ class TestSecurityComprehensive(unittest.TestCase):
         # Regular user should not modify SEPA mandates
         frappe.set_user(self.regular_user)
         with self.assertRaises(frappe.PermissionError):
-            mandate.iban = "NL91RABO0123456789"  # Change to different account
+            mandate.iban = "NL82MOCK0123456789"  # Change to different account
             mandate.save()
 
         # Clean up

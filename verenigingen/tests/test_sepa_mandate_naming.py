@@ -6,6 +6,7 @@ Test suite for SEPA Mandate Configurable Naming System
 import frappe
 from frappe.utils import today, add_days
 from verenigingen.tests.utils.base import VereningingenTestCase
+from verenigingen.utils.validation.iban_validator import generate_test_iban
 
 
 class TestSEPAMandateNaming(VereningingenTestCase):
@@ -57,7 +58,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
         # Create SEPA mandate without mandate_id
         mandate = frappe.new_doc("SEPA Mandate")
         mandate.account_holder_name = "Default Pattern Test"
-        mandate.iban = "NL91ABNA0417164300"
+        mandate.iban = generate_test_iban("TEST")
         mandate.sign_date = today()
         mandate.member = self.test_member.name
         
@@ -86,7 +87,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             # Create SEPA mandate
             mandate = frappe.new_doc("SEPA Mandate")
             mandate.account_holder_name = "Custom Pattern Test"
-            mandate.iban = "NL91ABNA0417164300"
+            mandate.iban = generate_test_iban("TEST")
             mandate.sign_date = today()
             mandate.member = self.test_member.name
             
@@ -125,7 +126,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             # Create first mandate with this pattern
             mandate1 = frappe.new_doc("SEPA Mandate")
             mandate1.account_holder_name = "Counter Test 1"
-            mandate1.iban = "NL91ABNA0417164300"
+            mandate1.iban = generate_test_iban("TEST")
             mandate1.sign_date = today()
             mandate1.member = self.test_member.name
             
@@ -146,7 +147,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             
             mandate2 = frappe.new_doc("SEPA Mandate")
             mandate2.account_holder_name = "Counter Test 2"
-            mandate2.iban = "NL91ABNA0417164301"  # Different IBAN
+            mandate2.iban = generate_test_iban("MOCK")  # Different IBAN
             mandate2.sign_date = today()
             mandate2.member = test_member2.name
             
@@ -173,7 +174,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
         mandate = frappe.new_doc("SEPA Mandate")
         mandate.mandate_id = manual_id  # Set manually
         mandate.account_holder_name = "Manual ID Test"
-        mandate.iban = "NL91ABNA0417164300"
+        mandate.iban = generate_test_iban("TEST")
         mandate.sign_date = today()
         mandate.member = self.test_member.name
         
@@ -199,7 +200,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
         try:
             mandate = frappe.new_doc("SEPA Mandate")
             mandate.account_holder_name = "Date Pattern Test"
-            mandate.iban = "NL91ABNA0417164300"
+            mandate.iban = generate_test_iban("TEST")
             mandate.sign_date = today()
             mandate.member = self.test_member.name
             
@@ -241,7 +242,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             # Create first mandate
             mandate1 = frappe.new_doc("SEPA Mandate")
             mandate1.account_holder_name = "Unique Test 1"
-            mandate1.iban = "NL91ABNA0417164300"
+            mandate1.iban = generate_test_iban("TEST")
             mandate1.sign_date = today()
             mandate1.member = self.test_member.name
             mandate1.validate()
@@ -257,7 +258,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             
             mandate2 = frappe.new_doc("SEPA Mandate")
             mandate2.account_holder_name = "Unique Test 2"
-            mandate2.iban = "NL91ABNA0417164302"
+            mandate2.iban = generate_test_iban("DEMO")
             mandate2.sign_date = today() 
             mandate2.member = test_member2.name
             mandate2.validate()
@@ -286,7 +287,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
         try:
             mandate = frappe.new_doc("SEPA Mandate")
             mandate.account_holder_name = "Fallback Test"
-            mandate.iban = "NL91ABNA0417164300"
+            mandate.iban = generate_test_iban("TEST")
             mandate.sign_date = today()
             mandate.member = self.test_member.name
             

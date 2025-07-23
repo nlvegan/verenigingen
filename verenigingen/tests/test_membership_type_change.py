@@ -29,19 +29,19 @@ class TestMembershipTypeChange(BaseTestCase):
         # Create test membership types
         self.basic_type = self.create_membership_type(
             name="Basic Monthly",
-            amount=10.00,
+            minimum_amount=10.00,
             description="Basic monthly membership"
         )
         
         self.premium_type = self.create_membership_type(
             name="Premium Monthly", 
-            amount=25.00,
+            minimum_amount=25.00,
             description="Premium monthly membership with extra benefits"
         )
         
         self.quarterly_type = self.create_membership_type(
             name="Basic Quarterly",
-            amount=27.00,
+            minimum_amount=27.00,
             description="Basic quarterly membership (3 months)"
         )
         
@@ -63,7 +63,7 @@ class TestMembershipTypeChange(BaseTestCase):
             member=self.member.name,
             membership=self.membership.name,
             membership_type=self.basic_type.name,
-            amount=self.basic_type.amount
+            amount=self.basic_type.minimum_amount
         )
     
     def test_create_membership_type_change_request(self):
@@ -76,8 +76,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.basic_type.name,
             "requested_membership_type": self.premium_type.name,
-            "current_amount": self.basic_type.amount,
-            "requested_amount": self.premium_type.amount,
+            "current_amount": self.basic_type.minimum_amount,
+            "requested_amount": self.premium_type.minimum_amount,
             "reason": "Upgrading to premium for extra benefits",
             "status": "Pending Approval",
             "requested_by_member": 1,
@@ -101,8 +101,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.basic_type.name,
             "requested_membership_type": self.basic_type.name,
-            "current_amount": self.basic_type.amount,
-            "requested_amount": self.basic_type.amount,
+            "current_amount": self.basic_type.minimum_amount,
+            "requested_amount": self.basic_type.minimum_amount,
             "reason": "No real change",
             "status": "Pending Approval",
             "requested_by_member": 1,
@@ -123,8 +123,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.basic_type.name,
             "requested_membership_type": self.premium_type.name,
-            "current_amount": self.basic_type.amount,
-            "requested_amount": self.premium_type.amount,
+            "current_amount": self.basic_type.minimum_amount,
+            "requested_amount": self.premium_type.minimum_amount,
             "reason": "First request",
             "status": "Pending Approval",
             "requested_by_member": 1,
@@ -140,8 +140,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.basic_type.name,
             "requested_membership_type": self.quarterly_type.name,
-            "current_amount": self.basic_type.amount,
-            "requested_amount": self.quarterly_type.amount,
+            "current_amount": self.basic_type.minimum_amount,
+            "requested_amount": self.quarterly_type.minimum_amount,
             "reason": "Second request",
             "status": "Pending Approval",
             "requested_by_member": 1,
@@ -162,8 +162,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.basic_type.name,
             "requested_membership_type": self.premium_type.name,
-            "current_amount": self.basic_type.amount,
-            "requested_amount": self.premium_type.amount,
+            "current_amount": self.basic_type.minimum_amount,
+            "requested_amount": self.premium_type.minimum_amount,
             "reason": "Upgrading to premium",
             "status": "Pending Approval",
             "requested_by_member": 1,
@@ -206,8 +206,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.basic_type.name,
             "requested_membership_type": self.premium_type.name,
-            "current_amount": self.basic_type.amount,
-            "requested_amount": self.premium_type.amount,
+            "current_amount": self.basic_type.minimum_amount,
+            "requested_amount": self.premium_type.minimum_amount,
             "reason": "Upgrading membership",
             "status": "Approved",
             "requested_by_member": 1,
@@ -225,7 +225,7 @@ class TestMembershipTypeChange(BaseTestCase):
             fields=["name", "dues_rate"]
         )[0]
         
-        self.assertEqual(new_schedule.dues_rate, self.premium_type.amount)
+        self.assertEqual(new_schedule.dues_rate, self.premium_type.minimum_amount)
     
     def test_reject_membership_type_change(self):
         """Test rejecting a membership type change request"""
@@ -237,8 +237,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.basic_type.name,
             "requested_membership_type": self.premium_type.name,
-            "current_amount": self.basic_type.amount,
-            "requested_amount": self.premium_type.amount,
+            "current_amount": self.basic_type.minimum_amount,
+            "requested_amount": self.premium_type.minimum_amount,
             "reason": "Want premium",
             "status": "Pending Approval",
             "requested_by_member": 1,
@@ -258,7 +258,7 @@ class TestMembershipTypeChange(BaseTestCase):
         # Verify dues schedule didn't change
         schedule = frappe.get_doc("Membership Dues Schedule", self.dues_schedule.name)
         self.assertEqual(schedule.status, "Active")
-        self.assertEqual(schedule.dues_rate, self.basic_type.amount)
+        self.assertEqual(schedule.dues_rate, self.basic_type.minimum_amount)
     
     def test_downgrade_membership_type(self):
         """Test downgrading from premium to basic membership"""
@@ -267,7 +267,7 @@ class TestMembershipTypeChange(BaseTestCase):
         self.membership.save()
         
         # Update dues schedule
-        self.dues_schedule.dues_rate = self.premium_type.amount
+        self.dues_schedule.dues_rate = self.premium_type.minimum_amount
         self.dues_schedule.membership_type = self.premium_type.name
         self.dues_schedule.save()
         
@@ -279,8 +279,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.premium_type.name,
             "requested_membership_type": self.basic_type.name,
-            "current_amount": self.premium_type.amount,
-            "requested_amount": self.basic_type.amount,
+            "current_amount": self.premium_type.minimum_amount,
+            "requested_amount": self.basic_type.minimum_amount,
             "reason": "Can't afford premium anymore",
             "status": "Pending Approval",
             "requested_by_member": 1,
@@ -304,7 +304,7 @@ class TestMembershipTypeChange(BaseTestCase):
             fields=["name", "dues_rate"]
         )[0]
         
-        self.assertEqual(new_schedule.dues_rate, self.basic_type.amount)
+        self.assertEqual(new_schedule.dues_rate, self.basic_type.minimum_amount)
     
     def test_quarterly_to_monthly_conversion(self):
         """Test converting from quarterly to monthly membership"""
@@ -312,7 +312,7 @@ class TestMembershipTypeChange(BaseTestCase):
         self.membership.membership_type = self.quarterly_type.name
         self.membership.save()
         
-        self.dues_schedule.dues_rate = self.quarterly_type.amount
+        self.dues_schedule.dues_rate = self.quarterly_type.minimum_amount
         self.dues_schedule.billing_frequency = "Quarterly"
         self.dues_schedule.membership_type = self.quarterly_type.name
         self.dues_schedule.save()
@@ -325,8 +325,8 @@ class TestMembershipTypeChange(BaseTestCase):
             "amendment_type": "Membership Type Change",
             "current_membership_type": self.quarterly_type.name,
             "requested_membership_type": self.basic_type.name,
-            "current_amount": self.quarterly_type.amount,
-            "requested_amount": self.basic_type.amount,
+            "current_amount": self.quarterly_type.minimum_amount,
+            "requested_amount": self.basic_type.minimum_amount,
             "reason": "Prefer monthly payments",
             "status": "Approved",
             "requested_by_member": 1,
@@ -345,11 +345,11 @@ class TestMembershipTypeChange(BaseTestCase):
         )[0]
         
         self.assertEqual(new_schedule.billing_frequency, "Monthly")
-        self.assertEqual(new_schedule.dues_rate, self.basic_type.amount)
+        self.assertEqual(new_schedule.dues_rate, self.basic_type.minimum_amount)
     
     # Helper methods
     
-    def create_membership_type(self, name, amount, description=""):
+    def create_membership_type(self, name, minimum_amount, description=""):
         """Create a test membership type"""
         test_name = f"TEST-{name}-{frappe.utils.random_string(8)}"
         
@@ -357,7 +357,7 @@ class TestMembershipTypeChange(BaseTestCase):
             "doctype": "Membership Type",
             "membership_type": test_name,
             "membership_type_name": name,
-            "dues_rate": amount,
+            "dues_rate": minimum_amount,
             "description": description,
             "is_published": 1
         })

@@ -105,10 +105,10 @@ def add_dues_schedule_template_creation(content):
     template.billing_frequency = "Annual"
     template.contribution_mode = "Calculator"  # Update as needed
     template.minimum_amount = 5.0  # Update with actual values
-    template.suggested_amount = membership_type.amount or 15.0
+    template.suggested_amount = membership_type.minimum_amount or 15.0
     template.invoice_days_before = 30
     template.auto_generate = 1
-    template.amount = template.suggested_amount
+    template.minimum_amount = template.suggested_amount
     template.insert()
     
     # Link template to membership type

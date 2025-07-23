@@ -53,7 +53,7 @@ def check_daily_access_membership_type():
         return {
             "found": True,
             "name": membership_type.name,
-            "amount": membership_type.amount,
+            "amount": membership_type.minimum_amount,
             "dues_schedule_template": membership_type.dues_schedule_template,
             "billing_period": membership_type.billing_period,
         }

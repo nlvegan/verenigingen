@@ -119,8 +119,8 @@ def preview_missing_dues_schedules():
             m.name as membership_name,
             m.member as member_name,
             m.membership_type,
-            mem.full_name as member_full_name,
-            mt.amount as membership_type_amount
+            mem.full_name,
+            mt.minimum_amount as membership_type_amount
         FROM `tabMembership` m
         INNER JOIN `tabMember` mem ON m.member = mem.name
         LEFT JOIN `tabMembership Type` mt ON m.membership_type = mt.name
@@ -170,9 +170,9 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             m.name as membership_name,
             m.member as member_name,
             m.membership_type,
-            mem.full_name as member_full_name,
+            mem.full_name,
             mem.member_id,
-            mt.amount as membership_type_amount
+            mt.minimum_amount as membership_type_amount
         FROM `tabMembership` m
         INNER JOIN `tabMember` mem ON m.member = mem.name
         LEFT JOIN `tabMembership Type` mt ON m.membership_type = mt.name
@@ -205,7 +205,7 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             result["created_schedules"].append(
                 {
                     "member": member.member_name,
-                    "member_name": member.member_full_name,
+                    "member_name": member.full_name,
                     "membership_type": member.membership_type,
                     "dues_rate": member.membership_type_amount or 0,
                     "billing_frequency": "Monthly",
@@ -225,7 +225,7 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
                 member.member_name, member.membership_type
             )
             dues_schedule.member = member.member_name
-            dues_schedule.member_name = member.member_full_name
+            dues_schedule.member_name = member.full_name
             dues_schedule.membership = member.membership_name
             dues_schedule.membership_type = member.membership_type
             dues_schedule.status = "Active"
@@ -242,7 +242,7 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
                 except Exception:
                     pass
             dues_schedule.billing_frequency = billing_frequency
-            dues_schedule.dues_rate = getattr(membership_type_doc, "amount", 0) or getattr(
+            dues_schedule.dues_rate = getattr(membership_type_doc, "minimum_amount", 0) or getattr(
                 membership_type_doc, "dues_rate", 0
             )
             dues_schedule.contribution_mode = "Custom"  # Use Custom mode for auto-created
@@ -252,7 +252,6 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             dues_schedule.custom_amount_approved_by = frappe.session.user
             dues_schedule.custom_amount_approved_date = today()
             dues_schedule.auto_generate = 1
-            dues_schedule.effective_date = today()
             # Set next invoice date based on billing frequency
             dues_schedule.next_invoice_date = _calculate_next_invoice_date(billing_frequency)
             dues_schedule.notes = f"Auto-created via manual trigger on {today()}"
@@ -262,7 +261,7 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
             result["created_schedules"].append(
                 {
                     "member": member.member_name,
-                    "member_name": member.member_full_name,
+                    "member_name": member.full_name,
                     "schedule_name": dues_schedule.name,
                     "dues_rate": dues_schedule.dues_rate,
                     "billing_frequency": dues_schedule.billing_frequency,
@@ -419,11 +418,10 @@ def create_dues_schedules_for_members(members, send_emails=False):
                     "member": member_name,
                     "membership": membership.name,
                     "membership_type": membership.membership_type,
-                    "dues_rate": getattr(membership_type_doc, "amount", 0)
+                    "dues_rate": getattr(membership_type_doc, "minimum_amount", 0)
                     or getattr(membership_type_doc, "dues_rate", 0),
                     "billing_frequency": "Monthly",
                     "status": "Active",
-                    "effective_date": frappe.utils.today(),
                     "next_invoice_date": _calculate_next_invoice_date("Monthly"),
                     "contribution_mode": "Custom",  # Use Custom mode for auto-created
                     "uses_custom_amount": 1,  # Mark as custom amount

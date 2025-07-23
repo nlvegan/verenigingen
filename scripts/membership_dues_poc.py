@@ -140,4 +140,4 @@ def test_scheduled_job():
 
 
 if __name__ == "__main__":
-    print("Run via bench: bench --site [site] execute vereinigingen.scripts.membership_dues_poc.test_dues_system_poc")
+    print("Run via bench: bench --site [site] execute verenigingen.scripts.membership_dues_poc.test_dues_system_poc")

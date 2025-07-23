@@ -16,8 +16,8 @@ class TestIBANValidator(unittest.TestCase):
         """Test validation of valid IBANs"""
         valid_ibans = [
             # Netherlands
-            ("NL39RABO0300065264", True, "Valid Dutch IBAN"),
-            ("NL91ABNA0417164300", True, "Valid Dutch IBAN"),
+            ("NL13TEST0123456789", True, "Valid Dutch test IBAN"),
+            ("NL82MOCK0123456789", True, "Valid Dutch test IBAN"),
             ("NL69INGB0123456789", True, "Valid Dutch IBAN"),
             ("NL20INGB0001234567", True, "Valid Dutch IBAN"),
             # Germany
@@ -29,8 +29,8 @@ class TestIBANValidator(unittest.TestCase):
             # France
             ("FR1420041010050500013M02606", True, "Valid French IBAN"),
             # With spaces and lowercase (should be normalized)
-            ("nl39 rabo 0300 0652 64", True, "IBAN with spaces"),
-            ("nl39rabo0300065264", True, "Lowercase IBAN"),
+            ("nl13 test 0123 4567 89", True, "IBAN with spaces"),
+            ("nl13test0123456789", True, "Lowercase IBAN"),
         ]
 
         for iban, expected_valid, description in valid_ibans:
@@ -43,7 +43,7 @@ class TestIBANValidator(unittest.TestCase):
         """Test validation of invalid IBANs"""
         invalid_ibans = [
             # Wrong checksums
-            ("NL39RABO0300065265", "Invalid IBAN checksum"),
+            ("NL14TEST0123456789", "Invalid IBAN checksum"),  # Wrong checksum for TEST bank
             ("DE89370400440532013001", "Invalid IBAN checksum"),
             # Wrong length
             ("NL39RABO030006526", "Dutch IBAN must be 18 characters"),
@@ -69,7 +69,7 @@ class TestIBANValidator(unittest.TestCase):
     def test_format_iban(self):
         """Test IBAN formatting"""
         test_cases = [
-            ("NL39RABO0300065264", "NL39 RABO 0300 0652 64"),
+            ("NL13TEST0123456789", "NL39 RABO 0300 0652 64"),
             ("nl39rabo0300065264", "NL39 RABO 0300 0652 64"),
             ("NL39 RABO 0300 0652 64", "NL39 RABO 0300 0652 64"),
             ("DE89370400440532013000", "DE89 3704 0044 0532 0130 00"),
@@ -85,8 +85,8 @@ class TestIBANValidator(unittest.TestCase):
     def test_validate_iban_checksum(self):
         """Test mod-97 checksum validation"""
         test_cases = [
-            ("NL39RABO0300065264", True),
-            ("NL39RABO0300065265", False),  # Wrong checksum
+            ("NL13TEST0123456789", True),
+            ("NL14TEST0123456789", False),  # Wrong checksum
             ("DE89370400440532013000", True),
             ("BE68539007547034", True),
             ("FR1420041010050500013M02606", True),
@@ -99,7 +99,7 @@ class TestIBANValidator(unittest.TestCase):
     def test_derive_bic_from_iban_dutch(self):
         """Test BIC derivation for Dutch banks"""
         test_cases = [
-            ("NL39RABO0300065264", "RABONL2U"),
+            ("NL13TEST0123456789", "TESTNL2A"),
             ("NL91ABNA0417164300", "ABNANL2A"),
             ("NL69INGB0123456789", "INGBNL2A"),
             ("NL63TRIO0212345678", "TRIONL2U"),
@@ -135,7 +135,7 @@ class TestIBANValidator(unittest.TestCase):
     def test_get_bank_from_iban(self):
         """Test bank information retrieval"""
         test_cases = [
-            ("NL39RABO0300065264", {"bank_code": "RABO", "bank_name": "Rabobank", "bic": "RABONL2U"}),
+            ("NL13TEST0123456789", {"bank_code": "TEST", "bank_name": "Test Bank", "bic": "TESTNL2A"}),
             ("NL91ABNA0417164300", {"bank_code": "ABNA", "bank_name": "ABN AMRO", "bic": "ABNANL2A"}),
             ("NL69INGB0123456789", {"bank_code": "INGB", "bank_name": "ING", "bic": "INGBNL2A"}),
             ("NL99UNKNOWN1234567", None),  # Unknown bank
@@ -155,10 +155,10 @@ class TestIBANValidator(unittest.TestCase):
     def test_iban_normalization(self):
         """Test that IBANs are properly normalized"""
         test_cases = [
-            ("nl39rabo0300065264", "NL39RABO0300065264"),
-            ("NL39 RABO 0300 0652 64", "NL39RABO0300065264"),
-            ("  NL39RABO0300065264  ", "NL39RABO0300065264"),
-            ("nl 39 ra bo 03 00 06 52 64", "NL39RABO0300065264"),
+            ("nl39rabo0300065264", "NL13TEST0123456789"),
+            ("NL39 RABO 0300 0652 64", "NL13TEST0123456789"),
+            ("  NL13TEST0123456789  ", "NL13TEST0123456789"),
+            ("nl 39 ra bo 03 00 06 52 64", "NL13TEST0123456789"),
         ]
 
         for input_iban, expected_normalized in test_cases:

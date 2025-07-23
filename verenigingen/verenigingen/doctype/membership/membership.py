@@ -488,41 +488,6 @@ class Membership(Document):
 
         return dues_schedule.name
 
-    def sync_payment_details_from_dues_schedule(self):
-        """Sync payment details from linked dues schedule"""
-        if not getattr(self, "dues_schedule", None):
-            return
-
-        # Get invoices related to this member through the dues schedule
-        invoices = frappe.get_all(
-            "Sales Invoice",
-            filters={
-                "customer": frappe.db.get_value("Member", self.member, "customer"),
-                "docstatus": 1,
-                "posting_date": [">=", self.start_date],
-            },
-            fields=["name", "status", "outstanding_amount", "posting_date", "grand_total"],
-        )
-
-        # Calculate unpaid amount
-        unpaid_amount = 0
-        payment_date = None
-
-        for invoice in invoices:
-            if invoice.status in ["Unpaid", "Overdue"]:
-                unpaid_amount += invoice.outstanding_amount
-            elif invoice.status == "Paid":
-                if not payment_date or invoice.posting_date > payment_date:
-                    payment_date = invoice.posting_date
-
-        # Update membership
-        self.unpaid_amount = unpaid_amount
-        self.db_set("unpaid_amount", unpaid_amount)
-
-        if payment_date:
-            self.last_payment_date = payment_date
-            self.db_set("last_payment_date", payment_date)
-
     def on_submit_legacy(self):  # Renamed to avoid duplicate definition
         import json
 
@@ -536,10 +501,6 @@ class Membership(Document):
         # Make sure unpaid_amount is set if field exists and not already set
         if hasattr(self, "unpaid_amount") and not self.unpaid_amount:
             self.unpaid_amount = 0
-
-        # Initialize next_billing_date to start_date if not set
-        if not self.next_billing_date:
-            self.next_billing_date = self.start_date
 
         # Clear cancellation fields if not set
         if not self.cancellation_date:
@@ -555,7 +516,6 @@ class Membership(Document):
         unpaid_amount = getattr(self, "unpaid_amount", None)
         if unpaid_amount is not None:
             self.db_set("unpaid_amount", unpaid_amount)
-        self.db_set("next_billing_date", self.next_billing_date)
         self.db_set("cancellation_date", None)
         self.db_set("cancellation_reason", None)
         self.db_set("cancellation_type", None)
@@ -569,8 +529,7 @@ class Membership(Document):
         # if not self.dues_schedule:
         #     self.create_dues_schedule_from_membership()
 
-        # Sync payment details from dues schedule
-        # self.sync_payment_details_from_dues_schedule()
+        # Note: Payment details are managed through the dues schedule system
 
     def on_cancel_legacy(self):  # Renamed to avoid duplicate definition
         """Handle when membership is cancelled directly (not the same as member cancellation)"""
@@ -753,7 +712,7 @@ def process_membership_statuses():
     memberships = frappe.get_all(
         "Membership",
         filters={"docstatus": 1, "status": ["not in", ["Cancelled", "Expired"]]},
-        fields=["name", "renewal_date", "status", "auto_renew"],
+        fields=["name", "renewal_date", "status"],
     )
 
     today_date = getdate(today())
@@ -762,31 +721,15 @@ def process_membership_statuses():
         try:
             membership = frappe.get_doc("Membership", membership_info.name)
 
-            # Sync payment details from dues schedule
-            if membership.dues_schedule:
-                membership.sync_payment_details_from_dues_schedule()
-
             # Check expiry - if past renewal date
+            # Note: Auto-renewal is handled by the billing system, not individual memberships
             if membership.renewal_date and getdate(membership.renewal_date) < today_date:
-                if membership.auto_renew:
-                    # Auto-renew if configured
-                    new_membership_name = membership.renew_membership()
+                # Mark as expired - renewal is handled by the billing/dues schedule system
+                membership.status = "Expired"
+                membership.flags.ignore_validate_update_after_submit = True
+                membership.save()
 
-                    # Submit the new membership
-                    new_membership = frappe.get_doc("Membership", new_membership_name)
-                    new_membership.docstatus = 1
-                    new_membership.save()
-
-                    frappe.logger().info(
-                        f"Auto-renewed membership {membership.name} to {new_membership_name}"
-                    )
-                else:
-                    # Just mark as expired if not auto-renewing
-                    membership.status = "Expired"
-                    membership.flags.ignore_validate_update_after_submit = True
-                    membership.save()
-
-                    frappe.logger().info(f"Marked membership {membership.name} as Expired")
+                frappe.logger().info(f"Marked membership {membership.name} as Expired")
 
             # Check if payment is overdue and update status
             elif (

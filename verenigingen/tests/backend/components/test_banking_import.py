@@ -26,7 +26,7 @@ class TestBankingImport(FrappeTestCase):
                 "doctype": "Bank Account",
                 "account_name": "Test Bank Account",
                 "bank": "Test Bank",
-                "iban": "NL91ABNA0417164300",
+                "iban": "NL13TEST0123456789",
                 "is_default": 1
             })
             bank_account.insert(ignore_permissions=True)
@@ -36,7 +36,7 @@ class TestBankingImport(FrappeTestCase):
         # Sample MT940 content
         mt940_content = """
 :20:STARTUMSE
-:25:NL91ABNA0417164300
+:25:NL13TEST0123456789
 :28C:00001/001
 :60F:C250110EUR1000,00
 :61:2501100110DR50,00NTRFNONREF//B1234567890
@@ -93,7 +93,7 @@ class TestBankingImport(FrappeTestCase):
         <Stmt>
             <Acct>
                 <Id>
-                    <IBAN>NL91ABNA0417164300</IBAN>
+                    <IBAN>NL13TEST0123456789</IBAN>
                 </Id>
             </Acct>
             <Ntry>
@@ -141,7 +141,7 @@ class TestBankingImport(FrappeTestCase):
             "amount": Decimal("100.00"),
             "description": "Test Transaction",
             "reference": "TEST123",
-            "iban": "NL91ABNA0417164300"
+            "iban": "NL13TEST0123456789"
         }
         
         # Create hash for duplicate detection

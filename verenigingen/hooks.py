@@ -133,7 +133,7 @@ scheduler_events = {
         # Core membership system
         "verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships",
         "verenigingen.verenigingen.doctype.membership.scheduler.send_renewal_reminders",
-        "verenigingen.verenigingen.doctype.membership.scheduler.process_auto_renewals",
+        # "verenigingen.verenigingen.doctype.membership.scheduler.process_auto_renewals",  # Deprecated - renewal handled by billing system
         # Updated to use dues schedule system instead
         "verenigingen.verenigingen.doctype.membership.scheduler.notify_about_orphaned_records",
         "verenigingen.api.membership_application_review.send_overdue_notifications",
@@ -166,6 +166,8 @@ scheduler_events = {
         "verenigingen.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Native expense approver sync
         "verenigingen.utils.native_expense_helpers.refresh_all_expense_approvers",
+        # SEPA Direct Debit batch optimization
+        "verenigingen.api.dd_batch_scheduler.daily_batch_optimization",
         # Create daily analytics snapshots
         "verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_scheduled_snapshots",
         # Enhanced membership dues collection processing

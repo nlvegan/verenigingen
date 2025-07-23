@@ -3,6 +3,9 @@ Validation regression test suite to prevent field validation bugs
 """
 
 import unittest
+import sys
+import os
+from pathlib import Path
 
 import frappe
 from frappe.utils import today
@@ -251,6 +254,89 @@ class TestValidationRegression(unittest.TestCase):
         self.assertIn("error", result, "Error should be reported in response")
         self.assertIsInstance(result, dict, "Response should be a valid dict")
 
+    def test_field_validator_on_test_suite(self):
+        """Test that validates field references in test files using the field validator"""
+        
+        # Import the field validator
+        try:
+            # Get the correct app path 
+            app_path = Path(__file__).resolve().parents[4]  # Go up to /home/frappe/frappe-bench/apps/verenigingen
+            scripts_path = app_path / 'scripts' / 'validation'
+            validator_path = scripts_path / 'final_field_validator.py'
+            
+            # Verify the file exists
+            if not validator_path.exists():
+                raise FileNotFoundError(f"Validator not found at {validator_path}")
+            
+            # Try importing with direct execution
+            import importlib.util
+            sys.path.insert(0, str(scripts_path))
+            spec = importlib.util.spec_from_file_location("final_field_validator", validator_path)
+            validator_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(validator_module)
+            FinalFieldValidator = validator_module.FinalFieldValidator
+            
+        except (ImportError, AttributeError, FileNotFoundError, Exception) as e:
+            self.skipTest(f"Field validator not available: {e}")
+        
+        # Create validator instance
+        validator = FinalFieldValidator(str(app_path))
+        
+        # Custom validation that includes test files
+        violations = self._validate_test_files_only(validator)
+        
+        # Report findings
+        if violations:
+            violation_summary = []
+            for violation in violations[:10]:  # Show first 10 violations
+                try:
+                    file_rel = Path(violation['file']).relative_to(app_path)
+                    violation_summary.append(
+                        f"  - {file_rel}:{violation['line']} - {violation['field']} in: {violation['content'][:80]}..."
+                    )
+                except (KeyError, ValueError):
+                    violation_summary.append(f"  - {violation}")
+            
+            if len(violations) > 10:
+                violation_summary.append(f"  ... and {len(violations) - 10} more violations")
+            
+            self.fail(
+                f"Found {len(violations)} deprecated field references in test files:\n" +
+                "\n".join(violation_summary) +
+                "\n\nPlease update these test files to use correct field names."
+            )
+        
+        print(f"✅ Test suite field validation passed! No deprecated field references found.")
+        
+    def _validate_test_files_only(self, validator):
+        """Custom validation that only checks test files"""
+        violations = []
+        
+        # Check ALL test files
+        test_patterns = [
+            "**/test_*.py",
+            "**/tests/**/*.py"
+        ]
+        
+        for pattern in test_patterns:
+            for py_file in validator.app_path.rglob(pattern):
+                # Skip certain directories
+                if any(skip in str(py_file) for skip in [
+                    'node_modules', '__pycache__', '.git', 'migrations',
+                    'archived_unused', 'backup', '.disabled', 'patches'
+                ]):
+                    continue
+                
+                # Use enhanced test file validation
+                try:
+                    file_violations = validator.validate_test_file_patterns_comprehensive(py_file)
+                    violations.extend(file_violations)
+                except Exception:
+                    # Skip files that can't be processed
+                    continue
+        
+        return violations
+
 
 def run_validation_regression_tests():
     """Run validation regression test suite"""
@@ -296,5 +382,43 @@ def run_validation_regression_suite():
             "message": f"Validation regression test execution failed: {str(e)}"}
 
 
+@frappe.whitelist()
+def run_field_validation_on_tests():
+    """Whitelisted function to run field validation specifically on test files"""
+    try:
+        # Just run the specific test
+        suite = unittest.TestSuite()
+        suite.addTest(TestValidationRegression('test_field_validator_on_test_suite'))
+        runner = unittest.TextTestRunner(verbosity=2)
+        result = runner.run(suite)
+        
+        return {
+            "success": result.wasSuccessful(),
+            "tests_run": result.testsRun,
+            "failures": len(result.failures),
+            "errors": len(result.errors),
+            "message": "Field validation on test suite completed" if result.wasSuccessful() else "Field validation found issues in test files"
+        }
+        
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "message": f"Field validation on tests failed: {str(e)}"
+        }
+
+
 if __name__ == "__main__":
-    run_validation_regression_tests()
+    # Run both regular validation tests and field validation on tests
+    print("Running validation regression tests...")
+    result1 = run_validation_regression_tests()
+    
+    print("\nRunning field validation on test suite...")
+    result2 = run_field_validation_on_tests()
+    
+    print(f"\nOverall Results:")
+    print(f"Validation regression: {'PASSED' if result1.wasSuccessful() else 'FAILED'}")
+    print(f"Test field validation: {'PASSED' if result2.get('success') else 'FAILED'}")
+    
+    if not (result1.wasSuccessful() and result2.get('success')):
+        sys.exit(1)

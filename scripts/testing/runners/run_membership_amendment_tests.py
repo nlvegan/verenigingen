@@ -146,7 +146,7 @@ def main():
         print(f"{'='*60}")
         
         try:
-            from vereinigingen.tests.fixtures.test_personas import TestPersonas
+            from verenigingen.tests.fixtures.test_personas import TestPersonas
             
             personas = [
                 ('Fee Adjuster Fiona', TestPersonas.create_fee_adjuster_fiona),

@@ -519,7 +519,7 @@ def format_metrics_for_zabbix_v7(metrics):
         "host": frappe.conf.get("zabbix_host_name", "frappe-production"),
         "metrics": metrics,
         "metadata": {
-            "app_version": frappe.get_attr("vereinigingen.__version__", "unknown"),
+            "app_version": frappe.get_attr("verenigingen.__version__", "unknown"),
             "frappe_version": frappe.__version__,
             "site": frappe.local.site,
             "environment": frappe.conf.get("environment", "production")

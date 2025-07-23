@@ -567,19 +567,47 @@ class VereningingenTestCase(FrappeTestCase):
     def _get_test_iban(self):
         """Generate a unique valid test IBAN for testing"""
         try:
+            # Try to use the main generator when Frappe is available
             from verenigingen.utils.validation.iban_validator import generate_test_iban
             return generate_test_iban("TEST")
         except (ImportError, ModuleNotFoundError):
-            # Fallback to static test IBANs if test generator not available
-            import random
-            base_ibans = [
-                "NL91ABNA0417164300",
-                "NL39ABNA0417164301", 
-                "NL06ABNA0417164302",
-                "NL73ABNA0417164303",
-                "NL40ABNA0417164304"
-            ]
-            return random.choice(base_ibans)
+            # Fallback to standalone IBAN generation when Frappe is not available
+            return self._generate_standalone_test_iban("TEST")
+    
+    def _generate_standalone_test_iban(self, bank_code="TEST", account_number=None):
+        """Generate a valid test IBAN without Frappe dependencies"""
+        if bank_code not in ["TEST", "MOCK", "DEMO"]:
+            bank_code = "TEST"
+
+        if not account_number:
+            # Generate a simple 10-digit account number
+            account_number = "0123456789"
+
+        # Ensure account number is 10 digits
+        account_number = account_number.zfill(10)[:10]
+
+        # Calculate correct checksum using MOD-97 algorithm
+        # Create temp IBAN with 00 checksum
+        temp_iban = "NL00" + bank_code + account_number
+        
+        # Move first 4 characters to end
+        rearranged = temp_iban[4:] + temp_iban[:4]
+        
+        # Convert letters to numbers (A=10, B=11, ..., Z=35)
+        numeric_iban = ""
+        for char in rearranged:
+            if char.isdigit():
+                numeric_iban += char
+            else:
+                numeric_iban += str(ord(char) - ord("A") + 10)
+        
+        # Calculate checksum
+        remainder = int(numeric_iban) % 97
+        checksum = 98 - remainder
+        
+        # Construct final IBAN
+        iban = f"NL{checksum:02d}{bank_code}{account_number}"
+        return iban
     
     def create_test_sepa_mandate_with_pattern(self, pattern, starting_counter, **kwargs):
         """Create a test SEPA mandate with specific naming pattern for testing"""

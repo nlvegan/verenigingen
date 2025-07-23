@@ -132,9 +132,13 @@ def get_data(filters):
             if getdate(member_since) > getdate(filters.get("to_date")):
                 continue
 
+        # Get primary chapter using new chapter system
+        member_chapters = member.get_current_chapters()
+        primary_chapter = member_chapters[0]["chapter"] if member_chapters else None
+
         # Apply user access filtering
         if user_chapters is not None:  # None means see all
-            if member.primary_chapter and member.primary_chapter not in user_chapters:
+            if primary_chapter and primary_chapter not in user_chapters:
                 # Check if user has national access
                 try:
                     settings = frappe.get_single("Verenigingen Settings")
@@ -161,7 +165,7 @@ def get_data(filters):
             "member_name": member.name,
             "member_full_name": member.full_name,
             "member_email": member.email,
-            "primary_chapter": member.primary_chapter,
+            "primary_chapter": primary_chapter,
             "membership_type": membership_type,
             "member_since": member_since,
             "days_active": days_active,

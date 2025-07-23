@@ -23,7 +23,7 @@ def fix_test_enhanced_membership_portal():
     membership_type = frappe.new_doc("Membership Type")
     membership_type.membership_type_name = "Tier-Based Test Membership"
     membership_type.description = "Test membership type with predefined contribution tiers"
-    membership_type.amount = 25.0
+    membership_type.minimum_amount = 25.0
     membership_type.billing_frequency = "Annual"
     membership_type.is_active = 1
 
@@ -46,7 +46,7 @@ def fix_test_enhanced_membership_portal():
         template.enable_income_calculator = 0
         template.invoice_days_before = 30
         template.auto_generate = 1
-        template.amount = template.suggested_amount
+        template.minimum_amount = template.suggested_amount
         
         # Add predefined tiers to template
         student_tier = template.append("predefined_tiers", {})
@@ -120,7 +120,7 @@ def fix_test_enhanced_membership_portal():
     membership_type = frappe.new_doc("Membership Type")
     membership_type.membership_type_name = "Calculator-Based Test Membership"
     membership_type.description = "Test membership type with income-based calculator"
-    membership_type.amount = 15.0
+    membership_type.minimum_amount = 15.0
     membership_type.billing_frequency = "Monthly"
     membership_type.is_active = 1
 
@@ -145,7 +145,7 @@ def fix_test_enhanced_membership_portal():
         template.calculator_description = "We suggest 0.75% of your monthly net income as a fair contribution"
         template.invoice_days_before = 30
         template.auto_generate = 1
-        template.amount = template.suggested_amount
+        template.minimum_amount = template.suggested_amount
         template.insert()
         
         # Link template to membership type
@@ -181,7 +181,7 @@ def fix_test_enhanced_membership_portal():
     membership_type = frappe.new_doc("Membership Type")
     membership_type.membership_type_name = "Flexible Test Membership"
     membership_type.description = "Test membership type with both tiers and calculator options"
-    membership_type.amount = 20.0
+    membership_type.minimum_amount = 20.0
     membership_type.billing_frequency = "Monthly"
     membership_type.is_active = 1
 
@@ -206,7 +206,7 @@ def fix_test_enhanced_membership_portal():
         template.calculator_description = "Calculate 0.6% of monthly income or choose from predefined tiers"
         template.invoice_days_before = 30
         template.auto_generate = 1
-        template.amount = template.suggested_amount
+        template.minimum_amount = template.suggested_amount
         
         # Add a few tiers
         basic_tier = template.append("predefined_tiers", {})
@@ -337,10 +337,10 @@ def fix_test_new_membership_system():
         template.billing_frequency = getattr(membership_type, "billing_frequency", "Annual")
         template.contribution_mode = "Calculator"
         template.minimum_amount = 5.0
-        template.suggested_amount = membership_type.amount or 15.0
+        template.suggested_amount = membership_type.minimum_amount or 15.0
         template.invoice_days_before = 30
         template.auto_generate = 1
-        template.amount = template.suggested_amount
+        template.minimum_amount = template.suggested_amount
         template.insert()
         
         # Link template to membership type
@@ -398,10 +398,10 @@ def fix_test_contribution_system():
         template.billing_frequency = "Annual"
         template.contribution_mode = "Calculator"
         template.minimum_amount = 5.0
-        template.suggested_amount = membership_type.amount or 15.0
+        template.suggested_amount = membership_type.minimum_amount or 15.0
         template.invoice_days_before = 30
         template.auto_generate = 1
-        template.amount = template.suggested_amount
+        template.minimum_amount = template.suggested_amount
         template.insert()
         
         membership_type.dues_schedule_template = template.name

@@ -230,7 +230,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
             "current_membership_type": membership.membership_type,
             "requested_membership_type": new_membership_type.name,
             "current_amount": self.tier_membership_type.predefined_tiers[1].amount,
-            "requested_amount": new_membership_type.amount,
+            "requested_amount": new_membership_type.minimum_amount,
             "reason": "Want to upgrade to premium membership",
             "status": "Pending Approval",
             "requested_by_member": 1,
@@ -255,7 +255,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         new_dues_schedule.member = member.name
         new_dues_schedule.membership = membership.name
         new_dues_schedule.membership_type = new_membership_type.name
-        new_dues_schedule.dues_rate = new_membership_type.amount
+        new_dues_schedule.dues_rate = new_membership_type.minimum_amount
         new_dues_schedule.billing_frequency = "Monthly"
         new_dues_schedule.status = "Active"
         new_dues_schedule.effective_date = today()
@@ -280,7 +280,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
             as_dict=True
         )
         self.assertEqual(active_schedule.membership_type, new_membership_type.name)
-        self.assertEqual(active_schedule.dues_rate, new_membership_type.amount)
+        self.assertEqual(active_schedule.dues_rate, new_membership_type.minimum_amount)
     
     def test_membership_type_migration_workflow(self):
         """Test workflow for migrating between membership types"""
@@ -538,7 +538,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Workflow Tier Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Tier-based membership for workflow testing"
-        membership_type.amount = 25.0
+        membership_type.minimum_amount = 25.0
         membership_type.is_active = 1
         membership_type.contribution_mode = "Tiers"
         
@@ -566,7 +566,7 @@ class TestEnhancedMembershipLifecycle(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Workflow Calculator Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Calculator-based membership for workflow testing"
-        membership_type.amount = 20.0
+        membership_type.minimum_amount = 20.0
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.enable_income_calculator = 1

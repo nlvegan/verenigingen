@@ -113,11 +113,8 @@ def get_context(context):
         if member.to_date:
             member.formatted_to_date = format_date(member.to_date)
 
-        # Create display name
-        if member.first_name and member.last_name:
-            member.display_name = f"{member.first_name} {member.last_name}"
-        else:
-            member.display_name = member.volunteer_name or "Unknown"
+        # Create display name (Team Member has volunteer_name fetched from Volunteer)
+        member.display_name = member.volunteer_name or "Unknown"
 
     context.team_members = team_members
     context.current_user_volunteer = volunteer

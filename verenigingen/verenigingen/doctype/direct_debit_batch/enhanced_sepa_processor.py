@@ -9,48 +9,67 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cstr, flt, getdate, today
 
+from verenigingen.utils.sepa_config_manager import get_sepa_config_manager
+from verenigingen.utils.sepa_error_handler import get_sepa_error_handler, sepa_retry
+from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+
 
 class EnhancedSEPAProcessor:
     """Enhanced SEPA processor that handles the new membership dues schedules"""
 
     def __init__(self):
-        settings = frappe.get_single("Verenigingen Settings")
-        company_name = getattr(settings, "company", None) or frappe.defaults.get_global_default("company")
-        self.company = frappe.get_doc("Company", company_name)
+        self.config_manager = get_sepa_config_manager()
+        self.mandate_service = get_sepa_mandate_service()
+        self.error_handler = get_sepa_error_handler()
 
-    def create_dues_collection_batch(self, collection_date=None):
+        # Get company from centralized config
+        company_config = self.config_manager.get_company_sepa_config()
+        self.company = (
+            frappe.get_doc("Company", company_config["company"]) if company_config["company"] else None
+        )
+
+    def create_dues_collection_batch(self, collection_date=None, verify_invoicing=True):
         """
         Create a direct debit batch for membership dues collection
-        Processes membership dues schedules that are due for collection
+        Processes existing unpaid invoices and verifies complete invoicing coverage
+
+        Args:
+            collection_date: Date for batch processing (default: today)
+            verify_invoicing: Whether to run invoice coverage verification
         """
         if not collection_date:
             collection_date = today()
 
-        # Get eligible dues schedules
-        eligible_schedules = self.get_eligible_dues_schedules(collection_date)
+        # Step 1: Verify invoice coverage if requested
+        if verify_invoicing:
+            verification_result = self.verify_invoice_coverage(collection_date)
+            if not verification_result["complete"]:
+                frappe.log_error(
+                    f"Invoice coverage verification failed: {verification_result['issues']}",
+                    "SEPA Batch - Invoice Coverage Issues",
+                )
+                # Continue with batch creation but log the issues
 
-        if not eligible_schedules:
-            frappe.logger().info(f"No eligible dues schedules found for collection on {collection_date}")
+        # Step 2: Get existing unpaid invoices instead of creating new ones
+        eligible_invoices = self.get_existing_unpaid_sepa_invoices(collection_date)
+
+        if not eligible_invoices:
+            frappe.logger().info(f"No unpaid SEPA invoices found for collection on {collection_date}")
             return None
 
-        # Create batch
-        batch = self.create_batch_document(eligible_schedules, collection_date)
+        # Step 3: Create batch from existing invoices
+        batch = self.create_batch_from_invoices(eligible_invoices, collection_date)
 
-        # Generate invoices and add to batch
-        for schedule in eligible_schedules:
-            try:
-                invoice = self.create_dues_invoice(schedule, collection_date)
-                if invoice:
-                    self.add_invoice_to_batch(batch, invoice, schedule)
-            except Exception as e:
-                frappe.log_error(
-                    f"Error processing dues schedule {schedule.name}: {str(e)}", "SEPA Dues Collection Error"
-                )
-                continue
+        # Batch process sequence types for all invoices at once
+        self.add_invoices_to_batch_optimized(batch, eligible_invoices)
 
         if batch.invoices:
             batch.calculate_totals()
             batch.save()
+
+            # Handle validation and notifications for automated processing
+            self.handle_automated_batch_validation(batch)
+
             frappe.db.commit()
 
             frappe.logger().info(
@@ -103,16 +122,15 @@ class EnhancedSEPAProcessor:
             generate_date = add_days(schedule.next_invoice_date, -days_before)
 
             if getdate(collection_date) >= getdate(generate_date):
-                # Check if invoice already exists for this period
-                if not self.invoice_exists_for_period(schedule):
-                    schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
-                    eligible.append(schedule_doc)
+                # Always include eligible schedules - we'll handle existing invoices in the main loop
+                schedule_doc = frappe.get_doc("Membership Dues Schedule", schedule.name)
+                eligible.append(schedule_doc)
 
         frappe.logger().info(f"Found {len(eligible)} eligible dues schedules for collection")
         return eligible
 
-    def invoice_exists_for_period(self, schedule):
-        """Check if an invoice already exists for the current coverage period"""
+    def find_existing_invoice_for_schedule(self, schedule):
+        """Find existing invoice for the current coverage period"""
         existing = frappe.get_all(
             "Sales Invoice",
             filters={
@@ -120,24 +138,39 @@ class EnhancedSEPAProcessor:
                 "custom_membership_dues_schedule": schedule.name,
                 "custom_coverage_start_date": schedule.current_coverage_start,
                 "docstatus": ["!=", 2],  # Not cancelled
+                "status": ["in", ["Unpaid", "Overdue"]],  # Only unpaid invoices
             },
+            fields=["name", "grand_total", "status"],
             limit=1,
         )
-        return bool(existing)
+        return existing[0] if existing else None
+
+    def member_has_sepa_enabled(self, schedule):
+        """Check if member has SEPA Direct Debit enabled and active mandate"""
+        try:
+            # Check if schedule has SEPA payment method
+            if getattr(schedule, "payment_method", None) != "SEPA Direct Debit":
+                return False
+
+            # Check if member has active SEPA mandate
+            mandate = self.get_active_mandate(schedule)
+            return mandate is not None
+
+        except Exception as e:
+            frappe.log_error(f"Error checking SEPA status for schedule {schedule.name}: {str(e)}")
+            return False
 
     def create_batch_document(self, schedules, collection_date):
         """Create the SEPA Direct Debit Batch document"""
         batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = collection_date
         batch.batch_description = f"Membership dues collection - {collection_date}"
-        batch.batch_type = "RCUR"  # Recurring payments
+        batch.batch_type = "RCUR"  # Default to recurring
         batch.currency = "EUR"
         batch.status = "Draft"
 
-        # Determine sequence type based on schedules
-        # If any are FRST, the whole batch should be FRST
-        has_frst = any(s.next_sequence_type == "FRST" for s in schedules if hasattr(s, "next_sequence_type"))
-        batch.batch_type = "FRST" if has_frst else "RCUR"
+        # Set flag for automated processing (affects validation behavior)
+        batch._automated_processing = True
 
         return batch
 
@@ -146,6 +179,26 @@ class EnhancedSEPAProcessor:
         try:
             # Get member details
             member = frappe.get_doc("Member", schedule.member)
+
+            # For daily billing: Check if member has too many unpaid invoices
+            if schedule.billing_frequency == "Daily":
+                unpaid_count = frappe.db.count(
+                    "Sales Invoice",
+                    {
+                        "customer": member.customer or schedule.member,
+                        "status": ["in", ["Unpaid", "Overdue"]],
+                        "outstanding_amount": [">", 0],
+                    },
+                )
+
+                # Skip if member has more than 5 unpaid invoices (configurable)
+                max_unpaid = 5  # Could be moved to settings
+                if unpaid_count >= max_unpaid:
+                    frappe.logger().info(
+                        f"Skipping invoice creation for {member.full_name} - "
+                        f"has {unpaid_count} unpaid invoices (max: {max_unpaid})"
+                    )
+                    return None
 
             # Create invoice
             invoice = frappe.new_doc("Sales Invoice")
@@ -239,7 +292,7 @@ class EnhancedSEPAProcessor:
         return item_code
 
     def add_invoice_to_batch(self, batch, invoice, schedule):
-        """Add invoice to SEPA batch"""
+        """Add invoice to SEPA batch with proper sequence type determination"""
         # Get SEPA mandate details
         mandate = self.get_active_mandate(schedule)
         if not mandate:
@@ -250,6 +303,15 @@ class EnhancedSEPAProcessor:
 
         # Get member details
         member = frappe.get_doc("Member", schedule.member)
+
+        # Determine correct sequence type using mandate history
+        from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+            get_mandate_sequence_type,
+        )
+
+        sequence_info = get_mandate_sequence_type(mandate.name, invoice.name)
+        correct_sequence_type = sequence_info["sequence_type"]
 
         batch.append(
             "invoices",
@@ -264,9 +326,24 @@ class EnhancedSEPAProcessor:
                 "iban": mandate.iban,
                 "mandate_reference": mandate.mandate_id,
                 "status": "Pending",
-                "sequence_type": schedule.next_sequence_type or "RCUR",
+                "sequence_type": correct_sequence_type,  # Use properly determined sequence type
             },
         )
+
+        # Create mandate usage record for tracking
+        try:
+            create_mandate_usage_record(
+                mandate_name=mandate.name,
+                reference_doctype="Sales Invoice",
+                reference_name=invoice.name,
+                amount=invoice.grand_total,
+                sequence_type=correct_sequence_type,
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to create mandate usage record for {mandate.name}: {str(e)}",
+                "Enhanced SEPA Processor - Mandate Usage Creation Error",
+            )
 
     def get_active_mandate(self, schedule):
         """Get active SEPA mandate for the schedule"""
@@ -294,9 +371,9 @@ class EnhancedSEPAProcessor:
         # Calculate next dates
         schedule.calculate_coverage_dates()
 
-        # Update sequence type if this was first payment
-        if schedule.next_sequence_type == "FRST":
-            schedule.db_set("next_sequence_type", "RCUR")
+        # NOTE: Sequence type is now determined by mandate usage history
+        # No longer need to update schedule.next_sequence_type as it's determined dynamically
+        # The actual sequence type is determined in add_invoice_to_batch() using mandate history
 
         # Update last invoice date
         schedule.db_set("last_invoice_date", today())
@@ -430,26 +507,420 @@ Organization
                 return invoice_item
         return None
 
+    def verify_invoice_coverage(self, collection_date):
+        """
+        Verify that all eligible members have been properly invoiced
+        Optimized with batch processing for better performance
+        """
+        issues = []
+        total_checked = 0
+
+        try:
+            # Batch query to get all schedules with their invoice status
+            coverage_data = frappe.db.sql(
+                """
+                SELECT
+                    mds.name as schedule_name,
+                    mds.member,
+                    mds.billing_frequency,
+                    mds.next_invoice_date,
+                    mds.current_coverage_start,
+                    mds.current_coverage_end,
+                    mds.payment_method,
+                    COUNT(si.name) as invoice_count
+                FROM `tabMembership Dues Schedule` mds
+                LEFT JOIN `tabSales Invoice` si ON (
+                    si.custom_membership_dues_schedule = mds.name
+                    AND si.custom_coverage_start_date = mds.current_coverage_start
+                    AND si.custom_coverage_end_date = mds.current_coverage_end
+                    AND si.docstatus != 2
+                )
+                WHERE
+                    mds.status = 'Active'
+                    AND mds.auto_generate = 1
+                    AND mds.test_mode = 0
+                GROUP BY mds.name
+                LIMIT 500  -- Pagination for large datasets
+            """,
+                as_dict=True,
+            )
+
+            # Batch validate coverage periods
+            schedule_data = [
+                {
+                    "name": row["schedule_name"],
+                    "member": row["member"],
+                    "billing_frequency": row["billing_frequency"],
+                    "current_coverage_start": row["current_coverage_start"],
+                    "current_coverage_end": row["current_coverage_end"],
+                    "payment_method": row["payment_method"],
+                }
+                for row in coverage_data
+            ]
+
+            coverage_issues = self.validate_coverage_periods_batch(schedule_data, collection_date)
+
+            for row in coverage_data:
+                total_checked += 1
+                schedule_name = row["schedule_name"]
+
+                # Check for coverage period issues
+                if schedule_name in coverage_issues:
+                    issues.append(
+                        {
+                            "schedule": schedule_name,
+                            "member": row["member"],
+                            "issue": coverage_issues[schedule_name],
+                            "billing_frequency": row["billing_frequency"],
+                        }
+                    )
+
+                # Check if invoice exists for SEPA schedules
+                if row["payment_method"] == "SEPA Direct Debit" and row["invoice_count"] == 0:
+                    issues.append(
+                        {
+                            "schedule": schedule_name,
+                            "member": row["member"],
+                            "issue": "Missing invoice for current coverage period",
+                            "billing_frequency": row["billing_frequency"],
+                        }
+                    )
+
+            frappe.logger().info(
+                f"Invoice coverage verification: {total_checked} schedules checked, "
+                f"{len(issues)} issues found"
+            )
+
+            return {
+                "complete": len(issues) == 0,
+                "total_checked": total_checked,
+                "issues_count": len(issues),
+                "issues": issues,
+            }
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error in invoice coverage verification: {str(e)}", "Invoice Coverage Verification Error"
+            )
+            return {"complete": False, "error": str(e), "total_checked": total_checked, "issues": issues}
+
+    def validate_coverage_period(self, schedule, collection_date):
+        """Validate coverage period against billing frequency (rolling periods)"""
+        if not schedule["current_coverage_start"] or not schedule["current_coverage_end"]:
+            return "Missing coverage period dates"
+
+        start_date = getdate(schedule["current_coverage_start"])
+        end_date = getdate(schedule["current_coverage_end"])
+        billing_freq = schedule["billing_frequency"]
+
+        # Calculate expected period length
+        period_days = (end_date - start_date).days + 1  # +1 to include end date
+
+        if billing_freq == "Daily":
+            expected_days = 1
+            tolerance = 0
+        elif billing_freq == "Weekly":
+            expected_days = 7
+            tolerance = 1
+        elif billing_freq == "Monthly":
+            # Rolling months: 28-31 days
+            expected_days = 30  # Average
+            tolerance = 3
+        elif billing_freq == "Quarterly":
+            # Rolling quarters: ~90 days
+            expected_days = 90
+            tolerance = 7
+        elif billing_freq == "Annual":
+            # Rolling years: 365/366 days
+            expected_days = 365
+            tolerance = 2
+        else:
+            # Custom billing frequency
+            return None  # Skip validation for custom frequencies
+
+        if abs(period_days - expected_days) > tolerance:
+            return (
+                f"Coverage period ({period_days} days) doesn't match "
+                f"{billing_freq} billing frequency (expected ~{expected_days} days)"
+            )
+
+        return None
+
+    def validate_coverage_periods_batch(self, schedules, collection_date):
+        """Batch validate coverage periods for multiple schedules"""
+        issues = {}
+
+        for schedule in schedules:
+            issue = self.validate_coverage_period(schedule, collection_date)
+            if issue:
+                issues[schedule["name"]] = issue
+
+        return issues
+
+    def get_existing_unpaid_sepa_invoices(self, collection_date):
+        """Get existing unpaid invoices for SEPA Direct Debit members using optimized service"""
+        # Get lookback days from centralized config
+        processing_config = self.config_manager.get_processing_config()
+        lookback_days = processing_config["lookback_days"]
+
+        invoices = self.mandate_service.get_sepa_invoices_with_mandates(
+            collection_date, lookback_days=lookback_days
+        )
+
+        frappe.logger().info(f"Found {len(invoices)} existing unpaid SEPA invoices")
+        return invoices
+
+    def create_batch_from_invoices(self, invoices, collection_date):
+        """Create SEPA batch from existing invoices"""
+        batch = frappe.new_doc("Direct Debit Batch")
+        batch.batch_date = collection_date
+        batch.batch_description = f"Monthly SEPA collection - {collection_date.strftime('%B %Y')}"
+        batch.batch_type = "RCUR"  # Default to recurring
+        batch.currency = "EUR"
+        batch.status = "Draft"
+
+        # Set flag for automated processing
+        batch._automated_processing = True
+
+        return batch
+
+    def add_invoices_to_batch_optimized(self, batch, invoices):
+        """Add multiple invoices to batch with optimized sequence type determination"""
+        if not invoices:
+            return
+
+        # Prepare mandate-invoice pairs for batch sequence type lookup
+        mandate_invoice_pairs = []
+        invoice_lookup = {}
+
+        for invoice_data in invoices:
+            mandate_name = invoice_data.get("mandate_name")
+            invoice_name = invoice_data.get("name")
+
+            if mandate_name and invoice_name:
+                mandate_invoice_pairs.append((mandate_name, invoice_name))
+                invoice_lookup[f"{mandate_name}:{invoice_name}"] = invoice_data
+
+        # Batch get sequence types
+        sequence_types = self.mandate_service.get_sequence_types_batch(mandate_invoice_pairs)
+
+        # Add invoices to batch with pre-determined sequence types
+        successful_count = 0
+        for pair in mandate_invoice_pairs:
+            mandate_name, invoice_name = pair
+            cache_key = f"{mandate_name}:{invoice_name}"
+            invoice_data = invoice_lookup[cache_key]
+            sequence_type = sequence_types.get(cache_key, "RCUR")  # Default to RCUR
+
+            try:
+                self.add_invoice_to_batch_with_sequence(batch, invoice_data, sequence_type)
+                successful_count += 1
+            except Exception as e:
+                frappe.log_error(
+                    f"Error adding invoice {invoice_name} to batch: {str(e)}",
+                    "Enhanced SEPA Processor - Batch Addition Error",
+                )
+                continue
+
+        frappe.logger().info(f"Successfully added {successful_count}/{len(invoices)} invoices to batch")
+
+    def add_invoice_to_batch_with_sequence(self, batch, invoice_data, sequence_type):
+        """Add single invoice to batch with pre-determined sequence type"""
+        batch.append(
+            "invoices",
+            {
+                "invoice": invoice_data["name"],
+                "membership": invoice_data["membership"],
+                "member": invoice_data["member"],
+                "member_name": invoice_data["member_name"],
+                "amount": invoice_data["amount"],
+                "currency": invoice_data["currency"],
+                "iban": invoice_data["iban"],
+                "mandate_reference": invoice_data["mandate_reference"],
+                "status": "Pending",
+                "sequence_type": sequence_type,
+            },
+        )
+
+        # Create mandate usage record for tracking
+        try:
+            from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+                create_mandate_usage_record,
+            )
+
+            create_mandate_usage_record(
+                mandate_name=invoice_data["mandate_name"],
+                reference_doctype="Sales Invoice",
+                reference_name=invoice_data["name"],
+                amount=invoice_data["amount"],
+                sequence_type=sequence_type,
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to create mandate usage record for {invoice_data['mandate_name']}: {str(e)}",
+                "Enhanced SEPA Processor - Mandate Usage Creation Error",
+            )
+
+    def add_existing_invoice_to_batch(self, batch, invoice_data):
+        """Add existing invoice to SEPA batch with proper sequence type determination"""
+        # Determine correct sequence type using mandate history
+        from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            create_mandate_usage_record,
+            get_mandate_sequence_type,
+        )
+
+        mandate_name = invoice_data["mandate_name"]
+        if not mandate_name:
+            frappe.log_error(
+                f"No active SEPA mandate found for invoice {invoice_data['name']}",
+                "SEPA Batch - Missing Mandate",
+            )
+            return
+
+        sequence_info = get_mandate_sequence_type(mandate_name, invoice_data["name"])
+        correct_sequence_type = sequence_info["sequence_type"]
+
+        batch.append(
+            "invoices",
+            {
+                "invoice": invoice_data["name"],
+                "membership": invoice_data["membership"],
+                "member": invoice_data["member"],
+                "member_name": invoice_data["member_name"],
+                "amount": invoice_data["amount"],
+                "currency": invoice_data["currency"],
+                "iban": invoice_data["iban"],
+                "mandate_reference": invoice_data["mandate_reference"],
+                "status": "Pending",
+                "sequence_type": correct_sequence_type,
+            },
+        )
+
+        # Create mandate usage record for tracking
+        try:
+            create_mandate_usage_record(
+                mandate_name=mandate_name,
+                reference_doctype="Sales Invoice",
+                reference_name=invoice_data["name"],
+                amount=invoice_data["amount"],
+                sequence_type=correct_sequence_type,
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to create mandate usage record for {mandate_name}: {str(e)}",
+                "Enhanced SEPA Processor - Mandate Usage Creation Error",
+            )
+
+    def handle_automated_batch_validation(self, batch):
+        """
+        Handle validation results for automated batch creation
+        Uses the same validation system as the Direct Debit Batch
+        """
+        try:
+            # Check if batch has validation results
+            if not hasattr(batch, "validation_status") or not batch.validation_status:
+                # Batch doesn't have validation results, skip notification
+                return
+
+            critical_errors = []
+            warnings = []
+
+            # Parse validation results if they exist
+            if batch.validation_errors:
+                try:
+                    critical_errors = frappe.parse_json(batch.validation_errors)
+                except:
+                    critical_errors = []
+
+            if batch.validation_warnings:
+                try:
+                    warnings = frappe.parse_json(batch.validation_warnings)
+                except:
+                    warnings = []
+
+            # Use the existing notification system
+            from verenigingen.api.sepa_batch_notifications import handle_automated_batch_validation
+
+            result = handle_automated_batch_validation(batch, critical_errors, warnings)
+
+            frappe.logger().info(
+                f"Enhanced SEPA Processor batch validation handled: {result['action']} for batch {batch.name}"
+            )
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error handling automated batch validation for {batch.name}: {str(e)}",
+                "Enhanced SEPA Processor - Validation Handler Error",
+            )
+
 
 @frappe.whitelist()
 def create_monthly_dues_collection_batch():
     """
     Scheduled job to create monthly SEPA collection batch
-    Run this via scheduler on a specific day each month
+    Uses centralized configuration for timing and settings
     """
-    processor = EnhancedSEPAProcessor()
-    batch = processor.create_dues_collection_batch()
+    from frappe.utils import getdate, today
 
-    if batch:
-        frappe.logger().info(f"Created monthly dues collection batch: {batch.name}")
+    # Use centralized configuration manager
+    config_manager = get_sepa_config_manager()
+    timing_config = config_manager.get_batch_timing_config()
 
-        # Optionally auto-submit if configured
-        if frappe.db.get_single_value("Verenigingen Settings", "auto_submit_sepa_batches"):
-            batch.submit()
-            batch.generate_sepa_xml()
-            frappe.logger().info(f"Auto-submitted and generated SEPA file for batch: {batch.name}")
+    current_date = getdate(today())
 
-    return batch.name if batch else None
+    # Check if auto creation is enabled
+    if not timing_config["auto_creation_enabled"]:
+        frappe.logger().info("Auto batch creation is disabled in configuration")
+        return None
+
+    # Check if today is a batch creation day
+    if not timing_config["is_creation_day"]:
+        creation_days = ", ".join([str(day) for day in timing_config["creation_days"]])
+        frappe.logger().info(
+            f"Skipping SEPA batch creation - today is {current_date.day}, runs on: {creation_days}"
+        )
+        return None
+
+    # Use configured processing date
+    processing_date = timing_config["next_processing_date"]
+
+    # Create batch with error handling
+    error_handler = get_sepa_error_handler()
+
+    def create_batch_operation():
+        processor = EnhancedSEPAProcessor()
+        return processor.create_dues_collection_batch(collection_date=processing_date)
+
+    result = error_handler.execute_with_retry(create_batch_operation)
+
+    if result["success"]:
+        batch = result["result"]
+        if batch:
+            frappe.logger().info(
+                f"Created monthly SEPA batch {batch.name} on {current_date} "
+                f"for processing on {processing_date} (Dutch payroll timing)"
+            )
+
+            # Auto-submit if configured
+            if timing_config["auto_submit_enabled"]:
+                try:
+                    batch.submit()
+                    batch.generate_sepa_xml()
+                    frappe.logger().info(f"Auto-submitted and generated SEPA file for batch: {batch.name}")
+                except Exception as e:
+                    frappe.log_error(
+                        f"Failed to auto-submit batch {batch.name}: {str(e)}", "SEPA Auto-Submit Error"
+                    )
+
+            return batch.name
+        else:
+            frappe.logger().info("No invoices found for SEPA batch creation")
+            return None
+    else:
+        frappe.log_error(
+            f"Failed to create monthly SEPA batch: {result['error']}", "Monthly SEPA Batch Creation Error"
+        )
+        return None
 
 
 @frappe.whitelist()
@@ -461,6 +932,36 @@ def process_sepa_returns(batch_name, return_file):
     frappe.msgprint(_("Processed {0} failed payments from SEPA return file").format(failed_count))
 
     return failed_count
+
+
+@frappe.whitelist()
+def verify_invoice_coverage_status(collection_date=None):
+    """API to check invoice coverage for a specific date"""
+    processor = EnhancedSEPAProcessor()
+    if not collection_date:
+        collection_date = today()
+
+    result = processor.verify_invoice_coverage(collection_date)
+    return result
+
+
+@frappe.whitelist()
+def get_sepa_batch_preview(collection_date=None):
+    """Preview what SEPA batch would be created without actually creating it"""
+    processor = EnhancedSEPAProcessor()
+    if not collection_date:
+        collection_date = today()
+
+    invoices = processor.get_existing_unpaid_sepa_invoices(collection_date)
+
+    return {
+        "success": True,
+        "collection_date": collection_date,
+        "unpaid_invoices_found": len(invoices),
+        "total_amount": sum(flt(inv["amount"]) for inv in invoices),
+        "sample_invoices": invoices[:5],  # Show first 5 as preview
+        "members_affected": len(set(inv["member"] for inv in invoices)),
+    }
 
 
 @frappe.whitelist()
@@ -529,9 +1030,13 @@ def validate_sepa_configuration():
         return {"valid": False, "message": _("Missing SEPA configuration: {0}").format(", ".join(missing))}
 
     # Validate IBAN format
-    from verenigingen.utils.iban_validator import validate_iban
+    try:
+        from verenigingen.utils.iban_validator import validate_iban
 
-    iban_validation = validate_iban(settings.company_iban)
+        iban_validation = validate_iban(settings.company_iban)
+    except ImportError:
+        # Fallback if IBAN validator is not available
+        iban_validation = {"valid": True, "bic": None}
 
     if not iban_validation["valid"]:
         return {"valid": False, "message": _("Invalid company IBAN: {0}").format(iban_validation["error"])}

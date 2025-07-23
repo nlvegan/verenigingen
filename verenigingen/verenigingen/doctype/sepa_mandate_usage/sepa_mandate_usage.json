@@ -8,8 +8,17 @@
   "usage_date",
   "reference_doctype",
   "reference_name",
+  "column_break_1",
+  "sequence_type",
+  "batch_reference",
   "amount",
+  "section_break_1",
   "status",
+  "processing_date",
+  "failure_reason",
+  "column_break_2",
+  "retry_count",
+  "last_retry_date",
   "notes"
  ],
  "fields": [
@@ -25,7 +34,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Reference Type",
-   "options": "Membership\nDonation\nSales Invoice\nOther",
+   "options": "Membership\nDonation\nSales Invoice\nDirect Debit Batch\nOther",
    "reqd": 1
   },
   {
@@ -35,6 +44,26 @@
    "label": "Reference Name"
   },
   {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sequence_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Sequence Type",
+   "options": "FRST\nRCUR\nFNAL\nOOFF",
+   "reqd": 1,
+   "description": "FRST: First/One-off, RCUR: Recurring, FNAL: Final, OOFF: One-off"
+  },
+  {
+   "fieldname": "batch_reference",
+   "fieldtype": "Link",
+   "label": "Batch Reference",
+   "options": "Direct Debit Batch",
+   "description": "Link to the SEPA batch containing this usage"
+  },
+  {
    "fieldname": "amount",
    "fieldtype": "Currency",
    "in_list_view": 1,
@@ -42,12 +71,45 @@
    "reqd": 1
   },
   {
+   "fieldname": "section_break_1",
+   "fieldtype": "Section Break",
+   "label": "Processing Status"
+  },
+  {
    "fieldname": "status",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "Pending\nCollected\nFailed\nCancelled",
+   "options": "Pending\nProcessing\nCollected\nFailed\nCancelled\nReturned",
    "reqd": 1
+  },
+  {
+   "fieldname": "processing_date",
+   "fieldtype": "Date",
+   "label": "Processing Date",
+   "description": "Date when the transaction was processed by the bank"
+  },
+  {
+   "fieldname": "failure_reason",
+   "fieldtype": "Data",
+   "label": "Failure Reason",
+   "depends_on": "eval:doc.status == 'Failed' || doc.status == 'Returned'"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "retry_count",
+   "fieldtype": "Int",
+   "label": "Retry Count",
+   "default": "0"
+  },
+  {
+   "fieldname": "last_retry_date",
+   "fieldtype": "Date",
+   "label": "Last Retry Date",
+   "depends_on": "eval:doc.retry_count > 0"
   },
   {
    "fieldname": "notes",

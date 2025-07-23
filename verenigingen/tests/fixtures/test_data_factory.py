@@ -355,14 +355,14 @@ class TestDataFactory:
             int(len([m for m in members if m.status == "Active"]) * mandate_ratio),
         )
 
-        # Sample Dutch IBANs for testing
+        # Generate valid test IBANs
+        from verenigingen.utils.validation.iban_validator import generate_test_iban
+        import random
+        
+        banks = ["TEST", "MOCK", "DEMO"]
         sample_ibans = [
-            "NL91ABNA0417164300",
-            "NL63RABO0123456789",
-            "NL20INGB0001234567",
-            "NL85TRIO0123456789",
-            "NL02BUNQ2025123456",
-            "NL39KNAB0123456789",
+            generate_test_iban(random.choice(banks), f"012345678{i}")
+            for i in range(6)
         ]
 
         for member in mandate_members:

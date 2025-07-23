@@ -3,78 +3,47 @@ SEPA Mandate Processing Edge Cases Test Suite
 Tests for SEPA mandate validation, usage tracking, and banking integration edge cases
 """
 
-import unittest
-
 import frappe
 from frappe.utils import add_days, today
+from verenigingen.tests.utils.base import VereningingenTestCase
 
 
-class TestSEPAMandateEdgeCases(unittest.TestCase):
+class TestSEPAMandateEdgeCases(VereningingenTestCase):
     """Test SEPA mandate processing edge cases and failure scenarios"""
 
-    @classmethod
-    def setUpClass(cls):
-        """Set up test data"""
-        cls.test_records = []
-
-        # Create test chapter
-        cls.chapter = frappe.get_doc(
-            {
-                "doctype": "Chapter",
-                "chapter_name": "SEPA Test Chapter",
-                "short_name": "STC",
-                "country": "Netherlands"}
+    def setUp(self):
+        """Set up each test"""
+        super().setUp()
+        
+        # Create test member for SEPA tests
+        self.member = self.create_test_member(
+            first_name="SEPA",
+            last_name="EdgeCase",
+            email="sepa.edgecase@test.com"
         )
-        cls.chapter.insert()
-        cls.test_records.append(cls.chapter)
 
-        # Create test member
-        cls.member = frappe.get_doc(
-            {
-                "doctype": "Member",
-                "first_name": "SEPA",
-                "last_name": "Testmember",
-                "email": "sepa.test@test.com",
-                "status": "Active",
-                "chapter": cls.chapter.name}
-        )
-        cls.member.insert()
-        cls.test_records.append(cls.member)
-
-        # Valid IBAN test cases
-        cls.valid_ibans = [
-            "NL91ABNA0417164300",  # Netherlands
-            "DE89370400440532013000",  # Germany
-            "GB82WEST12345698765432",  # UK
-            "FR1420041010050500013M02606",  # France
-            "BE68539007547034",  # Belgium
+        # Valid IBAN test cases - using proper test IBANs
+        self.valid_ibans = [
+            self._get_test_iban(),  # Netherlands TEST bank
+            "DE89370400440532013000",  # Germany (keeping valid foreign IBAN)
+            "GB82WEST12345698765432",  # UK (keeping valid foreign IBAN)
+            "FR1420041010050500013M02606",  # France (keeping valid foreign IBAN)
+            "BE68539007547034",  # Belgium (keeping valid foreign IBAN)
         ]
 
         # Invalid IBAN test cases
-        cls.invalid_ibans = [
-            "NL91ABNA041716430",  # Too short
-            "NL91ABNA04171643000",  # Too long
-            "XX91ABNA0417164300",  # Invalid country code
-            "NL00ABNA0417164300",  # Invalid check digits
-            "NL91XXXX0417164300",  # Invalid bank code
-            "NL91ABNA0417164301",  # Invalid check digit
+        test_iban = self._get_test_iban()
+        self.invalid_ibans = [
+            test_iban[:-1],  # Too short (remove last digit)
+            test_iban + "0",  # Too long (add extra digit)
+            "XX" + test_iban[2:],  # Invalid country code
+            test_iban[:2] + "00" + test_iban[4:],  # Invalid check digits
+            test_iban[:4] + "XXXX" + test_iban[8:],  # Invalid bank code
+            test_iban[:-1] + "1",  # Invalid check digit (change last digit)
             "",  # Empty
             "NOT-AN-IBAN",  # Completely invalid
             "1234567890",  # Numbers only
         ]
-
-    @classmethod
-    def tearDownClass(cls):
-        """Clean up test data"""
-        for record in reversed(cls.test_records):
-            try:
-                record.delete()
-            except Exception:
-                pass
-
-    def setUp(self):
-        """Set up each test"""
-        frappe.set_user("Administrator")
 
     # ===== IBAN VALIDATION EDGE CASES =====
 
@@ -113,11 +82,16 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
 
     def test_iban_formatting_normalization(self):
         """Test IBAN formatting normalization (spaces, case)"""
+        # Get a valid test IBAN for formatting tests
+        test_iban = self._get_test_iban()
+        test_iban_lower = test_iban.lower()
+        
+        # Create test cases based on the valid IBAN
         test_cases = [
-            ("nl91 abna 0417 1643 00", "NL91ABNA0417164300"),  # Lowercase with spaces
-            ("NL91 ABNA 0417 1643 00", "NL91ABNA0417164300"),  # Uppercase with spaces
-            ("nl91abna0417164300", "NL91ABNA0417164300"),  # Lowercase no spaces
-            ("  NL91ABNA0417164300  ", "NL91ABNA0417164300"),  # Leading/trailing spaces
+            (f"{test_iban_lower[:2]} {test_iban_lower[2:6]} {test_iban_lower[6:10]} {test_iban_lower[10:14]} {test_iban_lower[14:]}", test_iban),  # Lowercase with spaces
+            (f"{test_iban[:2]} {test_iban[2:6]} {test_iban[6:10]} {test_iban[10:14]} {test_iban[14:]}", test_iban),  # Uppercase with spaces  
+            (test_iban_lower, test_iban),  # Lowercase no spaces
+            (f"  {test_iban}  ", test_iban),  # Leading/trailing spaces
         ]
 
         for input_iban, expected_iban in test_cases:
@@ -165,7 +139,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": past_date,
                 "expiry_date": past_date}
@@ -188,7 +162,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": today()}
         )
@@ -212,7 +186,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": today()}
         )
@@ -241,7 +215,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": today(),
                 "usage_limit": 3,  # Allow only 3 uses
@@ -277,7 +251,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": today(),
                 "monthly_limit": 500.00,  # €500 per month
@@ -321,7 +295,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": today()}
         )
@@ -388,7 +362,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": today()}
         )
@@ -438,7 +412,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": today()}
         )
@@ -466,7 +440,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": add_days(today(), -1000),  # Old mandate
             }
@@ -497,7 +471,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
     def test_cross_border_iban_validation(self):
         """Test cross-border IBAN validation"""
         cross_border_ibans = [
-            ("NL91ABNA0417164300", "Netherlands", True),
+            (self._get_test_iban(), "Netherlands", True),
             ("DE89370400440532013000", "Germany", True),
             ("US12345678901234567890", "USA", False),  # Not SEPA
             ("JP1234567890123456", "Japan", False),  # Not SEPA
@@ -530,7 +504,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
             {
                 "doctype": "SEPA Mandate",
                 "member": self.member.name,
-                "iban": "NL91ABNA0417164300",
+                "iban": self._get_test_iban(),
                 "status": "Active",
                 "mandate_date": today()}
         )
@@ -574,7 +548,7 @@ class TestSEPAMandateEdgeCases(unittest.TestCase):
                         {
                             "doctype": "SEPA Mandate",
                             "member": self.member.name,
-                            "iban": "NL91ABNA0417164300",
+                            "iban": self._get_test_iban(),
                             "status": "Active",
                             "mandate_date": today()}
                     )

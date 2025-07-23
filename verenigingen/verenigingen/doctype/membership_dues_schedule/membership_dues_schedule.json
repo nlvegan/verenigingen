@@ -24,6 +24,7 @@
         "next_invoice_date",
         "last_invoice_date",
         "invoice_days_before",
+        "billing_day",
         "column_break_2",
         "dues_rate",
         "currency",
@@ -184,6 +185,13 @@
             "fieldname": "invoice_days_before",
             "fieldtype": "Int",
             "label": "Invoice Days Before Due"
+        },
+        {
+            "default": 1,
+            "description": "Day of month for anniversary billing (1-31). Defaults to member anniversary or 1st of month.",
+            "fieldname": "billing_day",
+            "fieldtype": "Int",
+            "label": "Billing Day"
         },
         {
             "fieldname": "column_break_2",

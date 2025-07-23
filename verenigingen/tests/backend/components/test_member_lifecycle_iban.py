@@ -62,7 +62,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
             "last_name": "Application",
             "email": "test.application.iban@example.com",
             "payment_method": "SEPA Direct Debit",
-            "iban": "NL91ABNA0417164300",
+            "iban": "NL13TEST0123456789",
             "bank_account_name": "Test Application"}
 
         # Submit application
@@ -96,7 +96,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
             first_name="IBAN",
             last_name="Change",
             email="iban.change@example.com",
-            iban="NL39RABO0300065264",
+            iban="NL82MOCK0123456789",
             bank_account_name="Initial Account",
             payment_method="SEPA Direct Debit",
         )
@@ -201,7 +201,7 @@ class TestMemberLifecycleIBAN(unittest.TestCase):
             first_name="Terminated",
             last_name="Member",
             email="terminated.member@example.com",
-            iban="NL39RABO0300065264",
+            iban="NL82MOCK0123456789",
             bank_account_name="Initial Account",
             payment_method="SEPA Direct Debit",
         )

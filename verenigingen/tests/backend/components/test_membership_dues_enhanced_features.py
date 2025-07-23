@@ -430,7 +430,7 @@ class TestMembershipDuesEnhancedFeatures(VereningingenTestCase):
         sepa_mandate = frappe.new_doc("SEPA Mandate")
         sepa_mandate.member = self.test_member.name
         sepa_mandate.mandate_reference = f"TEST-{frappe.generate_hash(length=8)}"
-        sepa_mandate.iban = "NL91ABNA0417164300"  # Test IBAN
+        sepa_mandate.iban = "NL13TEST0123456789"  # Valid test IBAN
         sepa_mandate.bic = "ABNANL2A"
         sepa_mandate.status = "Active"
         sepa_mandate.signature_date = today()

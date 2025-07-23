@@ -42,7 +42,7 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         existing_mandate = frappe.new_doc("SEPA Mandate")
         existing_mandate.mandate_id = "EXISTING-MANDATE-001"  # Pre-existing ID
         existing_mandate.account_holder_name = "Existing Account Holder"
-        existing_mandate.iban = "NL91ABNA0417164300"
+        existing_mandate.iban = self._get_test_iban()
         existing_mandate.sign_date = today()
         
         # Create member for mandate
@@ -228,7 +228,7 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         legacy_mandate = frappe.new_doc("SEPA Mandate")
         legacy_mandate.mandate_id = "LEGACY-IMPORT-001"
         legacy_mandate.account_holder_name = "Legacy Account"
-        legacy_mandate.iban = "NL91ABNA0417164300"
+        legacy_mandate.iban = self._get_test_iban()
         legacy_mandate.sign_date = today()
         legacy_mandate.member = member.name
         legacy_mandate.save()

@@ -85,6 +85,10 @@ class MembershipDuesSchedule(Document):
         self.validate_dues_rate_configuration()
         self.validate_financial_constraints()  # Add financial validation
 
+        # Set billing day for member schedules
+        if not self.is_template:
+            self.set_billing_day()
+
         # Initialize next invoice date for new schedules
         if self.is_new() and not self.is_template and not self.next_invoice_date:
             self.next_invoice_date = today()
@@ -526,6 +530,22 @@ class MembershipDuesSchedule(Document):
             # Template is now required and must have suggested_amount
             self.dues_rate = template_values.get("suggested_amount", 0)
 
+    def set_billing_day(self):
+        """Set billing day based on member's anniversary date"""
+        if not self.billing_day or self.billing_day == 0:
+            if self.member:
+                member = frappe.get_doc("Member", self.member)
+                if member.member_since:
+                    # Use day from member's anniversary date
+                    member_since_date = getdate(member.member_since)
+                    self.billing_day = member_since_date.day
+                else:
+                    # Default to 1st of month when no member_since date
+                    self.billing_day = 1
+            else:
+                # Default for templates or schedules without member
+                self.billing_day = 1
+
     def can_generate_invoice(self):
         """Check if invoice can be generated"""
         if self.is_template:
@@ -540,13 +560,10 @@ class MembershipDuesSchedule(Document):
         if self.test_mode:
             return True, "Test mode - can generate"
 
-        # Check if member has active membership
+        # ⚠️ CRITICAL: Check member eligibility for billing
         if self.member:
-            active_membership = frappe.db.exists(
-                "Membership", {"member": self.member, "status": "Active", "docstatus": 1}
-            )
-            if not active_membership:
-                return False, "Member does not have active membership"
+            if not self.validate_member_eligibility_for_invoice():
+                return False, "Member is not eligible for billing"
 
         # Check if it's time to generate invoice
         days_before = self.invoice_days_before or 30
@@ -560,6 +577,50 @@ class MembershipDuesSchedule(Document):
             return False, "Invoice already generated for this period"
 
         return True, "Can generate invoice"
+
+    def validate_member_eligibility_for_invoice(self):
+        """
+        ⚠️ CRITICAL VALIDATION: Check if member is eligible for invoice generation
+        This prevents billing terminated members and those without active memberships.
+        Payment method validation is done at DD batch creation time, not invoice generation.
+        """
+        if not self.member:
+            return False
+
+        try:
+            member = frappe.get_doc("Member", self.member)
+
+            # Check member status
+            if member.status in ["Terminated", "Expelled", "Deceased", "Suspended", "Quit"]:
+                frappe.log_error(
+                    f"Attempted to generate invoice for terminated member: {self.member} (status: {member.status})",
+                    "Member Status Validation - Invoice Generation",
+                )
+                return False
+
+            # Check if member has active membership
+            active_membership = frappe.db.exists(
+                "Membership", {"member": self.member, "status": "Active", "docstatus": 1}
+            )
+            if not active_membership:
+                frappe.log_error(
+                    f"Member {self.member} does not have active membership",
+                    "Membership Status Validation - Invoice Generation",
+                )
+                return False
+
+            # Note: SEPA mandate validation is only done at DD batch creation time
+            # Members with broken payment data can still receive invoices
+            # They just won't be included in Direct Debit batches
+
+            return True
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error validating member eligibility for invoice generation {self.member}: {str(e)}",
+                "Member Eligibility Validation Error",
+            )
+            return False
 
     def generate_invoice(self, force=False):
         """Generate invoice for the current period"""
@@ -804,6 +865,7 @@ class MembershipDuesSchedule(Document):
             template.minimum_amount = 0
             template.suggested_amount = 15.0  # Default template value
             template.invoice_days_before = 30
+            template.billing_day = 1  # Default template billing day
             template.auto_generate = 1
 
             template.insert()
@@ -911,6 +973,7 @@ class MembershipDuesSchedule(Document):
             "minimum_amount",
             "suggested_amount",
             "invoice_days_before",
+            "billing_day",
             "payment_terms_template",
             "auto_generate",
         ]
@@ -1134,6 +1197,7 @@ def create_template_for_membership_type(membership_type, template_name=None):
     template.minimum_amount = 0  # Will be set per schedule
     template.suggested_amount = 15.0  # Default template value - should be configured explicitly
     template.invoice_days_before = 30  # Default
+    template.billing_day = 1  # Default template billing day
     template.auto_generate = 1
 
     template.insert()
@@ -1212,6 +1276,73 @@ def update_member_contribution(schedule_name, updates):
     schedule.save()
 
     return {"success": True, "schedule": schedule.as_dict()}
+
+
+@frappe.whitelist()
+def test_billing_day_field():
+    """Test billing_day field implementation"""
+    try:
+        # Test 1: Create a member with member_since date
+        test_member = frappe.new_doc("Member")
+        test_member.first_name = "Billing"
+        test_member.last_name = "Test"
+        test_member.email = f"billing.test.{frappe.generate_hash(length=6)}@example.com"
+        test_member.member_since = "2023-03-15"  # 15th of the month
+        test_member.save()
+
+        # Test 2: Create a dues schedule for this member
+        schedule = frappe.new_doc("Membership Dues Schedule")
+        schedule.schedule_name = f"Test-Billing-Day-{frappe.generate_hash(length=4)}"
+        schedule.is_template = 0
+        schedule.member = test_member.name
+        schedule.membership_type = "Test Membership"  # Use existing membership type
+        schedule.dues_rate = 10.0
+        schedule.save()
+
+        # Test 3: Create a member without member_since date
+        no_date_member = frappe.new_doc("Member")
+        no_date_member.first_name = "NoDate"
+        no_date_member.last_name = "Test"
+        no_date_member.email = f"nodate.test.{frappe.generate_hash(length=6)}@example.com"
+        no_date_member.member_since = None
+        no_date_member.save()
+
+        # Test 4: Create a dues schedule for member without date
+        no_date_schedule = frappe.new_doc("Membership Dues Schedule")
+        no_date_schedule.schedule_name = f"Test-No-Date-{frappe.generate_hash(length=4)}"
+        no_date_schedule.is_template = 0
+        no_date_schedule.member = no_date_member.name
+        no_date_schedule.membership_type = "Test Membership"
+        no_date_schedule.dues_rate = 10.0
+        no_date_schedule.save()
+
+        results = {
+            "test_1_member_with_date": {
+                "member_since": test_member.member_since,
+                "expected_billing_day": 15,
+                "actual_billing_day": schedule.billing_day,
+                "correct": schedule.billing_day == 15,
+            },
+            "test_2_member_without_date": {
+                "member_since": no_date_member.member_since,
+                "expected_billing_day": 1,
+                "actual_billing_day": no_date_schedule.billing_day,
+                "correct": no_date_schedule.billing_day == 1,
+            },
+            "field_exists": hasattr(schedule, "billing_day"),
+            "overall_success": schedule.billing_day == 15 and no_date_schedule.billing_day == 1,
+        }
+
+        # Cleanup
+        schedule.delete()
+        no_date_schedule.delete()
+        test_member.delete()
+        no_date_member.delete()
+
+        return results
+
+    except Exception as e:
+        return {"error": str(e), "success": False}
 
 
 @frappe.whitelist()

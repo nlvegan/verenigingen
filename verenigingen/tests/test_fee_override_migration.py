@@ -294,7 +294,7 @@ class TestFeeOverrideMigration(VereningingenTestCase):
         """Create a test membership type"""
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Migration Type {frappe.generate_hash(length=6)}"
-        membership_type.amount = 20.0
+        membership_type.minimum_amount = 20.0
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.save()

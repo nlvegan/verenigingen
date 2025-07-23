@@ -514,15 +514,30 @@ def approve_membership_application(member_name, notes=None):
         member.approve_application()
 
         # Send approval email with payment instructions
-        invoice = frappe.get_doc("Sales Invoice", member.application_invoice)
-        send_approval_email(member, invoice)
+        # Get application invoice from payment history child table
+        application_invoice_name = None
+        for payment in member.payment_history or []:
+            if payment.invoice_type == "Application" or "application" in (payment.description or "").lower():
+                application_invoice_name = payment.invoice
+                break
 
+        if application_invoice_name:
+            invoice = frappe.get_doc("Sales Invoice", application_invoice_name)
+            send_approval_email(member, invoice)
+        else:
+            frappe.log_error(f"No application invoice found for member {member.name}", "Application Approval")
+
+        invoice_info = (
+            f" and invoice {application_invoice_name} generated"
+            if application_invoice_name
+            else " (no invoice found)"
+        )
         return {
             "success": True,
-            "message": f"Application approved! Member ID {member.member_id} assigned and invoice {invoice.name} generated",
+            "message": f"Application approved! Member ID {member.member_id} assigned{invoice_info}",
             "member_id": member.member_id,
             "applicant_id": getattr(member, "application_id", None),
-            "invoice": invoice.name,
+            "invoice": application_invoice_name,
         }
 
     except Exception as e:
@@ -563,8 +578,18 @@ def process_application_payment_endpoint(member_name, payment_method, payment_re
 
         # Send confirmation email
         member = frappe.get_doc("Member", member_name)
-        invoice = frappe.get_doc("Sales Invoice", member.application_invoice)
-        send_payment_confirmation_email(member, invoice)
+        # Get application invoice from payment history child table
+        application_invoice_name = None
+        for payment in member.payment_history or []:
+            if payment.invoice_type == "Application" or "application" in (payment.description or "").lower():
+                application_invoice_name = payment.invoice
+                break
+
+        if application_invoice_name:
+            invoice = frappe.get_doc("Sales Invoice", application_invoice_name)
+            send_payment_confirmation_email(member, invoice)
+        else:
+            frappe.log_error(f"No application invoice found for member {member_name}", "Payment Confirmation")
 
         return {
             "success": True,

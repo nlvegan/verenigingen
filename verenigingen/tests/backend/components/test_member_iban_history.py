@@ -45,7 +45,7 @@ class TestMemberIBANHistory(unittest.TestCase):
             first_name="Test",
             last_name="IBAN",
             email="test.iban@example.com",
-            iban="NL91ABNA0417164300",
+            iban="NL13TEST0123456789",
             bank_account_name="Test IBAN",
             payment_method="SEPA Direct Debit",
         )
@@ -90,7 +90,7 @@ class TestMemberIBANHistory(unittest.TestCase):
             first_name="Change",
             last_name="Test",
             email="change.test@example.com",
-            iban="NL39RABO0300065264",
+            iban="NL82MOCK0123456789",
             bank_account_name="Change Test",
             payment_method="SEPA Direct Debit",
         )
@@ -162,7 +162,7 @@ class TestMemberIBANHistory(unittest.TestCase):
         test_formats = [
             ("nl91abna0417164300", "NL91 ABNA 0417 1643 00"),  # lowercase
             ("NL91 ABNA 0417 1643 00", "NL91 ABNA 0417 1643 00"),  # with spaces
-            ("NL91ABNA0417164300", "NL91 ABNA 0417 1643 00"),  # no spaces
+            ("NL13TEST0123456789", "NL91 ABNA 0417 1643 00"),  # no spaces
         ]
 
         for input_iban, expected_format in test_formats:
@@ -181,7 +181,7 @@ class TestMemberIBANHistory(unittest.TestCase):
     def test_bic_auto_derivation(self):
         """Test BIC is automatically derived from Dutch IBANs"""
         dutch_banks = [
-            ("NL39RABO0300065264", "RABONL2U"),
+            ("NL82MOCK0123456789", "RABONL2U"),
             ("NL69INGB0123456789", "INGBNL2A"),
             ("NL63TRIO0212345678", "TRIONL2U"),
         ]
@@ -204,7 +204,7 @@ class TestMemberIBANHistory(unittest.TestCase):
             first_name="Permission",
             last_name="Test",
             email="permission.test@example.com",
-            iban="NL91ABNA0417164300",
+            iban="NL13TEST0123456789",
             bank_account_name="Permission Test",
             payment_method="SEPA Direct Debit",
         )
@@ -252,7 +252,7 @@ class TestMemberIBANHistory(unittest.TestCase):
             first_name="Account",
             last_name="Name",
             email="account.name@example.com",
-            iban="NL91ABNA0417164300",
+            iban="NL13TEST0123456789",
         )
 
         member.payment_method = "SEPA Direct Debit"
@@ -270,7 +270,7 @@ class TestMemberIBANHistory(unittest.TestCase):
             first_name="Mandate",
             last_name="Warning",
             email="mandate.warning@example.com",
-            iban="NL39RABO0300065264",
+            iban="NL82MOCK0123456789",
             bank_account_name="Mandate Warning",
             payment_method="SEPA Direct Debit",
         )

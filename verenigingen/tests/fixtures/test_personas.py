@@ -12,6 +12,7 @@ import frappe
 from frappe.utils import add_days, today
 
 from verenigingen.tests.utils.factories import TestDataBuilder
+from verenigingen.utils.validation.iban_validator import generate_test_iban
 
 
 class TestPersonas:
@@ -37,7 +38,7 @@ class TestPersonas:
                 city="Amsterdam",
                 country="Netherlands",
                 payment_method="SEPA Direct Debit",
-                iban="NL91ABNA0417164300",
+                iban=generate_test_iban("TEST"),
                 bank_account_name="Hannah Happy",
                 newsletter_opt_in=1,
                 status="Active",
@@ -91,6 +92,72 @@ class TestPersonas:
         return test_data
 
     @staticmethod
+    def create_sepa_sam():
+        """Create 'SEPA Sam' - For testing SEPA mandate lifecycle and batch processing"""
+        builder = TestDataBuilder()
+
+        # Member specifically for SEPA testing with realistic data
+        test_data = (
+            builder.with_chapter("Utrecht Test Chapter", postal_codes="3500-3599")
+            .with_member(
+                first_name="Sam",
+                last_name="SEPA",
+                email="sam.sepa@test.com",
+                contact_number="+31654321098",
+                birth_date=add_days(today(), -365 * 28),  # 28 years old
+                street_name="SEPA Laan",
+                house_number="789",
+                postal_code="3512",
+                city="Utrecht",
+                country="Netherlands",
+                payment_method="SEPA Direct Debit",
+                iban=generate_test_iban("TEST"),
+                bank_account_name="Sam SEPA",
+                status="Active",
+            )
+            .with_membership(membership_type="Annual Membership", payment_method="SEPA Direct Debit")
+            .build()
+        )
+
+        # Create SEPA mandate with usage history
+        member = test_data["member"]
+        mandate = frappe.new_doc("SEPA Mandate")
+        mandate.mandate_id = f"SEPA-SAM-{frappe.utils.random_string(6)}"
+        mandate.member = member.name
+        mandate.account_holder_name = member.full_name
+        mandate.iban = member.iban
+        mandate.bic = "TESTNL2A"  # Test bank BIC
+        mandate.sign_date = add_days(today(), -30)  # Signed 30 days ago
+        mandate.status = "Active"
+        mandate.is_active = 1
+        mandate.used_for_memberships = 1
+        mandate.mandate_type = "RCUR"
+        mandate.scheme = "SEPA"
+        mandate.insert()
+
+        # Add some usage history for testing FRST/RCUR logic
+        from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import create_mandate_usage_record
+        
+        # Create historical usage (collected)
+        create_mandate_usage_record(
+            mandate_name=mandate.name,
+            reference_doctype="Sales Invoice",
+            reference_name="INV-HIST-001",
+            amount=120.00,
+            sequence_type="FRST"
+        )
+        
+        # Mark as collected
+        mandate.reload()
+        usage_record = mandate.usage_history[0]
+        usage_record.status = "Collected"
+        usage_record.processing_date = add_days(today(), -15)
+        mandate.save()
+
+        test_data["sepa_mandate"] = mandate
+        return test_data
+
+    @staticmethod
     def create_fee_adjuster_fiona():
         """Create 'Fee Adjuster Fiona' - Member who adjusts fees frequently"""
         builder = TestDataBuilder()
@@ -110,7 +177,7 @@ class TestPersonas:
                 city="Utrecht",
                 country="Netherlands",
                 payment_method="SEPA Direct Debit",
-                iban="NL39RABO0300065264",
+                iban=generate_test_iban("MOCK"),
                 bank_account_name="Fiona FeeAdjuster",
                 status="Active",
                 student_status=1,  # Student for testing minimum fee rules
@@ -208,7 +275,7 @@ class TestPersonas:
                 city="Utrecht",
                 country="Netherlands",
                 payment_method="SEPA Direct Debit",
-                iban="NL39RABO0300065264",
+                iban=generate_test_iban("MOCK"),
                 bank_account_name="Fiona FeeAdjuster",
                 status="Active",
                 student_status=1,  # Student for testing minimum fee rules

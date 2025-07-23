@@ -13,7 +13,6 @@
   "contact_number",
   "column_break_5",
   "membership_type",
-  "auto_renew",
   "status",
   "grace_period_status",
   "grace_period_expiry_date",
@@ -21,18 +20,11 @@
   "details_section",
   "start_date",
   "renewal_date",
-  "next_billing_date",
   "column_break_11",
   "cancellation_date",
   "cancellation_reason",
   "cancellation_type",
-  "dues_schedule_section",
   "allow_multiple_memberships",
-  "member_dues_schedule",
-  "dues_schedule_status",
-  "column_break_24",
-  "view_dues_schedule",
-  "view_payments",
   "amended_from"
  ],
  "fields": [
@@ -91,12 +83,6 @@
    "allow_on_submit": 1
   },
   {
-   "default": "0",
-   "fieldname": "auto_renew",
-   "fieldtype": "Check",
-   "label": "Auto Renew"
-  },
-  {
    "default": "Draft",
    "fieldname": "status",
    "fieldtype": "Select",
@@ -147,12 +133,6 @@
    "description": "Calculated based on start date and membership type (minimum 1 year)"
   },
   {
-   "fieldname": "next_billing_date",
-   "fieldtype": "Date",
-   "label": "Next Billing Date",
-   "read_only": 1
-  },
-  {
    "fieldname": "column_break_11",
    "fieldtype": "Column Break"
   },
@@ -172,52 +152,6 @@
    "label": "Cancellation Type",
    "options": "Immediate\nEnd of Period",
    "depends_on": "eval:doc.cancellation_date"
-  },
-  {
-   "fieldname": "dues_schedule_section",
-   "fieldtype": "Section Break",
-   "label": "Dues Schedule Details"
-  },
-  {
-   "fieldname": "member_dues_schedule",
-   "fieldtype": "Link",
-   "label": "Member Dues Schedule",
-   "options": "Membership Dues Schedule",
-   "description": "Member's dues schedule (shared across memberships)",
-   "read_only": 1,
-   "fetch_from": "member.dues_schedule"
-  },
-  {
-   "fieldname": "dues_schedule_status",
-   "fieldtype": "Data",
-   "label": "Dues Schedule Status",
-   "read_only": 1,
-   "fetch_from": "member_dues_schedule.status",
-   "description": "Status of the member's dues schedule"
-  },
-  {
-   "fieldname": "amount_difference",
-   "fieldtype": "Currency",
-   "label": "Difference from Standard",
-   "insert_after": "effective_amount",
-   "read_only": 1,
-   "description": "Difference between effective amount and membership type standard amount"
-  },
-  {
-   "fieldname": "column_break_24",
-   "fieldtype": "Column Break"
-  },
-  {
-   "depends_on": "eval:doc.member_dues_schedule",
-   "fieldname": "view_dues_schedule",
-   "fieldtype": "Button",
-   "label": "View Dues Schedule"
-  },
-  {
-   "fieldname": "view_payments",
-   "fieldtype": "Button",
-   "label": "View Payment History",
-   "depends_on": "eval:doc.docstatus==1 && doc.member_dues_schedule"
   },
   {
    "fieldname": "amended_from",

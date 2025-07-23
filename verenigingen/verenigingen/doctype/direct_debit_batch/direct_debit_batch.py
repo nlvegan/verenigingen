@@ -11,6 +11,7 @@ from frappe.utils import format_datetime, getdate, nowdate, nowtime, random_stri
 class DirectDebitBatch(Document):
     def validate(self):
         self.validate_invoices()
+        self.validate_sequence_types()
         self.calculate_totals()
 
     def validate_invoices(self):
@@ -38,6 +39,115 @@ class DirectDebitBatch(Document):
 
             if not invoice.mandate_reference:
                 frappe.throw(_("Mandate reference is required for invoice {0}").format(invoice.invoice))
+
+    def validate_sequence_types(self):
+        """Validate SEPA sequence types for automated batch processing"""
+        if not self.invoices:
+            return
+
+        # Import here to avoid circular imports
+        from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import (
+            get_mandate_sequence_type,
+        )
+
+        critical_errors = []
+        warnings = []
+
+        for invoice in self.invoices:
+            if not invoice.mandate_reference:
+                continue  # Will be caught by validate_invoices
+
+            # Get mandate for this member
+            mandate_name = frappe.db.get_value(
+                "SEPA Mandate", {"mandate_id": invoice.mandate_reference, "status": "Active"}, "name"
+            )
+
+            if not mandate_name:
+                critical_errors.append(
+                    {
+                        "invoice": invoice.invoice,
+                        "issue": "No active mandate found for reference",
+                        "mandate_reference": invoice.mandate_reference,
+                    }
+                )
+                continue
+
+            # Get expected sequence type
+            try:
+                expected_info = get_mandate_sequence_type(mandate_name, invoice.invoice)
+                expected_type = expected_info["sequence_type"]
+
+                # Compare with actual sequence type
+                if hasattr(invoice, "sequence_type") and invoice.sequence_type:
+                    if invoice.sequence_type != expected_type:
+                        # Classify error severity
+                        if expected_type == "FRST" and invoice.sequence_type == "RCUR":
+                            critical_errors.append(
+                                {
+                                    "invoice": invoice.invoice,
+                                    "issue": "RCUR used for first mandate usage - SEPA compliance violation",
+                                    "expected": expected_type,
+                                    "actual": invoice.sequence_type,
+                                    "reason": expected_info.get("reason", ""),
+                                }
+                            )
+                        else:
+                            warnings.append(
+                                {
+                                    "invoice": invoice.invoice,
+                                    "issue": "Sequence type mismatch - review recommended",
+                                    "expected": expected_type,
+                                    "actual": invoice.sequence_type,
+                                    "reason": expected_info.get("reason", ""),
+                                }
+                            )
+                else:
+                    # No sequence type set - auto-assign the correct one
+                    invoice.sequence_type = expected_type
+
+            except Exception as e:
+                critical_errors.append(
+                    {
+                        "invoice": invoice.invoice,
+                        "issue": f"Error determining sequence type: {str(e)}",
+                        "mandate_reference": invoice.mandate_reference,
+                    }
+                )
+
+        # Handle validation results
+        if critical_errors:
+            # Store validation results for automated processing
+            self.validation_status = "Critical Errors"
+            self.validation_errors = frappe.as_json(critical_errors)
+            if warnings:
+                self.validation_warnings = frappe.as_json(warnings)
+
+            # In automated context, we'll handle this gracefully
+            # In manual context, throw error immediately
+            if not getattr(self, "_automated_processing", False):
+                error_messages = []
+                for error in critical_errors:
+                    error_messages.append(f"Invoice {error['invoice']}: {error['issue']}")
+
+                frappe.throw(
+                    _("Critical sequence type validation errors found:\n{0}").format(
+                        "\n".join(error_messages)
+                    )
+                )
+
+        elif warnings:
+            # Store warnings but allow processing
+            self.validation_status = "Warnings"
+            self.validation_warnings = frappe.as_json(warnings)
+
+            # Log warnings
+            for warning in warnings:
+                frappe.logger().warning(
+                    f"Sequence type warning for invoice {warning['invoice']}: {warning['issue']}"
+                )
+
+        else:
+            self.validation_status = "Passed"
 
     def calculate_totals(self):
         """Calculate batch totals"""

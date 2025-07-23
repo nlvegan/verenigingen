@@ -602,7 +602,7 @@ def get_member_fee_history(member_name):
         for schedule in dues_schedules:
             history.append(
                 {
-                    "date": schedule.effective_date or schedule.creation,
+                    "date": schedule.creation,  # effective_date field doesn't exist
                     "type": "Dues Schedule",
                     "amount": schedule.dues_rate,
                     "status": schedule.status,
