@@ -108,7 +108,7 @@ def validate_contribution_amount(
                 template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
                 template_values = {
                     "minimum_contribution": template.minimum_amount or 0,
-                    "suggested_contribution": template.suggested_amount or mt_doc.minimum_amount or 0,
+                    "suggested_contribution": template.dues_rate or template.suggested_amount or 0,
                     "fee_slider_max_multiplier": 10.0,
                     "maximum_contribution": 0,
                 }
@@ -118,7 +118,8 @@ def validate_contribution_amount(
         min_amount = template_values.get("minimum_contribution", 0) or (
             mt_doc.minimum_amount * 0.3 if mt_doc.minimum_amount else 5.0
         )
-        suggested_amount = template_values.get("suggested_contribution", mt_doc.minimum_amount or 15.0)
+        # Use template amount directly, with fallback to reasonable default
+        suggested_amount = template_values.get("suggested_contribution", 0) or 15.0
         max_multiplier = template_values.get("fee_slider_max_multiplier", 10.0)
         max_amount = template_values.get("maximum_contribution", 0) or (suggested_amount * max_multiplier)
 
@@ -264,12 +265,22 @@ def create_initial_dues_schedule(application, data):
 
         # Get membership type details for defaults
         mt_doc = frappe.get_doc("Membership Type", application.membership_type)
-        dues_schedule.minimum_amount = getattr(
-            mt_doc, "minimum_contribution", mt_doc.minimum_amount * 0.3 if mt_doc.minimum_amount else 5.0
+
+        # Get amounts from template if available
+        template_minimum_amount = 0
+        template_suggested_amount = 0
+        if mt_doc.dues_schedule_template:
+            try:
+                template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
+                template_minimum_amount = template.minimum_amount or 0
+                template_suggested_amount = template.dues_rate or template.suggested_amount or 0
+            except Exception:
+                pass
+
+        dues_schedule.minimum_amount = template_minimum_amount or (
+            mt_doc.minimum_amount * 0.3 if mt_doc.minimum_amount else 5.0
         )
-        dues_schedule.suggested_amount = getattr(
-            mt_doc, "suggested_contribution", mt_doc.minimum_amount or 15.0
-        )
+        dues_schedule.suggested_amount = template_suggested_amount or 15.0
 
         # Custom amount handling
         if application.contribution_mode == "Custom":

@@ -242,9 +242,27 @@ def auto_create_missing_dues_schedules_enhanced(preview_mode=False, send_emails=
                 except Exception:
                     pass
             dues_schedule.billing_frequency = billing_frequency
-            dues_schedule.dues_rate = getattr(membership_type_doc, "minimum_amount", 0) or getattr(
-                membership_type_doc, "dues_rate", 0
-            )
+
+            # Get dues_rate from template, with minimum_amount as floor constraint
+            template_dues_rate = 0
+            if membership_type_doc.dues_schedule_template:
+                try:
+                    template = frappe.get_doc(
+                        "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                    )
+                    template_dues_rate = template.dues_rate or template.suggested_amount or 0
+                except Exception:
+                    pass
+
+            # Use template amount if available, otherwise fall back to minimum_amount as last resort
+            dues_rate = template_dues_rate or getattr(membership_type_doc, "minimum_amount", 0)
+
+            # Validate that dues_rate meets minimum_amount constraint
+            minimum_amount = getattr(membership_type_doc, "minimum_amount", 0)
+            if minimum_amount and dues_rate < minimum_amount:
+                dues_rate = minimum_amount
+
+            dues_schedule.dues_rate = dues_rate
             dues_schedule.contribution_mode = "Custom"  # Use Custom mode for auto-created
             dues_schedule.uses_custom_amount = 1  # Mark as custom amount
             dues_schedule.custom_amount_approved = 1  # Auto-approve for system creation
@@ -407,6 +425,25 @@ def create_dues_schedules_for_members(members, send_emails=False):
             # Get membership type details
             membership_type_doc = frappe.get_doc("Membership Type", membership.membership_type)
 
+            # Get dues_rate from template, with minimum_amount as floor constraint
+            template_dues_rate = 0
+            if membership_type_doc.dues_schedule_template:
+                try:
+                    template = frappe.get_doc(
+                        "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                    )
+                    template_dues_rate = template.dues_rate or template.suggested_amount or 0
+                except Exception:
+                    pass
+
+            # Use template amount if available, otherwise fall back to minimum_amount as last resort
+            dues_rate = template_dues_rate or getattr(membership_type_doc, "minimum_amount", 0)
+
+            # Validate that dues_rate meets minimum_amount constraint
+            minimum_amount = getattr(membership_type_doc, "minimum_amount", 0)
+            if minimum_amount and dues_rate < minimum_amount:
+                dues_rate = minimum_amount
+
             # Create dues schedule with new naming pattern
             from verenigingen.utils.schedule_naming_helper import generate_dues_schedule_name
 
@@ -418,8 +455,7 @@ def create_dues_schedules_for_members(members, send_emails=False):
                     "member": member_name,
                     "membership": membership.name,
                     "membership_type": membership.membership_type,
-                    "dues_rate": getattr(membership_type_doc, "minimum_amount", 0)
-                    or getattr(membership_type_doc, "dues_rate", 0),
+                    "dues_rate": dues_rate,
                     "billing_frequency": "Monthly",
                     "status": "Active",
                     "next_invoice_date": _calculate_next_invoice_date("Monthly"),

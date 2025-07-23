@@ -526,10 +526,25 @@ def get_membership_fee_info(membership_type):
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
 
+        # Get standard amount from template, not minimum_amount
+        standard_amount = 0
+        if membership_type_doc.dues_schedule_template:
+            try:
+                template = frappe.get_doc(
+                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                )
+                standard_amount = template.dues_rate or template.suggested_amount or 0
+            except Exception:
+                pass
+
+        # Fallback to minimum_amount if no template amount available
+        if not standard_amount:
+            standard_amount = membership_type_doc.minimum_amount
+
         return {
             "success": True,
             "membership_type": membership_type,
-            "standard_amount": membership_type_doc.minimum_amount,
+            "standard_amount": standard_amount,
             "currency": membership_type_doc.currency or "EUR",
             "description": membership_type_doc.description,
             "billing_period": getattr(
@@ -548,9 +563,25 @@ def get_membership_type_details(membership_type):
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
 
+        # Get base amount from template, not minimum_amount
+        base_amount = 0
+        if membership_type_doc.dues_schedule_template:
+            try:
+                template = frappe.get_doc(
+                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                )
+                base_amount = template.dues_rate or template.suggested_amount or 0
+            except Exception:
+                pass
+
+        # Fallback to minimum_amount if no template amount available
+        if not base_amount:
+            base_amount = membership_type_doc.minimum_amount
+
+        base_amount = float(base_amount)
+
         # Calculate suggested amounts (if custom amounts allowed)
         suggested_amounts = []
-        base_amount = float(membership_type_doc.minimum_amount)
 
         # Standard amount
         suggested_amounts.append(
@@ -572,7 +603,7 @@ def get_membership_type_details(membership_type):
             "name": membership_type_doc.name,
             "membership_type_name": membership_type_doc.membership_type_name,
             "description": membership_type_doc.description,
-            "amount": membership_type_doc.minimum_amount,
+            "amount": base_amount,  # Use template-based amount, not minimum_amount
             "currency": membership_type_doc.currency or "EUR",
             "billing_period": getattr(
                 membership_type_doc,
@@ -580,8 +611,9 @@ def get_membership_type_details(membership_type):
                 getattr(membership_type_doc, "billing_frequency", "Annual"),
             ),
             "allow_custom_amount": True,  # Enable custom amounts for all membership types
-            "minimum_amount": membership_type_doc.minimum_amount * 0.5,  # 50% of standard amount
-            "maximum_amount": membership_type_doc.minimum_amount * 5,  # 5x standard amount
+            # minimum_amount usage here is correct - it's for validation bounds
+            "minimum_amount": membership_type_doc.minimum_amount * 0.5,  # 50% of constraint floor
+            "maximum_amount": base_amount * 5,  # 5x standard amount
             "custom_amount_note": "You can adjust your contribution amount. Minimum is 50% of standard fee.",
             "suggested_amounts": suggested_amounts,
         }

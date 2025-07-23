@@ -59,11 +59,24 @@ def get_dues_schedule_template_values(membership_type_name):
     try:
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
 
+        # Get template-based suggested amount, not minimum_amount
+        suggested_contribution = 0
+        if mt_doc.dues_schedule_template:
+            try:
+                template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
+                suggested_contribution = template.dues_rate or template.suggested_amount or 0
+            except Exception:
+                pass
+
+        # Fallback to minimum_amount only if no template available
+        if not suggested_contribution:
+            suggested_contribution = mt_doc.minimum_amount or 0
+
         # Default values
         values = {
             "billing_frequency": "Annual",
             "minimum_contribution": 0,
-            "suggested_contribution": mt_doc.minimum_amount or 0,
+            "suggested_contribution": suggested_contribution,
             "maximum_contribution": 0,
             "fee_slider_max_multiplier": 10.0,
             "allow_custom_amounts": True,
@@ -79,7 +92,9 @@ def get_dues_schedule_template_values(membership_type_name):
                     {
                         "billing_frequency": template.billing_frequency or "Annual",
                         "minimum_contribution": template.minimum_amount or 0,
-                        "suggested_contribution": template.suggested_amount or mt_doc.minimum_amount or 0,
+                        "suggested_contribution": template.dues_rate
+                        or template.suggested_amount
+                        or suggested_contribution,
                         "invoice_days_before": template.invoice_days_before or 30,
                         "allow_custom_amounts": template.uses_custom_amount or True,
                     }
@@ -164,7 +179,7 @@ def get_membership_type_details(membership_type_name):
                 "name": mt_doc.name,
                 "membership_type_name": mt_doc.membership_type_name,
                 "description": mt_doc.description,
-                "amount": mt_doc.minimum_amount,
+                "amount": suggested_contribution,  # Use template-based amount
                 "billing_frequency": template_values.get("billing_frequency", "Annual"),
                 "contribution_options": mt_doc.get_contribution_options()
                 if hasattr(mt_doc, "get_contribution_options")
@@ -195,8 +210,9 @@ def validate_contribution_amount(
         min_amount = template_values.get("minimum_contribution", 0) or (
             mt_doc.minimum_amount * 0.3 if mt_doc.minimum_amount else 5.0
         )
+        # Use template suggested amount, not minimum_amount fallback
         max_amount = template_values.get("maximum_contribution", 0) or (
-            template_values.get("suggested_contribution", mt_doc.minimum_amount or 15.0)
+            template_values.get("suggested_contribution", 15.0)
         ) * (template_values.get("fee_slider_max_multiplier", 10.0))
 
         # Validate against constraints
@@ -219,7 +235,7 @@ def validate_contribution_amount(
         # Determine if approval is needed for custom amounts
         needs_approval = False
         if contribution_mode == "Custom" or (
-            amount != template_values.get("suggested_contribution", mt_doc.minimum_amount)
+            amount != template_values.get("suggested_contribution", 0)
             and template_values.get("custom_amount_requires_approval", False)
         ):
             needs_approval = True

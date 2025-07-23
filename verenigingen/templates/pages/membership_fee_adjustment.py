@@ -541,7 +541,12 @@ def get_fee_calculation_info():
     if not membership_type.dues_schedule_template:
         frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
     template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-    standard_fee = template.suggested_amount or 0
+
+    # Get standard fee with proper fallback chain
+    standard_fee = template.dues_rate or template.suggested_amount or membership_type.minimum_amount or 15.0
+
+    # Ensure standard_fee is never None/empty for template rendering
+    standard_fee = float(standard_fee) if standard_fee else 15.0
     minimum_fee = get_minimum_fee(member_doc, membership_type)
     current_fee = get_effective_fee_for_member(member_doc, membership)
 

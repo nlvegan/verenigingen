@@ -136,7 +136,7 @@ def get_staging_data():
         migration = frappe.db.get_value(
             "E-Boekhouden Migration",
             {"migration_status": "Staged"},
-            ["name", "migration_log"],
+            ["name", "error_log"],
             as_dict=True,
             order_by="creation desc",
         )

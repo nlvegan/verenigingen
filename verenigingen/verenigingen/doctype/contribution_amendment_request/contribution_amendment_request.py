@@ -145,7 +145,7 @@ class ContributionAmendmentRequest(Document):
         active_dues_schedule = frappe.db.get_value(
             "Membership Dues Schedule",
             {"member": self.member, "status": "Active"},
-            ["name", "amount", "billing_frequency"],
+            ["name", "dues_rate", "billing_frequency"],
             as_dict=True,
         )
 
@@ -1053,7 +1053,7 @@ def fix_membership_type_billing_periods():
     try:
         # Get all membership types
         membership_types = frappe.get_all(
-            "Membership Type", fields=["name", "amount", "billing_period"], order_by="name"
+            "Membership Type", fields=["name", "minimum_amount", "billing_period"], order_by="name"
         )
 
         # Define the expected corrections
@@ -1451,7 +1451,7 @@ def check_membership_type_billing_periods():
     try:
         # Get all membership types
         membership_types = frappe.get_all(
-            "Membership Type", fields=["name", "amount", "billing_period"], order_by="name"
+            "Membership Type", fields=["name", "minimum_amount", "billing_period"], order_by="name"
         )
 
         # Get template dues schedules
@@ -1822,7 +1822,7 @@ def check_member_and_dues_schedule(member_name):
         active_dues_schedule = frappe.db.get_value(
             "Membership Dues Schedule",
             {"member": member_name, "status": "Active"},
-            ["name", "next_invoice_date", "billing_frequency", "schedule_name", "amount"],
+            ["name", "next_invoice_date", "billing_frequency", "schedule_name", "dues_rate"],
             as_dict=True,
         )
 

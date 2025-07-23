@@ -34,7 +34,7 @@ def debug_minimum_contribution_issue():
         membership_type = frappe.db.get_value(
             "Membership Type",
             schedule.membership_type,
-            ["name", "amount", "dues_schedule_template", "minimum_amount", "suggested_amount"],
+            ["name", "dues_schedule_template", "minimum_amount"],
             as_dict=True,
         )
         result["membership_type"] = membership_type

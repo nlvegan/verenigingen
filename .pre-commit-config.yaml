@@ -75,10 +75,10 @@ repos:
         stages: [pre-commit]
 
       - id: enhanced-field-validator
-        name: Validate DocType field references
-        entry: python scripts/pre_commit_field_validator.py
+        name: Validate DocType field references (comprehensive)
+        entry: python scripts/validation/enhanced_field_validator.py
         language: system
-        pass_filenames: true
+        pass_filenames: false
         files: \.py$
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py)'
@@ -90,3 +90,21 @@ repos:
         pass_filenames: false
         files: '^(verenigingen/fixtures/workspace\.json|verenigingen/api/workspace_.*\.py)$'
         stages: [pre-commit]
+
+      - id: comprehensive-validation
+        name: Comprehensive Code Validation (field + template)
+        entry: python scripts/validation/comprehensive_validator.py --quiet
+        language: system
+        pass_filenames: false
+        files: '\.(py|html)$'
+        stages: [manual]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+
+      - id: field-validation-only
+        name: Database Field Validation (fast check)
+        entry: python scripts/validation/comprehensive_validator.py --field-only --quiet
+        language: system
+        pass_filenames: false
+        files: '\.py$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'

@@ -14,7 +14,7 @@ def check_scheduler_and_dues_schedules():
     member = frappe.db.get_value(
         "Member", 
         "Assoc-Member-2025-07-0030", 
-        ["name", "status", "membership_start_date", "membership_end_date"],
+        ["name", "status"],
         as_dict=True
     )
     

@@ -167,6 +167,19 @@ def approve_membership_application(
     # Get membership type details
     membership_type_doc = frappe.get_doc("Membership Type", membership_type)
 
+    # Get billing amount from template, not minimum_amount
+    billing_amount = 0
+    if membership_type_doc.dues_schedule_template:
+        try:
+            template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
+            billing_amount = template.dues_rate or template.suggested_amount or 0
+        except Exception:
+            pass
+
+    # Fallback to minimum_amount if no template amount available
+    if not billing_amount:
+        billing_amount = membership_type_doc.minimum_amount
+
     # Create invoice BEFORE submitting membership to prevent duplicate invoices
     from verenigingen.api.payment_processing import create_application_invoice, get_or_create_customer
 
@@ -210,7 +223,7 @@ def approve_membership_application(
         "success": True,
         "message": message,
         "invoice": invoice.name,
-        "amount": membership_type_doc.minimum_amount,
+        "amount": billing_amount,
         "user_account": user_creation_result,
     }
 
@@ -674,8 +687,25 @@ def get_pending_applications(chapter=None, days_overdue=None):
         type_data = frappe.get_all(
             "Membership Type",
             filters={"name": ["in", list(membership_types)]},
-            fields=["name", "amount"],
+            fields=["name", "minimum_amount", "dues_schedule_template"],
         )
+
+        # Get template amounts for each membership type
+        for mt in type_data:
+            billing_amount = 0
+            if mt.dues_schedule_template:
+                try:
+                    template = frappe.get_doc("Membership Dues Schedule", mt.dues_schedule_template)
+                    billing_amount = template.dues_rate or template.suggested_amount or 0
+                except Exception:
+                    pass
+
+            # Fallback to minimum_amount if no template amount available
+            if not billing_amount:
+                billing_amount = mt.minimum_amount
+
+            mt.billing_amount = billing_amount
+
         membership_type_data = {mt.name: mt for mt in type_data}
 
     # Add additional info and apply chapter filtering
@@ -686,7 +716,7 @@ def get_pending_applications(chapter=None, days_overdue=None):
         # Get membership type amount from cached data
         if app.selected_membership_type and app.selected_membership_type in membership_type_data:
             mt = membership_type_data[app.selected_membership_type]
-            app["membership_amount"] = mt.minimum_amount
+            app["membership_amount"] = mt.billing_amount
             app["membership_currency"] = mt.currency
 
         # Get chapter information from pre-loaded data

@@ -121,7 +121,7 @@ def determine_user_profile(user_email):
             # Check team leadership
             team_leader = frappe.db.get_value(
                 "Team Member",
-                {"volunteer": volunteer, "role_type": ["in", ["Team Leader", "Leader"]], "is_active": 1},
+                {"volunteer": volunteer, "role_type": "Team Leader", "is_active": 1},
                 "name",
             )
 

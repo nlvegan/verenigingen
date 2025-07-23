@@ -176,7 +176,21 @@ def validate_membership_amount_selection(membership_type, amount, uses_custom):
     """Validate membership amount selection"""
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
-        standard_amount = membership_type_doc.minimum_amount
+
+        # Get standard amount from template, not minimum_amount
+        standard_amount = 0
+        if membership_type_doc.dues_schedule_template:
+            try:
+                template = frappe.get_doc(
+                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                )
+                standard_amount = template.dues_rate or template.suggested_amount or 0
+            except Exception:
+                pass
+
+        # Fallback to minimum_amount if no template amount available
+        if not standard_amount:
+            standard_amount = membership_type_doc.minimum_amount
 
         # Convert to float for comparison
         amount = float(amount) if amount else 0
@@ -211,7 +225,23 @@ def validate_custom_amount(membership_type, amount):
     """Validate custom membership amount"""
     try:
         membership_type_doc = frappe.get_doc("Membership Type", membership_type)
-        standard_amount = float(membership_type_doc.minimum_amount)
+
+        # Get standard amount from template, not minimum_amount
+        standard_amount = 0
+        if membership_type_doc.dues_schedule_template:
+            try:
+                template = frappe.get_doc(
+                    "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                )
+                standard_amount = template.dues_rate or template.suggested_amount or 0
+            except Exception:
+                pass
+
+        # Fallback to minimum_amount if no template amount available
+        if not standard_amount:
+            standard_amount = membership_type_doc.minimum_amount
+
+        standard_amount = float(standard_amount)
 
         # Handle null, empty, or invalid amount values
         if amount is None or amount == "null" or amount == "":
