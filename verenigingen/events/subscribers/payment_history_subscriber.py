@@ -66,37 +66,24 @@ def handle_invoice_events_batched():
 
 def _update_member_payment_history_with_lock(member_name):
     """
-    Update member payment history using document locking to prevent conflicts.
+    Update member payment history with simple retry logic.
     """
     max_retries = 3
     retry_count = 0
 
     while retry_count < max_retries:
         try:
-            # Use Frappe's document locking mechanism
-            with frappe.utils.document_lock.lock(
-                "Member", member_name, timeout=10  # Wait up to 10 seconds for lock
-            ):
-                # Now we have exclusive access to the member document
-                member = frappe.get_doc("Member", member_name)
+            # Get the member document
+            member = frappe.get_doc("Member", member_name)
 
-                if hasattr(member, "load_payment_history"):
-                    member.load_payment_history()
-                    member.save(ignore_permissions=True)
-                    return True
-                else:
-                    frappe.log_error(
-                        f"Member {member_name} missing load_payment_history method",
-                        "Payment History Method Missing",
-                    )
-                    return False
-
-        except frappe.utils.document_lock.LockTimeoutError:
-            # Another process has the lock, skip this member
-            frappe.logger("payment_history").info(
-                f"Skipped payment history update for {member_name} - document locked by another process"
-            )
-            return False
+            if hasattr(member, "load_payment_history"):
+                member.load_payment_history()
+                return True
+            else:
+                frappe.logger("payment_history").info(
+                    f"Member {member_name} missing load_payment_history method"
+                )
+                return False
 
         except Exception as e:
             if "document has been modified" in str(e).lower():
@@ -112,16 +99,19 @@ def _update_member_payment_history_with_lock(member_name):
                     return False
             else:
                 # Other errors should be logged
-                raise
+                frappe.logger("payment_history").error(
+                    f"Failed to update payment history for {member_name}: {str(e)}"
+                )
+                return False
 
     return False
 
 
-def handle_invoice_submitted_immediate(event_name=None, event_data=None):
+def handle_invoice_submitted(event_name=None, event_data=None):
     """
-    Immediate handler that just marks the member for update.
+    Handle invoice submission - update member payment history immediately.
 
-    The actual update happens in the scheduled batch job.
+    This is called by the event system when a Sales Invoice is submitted.
     """
     if not event_data:
         return
@@ -132,12 +122,82 @@ def handle_invoice_submitted_immediate(event_name=None, event_data=None):
     if not customer or not invoice:
         return
 
-    # Just log that this member needs update
-    # The batch job will pick it up based on invoice modified time
-    frappe.logger("payment_history").info(
-        f"Invoice {invoice} submitted for customer {customer}. "
-        f"Payment history will be updated in next batch run."
-    )
+    # Find members for this customer and update their payment history
+    members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
+
+    for member in members:
+        try:
+            _update_member_payment_history_with_lock(member.name)
+            frappe.logger("payment_history").info(
+                f"Updated payment history for member {member.name} due to invoice {invoice}"
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to update payment history for member {member.name} after invoice {invoice}: {str(e)}",
+                "Invoice Payment History Update Error",
+            )
+
+
+def handle_invoice_cancelled(event_name=None, event_data=None):
+    """Handle invoice cancellation - update member payment history."""
+    if not event_data:
+        return
+
+    customer = event_data.get("customer")
+    invoice = event_data.get("invoice")
+
+    if not customer or not invoice:
+        return
+
+    # Find members for this customer and update their payment history
+    members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
+
+    for member in members:
+        try:
+            _update_member_payment_history_with_lock(member.name)
+            frappe.logger("payment_history").info(
+                f"Updated payment history for member {member.name} due to cancelled invoice {invoice}"
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to update payment history for member {member.name} after cancelling invoice {invoice}: {str(e)}",
+                "Invoice Cancellation Payment History Update Error",
+            )
+
+
+def handle_invoice_updated(event_name=None, event_data=None):
+    """Handle invoice update after submit (e.g., payment received) - update member payment history."""
+    if not event_data:
+        return
+
+    customer = event_data.get("customer")
+    invoice = event_data.get("invoice")
+
+    if not customer or not invoice:
+        return
+
+    # Find members for this customer and update their payment history
+    members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
+
+    for member in members:
+        try:
+            _update_member_payment_history_with_lock(member.name)
+            frappe.logger("payment_history").info(
+                f"Updated payment history for member {member.name} due to updated invoice {invoice}"
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to update payment history for member {member.name} after updating invoice {invoice}: {str(e)}",
+                "Invoice Update Payment History Update Error",
+            )
+
+
+def handle_invoice_submitted_immediate(event_name=None, event_data=None):
+    """
+    Legacy immediate handler - kept for backward compatibility.
+    The new handle_invoice_submitted method should be used instead.
+    """
+    return handle_invoice_submitted(event_name, event_data)
 
 
 # Scheduler method to be called periodically

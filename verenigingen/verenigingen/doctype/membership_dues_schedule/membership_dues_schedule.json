@@ -25,6 +25,13 @@
         "last_invoice_date",
         "invoice_days_before",
         "billing_day",
+        "section_coverage_tracking",
+        "next_billing_period_start_date",
+        "next_billing_period_end_date",
+        "column_break_coverage",
+        "last_generated_invoice",
+        "last_invoice_coverage_start",
+        "last_invoice_coverage_end",
         "column_break_2",
         "dues_rate",
         "currency",
@@ -192,6 +199,51 @@
             "fieldname": "billing_day",
             "fieldtype": "Int",
             "label": "Billing Day"
+        },
+        {
+            "fieldname": "section_coverage_tracking",
+            "fieldtype": "Section Break",
+            "label": "Coverage Period Tracking"
+        },
+        {
+            "description": "Start date for the next billing period to be generated",
+            "fieldname": "next_billing_period_start_date",
+            "fieldtype": "Date",
+            "label": "Next Billing Period Start",
+            "read_only": 1
+        },
+        {
+            "description": "End date for the next billing period to be generated",
+            "fieldname": "next_billing_period_end_date",
+            "fieldtype": "Date",
+            "label": "Next Billing Period End",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_coverage",
+            "fieldtype": "Column Break"
+        },
+        {
+            "description": "Direct link to the most recently generated invoice",
+            "fieldname": "last_generated_invoice",
+            "fieldtype": "Link",
+            "label": "Last Generated Invoice",
+            "options": "Sales Invoice",
+            "read_only": 1
+        },
+        {
+            "description": "Coverage start date for the last generated invoice",
+            "fieldname": "last_invoice_coverage_start",
+            "fieldtype": "Date",
+            "label": "Last Invoice Coverage Start",
+            "read_only": 1
+        },
+        {
+            "description": "Coverage end date for the last generated invoice",
+            "fieldname": "last_invoice_coverage_end",
+            "fieldtype": "Date",
+            "label": "Last Invoice Coverage End",
+            "read_only": 1
         },
         {
             "fieldname": "column_break_2",

@@ -11,6 +11,8 @@
   "invoice",
   "posting_date",
   "due_date",
+  "coverage_start_date",
+  "coverage_end_date",
   "column_break_i1",
   "transaction_type",
   "reference_doctype",
@@ -62,6 +64,18 @@
    "fieldname": "due_date",
    "fieldtype": "Date",
    "label": "Due Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "coverage_start_date",
+   "fieldtype": "Date",
+   "label": "Coverage Start Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "coverage_end_date",
+   "fieldtype": "Date",
+   "label": "Coverage End Date",
    "read_only": 1
   },
   {

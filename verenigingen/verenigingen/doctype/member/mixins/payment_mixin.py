@@ -29,14 +29,10 @@ class PaymentMixin:
 
         self.payment_history = []
 
-        # 1. Get all invoices for this customer (including drafts)
-        invoices = frappe.get_all(
-            "Sales Invoice",
-            filters={
-                "customer": self.customer,
-                "docstatus": ["in", [0, 1]],
-            },  # Include both draft and submitted
-            fields=[
+        try:
+            # 1. Get all invoices for this customer (including drafts)
+            # Build field list dynamically to handle missing custom fields gracefully
+            base_fields = [
                 "name",
                 "posting_date",
                 "due_date",
@@ -44,123 +40,209 @@ class PaymentMixin:
                 "outstanding_amount",
                 "status",
                 "docstatus",
-            ],
-            order_by="posting_date desc",
-        )
+            ]
+
+            # Safely check for coverage custom fields existence
+            coverage_fields = []
+            try:
+                if frappe.db.has_column("Sales Invoice", "custom_coverage_start_date"):
+                    coverage_fields.append("custom_coverage_start_date")
+                if frappe.db.has_column("Sales Invoice", "custom_coverage_end_date"):
+                    coverage_fields.append("custom_coverage_end_date")
+            except Exception as e:
+                frappe.log_error(
+                    f"Error checking for coverage fields: {str(e)}", "Coverage Field Check Error"
+                )
+
+            query_fields = base_fields + coverage_fields
+
+            invoices = frappe.get_all(
+                "Sales Invoice",
+                filters={
+                    "customer": self.customer,
+                    "docstatus": ["in", [0, 1]],
+                },  # Include both draft and submitted
+                fields=query_fields,
+                order_by="posting_date desc",
+            )
+
+        except Exception as e:
+            # Critical error - log and continue with empty payment history
+            frappe.log_error(
+                f"Critical error loading invoices for customer {self.customer}: {str(e)}",
+                "Payment History Load Error",
+            )
+            return
 
         reconciled_payments = []
 
         # 2. Process each invoice and its payment status
         for invoice in invoices:
-            invoice_doc = frappe.get_doc("Sales Invoice", invoice.name)
-
-            reference_doctype = None
-            reference_name = None
-            transaction_type = "Regular Invoice"
-
-            # Check if invoice is linked to a membership
-            if hasattr(invoice_doc, "membership") and invoice_doc.membership:
-                transaction_type = "Membership Invoice"
-                reference_doctype = "Membership"
-                reference_name = invoice_doc.membership
-
-            # Find linked payment entries
-            payment_entries = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"reference_doctype": "Sales Invoice", "reference_name": invoice.name},
-                fields=["parent", "allocated_amount"],
-            )
-
-            payment_status = "Unpaid"
-            payment_date = None
-            payment_entry = None
-            payment_method = None
-            paid_amount = 0
-            reconciled = 0
-
-            if payment_entries:
-                for pe in payment_entries:
-                    reconciled_payments.append(pe.parent)
-                    paid_amount += float(pe.allocated_amount or 0)
-
-                most_recent_payment = frappe.get_all(
-                    "Payment Entry",
-                    filters={"name": ["in", [pe.parent for pe in payment_entries]]},
-                    fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
-                    order_by="posting_date desc",
-                )
-
-                if most_recent_payment:
-                    payment_entry = most_recent_payment[0].name
-                    payment_date = most_recent_payment[0].posting_date
-                    payment_method = most_recent_payment[0].mode_of_payment
-                    reconciled = 1
-
-            # Set payment status based on invoice and payment data
-            if invoice.docstatus == 0:
-                payment_status = "Draft"
-            elif invoice.status == "Paid":
-                payment_status = "Paid"
-            elif invoice.status == "Overdue":
-                payment_status = "Overdue"
-            elif invoice.status == "Cancelled":
-                payment_status = "Cancelled"
-            elif paid_amount > 0 and paid_amount < invoice.grand_total:
-                payment_status = "Partially Paid"
-
-            # Check for SEPA mandate
-            has_mandate = 0
-            sepa_mandate = None
-            mandate_status = None
-            mandate_reference = None
-
-            if reference_doctype == "Membership" and reference_name:
+            try:
+                # Safely get invoice document with error handling
                 try:
-                    membership_doc = frappe.get_doc("Membership", reference_name)
-                    if hasattr(membership_doc, "sepa_mandate") and membership_doc.sepa_mandate:
-                        has_mandate = 1
-                        sepa_mandate = membership_doc.sepa_mandate
-                        mandate_doc = frappe.get_doc("SEPA Mandate", sepa_mandate)
-                        mandate_status = mandate_doc.status
-                        mandate_reference = mandate_doc.mandate_id
+                    invoice_doc = frappe.get_doc("Sales Invoice", invoice.name)
                 except Exception as e:
                     frappe.log_error(
-                        f"Error checking membership mandate for invoice {invoice.name}: {str(e)}"
+                        f"Error loading invoice document {invoice.name}: {str(e)}",
+                        "Invoice Document Load Error",
+                    )
+                    continue  # Skip this invoice and continue with others
+
+                reference_doctype = None
+                reference_name = None
+                transaction_type = "Regular Invoice"
+
+                # Check if invoice is linked to a membership
+                if hasattr(invoice_doc, "membership") and invoice_doc.membership:
+                    transaction_type = "Membership Invoice"
+                    reference_doctype = "Membership"
+                    reference_name = invoice_doc.membership
+
+                # Find linked payment entries
+                payment_entries = frappe.get_all(
+                    "Payment Entry Reference",
+                    filters={"reference_doctype": "Sales Invoice", "reference_name": invoice.name},
+                    fields=["parent", "allocated_amount"],
+                )
+
+                payment_status = "Unpaid"
+                payment_date = None
+                payment_entry = None
+                payment_method = None
+                paid_amount = 0
+                reconciled = 0
+
+                if payment_entries:
+                    for pe in payment_entries:
+                        reconciled_payments.append(pe.parent)
+                        paid_amount += float(pe.allocated_amount or 0)
+
+                    most_recent_payment = frappe.get_all(
+                        "Payment Entry",
+                        filters={"name": ["in", [pe.parent for pe in payment_entries]]},
+                        fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
+                        order_by="posting_date desc",
                     )
 
-            if not has_mandate:
-                default_mandate = self.get_default_sepa_mandate()
-                if default_mandate:
-                    has_mandate = 1
-                    sepa_mandate = default_mandate.name
-                    mandate_status = default_mandate.status
-                    mandate_reference = default_mandate.mandate_id
+                    if most_recent_payment:
+                        payment_entry = most_recent_payment[0].name
+                        payment_date = most_recent_payment[0].posting_date
+                        payment_method = most_recent_payment[0].mode_of_payment
+                        reconciled = 1
 
-            # Add invoice to payment history
-            self.append(
-                "payment_history",
-                {
-                    "invoice": invoice.name,
-                    "posting_date": invoice.posting_date,
-                    "due_date": invoice.due_date,
-                    "transaction_type": transaction_type,
-                    "reference_doctype": reference_doctype,
-                    "reference_name": reference_name,
-                    "amount": invoice.grand_total,
-                    "outstanding_amount": invoice.outstanding_amount,
-                    "status": invoice.status,
-                    "payment_status": payment_status,
-                    "payment_date": payment_date,
-                    "payment_entry": payment_entry,
-                    "payment_method": payment_method,
-                    "paid_amount": paid_amount,
-                    "reconciled": reconciled,
-                    "has_mandate": has_mandate,
-                    "sepa_mandate": sepa_mandate,
-                    "mandate_status": mandate_status,
-                    "mandate_reference": mandate_reference,
-                },
-            )
+                # Set payment status based on invoice and payment data
+                if invoice.docstatus == 0:
+                    payment_status = "Draft"
+                elif invoice.status == "Paid":
+                    payment_status = "Paid"
+                elif invoice.status == "Overdue":
+                    payment_status = "Overdue"
+                elif invoice.status == "Cancelled":
+                    payment_status = "Cancelled"
+                elif paid_amount > 0 and paid_amount < invoice.grand_total:
+                    payment_status = "Partially Paid"
+
+                # Check for SEPA mandate
+                has_mandate = 0
+                sepa_mandate = None
+                mandate_status = None
+                mandate_reference = None
+
+                if reference_doctype == "Membership" and reference_name:
+                    try:
+                        membership_doc = frappe.get_doc("Membership", reference_name)
+                        if hasattr(membership_doc, "sepa_mandate") and membership_doc.sepa_mandate:
+                            has_mandate = 1
+                            sepa_mandate = membership_doc.sepa_mandate
+                            mandate_doc = frappe.get_doc("SEPA Mandate", sepa_mandate)
+                            mandate_status = mandate_doc.status
+                            mandate_reference = mandate_doc.mandate_id
+                    except Exception as e:
+                        frappe.log_error(
+                            f"Error checking membership mandate for invoice {invoice.name}: {str(e)}"
+                        )
+
+                if not has_mandate:
+                    default_mandate = self.get_default_sepa_mandate()
+                    if default_mandate:
+                        has_mandate = 1
+                        sepa_mandate = default_mandate.name
+                        mandate_status = default_mandate.status
+                        mandate_reference = default_mandate.mandate_id
+
+                # ✅ ENHANCED: Get coverage from schedule (SSoT) with invoice fallback
+                coverage_start_date = None
+                coverage_end_date = None
+
+                try:
+                    # PRIMARY: Get coverage from schedule (authoritative source)
+                    schedule_coverage = self._get_coverage_from_schedule(invoice.name)
+
+                    # FALLBACK: Use invoice cache if schedule lookup fails
+                    invoice_coverage = self._get_coverage_from_invoice(invoice)
+
+                    # Use best available source
+                    coverage_start_date = schedule_coverage[0] or invoice_coverage[0]
+                    coverage_end_date = schedule_coverage[1] or invoice_coverage[1]
+
+                    # Validate coverage dates if both are present
+                    if coverage_start_date and coverage_end_date:
+                        # Ensure start date is not after end date
+                        if coverage_start_date > coverage_end_date:
+                            frappe.log_error(
+                                f"Invalid coverage period for invoice {invoice.name}: "
+                                f"start_date ({coverage_start_date}) > end_date ({coverage_end_date})",
+                                "Coverage Date Validation Error",
+                            )
+                            # Reset to None for invalid data
+                            coverage_start_date = None
+                            coverage_end_date = None
+
+                except Exception as e:
+                    # Log error but don't fail payment history loading
+                    frappe.log_error(
+                        f"Error extracting coverage fields for invoice {invoice.name}: {str(e)}",
+                        "Coverage Field Access Error",
+                    )
+                    coverage_start_date = None
+                    coverage_end_date = None
+
+                # Add invoice to payment history
+                self.append(
+                    "payment_history",
+                    {
+                        "invoice": invoice.name,
+                        "posting_date": invoice.posting_date,
+                        "due_date": invoice.due_date,
+                        "coverage_start_date": coverage_start_date,
+                        "coverage_end_date": coverage_end_date,
+                        "transaction_type": transaction_type,
+                        "reference_doctype": reference_doctype,
+                        "reference_name": reference_name,
+                        "amount": invoice.grand_total,
+                        "outstanding_amount": invoice.outstanding_amount,
+                        "status": invoice.status,
+                        "payment_status": payment_status,
+                        "payment_date": payment_date,
+                        "payment_entry": payment_entry,
+                        "payment_method": payment_method,
+                        "paid_amount": paid_amount,
+                        "reconciled": reconciled,
+                        "has_mandate": has_mandate,
+                        "sepa_mandate": sepa_mandate,
+                        "mandate_status": mandate_status,
+                        "mandate_reference": mandate_reference,
+                    },
+                )
+
+            except Exception as e:
+                # Log individual invoice processing error but continue with other invoices
+                frappe.log_error(
+                    f"Error processing invoice {invoice.name} for payment history: {str(e)}",
+                    "Individual Invoice Processing Error",
+                )
+                continue  # Skip this invoice and continue with others
 
         # 3. Find payments that aren't reconciled with any invoice
         unreconciled_payments = frappe.get_all(
@@ -224,6 +306,123 @@ class PaymentMixin:
                     "notes": notes,
                 },
             )
+
+    def _get_coverage_from_schedule(self, invoice_name):
+        """Get coverage from schedule - direct link, no heuristics (authoritative source)"""
+        try:
+            # First try direct link lookup
+            schedule = frappe.db.get_value(
+                "Membership Dues Schedule",
+                {"member": self.name, "last_generated_invoice": invoice_name},
+                ["last_invoice_coverage_start", "last_invoice_coverage_end"],
+                as_dict=True,
+            )
+
+            if schedule and schedule.last_invoice_coverage_start:
+                return (schedule.last_invoice_coverage_start, schedule.last_invoice_coverage_end)
+
+            # If no direct link, try to find schedule by member and calculate
+            schedules = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={"member": self.name, "status": "Active"},
+                fields=["name", "billing_frequency", "custom_frequency_number", "custom_frequency_unit"],
+                order_by="creation desc",
+                limit=1,
+            )
+
+            if schedules and invoice_name:
+                # Get invoice posting date to calculate coverage
+                invoice_date = frappe.db.get_value("Sales Invoice", invoice_name, "posting_date")
+                if invoice_date:
+                    return self._calculate_coverage_from_invoice_date(invoice_date, schedules[0])
+
+            return (None, None)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting coverage from schedule for invoice {invoice_name}: {str(e)}",
+                "Schedule Coverage Lookup Error",
+            )
+            return (None, None)
+
+    def _calculate_coverage_from_invoice_date(self, invoice_date, schedule_info):
+        """Calculate coverage period from invoice date and billing frequency"""
+        try:
+            from frappe.utils import add_days, add_months, add_years, getdate
+
+            invoice_date = getdate(invoice_date)
+            billing_frequency = schedule_info.get("billing_frequency", "Daily")
+
+            # Calculate coverage based on billing frequency
+            if billing_frequency == "Daily":
+                # Daily billing: coverage is the same day
+                return (invoice_date, invoice_date)
+            elif billing_frequency == "Weekly":
+                # Weekly billing: coverage is 7 days from invoice date
+                return (invoice_date, add_days(invoice_date, 6))
+            elif billing_frequency == "Monthly":
+                # Monthly billing: coverage is 1 month from invoice date
+                end_date = add_months(invoice_date, 1)
+                end_date = add_days(end_date, -1)  # Last day of coverage month
+                return (invoice_date, end_date)
+            elif billing_frequency == "Quarterly":
+                # Quarterly billing: coverage is 3 months from invoice date
+                end_date = add_months(invoice_date, 3)
+                end_date = add_days(end_date, -1)
+                return (invoice_date, end_date)
+            elif billing_frequency == "Semi-Annual":
+                # Semi-annual billing: coverage is 6 months from invoice date
+                end_date = add_months(invoice_date, 6)
+                end_date = add_days(end_date, -1)
+                return (invoice_date, end_date)
+            elif billing_frequency == "Annual":
+                # Annual billing: coverage is 1 year from invoice date
+                end_date = add_years(invoice_date, 1)
+                end_date = add_days(end_date, -1)
+                return (invoice_date, end_date)
+            elif billing_frequency == "Custom":
+                # Custom frequency: calculate based on custom settings
+                number = schedule_info.get("custom_frequency_number", 1)
+                unit = schedule_info.get("custom_frequency_unit", "Days")
+
+                if unit == "Days":
+                    end_date = add_days(invoice_date, number - 1)
+                elif unit == "Weeks":
+                    end_date = add_days(invoice_date, (number * 7) - 1)
+                elif unit == "Months":
+                    end_date = add_months(invoice_date, number)
+                    end_date = add_days(end_date, -1)
+                elif unit == "Years":
+                    end_date = add_years(invoice_date, number)
+                    end_date = add_days(end_date, -1)
+                else:
+                    # Default to same day
+                    end_date = invoice_date
+
+                return (invoice_date, end_date)
+            else:
+                # Unknown frequency, default to same day
+                return (invoice_date, invoice_date)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error calculating coverage from invoice date {invoice_date}: {str(e)}",
+                "Coverage Calculation Error",
+            )
+            return (None, None)
+
+    def _get_coverage_from_invoice(self, invoice):
+        """Fallback: get coverage from invoice cache"""
+        try:
+            return (
+                getattr(invoice, "custom_coverage_start_date", None),
+                getattr(invoice, "custom_coverage_end_date", None),
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting coverage from invoice cache: {str(e)}", "Invoice Coverage Cache Error"
+            )
+            return (None, None)
 
     def validate_payment_method(self):
         """Validate payment method and related fields"""

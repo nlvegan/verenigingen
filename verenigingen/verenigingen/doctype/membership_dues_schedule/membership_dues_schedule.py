@@ -547,7 +547,7 @@ class MembershipDuesSchedule(Document):
                 self.billing_day = 1
 
     def can_generate_invoice(self):
-        """Check if invoice can be generated"""
+        """Check if invoice can be generated with comprehensive duplicate prevention"""
         if self.is_template:
             return False, "Templates cannot generate invoices"
 
@@ -572,11 +572,152 @@ class MembershipDuesSchedule(Document):
         if getdate(today()) < getdate(generate_on_date):
             return False, f"Too early - will generate on {generate_on_date}"
 
+        # ✅ ENHANCED: Comprehensive duplicate prevention
+        duplicate_check_result = self.check_for_duplicate_invoices()
+        if not duplicate_check_result["can_generate"]:
+            return False, duplicate_check_result["reason"]
+
         # Check if invoice already exists for this period
         if self.last_invoice_date == self.next_invoice_date:
             return False, "Invoice already generated for this period"
 
         return True, "Can generate invoice"
+
+    def check_for_duplicate_invoices(self):
+        """
+        Comprehensive duplicate invoice prevention for billing periods.
+
+        Prevents:
+        1. Multiple invoices for the same posting date (same-day duplicates)
+        2. Multiple invoices for the same billing period (period duplicates)
+        """
+        if not self.member:
+            return {"can_generate": True, "reason": "No member - skipping duplicate check"}
+
+        # Get member's customer record
+        member_doc = frappe.get_doc("Member", self.member)
+        if not member_doc.customer:
+            return {"can_generate": True, "reason": "No customer - skipping duplicate check"}
+
+        today_date = today()
+
+        # 1. Check for same-day duplicates
+        existing_today = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": member_doc.customer,
+                "posting_date": today_date,
+                "docstatus": ["!=", 2],  # Not cancelled
+            },
+            fields=["name", "posting_date", "creation"],
+        )
+
+        if existing_today:
+            invoice_names = [inv.name for inv in existing_today]
+            return {
+                "can_generate": False,
+                "reason": f"Same-day duplicate prevented: Invoice(s) {', '.join(invoice_names)} already exist for {today_date}",
+            }
+
+        # 2. Check for billing period duplicates based on frequency
+        period_start, period_end = self.calculate_billing_period(today_date)
+
+        existing_in_period = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": member_doc.customer,
+                "posting_date": ["between", [period_start, period_end]],
+                "docstatus": ["!=", 2],  # Not cancelled
+            },
+            fields=["name", "posting_date", "creation"],
+        )
+
+        if existing_in_period:
+            invoice_names = [inv.name for inv in existing_in_period]
+            return {
+                "can_generate": False,
+                "reason": f"Billing period duplicate prevented: Invoice(s) {', '.join(invoice_names)} already exist for period {period_start} to {period_end}",
+            }
+
+        return {"can_generate": True, "reason": "No duplicates found"}
+
+    def calculate_billing_period(self, invoice_date):
+        """Calculate the billing period start and end dates for a given invoice date"""
+        invoice_date = getdate(invoice_date)
+
+        if self.billing_frequency == "Daily":
+            # For daily billing, the period is just the single day
+            return invoice_date, invoice_date
+        elif self.billing_frequency == "Weekly":
+            # Weekly period: Monday to Sunday
+            days_since_monday = invoice_date.weekday()
+            period_start = add_days(invoice_date, -days_since_monday)
+            period_end = add_days(period_start, 6)
+            return period_start, period_end
+        elif self.billing_frequency == "Monthly":
+            # Monthly period: 1st to last day of month
+            period_start = invoice_date.replace(day=1)
+            # Get last day of month
+            if invoice_date.month == 12:
+                next_month = invoice_date.replace(year=invoice_date.year + 1, month=1, day=1)
+            else:
+                next_month = invoice_date.replace(month=invoice_date.month + 1, day=1)
+            period_end = add_days(next_month, -1)
+            return period_start, period_end
+        elif self.billing_frequency == "Quarterly":
+            # Quarterly periods: Q1 (Jan-Mar), Q2 (Apr-Jun), Q3 (Jul-Sep), Q4 (Oct-Dec)
+            quarter = (invoice_date.month - 1) // 3 + 1
+            period_start = invoice_date.replace(month=(quarter - 1) * 3 + 1, day=1)
+            period_end_month = quarter * 3
+            if period_end_month == 12:
+                period_end = invoice_date.replace(month=12, day=31)
+            else:
+                next_quarter = invoice_date.replace(month=period_end_month + 1, day=1)
+                period_end = add_days(next_quarter, -1)
+            return period_start, period_end
+        elif self.billing_frequency == "Semi-Annual":
+            # Semi-annual: H1 (Jan-Jun), H2 (Jul-Dec)
+            if invoice_date.month <= 6:
+                period_start = invoice_date.replace(month=1, day=1)
+                period_end = invoice_date.replace(month=6, day=30)
+            else:
+                period_start = invoice_date.replace(month=7, day=1)
+                period_end = invoice_date.replace(month=12, day=31)
+            return period_start, period_end
+        elif self.billing_frequency == "Annual":
+            # Annual period: Jan 1 to Dec 31
+            period_start = invoice_date.replace(month=1, day=1)
+            period_end = invoice_date.replace(month=12, day=31)
+            return period_start, period_end
+        elif self.billing_frequency == "Custom":
+            # For custom frequency, use the custom settings
+            frequency_number = getattr(self, "custom_frequency_number", 1) or 1
+            frequency_unit = getattr(self, "custom_frequency_unit", "Months") or "Months"
+
+            if frequency_unit == "Days":
+                # Custom daily periods
+                return invoice_date, invoice_date
+            elif frequency_unit == "Weeks":
+                # Custom weekly periods
+                days_since_monday = invoice_date.weekday()
+                period_start = add_days(invoice_date, -days_since_monday)
+                period_end = add_days(period_start, (frequency_number * 7) - 1)
+                return period_start, period_end
+            elif frequency_unit == "Months":
+                # Custom monthly periods
+                period_start = invoice_date.replace(day=1)
+                period_end = add_months(period_start, frequency_number)
+                period_end = add_days(period_end, -1)
+                return period_start, period_end
+            elif frequency_unit == "Years":
+                # Custom yearly periods
+                period_start = invoice_date.replace(month=1, day=1)
+                period_end = add_years(period_start, frequency_number)
+                period_end = add_days(period_end, -1)
+                return period_start, period_end
+
+        # Default fallback: treat as daily
+        return invoice_date, invoice_date
 
     def validate_member_eligibility_for_invoice(self):
         """
@@ -623,7 +764,7 @@ class MembershipDuesSchedule(Document):
             return False
 
     def generate_invoice(self, force=False):
-        """Generate invoice for the current period"""
+        """Generate invoice for the current period with enhanced coverage tracking"""
         can_generate, reason = self.can_generate_invoice()
 
         if not can_generate and not force:
@@ -635,17 +776,38 @@ class MembershipDuesSchedule(Document):
             frappe.logger().info(
                 f"TEST MODE: Would generate invoice for {self.member} - Dues Rate: {self.dues_rate}"
             )
-            self.update_schedule_dates()
+            self.update_schedule_dates()  # Test mode uses fallback behavior
             return "TEST_INVOICE"
 
+        # ✅ ENHANCED: Calculate coverage period (authoritative source)
+        coverage_start, coverage_end = self.calculate_billing_period(frappe.utils.today())
+
+        # Store next billing period in schedule (SSoT)
+        self.next_billing_period_start_date = coverage_start
+        self.next_billing_period_end_date = coverage_end
+
         # Create actual invoice
-        invoice = self.create_sales_invoice()
+        invoice_name = self.create_sales_invoice()
 
-        # Update schedule
-        self.update_schedule_dates()
+        # Get the invoice document for coverage caching
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
-        # Payment history is automatically tracked via the Member Payment History table
-        # when the invoice is created with the customer (member) reference
+        # ✅ ENHANCED: Cache coverage in invoice for display performance
+        invoice.custom_coverage_start_date = coverage_start
+        invoice.custom_coverage_end_date = coverage_end
+        invoice.save()
+
+        # ✅ ENHANCED: Create direct link and track coverage (no ambiguity)
+        self.db_set("last_generated_invoice", invoice.name)
+        self.db_set("last_invoice_coverage_start", coverage_start)
+        self.db_set("last_invoice_coverage_end", coverage_end)
+
+        # ✅ CRITICAL FIX: Update schedule with actual invoice posting date
+        self.update_schedule_dates(actual_invoice_date=invoice.posting_date)
+
+        frappe.logger().info(
+            f"Generated invoice {invoice.name} for {self.member} covering period {coverage_start} to {coverage_end}"
+        )
 
         return invoice
 
@@ -660,6 +822,11 @@ class MembershipDuesSchedule(Document):
         invoice = frappe.new_doc("Sales Invoice")
         invoice.customer = member_doc.customer
         invoice.posting_date = today()
+
+        # ✅ NEW: Set coverage period fields for better tracking
+        coverage_start, coverage_end = self.calculate_billing_period(invoice.posting_date)
+        invoice.custom_coverage_start_date = coverage_start
+        invoice.custom_coverage_end_date = coverage_end
 
         # Set proper due date - use payment terms or default to 30 days from posting date
         from frappe.utils import add_days
@@ -758,10 +925,22 @@ class MembershipDuesSchedule(Document):
             # For custom or other frequencies, show the generic range
             return f"Membership dues for {self.member_name} ({self.membership_type}) - Period: {period_start} to {period_end}"
 
-    def update_schedule_dates(self):
-        """Update schedule dates after invoice generation"""
-        self.last_invoice_date = self.next_invoice_date
-        self.next_invoice_date = self.calculate_next_billing_date(self.next_invoice_date)
+    def update_schedule_dates(self, actual_invoice_date=None):
+        """
+        Update schedule dates after invoice generation.
+
+        CRITICAL FIX: Uses actual invoice posting date instead of theoretical next_invoice_date
+        to prevent date drift and duplicate billing issues.
+        """
+        if actual_invoice_date:
+            # Use the actual posting date from the created invoice
+            self.last_invoice_date = actual_invoice_date
+            self.next_invoice_date = self.calculate_next_billing_date(actual_invoice_date)
+        else:
+            # Fallback to old behavior (for test mode)
+            self.last_invoice_date = self.next_invoice_date
+            self.next_invoice_date = self.calculate_next_billing_date(self.next_invoice_date)
+
         self.save()
 
     def get_member_payment_method(self):
