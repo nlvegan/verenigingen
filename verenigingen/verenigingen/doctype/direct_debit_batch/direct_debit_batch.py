@@ -140,10 +140,11 @@ class DirectDebitBatch(Document):
             self.validation_status = "Warnings"
             self.validation_warnings = frappe.as_json(warnings)
 
-            # Log warnings
+            # Log warnings using frappe.log_error for better error tracking
             for warning in warnings:
-                frappe.logger().warning(
-                    f"Sequence type warning for invoice {warning['invoice']}: {warning['issue']}"
+                frappe.log_error(
+                    f"Sequence type warning for invoice {warning['invoice']}: {warning['issue']}",
+                    "Direct Debit Batch Sequence Warning",
                 )
 
         else:

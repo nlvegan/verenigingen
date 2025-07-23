@@ -141,7 +141,7 @@ ACCOUNT_TYPE_MAP = {
     "expense": {
         "range_start": 40000,
         "range_end": 49999,
-        "default_account": "44009 - Onvoorziene kosten - NVV",
+        "default_account": None,  # No default - proper mapping required
         "account_type": "Expense Account",
     },
     # Asset accounts (10000-19999)

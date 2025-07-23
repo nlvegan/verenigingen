@@ -40,21 +40,33 @@ def get_data(filters=None):
     if not filters:
         filters = {}
 
-    # Build member filters
+    # Build member filters - default to Active members only
     member_filters = {"docstatus": ["!=", 2]}
 
-    # Apply member status filter
-    if not filters.get("include_terminated"):
-        member_filters["status"] = ["!=", "Terminated"]
-    if not filters.get("include_suspended"):
-        if "status" in member_filters:
-            # Handle multiple status exclusions
-            member_filters["status"] = ["not in", ["Terminated", "Suspended"]]
-        else:
-            member_filters["status"] = ["!=", "Suspended"]
-
+    # If specific member status is requested, use that
     if filters.get("member_status"):
         member_filters["status"] = filters.get("member_status")
+    else:
+        # Default behavior: only show Active members, with options to include others
+        excluded_statuses = []
+
+        # Always exclude Terminated unless explicitly included
+        if not filters.get("include_terminated"):
+            excluded_statuses.append("Terminated")
+
+        # Always exclude Suspended unless explicitly included
+        if not filters.get("include_suspended"):
+            excluded_statuses.append("Suspended")
+
+        # Always exclude Pending unless explicitly included (since they shouldn't have schedules)
+        if not filters.get("include_pending"):
+            excluded_statuses.append("Pending")
+
+        if excluded_statuses:
+            member_filters["status"] = ["not in", excluded_statuses]
+        else:
+            # If all statuses are included, don't filter by status
+            pass
 
     # Get all members
     members = frappe.get_all(
@@ -301,24 +313,8 @@ def get_chart_data(data):
 
 
 @frappe.whitelist()
-def get_coverage_gap_analysis():
-    """API function to get detailed coverage gap analysis"""
-    try:
-        # Use the existing comprehensive analysis from test_fixes.py
-        from verenigingen.api.test_fixes import analyze_invoice_coverage_gaps
-
-        result = analyze_invoice_coverage_gaps()
-        if result.get("success"):
-            return {"success": True, "analysis": result["coverage_analysis"]}
-        else:
-            return {"success": False, "error": result.get("error", "Unknown error")}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
 def fix_member_schedule_issues(member_list):
-    """API function to batch fix member schedule issues"""
+    """API function to batch fix member schedule issues or create missing memberships/schedules"""
     try:
         if isinstance(member_list, str):
             import json
@@ -328,9 +324,42 @@ def fix_member_schedule_issues(member_list):
         results = []
         from verenigingen.api.test_fixes import fix_schedule_dates
 
+        # Get default membership type for new schedules
+        default_membership_type = frappe.db.get_value(
+            "Membership Type",
+            {"is_active": 1, "default_for_new_members": 1},
+            ["name", "minimum_amount", "billing_period"],
+        )
+
+        if not default_membership_type:
+            # Fallback to first active membership type
+            default_membership_type = frappe.db.get_value(
+                "Membership Type", {"is_active": 1}, ["name", "minimum_amount", "billing_period"]
+            )
+
         for member_id in member_list:
             try:
-                # Get member's schedule
+                # Check if member exists and is active
+                member_doc = frappe.get_doc("Member", member_id)
+
+                # Only process active members - skip pending applicants and others
+                if member_doc.status != "Active":
+                    results.append(
+                        {
+                            "member": member_id,
+                            "success": False,
+                            "message": f"Member status is '{member_doc.status}' - only Active members can have schedules created",
+                        }
+                    )
+                    continue
+
+                if not member_doc.customer:
+                    results.append(
+                        {"member": member_id, "success": False, "message": "Member has no customer record"}
+                    )
+                    continue
+
+                # Double-check for existing schedules with a fresh query to avoid race conditions
                 schedules = frappe.get_all(
                     "Membership Dues Schedule",
                     filters={"member": member_id, "status": "Active"},
@@ -339,20 +368,36 @@ def fix_member_schedule_issues(member_list):
                 )
 
                 if schedules:
-                    # Fix the schedule
+                    # Member has schedule - fix the dates
                     fix_result = fix_schedule_dates(schedules[0].name)
                     results.append(
                         {
                             "member": member_id,
                             "schedule": schedules[0].name,
                             "success": fix_result.get("success", False),
-                            "message": fix_result.get("message", "Unknown result"),
+                            "message": f"Fixed existing schedule: {fix_result.get('message', 'Unknown result')}",
                         }
                     )
                 else:
-                    results.append(
-                        {"member": member_id, "success": False, "message": "No active schedule found"}
+                    # Final check before creating - ensure no schedule exists
+                    final_check = frappe.db.exists(
+                        "Membership Dues Schedule", {"member": member_id, "status": "Active"}
                     )
+                    if final_check:
+                        results.append(
+                            {
+                                "member": member_id,
+                                "success": False,
+                                "message": f"Schedule already exists: {final_check}. Skipping creation.",
+                            }
+                        )
+                    else:
+                        # Member has no schedule - create membership and schedule
+                        create_result = _create_membership_and_schedule(
+                            member_id, member_doc, default_membership_type
+                        )
+                        results.append(create_result)
+
             except Exception as e:
                 results.append({"member": member_id, "success": False, "message": str(e)})
 
@@ -367,3 +412,176 @@ def fix_member_schedule_issues(member_list):
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def _create_membership_and_schedule(member_id, member_doc, default_membership_type):
+    """Helper function to create membership and dues schedule for a member"""
+    try:
+        from frappe.utils import add_months, today
+
+        # Check if member already has an active membership
+        existing_membership = frappe.get_all(
+            "Membership",
+            filters={"member": member_id, "status": "Active", "docstatus": 1},
+            fields=["name"],
+            limit=1,
+        )
+
+        membership_name = None
+        if existing_membership:
+            membership_name = existing_membership[0].name
+        else:
+            # Check for any existing membership that could be activated
+            any_membership = frappe.get_all(
+                "Membership",
+                filters={"member": member_id, "docstatus": ["!=", 2]},
+                fields=["name", "status", "docstatus"],
+                limit=1,
+            )
+
+            if any_membership and any_membership[0].docstatus == 0:
+                # Update and submit existing draft membership
+                try:
+                    membership = frappe.get_doc("Membership", any_membership[0].name)
+                    membership.status = "Active"
+                    membership.start_date = today()
+                    membership.renewal_date = add_months(today(), 12)
+                    membership.save()
+                    membership.submit()
+                    membership_name = membership.name
+                except frappe.TimestampMismatchError:
+                    return {
+                        "member": member_id,
+                        "success": False,
+                        "message": "Membership document was modified by another process during update",
+                    }
+            else:
+                # Create new membership
+                try:
+                    membership = frappe.new_doc("Membership")
+                    membership.member = member_id
+                    membership.membership_type = (
+                        default_membership_type[0] if default_membership_type else "Maandlid"
+                    )
+                    membership.start_date = today()
+                    membership.renewal_date = add_months(today(), 12)  # 1 year from now
+                    membership.status = "Active"  # Changed from "Current" to "Active"
+                    membership.save()
+                    membership.submit()  # Submit to make docstatus = 1
+                    membership_name = membership.name
+                except frappe.TimestampMismatchError:
+                    return {
+                        "member": member_id,
+                        "success": False,
+                        "message": "Membership creation failed due to document modification conflict",
+                    }
+
+        # Create dues schedule using the default membership type settings
+        schedule = frappe.new_doc("Membership Dues Schedule")
+        schedule.schedule_name = (
+            f"Auto-{member_id}-{default_membership_type[2] if default_membership_type else 'Monthly'}"
+        )
+        schedule.member = member_id
+        schedule.membership = membership_name
+        schedule.membership_type = (
+            default_membership_type[0] if default_membership_type else "Maandlid"
+        )  # Required field
+        schedule.status = "Active"  # Required field
+
+        # Use the billing frequency from the default membership type
+        schedule.billing_frequency = (
+            default_membership_type[2] if default_membership_type else "Monthly"
+        )  # Required field
+        schedule.currency = "EUR"  # Required field
+
+        # Use the amount from the default membership type, but convert to appropriate rate
+        if default_membership_type:
+            base_amount = float(default_membership_type[1])
+            billing_freq = default_membership_type[2]
+
+            # Convert annual amount to appropriate billing frequency rate
+            if billing_freq == "Annual":
+                schedule.dues_rate = base_amount
+            elif billing_freq == "Monthly":
+                schedule.dues_rate = base_amount / 12  # Convert annual to monthly
+            elif billing_freq == "Quarterly":
+                schedule.dues_rate = base_amount / 4  # Convert annual to quarterly
+            elif billing_freq == "Daily":
+                schedule.dues_rate = base_amount / 365  # Convert annual to daily
+            else:
+                schedule.dues_rate = base_amount  # Use as-is for other frequencies
+        else:
+            # Fallback if no default membership type found
+            schedule.dues_rate = 3.0  # €3 annual as fallback
+
+        schedule.auto_generate = 1
+        schedule.next_invoice_date = today()
+
+        # Add final existence check before saving to prevent duplicates
+        existing_schedule = frappe.db.exists(
+            "Membership Dues Schedule", {"member": member_id, "status": "Active"}
+        )
+
+        if existing_schedule:
+            return {
+                "member": member_id,
+                "success": False,
+                "message": f"Schedule already exists: {existing_schedule}. Another process may have created it.",
+            }
+
+        # Save with retry logic for document modification conflicts
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                schedule.save()
+                break  # Success, exit retry loop
+            except frappe.TimestampMismatchError:
+                if attempt == max_retries - 1:
+                    return {
+                        "member": member_id,
+                        "success": False,
+                        "message": "Document modification conflict after multiple retries",
+                    }
+                # Wait a moment and retry
+                import time
+
+                time.sleep(0.1 * (attempt + 1))
+                # Reload the schedule document to get fresh timestamps
+                schedule = frappe.get_doc(schedule.as_dict())
+            except Exception as e:
+                if "already has an active dues schedule" in str(e):
+                    return {
+                        "member": member_id,
+                        "success": False,
+                        "message": f"Schedule creation prevented: {str(e)}",
+                    }
+                raise  # Re-raise other exceptions
+
+        # Calculate display rate for user feedback
+        display_rate = schedule.dues_rate
+        freq_display = schedule.billing_frequency.lower()
+        if schedule.billing_frequency == "Annual":
+            display_text = f"€{display_rate:.2f}/year"
+        elif schedule.billing_frequency == "Monthly":
+            display_text = f"€{display_rate:.2f}/month"
+        elif schedule.billing_frequency == "Quarterly":
+            display_text = f"€{display_rate:.2f}/quarter"
+        elif schedule.billing_frequency == "Daily":
+            display_text = f"€{display_rate:.2f}/day"
+        else:
+            display_text = f"€{display_rate:.2f}/{freq_display}"
+
+        return {
+            "member": member_id,
+            "membership": membership_name,
+            "schedule": schedule.name,
+            "success": True,
+            "message": f"Created membership and {schedule.billing_frequency.lower()} schedule ({display_text})",
+        }
+
+    except Exception as e:
+        return {
+            "member": member_id,
+            "success": False,
+            "message": f"Failed to create membership/schedule: {str(e)}",
+        }

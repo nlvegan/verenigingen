@@ -484,11 +484,10 @@ def map_grootboek_to_erpnext_account(grootboek_nummer, transaction_type, debug_i
 
 
 def get_default_account(transaction_type):
-    """Get default account based on transaction type"""
-    if transaction_type == "sales":
-        return "80001 - Contributie Leden plus Abonnementen - NVV"
-    else:
-        return "44009 - Onvoorziene kosten - NVV"
+    """Get default account based on transaction type - DEPRECATED: Should not be used as fallback"""
+    raise ValueError(
+        f"get_default_account() called for transaction_type '{transaction_type}'. This function should not be used as a fallback - proper account mapping is required."
+    )
 
 
 def get_tax_account(btw_code, invoice_type, company, debug_info=None):

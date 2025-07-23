@@ -68,11 +68,8 @@ class SEPARetryOperation(Document):
             if self.error_category in ["validation", "data"]:
                 # These typically shouldn't be retried
                 if self.status == "Pending" and self.retry_attempts > 0:
-                    frappe.msgprint(
-                        _("Warning: {0} errors typically cannot be resolved by retrying").format(
-                            self.error_category
-                        ),
-                        indicator="orange",
+                    frappe.logger().warning(
+                        f"Warning: {self.error_category} errors typically cannot be resolved by retrying for operation {self.name}"
                     )
 
     def validate_reference_documents(self):
@@ -91,11 +88,8 @@ class SEPARetryOperation(Document):
 
         if self.operation_type in operation_types_requiring_reference:
             if not (self.reference_doctype and self.reference_document):
-                frappe.msgprint(
-                    _("Operation type '{0}' typically requires a reference document").format(
-                        self.operation_type
-                    ),
-                    indicator="yellow",
+                frappe.logger().warning(
+                    f"Operation type '{self.operation_type}' typically requires a reference document for operation {self.name}"
                 )
 
     def is_eligible_for_retry(self):

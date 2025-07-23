@@ -46,7 +46,7 @@ def get_context(context):
             )
             context.organizations = {"chapters": [], "teams": []}
 
-        # Get recent activities (this might be failing)
+        # Get recent activities with user-friendly error handling
         try:
             context.recent_activities = get_recent_activities(volunteer.name)
         except Exception as e:
@@ -54,8 +54,12 @@ def get_context(context):
                 f"Error getting recent activities: {str(e)}", "Volunteer Dashboard Activities Error"
             )
             context.recent_activities = []
+            if not hasattr(context, "error_message"):
+                context.error_message = _(
+                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+                )
 
-        # Get expense summary (this might be failing)
+        # Get expense summary with user-friendly error handling
         try:
             context.expense_summary = get_expense_summary(volunteer.name)
         except Exception as e:
@@ -67,8 +71,12 @@ def get_context(context):
                 "recent_count": 0,
                 "pending_amount": 0,
             }
+            if not hasattr(context, "error_message"):
+                context.error_message = _(
+                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+                )
 
-        # Get upcoming assignments/activities (this might be failing)
+        # Get upcoming assignments/activities with user-friendly error handling
         try:
             context.upcoming_activities = get_upcoming_activities(volunteer.name)
         except Exception as e:
@@ -76,6 +84,10 @@ def get_context(context):
                 f"Error getting upcoming activities: {str(e)}", "Volunteer Dashboard Upcoming Error"
             )
             context.upcoming_activities = []
+            if not hasattr(context, "error_message"):
+                context.error_message = _(
+                    "Some dashboard data could not be loaded. Please refresh the page or contact support if the issue persists."
+                )
 
     except Exception as e:
         frappe.log_error(f"Error loading volunteer dashboard: {str(e)}", "Volunteer Dashboard Error")

@@ -1197,9 +1197,11 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
                                     description=row_description,
                                     transaction_type="purchase",
                                 )
-                                row_account = (
-                                    line_dict.get("expense_account") or "44009 - Onvoorziene kosten - NVV"
-                                )
+                                row_account = line_dict.get("expense_account")
+                                if not row_account:
+                                    raise ValueError(
+                                        f"No expense account mapping found for mutation {mutation.get('ID', 'unknown')} line {line_dict}. Account mapping required for proper financial reporting."
+                                    )
 
                             # Skip Journal Entry rows with zero amounts (ERPNext requires either debit or credit to be non-zero)
                             if row_amount == 0:
@@ -1521,7 +1523,11 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
                         description=description,
                         transaction_type="purchase",
                     )
-                    main_account = line_dict.get("expense_account") or "44009 - Onvoorziene kosten - NVV"
+                    main_account = line_dict.get("expense_account")
+                    if not main_account:
+                        raise ValueError(
+                            f"No expense account mapping found for mutation {mutation.get('ID', 'unknown')}. Account mapping required for proper financial reporting."
+                        )
 
                 # Create entry
                 je.append(
@@ -1720,13 +1726,32 @@ def _get_appropriate_cash_account(company, debug_info):
 def _process_money_transfer_mutation(
     mutation, company, cost_center, from_account_mapping, to_account_mapping, debug_info
 ):
-    """Process a money transfer mutation (type 5 or 6)"""
+    """Process a money transfer mutation (type 5 or 6) with enhanced party extraction"""
     mutation_id = mutation.get("id")
     description = mutation.get("description", f"Money Transfer {mutation_id}")
     amount = abs(frappe.utils.flt(mutation.get("amount", 0), 2))
     mutation_type = mutation.get("type", 5)
 
     debug_info.append(f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}")
+
+    # Extract party information from mutation description
+    try:
+        from verenigingen.utils.eboekhouden.party_extractor import EBoekhoudenPartyExtractor
+
+        party_extractor = EBoekhoudenPartyExtractor(company)
+        party_info = party_extractor.extract_party_from_mutation(mutation)
+
+        if party_info:
+            debug_info.append(
+                f"Extracted party: {party_info['party_name']} ({party_info['party_type']}) via {party_info['extraction_method']}"
+            )
+        else:
+            debug_info.append("No party information extracted from mutation")
+
+    except Exception as e:
+        debug_info.append(f"Party extraction failed: {str(e)}")
+        party_info = None
+        party_extractor = None
 
     # Create Journal Entry for money transfer
     je = frappe.new_doc("Journal Entry")
@@ -1749,27 +1774,45 @@ def _process_money_transfer_mutation(
 
     debug_info.append(f"Transfer: {amount} from {from_account} to {to_account}")
 
-    # From account (credit - money going out)
-    je.append(
-        "accounts",
-        {
-            "account": from_account,
-            "credit_in_account_currency": amount,
-            "cost_center": cost_center,
-            "user_remark": f"{description} - From",
-        },
-    )
+    # From account (credit - money going out) with party assignment
+    from_entry = {
+        "account": from_account,
+        "credit_in_account_currency": amount,
+        "cost_center": cost_center,
+        "user_remark": f"{description} - From",
+    }
 
-    # To account (debit - money coming in)
-    je.append(
-        "accounts",
-        {
-            "account": to_account,
-            "debit_in_account_currency": amount,
-            "cost_center": cost_center,
-            "user_remark": f"{description} - To",
-        },
-    )
+    # Try to assign party to from_account if appropriate
+    if party_extractor and party_info:
+        party_assignment = party_extractor.resolve_party_for_journal_entry(party_info, from_account)
+        if party_assignment:
+            from_entry["party_type"] = party_assignment[0]
+            from_entry["party"] = party_assignment[1]
+            debug_info.append(
+                f"Assigned {party_assignment[0]} '{party_assignment[1]}' to from_account {from_account}"
+            )
+
+    je.append("accounts", from_entry)
+
+    # To account (debit - money coming in) with party assignment
+    to_entry = {
+        "account": to_account,
+        "debit_in_account_currency": amount,
+        "cost_center": cost_center,
+        "user_remark": f"{description} - To",
+    }
+
+    # Try to assign party to to_account if appropriate
+    if party_extractor and party_info:
+        party_assignment = party_extractor.resolve_party_for_journal_entry(party_info, to_account)
+        if party_assignment:
+            to_entry["party_type"] = party_assignment[0]
+            to_entry["party"] = party_assignment[1]
+            debug_info.append(
+                f"Assigned {party_assignment[0]} '{party_assignment[1]}' to to_account {to_account}"
+            )
+
+    je.append("accounts", to_entry)
 
     try:
         je.save()
@@ -3060,7 +3103,11 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                     description=row_description,
                     transaction_type="purchase",
                 )
-                row_account = line_dict.get("expense_account") or "44009 - Onvoorziene kosten - NVV"
+                row_account = line_dict.get("expense_account")
+                if not row_account:
+                    raise ValueError(
+                        f"No expense account mapping found for mutation {mutation.get('ID', 'unknown')} row with ledger_id {row_ledger_id}. Account mapping required for proper financial reporting."
+                    )
 
             # For memorial bookings, create paired entries
             if is_memorial_booking and ledger_id:
@@ -3165,7 +3212,11 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
                 description=description,
                 transaction_type="purchase",
             )
-            main_account = line_dict.get("expense_account") or "44009 - Onvoorziene kosten - NVV"
+            main_account = line_dict.get("expense_account")
+            if not main_account:
+                raise ValueError(
+                    f"No expense account mapping found for mutation {mutation.get('ID', 'unknown')} with ledger_id {ledger_id}. Account mapping required for proper financial reporting."
+                )
 
         je.append(
             "accounts",

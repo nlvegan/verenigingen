@@ -162,7 +162,7 @@ def create_missing_accounts_from_ledgers():
             try:
                 # Determine account type based on code range
                 account_type = "Expense Account"  # Default
-                parent_account = "44009 - Onvoorziene kosten - NVV"  # Default parent
+                parent_account = None  # Must determine proper parent account
 
                 code = int(ledger.ledger_code) if ledger.ledger_code.isdigit() else 99999
 
@@ -197,6 +197,12 @@ def create_missing_accounts_from_ledgers():
                 elif 9000 <= code < 10000:
                     account_type = "Income Account"
                     parent_account = "Indirect Income - NVV"
+
+                # Validate that parent_account was determined
+                if not parent_account:
+                    raise ValueError(
+                        f"Unable to determine parent account for ledger code {ledger.ledger_code}. Code {code} does not match any known chart of accounts pattern."
+                    )
 
                 # Create the account
                 account = frappe.new_doc("Account")

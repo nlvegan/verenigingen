@@ -109,7 +109,7 @@ frappe.ui.form.on('Member', {
 			update_other_members_at_address(frm);
 		}
 
-		// Setup Sales Invoice link filtering
+		// Setup Sales Invoice link filtering (consolidated - only once per refresh)
 		if (frm.doc.customer && !frm.doc.__islocal) {
 			setup_sales_invoice_link_filter(frm);
 		}
@@ -125,10 +125,7 @@ frappe.ui.form.on('Member', {
 		// Ensure fee management section visibility on load
 		ensure_fee_management_section_visibility(frm);
 
-		// Add custom Sales Invoice link filtering
-		if (frm.doc.customer) {
-			setup_sales_invoice_link_filter(frm);
-		}
+		// Sales Invoice link filtering is handled in refresh() - no need to duplicate here
 	},
 
 	// ==================== FIELD EVENT HANDLERS ====================
@@ -1179,7 +1176,7 @@ function get_fee_source_label(source) {
 }
 
 function refresh_dues_schedule_history(frm) {
-	// Use the new fee change history refresh functionality
+	// Refresh both fee change history AND payment history
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
 		args: {
@@ -1188,10 +1185,25 @@ function refresh_dues_schedule_history(frm) {
 		callback: function(r) {
 			if (r.message && r.message.success) {
 				frm.refresh_field('fee_change_history');
-				frappe.show_alert({
-					message: `Dues schedule history refreshed: ${r.message.history_count} entries from ${r.message.dues_schedules_found} schedules`,
-					indicator: 'green'
-				}, 5);
+
+				// Also refresh payment history
+				frm.call({
+					method: 'load_payment_history',
+					doc: frm.doc,
+					callback: function(payment_r) {
+						frm.refresh_field('payment_history');
+
+						let message = `Dues schedule history refreshed: ${r.message.history_count} entries from ${r.message.dues_schedules_found} schedules`;
+						if (payment_r.message) {
+							message += '. Payment history also refreshed.';
+						}
+
+						frappe.show_alert({
+							message: message,
+							indicator: 'green'
+						}, 5);
+					}
+				});
 			} else {
 				frappe.show_alert({
 					message: r.message ? r.message.message : 'Failed to refresh dues schedule history',
@@ -1762,6 +1774,10 @@ function display_amendment_status(frm) {
 						frm.dashboard.add_comment(dashboard_html, 'blue', true);
 					}
 				}, 500);
+
+				// Clear any existing amendment indicators before adding new one
+				const existing_indicators = frm.dashboard.stats_area_parent.find('.indicator-pill:contains("Pending Amendments")');
+				existing_indicators.remove();
 
 				// Add dashboard indicator
 				frm.dashboard.add_indicator(

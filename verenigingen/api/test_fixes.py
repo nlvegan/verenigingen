@@ -1,43 +1,13 @@
 #!/usr/bin/env python3
+"""
+Admin and Diagnostic Utilities for Verenigingen
+
+This file contains reusable functions for diagnosing and fixing
+common issues with dues schedules, invoices, and member data.
+All functions are whitelisted for CLI debugging access.
+"""
 
 import frappe
-
-
-@frappe.whitelist()
-def test_member_payment_history(member_id="Assoc-Member-2025-07-0020"):
-    """Test payment history loading for a specific member"""
-
-    try:
-        member = frappe.get_doc("Member", member_id)
-
-        # Clear existing payment history
-        member.payment_history = []
-
-        # Load payment history using the updated method
-        member._load_payment_history_without_save()
-
-        entries_details = []
-        for entry in member.payment_history:
-            entry_info = {
-                "invoice": entry.invoice,
-                "transaction_type": entry.transaction_type,
-                "payment_status": entry.payment_status,
-                "amount": float(entry.amount) if entry.amount else 0,
-                "outstanding_amount": float(entry.outstanding_amount) if entry.outstanding_amount else 0,
-                "posting_date": str(entry.posting_date),
-            }
-            entries_details.append(entry_info)
-
-        return {
-            "success": True,
-            "member": member.name,
-            "customer": member.customer,
-            "entries": len(member.payment_history),
-            "details": entries_details,
-        }
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()
@@ -287,146 +257,6 @@ def fix_all_overdue_schedules():
 
 
 @frappe.whitelist()
-def analyze_invoice_coverage_gaps():
-    """Comprehensive analysis of invoice coverage gaps and missing invoices"""
-
-    try:
-        from frappe.utils import add_days, date_diff, getdate, today
-
-        # Get all active daily billing schedules
-        daily_schedules = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"status": "Active", "billing_frequency": "Daily", "auto_generate": 1},
-            fields=["name", "member", "next_invoice_date", "last_invoice_date", "dues_rate", "modified"],
-        )
-
-        today_date = getdate(today())
-        coverage_analysis = {
-            "analysis_date": today(),
-            "total_daily_schedules": len(daily_schedules),
-            "schedules_with_gaps": [],
-            "healthy_schedules": [],
-            "critical_gaps": [],
-            "summary": {},
-        }
-
-        for schedule_data in daily_schedules:
-            try:
-                # Skip orphaned schedules
-                try:
-                    member = frappe.get_doc("Member", schedule_data.member)
-                except frappe.DoesNotExistError:
-                    continue
-
-                if not member.customer:
-                    continue
-
-                schedule = {
-                    "schedule_name": schedule_data.name,
-                    "member": schedule_data.member,
-                    "customer": member.customer,
-                    "next_invoice_date": str(schedule_data.next_invoice_date),
-                    "last_invoice_date": str(schedule_data.last_invoice_date)
-                    if schedule_data.last_invoice_date
-                    else None,
-                    "dues_rate": float(schedule_data.dues_rate),
-                }
-
-                # Calculate expected vs actual coverage
-                if schedule_data.last_invoice_date and schedule_data.next_invoice_date:
-                    last_date = getdate(schedule_data.last_invoice_date)
-                    next_date = getdate(schedule_data.next_invoice_date)
-
-                    # For daily billing, last_invoice_date and next_invoice_date should be consecutive days
-                    expected_gap = 1  # 1 day between invoices
-                    actual_gap = date_diff(next_date, last_date)
-
-                    schedule["expected_gap_days"] = expected_gap
-                    schedule["actual_gap_days"] = actual_gap
-                    schedule["gap_variance"] = actual_gap - expected_gap
-
-                    # Check if next_invoice_date is in the past (overdue)
-                    days_overdue = date_diff(today_date, next_date)
-                    schedule["days_overdue"] = days_overdue if days_overdue > 0 else 0
-
-                    # Get recent invoices for this customer
-                    recent_invoices = frappe.get_all(
-                        "Sales Invoice",
-                        filters={
-                            "customer": member.customer,
-                            "posting_date": [">=", add_days(today(), -30)],  # Last 30 days
-                        },
-                        fields=["name", "posting_date", "docstatus", "status", "grand_total"],
-                        order_by="posting_date desc",
-                    )
-
-                    schedule["recent_invoices_count"] = len(recent_invoices)
-                    schedule["recent_invoices"] = [
-                        {
-                            "name": inv.name,
-                            "posting_date": str(inv.posting_date),
-                            "docstatus": inv.docstatus,
-                            "status": inv.status,
-                            "amount": float(inv.grand_total),
-                        }
-                        for inv in recent_invoices[:5]  # Last 5 invoices
-                    ]
-
-                    # Determine if this schedule has issues
-                    has_issues = False
-                    issues = []
-
-                    if actual_gap > expected_gap:
-                        has_issues = True
-                        issues.append(f"Gap too large: {actual_gap} days instead of {expected_gap}")
-
-                    if days_overdue > 0:
-                        has_issues = True
-                        issues.append(f"Overdue by {days_overdue} days")
-
-                    # Check for missing invoices based on expected daily pattern
-                    if schedule_data.last_invoice_date:
-                        expected_invoices_count = date_diff(today_date, last_date)
-                        if expected_invoices_count > len(recent_invoices) and expected_invoices_count > 1:
-                            has_issues = True
-                            issues.append(
-                                f"Missing invoices: expected ~{expected_invoices_count}, found {len(recent_invoices)}"
-                            )
-
-                    schedule["has_issues"] = has_issues
-                    schedule["issues"] = issues
-
-                    if has_issues:
-                        if days_overdue > 7 or actual_gap > 7:  # Critical: more than a week
-                            coverage_analysis["critical_gaps"].append(schedule)
-                        else:
-                            coverage_analysis["schedules_with_gaps"].append(schedule)
-                    else:
-                        coverage_analysis["healthy_schedules"].append(schedule)
-
-            except Exception as e:
-                # Skip individual schedule errors
-                continue
-
-        # Generate summary statistics
-        coverage_analysis["summary"] = {
-            "healthy_count": len(coverage_analysis["healthy_schedules"]),
-            "gap_count": len(coverage_analysis["schedules_with_gaps"]),
-            "critical_count": len(coverage_analysis["critical_gaps"]),
-            "total_with_issues": len(coverage_analysis["schedules_with_gaps"])
-            + len(coverage_analysis["critical_gaps"]),
-            "health_percentage": round(
-                (len(coverage_analysis["healthy_schedules"]) / max(len(daily_schedules), 1)) * 100, 1
-            ),
-        }
-
-        return {"success": True, "coverage_analysis": coverage_analysis}
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-
-@frappe.whitelist()
 def get_member_next_invoice_display(member_name):
     """Get comprehensive next invoice date information for a specific member"""
 
@@ -534,117 +364,102 @@ def update_member_next_invoice_date(member_name):
 
 
 @frappe.whitelist()
-def debug_member_dues_schedule():
-    """Debug why the member with dues schedule is not appearing"""
-
-    # Check specific member
-    target_member = "Assoc-Member-2025-07-1943"
-
-    result = {"debug": f"Debugging member: {target_member}"}
-
-    # 1. Check if member exists and has customer
-    member = frappe.db.get_value(
-        "Member", target_member, ["name", "full_name", "status", "customer"], as_dict=True
-    )
-    result["member_data"] = member
-
-    if not member or not member.customer:
-        result["error"] = "Member not found or has no customer"
-        return result
-
-    # 2. Check if member has dues schedule
-    schedules = frappe.get_all(
-        "Membership Dues Schedule",
-        filters={"member": target_member, "status": "Active"},
-        fields=[
-            "name",
-            "next_invoice_date",
-            "last_invoice_date",
-            "billing_frequency",
-            "dues_rate",
-            "auto_generate",
-        ],
-        order_by="modified desc",
-        limit=1,
-    )
-    result["schedules_found"] = schedules
-
-    # 3. Test the filtering logic from the report
-    member_filters = {"docstatus": ["!=", 2]}
-    # Apply standard filters (same as report)
-    member_filters["status"] = ["not in", ["Terminated", "Suspended"]]
-
-    result["filters"] = member_filters
-
-    # 4. Get members using same logic as report
-    members = frappe.get_all(
-        "Member",
-        filters=member_filters,
-        fields=["name", "full_name", "email", "status", "customer", "member_since"],
-        order_by="member_since desc",
-    )
-
-    # Find our target member
-    target_found = [m for m in members if m.name == target_member]
-    result["target_found"] = len(target_found) > 0
-    if target_found:
-        result["target_data"] = target_found[0]
-
-    # 5. Check total members returned
-    result["total_members"] = len(members)
-
-    # 6. Check members with schedules (sample first 5)
-    members_with_schedules = []
-    for member in members[:5]:
-        schedules_check = frappe.get_all(
-            "Membership Dues Schedule",
-            filters={"member": member.name, "status": "Active"},
-            fields=["name"],
-            limit=1,
-        )
-        if schedules_check:
-            members_with_schedules.append({"member": member.name, "schedule": schedules_check[0].name})
-
-    result["members_with_schedules_sample"] = members_with_schedules
-
-    return result
-
-
-@frappe.whitelist()
-def test_report_with_schedules_first():
-    """Test the report but show members with schedules first to verify it's working"""
-
+def find_members_without_schedules():
+    """Find members who have no active dues schedules"""
     try:
-        from verenigingen.verenigingen.report.members_without_dues_schedule.members_without_dues_schedule import (
-            get_data,
+        # Get all active members
+        members = frappe.get_all(
+            "Member",
+            filters={"docstatus": ["!=", 2], "status": ["not in", ["Terminated", "Suspended"]]},
+            fields=["name", "full_name", "customer"],
+            limit=10,
         )
 
-        # Get data with no filters
-        filters = {"problems_only": 0}
-        data = get_data(filters)
+        members_without_schedules = []
+        for member in members:
+            if not member.customer:
+                continue
 
-        # Sort to show members WITH schedules first (reverse the normal sort)
-        data_with_schedules_first = sorted(
-            data,
-            key=lambda x: (
-                1 if "No Schedule" in x["dues_schedule_status"] else 0,  # Reverse order
-                -x["days_overdue"],
-            ),
-        )
+            schedules = frappe.get_all(
+                "Membership Dues Schedule",
+                filters={"member": member.name, "status": "Active"},
+                fields=["name"],
+                limit=1,
+            )
 
-        # Return first 10 members to see if we get ones with schedules
-        sample = data_with_schedules_first[:10]
+            if not schedules:
+                members_without_schedules.append(
+                    {
+                        "member": member.name,
+                        "full_name": member.full_name,
+                        "has_customer": bool(member.customer),
+                    }
+                )
 
         return {
             "success": True,
-            "total_members": len(data),
-            "sample_size": len(sample),
-            "sample": sample,
-            "members_with_schedules": len(
-                [m for m in data if "No Schedule" not in m["dues_schedule_status"]]
-            ),
-            "members_without_schedules": len([m for m in data if "No Schedule" in m["dues_schedule_status"]]),
+            "total_checked": len(members),
+            "without_schedules": len(members_without_schedules),
+            "members": members_without_schedules,
         }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
+
+@frappe.whitelist()
+def test_default_membership_type_logic():
+    """Test the default membership type logic for schedule creation"""
+    try:
+        # Get default membership type (same logic as the fix function)
+        default_membership_type = frappe.db.get_value(
+            "Membership Type",
+            {"is_active": 1, "default_for_new_members": 1},
+            ["name", "amount", "billing_frequency"],
+        )
+
+        if not default_membership_type:
+            # Fallback to first active membership type
+            default_membership_type = frappe.db.get_value(
+                "Membership Type", {"is_active": 1}, ["name", "amount", "billing_frequency"]
+            )
+
+        # Calculate what the dues rate would be
+        calculated_rate = None
+        display_text = None
+
+        if default_membership_type:
+            base_amount = float(default_membership_type[1])
+            billing_freq = default_membership_type[2]
+
+            # Convert annual amount to appropriate billing frequency rate
+            if billing_freq == "Annual":
+                calculated_rate = base_amount
+                display_text = f"€{calculated_rate:.2f}/year"
+            elif billing_freq == "Monthly":
+                calculated_rate = base_amount / 12
+                display_text = f"€{calculated_rate:.2f}/month"
+            elif billing_freq == "Quarterly":
+                calculated_rate = base_amount / 4
+                display_text = f"€{calculated_rate:.2f}/quarter"
+            elif billing_freq == "Daily":
+                calculated_rate = base_amount / 365
+                display_text = f"€{calculated_rate:.2f}/day"
+            else:
+                calculated_rate = base_amount
+                display_text = f"€{calculated_rate:.2f}/{billing_freq.lower()}"
+
+        return {
+            "success": True,
+            "default_membership_type": {
+                "name": default_membership_type[0] if default_membership_type else None,
+                "base_amount": float(default_membership_type[1]) if default_membership_type else None,
+                "billing_frequency": default_membership_type[2] if default_membership_type else None,
+            },
+            "calculated_schedule": {
+                "dues_rate": calculated_rate,
+                "display_text": display_text,
+                "billing_frequency": default_membership_type[2] if default_membership_type else "Monthly",
+            },
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}

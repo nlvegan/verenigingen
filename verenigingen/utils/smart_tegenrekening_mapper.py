@@ -245,19 +245,21 @@ class SmartTegenrekeningMapper:
             item_group = "Expense Items"
             account_type = "Expense Account"
             # Use algemene kosten (general expenses) from existing CoA
-            fallback_account = "44009 - Onvoorziene kosten - NVV"  # Unforeseen expenses as fallback
+            fallback_account = None  # No fallback - proper mapping required
 
         # Ensure fallback item exists
         if not frappe.db.exists("Item", item_code):
             self._create_fallback_item(item_code, item_name, item_group, transaction_type, fallback_account)
 
-        # Get appropriate account - try to find one first, use fallback if not found
+        # Get appropriate account - must find proper mapping, no fallback allowed
         account = frappe.db.get_value(
             "Account", {"company": self.company, "account_type": account_type, "is_group": 0}, "name"
         )
 
         if not account:
-            account = fallback_account
+            raise ValueError(
+                f"No {account_type} account found for company {self.company}. Proper account mapping is required - cannot use fallback accounts."
+            )
 
         return {
             "item_code": item_code,

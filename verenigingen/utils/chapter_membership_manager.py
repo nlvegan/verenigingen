@@ -51,6 +51,8 @@ class ChapterMembershipManager:
                     return {"success": False, "error": _("You don't have permission to perform this action")}
 
             # Check if member exists
+            if not member_id or not member_id.strip():
+                return {"success": False, "error": _("Invalid member ID provided")}
             if not frappe.db.exists("Member", member_id):
                 return {"success": False, "error": _("Member {0} not found").format(member_id)}
 
@@ -109,6 +111,8 @@ class ChapterMembershipManager:
                     return {"success": False, "error": _("You don't have permission to perform this action")}
 
             # Check if member exists
+            if not member_id or not member_id.strip():
+                return {"success": False, "error": _("Invalid member ID provided")}
             if not frappe.db.exists("Member", member_id):
                 return {"success": False, "error": _("Member {0} not found").format(member_id)}
 
@@ -156,6 +160,8 @@ class ChapterMembershipManager:
         """
         try:
             # Check if member exists
+            if not member_id or not member_id.strip():
+                return {"success": False, "error": _("Invalid member ID provided")}
             if not frappe.db.exists("Member", member_id):
                 return {"success": False, "error": _("Member {0} not found").format(member_id)}
 

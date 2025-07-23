@@ -25,6 +25,10 @@ def get_context(context):
 
     if is_admin and member_param:
         # Admin viewing specific member's dashboard
+        # Validate member parameter is not empty or None
+        if not member_param or member_param.strip() == "":
+            frappe.throw(_("Invalid member parameter provided"), frappe.ValidationError)
+
         if frappe.db.exists("Member", member_param):
             context.member = member_param
             context.viewing_as_admin = True

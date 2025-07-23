@@ -18,6 +18,13 @@ frappe.query_reports["Members Without Dues Schedule"] = {
 			"description": "Include members with status 'Suspended'"
 		},
 		{
+			"fieldname": "include_pending",
+			"label": __("Include Pending Members"),
+			"fieldtype": "Check",
+			"default": 0,
+			"description": "Include members with status 'Pending' (applicants who haven't been approved yet)"
+		},
+		{
 			"fieldname": "member_status",
 			"label": __("Member Status"),
 			"fieldtype": "Select",
@@ -75,54 +82,6 @@ frappe.query_reports["Members Without Dues Schedule"] = {
 
 	onload: function(report) {
 		// Add custom buttons for bulk actions
-		report.page.add_inner_button(__("Coverage Analysis"), function() {
-			frappe.call({
-				method: "verenigingen.verenigingen.report.members_without_dues_schedule.members_without_dues_schedule.get_coverage_gap_analysis",
-				callback: function(r) {
-					if (r.message && r.message.success) {
-						let analysis = r.message.analysis;
-						let summary = analysis.summary;
-
-						let message = `
-							<div style="margin-bottom: 15px;">
-								<h4>Coverage Analysis Summary</h4>
-								<ul>
-									<li><strong>Total Daily Schedules:</strong> ${analysis.total_daily_schedules}</li>
-									<li><strong>Healthy:</strong> <span style="color: green;">${summary.healthy_count}</span></li>
-									<li><strong>With Issues:</strong> <span style="color: orange;">${summary.gap_count}</span></li>
-									<li><strong>Critical:</strong> <span style="color: red;">${summary.critical_count}</span></li>
-									<li><strong>Health Percentage:</strong> ${summary.health_percentage}%</li>
-								</ul>
-							</div>
-						`;
-
-						if (summary.critical_count > 0) {
-							message += `
-								<div>
-									<h5 style="color: red;">Critical Issues Found:</h5>
-									<ul>
-							`;
-							analysis.critical_gaps.forEach(function(gap) {
-								message += `<li><strong>${gap.member}:</strong> ${gap.issues.join(', ')}</li>`;
-							});
-							message += `</ul></div>`;
-						}
-
-						frappe.msgprint({
-							title: __("Coverage Gap Analysis"),
-							message: message,
-							indicator: summary.critical_count > 0 ? 'red' : (summary.gap_count > 0 ? 'orange' : 'green')
-						});
-					} else {
-						frappe.msgprint({
-							title: __("Error"),
-							message: r.message ? r.message.error : "Failed to get analysis",
-							indicator: 'red'
-						});
-					}
-				}
-			});
-		});
 
 		report.page.add_inner_button(__("Fix Selected Issues"), function() {
 			let data = report.data;

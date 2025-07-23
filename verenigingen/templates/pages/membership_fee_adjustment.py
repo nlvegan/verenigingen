@@ -54,6 +54,16 @@ def get_context(context):
     current_fee = get_effective_fee_for_member(context.member, membership)
     context.current_fee = current_fee
 
+    # Get standard fee for template display
+    if not membership_type.dues_schedule_template:
+        frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
+    template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+
+    # Get standard fee with proper fallback chain
+    standard_fee = template.dues_rate or template.suggested_amount or membership_type.minimum_amount or 15.0
+    # Ensure standard_fee is never None/empty for template rendering
+    context.standard_fee = float(standard_fee) if standard_fee else 15.0
+
     # Determine billing frequency for display
     billing_frequency = "Monthly"
     if membership:
