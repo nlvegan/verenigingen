@@ -14,6 +14,9 @@ class PaymentMixin:
         Then save the document to persist the changes.
         """
         self._load_payment_history_without_save()
+        # Use flags to reduce activity logging for bulk payment history updates
+        self.flags.ignore_version = True
+        self.flags.ignore_links = True
         self.save(ignore_permissions=True)
         return True
 
@@ -758,8 +761,12 @@ class PaymentMixin:
         This is the method called by the "Refresh Financial History" button and scheduled tasks.
         """
         try:
+            # Set flags to reduce activity logging for bulk financial updates
+            self.flags.ignore_version = True
+            self.flags.ignore_links = True
+
             # 1. Load payment history (invoices, payments, etc.)
-            self.load_payment_history()
+            self._load_payment_history_without_save()
 
             # 2. Refresh dues schedule history if the method exists
             if hasattr(self, "refresh_dues_schedule_history"):
@@ -768,6 +775,9 @@ class PaymentMixin:
             # 3. Update current dues schedule details if the method exists
             if hasattr(self, "get_current_dues_schedule_details"):
                 self.get_current_dues_schedule_details()
+
+            # Save once with reduced logging
+            self.save(ignore_permissions=True)
 
             return {
                 "success": True,

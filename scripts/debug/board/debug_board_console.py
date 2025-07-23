@@ -49,7 +49,7 @@ if not parko_in_chapter:
 
 # Test the BoardManager method directly
 print("\n=== Testing BoardManager directly ===")
-from verenigingen.doctype.chapter.managers.board_manager import BoardManager
+from verenigingen.verenigingen.doctype.chapter.managers.board_manager import BoardManager
 
 board_manager = BoardManager(chapter)
 

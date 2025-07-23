@@ -108,6 +108,11 @@ frappe.ui.form.on('Member', {
 		if (frm.doc.primary_address && window.update_other_members_at_address) {
 			update_other_members_at_address(frm);
 		}
+
+		// Setup Sales Invoice link filtering
+		if (frm.doc.customer && !frm.doc.__islocal) {
+			setup_sales_invoice_link_filter(frm);
+		}
 	},
 
 	onload: function(frm) {
@@ -119,6 +124,11 @@ frappe.ui.form.on('Member', {
 
 		// Ensure fee management section visibility on load
 		ensure_fee_management_section_visibility(frm);
+
+		// Add custom Sales Invoice link filtering
+		if (frm.doc.customer) {
+			setup_sales_invoice_link_filter(frm);
+		}
 	},
 
 	// ==================== FIELD EVENT HANDLERS ====================
@@ -219,6 +229,92 @@ frappe.ui.form.on('Member', {
 		}
 	}
 });
+
+// ==================== CUSTOM LINK FILTERING ====================
+
+function setup_sales_invoice_link_filter(frm) {
+	if (!frm.doc.customer) {
+		return;
+	}
+
+	// Wait for dashboard to be ready and try multiple times if needed
+	let attempts = 0;
+	const maxAttempts = 5;
+
+	function setupFilter() {
+		attempts++;
+
+		// Find the Sales Invoice connection link in the dashboard
+		const sales_invoice_section = $('[data-doctype="Sales Invoice"]');
+
+		if (sales_invoice_section.length === 0 && attempts < maxAttempts) {
+			// Dashboard not ready yet, try again
+			setTimeout(setupFilter, 500);
+			return;
+		}
+
+		// Override the main "Sales Invoice" badge link
+		const badge_links = sales_invoice_section.find('.badge-link');
+		badge_links.off('click.member_custom_filter').on('click.member_custom_filter', function(e) {
+			e.preventDefault();
+			e.stopPropagation();
+
+			// Set route options to filter by customer
+			frappe.route_options = {
+				'customer': frm.doc.customer
+			};
+
+			// Navigate to Sales Invoice list with filter
+			frappe.set_route('List', 'Sales Invoice');
+
+			return false;
+		});
+
+		// Override individual invoice document links
+		const document_links = sales_invoice_section.find('.document-link-item a');
+		document_links.each(function() {
+			const $link = $(this);
+			const original_href = $link.attr('href');
+
+			// If it's a form link, leave it as is (individual invoice)
+			// If it's a list link, add the customer filter
+			if (original_href && original_href.includes('#List/Sales Invoice')) {
+				$link.off('click.member_custom_filter').on('click.member_custom_filter', function(e) {
+					e.preventDefault();
+
+					frappe.route_options = {
+						'customer': frm.doc.customer
+					};
+
+					frappe.set_route('List', 'Sales Invoice');
+					return false;
+				});
+			}
+		});
+
+		// Also check for any other Sales Invoice links that might appear
+		const other_links = $('a[href*="List/Sales Invoice"], a[href*="sales-invoice"]').filter(function() {
+			return $(this).closest('.form-dashboard').length > 0;
+		});
+
+		other_links.off('click.member_custom_filter').on('click.member_custom_filter', function(e) {
+			const href = $(this).attr('href');
+			if (href && href.includes('List')) {
+				e.preventDefault();
+
+				frappe.route_options = {
+					'customer': frm.doc.customer
+				};
+
+				frappe.set_route('List', 'Sales Invoice');
+				return false;
+			}
+		});
+	}
+
+	// Start the setup process
+	setTimeout(setupFilter, 500);
+}
 
 // ==================== CHILD TABLE EVENT HANDLERS ====================
 

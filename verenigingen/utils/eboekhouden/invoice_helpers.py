@@ -449,7 +449,9 @@ def map_grootboek_to_erpnext_account(grootboek_nummer, transaction_type, debug_i
 
     # Use modern account mapping system as fallback
     try:
-        from verenigingen.doctype.eboekhouden_account_map.eboekhouden_account_map import EBoekhoudenAccountMap
+        from verenigingen.verenigingen.doctype.eboekhouden_account_map.eboekhouden_account_map import (
+            EBoekhoudenAccountMap,
+        )
 
         # Try to get existing mapping
         mapping = EBoekhoudenAccountMap.get_account_mapping(grootboek_nummer)

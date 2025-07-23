@@ -2,10 +2,6 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, today
 
-from verenigingen.utils.error_handling import cache_with_ttl, handle_api_error
-from verenigingen.utils.performance_monitoring import monitor_performance
-from verenigingen.utils.performance_utils import QueryOptimizer
-
 
 def get_context(context):
     """Get context for volunteer dashboard page"""
@@ -18,36 +14,76 @@ def get_context(context):
     context.show_sidebar = True
     context.title = _("Volunteer Dashboard")
 
-    # Get current user's volunteer record
-    volunteer = get_user_volunteer_record()
-    if not volunteer:
-        context.error_message = _(
-            "No volunteer record found for your account. Please contact your chapter administrator."
-        )
-        return context
+    try:
+        # Get current user's volunteer record
+        volunteer = get_user_volunteer_record()
+        if not volunteer:
+            context.error_message = _(
+                "No volunteer record found for your account. Please contact your chapter administrator."
+            )
+            return context
 
-    context.volunteer = volunteer
+        context.volunteer = volunteer
 
-    # Get volunteer profile info
-    context.volunteer_profile = get_volunteer_profile(volunteer.name)
+        # Get volunteer profile info (this might be failing)
+        try:
+            context.volunteer_profile = get_volunteer_profile(volunteer.name)
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting volunteer profile: {str(e)}", "Volunteer Dashboard Profile Error"
+            )
+            context.volunteer_profile = {
+                "name": volunteer.name,
+                "volunteer_name": volunteer.get("volunteer_name", "Unknown"),
+            }
 
-    # Get volunteer's organizations
-    context.organizations = get_volunteer_organizations(volunteer.name)
+        # Get volunteer's organizations (this might be failing)
+        try:
+            context.organizations = get_volunteer_organizations(volunteer.name)
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting volunteer organizations: {str(e)}", "Volunteer Dashboard Orgs Error"
+            )
+            context.organizations = {"chapters": [], "teams": []}
 
-    # Get recent activities
-    context.recent_activities = get_recent_activities(volunteer.name)
+        # Get recent activities (this might be failing)
+        try:
+            context.recent_activities = get_recent_activities(volunteer.name)
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting recent activities: {str(e)}", "Volunteer Dashboard Activities Error"
+            )
+            context.recent_activities = []
 
-    # Get expense summary
-    context.expense_summary = get_expense_summary(volunteer.name)
+        # Get expense summary (this might be failing)
+        try:
+            context.expense_summary = get_expense_summary(volunteer.name)
+        except Exception as e:
+            frappe.log_error(f"Error getting expense summary: {str(e)}", "Volunteer Dashboard Expenses Error")
+            context.expense_summary = {
+                "total_submitted": 0,
+                "total_approved": 0,
+                "pending_count": 0,
+                "recent_count": 0,
+                "pending_amount": 0,
+            }
 
-    # Get upcoming assignments/activities
-    context.upcoming_activities = get_upcoming_activities(volunteer.name)
+        # Get upcoming assignments/activities (this might be failing)
+        try:
+            context.upcoming_activities = get_upcoming_activities(volunteer.name)
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting upcoming activities: {str(e)}", "Volunteer Dashboard Upcoming Error"
+            )
+            context.upcoming_activities = []
+
+    except Exception as e:
+        frappe.log_error(f"Error loading volunteer dashboard: {str(e)}", "Volunteer Dashboard Error")
+        context.error_message = _("An error occurred while loading the dashboard. Please try again later.")
 
     return context
 
 
-@cache_with_ttl(ttl=300)
-@monitor_performance
 def get_user_volunteer_record():
     """Get volunteer record for current user with caching"""
     user_email = frappe.session.user
@@ -116,8 +152,6 @@ def get_volunteer_profile(volunteer_name):
     return profile
 
 
-@cache_with_ttl(ttl=600)
-@monitor_performance
 def get_volunteer_organizations(volunteer_name):
     """Get chapters and teams the volunteer belongs to with optimized queries"""
     organizations = {"chapters": [], "teams": []}
@@ -128,7 +162,7 @@ def get_volunteer_organizations(volunteer_name):
         # Use single JOIN query for chapters
         chapter_data = frappe.db.sql(
             """
-            SELECT c.name, c.chapter_name, cm.chapter_join_date
+            SELECT c.name, cm.chapter_join_date
             FROM `tabChapter Member` cm
             JOIN `tabChapter` c ON cm.parent = c.name
             WHERE cm.member = %s AND cm.enabled = 1
@@ -142,7 +176,7 @@ def get_volunteer_organizations(volunteer_name):
             organizations["chapters"].append(
                 {
                     "name": chapter.name,
-                    "chapter_name": chapter.chapter_name or chapter.name,
+                    "chapter_name": chapter.name,  # Chapter name is stored in the 'name' field
                     "join_date": chapter.chapter_join_date,
                 }
             )
@@ -225,8 +259,6 @@ def get_recent_activities(volunteer_name):
     return activities[:8]  # Return most recent 8 activities
 
 
-@cache_with_ttl(ttl=300)
-@monitor_performance
 def get_expense_summary(volunteer_name):
     """Get expense summary for the volunteer with optimized aggregation"""
     from_date = add_months(today(), -12)

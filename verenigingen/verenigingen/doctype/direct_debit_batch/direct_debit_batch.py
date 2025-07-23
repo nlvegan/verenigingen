@@ -150,7 +150,47 @@ class DirectDebitBatch(Document):
             self.validation_status = "Passed"
 
     def calculate_totals(self):
-        """Calculate batch totals"""
+        """Calculate batch totals - optimized with database aggregation for large batches"""
+        if not self.name:
+            # New document, use Python iteration
+            self._calculate_totals_python()
+            return
+
+        # For existing documents with potentially large child tables, use SQL aggregation
+        try:
+            result = frappe.db.sql(
+                """
+                SELECT
+                    COUNT(*) as entry_count,
+                    SUM(COALESCE(amount, 0)) as total_amount
+                FROM `tabDirect Debit Batch Invoice`
+                WHERE parent = %s
+            """,
+                self.name,
+                as_dict=True,
+            )
+
+            if result and result[0]:
+                stats = result[0]
+                self.entry_count = stats.entry_count or 0
+                self.total_amount = stats.total_amount or 0.0
+            else:
+                self.entry_count = 0
+                self.total_amount = 0.0
+
+        except Exception as e:
+            # Fallback to Python iteration if SQL fails (graceful degradation)
+            frappe.logger().warning(f"SQL aggregation failed for batch {self.name}, using fallback: {str(e)}")
+            self._calculate_totals_python()
+
+    def _calculate_totals_python(self):
+        """Fallback Python calculation for new documents or when SQL fails"""
+        if not self.invoices:
+            self.entry_count = 0
+            self.total_amount = 0.0
+            return
+
+        # Original implementation as fallback
         self.total_amount = sum(invoice.amount for invoice in self.invoices)
         self.entry_count = len(self.invoices)
 
