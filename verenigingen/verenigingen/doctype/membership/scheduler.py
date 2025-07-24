@@ -193,8 +193,8 @@ def generate_direct_debit_batch():
 
     pending_memberships = frappe.get_all(
         "Membership",
-        filters={"status": "Pending", "payment_method": "SEPA Direct Debit", "docstatus": 1},
-        fields=["name", "member", "member_name", "fee_amount", "currency"],
+        filters={"status": "Pending", "docstatus": 1},
+        fields=["name", "member", "member_name"],
     )
 
     if not pending_memberships:

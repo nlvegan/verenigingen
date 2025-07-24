@@ -77,7 +77,7 @@ def get_data(filters):
     threshold_date = add_days(today(), -days_threshold)
 
     # Base filters for members with recent chapter changes
-    member_filters = {"chapter_assigned_date": [">=", threshold_date]}
+    member_filters = {"modified": [">=", threshold_date]}
 
     # Apply additional filters
     if filters:
@@ -94,17 +94,15 @@ def get_data(filters):
         if filters.get("from_date"):
             filter_from_date = getdate(filters.get("from_date"))
             if filter_from_date > getdate(threshold_date):
-                member_filters["chapter_assigned_date"] = [">=", filter_from_date]
+                member_filters["modified"] = [">=", filter_from_date]
 
         if filters.get("to_date"):
-            if "chapter_assigned_date" in member_filters and isinstance(
-                member_filters["chapter_assigned_date"], list
-            ):
+            if "modified" in member_filters and isinstance(member_filters["modified"], list):
                 # Already has a from date filter
-                from_date = member_filters["chapter_assigned_date"][1]
-                member_filters["chapter_assigned_date"] = ["between", [from_date, filters.get("to_date")]]
+                from_date = member_filters["modified"][1]
+                member_filters["modified"] = ["between", [from_date, filters.get("to_date")]]
             else:
-                member_filters["chapter_assigned_date"] = ["<=", filters.get("to_date")]
+                member_filters["modified"] = ["<=", filters.get("to_date")]
 
     # Get members with recent chapter changes
     recent_changes = frappe.get_all(
@@ -115,11 +113,10 @@ def get_data(filters):
             "full_name",
             "email",
             "previous_chapter",
-            "chapter_assigned_date",
             "chapter_assigned_by",
             "chapter_change_reason",
         ],
-        order_by="chapter_assigned_date desc",
+        order_by="modified desc",
     )
 
     if not recent_changes:
@@ -161,7 +158,7 @@ def get_data(filters):
                 continue
 
         # Calculate days ago
-        change_date = member.chapter_assigned_date
+        change_date = member.modified
         if hasattr(change_date, "date"):
             change_date = change_date.date()
         days_ago = (getdate(today()) - getdate(change_date)).days
@@ -176,7 +173,7 @@ def get_data(filters):
             "member_email": member.email,
             "previous_chapter": member.previous_chapter or _("Unassigned"),
             "current_chapter": primary_chapter or _("Unassigned"),
-            "chapter_assigned_date": member.chapter_assigned_date,
+            "modified": member.modified,
             "chapter_assigned_by": member.chapter_assigned_by,
             "chapter_change_reason": member.chapter_change_reason,
             "days_ago": days_ago,

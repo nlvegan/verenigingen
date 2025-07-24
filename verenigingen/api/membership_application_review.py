@@ -785,7 +785,7 @@ def debug_and_fix_member_approval(member_name):
 
         # Get available membership types
         membership_types = frappe.get_all(
-            "Membership Type", fields=["name", "membership_type_name", "amount"]
+            "Membership Type", fields=["name", "membership_type_name", "minimum_amount"]
         )
         result["available_membership_types"] = len(membership_types)
         result["membership_types"] = membership_types[:3]  # Show first 3

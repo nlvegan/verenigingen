@@ -33,8 +33,8 @@ class DonationCampaign(Document):
             # Get all paid donations for this campaign
             donations = frappe.get_all(
                 "Donation",
-                filters={"donation_campaign": self.name, "paid": 1, "docstatus": 1},
-                fields=["name", "amount", "donor", "anonymous"],
+                filters={"campaign": self.name, "paid": 1, "docstatus": 1},
+                fields=["name", "amount", "donor"],
             )
 
             # Calculate totals
@@ -96,9 +96,9 @@ class DonationCampaign(Document):
         """Get recent donations for this campaign"""
         donations = frappe.get_all(
             "Donation",
-            filters={"donation_campaign": self.name, "paid": 1, "docstatus": 1},
-            fields=["name", "donor", "donor_name", "amount", "date", "anonymous", "donation_message"],
-            order_by="date desc",
+            filters={"campaign": self.name, "paid": 1, "docstatus": 1},
+            fields=["name", "donor", "amount", "donation_date"],
+            order_by="donation_date desc",
             limit=limit,
         )
 

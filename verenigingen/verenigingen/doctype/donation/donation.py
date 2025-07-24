@@ -66,7 +66,7 @@ class Donation(Document):
 
     def validate_payment_method(self):
         """Validate payment method specific requirements"""
-        if self.payment_method == "SEPA Direct Debit" and self.donation_status in ["Promised", "Recurring"]:
+        if self.payment_method == "SEPA Direct Debit" and self.status in ["Promised", "Recurring"]:
             if not getattr(self, "sepa_mandate", None):
                 frappe.msgprint(_("SEPA mandate is recommended for recurring donations"), indicator="yellow")
 
@@ -118,8 +118,8 @@ class Donation(Document):
             self.belastingdienst_reportable = 1
 
             # Set donation status as recurring if not already set
-            if not self.donation_status or self.donation_status == "One-time":
-                self.donation_status = "Recurring"
+            if not self.status or self.status == "One-time":
+                self.status = "Recurring"
 
     def generate_anbi_report_data(self):
         """Generate data for ANBI reporting to Belastingdienst"""
@@ -141,7 +141,7 @@ class Donation(Document):
     def validate_donation_purpose(self):
         """Validate donation purpose and earmarking fields"""
         purpose_type = getattr(self, "donation_purpose_type", "General")
-        campaign_ref = getattr(self, "campaign_reference", None)
+        campaign_ref = getattr(self, "campaign", None)
         chapter_ref = getattr(self, "chapter_reference", None)
         goal_desc = getattr(self, "specific_goal_description", None)
 
@@ -460,7 +460,7 @@ def create_sepa_donation(donor, amount, date, sepa_mandate, donation_type=None, 
         donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
 
     company = get_company_for_donations()
-    donation_status = "Recurring" if recurring_frequency else "Promised"
+    status = "Recurring" if recurring_frequency else "Promised"
 
     donation = frappe.get_doc(
         {
@@ -471,7 +471,7 @@ def create_sepa_donation(donor, amount, date, sepa_mandate, donation_type=None, 
             "amount": flt(amount),
             "payment_method": "SEPA Direct Debit",
             "donation_type": donation_type,
-            "donation_status": donation_status,
+            "status": status,
             "sepa_mandate": sepa_mandate,
             "recurring_frequency": recurring_frequency,
             "paid": 0,  # Will be marked paid when SEPA batch is processed
@@ -494,8 +494,12 @@ def get_anbi_donations_for_reporting(from_date, to_date):
     """Get all ANBI donations requiring Belastingdienst reporting"""
     donations = frappe.get_all(
         "Donation",
-        filters={"belastingdienst_reportable": 1, "date": ["between", [from_date, to_date]], "docstatus": 1},
-        fields=["name", "donor", "date", "amount", "anbi_agreement_number", "anbi_agreement_date"],
+        filters={
+            "belastingdienst_reportable": 1,
+            "donation_date": ["between", [from_date, to_date]],
+            "docstatus": 1,
+        },
+        fields=["name", "donor", "donation_date", "amount", "anbi_agreement_number", "anbi_agreement_date"],
     )
 
     report_data = []
@@ -546,13 +550,13 @@ def get_donations_by_chapter(chapter, from_date=None, to_date=None):
     filters = {"chapter_reference": chapter, "donation_purpose_type": "Chapter", "docstatus": 1}
 
     if from_date and to_date:
-        filters["date"] = ["between", [from_date, to_date]]
+        filters["donation_date"] = ["between", [from_date, to_date]]
 
     donations = frappe.get_all(
         "Donation",
         filters=filters,
-        fields=["name", "donor", "date", "amount", "donation_type", "paid"],
-        order_by="date desc",
+        fields=["name", "donor", "donation_date", "amount", "donation_type", "paid"],
+        order_by="donation_date desc",
     )
 
     total_amount = sum(d.amount for d in donations if d.amount)
@@ -568,18 +572,18 @@ def get_donations_by_chapter(chapter, from_date=None, to_date=None):
 
 
 @frappe.whitelist()
-def get_donations_by_campaign(campaign_reference, from_date=None, to_date=None):
+def get_donations_by_campaign(campaign, from_date=None, to_date=None):
     """Get all donations for a specific campaign"""
-    filters = {"campaign_reference": campaign_reference, "donation_purpose_type": "Campaign", "docstatus": 1}
+    filters = {"campaign": campaign, "donation_purpose_type": "Campaign", "docstatus": 1}
 
     if from_date and to_date:
-        filters["date"] = ["between", [from_date, to_date]]
+        filters["donation_date"] = ["between", [from_date, to_date]]
 
     donations = frappe.get_all(
         "Donation",
         filters=filters,
-        fields=["name", "donor", "date", "amount", "donation_type", "paid"],
-        order_by="date desc",
+        fields=["name", "donor", "donation_date", "amount", "donation_type", "paid"],
+        order_by="donation_date desc",
     )
 
     total_amount = sum(d.amount for d in donations if d.amount)
@@ -600,12 +604,12 @@ def get_donation_summary_by_purpose(from_date=None, to_date=None):
     filters = {"docstatus": 1}
 
     if from_date and to_date:
-        filters["date"] = ["between", [from_date, to_date]]
+        filters["donation_date"] = ["between", [from_date, to_date]]
 
     donations = frappe.get_all(
         "Donation",
         filters=filters,
-        fields=["donation_purpose_type", "amount", "paid", "chapter_reference", "campaign_reference"],
+        fields=["donation_purpose_type", "amount", "paid", "chapter_reference", "campaign"],
     )
 
     summary = {
@@ -626,17 +630,17 @@ def get_donation_summary_by_purpose(from_date=None, to_date=None):
                 summary[purpose]["paid"] += amount
 
             # Track individual campaigns and chapters
-            if purpose == "Campaign" and donation.campaign_reference:
-                if donation.campaign_reference not in summary["Campaign"]["campaigns"]:
-                    summary["Campaign"]["campaigns"][donation.campaign_reference] = {
+            if purpose == "Campaign" and donation.campaign:
+                if donation.campaign not in summary["Campaign"]["campaigns"]:
+                    summary["Campaign"]["campaigns"][donation.campaign] = {
                         "total": 0,
                         "paid": 0,
                         "count": 0,
                     }
-                summary["Campaign"]["campaigns"][donation.campaign_reference]["total"] += amount
-                summary["Campaign"]["campaigns"][donation.campaign_reference]["count"] += 1
+                summary["Campaign"]["campaigns"][donation.campaign]["total"] += amount
+                summary["Campaign"]["campaigns"][donation.campaign]["count"] += 1
                 if donation.paid:
-                    summary["Campaign"]["campaigns"][donation.campaign_reference]["paid"] += amount
+                    summary["Campaign"]["campaigns"][donation.campaign]["paid"] += amount
 
             elif purpose == "Chapter" and donation.chapter_reference:
                 if donation.chapter_reference not in summary["Chapter"]["chapters"]:
@@ -686,7 +690,7 @@ def get_donation_accounting_summary(from_date=None, to_date=None):
     filters = {"docstatus": 1, "paid": 1}
 
     if from_date and to_date:
-        filters["date"] = ["between", [from_date, to_date]]
+        filters["donation_date"] = ["between", [from_date, to_date]]
 
     donations = frappe.get_all(
         "Donation",
@@ -696,7 +700,7 @@ def get_donation_accounting_summary(from_date=None, to_date=None):
             "amount",
             "donation_purpose_type",
             "chapter_reference",
-            "campaign_reference",
+            "campaign",
             "company",
         ],
     )
@@ -732,7 +736,7 @@ def reconcile_donation_accounts():
     """Reconcile donation amounts with GL entries"""
     # Get all paid donations
     donations = frappe.get_all(
-        "Donation", filters={"paid": 1, "docstatus": 1}, fields=["name", "amount", "date", "company"]
+        "Donation", filters={"paid": 1, "docstatus": 1}, fields=["name", "amount", "donation_date", "company"]
     )
 
     reconciliation_report = {"total_donations": 0, "total_gl_credits": 0, "discrepancies": [], "summary": {}}
@@ -763,7 +767,7 @@ def reconcile_donation_accounts():
                     "donation_amount": amount,
                     "gl_amount": gl_credit_amount,
                     "difference": amount - gl_credit_amount,
-                    "date": donation.date,
+                    "date": donation.donation_date,
                 }
             )
 
@@ -789,7 +793,7 @@ def create_donation_allocation_report(chapter=None, from_date=None, to_date=None
         filters["donation_purpose_type"] = "Chapter"
 
     if from_date and to_date:
-        filters["date"] = ["between", [from_date, to_date]]
+        filters["donation_date"] = ["between", [from_date, to_date]]
 
     donations = frappe.get_all(
         "Donation",
@@ -797,12 +801,12 @@ def create_donation_allocation_report(chapter=None, from_date=None, to_date=None
         fields=[
             "name",
             "donor",
-            "date",
+            "donation_date",
             "amount",
             "paid",
             "donation_purpose_type",
             "chapter_reference",
-            "campaign_reference",
+            "campaign",
             "specific_goal_description",
         ],
     )

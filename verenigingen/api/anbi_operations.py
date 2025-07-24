@@ -141,13 +141,13 @@ def generate_anbi_report(from_date, to_date, include_bsn=False):
             "Donation",
             filters={
                 "belastingdienst_reportable": 1,
-                "date": ["between", [from_date, to_date]],
+                "donation_date": ["between", [from_date, to_date]],
                 "docstatus": 1,
             },
             fields=[
                 "name",
                 "donor",
-                "date",
+                "donation_date",
                 "amount",
                 "anbi_agreement_number",
                 "anbi_agreement_date",

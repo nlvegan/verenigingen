@@ -130,9 +130,8 @@ def create_direct_debit_batch(date=None):
         "Membership",
         filters={
             "status": "Active",
-            "dues_schedule": ["is", "set"],
         },
-        fields=["name", "dues_schedule", "member", "member_name"],
+        fields=["name", "member", "member_name"],
     )
 
     for membership in memberships:
@@ -241,7 +240,7 @@ def get_unpaid_membership_invoices():
             "status": ["in", ["Active", "Pending"]],
             "dues_schedule": ["is", "set"],
         },
-        fields=["name", "dues_schedule", "member", "member_name"],
+        fields=["name", "member", "member_name"],
     )
 
     if not memberships:

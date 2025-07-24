@@ -31,6 +31,8 @@ class Donor(Document):
         if self.anbi_consent and not self.anbi_consent_date:
             self.anbi_consent_date = frappe.utils.now()
 
+        # NOTE: Customer sync handled by document event handlers in hooks.py
+
     def before_save(self):
         """Encrypt sensitive fields before saving"""
         self.encrypt_sensitive_fields()
@@ -170,3 +172,220 @@ class Donor(Document):
             return self.decrypt_field(self.rsin_organization_tax_number)
 
         return self.rsin_organization_tax_number
+
+    # ========== Customer Integration Methods ==========
+
+    def sync_with_customer(self):
+        """Create or sync with corresponding Customer record"""
+        if self.flags.in_test or self.flags.ignore_customer_sync:
+            return
+
+        try:
+            # Find existing customer by donor reference or create new one
+            customer_name = self.get_or_create_customer()
+
+            if customer_name and customer_name != self.customer:
+                # Update donor's customer link
+                self.customer = customer_name
+
+                # Sync data to customer (without triggering validation loop)
+                self.sync_data_to_customer(customer_name)
+
+                # Update sync status
+                self.customer_sync_status = "Synced"
+                self.last_customer_sync = frappe.utils.now()
+
+                # Save the donor with the updated customer link
+                # Use db update to avoid triggering hooks again
+                frappe.db.set_value(
+                    "Donor",
+                    self.name,
+                    {
+                        "customer": self.customer,
+                        "customer_sync_status": self.customer_sync_status,
+                        "last_customer_sync": self.last_customer_sync,
+                    },
+                )
+
+        except Exception as e:
+            # Update sync status on error
+            self.customer_sync_status = "Error"
+            frappe.db.set_value("Donor", self.name, "customer_sync_status", "Error")
+            frappe.log_error(
+                f"Error syncing donor {self.name} with customer: {str(e)}", "Donor-Customer Sync Error"
+            )
+
+    def get_or_create_customer(self):
+        """Get existing customer or create new one"""
+        # First, check if we already have a customer linked
+        if self.customer and frappe.db.exists("Customer", self.customer):
+            return self.customer
+
+        # Look for customer with donor reference
+        existing_customer = frappe.db.get_value("Customer", {"custom_donor_reference": self.name}, "name")
+
+        if existing_customer:
+            return existing_customer
+
+        # Look for customer with matching email
+        if self.donor_email:
+            email_customer = frappe.db.get_value("Customer", {"email_id": self.donor_email}, "name")
+
+            if email_customer:
+                # Link existing customer to this donor
+                frappe.db.set_value("Customer", email_customer, "custom_donor_reference", self.name)
+                return email_customer
+
+        # Create new customer
+        return self.create_customer_from_donor()
+
+    def create_customer_from_donor(self):
+        """Create new Customer record from Donor data"""
+        try:
+            # Ensure required customer group exists
+            self.ensure_donor_customer_group()
+
+            customer = frappe.new_doc("Customer")
+            customer.customer_name = self.donor_name
+            customer.customer_type = "Company" if self.donor_type == "Organization" else "Individual"
+
+            # Set territory (default or from settings)
+            customer.territory = (
+                frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
+            )
+
+            customer.customer_group = "Donors"
+
+            # Copy contact information
+            if self.donor_email:
+                customer.email_id = self.donor_email
+            if hasattr(self, "phone") and self.phone:
+                customer.mobile_no = self.phone
+
+            # Link back to donor
+            customer.custom_donor_reference = self.name
+
+            # Set flags to prevent validation loops
+            customer.flags.ignore_mandatory = True
+            customer.flags.ignore_permissions = True
+            customer.flags.from_donor_sync = True
+
+            customer.insert()
+
+            frappe.logger().info(f"Created customer {customer.name} for donor {self.name}")
+            return customer.name
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error creating customer for donor {self.name}: {str(e)}", "Donor Customer Creation Error"
+            )
+            return None
+
+    def sync_data_to_customer(self, customer_name):
+        """Sync donor data to customer record"""
+        if not customer_name:
+            return
+
+        try:
+            customer_doc = frappe.get_doc("Customer", customer_name)
+
+            # Track if any changes were made
+            changes_made = False
+
+            # Sync basic information
+            if customer_doc.customer_name != self.donor_name:
+                customer_doc.customer_name = self.donor_name
+                changes_made = True
+
+            if self.donor_email and customer_doc.email_id != self.donor_email:
+                customer_doc.email_id = self.donor_email
+                changes_made = True
+
+            if hasattr(self, "phone") and self.phone and customer_doc.mobile_no != self.phone:
+                customer_doc.mobile_no = self.phone
+                changes_made = True
+
+            # Sync customer type
+            expected_type = "Company" if self.donor_type == "Organization" else "Individual"
+            if customer_doc.customer_type != expected_type:
+                customer_doc.customer_type = expected_type
+                changes_made = True
+
+            # Ensure donor reference is set
+            if customer_doc.custom_donor_reference != self.name:
+                customer_doc.custom_donor_reference = self.name
+                changes_made = True
+
+            # Save if changes were made
+            if changes_made:
+                customer_doc.flags.ignore_mandatory = True
+                customer_doc.flags.ignore_permissions = True
+                customer_doc.flags.from_donor_sync = True
+                customer_doc.save()
+
+                frappe.logger().info(f"Synced donor {self.name} data to customer {customer_name}")
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error syncing data from donor {self.name} to customer {customer_name}: {str(e)}",
+                "Donor-Customer Data Sync Error",
+            )
+
+    def ensure_donor_customer_group(self):
+        """Ensure 'Donors' customer group exists"""
+        if not frappe.db.exists("Customer Group", "Donors"):
+            donor_group = frappe.new_doc("Customer Group")
+            donor_group.customer_group_name = "Donors"
+            donor_group.parent_customer_group = "All Customer Groups"
+            donor_group.is_group = 0
+            donor_group.flags.ignore_permissions = True
+            donor_group.insert()
+
+    def get_customer_info(self):
+        """Get related customer information for display"""
+        if not self.customer:
+            return {}
+
+        try:
+            customer_data = frappe.db.get_value(
+                "Customer",
+                self.customer,
+                [
+                    "name",
+                    "customer_name",
+                    "customer_type",
+                    "territory",
+                    "customer_group",
+                    "email_id",
+                    "mobile_no",
+                ],
+                as_dict=True,
+            )
+
+            if customer_data:
+                # Get customer's total outstanding
+                outstanding = frappe.db.sql(
+                    """
+                    SELECT COALESCE(SUM(outstanding_amount), 0) as outstanding
+                    FROM `tabSales Invoice`
+                    WHERE customer = %s AND docstatus = 1
+                """,
+                    (self.customer,),
+                )[0][0]
+
+                customer_data["outstanding_amount"] = outstanding
+
+            return customer_data or {}
+
+        except Exception as e:
+            frappe.log_error(f"Error getting customer info for donor {self.name}: {str(e)}")
+            return {}
+
+    @frappe.whitelist()
+    def refresh_customer_sync(self):
+        """Manual refresh of customer synchronization"""
+        self.flags.ignore_customer_sync = False
+        self.sync_with_customer()
+        # Reload document to get updated values from database
+        self.reload()
+        return {"message": "Customer synchronization refreshed successfully"}

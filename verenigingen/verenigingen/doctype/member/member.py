@@ -2533,7 +2533,7 @@ def create_donor_from_member(member_name):
         try:
             return frappe.get_all(
                 "Donation",
-                filters={"donor_name": self.name},
+                filters={"donor": self.name},
                 fields=["name", "amount", "donation_date", "status"],
                 order_by="donation_date desc",
             )

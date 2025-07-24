@@ -61,7 +61,7 @@ class PreCommitSmartFieldValidator:
     
     def load_doctype_schemas(self):
         """Load all DocType schemas from JSON files"""
-        doctype_path = app_path / "verenigingen" / "doctype"
+        doctype_path = app_path / "verenigingen" / "verenigingen" / "doctype"
         
         if not doctype_path.exists():
             print(f"Warning: DocType directory not found at {doctype_path}")

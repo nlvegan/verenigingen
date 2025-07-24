@@ -30,16 +30,16 @@ class DonationHistoryManager:
                 filters={"donor": self.donor_name},
                 fields=[
                     "name",
-                    "date",
+                    "donation_date",
                     "amount",
                     "payment_method",
-                    "donation_status",
+                    "status",
                     "fund_designation",
                     "donation_purpose",
                     "paid",
                     "docstatus",
                 ],
-                order_by="date desc",
+                order_by="donation_date desc",
             )
 
             # Clear existing history

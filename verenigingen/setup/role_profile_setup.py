@@ -146,7 +146,7 @@ def auto_assign_role_profiles():
 
     # Get all active users who are members
     members_with_users = frappe.get_all(
-        "Member", filters={"user": ["!=", ""]}, fields=["name", "user", "member_name"]
+        "Member", filters={"user": ["!=", ""]}, fields=["name", "user", "full_name"]
     )
 
     for member in members_with_users:

@@ -39,7 +39,7 @@ class MemberIdentityValidator:
             existing_members = frappe.get_all(
                 "Member",
                 filters={"status": ["in", ["Active", "Pending"]]},
-                fields=["name", "first_name", "last_name", "email", "iban", "birth_date", "address_line1"],
+                fields=["name", "first_name", "last_name", "email", "iban", "birth_date", "address_display"],
             )
 
             new_full_name = f"{member_data.get('first_name', '')} {member_data.get('last_name', '')}".strip()

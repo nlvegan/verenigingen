@@ -459,7 +459,13 @@ def get_membership_types_for_application():
         membership_types = frappe.get_all(
             "Membership Type",
             filters={"is_active": 1},
-            fields=["name", "membership_type_name", "description", "amount", "dues_schedule_template"],
+            fields=[
+                "name",
+                "membership_type_name",
+                "description",
+                "minimum_amount",
+                "dues_schedule_template",
+            ],
             order_by="membership_type_name",
         )
 

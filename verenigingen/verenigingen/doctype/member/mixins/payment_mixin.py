@@ -31,11 +31,6 @@ class PaymentMixin:
             return
 
         # New approach: Only show 20 most recent entries
-        # Keep existing entries if possible for incremental updates
-        existing_invoice_map = {}
-        if hasattr(self, "payment_history") and self.payment_history:
-            existing_invoice_map = {row.invoice: row for row in self.payment_history if row.invoice}
-
         # Limit to 20 most recent entries
         MAX_PAYMENT_HISTORY_ENTRIES = 20
 
@@ -444,7 +439,7 @@ class PaymentMixin:
             memberships = frappe.get_all(
                 "Membership",
                 filters={"member": self.name, "status": ["!=", "Cancelled"]},
-                fields=["name", "payment_method"],
+                fields=["name"],
             )
 
             for membership in memberships:

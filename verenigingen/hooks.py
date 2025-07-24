@@ -69,6 +69,7 @@ doc_events = {
             "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
             "verenigingen.utils.payment_notifications.on_payment_submit",
             "verenigingen.events.expense_events.emit_expense_payment_made",
+            "verenigingen.utils.donor_auto_creation.process_payment_for_donor_creation",
         ],
         "on_cancel": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
         "on_trash": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
@@ -111,12 +112,24 @@ doc_events = {
         "on_cancel": "verenigingen.utils.donation_history_manager.on_donation_cancel",
         "on_trash": "verenigingen.utils.donation_history_manager.on_donation_delete",
     },
+    # Donor-Customer integration
+    "Donor": {
+        "after_save": "verenigingen.utils.donor_customer_sync.sync_donor_to_customer",
+        "on_update": "verenigingen.utils.donor_customer_sync.sync_donor_to_customer",
+    },
+    "Customer": {
+        "after_save": "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
+        "on_update": "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
+    },
     # Volunteer expense approver sync (native ERPNext system)
     "Volunteer": {"on_update": "verenigingen.utils.native_expense_helpers.update_employee_approver"},
     # Brand Settings - regenerate CSS when colors change (Single doctype)
     "Brand Settings": {"on_update": "verenigingen.utils.brand_css_generator.generate_brand_css_file"},
     # Account Group Project Framework - validate and apply defaults
-    "Journal Entry": {"validate": "verenigingen.utils.account_group_validation_hooks.validate_journal_entry"},
+    "Journal Entry": {
+        "validate": "verenigingen.utils.account_group_validation_hooks.validate_journal_entry",
+        "on_submit": "verenigingen.utils.donor_auto_creation.process_payment_for_donor_creation",
+    },
     "Expense Claim": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim",
         "on_update_after_submit": "verenigingen.events.expense_events.emit_expense_claim_approved",

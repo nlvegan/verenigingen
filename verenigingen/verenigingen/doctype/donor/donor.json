@@ -19,17 +19,23 @@
   "column_break_ag86z",
   "phone",
   "section_break_7uw0i",
-  "donor_email",
+  "email",
   "column_break_gnl5u",
-  "contact_person_address",
+  "address",
   "connections_section",
   "member",
   "column_break_connections",
   "customer",
+  "customer_info_section",
+  "customer_sync_status",
+  "column_break_customer_info",
+  "last_customer_sync",
+  "created_from_payment",
+  "creation_trigger_amount",
   "donor_segmentation_section",
   "donor_category",
   "column_break_3lr0r",
-  "preferred_communication_method",
+  "communication_preference",
   "donation_history_tab",
   "donor_history",
   "section_break_sscxg",
@@ -48,7 +54,7 @@
   "additional_information_section",
   "occupation",
   "column_break_cxobe",
-  "social_media_profiles",
+  "social_media",
   "section_break_ouhvw",
   "other_attributes",
   "tax_compliance_section",
@@ -161,7 +167,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "contact_person_address",
+   "fieldname": "address",
    "fieldtype": "Data",
    "label": "Address",
    "reqd": 0
@@ -183,7 +189,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "preferred_communication_method",
+   "fieldname": "communication_preference",
    "fieldtype": "Select",
    "label": "Preferred Communication Method",
    "options": "\nEmail\nPhone\nMail\nSMS"
@@ -283,7 +289,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "social_media_profiles",
+   "fieldname": "social_media",
    "fieldtype": "Data",
    "label": "Social Media Profiles"
   },
@@ -394,7 +400,47 @@
    "fieldname": "customer",
    "fieldtype": "Link",
    "label": "Related Customer",
-   "options": "Customer"
+   "options": "Customer",
+   "description": "Automatically created and synced Customer record for ERPNext integration"
+  },
+  {
+   "fieldname": "customer_info_section",
+   "fieldtype": "Section Break",
+   "label": "Customer Integration",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "customer_sync_status",
+   "fieldtype": "Select",
+   "label": "Sync Status",
+   "options": "\nSynced\nPending\nError\nAuto-Created",
+   "read_only": 1,
+   "description": "Status of synchronization with Customer record"
+  },
+  {
+   "fieldname": "column_break_customer_info",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "last_customer_sync",
+   "fieldtype": "Datetime",
+   "label": "Last Sync",
+   "read_only": 1,
+   "description": "Last time customer data was synchronized"
+  },
+  {
+   "fieldname": "created_from_payment",
+   "fieldtype": "Data",
+   "label": "Created From Payment",
+   "read_only": 1,
+   "description": "Payment Entry or Journal Entry that triggered auto-creation"
+  },
+  {
+   "fieldname": "creation_trigger_amount",
+   "fieldtype": "Currency",
+   "label": "Creation Trigger Amount",
+   "read_only": 1,
+   "description": "Amount that triggered automatic donor creation"
   }
  ],
  "image_field": "image",

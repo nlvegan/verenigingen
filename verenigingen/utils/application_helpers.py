@@ -96,11 +96,10 @@ def get_form_data():
                     "name",
                     "membership_type_name",
                     "description",
-                    "amount",
-                    "currency",
+                    "minimum_amount",
                     "billing_period",  # Updated from subscription_period
                 ],
-                order_by="amount",
+                order_by="minimum_amount",
             )
         except Exception as e:
             frappe.log_error(f"Error getting membership types: {str(e)}")

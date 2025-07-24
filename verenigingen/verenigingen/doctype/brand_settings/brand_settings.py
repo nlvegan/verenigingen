@@ -616,9 +616,7 @@ def check_owl_theme_integration():
         owl_settings = frappe.get_single("Owl Theme Settings")
 
         # Get active brand settings
-        active_brand = frappe.get_all(
-            "Brand Settings", filters={"is_active": 1}, fields=["name", "settings_name"], limit=1
-        )
+        active_brand = frappe.get_all("Brand Settings", fields=["name", "description"], limit=1)
 
         return {
             "installed": True,

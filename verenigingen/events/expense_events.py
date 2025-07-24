@@ -38,7 +38,6 @@ def _emit_expense_approval_event(doc, action):
     """Helper to emit expense approval events"""
 
     # Check if this is a volunteer expense by looking at employee link
-    employee = None
     volunteer = None
     member = None
 

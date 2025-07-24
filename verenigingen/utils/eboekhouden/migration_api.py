@@ -251,8 +251,8 @@ def get_current_account_mappings(company):
     """Get current account mappings for review"""
     mappings = frappe.get_all(
         "E-Boekhouden Ledger Mapping",
-        fields=["eboekhouden_code", "erpnext_account", "account_type", "is_manual", "notes"],
-        order_by="eboekhouden_code",
+        fields=["ledger_code", "ledger_name", "erpnext_account"],
+        order_by="ledger_code",
     )
 
     return mappings

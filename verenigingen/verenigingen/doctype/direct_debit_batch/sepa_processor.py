@@ -103,15 +103,12 @@ class SEPAProcessor:
                 "member",
                 "membership",
                 "membership_type",
-                "amount",
+                "dues_rate",
                 "billing_frequency",
                 "next_invoice_date",
                 "invoice_days_before",
-                "active_mandate",
                 "contribution_mode",
                 "billing_day",
-                "current_coverage_start",
-                "current_coverage_end",
             ],
         )
 

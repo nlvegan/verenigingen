@@ -116,7 +116,7 @@ def get_membership_types_with_contributions():
             "name",
             "membership_type_name",
             "description",
-            "amount",
+            "minimum_amount",
             "billing_period",
             "dues_schedule_template",
         ],

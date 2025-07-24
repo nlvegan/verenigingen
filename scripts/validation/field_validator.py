@@ -256,6 +256,9 @@ class FinalFieldValidator:
                         )
                         if violation:
                             violations.append(violation)
+                
+                # Check for frappe.get_all field violations
+                violations.extend(self.validate_frappe_get_all_fields(content, source_lines, file_path))
                             
             except SyntaxError:
                 # If AST parsing fails, fall back to regex
@@ -482,6 +485,84 @@ class FinalFieldValidator:
                 return True
                 
         return False
+    
+    def validate_frappe_get_all_fields(self, content: str, source_lines: List[str], file_path: Path) -> List[Dict]:
+        """Validate field names in frappe.get_all calls"""
+        violations = []
+        import re
+        
+        # Pattern to match frappe.get_all calls with fields parameter
+        pattern = r'frappe\.get_all\s*\(\s*["\']([^"\']+)["\'][^)]*fields\s*=\s*\[([^\]]+)\]'
+        
+        for match in re.finditer(pattern, content, re.MULTILINE | re.DOTALL):
+            doctype = match.group(1)
+            fields_str = match.group(2)
+            line_num = content[:match.start()].count('\n') + 1
+            
+            # Skip if doctype not found in our definitions
+            if doctype not in self.doctypes:
+                continue
+            
+            # Extract individual field names from the fields list
+            field_pattern = r'["\']([^"\']+)["\']'
+            fields = re.findall(field_pattern, fields_str)
+            
+            valid_fields = self.doctypes[doctype]
+            
+            for field in fields:
+                # Skip wildcard queries (should be handled separately)
+                if field == "*":
+                    violations.append({
+                        "file": str(file_path),
+                        "line": line_num,
+                        "content": f"frappe.get_all('{doctype}', fields=[...'*'...])",
+                        "field": field,
+                        "doctype": doctype,
+                        "type": "wildcard_field_query",
+                        "message": f"Avoid using '*' in fields. Use specific field names for better performance."
+                    })
+                    continue
+                
+                # Handle SQL aliases (field as alias)
+                if " as " in field:
+                    base_field = field.split(" as ")[0].strip()
+                    alias = field.split(" as ")[1].strip()
+                    
+                    # Check if the base field exists
+                    if base_field in valid_fields:
+                        continue  # Valid alias
+                    else:
+                        # Base field doesn't exist
+                        similar = self.find_similar_fields(base_field, doctype)
+                        similar_text = f" (similar: {', '.join(similar[:3])})" if similar else ""
+                        
+                        violations.append({
+                            "file": str(file_path),
+                            "line": line_num,
+                            "content": f"frappe.get_all('{doctype}', fields=[...'{field}'...])",
+                            "field": base_field,
+                            "doctype": doctype,
+                            "type": "invalid_field_in_alias",
+                            "message": f"Base field '{base_field}' in alias '{field}' does not exist in {doctype}{similar_text}"
+                        })
+                    continue
+                
+                if field not in valid_fields:
+                    # Find similar fields for suggestions
+                    similar = self.find_similar_fields(field, doctype)
+                    similar_text = f" (similar: {', '.join(similar[:3])})" if similar else ""
+                    
+                    violations.append({
+                        "file": str(file_path),
+                        "line": line_num,
+                        "content": f"frappe.get_all('{doctype}', fields=[...'{field}'...])",
+                        "field": field,
+                        "doctype": doctype,
+                        "type": "invalid_field_in_get_all",
+                        "message": f"Field '{field}' does not exist in {doctype}{similar_text}"
+                    })
+        
+        return violations
     
     def validate_with_regex(self, content: str, file_path: Path) -> List[Dict]:
         """Fallback regex validation for when AST parsing fails"""

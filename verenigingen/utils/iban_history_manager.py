@@ -82,7 +82,20 @@ def get_iban_history(member_name):
     """
     try:
         history = frappe.get_all(
-            "Member IBAN History", filters={"parent": member_name}, fields=["*"], order_by="from_date desc"
+            "Member IBAN History",
+            filters={"parent": member_name},
+            fields=[
+                "iban",
+                "bic",
+                "bank_account_name",
+                "from_date",
+                "to_date",
+                "is_active",
+                "changed_by",
+                "change_reason",
+                "notes",
+            ],
+            order_by="from_date desc",
         )
 
         return history

@@ -295,7 +295,7 @@ def get_member_info(user_email):
     try:
         member = frappe.get_all(
             "Member",
-            filters={"email_address": user_email},
+            filters={"email": user_email},
             fields=[
                 "name",
                 "member_id",
@@ -303,7 +303,7 @@ def get_member_info(user_email):
                 "last_name",
                 "full_name",
                 "member_since",
-                "email_address",
+                "email",
             ],
             limit=1,
         )

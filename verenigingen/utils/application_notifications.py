@@ -377,7 +377,7 @@ def check_overdue_applications():
     overdue = frappe.get_all(
         "Member",
         filters={"application_status": "Pending", "application_date": ["<", seven_days_ago]},
-        fields=["name", "full_name", "application_date", "email", "membership_type"],
+        fields=["name", "full_name", "application_date", "email", "current_membership_type"],
     )
 
     if overdue:

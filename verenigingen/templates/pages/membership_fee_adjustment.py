@@ -694,8 +694,8 @@ def get_available_membership_types():
     membership_types = frappe.get_all(
         "Membership Type",
         filters={"is_active": 1},
-        fields=["name", "membership_type_name", "amount", "description"],
-        order_by="amount",
+        fields=["name", "membership_type_name", "minimum_amount", "description"],
+        order_by="minimum_amount",
     )
 
     return {"membership_types": membership_types, "current_type": membership.membership_type}

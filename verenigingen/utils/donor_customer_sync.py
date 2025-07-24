@@ -1,0 +1,211 @@
+"""
+Donor-Customer synchronization utilities
+
+This module handles automatic synchronization between Donor and Customer records
+to ensure consistent data across the nonprofit and accounting systems.
+"""
+
+import frappe
+from frappe.utils import now
+
+
+def sync_donor_to_customer(doc, method=None):
+    """
+    Sync donor data to related customer record
+    Called from document hooks (after_save, on_update)
+
+    Args:
+        doc: Donor document
+        method: Hook method name (not used)
+    """
+    # Skip if this is being called from customer sync to prevent loops
+    if hasattr(doc, "flags") and doc.flags.get("from_customer_sync"):
+        return
+
+    # Skip if sync is disabled
+    if hasattr(doc, "flags") and doc.flags.get("ignore_customer_sync"):
+        return
+
+    try:
+        # The sync logic is already in the Donor document class
+        # Just call it if it hasn't been called already in validation
+        if not doc.customer or doc.customer_sync_status != "Synced":
+            doc.sync_with_customer()
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error in donor-customer sync hook for {doc.name}: {str(e)}", "Donor-Customer Sync Hook Error"
+        )
+
+
+def sync_customer_to_donor(doc, method=None):
+    """
+    Sync customer data back to related donor record
+    Called from Customer document hooks
+
+    Args:
+        doc: Customer document
+        method: Hook method name (not used)
+    """
+    # Skip if this sync originated from donor
+    if hasattr(doc, "flags") and doc.flags.get("from_donor_sync"):
+        return
+
+    # Only sync if this customer has a donor reference
+    if not hasattr(doc, "custom_donor_reference") or not doc.custom_donor_reference:
+        return
+
+    try:
+        donor_name = doc.custom_donor_reference
+
+        # Check if donor exists
+        if not frappe.db.exists("Donor", donor_name):
+            return
+
+        donor_doc = frappe.get_doc("Donor", donor_name)
+
+        # Track if any changes were made
+        changes_made = False
+
+        # Sync basic information back to donor
+        if donor_doc.donor_name != doc.customer_name:
+            donor_doc.donor_name = doc.customer_name
+            changes_made = True
+
+        if doc.email_id and donor_doc.donor_email != doc.email_id:
+            donor_doc.donor_email = doc.email_id
+            changes_made = True
+
+        if doc.mobile_no and (not hasattr(donor_doc, "phone") or donor_doc.phone != doc.mobile_no):
+            donor_doc.phone = doc.mobile_no
+            changes_made = True
+
+        # Update customer link if needed
+        if donor_doc.customer != doc.name:
+            donor_doc.customer = doc.name
+            changes_made = True
+
+        # Save if changes were made
+        if changes_made:
+            donor_doc.flags.from_customer_sync = True
+            donor_doc.flags.ignore_customer_sync = True
+            donor_doc.customer_sync_status = "Synced"
+            donor_doc.last_customer_sync = now()
+            donor_doc.save()
+
+            frappe.logger().info(f"Synced customer {doc.name} data back to donor {donor_name}")
+
+    except Exception as e:
+        frappe.log_error(f"Error syncing customer {doc.name} to donor: {str(e)}", "Customer-Donor Sync Error")
+
+
+@frappe.whitelist()
+def bulk_sync_donors_to_customers(filters=None):
+    """
+    Bulk synchronization of donors to customers
+    Useful for initial setup or data cleanup
+
+    Args:
+        filters: Optional filters to limit which donors to sync
+
+    Returns:
+        dict: Summary of sync results
+    """
+    if not filters:
+        filters = {}
+
+    try:
+        # Get donors to sync
+        donors = frappe.get_all(
+            "Donor",
+            filters=filters,
+            fields=["name", "donor_name", "donor_email", "customer", "customer_sync_status"],
+        )
+
+        results = {
+            "total_processed": 0,
+            "created_customers": 0,
+            "updated_customers": 0,
+            "errors": 0,
+            "error_details": [],
+        }
+
+        for donor_data in donors:
+            try:
+                donor_doc = frappe.get_doc("Donor", donor_data.name)
+
+                # Store original customer to detect if new one was created
+                original_customer = donor_doc.customer
+
+                # Trigger sync
+                donor_doc.flags.ignore_customer_sync = False
+                donor_doc.sync_with_customer()
+                donor_doc.save()
+
+                results["total_processed"] += 1
+
+                # Check if customer was created or updated
+                if not original_customer and donor_doc.customer:
+                    results["created_customers"] += 1
+                elif original_customer and donor_doc.customer:
+                    results["updated_customers"] += 1
+
+            except Exception as e:
+                results["errors"] += 1
+                results["error_details"].append({"donor": donor_data.name, "error": str(e)})
+
+        return results
+
+    except Exception as e:
+        frappe.log_error(f"Error in bulk donor-customer sync: {str(e)}", "Bulk Sync Error")
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def get_sync_status_summary():
+    """
+    Get summary of donor-customer sync status
+
+    Returns:
+        dict: Summary statistics
+    """
+    try:
+        # Get sync status counts
+        sync_status = frappe.db.sql(
+            """
+            SELECT
+                customer_sync_status,
+                COUNT(*) as count
+            FROM `tabDonor`
+            GROUP BY customer_sync_status
+        """,
+            as_dict=True,
+        )
+
+        # Get donors with/without customers
+        customer_stats = frappe.db.sql(
+            """
+            SELECT
+                CASE
+                    WHEN customer IS NOT NULL AND customer != '' THEN 'Has Customer'
+                    ELSE 'No Customer'
+                END as status,
+                COUNT(*) as count
+            FROM `tabDonor`
+            GROUP BY
+                CASE
+                    WHEN customer IS NOT NULL AND customer != '' THEN 'Has Customer'
+                    ELSE 'No Customer'
+                END
+        """,
+            as_dict=True,
+        )
+
+        return {
+            "sync_status": {item["customer_sync_status"] or "Unknown": item["count"] for item in sync_status},
+            "customer_links": {item["status"]: item["count"] for item in customer_stats},
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error getting sync status summary: {str(e)}", "Sync Status Error")
+        return {"error": str(e)}

@@ -55,6 +55,10 @@
   "donation_debit_account",
   "donation_payment_account",
   "column_break_donations",
+  "donations_gl_account",
+  "auto_create_donors",
+  "donor_customer_groups",
+  "minimum_donation_amount",
   "enable_anbi_functionality",
   "organization_has_anbi_status",
   "anbi_minimum_reportable_amount",
@@ -123,6 +127,35 @@
   {
    "fieldname": "column_break_donations",
    "fieldtype": "Column Break"
+  },
+  {
+   "description": "GL Account for donations. When payments are allocated to this account, donors will be automatically created if auto-creation is enabled.",
+   "fieldname": "donations_gl_account",
+   "fieldtype": "Link",
+   "label": "Donations GL Account",
+   "options": "Account"
+  },
+  {
+   "default": "0",
+   "description": "Automatically create donor records when payments are allocated to the donations GL account from unknown customers",
+   "fieldname": "auto_create_donors",
+   "fieldtype": "Check",
+   "label": "Auto-Create Donors from Donations"
+  },
+  {
+   "depends_on": "eval:doc.auto_create_donors",
+   "description": "Comma-separated list of Customer Groups that are eligible for automatic donor creation. Leave empty to allow all customer groups.",
+   "fieldname": "donor_customer_groups",
+   "fieldtype": "Data",
+   "label": "Eligible Customer Groups"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.auto_create_donors",
+   "description": "Minimum donation amount required to trigger automatic donor creation. Set to 0 to create donors for any amount.",
+   "fieldname": "minimum_donation_amount",
+   "fieldtype": "Currency",
+   "label": "Minimum Donation Amount"
   },
   {
    "fieldname": "tax_section",

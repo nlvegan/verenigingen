@@ -25,7 +25,7 @@
   "donation_details_section",
   "donation_type",
   "column_break_donation_type",
-  "date",
+  "donation_date",
   "payment_details_section",
   "amount",
   "column_break_cpx8b",
@@ -36,7 +36,7 @@
   "payment_id",
   "bank_reference",
   "column_break_12",
-  "donation_status",
+  "status",
   "column_break_status",
   "donation_category",
   "section_break_haeey",
@@ -59,7 +59,7 @@
   "purpose_section",
   "donation_purpose_type",
   "column_break_purpose",
-  "donation_campaign",
+  "campaign",
   "chapter_reference",
   "specific_goal_description",
   "accounting_section",
@@ -79,7 +79,7 @@
    "fieldtype": "Section Break"
   },
   {
-   "fieldname": "date",
+   "fieldname": "donation_date",
    "fieldtype": "Date",
    "label": "Donation Date",
    "reqd": 1
@@ -241,7 +241,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "donation_status",
+   "fieldname": "status",
    "fieldtype": "Select",
    "label": "Donation Status",
    "options": "One-time\nPromised\nRecurring",
@@ -276,7 +276,7 @@
    "fieldname": "sepa_section",
    "fieldtype": "Section Break",
    "label": "SEPA & Recurring Donations",
-   "depends_on": "eval:doc.payment_method == 'SEPA Direct Debit' || doc.donation_status != 'One-time'"
+   "depends_on": "eval:doc.payment_method == 'SEPA Direct Debit' || doc.status != 'One-time'"
   },
   {
    "fieldname": "sepa_mandate",
@@ -294,13 +294,13 @@
    "fieldtype": "Select",
    "label": "Recurring Frequency",
    "options": "Monthly\nQuarterly\nYearly",
-   "depends_on": "eval:doc.donation_status == 'Recurring'"
+   "depends_on": "eval:doc.status == 'Recurring'"
   },
   {
    "fieldname": "next_collection_date",
    "fieldtype": "Date",
    "label": "Next Collection Date",
-   "depends_on": "eval:doc.donation_status != 'One-time'"
+   "depends_on": "eval:doc.status != 'One-time'"
   },
   {
    "fieldname": "anbi_section",
@@ -353,7 +353,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "fieldname": "donation_campaign",
+   "fieldname": "campaign",
    "fieldtype": "Link",
    "label": "Donation Campaign",
    "options": "Donation Campaign",
