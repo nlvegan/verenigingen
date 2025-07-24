@@ -69,9 +69,9 @@ class TestIBANValidator(unittest.TestCase):
     def test_format_iban(self):
         """Test IBAN formatting"""
         test_cases = [
-            ("NL13TEST0123456789", "NL39 RABO 0300 0652 64"),
-            ("nl39rabo0300065264", "NL39 RABO 0300 0652 64"),
-            ("NL39 RABO 0300 0652 64", "NL39 RABO 0300 0652 64"),
+            ("NL13TEST0123456789", "NL13 TEST 0123 4567 89"),
+            ("nl13test0123456789", "NL13 TEST 0123 4567 89"),
+            ("NL13 TEST 0123 4567 89", "NL13 TEST 0123 4567 89"),
             ("DE89370400440532013000", "DE89 3704 0044 0532 0130 00"),
             ("BE68539007547034", "BE68 5390 0754 7034"),
             ("", ""),
@@ -135,7 +135,7 @@ class TestIBANValidator(unittest.TestCase):
     def test_get_bank_from_iban(self):
         """Test bank information retrieval"""
         test_cases = [
-            ("NL13TEST0123456789", {"bank_code": "TEST", "bank_name": "Test Bank", "bic": "TESTNL2A"}),
+            ("NL13TEST0123456789", {"bank_code": "TEST", "bank_name": "Test Bank (Mock)", "bic": "TESTNL2A"}),
             ("NL91ABNA0417164300", {"bank_code": "ABNA", "bank_name": "ABN AMRO", "bic": "ABNANL2A"}),
             ("NL69INGB0123456789", {"bank_code": "INGB", "bank_name": "ING", "bic": "INGBNL2A"}),
             ("NL99UNKNOWN1234567", None),  # Unknown bank
@@ -155,10 +155,10 @@ class TestIBANValidator(unittest.TestCase):
     def test_iban_normalization(self):
         """Test that IBANs are properly normalized"""
         test_cases = [
-            ("nl39rabo0300065264", "NL13TEST0123456789"),
-            ("NL39 RABO 0300 0652 64", "NL13TEST0123456789"),
+            ("nl13test0123456789", "NL13TEST0123456789"),
+            ("NL13 TEST 0123 4567 89", "NL13TEST0123456789"),
             ("  NL13TEST0123456789  ", "NL13TEST0123456789"),
-            ("nl 39 ra bo 03 00 06 52 64", "NL13TEST0123456789"),
+            ("nl 13 te st 01 23 45 67 89", "NL13TEST0123456789"),
         ]
 
         for input_iban, expected_normalized in test_cases:

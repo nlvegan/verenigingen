@@ -98,7 +98,8 @@ class TestSEPAMandateRegression(VereningingenTestCase):
             self.assertTrue(mandate.mandate_id, "Should get mandate_id from fallback")
             
         finally:
-            # Restore original settings
+            # Restore original settings - refresh to avoid timestamp mismatch
+            settings.reload()
             settings.sepa_mandate_naming_pattern = original_pattern
             settings.sepa_mandate_starting_counter = original_counter
             settings.save()
@@ -107,6 +108,9 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         """Test system behavior with very high counter values"""
         
         settings = frappe.get_single("Verenigingen Settings")
+        original_pattern = settings.sepa_mandate_naming_pattern
+        original_counter = settings.sepa_mandate_starting_counter
+        
         settings.sepa_mandate_naming_pattern = "HIGH-.YY.-.####"
         settings.sepa_mandate_starting_counter = 9998  # Near 4-digit limit
         settings.save()
@@ -126,14 +130,19 @@ class TestSEPAMandateRegression(VereningingenTestCase):
             self.assertIn("9998", mandate.mandate_id, "Should contain high counter value")
             
         finally:
-            # Reset to reasonable counter
-            settings.sepa_mandate_starting_counter = 1
+            # Reset to reasonable counter - refresh to avoid timestamp mismatch
+            settings.reload()
+            settings.sepa_mandate_naming_pattern = original_pattern
+            settings.sepa_mandate_starting_counter = original_counter
             settings.save()
 
     def test_concurrent_mandate_creation(self):
         """Test uniqueness when multiple mandates are created rapidly"""
         
-        settings = frappe.get_single("Verenigingen Settings") 
+        settings = frappe.get_single("Verenigingen Settings")
+        original_pattern = settings.sepa_mandate_naming_pattern
+        original_counter = settings.sepa_mandate_starting_counter
+        
         settings.sepa_mandate_naming_pattern = "CONCURRENT-.YY.-.####"
         settings.sepa_mandate_starting_counter = 1
         settings.save()
@@ -152,10 +161,18 @@ class TestSEPAMandateRegression(VereningingenTestCase):
                 members.append(member)
             
             # Create mandates rapidly
+            test_ibans = [
+                "NL13TEST0123456789",
+                "NL82MOCK0123456789", 
+                "NL93DEMO0123456789",
+                "NL91ABNA0417164300",
+                "NL69INGB0123456789"
+            ]
+            
             for i, member in enumerate(members):
                 mandate = self.create_test_sepa_mandate(
                     member=member.name,
-                    iban=f"NL91ABNA041716430{i}"  # Unique IBANs
+                    iban=test_ibans[i]  # Use valid test IBANs
                 )
                 mandates.append(mandate)
             
@@ -173,7 +190,10 @@ class TestSEPAMandateRegression(VereningingenTestCase):
                              f"Mandate {i} should contain counter {expected_counter}")
                              
         finally:
-            settings.sepa_mandate_starting_counter = 1
+            # Restore original settings - refresh to avoid timestamp mismatch
+            settings.reload()
+            settings.sepa_mandate_naming_pattern = original_pattern
+            settings.sepa_mandate_starting_counter = original_counter
             settings.save()
 
     def test_pattern_validation_edge_cases(self):
@@ -265,6 +285,9 @@ class TestSEPAMandateRegression(VereningingenTestCase):
         
         # Set pattern that would require searching existing mandates
         settings = frappe.get_single("Verenigingen Settings")
+        original_pattern = settings.sepa_mandate_naming_pattern
+        original_counter = settings.sepa_mandate_starting_counter
+        
         settings.sepa_mandate_naming_pattern = "PERF-.YY.-.####"
         settings.sepa_mandate_starting_counter = 1
         settings.save()
@@ -294,7 +317,10 @@ class TestSEPAMandateRegression(VereningingenTestCase):
                            "Performance test mandate should use correct pattern")
                            
         finally:
-            settings.sepa_mandate_starting_counter = 1
+            # Restore original settings - refresh to avoid timestamp mismatch
+            settings.reload()
+            settings.sepa_mandate_naming_pattern = original_pattern
+            settings.sepa_mandate_starting_counter = original_counter
             settings.save()
 
 

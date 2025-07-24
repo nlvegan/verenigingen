@@ -750,30 +750,6 @@ class Member(
                 f"Error validating age requirements for member {self.name}: {str(e)}", "Age Validation Error"
             )
 
-            # Convert total days to human-readable format
-            years = total_days // 365
-            remaining_days = total_days % 365
-            months = remaining_days // 30
-            remaining_days = remaining_days % 30
-
-            # Build duration string
-            duration_parts = []
-            if years > 0:
-                duration_parts.append(f"{years} year{'s' if years != 1 else ''}")
-            if months > 0:
-                duration_parts.append(f"{months} month{'s' if months != 1 else ''}")
-            if remaining_days > 0 and years == 0:  # Only show days if less than a year
-                duration_parts.append(f"{remaining_days} day{'s' if remaining_days != 1 else ''}")
-
-            if duration_parts:
-                self.cumulative_membership_duration = ", ".join(duration_parts)
-            else:
-                self.cumulative_membership_duration = "Less than 1 day"
-
-        except Exception as e:
-            frappe.log_error(f"Error calculating cumulative membership duration: {str(e)}", "Member Error")
-            self.cumulative_membership_duration = "Error calculating duration"
-
     def calculate_total_membership_days(self):
         """Calculate total membership days from all active membership periods"""
         try:

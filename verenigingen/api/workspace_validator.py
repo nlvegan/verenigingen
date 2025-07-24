@@ -272,6 +272,13 @@ class WorkspaceValidator:
 
 
 @frappe.whitelist()
+def validate_specific_workspace(workspace_name: str) -> Dict:
+    """Validate a specific workspace by name"""
+    validator = WorkspaceValidator(workspace_name)
+    return validator.validate_all()
+
+
+@frappe.whitelist()
 def run_workspace_pre_commit_check():
     """
     Pre-commit specific workspace validation

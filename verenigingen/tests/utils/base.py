@@ -339,13 +339,18 @@ class VereningingenTestCase(FrappeTestCase):
 
     def create_test_membership_type(self, **kwargs):
         """Create a test membership type with default values"""
+        # Get a dues schedule template first
+        template = frappe.db.get_value("Membership Dues Schedule", 
+            {"name": ["like", "%Monthly%"]}, "name") or "Monthly Membership Template"
+            
         defaults = {
             "membership_type_name": f"Test Type {frappe.generate_hash(length=6)}",
             "amount": 25.0,
             "is_active": 1,
             "contribution_mode": "Calculator",
             "enable_income_calculator": 1,
-            "income_percentage_rate": 0.75
+            "income_percentage_rate": 0.75,
+            "dues_schedule_template": template
         }
         defaults.update(kwargs)
         

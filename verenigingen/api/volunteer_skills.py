@@ -129,15 +129,20 @@ def search_volunteers_advanced(filters=None):
 
             if skills:
                 # For multiple skills, we need to ensure volunteer has ALL specified skills
-                skill_placeholders = ", ".join(["%s"] * len(skills))
-                skill_conditions.append(f"vs.volunteer_skill IN ({skill_placeholders})")
-                params.update({f"skill_{i}": skill for i, skill in enumerate(skills)})
+                skill_placeholders = []
+                for i, skill in enumerate(skills):
+                    param_name = f"skill_{i}"
+                    skill_placeholders.append(f"%({param_name})s")
+                    params[param_name] = skill
+                skill_conditions.append(f"vs.volunteer_skill IN ({', '.join(skill_placeholders)})")
 
             if categories:
-                cat_placeholders = ", ".join(["%s"] * len(categories))
-                skill_conditions.append(f"vs.skill_category IN ({cat_placeholders})")
+                cat_placeholders = []
                 for i, cat in enumerate(categories):
-                    params[f"cat_{i}"] = cat
+                    param_name = f"cat_{i}"
+                    cat_placeholders.append(f"%({param_name})s")
+                    params[param_name] = cat
+                skill_conditions.append(f"vs.skill_category IN ({', '.join(cat_placeholders)})")
 
             if min_level:
                 skill_conditions.append("CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED) >= %(min_level)s")
@@ -323,8 +328,8 @@ def get_skill_gaps_analysis():
                 AND vdg.skill IS NOT NULL
                 AND vdg.skill != ''
             GROUP BY vdg.skill
-            HAVING learners_count > current_practitioners
-            ORDER BY (learners_count - current_practitioners) DESC, learners_count DESC
+            HAVING COUNT(DISTINCT vdg.parent) > COALESCE(MAX(current_skills.practitioners_count), 0)
+            ORDER BY (COUNT(DISTINCT vdg.parent) - COALESCE(MAX(current_skills.practitioners_count), 0)) DESC, COUNT(DISTINCT vdg.parent) DESC
             LIMIT 15
         """,
             as_dict=True,
@@ -347,7 +352,7 @@ def get_skill_gaps_analysis():
             as_dict=True,
         )
 
-        return {"success": True, "skill_gaps": skill_gaps, "category_gaps": category_gaps}
+        return {"success": True, "skill_gaps": skill_gaps or [], "category_gaps": category_gaps or []}
 
     except Exception as e:
         frappe.log_error(f"Error in skill gaps analysis: {str(e)}")

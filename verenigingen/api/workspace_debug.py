@@ -49,6 +49,199 @@ def check_workspace_status():
 
 
 @frappe.whitelist()
+def check_eboekhouden_workspace():
+    """Check if E-Boekhouden workspace exists and is valid"""
+    try:
+        # Check if workspace exists in database
+        exists_in_db = frappe.db.exists("Workspace", "E-Boekhouden")
+
+        result = {
+            "exists_in_database": bool(exists_in_db),
+            "workspace_data": None,
+            "broken_links": [],
+            "fixtures_status": "Not checked",
+        }
+
+        if exists_in_db:
+            workspace = frappe.get_doc("Workspace", "E-Boekhouden")
+            result["workspace_data"] = {
+                "name": workspace.name,
+                "label": workspace.label,
+                "public": workspace.public,
+                "hidden": workspace.is_hidden,
+                "links_count": len(workspace.links),
+                "module": workspace.module,
+            }
+
+            # Check for broken links
+            for link in workspace.links:
+                if link.link_type == "DocType" and link.link_to:
+                    if not frappe.db.exists("DocType", link.link_to):
+                        result["broken_links"].append(
+                            {"type": "DocType", "link_to": link.link_to, "label": link.label}
+                        )
+
+        return {"success": True, "data": result}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def fix_eboekhouden_workspace_content():
+    """Fix the E-Boekhouden workspace content structure"""
+    import json
+
+    try:
+        workspace = frappe.get_doc("Workspace", "E-Boekhouden")
+
+        # Update the content with proper structure
+        new_content = [
+            {
+                "id": "MigrationHeader",
+                "type": "header",
+                "data": {"text": '<span class="h4"><b>E-Boekhouden Integration</b></span>', "col": 12},
+            },
+            {"id": "MigrationCard", "type": "card", "data": {"card_name": "Migration & Settings", "col": 4}},
+            {"id": "MappingCard", "type": "card", "data": {"card_name": "Mapping & Configuration", "col": 4}},
+            {"id": "MonitoringCard", "type": "card", "data": {"card_name": "Monitoring & Logs", "col": 4}},
+        ]
+
+        workspace.content = json.dumps(new_content)
+        workspace.save()
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": "E-Boekhouden workspace content updated successfully",
+            "new_content_preview": workspace.content[:200] + "...",
+        }
+
+    except Exception as e:
+        frappe.db.rollback()
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def check_eboekhouden_doctypes():
+    """Check which E-Boekhouden doctypes exist in the database"""
+    try:
+        expected_doctypes = [
+            "E-Boekhouden Migration",
+            "E-Boekhouden Settings",
+            "E-Boekhouden Dashboard",
+            "E-Boekhouden Ledger Mapping",
+            "E-Boekhouden Item Mapping",
+            "E-Boekhouden Account Map",
+            "EBoekhouden Payment Mapping",
+            "E-Boekhouden Import Log",
+        ]
+
+        existing_doctypes = []
+        missing_doctypes = []
+
+        for doctype in expected_doctypes:
+            if frappe.db.exists("DocType", doctype):
+                existing_doctypes.append(doctype)
+            else:
+                missing_doctypes.append(doctype)
+
+        return {
+            "success": True,
+            "total_expected": len(expected_doctypes),
+            "existing_count": len(existing_doctypes),
+            "missing_count": len(missing_doctypes),
+            "existing_doctypes": existing_doctypes,
+            "missing_doctypes": missing_doctypes,
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def add_missing_eboekhouden_doctypes():
+    """Add the missing E-Boekhouden doctypes to the workspace"""
+    try:
+        # First check which doctypes actually exist
+        doctype_check = check_eboekhouden_doctypes()
+        if not doctype_check["success"]:
+            return doctype_check
+
+        existing_doctypes = doctype_check["existing_doctypes"]
+        workspace = frappe.get_doc("Workspace", "E-Boekhouden")
+
+        # Check which existing doctypes are missing from workspace
+        existing_links = [link.link_to for link in workspace.links if link.link_type == "DocType"]
+
+        missing_from_workspace = []
+        for doctype in existing_doctypes:
+            if doctype not in existing_links:
+                missing_from_workspace.append(doctype)
+
+        if not missing_from_workspace:
+            return {
+                "success": True,
+                "message": "All existing E-Boekhouden doctypes are already in the workspace",
+                "added_count": 0,
+                "existing_doctypes": existing_doctypes,
+                "workspace_links": existing_links,
+            }
+
+        # Add missing doctypes to workspace
+        added_count = 0
+        for doctype in missing_from_workspace:
+            if doctype == "E-Boekhouden Account Map":
+                workspace.append(
+                    "links",
+                    {
+                        "label": "Account Mapping",
+                        "link_to": doctype,
+                        "link_type": "DocType",
+                        "type": "Link",
+                        "hidden": 0,
+                    },
+                )
+                added_count += 1
+            elif doctype == "EBoekhouden Payment Mapping":
+                workspace.append(
+                    "links",
+                    {
+                        "label": "Payment Mapping",
+                        "link_to": doctype,
+                        "link_type": "DocType",
+                        "type": "Link",
+                        "hidden": 0,
+                    },
+                )
+                added_count += 1
+
+        # Update the link count for "Mapping & Configuration" card break if we added any
+        if added_count > 0:
+            for link in workspace.links:
+                if link.type == "Card Break" and link.label == "Mapping & Configuration":
+                    link.link_count = 3 + added_count  # Original 3 + new additions
+                    break
+
+            workspace.save()
+            frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Added {added_count} missing doctypes to E-Boekhouden workspace",
+            "added_doctypes": missing_from_workspace,
+            "added_count": added_count,
+            "total_links": len(workspace.links),
+            "existing_doctypes": existing_doctypes,
+            "missing_from_db": doctype_check["missing_doctypes"],
+        }
+
+    except Exception as e:
+        frappe.db.rollback()
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
 def force_reload_workspace():
     """Force reload the workspace from JSON file"""
 

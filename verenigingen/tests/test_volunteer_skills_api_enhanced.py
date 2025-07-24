@@ -348,6 +348,9 @@ class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):
         """Test skill gaps analysis"""
         gaps = get_skill_gaps_analysis()
         
+        if not gaps["success"]:
+            print(f"Skill gaps analysis error: {gaps.get('error', 'Unknown error')}")
+        
         self.assertTrue(gaps["success"])
         self.assertIn("skill_gaps", gaps)
         self.assertIn("category_gaps", gaps)
