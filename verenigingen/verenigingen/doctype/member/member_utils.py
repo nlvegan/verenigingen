@@ -126,7 +126,24 @@ def add_manual_payment_record(member, amount, payment_date=None, payment_method=
     payment.posting_date = payment_date or today()
     payment.paid_amount = float(amount)
     payment.received_amount = float(amount)
-    payment.mode_of_payment = payment_method or "Cash"
+    # Get mode of payment from explicit validation
+    if payment_method:
+        if frappe.db.exists("Mode of Payment", payment_method):
+            payment.mode_of_payment = payment_method
+        else:
+            frappe.throw(
+                f"Payment method '{payment_method}' does not exist. "
+                "Please configure the payment method in Mode of Payment before processing."
+            )
+    else:
+        # Use explicit default with validation
+        if frappe.db.exists("Mode of Payment", "Cash"):
+            payment.mode_of_payment = "Cash"
+        else:
+            frappe.throw(
+                "No payment method provided and default 'Cash' mode of payment does not exist. "
+                "Please either provide a payment method or configure 'Cash' mode of payment."
+            )
 
     settings = frappe.get_single("Verenigingen Settings")
     payment.company = settings.company or frappe.defaults.get_global_default("company")

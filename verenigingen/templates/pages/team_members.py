@@ -3,38 +3,31 @@ Team Members Portal Page
 Shows team members for a specific team that the user has access to
 """
 
+from typing import Any, Dict, Optional
+
 import frappe
 from frappe import _
 from frappe.utils import format_date
 
+from verenigingen.utils.constants import get_volunteer_admin_roles
+from verenigingen.utils.error_handling import (
+    validate_entity_exists,
+    validate_member_for_user,
+    validate_user_logged_in,
+)
 
-def get_context(context):
+
+def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     """Get context for team members page"""
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    # Modernized validation with helpers
+    user = validate_user_logged_in()
+    team_name = validate_entity_exists("Team", frappe.form_dict.get("team"))
+    member = validate_member_for_user(user)
 
     context.no_cache = 1
     context.title = _("Team Members")
-
-    # Get team parameter
-    team_name = frappe.form_dict.get("team")
-    if not team_name:
-        frappe.throw(_("Team parameter is required"), frappe.ValidationError)
-
-    # Get team info
-    try:
-        team = frappe.get_doc("Team", team_name)
-        context.team = team
-    except frappe.DoesNotExistError:
-        frappe.throw(_("Team not found"), frappe.DoesNotExistError)
-
-    # Get user's member and volunteer records
-    user = frappe.session.user
-    member = frappe.db.get_value("Member", {"user": user}, "name")
-    if not member:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
+    context.team = frappe.get_doc("Team", team_name)
 
     volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
 
@@ -42,12 +35,8 @@ def get_context(context):
     # This is important for members who want to explore volunteering opportunities
 
     # Security check: Only allow team members or admins to view team members
-    admin_roles = [
-        "System Manager",
-        "Verenigingen Administrator",
-        "Verenigingen Manager",
-        "Volunteer Manager",
-    ]
+    # Modernized with centralized role constants
+    admin_roles = get_volunteer_admin_roles()
     user_roles = frappe.get_roles(user)
     is_admin = any(role in user_roles for role in admin_roles)
 
@@ -75,36 +64,55 @@ def get_context(context):
                 frappe.PermissionError,
             )
 
-    # Get team members
-    team_members = frappe.db.sql(
-        """
-        SELECT
-            tm.volunteer,
-            tm.volunteer_name,
-            tm.role_type,
-            tm.role,
-            v.email,
-            tm.from_date,
-            tm.to_date,
-            tm.status,
-            m.first_name,
-            m.last_name,
-            m.member_id
-        FROM
-            `tabTeam Member` tm
-        LEFT JOIN
-            `tabVolunteer` v ON tm.volunteer = v.name
-        LEFT JOIN
-            `tabMember` m ON v.member = m.name
-        WHERE
-            tm.parent = %(team)s
-            AND tm.is_active = 1
-        ORDER BY
-            tm.role_type DESC, tm.from_date ASC
-    """,
-        {"team": team_name},
-        as_dict=True,
+    # Get team members - modernized ORM approach with batch queries
+    # First get team member records
+    team_member_records = frappe.get_all(
+        "Team Member",
+        filters={"parent": team_name, "is_active": 1},
+        fields=["volunteer", "volunteer_name", "role_type", "role", "from_date", "to_date", "status"],
+        order_by="role_type DESC, from_date ASC",
     )
+
+    # Extract volunteer IDs for batch fetching
+    volunteer_ids = [tm.volunteer for tm in team_member_records if tm.volunteer]
+
+    # Batch fetch volunteer and member data
+    volunteer_data = {}
+    member_data = {}
+
+    if volunteer_ids:
+        # Get volunteer email addresses
+        volunteers = frappe.get_all(
+            "Volunteer", filters={"name": ["in", volunteer_ids]}, fields=["name", "email", "member"]
+        )
+        volunteer_data = {v.name: v for v in volunteers}
+
+        # Get member details
+        member_ids = [v.member for v in volunteers if v.member]
+        if member_ids:
+            members = frappe.get_all(
+                "Member",
+                filters={"name": ["in", member_ids]},
+                fields=["name", "first_name", "last_name", "member_id"],
+            )
+            member_data = {m.name: m for m in members}
+
+    # Combine all data
+    team_members = []
+    for tm in team_member_records:
+        volunteer_info = volunteer_data.get(tm.volunteer, frappe._dict())
+        member_info = member_data.get(volunteer_info.get("member"), frappe._dict())
+
+        combined = frappe._dict(
+            {
+                **tm.as_dict(),
+                "email": volunteer_info.get("email"),
+                "first_name": member_info.get("first_name"),
+                "last_name": member_info.get("last_name"),
+                "member_id": member_info.get("member_id"),
+            }
+        )
+        team_members.append(combined)
 
     # Format the data for display
     for member in team_members:
@@ -122,7 +130,7 @@ def get_context(context):
     return context
 
 
-def has_website_permission(doc, ptype, user, verbose=False):
+def has_website_permission(doc: Any, ptype: str, user: str, verbose: bool = False) -> bool:
     """Check website permission for team members page"""
     # Only logged-in users can access
     if user == "Guest":

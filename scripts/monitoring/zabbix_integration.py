@@ -330,9 +330,11 @@ def get_dues_schedule_metrics():
             hours_since = (now_datetime() - get_datetime(last_invoice)).total_seconds() / 3600
             metrics["frappe.invoices.last_generated_hours_ago"] = round(hours_since, 2)
         else:
-            metrics["frappe.invoices.last_generated_hours_ago"] = 999  # Never generated
+            # Development-friendly constant for never generated
+            NEVER_GENERATED_HOURS = 9999  # Clear indicator of no data
+            metrics["frappe.invoices.last_generated_hours_ago"] = NEVER_GENERATED_HOURS
     except Exception:
-        metrics["frappe.invoices.last_generated_hours_ago"] = 999  # No data available
+        metrics["frappe.invoices.last_generated_hours_ago"] = NEVER_GENERATED_HOURS
     
     # Payment processing metrics
     try:
@@ -454,10 +456,13 @@ def health_check():
     # Calculate overall health score
     health_score = sum(1 for v in checks.values() if v.get("status") == "healthy") / len(checks) * 100
     
-    # Determine overall status
-    if health_score == 100:
+    # Determine overall status - configurable thresholds for development
+    PERFECT_HEALTH_THRESHOLD = 100
+    DEGRADED_HEALTH_THRESHOLD = 80
+    
+    if health_score == PERFECT_HEALTH_THRESHOLD:
         overall_status = "healthy"
-    elif health_score >= 80:
+    elif health_score >= DEGRADED_HEALTH_THRESHOLD:
         overall_status = "degraded"
     else:
         overall_status = "unhealthy"
@@ -814,12 +819,16 @@ def log_alert(alert):
 
 def process_zabbix_v7_webhook(data):
     """Process Zabbix 7.0 webhook format"""
+    # Safe extraction of nested webhook data
+    trigger_data = data.get("trigger")
+    host_data = data.get("host")
+    
     return {
         "event_id": data.get("event_id"),
         "trigger_id": data.get("trigger_id"),
-        "trigger_name": data.get("trigger", {}).get("name"),
-        "severity": data.get("trigger", {}).get("severity"),
-        "host": data.get("host", {}).get("name"),
+        "trigger_name": trigger_data.get("name") if isinstance(trigger_data, dict) else None,
+        "severity": trigger_data.get("severity") if isinstance(trigger_data, dict) else None,
+        "host": host_data.get("name") if isinstance(host_data, dict) else None,
         "timestamp": data.get("timestamp"),
         "value": data.get("value"),
         "operational_data": data.get("operational_data", {}),

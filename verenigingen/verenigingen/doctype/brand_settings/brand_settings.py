@@ -657,7 +657,7 @@ def test_owl_theme_integration():
                 "Brand Settings", filters={"is_active": 1}, fields=["primary_color"], limit=1
             )
 
-            if brand_settings:
+            if brand_settings and len(brand_settings) > 0:
                 brand_primary = brand_settings[0].get("primary_color")
                 owl_navbar = getattr(owl_settings, "navbar_background_color", None)
 

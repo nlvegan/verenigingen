@@ -478,15 +478,25 @@ class TestVolunteerJourney(VereningingenTestCase):
         activities_logged = context.get("activities_logged", [])
         expenses_approved = context.get("expenses_approved", [])
 
-        # Calculate totals for reporting
-        total_hours = sum(
-            frappe.get_doc("Volunteer Activity", activity["activity_name"]).hours
-            for activity in activities_logged
-        )
-        total_expenses = sum(
-            frappe.get_doc("Volunteer Expense", expense["expense_name"]).amount
-            for expense in expenses_approved
-        )
+        # Calculate totals for reporting - optimized batch queries
+        activity_names = [activity["activity_name"] for activity in activities_logged]
+        expense_names = [expense["expense_name"] for expense in expenses_approved]
+        
+        # Batch fetch for better performance
+        activity_hours = frappe.get_all(
+            "Volunteer Activity", 
+            filters={"name": ["in", activity_names]},
+            fields=["hours"]
+        ) if activity_names else []
+        
+        expense_amounts = frappe.get_all(
+            "Volunteer Expense",
+            filters={"name": ["in", expense_names]}, 
+            fields=["amount"]
+        ) if expense_names else []
+        
+        total_hours = sum(item["hours"] for item in activity_hours)
+        total_expenses = sum(item["amount"] for item in expense_amounts)
 
         # Update volunteer aggregated data
         with self.as_user(self.admin_user.name):

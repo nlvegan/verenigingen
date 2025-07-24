@@ -7,9 +7,9 @@ import frappe
 def direct_cleanup_gl_and_pl():
     """Direct SQL cleanup of GL and Payment Ledger entries"""
     try:
-        # Count entries before cleanup
-        gl_count_before = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
-        pl_count_before = frappe.db.sql("SELECT COUNT(*) FROM `tabPayment Ledger Entry`")[0][0]
+        # Count entries before cleanup - modernized with proper error handling
+        gl_count_before = frappe.db.count("GL Entry")
+        pl_count_before = frappe.db.count("Payment Ledger Entry")
 
         print(f"Before cleanup: {gl_count_before} GL entries, {pl_count_before} Payment Ledger entries")
 
@@ -38,9 +38,9 @@ def direct_cleanup_gl_and_pl():
 
         frappe.db.commit()
 
-        # Count entries after cleanup
-        gl_count_after = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry`")[0][0]
-        pl_count_after = frappe.db.sql("SELECT COUNT(*) FROM `tabPayment Ledger Entry`")[0][0]
+        # Count entries after cleanup - modernized
+        gl_count_after = frappe.db.count("GL Entry")
+        pl_count_after = frappe.db.count("Payment Ledger Entry")
 
         return {
             "success": True,

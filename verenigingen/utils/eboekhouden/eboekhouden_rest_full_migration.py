@@ -78,14 +78,18 @@ def get_appropriate_cash_account(company, mutation=None, debug_info=None):
         debug_info.append(f"Using Kas cash account: {kas_account}")
         return kas_account
 
-    # 3. Get any cash account for the company
-    any_cash_account = frappe.db.get_value("Account", {"account_type": "Cash", "company": company}, "name")
+    # 3. Get any cash account for the company (with explicit ordering for consistency)
+    any_cash_account = frappe.db.get_value(
+        "Account", {"account_type": "Cash", "company": company}, "name", order_by="creation"
+    )
     if any_cash_account:
         debug_info.append(f"Using first available cash account: {any_cash_account}")
         return any_cash_account
 
-    # 4. Look for bank account as fallback
-    bank_account = frappe.db.get_value("Account", {"account_type": "Bank", "company": company}, "name")
+    # 4. Look for bank account as fallback (with explicit ordering for consistency)
+    bank_account = frappe.db.get_value(
+        "Account", {"account_type": "Bank", "company": company}, "name", order_by="creation"
+    )
     if bank_account:
         debug_info.append(f"Using bank account as cash fallback: {bank_account}")
         return bank_account
@@ -770,72 +774,90 @@ def _resolve_money_destination_account(mutation, company, debug_info):
 
 
 def _get_appropriate_income_account(company, debug_info):
-    """Get appropriate income account for money received from external sources"""
-    # Look for a general income account - try multiple account types
-    income_account = frappe.db.sql(
-        """SELECT name FROM `tabAccount`
-           WHERE company = %s AND account_type IN ('Income Account', 'Income') AND is_group = 0
-           ORDER BY name LIMIT 1""",
-        company,
+    """Get appropriate income account from explicit payment mappings"""
+    # Import here to avoid circular imports
+    from .eboekhouden_payment_mapping import get_payment_account_mappings
+
+    try:
+        payment_mappings = get_payment_account_mappings(company)
+
+        # Check for explicit income account mapping
+        if "income_account" in payment_mappings:
+            account_name = payment_mappings["income_account"]
+            debug_info.append(f"Using configured income account: {account_name}")
+            return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Income"}
+
+        # Check for sales income mapping as fallback
+        if "sales_income_account" in payment_mappings:
+            account_name = payment_mappings["sales_income_account"]
+            debug_info.append(f"Using sales income account: {account_name}")
+            return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Income"}
+
+    except Exception as e:
+        debug_info.append(f"Error accessing payment mappings: {str(e)}")
+
+    frappe.throw(
+        f"Income account must be explicitly configured in payment mappings for company {company}. "
+        "Implicit account lookup by type has been disabled for data safety."
     )
-
-    if income_account:
-        account_name = income_account[0][0]
-        debug_info.append(f"Using income account: {account_name}")
-        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Income"}
-
-    debug_info.append("No income account found, using cash account fallback")
-    return _get_appropriate_cash_account(company, debug_info)
 
 
 def _get_appropriate_expense_account(company, debug_info):
-    """Get appropriate expense account for money paid to external sources"""
-    # Look for a general expense account - try multiple account types
-    expense_account = frappe.db.sql(
-        """SELECT name FROM `tabAccount`
-           WHERE company = %s AND account_type IN ('Expense Account', 'Expense') AND is_group = 0
-           ORDER BY name LIMIT 1""",
-        company,
+    """Get appropriate expense account from explicit payment mappings"""
+    # Import here to avoid circular imports
+    from .eboekhouden_payment_mapping import get_payment_account_mappings
+
+    try:
+        payment_mappings = get_payment_account_mappings(company)
+
+        # Check for explicit expense account mapping
+        if "expense_account" in payment_mappings:
+            account_name = payment_mappings["expense_account"]
+            debug_info.append(f"Using configured expense account: {account_name}")
+            return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Expense"}
+
+        # Check for general expense mapping as fallback
+        if "general_expense_account" in payment_mappings:
+            account_name = payment_mappings["general_expense_account"]
+            debug_info.append(f"Using general expense account: {account_name}")
+            return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Expense"}
+
+    except Exception as e:
+        debug_info.append(f"Error accessing payment mappings: {str(e)}")
+
+    frappe.throw(
+        f"Expense account must be explicitly configured in payment mappings for company {company}. "
+        "Implicit account lookup by type has been disabled for data safety."
     )
-
-    if expense_account:
-        account_name = expense_account[0][0]
-        debug_info.append(f"Using expense account: {account_name}")
-        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Expense"}
-
-    debug_info.append("No expense account found, using cash account fallback")
-    return _get_appropriate_cash_account(company, debug_info)
 
 
 def _get_appropriate_cash_account(company, debug_info):
-    """Get appropriate cash account for internal transfers"""
-    # Look for cash account first
-    cash_account = frappe.db.sql(
-        """SELECT name FROM `tabAccount`
-           WHERE company = %s AND account_type = 'Cash' AND is_group = 0
-           ORDER BY name LIMIT 1""",
-        company,
+    """Get appropriate cash account from explicit payment mappings"""
+    # Import here to avoid circular imports
+    from .eboekhouden_payment_mapping import get_payment_account_mappings
+
+    try:
+        payment_mappings = get_payment_account_mappings(company)
+
+        # Check for explicit cash account mapping
+        if "cash_account" in payment_mappings:
+            account_name = payment_mappings["cash_account"]
+            debug_info.append(f"Using configured cash account: {account_name}")
+            return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Cash"}
+
+        # Check for bank account mapping as fallback
+        if "bank_account" in payment_mappings:
+            account_name = payment_mappings["bank_account"]
+            debug_info.append(f"Using bank account as cash fallback: {account_name}")
+            return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Bank"}
+
+    except Exception as e:
+        debug_info.append(f"Error accessing payment mappings: {str(e)}")
+
+    frappe.throw(
+        f"Cash/Bank account must be explicitly configured in payment mappings for company {company}. "
+        "Implicit account lookup by type has been disabled for data safety."
     )
-
-    if cash_account:
-        account_name = cash_account[0][0]
-        debug_info.append(f"Using cash account: {account_name}")
-        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Cash"}
-
-    # Fallback to bank account if no cash account
-    bank_account = frappe.db.sql(
-        """SELECT name FROM `tabAccount`
-           WHERE company = %s AND account_type = 'Bank' AND is_group = 0
-           ORDER BY name LIMIT 1""",
-        company,
-    )
-
-    if bank_account:
-        account_name = bank_account[0][0]
-        debug_info.append(f"Using bank account as cash fallback: {account_name}")
-        return {"erpnext_account": account_name, "account_name": account_name, "account_type": "Bank"}
-
-    frappe.throw(f"No cash or bank account found for company {company}")
 
 
 def _process_money_transfer_mutation(

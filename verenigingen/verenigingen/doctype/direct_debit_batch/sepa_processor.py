@@ -826,13 +826,15 @@ Organization
             if batch.validation_errors:
                 try:
                     critical_errors = frappe.parse_json(batch.validation_errors)
-                except:
+                except (ValueError, TypeError) as e:
+                    frappe.log_error(f"Failed to parse validation_errors: {e}", "SEPAProcessorValidation")
                     critical_errors = []
 
             if batch.validation_warnings:
                 try:
                     warnings = frappe.parse_json(batch.validation_warnings)
-                except:
+                except (ValueError, TypeError) as e:
+                    frappe.log_error(f"Failed to parse validation_warnings: {e}", "SEPAProcessorValidation")
                     warnings = []
 
             # Use the existing notification system

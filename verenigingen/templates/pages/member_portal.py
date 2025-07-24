@@ -417,7 +417,12 @@ def get_payment_status(member, membership):
                 frappe.log_error(
                     f"Error getting billing frequency for membership {membership.name}: {str(e)}"
                 )
-                billing_frequency = "Monthly"  # Keep default if error
+                # Use explicit default with better error handling
+                billing_frequency = "Monthly"  # Explicit default
+                frappe.log_error(
+                    f"Using fallback billing frequency 'Monthly' for membership {membership.name} due to error: {str(e)}",
+                    "Member Portal Billing Frequency Fallback",
+                )
 
         # Get outstanding invoices
         customer = frappe.db.get_value("Member", member.name, "customer")

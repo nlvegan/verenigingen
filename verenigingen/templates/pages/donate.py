@@ -161,9 +161,11 @@ def get_or_create_donor(form_data):
             donor_doc.save(ignore_permissions=True)
         return donor_doc
     else:
-        # Create new donor
+        # Create new donor with explicit donor type fallback
         settings = frappe.get_single("Verenigingen Settings")
-        donor_type = form_data.get("donor_type") or getattr(settings, "default_donor_type", None)
+        donor_type = form_data.get("donor_type")
+        if not donor_type:
+            donor_type = getattr(settings, "default_donor_type", None)
 
         donor_doc = frappe.new_doc("Donor")
         donor_doc.update(
@@ -193,7 +195,7 @@ def create_donation_record(donor, form_data):
     purpose_type = form_data.get("donation_purpose_type", "General")
 
     # Create or get mode of payment
-    mode_of_payment = get_or_create_mode_of_payment(form_data.payment_method)
+    mode_of_payment = get_mode_of_payment(form_data.payment_method)
 
     donation_doc = frappe.new_doc("Donation")
     donation_doc.update(
@@ -334,19 +336,21 @@ def mark_donation_paid(donation_id, payment_reference=None):
     return {"success": True, "message": "Donation marked as paid"}
 
 
-def get_or_create_mode_of_payment(payment_method):
-    """Get or create Mode of Payment for the given payment method"""
-    mode_name = payment_method
+def get_mode_of_payment(payment_method):
+    """Get Mode of Payment with explicit validation - requires pre-configuration"""
+    if not payment_method:
+        frappe.throw("Payment method is required and cannot be empty")
 
     # Check if mode exists
-    if not frappe.db.exists("Mode of Payment", mode_name):
-        # Create the mode of payment
-        mode_doc = frappe.new_doc("Mode of Payment")
-        mode_doc.mode_of_payment = mode_name
-        mode_doc.insert(ignore_permissions=True)
-        return mode_name
+    if frappe.db.exists("Mode of Payment", payment_method):
+        return payment_method
 
-    return mode_name
+    # No auto-creation - require explicit configuration
+    frappe.throw(
+        f"Payment method '{payment_method}' does not exist. "
+        "Please configure this payment method in Mode of Payment before accepting donations. "
+        "Auto-creation has been disabled to ensure proper payment method configuration."
+    )
 
 
 @frappe.whitelist()

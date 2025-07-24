@@ -125,7 +125,14 @@ class PaymentMixin:
                 if payment_entries:
                     for pe in payment_entries:
                         reconciled_payments.append(pe.parent)
-                        paid_amount += float(pe.allocated_amount or 0)
+                        # Validate allocated amount before adding
+                        allocated_amount = pe.allocated_amount or 0
+                        if allocated_amount < 0:
+                            frappe.log_error(
+                                f"Negative allocated amount in payment entry {pe.parent}: {allocated_amount}",
+                                "PaymentValidation",
+                            )
+                        paid_amount += float(allocated_amount)
 
                     most_recent_payment = frappe.get_all(
                         "Payment Entry",
@@ -977,8 +984,12 @@ class PaymentMixin:
 
                 coverage_start_date = schedule_coverage[0] or invoice_coverage[0]
                 coverage_end_date = schedule_coverage[1] or invoice_coverage[1]
-            except:
-                pass
+            except (AttributeError, IndexError, TypeError) as e:
+                frappe.log_error(
+                    f"Error getting coverage dates for invoice {invoice.name}: {e}", "CoverageExtraction"
+                )
+                coverage_start_date = None
+                coverage_end_date = None
 
             # Check for SEPA mandate
             has_mandate = 0

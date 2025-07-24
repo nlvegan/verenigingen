@@ -174,7 +174,12 @@ def analyze_mapping_requirements(migration_doc, mutations):
             # Analyze accounts used in mutation lines
             lines = mutation.get("Regels", [])
             for line in lines:
-                account_code = line.get("Boekstuk", {}).get("Grootboekrekening", "")
+                # Safe extraction of nested account code
+                boekstuk_data = line.get("Boekstuk")
+                if not boekstuk_data or not isinstance(boekstuk_data, dict):
+                    account_code = ""
+                else:
+                    account_code = boekstuk_data.get("Grootboekrekening", "")
                 if account_code:
                     if account_code not in analysis["account_usage"]:
                         analysis["account_usage"][account_code] = {

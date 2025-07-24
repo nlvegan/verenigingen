@@ -64,13 +64,30 @@ def get_dues_schedule_template_values(membership_type_name):
         if mt_doc.dues_schedule_template:
             try:
                 template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
-                suggested_contribution = template.dues_rate or template.suggested_amount or 0
-            except Exception:
-                pass
+                # Check dues_rate first, then suggested_amount
+                if template.dues_rate:
+                    suggested_contribution = template.dues_rate
+                elif template.suggested_amount:
+                    suggested_contribution = template.suggested_amount
+                else:
+                    frappe.log_error(
+                        f"Dues schedule template '{mt_doc.dues_schedule_template}' has no dues_rate or suggested_amount configured",
+                        "Membership Application Template Configuration",
+                    )
+            except Exception as e:
+                frappe.log_error(
+                    f"Error accessing dues schedule template '{mt_doc.dues_schedule_template}': {str(e)}",
+                    "Membership Application Template Access",
+                )
 
-        # Fallback to minimum_amount only if no template available
+        # Fallback to minimum_amount only if no template available and explicit validation
         if not suggested_contribution:
-            suggested_contribution = mt_doc.minimum_amount or 0
+            if mt_doc.minimum_amount:
+                suggested_contribution = mt_doc.minimum_amount
+            else:
+                frappe.throw(
+                    f"Membership Type '{membership_type_name}' must have either a dues schedule template with suggested_amount/dues_rate or minimum_amount configured"
+                )
 
         # Default values
         values = {
@@ -88,15 +105,31 @@ def get_dues_schedule_template_values(membership_type_name):
         if mt_doc.dues_schedule_template:
             try:
                 template = frappe.get_doc("Membership Dues Schedule", mt_doc.dues_schedule_template)
+                # Validate template configuration
+                billing_frequency = template.billing_frequency if template.billing_frequency else "Annual"
+                minimum_contribution = template.minimum_amount if template.minimum_amount else 0
+
+                # Check suggested contribution with explicit validation
+                template_suggested = None
+                if template.dues_rate:
+                    template_suggested = template.dues_rate
+                elif template.suggested_amount:
+                    template_suggested = template.suggested_amount
+                else:
+                    template_suggested = suggested_contribution
+
+                invoice_days = template.invoice_days_before if template.invoice_days_before else 30
+                allow_custom = (
+                    bool(template.uses_custom_amount) if hasattr(template, "uses_custom_amount") else True
+                )
+
                 values.update(
                     {
-                        "billing_frequency": template.billing_frequency or "Annual",
-                        "minimum_contribution": template.minimum_amount or 0,
-                        "suggested_contribution": template.dues_rate
-                        or template.suggested_amount
-                        or suggested_contribution,
-                        "invoice_days_before": template.invoice_days_before or 30,
-                        "allow_custom_amounts": template.uses_custom_amount or True,
+                        "billing_frequency": billing_frequency,
+                        "minimum_contribution": minimum_contribution,
+                        "suggested_contribution": template_suggested,
+                        "invoice_days_before": invoice_days,
+                        "allow_custom_amounts": allow_custom,
                     }
                 )
             except Exception:
@@ -128,20 +161,33 @@ def get_membership_types_with_contributions():
         # Get the membership type document to access contribution options
         mt_doc = frappe.get_doc("Membership Type", mt.name)
 
-        # Get contribution options
+        # Get contribution options with explicit validation
         try:
             contribution_options = mt_doc.get_contribution_options()
-        except:
-            # Fallback for membership types without new fields
+        except Exception as e:
+            # Explicit error handling instead of fuzzy fallback
+            frappe.log_error(
+                f"Error getting contribution options for membership type '{mt.name}': {str(e)}",
+                "Membership Type Configuration Error",
+            )
+
+            # Check if minimum_amount is configured as fallback base
+            if not mt.minimum_amount:
+                frappe.throw(
+                    f"Membership Type '{mt.name}' must have either a properly configured dues schedule template or minimum_amount to generate contribution options"
+                )
+
+            # Use minimum_amount as explicit base for fallback options
+            base_amount = mt.minimum_amount
             contribution_options = {
                 "mode": "Calculator",
-                "minimum": mt.amount * 0.5 if mt.amount else 5.0,
-                "suggested": mt.amount or 15.0,
-                "maximum": (mt.amount or 15.0) * 10,
+                "minimum": base_amount,
+                "suggested": base_amount * 2,  # Explicit multiplier instead of magic numbers
+                "maximum": base_amount * 10,
                 "calculator": {
                     "enabled": True,
-                    "percentage": 0.5,
-                    "description": "Standard contribution calculation",
+                    "percentage": 0.75,  # Standard percentage
+                    "description": "Fallback contribution calculation based on minimum amount",
                 },
                 "quick_amounts": [],
             }
@@ -153,7 +199,7 @@ def get_membership_types_with_contributions():
             "name": mt.name,
             "membership_type_name": mt.membership_type_name,
             "description": mt.description,
-            "amount": mt.amount,
+            "amount": mt.minimum_amount,  # Use minimum_amount field that exists in query
             "billing_frequency": template_values.get("billing_frequency", "Annual"),
             "contribution_options": contribution_options,
         }
@@ -173,13 +219,18 @@ def get_membership_type_details(membership_type_name):
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
         template_values = get_dues_schedule_template_values(membership_type_name)
 
+        # Get suggested contribution from template values or minimum amount
+        amount = template_values.get("suggested_contribution", 0)
+        if not amount:
+            amount = mt_doc.minimum_amount if mt_doc.minimum_amount else 0
+
         return {
             "success": True,
             "membership_type": {
                 "name": mt_doc.name,
                 "membership_type_name": mt_doc.membership_type_name,
                 "description": mt_doc.description,
-                "amount": suggested_contribution,  # Use template-based amount
+                "amount": amount,  # Use template-based amount or minimum_amount
                 "billing_frequency": template_values.get("billing_frequency", "Annual"),
                 "contribution_options": mt_doc.get_contribution_options()
                 if hasattr(mt_doc, "get_contribution_options")
@@ -205,15 +256,23 @@ def validate_contribution_amount(
         amount = flt(amount)
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
 
-        # Get minimum and maximum constraints from template
+        # Get minimum and maximum constraints from template with explicit fallback logic
         template_values = get_dues_schedule_template_values(membership_type_name)
-        min_amount = template_values.get("minimum_contribution", 0) or (
-            mt_doc.minimum_amount * 0.3 if mt_doc.minimum_amount else 5.0
-        )
-        # Use template suggested amount, not minimum_amount fallback
-        max_amount = template_values.get("maximum_contribution", 0) or (
-            template_values.get("suggested_contribution", 15.0)
-        ) * (template_values.get("fee_slider_max_multiplier", 10.0))
+
+        # Calculate minimum amount with proper fallback hierarchy
+        min_amount = template_values.get("minimum_contribution", 0)
+        if min_amount <= 0:
+            if mt_doc.minimum_amount:
+                min_amount = mt_doc.minimum_amount * 0.3
+            else:
+                min_amount = 5.0  # Final fallback
+
+        # Calculate maximum amount with proper fallback hierarchy
+        max_amount = template_values.get("maximum_contribution", 0)
+        if max_amount <= 0:
+            suggested_amount = template_values.get("suggested_contribution", 15.0)
+            max_multiplier = template_values.get("fee_slider_max_multiplier", 10.0)
+            max_amount = suggested_amount * max_multiplier
 
         # Validate against constraints
         if amount < min_amount:
@@ -282,9 +341,18 @@ def calculate_suggested_contribution(membership_type_name, monthly_income, payme
         multiplier = interval_multipliers.get(payment_interval, 1)
         calculated_amount = base_amount * multiplier
 
-        # Ensure minimum amount from template
+        # Ensure minimum amount from template with explicit validation
         template_values = get_dues_schedule_template_values(membership_type_name)
-        min_amount = template_values.get("minimum_contribution", 0) or 5.0
+        min_contribution = template_values.get("minimum_contribution", 0)
+        if min_contribution > 0:
+            min_amount = min_contribution
+        else:
+            # Use explicit default instead of fuzzy fallback
+            min_amount = 5.0
+            frappe.log_error(
+                f"No minimum contribution configured for membership type '{membership_type_name}', using default €5.00",
+                "Membership Application Minimum Amount",
+            )
         if payment_interval == "quarterly":
             min_amount = min_amount * 3
         elif payment_interval == "annually":

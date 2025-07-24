@@ -137,9 +137,7 @@ def create_donation(donor, data):
 
     # Set default donation type
     if not hasattr(donation, "donation_type") or not donation.donation_type:
-        donation.donation_type = (
-            frappe.db.get_single_value("Verenigingen Settings", "default_donation_type") or "General"
-        )
+        donation.donation_type = _get_validated_donation_type()
 
     donation.insert(ignore_permissions=True)
 
@@ -253,3 +251,25 @@ def send_periodic_agreement_info(donor_name, agreement_name):
             )
     except Exception as e:
         frappe.log_error(f"Failed to send agreement info: {str(e)}", "Agreement Email Error")
+
+
+def _get_validated_donation_type():
+    """Get validated donation type with proper configuration checks"""
+    # Get configured default donation type with validation
+    default_donation_type = frappe.db.get_single_value("Verenigingen Settings", "default_donation_type")
+    if default_donation_type and frappe.db.exists("Donation Type", default_donation_type):
+        return default_donation_type
+
+    # Check if "General" exists as fallback
+    if frappe.db.exists("Donation Type", "General"):
+        return "General"
+
+    # Find first available donation type
+    first_type = frappe.db.get_value("Donation Type", {}, "name")
+    if first_type:
+        return first_type
+
+    # No donation types found - this should be configured
+    frappe.throw(
+        _("No Donation Type found. Please create at least one Donation Type before accepting donations.")
+    )

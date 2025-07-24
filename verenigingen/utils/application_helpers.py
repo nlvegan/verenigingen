@@ -544,7 +544,7 @@ def get_membership_fee_info(membership_type):
             "success": True,
             "membership_type": membership_type,
             "standard_amount": standard_amount,
-            "currency": membership_type_doc.currency or "EUR",
+            "currency": self._get_membership_type_currency(membership_type_doc),
             "description": membership_type_doc.description,
             "billing_period": getattr(
                 membership_type_doc,
@@ -603,7 +603,7 @@ def get_membership_type_details(membership_type):
             "membership_type_name": membership_type_doc.membership_type_name,
             "description": membership_type_doc.description,
             "amount": base_amount,  # Use template-based amount, not minimum_amount
-            "currency": membership_type_doc.currency or "EUR",
+            "currency": self._get_membership_type_currency(membership_type_doc),
             "billing_period": getattr(
                 membership_type_doc,
                 "billing_period",
@@ -643,8 +643,24 @@ def suggest_membership_amounts(membership_type_name):
         if not membership_type.dues_schedule_template:
             frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
         template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-        base_amount = float(template.suggested_amount or 0)
-        currency = membership_type.currency or "EUR"
+        # Validate suggested amount - allow zero if minimum_amount is also zero (free membership)
+        if template.suggested_amount is None:
+            frappe.throw(f"Dues Schedule Template '{template.name}' must have a suggested_amount configured")
+
+        if template.suggested_amount < 0:
+            frappe.throw(
+                f"Dues Schedule Template '{template.name}' cannot have negative suggested_amount: {template.suggested_amount}"
+            )
+
+        # Allow zero amounts only if the membership type minimum is also zero (free membership)
+        if template.suggested_amount == 0:
+            membership_type_minimum = getattr(membership_type, "minimum_amount", None)
+            if membership_type_minimum is None or membership_type_minimum > 0:
+                frappe.throw(
+                    f"Dues Schedule Template '{template.name}' has zero suggested_amount but Membership Type '{membership_type.name}' minimum_amount is {membership_type_minimum}. For free memberships, both must be zero."
+                )
+        base_amount = float(template.suggested_amount)
+        currency = self._get_membership_type_currency(membership_type)
 
         suggestions = [
             {
@@ -685,6 +701,30 @@ def suggest_membership_amounts(membership_type_name):
 
     except Exception as e:
         return {"success": False, "error": str(e), "suggestions": []}
+
+
+def _get_membership_type_currency(membership_type_doc):
+    """Get currency from membership type with explicit validation"""
+    # Check if membership type has explicit currency configuration
+    if hasattr(membership_type_doc, "currency") and membership_type_doc.currency:
+        return membership_type_doc.currency
+
+    # Get company default currency
+    try:
+        settings = frappe.get_single("Verenigingen Settings")
+        if settings and settings.company:
+            company_currency = frappe.db.get_value("Company", settings.company, "default_currency")
+            if company_currency:
+                return company_currency
+    except Exception:
+        pass
+
+    # Final fallback with explicit documentation
+    frappe.log_error(
+        f"No currency configured for membership type '{membership_type_doc.name}' and no company default found, using 'EUR' fallback",
+        "Membership Type Currency Configuration",
+    )
+    return "EUR"
 
 
 def save_draft_application(data):

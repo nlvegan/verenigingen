@@ -95,7 +95,8 @@ class Donor(Document):
             total = sum(digit * weight for digit, weight in zip(digits, weights))
 
             return total % 11 == 0
-        except:
+        except (ValueError, TypeError) as e:
+            frappe.log_error(f"BSN eleven-proof validation failed for {bsn}: {e}", "DonorValidation")
             return False
 
     def encrypt_sensitive_fields(self):
@@ -254,7 +255,9 @@ class Donor(Document):
                 frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
             )
 
-            customer.customer_group = "Donors"
+            # Get donor customer group from configuration
+            donor_group = self._get_donor_customer_group()
+            customer.customer_group = donor_group
 
             # Copy contact information
             if self.donor_email:
@@ -330,6 +333,43 @@ class Donor(Document):
                 f"Error syncing data from donor {self.name} to customer {customer_name}: {str(e)}",
                 "Donor-Customer Data Sync Error",
             )
+
+    def _get_donor_customer_group(self):
+        """Get donor customer group from configuration"""
+        # Check Verenigingen Settings for donor customer group configuration
+        try:
+            settings = frappe.get_single("Verenigingen Settings")
+            if hasattr(settings, "donor_customer_group") and settings.donor_customer_group:
+                if frappe.db.exists("Customer Group", settings.donor_customer_group):
+                    return settings.donor_customer_group
+                else:
+                    frappe.log_error(
+                        f"Configured donor customer group '{settings.donor_customer_group}' does not exist",
+                        "Donor Customer Group Configuration Error",
+                    )
+        except Exception:
+            pass
+
+        # Check if "Donors" group exists (legacy default)
+        if frappe.db.exists("Customer Group", "Donors"):
+            return "Donors"
+
+        # Get selling settings default
+        default_group = frappe.db.get_single_value("Selling Settings", "customer_group")
+        if default_group and frappe.db.exists("Customer Group", default_group):
+            return default_group
+
+        # Final fallback with validation
+        if frappe.db.exists("Customer Group", "All Customer Groups"):
+            return "All Customer Groups"
+
+        frappe.throw(
+            "No suitable customer group found for donors. Please either:\n"
+            "1. Configure 'donor_customer_group' in Verenigingen Settings\n"
+            "2. Create a 'Donors' customer group\n"
+            "3. Configure default customer group in Selling Settings\n"
+            "4. Ensure 'All Customer Groups' exists"
+        )
 
     def ensure_donor_customer_group(self):
         """Ensure 'Donors' customer group exists"""

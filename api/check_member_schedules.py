@@ -75,10 +75,17 @@ def check_member_2910_schedules():
                 }
             )
 
-        # Check if this is a test member
-        result["is_test_member"] = member.email.endswith("@test.com")
+        # Check if this is a test member - improved pattern for development
+        test_patterns = ["@test.com", "@example.com", "test@", "+test"]
+        result["is_test_member"] = any(pattern in member.email.lower() for pattern in test_patterns)
 
         return result
 
+    except frappe.DoesNotExistError:
+        return {"error": f"Member {member_name} not found"}
+    except frappe.ValidationError as e:
+        return {"error": f"Validation error: {str(e)}"}
     except Exception as e:
-        return {"error": str(e)}
+        # Re-raise with more context for development debugging
+        frappe.log_error(f"Unexpected error in check_member_2910_schedules: {str(e)}")
+        raise

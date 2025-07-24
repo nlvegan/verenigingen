@@ -268,7 +268,7 @@ class EBoekhoudenImportManager:
             as_dict=True,
         )
 
-        if last_import and last_import[0].get("last_modified"):
+        if last_import and len(last_import) > 0 and last_import[0].get("last_modified"):
             status["last_import"] = last_import[0]["last_modified"]
 
         return status

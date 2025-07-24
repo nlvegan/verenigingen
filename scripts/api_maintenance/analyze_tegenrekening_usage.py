@@ -26,8 +26,11 @@ def analyze_tegenrekening_patterns():
         if not mutations_result["success"]:
             return f"Error fetching mutations: {mutations_result.get('error', 'Unknown error')}"
 
-        mutations_data = json.loads(mutations_result["data"])
-        mutations = mutations_data.get("items", [])
+        try:
+            mutations_data = json.loads(mutations_result["data"])
+            mutations = mutations_data.get("items", [])
+        except (json.JSONDecodeError, KeyError) as e:
+            return f"Error parsing mutations data: {str(e)}"
 
         response.append(f"Found {len(mutations)} mutations")
 
@@ -172,8 +175,11 @@ def get_chart_of_accounts_mapping():
         if not coa_result["success"]:
             return f"Error fetching CoA: {coa_result.get('error', 'Unknown error')}"
 
-        coa_data = json.loads(coa_result["data"])
-        accounts = coa_data.get("items", [])
+        try:
+            coa_data = json.loads(coa_result["data"])
+            accounts = coa_data.get("items", [])
+        except (json.JSONDecodeError, KeyError) as e:
+            return f"Error parsing CoA data: {str(e)}"
 
         response.append(f"Found {len(accounts)} accounts in Chart of Accounts")
 

@@ -48,7 +48,7 @@ def setup_role_profiles():
 
 
 @frappe.whitelist()
-def assign_role_profile_to_user(user, role_profile):
+def assign_role_profile_to_user(user: str, role_profile: str) -> None:
     """
     Assign a role profile to a user.
 
@@ -74,7 +74,7 @@ def assign_role_profile_to_user(user, role_profile):
         frappe.msgprint(_("User {0} already has role profile {1}").format(user, role_profile))
 
 
-def get_recommended_role_profile(user):
+def get_recommended_role_profile(user: str) -> str | None:
     """
     Recommend a role profile based on user's existing roles and associations.
 

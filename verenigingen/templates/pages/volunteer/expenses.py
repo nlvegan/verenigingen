@@ -1717,10 +1717,13 @@ def get_expense_details(expense_name):
                             or expense_dict["category"]
                         )
 
-                    # Add organization name
-                    expense_dict["organization_name"] = (
-                        expense_dict.get("chapter") or expense_dict.get("team") or "Unknown"
-                    )
+                    # Add organization name with explicit fallback logic
+                    organization_name = expense_dict.get("chapter")
+                    if not organization_name:
+                        organization_name = expense_dict.get("team")
+                    if not organization_name:
+                        organization_name = "Unknown"
+                    expense_dict["organization_name"] = organization_name
 
                     # Add attachment count from ERPNext
                     expense_dict["attachment_count"] = frappe.db.count(
@@ -2080,30 +2083,33 @@ def setup_expense_claim_types():
 
         print(f"   Company: {default_company}")
 
-        # Find or create a suitable expense account
-        expense_account = frappe.db.get_value(
-            "Account", {"company": default_company, "account_type": "Expense Account", "is_group": 0}, "name"
-        )
+        # Get expense account from explicit company configuration
+        expense_account = None
 
+        # First, check company's default expense account
+        company_doc = frappe.get_doc("Company", default_company)
+        if hasattr(company_doc, "default_expense_account") and company_doc.default_expense_account:
+            expense_account = company_doc.default_expense_account
+            print(f"   Using company default expense account: {expense_account}")
+
+        # Second, check for expense claim specific account
+        elif (
+            hasattr(company_doc, "default_expense_claim_payable_account")
+            and company_doc.default_expense_claim_payable_account
+        ):
+            expense_account = company_doc.default_expense_claim_payable_account
+            print(f"   Using expense claim payable account: {expense_account}")
+
+        # If no explicit configuration found, require explicit setup
         if not expense_account:
-            # Find any expense-like account
-            expense_account = frappe.db.get_value(
-                "Account",
-                {"company": default_company, "account_name": ["like", "%expense%"], "is_group": 0},
-                "name",
+            frappe.throw(
+                f"No expense account configured for company {default_company}. "
+                "Please configure 'default_expense_account' or 'default_expense_claim_payable_account' "
+                "in Company settings for proper expense claim processing. "
+                "Implicit account lookup has been disabled for data safety."
             )
 
-        if not expense_account:
-            # Find indirect expense accounts
-            expense_account = frappe.db.get_value(
-                "Account", {"company": default_company, "root_type": "Expense", "is_group": 0}, "name"
-            )
-
-        if not expense_account:
-            print(f"   ⚠️ No expense account found for company {default_company}")
-            return "Travel"
-
-        print(f"   Found expense account: {expense_account}")
+        print(f"   Using configured expense account: {expense_account}")
 
         # Create or update a Travel expense claim type
         expense_type_name = "Travel"

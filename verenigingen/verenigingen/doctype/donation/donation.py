@@ -340,7 +340,7 @@ class Donation(Document):
         customer = frappe.new_doc("Customer")
         customer.customer_name = getattr(donor_doc, "donor_name", f"Donor {self.donor}")
         customer.customer_type = "Individual"
-        customer.territory = frappe.db.get_single_value("Selling Settings", "territory") or "All Territories"
+        customer.territory = self._get_default_territory()
         customer.customer_group = "Donors"
 
         # Link back to donor

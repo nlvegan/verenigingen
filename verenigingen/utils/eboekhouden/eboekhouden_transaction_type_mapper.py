@@ -4,6 +4,8 @@ Maps native E-boekhouden transaction types directly to ERPNext document types
 Replaces complex pattern matching with simple direct mapping
 """
 
+from typing import Any, Dict, Optional, Union
+
 import frappe
 from frappe import _
 
@@ -46,7 +48,7 @@ TRANSACTION_TYPE_MAPPING = {
 }
 
 
-def get_erpnext_document_type(eboekhouden_transaction_type):
+def get_erpnext_document_type(eboekhouden_transaction_type: Union[str, int, None]) -> str:
     """
     Get ERPNext document type based on E-boekhouden transaction type
 
@@ -81,7 +83,7 @@ def get_erpnext_document_type(eboekhouden_transaction_type):
         return "Journal Entry"
 
 
-def get_payment_entry_reference_type(eboekhouden_transaction_type):
+def get_payment_entry_reference_type(eboekhouden_transaction_type: Union[str, int, None]) -> Optional[str]:
     """
     For Payment Entries, determine what type of invoice it's paying
 
@@ -116,7 +118,7 @@ def get_payment_entry_reference_type(eboekhouden_transaction_type):
 
 
 @frappe.whitelist()
-def get_transaction_type_mapping():
+def get_transaction_type_mapping() -> Dict[str, Any]:
     """
     Get all available transaction type mappings
     For display in UI or debugging
@@ -127,7 +129,7 @@ def get_transaction_type_mapping():
     }
 
 
-def simplify_migration_process(mutation_data):
+def simplify_migration_process(mutation_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Simplified migration process using native transaction types
 
@@ -137,10 +139,15 @@ def simplify_migration_process(mutation_data):
     Returns:
         Dict with document_type and additional mapping info
     """
-    # Try multiple field names - SOAP uses 'Soort', REST uses 'type'
-    transaction_type = (
-        mutation_data.get("Soort") or mutation_data.get("MutatieType") or mutation_data.get("type")
-    )
+    # Try multiple field names - SOAP uses 'Soort', REST uses 'type' - modernized lookup
+    TRANSACTION_TYPE_FIELDS = ["Soort", "MutatieType", "type"]
+    transaction_type = None
+
+    for field in TRANSACTION_TYPE_FIELDS:
+        value = mutation_data.get(field)
+        if value is not None:  # Explicit None check to allow 0 values
+            transaction_type = value
+            break
 
     if not transaction_type and transaction_type != 0:  # 0 is valid for opening balance
         frappe.log_error(

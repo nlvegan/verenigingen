@@ -80,7 +80,7 @@ def create_membership_invoice_with_amount(member, membership, amount):
         "due_date": add_days(today(), 14),
         "items": [
             {
-                "item_code": get_or_create_membership_item(membership_type),
+                "item_code": get_membership_item(membership_type),
                 "qty": 1,
                 "rate": amount,
                 "description": description,
@@ -126,26 +126,28 @@ def create_customer_for_member(member):
     return customer
 
 
-def get_or_create_membership_item(membership_type):
-    """Get or create item for membership type"""
-    item_code = f"MEMB-{membership_type.name}"
+def get_membership_item(membership_type):
+    """Get membership item for membership type - requires explicit creation"""
+    # Check if membership type has a configured item
+    if hasattr(membership_type, "membership_item") and membership_type.membership_item:
+        if frappe.db.exists("Item", membership_type.membership_item):
+            return membership_type.membership_item
+        else:
+            frappe.throw(
+                f"Membership Type '{membership_type.membership_type_name}' references non-existent item '{membership_type.membership_item}'. "
+                "Please configure a valid membership item or use the membership type's get_or_create_membership_item() method."
+            )
 
-    if not frappe.db.exists("Item", item_code):
-        item = frappe.get_doc(
-            {
-                "doctype": "Item",
-                "item_code": item_code,
-                "item_name": f"Membership - {membership_type.membership_type_name}",
-                "item_group": "Services",
-                "stock_uom": "Nos",
-                "is_stock_item": 0,
-                "is_sales_item": 1,
-                "is_purchase_item": 0,
-            }
-        )
-        item.insert()
+    # Fallback to membership type's own method if available
+    if hasattr(membership_type, "get_or_create_membership_item"):
+        return membership_type.get_or_create_membership_item()
 
-    return item_code
+    # If no explicit configuration, require manual setup
+    frappe.throw(
+        f"No membership item configured for membership type '{membership_type.membership_type_name}'. "
+        "Please either configure the 'membership_item' field in the membership type or create the item manually. "
+        "Auto-creation has been disabled to ensure proper item configuration."
+    )
 
 
 def process_application_payment(member_name, payment_method, payment_reference=None):
@@ -295,7 +297,23 @@ def calculate_membership_amount_with_discounts(membership_type, data):
     if not membership_type.dues_schedule_template:
         frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
     template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-    base_amount = float(template.suggested_amount or 0)
+    # Validate suggested amount - allow zero if minimum_amount is also zero (free membership)
+    if template.suggested_amount is None:
+        frappe.throw(f"Dues Schedule Template '{template.name}' must have a suggested_amount configured")
+
+    if template.suggested_amount < 0:
+        frappe.throw(
+            f"Dues Schedule Template '{template.name}' cannot have negative suggested_amount: {template.suggested_amount}"
+        )
+
+    # Allow zero amounts only if the membership type minimum is also zero (free membership)
+    if template.suggested_amount == 0:
+        membership_type_minimum = getattr(membership_type, "minimum_amount", None)
+        if membership_type_minimum is None or membership_type_minimum > 0:
+            frappe.throw(
+                f"Dues Schedule Template '{template.name}' has zero suggested_amount but Membership Type '{membership_type.name}' minimum_amount is {membership_type_minimum}. For free memberships, both must be zero."
+            )
+    base_amount = float(template.suggested_amount)
     final_amount = base_amount
     discounts_applied = []
 

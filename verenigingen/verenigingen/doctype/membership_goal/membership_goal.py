@@ -2,10 +2,14 @@
 # For license information, please see license.txt
 
 from datetime import datetime
+from typing import Union
 
 import frappe
 from frappe.model.document import Document
+from frappe.query_builder import DocType
 from frappe.utils import flt, getdate, now_datetime
+
+from verenigingen.utils.api_response import api_response_handler
 
 
 class MembershipGoal(Document):
@@ -36,7 +40,7 @@ class MembershipGoal(Document):
         # Update status based on achievement and dates
         self.update_status()
 
-    def calculate_current_value(self):
+    def calculate_current_value(self) -> Union[int, float]:
         """Calculate the current value based on goal type"""
         if self.goal_type == "Member Count Growth":
             return self.calculate_member_growth()
@@ -53,7 +57,7 @@ class MembershipGoal(Document):
         else:
             return 0
 
-    def calculate_member_growth(self):
+    def calculate_member_growth(self) -> int:
         """Calculate net member growth"""
         filters = {"member_since": ["between", [self.start_date, self.end_date]]}
 
@@ -74,14 +78,14 @@ class MembershipGoal(Document):
             # Get members who were in this chapter when terminated
             termination_filters["member"] = [
                 "in",
-                frappe.db.get_list("Member", filters={"current_chapter_display": self.chapter}, pluck="name"),
+                frappe.get_all("Member", filters={"current_chapter_display": self.chapter}, pluck="name"),
             ]
 
         lost_members = frappe.db.count("Membership Termination Request", filters=termination_filters)
 
         return new_members - lost_members
 
-    def calculate_revenue_growth(self):
+    def calculate_revenue_growth(self) -> float:
         """Calculate revenue growth"""
         # Get revenue from memberships
         if not self.applies_to_all_types and self.membership_type:
@@ -113,7 +117,7 @@ class MembershipGoal(Document):
 
         return total_revenue
 
-    def calculate_retention_rate(self):
+    def calculate_retention_rate(self) -> float:
         """Calculate member retention rate as percentage"""
         # Get members at start of period
         start_members = frappe.db.count(
@@ -135,7 +139,7 @@ class MembershipGoal(Document):
         retention_rate = ((start_members - terminated) / start_members) * 100
         return max(0, retention_rate)  # Ensure non-negative
 
-    def calculate_new_members(self):
+    def calculate_new_members(self) -> int:
         """Calculate new member acquisitions"""
         filters = {
             "member_since": ["between", [self.start_date, self.end_date]],
@@ -147,7 +151,7 @@ class MembershipGoal(Document):
 
         return frappe.db.count("Member", filters=filters)
 
-    def calculate_churn_rate(self):
+    def calculate_churn_rate(self) -> float:
         """Calculate churn rate as percentage"""
         # Total active members at start
         total_members = frappe.db.count(
@@ -169,19 +173,26 @@ class MembershipGoal(Document):
         churn_rate = (churned / total_members) * 100
         return churn_rate
 
-    def calculate_chapter_expansion(self):
+    def calculate_chapter_expansion(self) -> int:
         """Calculate number of new chapters with active members"""
         # This would need to track chapter creation/activation
         # For now, return count of chapters with new members
-        new_chapters = frappe.db.sql(
-            """
-            SELECT COUNT(DISTINCT current_chapter_display)
-            FROM `tabMember`
-            WHERE member_since BETWEEN %s AND %s
-            AND current_chapter_display IS NOT NULL
-        """,
-            (self.start_date, self.end_date),
-        )[0][0]
+        # Calculate chapter expansion using Query Builder for better maintainability
+        Member = DocType("Member")
+        try:
+            query = (
+                frappe.qb.from_(Member)
+                .select(frappe.qb.functions.Count(Member.current_chapter_display.distinct()))
+                .where(
+                    (Member.member_since.between(self.start_date, self.end_date))
+                    & (Member.current_chapter_display.isnotnull())
+                )
+            )
+            result = query.run()
+            new_chapters = result[0][0] if result and result[0] else 0
+        except Exception as e:
+            frappe.log_error(f"Error calculating chapter expansion: {str(e)}")
+            new_chapters = 0
 
         return new_chapters or 0
 
@@ -210,7 +221,8 @@ class MembershipGoal(Document):
 
 
 @frappe.whitelist()
-def update_all_goals():
+@api_response_handler
+def update_all_goals() -> str:
     """Update achievement for all active goals"""
     goals = frappe.get_all("Membership Goal", filters={"status": ["in", ["Active", "In Progress"]]})
 

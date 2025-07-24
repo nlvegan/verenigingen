@@ -192,11 +192,13 @@ def test_expense_approval_chain(volunteer_email):
     print(f"   Employee: {employee.name}")
     print(f"   Department: {employee.department or 'None'}")
 
-    if employee.department:
+    employee_dept = getattr(employee, 'department', None)
+    if employee_dept:
         # Check department approvers
-        dept = frappe.get_doc("Department", employee.department)
+        dept = frappe.get_doc("Department", employee_dept)
 
-        if dept.expense_approvers:
+        dept_approvers = getattr(dept, 'expense_approvers', None)
+        if dept_approvers and len(dept_approvers) > 0:
             print("   Direct approvers:")
             for approver in dept.expense_approvers:
                 print(f"   • {approver.approver}")
@@ -204,11 +206,13 @@ def test_expense_approval_chain(volunteer_email):
             print("   No direct approvers in department")
 
             # Check parent department
-            if dept.parent_department:
-                parent_dept = frappe.get_doc("Department", dept.parent_department)
+            parent_dept_name = getattr(dept, 'parent_department', None)
+            if parent_dept_name:
+                parent_dept = frappe.get_doc("Department", parent_dept_name)
                 print(f"   Parent department: {parent_dept.department_name}")
 
-                if parent_dept.expense_approvers:
+                parent_approvers = getattr(parent_dept, 'expense_approvers', None)
+                if parent_approvers and len(parent_approvers) > 0:
                     print("   Parent department approvers:")
                     for approver in parent_dept.expense_approvers:
                         print(f"   • {approver.approver}")

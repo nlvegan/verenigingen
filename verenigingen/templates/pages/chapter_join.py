@@ -9,8 +9,10 @@ from frappe import _
 def get_context(context):
     """Get context for chapter join page"""
 
-    # Get chapter name from URL parameters
-    chapter_name = frappe.form_dict.get("chapter") or frappe.form_dict.get("name")
+    # Get chapter name from URL parameters with explicit fallback
+    chapter_name = frappe.form_dict.get("chapter")
+    if not chapter_name:
+        chapter_name = frappe.form_dict.get("name")
 
     if not chapter_name:
         frappe.throw(_("Chapter not specified"), frappe.DoesNotExistError)

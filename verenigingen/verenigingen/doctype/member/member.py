@@ -1343,8 +1343,14 @@ class Member(
             if not membership_type.dues_schedule_template:
                 frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
             template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+
+            if not template.suggested_amount:
+                frappe.throw(
+                    f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+                )
+
             return {
-                "amount": template.suggested_amount or 0,
+                "amount": template.suggested_amount,
                 "source": "template",
                 "membership_type": membership_type.membership_type_name,
             }
@@ -1405,7 +1411,7 @@ class Member(
                     "doctype": "Item",
                     "item_code": item_code,
                     "item_name": "Membership Fee",
-                    "item_group": frappe.db.get_single_value("Item", "item_group") or "Services",
+                    "item_group": self._get_default_item_group(),
                     "is_service_item": 1,
                     "maintain_stock": 0,
                     "include_item_in_manufacturing": 0,
@@ -1677,8 +1683,24 @@ def handle_fee_override_after_save(doc, method=None):
                 }
 
                 # Get current fee change history
-                current_history = frappe.db.get_value("Member", doc.name, "fee_change_history") or "[]"
-                history_list = frappe.parse_json(current_history) if current_history != "[]" else []
+                # Get current fee change history with safe parsing
+                current_history = frappe.db.get_value("Member", doc.name, "fee_change_history")
+                if not current_history or current_history.strip() == "":
+                    history_list = []
+                else:
+                    try:
+                        history_list = frappe.parse_json(current_history)
+                        if not isinstance(history_list, list):
+                            frappe.log_error(
+                                f"Invalid fee_change_history format for member {doc.name}: {type(history_list)}",
+                                "MemberHistory",
+                            )
+                            history_list = []
+                    except (ValueError, TypeError) as e:
+                        frappe.log_error(
+                            f"Failed to parse fee_change_history for member {doc.name}: {e}", "MemberHistory"
+                        )
+                        history_list = []
                 history_list.append(history_entry)
 
                 # Update history directly in database
@@ -2914,3 +2936,33 @@ def fix_existing_member_workflow_status():
     except Exception as e:
         frappe.log_error(f"Error fixing member workflow status: {str(e)}", "Member Workflow Fix")
         return {"success": False, "message": f"Error: {str(e)}"}
+
+    def _get_default_item_group(self):
+        """Get default item group for membership items with validation"""
+        # Check if membership item group is configured
+        settings_item_group = frappe.db.get_single_value("Verenigingen Settings", "default_item_group")
+        if settings_item_group and frappe.db.exists("Item Group", settings_item_group):
+            return settings_item_group
+
+        # Check company default item group
+        try:
+            company = frappe.defaults.get_user_default("Company")
+            if company:
+                company_item_group = frappe.db.get_single_value("Company", company, "default_item_group")
+                if company_item_group and frappe.db.exists("Item Group", company_item_group):
+                    return company_item_group
+        except Exception:
+            pass
+
+        # Check if "Services" exists, otherwise find first available
+        if frappe.db.exists("Item Group", "Services"):
+            return "Services"
+
+        # Find first available item group
+        first_group = frappe.db.get_value("Item Group", {}, "name")
+        if first_group:
+            return first_group
+
+        frappe.throw(
+            _("No Item Group found. Please create at least one Item Group before creating membership items.")
+        )

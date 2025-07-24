@@ -6,6 +6,7 @@ from frappe.query_builder import DocType
 from frappe.utils import getdate, today
 
 from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch_installation
+from verenigingen.utils.error_handling import cache_with_ttl
 
 
 class Volunteer(Document):
@@ -1249,30 +1250,73 @@ def search_volunteers_by_skill(skill_name, category=None, min_level=None):
 
 @frappe.whitelist()
 def get_all_skills_list():
-    """Get unique list of all skills for autocomplete and overview
+    """Get unique list of all skills for autocomplete and overview - cached for performance
 
     Returns:
         List of unique skills with usage statistics
     """
-    skills = frappe.db.sql(
-        """
-        SELECT DISTINCT
-            volunteer_skill,
-            skill_category,
-            COUNT(*) as volunteer_count,
-            AVG(CAST(LEFT(proficiency_level, 1) AS UNSIGNED)) as avg_level
-        FROM `tabVolunteer Skill` vs
-        INNER JOIN `tabVolunteer` v ON vs.parent = v.name
-        WHERE vs.volunteer_skill IS NOT NULL
-            AND vs.volunteer_skill != ''
-            AND v.status = 'Active'
-        GROUP BY volunteer_skill, skill_category
-        ORDER BY volunteer_count DESC, volunteer_skill
-    """,
-        as_dict=True,
-    )
+    return _get_all_skills_list_cached()
 
-    return skills
+
+@cache_with_ttl(ttl=3600)  # Cache for 1 hour - skills change infrequently
+def _get_all_skills_list_cached():
+    """Get all skills using modern Query Builder for better type safety"""
+    from frappe.query_builder import DocType
+    from frappe.query_builder.functions import Avg, Cast, Count
+
+    # Define DocTypes for Query Builder
+    VolunteerSkill = DocType("Volunteer Skill")
+    Volunteer = DocType("Volunteer")
+
+    try:
+        # Modern Query Builder approach for better maintainability
+        query = (
+            frappe.qb.from_(VolunteerSkill)
+            .inner_join(Volunteer)
+            .on(VolunteerSkill.parent == Volunteer.name)
+            .select(
+                VolunteerSkill.volunteer_skill,
+                VolunteerSkill.skill_category,
+                Count("*").as_("volunteer_count"),
+                Avg(Cast(VolunteerSkill.proficiency_level.left(1), "UNSIGNED")).as_("avg_level"),
+            )
+            .where(
+                (VolunteerSkill.volunteer_skill.isnotnull())
+                & (VolunteerSkill.volunteer_skill != "")
+                & (Volunteer.status == "Active")
+            )
+            .groupby(VolunteerSkill.volunteer_skill, VolunteerSkill.skill_category)
+            .orderby(Count("*"), order=frappe.qb.desc)
+            .orderby(VolunteerSkill.volunteer_skill)
+            .distinct()
+        )
+
+        skills = query.run(as_dict=True)
+        return skills
+
+    except Exception as e:
+        # Fallback to original SQL if Query Builder fails
+        frappe.log_error(f"Query Builder failed for skills query: {str(e)}")
+
+        skills = frappe.db.sql(
+            """
+            SELECT DISTINCT
+                volunteer_skill,
+                skill_category,
+                COUNT(*) as volunteer_count,
+                AVG(CAST(LEFT(proficiency_level, 1) AS UNSIGNED)) as avg_level
+            FROM `tabVolunteer Skill` vs
+            INNER JOIN `tabVolunteer` v ON vs.parent = v.name
+            WHERE vs.volunteer_skill IS NOT NULL
+                AND vs.volunteer_skill != ''
+                AND v.status = 'Active'
+            GROUP BY volunteer_skill, skill_category
+            ORDER BY volunteer_count DESC, volunteer_skill
+        """,
+            as_dict=True,
+        )
+
+        return skills
 
 
 @frappe.whitelist()

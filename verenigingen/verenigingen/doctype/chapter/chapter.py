@@ -8,6 +8,8 @@ from frappe.query_builder import DocType
 from frappe.utils import getdate, now, today
 from frappe.website.website_generator import WebsiteGenerator
 
+from verenigingen.utils.error_handling import handle_api_error, log_error
+
 # Import managers and validators
 from .managers import BoardManager, CommunicationManager, MemberManager, VolunteerIntegrationManager
 from .validators import ChapterValidator
@@ -40,57 +42,63 @@ class Chapter(WebsiteGenerator):
     # ========================================================================
 
     def validate(self):
-        """Main validation - delegates to ChapterValidator"""
-        try:
-            # Basic validations
-            self._ensure_route()
+        """Main validation - streamlined workflow with centralized error handling"""
+        # Basic validations
+        self._ensure_route()
+        self._auto_fix_required_fields()
 
-            # Auto-fix missing required fields if possible
-            self._auto_fix_required_fields()
+        # Comprehensive validation using validator - streamlined approach
+        validation_result = self.validator.validate_before_save()
+        self._process_validation_result(validation_result)
 
-            # Comprehensive validation using validator
-            validation_result = self.validator.validate_before_save()
-            if not validation_result.is_valid:
-                # Log warnings but don't block save
-                for warning in validation_result.warnings:
-                    frappe.msgprint(warning, indicator="orange", alert=True)
+        # Handle board member changes (delegation to managers)
+        self._handle_document_changes()
 
-                # Throw errors that block save
-                if validation_result.errors:
-                    frappe.throw(_("Validation failed: {0}").format(", ".join(validation_result.errors)))
+    def _process_validation_result(self, validation_result):
+        """Process validation results with proper error handling"""
+        if not validation_result.is_valid:
+            # Log warnings but don't block save
+            for warning in validation_result.warnings:
+                frappe.msgprint(warning, indicator="orange", alert=True)
 
-            # Handle board member changes (delegation to managers)
-            self._handle_document_changes()
-
-        except frappe.ValidationError as e:
-            # Log and re-raise validation errors without modification
-            frappe.log_error(f"Chapter validation failed for {self.name}: {str(e)}")
-            raise
-        except Exception as e:
-            frappe.log_error(f"Unexpected error validating chapter {self.name}: {str(e)}")
-            frappe.throw(_("Validation error occurred. Please check the error log."))
+            # Throw errors that block save
+            if validation_result.errors:
+                error_context = {"chapter": self.name, "errors": validation_result.errors}
+                log_error(
+                    frappe.ValidationError(", ".join(validation_result.errors)),
+                    context=error_context,
+                    module="verenigingen.doctype.chapter",
+                )
+                frappe.throw(_("Validation failed: {0}").format(", ".join(validation_result.errors)))
 
     def before_save(self):
-        """Before save hook"""
-        try:
-            # Update chapter head based on board roles
-            old_doc = self.get_doc_before_save()
-            if old_doc:
-                self.board_manager.handle_board_member_changes(old_doc)
-                self.board_manager.handle_board_member_additions(old_doc)
-        except Exception as e:
-            frappe.log_error(f"Error in before_save for chapter {self.name}: {str(e)}")
-            # Don't block save for before_save errors, just log them
+        """Before save hook - streamlined with safe manager operations"""
+        old_doc = self.get_doc_before_save()
+        if old_doc:
+            self._safe_manager_operation(
+                "board_member_changes", lambda: self.board_manager.handle_board_member_changes(old_doc)
+            )
+            self._safe_manager_operation(
+                "board_member_additions", lambda: self.board_manager.handle_board_member_additions(old_doc)
+            )
 
     def after_save(self):
-        """After save hook"""
+        """After save hook - streamlined with safe operations"""
+        # Sync with volunteer system if needed
+        if self.has_value_changed("board_members"):
+            self._safe_manager_operation(
+                "volunteer_sync",
+                lambda: self.volunteer_integration_manager.sync_board_members_with_volunteer_system(),
+            )
+
+    def _safe_manager_operation(self, operation_name: str, operation_func):
+        """Execute manager operation safely with proper error handling"""
         try:
-            # Sync with volunteer system if needed
-            if self.has_value_changed("board_members"):
-                self.volunteer_integration_manager.sync_board_members_with_volunteer_system()
+            operation_func()
         except Exception as e:
-            frappe.log_error(f"Error in after_save for chapter {self.name}: {str(e)}")
-            # Don't block save for after_save errors, just log them
+            error_context = {"chapter": self.name, "operation": operation_name}
+            log_error(e, context=error_context, module="verenigingen.doctype.chapter")
+            # Don't block save for manager operation errors, just log them
 
     def on_update(self):
         """On update hook"""
@@ -301,11 +309,11 @@ class Chapter(WebsiteGenerator):
         if not active_board_data:
             return None
 
-        # Use single optimized query to find chair
-        ["'" + v[0] + "'" for v in active_board_data]
-        ["'" + v[1] + "'" for v in active_board_data]
+        # Use single optimized query to find chair - modernized with proper escaping
+        volunteer_list = [frappe.db.escape(v[0]) for v in active_board_data]
+        role_list = [frappe.db.escape(v[1]) for v in active_board_data]
 
-        chair_query = """
+        chair_query = f"""
             SELECT v.member
             FROM `tabVolunteer` v
             JOIN `tabChapter Role` cr ON cr.name IN ({', '.join(role_list)})

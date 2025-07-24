@@ -19,11 +19,21 @@ class PostDeploymentChecker:
         self.environment = environment
         self.version = version
         self.timeout = timeout
+        # Development-optimized timeouts
+        self.request_timeout = 5 if environment in ["development", "local", "localhost"] else 10
         self.base_urls = {
             "staging": "https://staging.veganisme.net",
-            "production": "https://app.veganisme.net"
+            "production": "https://app.veganisme.net",
+            "development": "http://localhost:8000",
+            "dev": "http://dev.veganisme.net"
         }
-        self.base_url = self.base_urls.get(environment, "http://localhost:8000")
+        self.base_url = self.base_urls.get(environment)
+        if not self.base_url:
+            # Development fallback with better error message
+            if environment in ["local", "localhost"]:
+                self.base_url = "http://localhost:8000"
+            else:
+                raise ValueError(f"Unknown environment '{environment}'. Valid options: {list(self.base_urls.keys())}")
         self.checks_passed = 0
         self.checks_failed = 0
         
@@ -36,7 +46,7 @@ class PostDeploymentChecker:
         
         while time.time() - start_time < self.timeout:
             try:
-                response = requests.get(health_url, timeout=10)
+                response = requests.get(health_url, timeout=self.request_timeout)
                 if response.status_code == 200:
                     data = response.json()
                     if data.get("status") == "healthy":
@@ -45,7 +55,9 @@ class PostDeploymentChecker:
             except Exception:
                 pass
                 
-            time.sleep(10)
+            # Configurable sleep interval for development vs production
+            sleep_interval = 5 if self.environment in ["development", "local", "localhost"] else 10
+            time.sleep(sleep_interval)
             
         print("❌ Timeout waiting for deployment")
         return False
@@ -57,11 +69,13 @@ class PostDeploymentChecker:
         try:
             # Check version endpoint
             version_url = urljoin(self.base_url, "/api/method/verenigingen.api.get_version")
-            response = requests.get(version_url, timeout=10)
+            response = requests.get(version_url, timeout=self.request_timeout)
             
             if response.status_code == 200:
                 data = response.json()
-                deployed_version = data.get("message", {}).get("version")
+                # Safe extraction of version information
+                message_data = data.get("message")
+                deployed_version = message_data.get("version") if isinstance(message_data, dict) else None
                 
                 if deployed_version == self.version:
                     print(f"  ✅ Correct version deployed: {deployed_version}")
@@ -92,7 +106,7 @@ class PostDeploymentChecker:
             url = urljoin(self.base_url, endpoint)
             
             try:
-                response = requests.get(url, timeout=10)
+                response = requests.get(url, timeout=self.request_timeout)
                 
                 if response.status_code in [200, 403]:  # 403 is OK for auth-required endpoints
                     print(f"  ✅ {name}: OK")
@@ -138,11 +152,14 @@ class PostDeploymentChecker:
         try:
             # Check migration status endpoint
             migration_url = urljoin(self.base_url, "/api/method/verenigingen.api.get_migration_status")
-            response = requests.get(migration_url, timeout=10)
+            response = requests.get(migration_url, timeout=self.request_timeout)
             
             if response.status_code == 200:
                 data = response.json()
-                if data.get("message", {}).get("migrations_complete"):
+                # Safe extraction of migration status
+                message_data = data.get("message")
+                migrations_complete = message_data.get("migrations_complete") if isinstance(message_data, dict) else False
+                if migrations_complete:
                     print("  ✅ All migrations completed")
                     self.checks_passed += 1
                 else:
@@ -165,7 +182,10 @@ class PostDeploymentChecker:
             
             if response.status_code == 200:
                 data = response.json()
-                if data.get("message", {}).get("scheduler_active"):
+                # Safe extraction of scheduler status
+                message_data = data.get("message")
+                scheduler_active = message_data.get("scheduler_active") if isinstance(message_data, dict) else False
+                if scheduler_active:
                     print("  ✅ Scheduler is active")
                     self.checks_passed += 1
                 else:

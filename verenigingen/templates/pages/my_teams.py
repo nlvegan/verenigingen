@@ -3,24 +3,24 @@ My Teams Page
 Shows user's team memberships and provides access to team member reports
 """
 
+from typing import Any, Dict
+
 import frappe
 from frappe import _
 
+from verenigingen.utils.constants import Membership
+from verenigingen.utils.error_handling import validate_member_for_user, validate_user_logged_in
 
-def get_context(context):
+
+def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     """Get context for my teams page"""
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access this page"), frappe.PermissionError)
+    # Modernized validation with helpers
+    user = validate_user_logged_in()
+    member = validate_member_for_user(user)
 
     context.no_cache = 1
     context.title = _("My Teams")
-
-    # Get member record
-    member = frappe.db.get_value("Member", {"email": frappe.session.user})
-    if not member:
-        frappe.throw(_("No member record found for your account"), frappe.DoesNotExistError)
 
     # Get volunteer record
     volunteer = frappe.db.get_value("Volunteer", {"member": member})
@@ -31,31 +31,43 @@ def get_context(context):
 
     context.volunteer = volunteer
 
-    # Get user's teams with detailed information
-    teams = frappe.db.sql(
-        """
-        SELECT DISTINCT
-            t.name,
-            t.team_name,
-            t.team_type,
-            t.description,
-            t.status as team_status,
-            tm.role_type,
-            tm.role,
-            tm.status as member_status,
-            tm.from_date,
-            tm.to_date,
-            tm.is_active
-        FROM `tabTeam` t
-        INNER JOIN `tabTeam Member` tm ON t.name = tm.parent
-        WHERE tm.volunteer = %(volunteer)s
-        AND tm.is_active = 1
-        AND t.status = 'Active'
-        ORDER BY t.team_name, tm.from_date DESC
-    """,
-        {"volunteer": volunteer},
-        as_dict=True,
+    # Get user's teams with detailed information - modernized ORM approach
+    # First get active team memberships for the volunteer
+    team_memberships = frappe.get_all(
+        "Team Member",
+        filters={"volunteer": volunteer, "is_active": 1},
+        fields=[
+            "parent as team_name",
+            "role_type",
+            "role",
+            "status as member_status",
+            "from_date",
+            "to_date",
+            "is_active",
+        ],
+        order_by="from_date DESC",
     )
+
+    # Extract unique team names for batch fetching
+    team_names = list(set(tm.team_name for tm in team_memberships))
+
+    # Batch fetch team details to avoid N+1 queries
+    teams_data = {}
+    if team_names:
+        teams_info = frappe.get_all(
+            "Team",
+            filters={"name": ["in", team_names], "status": Membership.STATUS_ACTIVE},
+            fields=["name", "team_name", "team_type", "description", "status"],
+        )
+        teams_data = {team.name: team for team in teams_info}
+
+    # Combine team info with membership data
+    teams = []
+    for membership in team_memberships:
+        team_info = teams_data.get(membership.team_name)
+        if team_info:  # Only include teams that are active
+            combined_data = {**team_info.as_dict(), **membership.as_dict(), "team_status": team_info.status}
+            teams.append(frappe._dict(combined_data))
 
     # Group teams and get additional info
     teams_dict = {}
@@ -84,7 +96,7 @@ def get_context(context):
     return context
 
 
-def has_website_permission(doc, ptype, user, verbose=False):
+def has_website_permission(doc: Any, ptype: str, user: str, verbose: bool = False) -> bool:
     """Check website permission for my teams page"""
     # Only logged-in users can access
     if user == "Guest":

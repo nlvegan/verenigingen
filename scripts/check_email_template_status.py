@@ -97,26 +97,40 @@ def check_email_template_status():
     print(f"  Properly Set Up:   {existing_count - empty_count}")
     print()
 
-    # Check for additional templates not in our list
+    # Check for additional templates using explicit name list instead of fuzzy search
+    known_templates = [
+        # Membership-related templates
+        "membership_application_received",
+        "membership_application_approved",
+        "membership_application_rejected",
+        "membership_renewal_reminder",
+        "membership_expiry_notice",
+        "membership_payment_received",
+        "membership_payment_failed",
+        # Member-related templates
+        "member_welcome",
+        "member_password_reset",
+        "member_profile_updated",
+        "member_termination_notice",
+        # Expense templates
+        "expense_approval_request",
+        "expense_approved",
+        "expense_rejected",
+        # Donation templates
+        "donation_confirmation",
+        "donation_payment_confirmation",
+        "anbi_tax_receipt",
+        # Termination templates
+        "termination_overdue_notification",
+        "Termination Approval Required",
+    ]
+    
     all_templates = frappe.get_all(
         "Email Template",
         filters=[
-            ["name", "like", "%membership%"],
+            ["name", "in", known_templates],
             "or",
-            ["name", "like", "%member%"],
-            "or",
-            [
-                "name",
-                "in",
-                [
-                    "expense_approval_request",
-                    "expense_approved",
-                    "expense_rejected",
-                    "donation_confirmation",
-                    "donation_payment_confirmation",
-                    "anbi_tax_receipt",
-                    "termination_overdue_notification",
-                    "Termination Approval Required",
+            ["name", "in", [
                     "Termination Execution Notice",
                 ],
             ],

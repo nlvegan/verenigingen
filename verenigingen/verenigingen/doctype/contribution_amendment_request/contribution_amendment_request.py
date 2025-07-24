@@ -58,7 +58,12 @@ class ContributionAmendmentRequest(Document):
                     template = frappe.get_doc(
                         "Membership Dues Schedule", membership_type.dues_schedule_template
                     )
-                    base_amount = template.suggested_amount or 0
+                    # Validate template configuration before proceeding
+                    if not template.suggested_amount:
+                        frappe.throw(
+                            f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured for contribution calculations"
+                        )
+                    base_amount = template.suggested_amount
 
                     # Calculate minimum fee (30% of base or €5, whichever is higher)
                     minimum_fee = max(base_amount * 0.3, 5.0)
@@ -826,15 +831,27 @@ def reload_amendment_doctype():
 
 
 @frappe.whitelist()
-def test_dues_amendment_integration():
-    """Test integration between dues schedules and amendment system"""
+def test_dues_amendment_integration(member_name=None):
+    """Test integration between dues schedules and amendment system
+
+    Args:
+        member_name: Specific member to test with (optional)
+    """
     try:
         print("=== Testing Dues Amendment Integration ===")
 
-        # Get an existing member
-        member = frappe.db.get_value("Member", {"status": "Active"}, ["name", "email"], as_dict=True)
-        if not member:
-            return {"success": False, "message": "No active member found"}
+        # Get specific member or first active member if none specified
+        if member_name:
+            member = frappe.db.get_value("Member", member_name, ["name", "email"], as_dict=True)
+            if not member:
+                return {"success": False, "message": f"Member {member_name} not found"}
+        else:
+            # Get first active member for testing (with explicit ordering for consistency)
+            member = frappe.db.get_value(
+                "Member", {"status": "Active"}, ["name", "email"], as_dict=True, order_by="creation"
+            )
+            if not member:
+                return {"success": False, "message": "No active member found"}
 
         print(f"✓ Using member: {member.name}")
 
@@ -928,15 +945,27 @@ def test_dues_amendment_integration():
 
 
 @frappe.whitelist()
-def test_real_world_amendment_scenarios():
-    """Test real-world scenarios for dues amendment system"""
+def test_real_world_amendment_scenarios(member_name=None):
+    """Test real-world scenarios for dues amendment system
+
+    Args:
+        member_name: Specific member to test with (optional)
+    """
     try:
         print("=== Testing Real-World Amendment Scenarios ===")
 
-        # Get a member with active membership
-        member = frappe.db.get_value("Member", {"status": "Active"}, ["name", "email"], as_dict=True)
-        if not member:
-            return {"success": False, "message": "No active member found"}
+        # Get specific member or first active member if none specified
+        if member_name:
+            member = frappe.db.get_value("Member", member_name, ["name", "email"], as_dict=True)
+            if not member:
+                return {"success": False, "message": f"Member {member_name} not found"}
+        else:
+            # Get first active member for testing (with explicit ordering for consistency)
+            member = frappe.db.get_value(
+                "Member", {"status": "Active"}, ["name", "email"], as_dict=True, order_by="creation"
+            )
+            if not member:
+                return {"success": False, "message": "No active member found"}
 
         member_doc = frappe.get_doc("Member", member.name)
         print(f"Member: {member_doc.full_name}")

@@ -14,20 +14,14 @@ def check_remaining_data():
 
         results = {"company": company, "remaining_data": {}}
 
-        # Check Payment Entries
-        pe_count = frappe.db.sql("SELECT COUNT(*) FROM `tabPayment Entry` WHERE company = %s", (company,))[0][
-            0
-        ]
+        # Check data counts - modernized with safer patterns
+        pe_count = frappe.db.count("Payment Entry", {"company": company})
         results["remaining_data"]["payment_entries"] = pe_count
 
-        # Check Journal Entries
-        je_count = frappe.db.sql("SELECT COUNT(*) FROM `tabJournal Entry` WHERE company = %s", (company,))[0][
-            0
-        ]
+        je_count = frappe.db.count("Journal Entry", {"company": company})
         results["remaining_data"]["journal_entries"] = je_count
 
-        # Check GL Entries
-        gl_count = frappe.db.sql("SELECT COUNT(*) FROM `tabGL Entry` WHERE company = %s", (company,))[0][0]
+        gl_count = frappe.db.count("GL Entry", {"company": company})
         results["remaining_data"]["gl_entries"] = gl_count
 
         # Check Payment Ledger Entries

@@ -30,7 +30,15 @@ def create_dues_schedule_from_application(membership_application):
     if membership_type.dues_schedule_template:
         try:
             template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-            billing_frequency = template.billing_frequency or "Annual"
+            # Use explicit validation instead of fallback
+            if template.billing_frequency:
+                billing_frequency = template.billing_frequency
+            else:
+                billing_frequency = "Annual"  # Explicit default
+                frappe.log_error(
+                    f"Template '{membership_type.dues_schedule_template}' has no billing_frequency configured, using default 'Annual'",
+                    "Membership Dues Integration Template Configuration",
+                )
         except Exception:
             pass
 

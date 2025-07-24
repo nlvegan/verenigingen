@@ -329,19 +329,24 @@ class ChapterMembershipHistoryManager:
         try:
             member = frappe.get_doc("Member", member_id)
 
-            total_memberships = len(member.chapter_membership_history or [])
+            # Safe handling of chapter membership history
+            membership_history = getattr(member, "chapter_membership_history", None)
+            if not membership_history or not isinstance(membership_history, list):
+                membership_history = []
+
+            total_memberships = len(membership_history)
             active_memberships = len(
-                [m for m in member.chapter_membership_history or [] if m.status == "Active"]
+                [m for m in membership_history if hasattr(m, "status") and m.status == "Active"]
             )
             completed_memberships = len(
-                [m for m in member.chapter_membership_history or [] if m.status == "Completed"]
+                [m for m in membership_history if hasattr(m, "status") and m.status == "Completed"]
             )
             terminated_memberships = len(
-                [m for m in member.chapter_membership_history or [] if m.status == "Terminated"]
+                [m for m in membership_history if hasattr(m, "status") and m.status == "Terminated"]
             )
 
             # Get chapters the member has been associated with
-            chapters = list(set([m.chapter_name for m in member.chapter_membership_history or []]))
+            # Get unique chapters the member has been associated with\n            chapters = list(set([m.chapter_name for m in membership_history if hasattr(m, 'chapter_name') and m.chapter_name]))
 
             return {
                 "total_memberships": total_memberships,

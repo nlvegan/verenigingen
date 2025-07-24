@@ -132,17 +132,22 @@ def test_volunteer_expense_workflow():
     print("=" * 50)
 
     try:
-        # Find a volunteer with employee record
-        volunteer_sql = """
-            SELECT v.name, v.volunteer_name, v.employee_id, v.member, m.email_address
-            FROM `tabVolunteer` v
-            INNER JOIN `tabMember` m ON v.member = m.name
-            WHERE v.employee_id IS NOT NULL
-            AND m.email_address IS NOT NULL
-            LIMIT 1
-        """
-
-        volunteers = frappe.db.sql(volunteer_sql, as_dict=True)
+        # Find a volunteer with employee record - modernized ORM approach
+        volunteers = frappe.get_all(
+            "Volunteer",
+            filters={
+                "employee_id": ["is", "set"],
+                "member": ["is", "set"]
+            },
+            fields=["name", "volunteer_name", "employee_id", "member"],
+            limit=1
+        )
+        
+        # Validate member has email
+        if volunteers:
+            member = frappe.get_value("Member", volunteers[0]["member"], "email_address")
+            if not member:
+                volunteers = []  # Filter out if no email
 
         if not volunteers:
             print("❌ No volunteers with employee records and email found for testing")

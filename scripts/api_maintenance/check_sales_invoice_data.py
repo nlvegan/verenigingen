@@ -70,7 +70,7 @@ def check_sales_invoice_data():
             as_dict=True,
         )
 
-        if first_item and first_item[0].description:
+        if first_item and len(first_item) > 0 and hasattr(first_item[0], 'description') and first_item[0].description:
             print(f"  First item description: {first_item[0].description[:150]}")
 
     # Check if we're storing original mutation data anywhere

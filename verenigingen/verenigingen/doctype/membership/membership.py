@@ -42,8 +42,15 @@ class Membership(Document):
                     template = frappe.get_doc(
                         "Membership Dues Schedule", membership_type_doc.dues_schedule_template
                     )
-                    schedule.minimum_amount = template.minimum_amount or 0
-                    schedule.suggested_amount = template.suggested_amount or 0
+                    # Validate template has required configuration
+                    if not template.suggested_amount:
+                        frappe.throw(
+                            f"Dues schedule template '{membership_type_doc.dues_schedule_template}' must have a suggested_amount configured"
+                        )
+                    schedule.minimum_amount = (
+                        template.minimum_amount if template.minimum_amount is not None else 0
+                    )
+                    schedule.suggested_amount = template.suggested_amount
                 schedule.save()
         else:
             # Create new dues schedule from template
@@ -396,7 +403,11 @@ class Membership(Document):
                 template = frappe.get_cached_doc(
                     "Membership Dues Schedule", membership_type.dues_schedule_template
                 )
-                return template.suggested_amount or 0
+                if not template.suggested_amount:
+                    frappe.throw(
+                        f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+                    )
+                return template.suggested_amount
             else:
                 frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
         return 0
@@ -416,7 +427,11 @@ class Membership(Document):
             membership_type = frappe.get_doc("Membership Type", self.membership_type)
             if membership_type.dues_schedule_template:
                 template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                return template.suggested_amount or 0
+                if not template.suggested_amount:
+                    frappe.throw(
+                        f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+                    )
+                return template.suggested_amount
             else:
                 frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
 
@@ -446,11 +461,21 @@ class Membership(Document):
         if billing_amount:
             dues_schedule.dues_rate = billing_amount
         else:
-            # Fallback to membership type amount or template
+            # Get amount from membership type template (required configuration)
             membership_type = frappe.get_doc("Membership Type", self.membership_type)
             if membership_type.dues_schedule_template:
                 template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                dues_schedule.dues_rate = template.suggested_amount or template.dues_rate or 0
+
+                # Use suggested_amount as primary, with dues_rate as fallback if configured
+                if template.suggested_amount:
+                    dues_schedule.dues_rate = template.suggested_amount
+                elif template.dues_rate:
+                    dues_schedule.dues_rate = template.dues_rate
+                else:
+                    frappe.throw(
+                        f"Dues schedule template '{membership_type.dues_schedule_template}' must have either "
+                        "suggested_amount or dues_rate configured"
+                    )
             else:
                 frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
 
@@ -954,12 +979,17 @@ def revert_to_standard_amount(membership_name, reason=None):
     membership.flags.ignore_validate_update_after_submit = True
     membership.save()
 
-    # Get standard amount from template
+    # Get standard amount from template (required configuration)
     membership_type = frappe.get_doc("Membership Type", membership.membership_type)
     if not membership_type.dues_schedule_template:
         frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
     template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-    standard_amount = template.suggested_amount or 0
+
+    if not template.suggested_amount:
+        frappe.throw(
+            f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+        )
+    standard_amount = template.suggested_amount
 
     return {
         "success": True,

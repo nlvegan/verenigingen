@@ -2,6 +2,8 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.utils.constants import PaymentStatus
+
 
 def sync_membership_with_dues_schedule(membership_doc):
     """
@@ -36,13 +38,13 @@ def sync_membership_with_dues_schedule(membership_doc):
     if invoices:
         latest_invoice = invoices[0]
 
-        # Update membership payment status based on invoice
-        if latest_invoice.status == "Paid":
+        # Update membership payment status based on invoice - modernized with constants
+        if latest_invoice.status in PaymentStatus.PAID_STATUSES:
             membership_doc.last_payment_date = latest_invoice.posting_date
             membership_doc.unpaid_amount = 0
-        elif latest_invoice.status == "Overdue":
+        elif latest_invoice.status == PaymentStatus.INVOICE_OVERDUE:
             membership_doc.unpaid_amount = latest_invoice.outstanding_amount
-        elif latest_invoice.status == "Return":
+        elif latest_invoice.status == "Return":  # Keep specific return status as is
             membership_doc.unpaid_amount = 0
         else:
             membership_doc.unpaid_amount = latest_invoice.outstanding_amount or 0
@@ -146,7 +148,11 @@ def create_direct_debit_batch(date=None):
 
         invoices = frappe.get_all(
             "Sales Invoice",
-            filters={"customer": member.customer, "docstatus": 1, "status": ["in", ["Unpaid", "Overdue"]]},
+            filters={
+                "customer": member.customer,
+                "docstatus": 1,
+                "status": ["in", list(PaymentStatus.UNPAID_STATUSES)],
+            },
             fields=["name", "grand_total", "currency", "due_date"],
             order_by="creation desc",
         )
@@ -154,7 +160,8 @@ def create_direct_debit_batch(date=None):
         for invoice_info in invoices:
             invoice = frappe.get_doc("Sales Invoice", invoice_info.name)
 
-            if invoice.status == "Unpaid" or invoice.status == "Overdue":
+            # Modernized status checking with constants
+            if invoice.status in PaymentStatus.UNPAID_STATUSES:
                 # Get bank details from member
                 bank_info = get_member_bank_details(member.name)
 

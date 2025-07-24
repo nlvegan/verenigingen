@@ -37,9 +37,19 @@ def create_customer_impl(migration_doc, customer_data):
         customer = frappe.new_doc("Customer")
         customer.customer_name = customer_name
         customer.customer_type = "Company" if company_name else "Individual"
-        customer.customer_group = (
-            frappe.db.get_single_value("Selling Settings", "customer_group") or "All Customer Groups"
-        )
+        # Get customer group from explicit configuration
+        default_customer_group = frappe.db.get_single_value("Selling Settings", "customer_group")
+        if default_customer_group:
+            customer.customer_group = default_customer_group
+        else:
+            # Check if "All Customer Groups" exists
+            if frappe.db.exists("Customer Group", "All Customer Groups"):
+                customer.customer_group = "All Customer Groups"
+            else:
+                frappe.throw(
+                    "No default customer group configured in Selling Settings and 'All Customer Groups' does not exist. "
+                    "Please configure default customer group in Selling Settings before running eBoekhouden migration."
+                )
         customer.territory = migration_doc.get_proper_territory_for_customer(customer_data)
         customer.company = migration_doc.company
 
@@ -176,7 +186,13 @@ def create_sales_invoice_impl(migration_doc, invoice_data):
     try:
         # Extract invoice details
         posting_date = getdate(invoice_data.get("Datum"))
-        customer_id = invoice_data.get("Relatie", {}).get("ID")
+        # Safely extract customer relation data
+        relatie_data = invoice_data.get("Relatie")
+        if not relatie_data or not isinstance(relatie_data, dict):
+            frappe.throw("Invalid invoice data: missing or invalid Relatie information")
+        customer_id = relatie_data.get("ID")
+        if not customer_id:
+            frappe.throw("Invalid invoice data: missing customer ID in Relatie information")
 
         # Get or create customer
         customer_result = migration_doc.create_customer(invoice_data.get("Relatie", {}))
@@ -252,7 +268,13 @@ def create_purchase_invoice_impl(migration_doc, invoice_data):
     try:
         # Extract invoice details
         posting_date = getdate(invoice_data.get("Datum"))
-        supplier_id = invoice_data.get("Relatie", {}).get("ID")
+        # Safely extract supplier relation data
+        relatie_data = invoice_data.get("Relatie")
+        if not relatie_data or not isinstance(relatie_data, dict):
+            frappe.throw("Invalid invoice data: missing or invalid Relatie information")
+        supplier_id = relatie_data.get("ID")
+        if not supplier_id:
+            frappe.throw("Invalid invoice data: missing supplier ID in Relatie information")
 
         # Get or create supplier
         supplier_result = migration_doc.create_supplier(invoice_data.get("Relatie", {}))

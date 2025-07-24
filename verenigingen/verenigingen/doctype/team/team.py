@@ -531,8 +531,10 @@ def get_team_permission_query_conditions(user=None):
         ).run(as_dict=True)
 
         if team_memberships:
-            team_list = ["'" + team.parent + "'" for team in team_memberships]
-            return f"`tabTeam`.name in ({', '.join(team_list)})"
+            # Modernized string formatting with proper SQL escaping
+            team_names = [team.parent for team in team_memberships]
+            escaped_teams = [frappe.db.escape(name) for name in team_names]
+            return f"`tabTeam`.name in ({', '.join(escaped_teams)})"
 
         return "`tabTeam`.name = ''"  # No access if not part of any teams
 

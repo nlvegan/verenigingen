@@ -25,23 +25,35 @@ def check_amendment_records():
         else:
             print("No records found")
 
-        # Check table structure
-        desc = frappe.db.sql("DESCRIBE `tabContribution Amendment Request`", as_dict=True)
-        print(f"\nTable structure - {len(desc)} columns found:")
-        for col in desc[:10]:  # Show first 10 columns
-            print(f"  {col.Field}: {col.Type}")
-        if len(desc) > 10:
-            print(f"  ... and {len(desc) - 10} more columns")
+        # Check table structure - modernized using Frappe meta
+        try:
+            meta = frappe.get_meta("Contribution Amendment Request")
+            fields = meta.get_valid_columns()
+            print(f"\nDocType structure - {len(fields)} fields found:")
+            for field in fields[:10]:  # Show first 10 fields
+                field_meta = meta.get_field(field)
+                if field_meta:
+                    print(f"  {field}: {field_meta.fieldtype}")
+                else:
+                    print(f"  {field}: Standard field")
+            if len(fields) > 10:
+                print(f"  ... and {len(fields) - 10} more fields")
+        except Exception as e:
+            print(f"Could not get DocType meta: {e}")
 
     except Exception as e:
         print(f"Error: {e}")
 
-        # Check if table exists at all
+        # Check if DocType exists - modernized approach
         try:
-            tables = frappe.db.sql("SHOW TABLES LIKE '%Amendment%'", as_dict=True)
-            print(f"Amendment-related tables: {tables}")
+            amendment_doctypes = frappe.get_all(
+                "DocType",
+                filters={"name": ["like", "%Amendment%"]},
+                fields=["name", "module", "custom"]
+            )
+            print(f"Amendment-related DocTypes: {[dt['name'] for dt in amendment_doctypes]}")
         except Exception as e2:
-            print(f"Error checking tables: {e2}")
+            print(f"Error checking DocTypes: {e2}")
 
 
 if __name__ == "__main__":

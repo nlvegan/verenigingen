@@ -1,7 +1,7 @@
 {
  "actions": [],
-
- "app": "verenigingen","creation": "2020-03-29 12:57:03.005120",
+ "app": "verenigingen",
+ "creation": "2020-03-29 12:57:03.005120",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
@@ -54,19 +54,20 @@
   "automate_donation_payment_entries",
   "donation_debit_account",
   "donation_payment_account",
+  "tax_exempt_for_contributions",
+  "organization_has_anbi_status",
+  "enable_anbi_functionality",
+  "anbi_minimum_reportable_amount",
   "column_break_donations",
   "donations_gl_account",
   "auto_create_donors",
   "donor_customer_groups",
   "minimum_donation_amount",
-  "enable_anbi_functionality",
-  "organization_has_anbi_status",
-  "anbi_minimum_reportable_amount",
+  "unrestricted_donation_account",
   "default_donor_type",
   "campaign_donation_account",
   "restricted_donation_account",
   "tax_section",
-  "tax_exempt_for_contributions",
   "default_tax_exemption_type",
   "default_tax_template",
   "kor_exemption_applied",
@@ -221,8 +222,7 @@
    "description": "Starting number for SEPA mandate counter. Set this to control where numbering begins (e.g., 1000 to start from MANDATE-25-01-1000).",
    "fieldname": "sepa_mandate_starting_counter",
    "fieldtype": "Int",
-   "label": "SEPA Mandate Starting Counter",
-   "min_value": "1"
+   "label": "SEPA Mandate Starting Counter"
   },
   {
    "description": "Organization name as it should appear in SEPA communications and member notifications",
@@ -439,10 +439,6 @@
    "label": "Auto-End Board Positions"
   },
   {
-   "fieldname": "column_break_term_2",
-   "fieldtype": "Column Break"
-  },
-  {
    "default": "1",
    "description": "Send email notifications for termination events",
    "fieldname": "send_termination_notifications",
@@ -480,10 +476,6 @@
    "fieldname": "anbi_minimum_reportable_amount",
    "fieldtype": "Currency",
    "label": "ANBI Minimum Reportable Amount"
-  },
-  {
-   "fieldname": "column_break_anbi_donation",
-   "fieldtype": "Column Break"
   },
   {
    "description": "Account for general unrestricted donations (can be used for any purpose)",
@@ -531,46 +523,41 @@
    "label": "Income Percentage Rate"
   },
   {
+   "default": "Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity.",
    "depends_on": "eval:doc.enable_income_calculator",
    "description": "Text to display with the calculator explaining how contributions are calculated",
    "fieldname": "calculator_description",
    "fieldtype": "Text",
-   "label": "Calculator Description",
-   "default": "Our suggested contribution is 0.5% of your monthly net income. This helps ensure fair and equitable contributions based on your financial capacity."
+   "label": "Calculator Description"
   },
   {
    "default": "10",
    "description": "Maximum multiplier for membership fee contributions (e.g., 10 allows up to 10x the base membership fee)",
    "fieldname": "maximum_fee_multiplier",
    "fieldtype": "Int",
-   "label": "Maximum Fee Multiplier",
-   "min_value": 1
+   "label": "Maximum Fee Multiplier"
   },
   {
+   "default": "30",
+   "description": "Number of days to automatically extend membership grace periods",
    "fieldname": "default_grace_period_days",
    "fieldtype": "Int",
-   "label": "Default Grace Period Days",
-   "description": "Number of days to automatically extend membership grace periods",
-   "default": 30,
-   "min_value": 1,
-   "max_value": 180
+   "label": "Default Grace Period Days"
   },
   {
+   "default": "0",
+   "description": "Automatically place members in grace period when payments are overdue",
    "fieldname": "grace_period_auto_apply",
    "fieldtype": "Check",
-   "label": "Automatically Apply Grace Period",
-   "description": "Automatically place members in grace period when payments are overdue",
-   "default": 0
+   "label": "Automatically Apply Grace Period"
   },
   {
+   "default": "7",
+   "depends_on": "eval:doc.grace_period_auto_apply",
+   "description": "Days before grace period expiry to send warning notifications",
    "fieldname": "grace_period_notification_days",
    "fieldtype": "Int",
-   "label": "Grace Period Notification Days",
-   "description": "Days before grace period expiry to send warning notifications",
-   "default": 7,
-   "min_value": 1,
-   "max_value": 30,
-   "depends_on": "eval:doc.grace_period_auto_apply"
+   "label": "Grace Period Notification Days"
   },
   {
    "fieldname": "batch_processing_section",
@@ -578,50 +565,50 @@
    "label": "SEPA Batch Processing"
   },
   {
+   "default": "0",
+   "description": "Automatically create SEPA Direct Debit batches on specified days",
    "fieldname": "enable_auto_batch_creation",
    "fieldtype": "Check",
-   "label": "Enable Automatic Batch Creation",
-   "description": "Automatically create SEPA Direct Debit batches on specified days",
-   "default": 0
+   "label": "Enable Automatic Batch Creation"
   },
   {
+   "default": "1",
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "Comma-separated list of days of the month (1-31) when batches should be created. Example: '1,15' for 1st and 15th of each month",
    "fieldname": "batch_creation_days",
    "fieldtype": "Data",
-   "label": "Batch Creation Days",
-   "description": "Comma-separated list of days of the month (1-31) when batches should be created. Example: '1,15' for 1st and 15th of each month",
-   "default": "1",
-   "depends_on": "eval:doc.enable_auto_batch_creation"
+   "label": "Batch Creation Days"
   },
   {
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "Comma-separated list of email addresses for SEPA batch notifications. Example: 'treasurer@org.com,finance@org.com'",
    "fieldname": "financial_admin_emails",
    "fieldtype": "Data",
-   "label": "Financial Admin Emails",
-   "description": "Comma-separated list of email addresses for SEPA batch notifications. Example: 'treasurer@org.com,finance@org.com'",
-   "depends_on": "eval:doc.enable_auto_batch_creation"
+   "label": "Financial Admin Emails"
   },
   {
    "fieldname": "column_break_batch",
    "fieldtype": "Column Break"
   },
   {
+   "depends_on": "eval:doc.enable_auto_batch_creation",
+   "description": "JSON configuration for batch optimization parameters",
    "fieldname": "batch_optimization_config",
    "fieldtype": "Long Text",
-   "label": "Batch Optimization Configuration",
-   "description": "JSON configuration for batch optimization parameters",
-   "depends_on": "eval:doc.enable_auto_batch_creation"
+   "label": "Batch Optimization Configuration"
   },
   {
+   "description": "Timestamp of the last automated batch creation",
    "fieldname": "last_batch_creation_run",
    "fieldtype": "Datetime",
    "label": "Last Batch Creation Run",
-   "description": "Timestamp of the last automated batch creation",
    "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-07-06 14:30:00.000000",
+ "modified": "2025-07-24 17:45:07.008663",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Settings",

@@ -197,8 +197,9 @@ class EmailTemplateValidator:
             variables = re.findall(r'{([^}]+)}', fstring)
             
             for var in variables:
-                # Skip format specifiers and complex expressions
-                if ':' in var or '+' in var or '-' in var or '*' in var or '/' in var:
+                # Skip format specifiers and complex expressions - modernized
+                COMPLEX_EXPRESSION_OPERATORS = {':', '+', '-', '*', '/'}
+                if any(op in var for op in COMPLEX_EXPRESSION_OPERATORS):
                     continue
                 
                 # Skip function calls and complex expressions

@@ -2,10 +2,16 @@
 Chapter Board Dashboard - Simplified interface for chapter board members
 """
 from datetime import date, datetime
+from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+from frappe.query_builder import DocType
 from frappe.utils import now_datetime
+
+from verenigingen.utils.api_response import api_response_handler
+from verenigingen.utils.constants import Roles
+from verenigingen.utils.error_handling import cache_with_ttl, validate_user_logged_in
 
 
 def serialize_dates(obj):
@@ -22,9 +28,8 @@ def serialize_dates(obj):
 def get_context(context):
     """Get context for chapter dashboard page"""
 
-    # Require login
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the chapter dashboard"), frappe.PermissionError)
+    # Modernized login validation
+    validate_user_logged_in("Please login to access the chapter dashboard")
 
     # Handle both dict and object context
     if hasattr(context, "no_cache"):
@@ -53,8 +58,10 @@ def get_context(context):
             context["user_roles"] = user_roles
         return context
 
-    # Handle chapter selection (default to first chapter)
-    selected_chapter = frappe.form_dict.get("chapter") or user_chapters[0]["chapter_name"]
+    # Handle chapter selection with explicit fallback logic
+    selected_chapter = frappe.form_dict.get("chapter")
+    if not selected_chapter and user_chapters:
+        selected_chapter = user_chapters[0]["chapter_name"]
 
     # Verify user has access to selected chapter
     if not any(ch["chapter_name"] == selected_chapter for ch in user_chapters):
@@ -93,12 +100,12 @@ def get_context(context):
     return context
 
 
-def get_user_board_chapters():
+def get_user_board_chapters() -> List[Dict[str, Any]]:
     """Get chapters where current user is a board member"""
     user_email = frappe.session.user
 
     # Admin users can see all chapters
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
+    admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
     if any(role in frappe.get_roles() for role in admin_roles):
         return frappe.get_all("Chapter", fields=["name", "region"], filters={"published": 1}, order_by="name")
 
@@ -112,29 +119,42 @@ def get_user_board_chapters():
     if not volunteer:
         return []
 
-    # Get chapters where this volunteer is a board member
-    board_chapters = frappe.db.sql(
-        """
-        SELECT DISTINCT cbm.parent as chapter_name, c.region,
-               cbm.chapter_role, cbm.from_date, cbm.to_date, cbm.is_active
-        FROM `tabChapter Board Member` cbm
-        INNER JOIN `tabChapter` c ON cbm.parent = c.name
-        WHERE cbm.volunteer = %s AND cbm.is_active = 1
-        ORDER BY cbm.from_date DESC
-    """,
-        (volunteer,),
-        as_dict=True,
-    )
+    # Get chapters where this volunteer is a board member - modernized with Query Builder
+    ChapterBoardMember = DocType("Chapter Board Member")
+    Chapter = DocType("Chapter")
+
+    try:
+        query = (
+            frappe.qb.from_(ChapterBoardMember)
+            .inner_join(Chapter)
+            .on(ChapterBoardMember.parent == Chapter.name)
+            .select(
+                ChapterBoardMember.parent.as_("chapter_name"),
+                Chapter.region,
+                ChapterBoardMember.chapter_role,
+                ChapterBoardMember.from_date,
+                ChapterBoardMember.to_date,
+                ChapterBoardMember.is_active,
+            )
+            .where((ChapterBoardMember.volunteer == volunteer) & (ChapterBoardMember.is_active == 1))
+            .orderby(ChapterBoardMember.from_date, order=frappe.qb.Order.desc)
+            .distinct()
+        )
+
+        board_chapters = query.run(as_dict=True)
+    except Exception as e:
+        frappe.log_error(f"Error fetching board chapters for volunteer {volunteer}: {str(e)}")
+        board_chapters = []
 
     return board_chapters
 
 
-def get_user_board_role(chapter_name):
+def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:
     """Get user's board role for specific chapter"""
     user_email = frappe.session.user
 
     # Admin users have full access
-    admin_roles = ["System Manager", "Verenigingen Administrator"]
+    admin_roles = [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN]
     if any(role in frappe.get_roles() for role in admin_roles):
         return {"role": "System Administrator", "permissions": "full"}
 
@@ -166,7 +186,7 @@ def get_user_board_role(chapter_name):
     return None
 
 
-def get_role_permissions(role_name):
+def get_role_permissions(role_name: str) -> Dict[str, Any]:
     """Get permissions based on board role"""
     role_permissions = {
         "Chapter Head": {
@@ -205,7 +225,9 @@ def get_role_permissions(role_name):
 
 
 @frappe.whitelist()
-def get_chapter_dashboard_data(chapter_name):
+@api_response_handler
+@cache_with_ttl(ttl=300)  # Cache for 5 minutes - dashboard data changes frequently
+def get_chapter_dashboard_data(chapter_name: str) -> Dict[str, Any]:
     """Get comprehensive dashboard data for chapter board members"""
 
     if not chapter_name:
@@ -231,7 +253,7 @@ def get_chapter_dashboard_data(chapter_name):
     return serialize_dates(dashboard_data)
 
 
-def get_chapter_basic_info(chapter_name):
+def get_chapter_basic_info(chapter_name: str) -> Dict[str, Any]:
     """Get basic chapter information"""
     chapter = frappe.get_doc("Chapter", chapter_name)
 
@@ -245,24 +267,48 @@ def get_chapter_basic_info(chapter_name):
     }
 
 
-def get_chapter_key_metrics(chapter_name):
+def get_chapter_key_metrics(chapter_name: str) -> Dict[str, Any]:
     """Get key metrics for dashboard cards"""
 
-    # Member statistics
-    member_stats = frappe.db.sql(
-        """
-        SELECT
-            COUNT(*) as total_members,
-            SUM(CASE WHEN (status = 'Active' OR status IS NULL) AND enabled = 1 THEN 1 ELSE 0 END) as active_members,
-            SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending_members,
-            SUM(CASE WHEN chapter_join_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY) THEN 1 ELSE 0 END) as new_this_month,
-            SUM(CASE WHEN enabled = 0 THEN 1 ELSE 0 END) as inactive_members
-        FROM `tabChapter Member`
-        WHERE parent = %s
-    """,
-        (chapter_name,),
-        as_dict=True,
-    )[0]
+    # Member statistics - modernized with Query Builder and proper aggregation
+    try:
+        # Get all chapter members first to handle complex conditional aggregation
+        members = frappe.get_all(
+            "Chapter Member",
+            filters={"parent": chapter_name},
+            fields=["status", "enabled", "chapter_join_date"],
+        )
+
+        # Calculate statistics in Python for better maintainability
+        total_members = len(members)
+        active_members = sum(1 for m in members if (m.status in ["Active", None]) and m.enabled == 1)
+        pending_members = sum(1 for m in members if m.status == "Pending")
+        inactive_members = sum(1 for m in members if m.enabled == 0)
+
+        # Calculate new members (last 30 days)
+        from frappe.utils import add_days, getdate
+
+        thirty_days_ago = add_days(getdate(), -30)
+        new_this_month = sum(
+            1 for m in members if m.chapter_join_date and getdate(m.chapter_join_date) >= thirty_days_ago
+        )
+
+        member_stats = {
+            "total_members": total_members,
+            "active_members": active_members,
+            "pending_members": pending_members,
+            "new_this_month": new_this_month,
+            "inactive_members": inactive_members,
+        }
+    except Exception as e:
+        frappe.log_error(f"Error calculating member statistics for {chapter_name}: {str(e)}")
+        member_stats = {
+            "total_members": 0,
+            "active_members": 0,
+            "pending_members": 0,
+            "new_this_month": 0,
+            "inactive_members": 0,
+        }
 
     # Expense statistics (basic for now)
     expense_stats = get_basic_expense_stats(chapter_name)
@@ -283,43 +329,100 @@ def get_chapter_key_metrics(chapter_name):
     }
 
 
-def get_basic_expense_stats(chapter_name):
+def get_basic_expense_stats(chapter_name: str) -> Dict[str, Any]:
     """Get basic expense statistics (placeholder for full implementation)"""
     # This is a simplified version - can be enhanced with actual expense data
     return {"pending_amount": 234.30, "pending_count": 2, "ytd_total": 1204.85, "this_month": 234.30}
 
 
-def get_member_overview(chapter_name):
+def get_member_overview(chapter_name: str) -> Dict[str, Any]:
     """Get member overview with recent activities"""
 
-    # Get recent member activities
-    recent_members = frappe.db.sql(
-        """
-        SELECT cm.member, m.full_name, cm.status, cm.chapter_join_date,
-               cm.enabled, cm.leave_reason
-        FROM `tabChapter Member` cm
-        INNER JOIN `tabMember` m ON cm.member = m.name
-        WHERE cm.parent = %s
-        ORDER BY cm.modified DESC
-        LIMIT 10
-    """,
-        (chapter_name,),
-        as_dict=True,
-    )
+    # Get recent member activities - modernized with efficient batch queries
+    try:
+        # Get recent chapter members with member names in one query
+        recent_chapter_members = frappe.get_all(
+            "Chapter Member",
+            filters={"parent": chapter_name},
+            fields=["member", "status", "chapter_join_date", "enabled", "leave_reason"],
+            order_by="modified desc",
+            limit=10,
+        )
 
-    # Get pending applications
-    pending_applications = frappe.db.sql(
-        """
-        SELECT cm.member, m.full_name, cm.chapter_join_date, m.application_date,
-               DATEDIFF(CURDATE(), COALESCE(m.application_date, cm.chapter_join_date)) as days_pending
-        FROM `tabChapter Member` cm
-        INNER JOIN `tabMember` m ON cm.member = m.name
-        WHERE cm.parent = %s AND cm.status = 'Pending'
-        ORDER BY cm.chapter_join_date ASC
-    """,
-        (chapter_name,),
-        as_dict=True,
-    )
+        # Batch fetch member names to avoid N+1 queries
+        member_ids = [rcm.member for rcm in recent_chapter_members if rcm.member]
+        if member_ids:
+            members_data = frappe.get_all(
+                "Member", filters={"name": ["in", member_ids]}, fields=["name", "full_name"]
+            )
+            member_names = {m.name: m.full_name for m in members_data}
+        else:
+            member_names = {}
+
+        # Combine the data
+        recent_members = []
+        for rcm in recent_chapter_members:
+            recent_members.append(
+                {
+                    "member": rcm.member,
+                    "full_name": member_names.get(rcm.member, "Unknown"),
+                    "status": rcm.status,
+                    "chapter_join_date": rcm.chapter_join_date,
+                    "enabled": rcm.enabled,
+                    "leave_reason": rcm.leave_reason,
+                }
+            )
+    except Exception as e:
+        frappe.log_error(f"Error fetching recent members for {chapter_name}: {str(e)}")
+        recent_members = []
+
+    # Get pending applications - modernized with efficient ORM queries
+    try:
+        # Get pending chapter members
+        pending_chapter_members = frappe.get_all(
+            "Chapter Member",
+            filters={"parent": chapter_name, "status": "Pending"},
+            fields=["member", "chapter_join_date"],
+            order_by="chapter_join_date asc",
+        )
+
+        # Batch fetch member details
+        member_ids = [pcm.member for pcm in pending_chapter_members if pcm.member]
+        if member_ids:
+            members_data = frappe.get_all(
+                "Member",
+                filters={"name": ["in", member_ids]},
+                fields=["name", "full_name", "application_date"],
+            )
+            member_details = {m.name: m for m in members_data}
+        else:
+            member_details = {}
+
+        # Calculate days pending and combine data
+        from frappe.utils import date_diff, getdate
+
+        pending_applications = []
+        for pcm in pending_chapter_members:
+            member_data = member_details.get(pcm.member, {})
+
+            # Calculate days pending using frappe utilities
+            reference_date = member_data.get("application_date") or pcm.chapter_join_date
+            days_pending = 0
+            if reference_date:
+                days_pending = date_diff(getdate(), getdate(reference_date))
+
+            pending_applications.append(
+                {
+                    "member": pcm.member,
+                    "full_name": member_data.get("full_name", "Unknown"),
+                    "chapter_join_date": pcm.chapter_join_date,
+                    "application_date": member_data.get("application_date"),
+                    "days_pending": days_pending,
+                }
+            )
+    except Exception as e:
+        frappe.log_error(f"Error fetching pending applications for {chapter_name}: {str(e)}")
+        pending_applications = []
 
     return {
         "recent_members": recent_members[:5],  # Limit to 5 for dashboard
@@ -328,7 +431,7 @@ def get_member_overview(chapter_name):
     }
 
 
-def get_pending_actions(chapter_name):
+def get_pending_actions(chapter_name: str) -> Dict[str, Any]:
     """Get items requiring board attention"""
 
     # Get pending membership applications
@@ -352,7 +455,7 @@ def get_pending_actions(chapter_name):
     }
 
 
-def get_financial_summary(chapter_name):
+def get_financial_summary(chapter_name: str) -> Dict[str, Any]:
     """Get financial summary for the chapter"""
     # Placeholder implementation - to be enhanced with actual financial data
     return {
@@ -366,7 +469,7 @@ def get_financial_summary(chapter_name):
     }
 
 
-def get_board_information(chapter_name):
+def get_board_information(chapter_name: str) -> Dict[str, Any]:
     """Get board member information"""
     chapter = frappe.get_doc("Chapter", chapter_name)
 
@@ -397,7 +500,7 @@ def get_board_information(chapter_name):
     }
 
 
-def get_recent_activity(chapter_name):
+def get_recent_activity(chapter_name: str) -> List[Dict[str, Any]]:
     """Get recent chapter activities"""
     activities = []
 
@@ -420,20 +523,44 @@ def get_recent_activity(chapter_name):
             }
         )
 
-    # Add member join activities
-    recent_joins = frappe.db.sql(
-        """
-        SELECT m.full_name, cm.chapter_join_date, cm.status
-        FROM `tabChapter Member` cm
-        INNER JOIN `tabMember` m ON cm.member = m.name
-        WHERE cm.parent = %s
-        AND cm.chapter_join_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-        ORDER BY cm.chapter_join_date DESC
-        LIMIT 5
-    """,
-        (chapter_name,),
-        as_dict=True,
-    )
+    # Add member join activities - modernized with efficient batch queries
+    try:
+        from frappe.utils import add_days, getdate
+
+        thirty_days_ago = add_days(getdate(), -30)
+
+        # Get recent chapter member joins
+        recent_chapter_joins = frappe.get_all(
+            "Chapter Member",
+            filters={"parent": chapter_name, "chapter_join_date": [">=", thirty_days_ago]},
+            fields=["member", "chapter_join_date", "status"],
+            order_by="chapter_join_date desc",
+            limit=5,
+        )
+
+        # Batch fetch member names
+        member_ids = [rcj.member for rcj in recent_chapter_joins if rcj.member]
+        if member_ids:
+            members_data = frappe.get_all(
+                "Member", filters={"name": ["in", member_ids]}, fields=["name", "full_name"]
+            )
+            member_names = {m.name: m.full_name for m in members_data}
+        else:
+            member_names = {}
+
+        # Combine the data
+        recent_joins = []
+        for rcj in recent_chapter_joins:
+            recent_joins.append(
+                {
+                    "full_name": member_names.get(rcj.member, "Unknown"),
+                    "chapter_join_date": rcj.chapter_join_date,
+                    "status": rcj.status,
+                }
+            )
+    except Exception as e:
+        frappe.log_error(f"Error fetching recent joins for {chapter_name}: {str(e)}")
+        recent_joins = []
 
     for join in recent_joins:
         activities.append(

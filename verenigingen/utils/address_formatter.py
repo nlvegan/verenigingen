@@ -4,6 +4,9 @@ Address formatting utilities for different countries
 
 import frappe
 
+from verenigingen.utils.api_response import APIResponse, api_response_handler
+from verenigingen.utils.error_handling import cache_with_ttl
+
 
 def format_address_for_country(address_doc):
     """Format address according to country-specific conventions"""
@@ -57,8 +60,9 @@ def format_dutch_address(address_doc):
         lines.append(address_doc.state.strip())
 
     # Country - only show if not Netherlands or if specifically requested
+    NETHERLANDS_IDENTIFIERS = {"netherlands", "nederland", "nl"}
     country = (address_doc.country or "").strip().lower()
-    if country and country not in ["netherlands", "nederland", "nl"]:
+    if country and country not in NETHERLANDS_IDENTIFIERS:
         lines.append(address_doc.country)
 
     return "<br>".join(lines)
@@ -147,26 +151,24 @@ def format_address_single_line(address_doc):
 
 
 @frappe.whitelist()
+@api_response_handler
+@cache_with_ttl(ttl=1800)  # Cache for 30 minutes - addresses don't change frequently
 def format_member_address(member_name):
     """Format a member's primary address using appropriate country conventions"""
-    try:
-        member = frappe.get_doc("Member", member_name, ignore_permissions=True)
+    member = frappe.get_doc("Member", member_name, ignore_permissions=True)
 
-        if not member.primary_address:
-            return {"success": True, "has_address": False, "formatted_address": None}
+    if not member.primary_address:
+        return {"has_address": False, "formatted_address": None, "message": "No address found for member"}
 
-        address = frappe.get_doc("Address", member.primary_address, ignore_permissions=True)
-        formatted = format_address_for_country(address)
+    address = frappe.get_doc("Address", member.primary_address, ignore_permissions=True)
+    formatted = format_address_for_country(address)
 
-        return {
-            "success": True,
-            "has_address": True,
-            "formatted_address": formatted,
-            "country": address.country,
-        }
-
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    return {
+        "has_address": True,
+        "formatted_address": formatted,
+        "country": address.country,
+        "address_type": "primary",
+    }
 
 
 @frappe.whitelist()

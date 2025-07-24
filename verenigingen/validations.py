@@ -1,6 +1,8 @@
 import frappe
 from frappe import _
-from frappe.utils import getdate
+from frappe.utils import getdate, today
+
+from verenigingen.utils.constants import Roles
 
 
 def validate_termination_request(doc, method):
@@ -96,22 +98,25 @@ def validate_approver_permissions(approver_user):
     """Validate that the approver has the required permissions"""
     approver_roles = frappe.get_roles(approver_user)
 
-    if not any(role in ["System Manager", "Verenigingen Administrator"] for role in approver_roles):
+    # Modernized with centralized role constants
+    if not any(role in [Roles.SYSTEM_MANAGER, Roles.VERENIGINGEN_ADMIN] for role in approver_roles):
         # Check if national board member
         settings = frappe.get_single("Verenigingen Settings")
         if settings and settings.national_board_chapter:
-            is_national_board = frappe.db.sql(
-                """
-                SELECT COUNT(*)
-                FROM `tabMember` m
-                JOIN `tabVolunteer` v ON m.name = v.member
-                JOIN `tabChapter Board Member` cbm ON v.name = cbm.volunteer
-                WHERE m.user = %s AND cbm.parent = %s AND cbm.is_active = 1
-            """,
-                (approver_user, settings.national_board_chapter),
-            )
+            # Modernized ORM approach - find if user is national board member
+            member = frappe.get_value("Member", {"user": approver_user}, "name")
+            is_national_board = False
 
-            if not (is_national_board and is_national_board[0][0] > 0):
+            if member:
+                volunteer = frappe.get_value("Volunteer", {"member": member}, "name")
+                if volunteer:
+                    board_membership = frappe.db.exists(
+                        "Chapter Board Member",
+                        {"volunteer": volunteer, "parent": settings.national_board_chapter, "is_active": 1},
+                    )
+                    is_national_board = bool(board_membership)
+
+            if not is_national_board:
                 frappe.throw(
                     _("Secondary approver must be Verenigingen Administrator or National Board Member")
                 )

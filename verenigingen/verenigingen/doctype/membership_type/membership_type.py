@@ -59,16 +59,29 @@ class MembershipType(Document):
 
     def get_or_create_membership_item(self):
         """Get or create an Item for membership"""
-        # Check if a membership item already exists
-        existing_items = frappe.get_all(
-            "Item",
-            filters={"item_group": "Membership", "item_name": ["like", f"{self.membership_type_name}%"]},
-            fields=["name"],
-            limit=1,
+        # Check for explicitly configured membership item first
+        if hasattr(self, "membership_item") and self.membership_item:
+            if frappe.db.exists("Item", self.membership_item):
+                return self.membership_item
+            else:
+                frappe.log_error(
+                    f"Membership Type '{self.name}' references non-existent item '{self.membership_item}'",
+                    "Membership Type Configuration Error",
+                )
+
+        # Check if a membership item already exists using exact naming convention
+        expected_item_code = f"MEM-{self.membership_type_name}".upper().replace(" ", "-")
+        if frappe.db.exists("Item", expected_item_code):
+            return expected_item_code
+
+        # Check for item with exact membership item name
+        expected_item_name = f"{self.membership_type_name} Membership"
+        existing_item = frappe.db.get_value(
+            "Item", {"item_name": expected_item_name, "item_group": "Membership"}, "name"
         )
 
-        if existing_items:
-            return existing_items[0].name
+        if existing_item:
+            return existing_item
 
         # Create a new item for membership
         item = frappe.new_doc("Item")
@@ -200,10 +213,11 @@ class MembershipType(Document):
             # Update existing template
             template = frappe.get_doc("Membership Dues Schedule", existing_template)
         else:
-            # Create new template
+            # Create new template with explicit naming
             template = frappe.new_doc("Membership Dues Schedule")
             template.is_template = 1
-            template.schedule_name = f"Template-{self.membership_type_name}"  # Use descriptive name
+            # Use explicit template naming with timestamp to avoid conflicts
+            template.schedule_name = f"Dues Schedule Template for {self.membership_type_name}"
             template.membership_type = self.name
             template.status = "Active"
             # Set required fields to avoid validation errors during creation

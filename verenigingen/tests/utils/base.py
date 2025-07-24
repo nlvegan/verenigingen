@@ -216,25 +216,35 @@ class VereningingenTestCase(FrappeTestCase):
     
     def _cleanup_customer_dependencies(self, customer_name):
         """Clean up documents that depend on a customer"""
-        # Cancel and delete Sales Invoices
-        for invoice in frappe.get_all("Sales Invoice", filters={"customer": customer_name}):
-            try:
-                doc = frappe.get_doc("Sales Invoice", invoice.name)
-                if doc.docstatus == 1:
-                    doc.cancel()
-                frappe.delete_doc("Sales Invoice", invoice.name, force=True, ignore_permissions=True)
-            except:
-                pass
+        # Cancel and delete Sales Invoices - optimized batch approach
+        invoices = frappe.get_all(
+            "Sales Invoice", 
+            filters={"customer": customer_name},
+            fields=["name", "docstatus"]
+        )
         
-        # Cancel and delete Payment Entries
-        for payment in frappe.get_all("Payment Entry", filters={"party": customer_name, "party_type": "Customer"}):
+        for invoice in invoices:
             try:
-                doc = frappe.get_doc("Payment Entry", payment.name)
-                if doc.docstatus == 1:
-                    doc.cancel()
+                if invoice.docstatus == 1:
+                    frappe.db.set_value("Sales Invoice", invoice.name, "docstatus", 2)
+                frappe.delete_doc("Sales Invoice", invoice.name, force=True, ignore_permissions=True)
+            except (frappe.DoesNotExistError, frappe.ValidationError):
+                continue  # Document already deleted or invalid
+        
+        # Cancel and delete Payment Entries - optimized
+        payments = frappe.get_all(
+            "Payment Entry", 
+            filters={"party": customer_name, "party_type": "Customer"},
+            fields=["name", "docstatus"]
+        )
+        
+        for payment in payments:
+            try:
+                if payment.docstatus == 1:
+                    frappe.db.set_value("Payment Entry", payment.name, "docstatus", 2)
                 frappe.delete_doc("Payment Entry", payment.name, force=True, ignore_permissions=True)
-            except:
-                pass
+            except (frappe.DoesNotExistError, frappe.ValidationError):
+                continue
         
         # Delete SEPA Mandates (linked to members, not customers directly)
         # Find member linked to this customer and delete their SEPA Mandates

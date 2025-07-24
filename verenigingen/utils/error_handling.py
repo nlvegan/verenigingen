@@ -415,3 +415,119 @@ def setup_error_monitoring():
     # This would set up error monitoring, alerting, etc.
     # Implementation depends on monitoring infrastructure
     pass
+
+
+def require_permission_decorator(
+    doctype: str, perm_type: str = "read", custom_message: str = None
+) -> Callable:
+    """
+    Decorator to require specific permissions for page access - development helper
+
+    Args:
+        doctype: DocType to check permission for
+        perm_type: Type of permission (read, write, create, delete)
+        custom_message: Custom error message
+    """
+
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if not frappe.has_permission(doctype, perm_type):
+                message = custom_message or f"You don't have {perm_type} permission for {doctype}"
+                frappe.throw(_(message), frappe.PermissionError)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def validate_admin_access(custom_message: str = None) -> None:
+    """
+    Validate user has admin access - development utility
+
+    Args:
+        custom_message: Custom error message
+    """
+    if not frappe.has_permission("System Manager"):
+        message = custom_message or "You don't have permission to access this page"
+        frappe.throw(_(message), frappe.PermissionError)
+
+
+def validate_entity_exists(doctype: str, name: str, custom_message: str = None) -> str:
+    """
+    Validate that an entity exists and return its name - development helper
+
+    Args:
+        doctype: DocType to check
+        name: Entity name/ID to validate
+        custom_message: Custom error message
+
+    Returns:
+        Entity name if found
+
+    Raises:
+        DoesNotExistError: If entity not found
+    """
+    if not name:
+        message = custom_message or f"{doctype} parameter is required"
+        frappe.throw(_(message), frappe.ValidationError)
+
+    try:
+        # Verify entity exists by trying to get its name
+        existing_name = frappe.db.get_value(doctype, name, "name")
+        if not existing_name:
+            message = custom_message or f"{doctype} not found"
+            frappe.throw(_(message), frappe.DoesNotExistError)
+        return existing_name
+    except frappe.DoesNotExistError:
+        message = custom_message or f"{doctype} not found"
+        frappe.throw(_(message), frappe.DoesNotExistError)
+
+
+def validate_user_logged_in(custom_message: str = None) -> str:
+    """
+    Validate user is logged in and return user email - development helper
+
+    Args:
+        custom_message: Custom error message
+
+    Returns:
+        User email
+
+    Raises:
+        PermissionError: If user is guest
+    """
+    if frappe.session.user == "Guest":
+        message = custom_message or "Please login to access this page"
+        frappe.throw(_(message), frappe.PermissionError)
+    return frappe.session.user
+
+
+def validate_member_for_user(user: str = None, custom_message: str = None) -> str:
+    """
+    Validate user has associated member record - development helper
+
+    Args:
+        user: User email (defaults to current user)
+        custom_message: Custom error message
+
+    Returns:
+        Member name
+
+    Raises:
+        DoesNotExistError: If no member found
+    """
+    if not user:
+        user = validate_user_logged_in()
+
+    # Try multiple lookup methods
+    member = frappe.db.get_value("Member", {"email": user}, "name") or frappe.db.get_value(
+        "Member", {"user": user}, "name"
+    )
+
+    if not member:
+        message = custom_message or "No member record found for your account"
+        frappe.throw(_(message), frappe.DoesNotExistError)
+
+    return member

@@ -362,7 +362,7 @@ def install_missing_btw_fields():
         frappe.msgprint(_("BTW custom fields installed successfully. Please refresh to see changes."))
         return True
     except Exception as e:
-        frappe.msgprint(_("Error installing BTW fields: {0}").format(str(e)))
+        frappe.msgprint(_(f"Error installing BTW fields: {str(e)}"))
         frappe.log_error(f"Error installing BTW fields: {str(e)}", "BTW Field Installation Error")
         return False
 
@@ -412,7 +412,7 @@ def fix_btw_installation():
         return True
 
     except Exception as e:
-        frappe.msgprint(_("Error fixing BTW installation: {0}").format(str(e)))
+        frappe.msgprint(_(f"Error fixing BTW installation: {str(e)}"))
         return False
 
 
@@ -1284,14 +1284,31 @@ def verify_email_templates():
             else:
                 missing_templates.append(template_name)
 
-        # Get all email templates with verenigingen-related names
+        # Get verenigingen email templates using explicit template list
+        verenigingen_templates = [
+            # Membership templates
+            "membership_application_received",
+            "membership_application_approved",
+            "membership_application_rejected",
+            "membership_renewal_reminder",
+            "membership_expiry_notice",
+            "membership_payment_received",
+            "membership_payment_failed",
+            # Volunteer templates
+            "volunteer_application_received",
+            "volunteer_application_approved",
+            "volunteer_expense_approval_request",
+            "volunteer_expense_approved",
+            "volunteer_expense_rejected",
+            # Termination templates
+            "termination_request_received",
+            "termination_approved",
+            "termination_overdue_notification",
+        ]
+
         all_templates = frappe.get_all(
             "Email Template",
-            filters=[
-                ["name", "like", "%membership%"],
-                ["name", "like", "%volunteer%"],
-                ["name", "like", "%termination%"],
-            ],
+            filters=[["name", "in", verenigingen_templates]],
             fields=["name", "subject"],
         )
 

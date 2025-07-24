@@ -1984,7 +1984,7 @@ class EBoekhoudenMigration(Document):
                     "customer_type": "Company" if is_company else "Individual",
                     "customer_group": "All Customer Groups",
                     "territory": territory,
-                    "default_currency": settings.default_currency or "EUR",
+                    "default_currency": self._get_migration_currency(settings),
                     "disabled": 0,
                 }
             )
@@ -2055,7 +2055,7 @@ class EBoekhoudenMigration(Document):
                     "customer_type": "Company" if company_name else "Individual",
                     "customer_group": "All Customer Groups",  # Default customer group
                     "territory": territory,
-                    "default_currency": settings.default_currency or "EUR",
+                    "default_currency": self._get_migration_currency(settings),
                     "disabled": 0,
                 }
             )
@@ -2168,7 +2168,7 @@ class EBoekhoudenMigration(Document):
                     "supplier_name": display_name,
                     "supplier_type": "Company" if is_company else "Individual",
                     "supplier_group": "All Supplier Groups",
-                    "default_currency": settings.default_currency or "EUR",
+                    "default_currency": self._get_migration_currency(settings),
                     "disabled": 0,
                 }
             )
@@ -2239,7 +2239,7 @@ class EBoekhoudenMigration(Document):
                     "supplier_name": display_name,
                     "supplier_type": "Company" if company_name else "Individual",
                     "supplier_group": "All Supplier Groups",  # Default supplier group
-                    "default_currency": settings.default_currency or "EUR",
+                    "default_currency": self._get_migration_currency(settings),
                     "disabled": 0,
                 }
             )
@@ -3430,6 +3430,25 @@ def update_account_type_mapping(account_name, new_account_type, company):
     except Exception as e:
         frappe.log_error(f"Error updating account type: {str(e)}")
         return {"success": False, "error": str(e)}
+
+    def _get_migration_currency(self, settings):
+        """Get currency for migration with explicit validation"""
+        # Check settings default currency
+        if hasattr(settings, "default_currency") and settings.default_currency:
+            return settings.default_currency
+
+        # Get company default currency
+        if hasattr(self, "company") and self.company:
+            company_currency = frappe.db.get_value("Company", self.company, "default_currency")
+            if company_currency:
+                return company_currency
+
+        # Final fallback with logging
+        frappe.log_error(
+            f"No currency configured in E-Boekhouden Settings or Company settings for migration '{self.name}', using 'EUR' fallback",
+            "E-Boekhouden Migration Currency Configuration",
+        )
+        return "EUR"
 
 
 @frappe.whitelist()

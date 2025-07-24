@@ -4,9 +4,18 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
-from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
+from verenigingen.utils.constants import Limits, Membership, PaymentStatus
+from verenigingen.utils.error_handling import cache_with_ttl, handle_api_error, validate_required_fields
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
+
+
+def validate_member_exists(member_id: str | None) -> str:
+    """Validate member exists and return member ID - development helper"""
+    member = get_member_from_user(member_id)
+    if not member:
+        frappe.throw(_("Member not found"), frappe.DoesNotExistError)
+    return member
 
 
 @handle_api_error
@@ -15,10 +24,8 @@ from verenigingen.utils.performance_utils import performance_monitor
 def get_dashboard_data(member=None):
     """Get payment dashboard summary data"""
     # Get actual member ID
-    member = get_member_from_user(member)
-
-    if not member:
-        frappe.throw(_("Member not found"))
+    # Modernized validation with helper
+    member = validate_member_exists(member)
 
     member_doc = frappe.get_doc("Member", member)
 
@@ -51,24 +58,38 @@ def get_dashboard_data(member=None):
         else 0
     )
 
-    # Check for failed payments
+    # Check for failed payments - optimized ORM approach
     has_failed_payments = False
     if member_doc.customer:
-        # Get failed invoices through dues schedule relationship
-        failed_invoices = frappe.db.sql(
-            """
-            SELECT COUNT(DISTINCT si.name)
-            FROM `tabSales Invoice` si
-            INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = %s
-            WHERE si.customer = %s
-            AND si.status = 'Overdue'
-            AND si.docstatus = 1
-            AND si.posting_date >= mds.start_date
-            AND (mds.end_date IS NULL OR si.posting_date <= mds.end_date)
-        """,
-            (member, member_doc.customer),
-        )[0][0]
-        has_failed_payments = failed_invoices > 0
+        # Get active dues schedule for date range validation - optimized query
+        active_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member, "status": Membership.STATUS_ACTIVE},
+            fields=["next_billing_period_start_date", "next_billing_period_end_date"],
+            limit=1,  # Usually only one active schedule per member
+            order_by="creation DESC",  # Get most recent if multiple exist
+        )
+
+        if active_schedules:
+            schedule = active_schedules[0]
+            # Build filters for overdue invoices within dues schedule period
+            invoice_filters = {
+                "customer": member_doc.customer,
+                "status": PaymentStatus.INVOICE_OVERDUE,
+                "docstatus": 1,
+                "posting_date": [">=", schedule.next_billing_period_start_date],
+            }
+
+            # Add end date filter if schedule has one
+            if schedule.next_billing_period_end_date:
+                invoice_filters["posting_date"] = [
+                    "between",
+                    [schedule.next_billing_period_start_date, schedule.next_billing_period_end_date],
+                ]
+
+            # Use count() for efficiency - indexed query
+            failed_count = frappe.db.count("Sales Invoice", invoice_filters)
+            has_failed_payments = failed_count > 0
 
     # Get next payment info
     next_payment = get_next_payment(member)
@@ -93,10 +114,8 @@ def get_dashboard_data(member=None):
 def get_payment_method(member=None):
     """Get active payment method details"""
     # Get actual member ID
-    member = get_member_from_user(member)
-
-    if not member:
-        frappe.throw(_("Member not found"))
+    # Modernized validation with helper
+    member = validate_member_exists(member)
 
     member_doc = frappe.get_doc("Member", member)
     active_mandate = member_doc.get_active_sepa_mandate()
@@ -125,10 +144,8 @@ def get_payment_method(member=None):
 def get_payment_history(member=None, year=None, status=None, **kwargs):
     """Get payment history for member"""
     # Get actual member ID
-    member = get_member_from_user(member)
-
-    if not member:
-        frappe.throw(_("Member not found"))
+    # Modernized validation with helper
+    member = validate_member_exists(member)
 
     member_doc = frappe.get_doc("Member", member)
 
@@ -158,11 +175,11 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         start=offset,
     )
 
-    # Pagination support
-    limit = frappe.utils.cint(kwargs.get("limit", 100))
+    # Pagination support with constants for limits
+    limit = frappe.utils.cint(kwargs.get("limit", Limits.DEFAULT_PAGE_SIZE * 5))  # 100 default
     offset = frappe.utils.cint(kwargs.get("offset", 0))
-    if limit > 1000:
-        limit = 1000  # Max limit for performance
+    if limit > Limits.MAX_PAGE_SIZE:
+        limit = Limits.MAX_PAGE_SIZE  # Max limit for performance
 
     # Get sales invoices with membership info through dues schedule
     invoice_conditions = "si.customer = %(customer)s AND si.docstatus = 1"
@@ -200,6 +217,15 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
     # Format payment history
     history = []
 
+    # Batch fetch membership start dates to avoid N+1 queries - performance optimization
+    membership_ids = [inv.membership for inv in invoices if inv.membership]
+    membership_start_dates = {}
+    if membership_ids:
+        memberships = frappe.get_all(
+            "Membership", filters={"name": ["in", membership_ids]}, fields=["name", "start_date"]
+        )
+        membership_start_dates = {m.name: m.start_date for m in memberships}
+
     for payment in payments:
         history.append(
             {
@@ -213,16 +239,17 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         )
 
     for invoice in invoices:
-        if invoice.status in ["Paid", "Credit Note Issued"]:
-            status = "Paid"
-        elif invoice.status == "Overdue":
-            status = "Failed"
+        # Modernized with centralized status constants
+        if invoice.status in PaymentStatus.PAID_STATUSES:
+            status = PaymentStatus.STATUS_PAID
+        elif invoice.status == PaymentStatus.INVOICE_OVERDUE:
+            status = PaymentStatus.STATUS_FAILED
         else:
-            status = "Pending"
+            status = PaymentStatus.STATUS_PENDING
 
         description = "Membership Fee"
-        if invoice.membership:
-            start_date = frappe.db.get_value("Membership", invoice.membership, "start_date")
+        if invoice.membership and invoice.membership in membership_start_dates:
+            start_date = membership_start_dates[invoice.membership]
             if start_date:
                 from frappe.utils import getdate
 
@@ -254,10 +281,8 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
 def get_mandate_history(member=None):
     """Get SEPA mandate history"""
     # Get actual member ID
-    member = get_member_from_user(member)
-
-    if not member:
-        frappe.throw(_("Member not found"))
+    # Modernized validation with helper
+    member = validate_member_exists(member)
 
     mandates = frappe.get_all(
         "SEPA Mandate",
@@ -294,10 +319,8 @@ def get_mandate_history(member=None):
 def get_payment_schedule(member=None):
     """Get upcoming payment schedule"""
     # Get actual member ID
-    member = get_member_from_user(member)
-
-    if not member:
-        frappe.throw(_("Member not found"))
+    # Modernized validation with helper
+    member = validate_member_exists(member)
 
     # Get active dues schedule
     active_dues_schedule = frappe.get_all(
@@ -320,18 +343,9 @@ def get_payment_schedule(member=None):
     dues_schedule = active_dues_schedule[0]
     schedule = []
 
-    # Generate next 12 months of payments based on billing frequency
+    # Generate next 12 months of payments based on billing frequency - modernized with constants
     billing_frequency = dues_schedule.billing_frequency
-    if billing_frequency == "Monthly":
-        months = 1
-    elif billing_frequency == "Quarterly":
-        months = 3
-    elif billing_frequency == "Semi-Annual":
-        months = 6
-    elif billing_frequency == "Annual":
-        months = 12
-    else:
-        months = 1  # Default to monthly
+    months = Membership.BILLING_FREQUENCY_MONTHS.get(billing_frequency, 1)  # Default to monthly
 
     # Calculate amount based on billing frequency
     dues_rate = flt(dues_schedule.dues_rate, 2)
@@ -467,7 +481,8 @@ def export_payment_history_csv(year=None):
     frappe.local.response.type = "csv"
 
 
-def get_member_from_user(user=None):
+@cache_with_ttl(ttl=300)  # Cache for 5 minutes - frequently accessed lookup
+def get_member_from_user(user: str = None) -> str | None:
     """Get member record for logged in user or specified user"""
     if not user:
         user = frappe.session.user

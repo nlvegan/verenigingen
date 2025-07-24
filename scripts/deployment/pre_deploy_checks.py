@@ -166,7 +166,8 @@ class PreDeploymentChecker:
             return
             
         with open(req_file, 'r') as f:
-            requirements = f.read().strip().split('\n')
+            content = f.read().strip()
+            requirements = content.split('\n') if content else []
             
         if not requirements or all(not line.strip() for line in requirements):
             self.warnings.append("requirements.txt is empty")

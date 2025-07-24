@@ -360,7 +360,7 @@ def health():
         response = {
             "status": "healthy" if all_healthy else "unhealthy",
             "checks": checks,
-            "timestamp": frappe.utils.now()
+            "timestamp": frappe.utils.now_datetime()  # More explicit datetime
         }
         
         frappe.response["content_type"] = "application/json"
@@ -371,7 +371,7 @@ def health():
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": frappe.utils.now()
+            "timestamp": frappe.utils.now_datetime()  # More explicit datetime
         }
 
 def check_database():

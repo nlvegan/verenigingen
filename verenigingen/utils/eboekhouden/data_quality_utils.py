@@ -133,15 +133,16 @@ def _check_uncategorized_transactions(migration_doc, report):
         as_dict=True,
     )
 
-    if generic_items and generic_items[0].get("invoice_count", 0) > 0:
+    if generic_items and len(generic_items) > 0 and generic_items[0].get("invoice_count", 0) > 0:
+        generic_item = generic_items[0]
         report["issues"].append(
             {
                 "type": "generic_items",
                 "severity": "low",
-                "count": generic_items[0].get("invoice_count", 0),
+                "count": generic_item.get("invoice_count", 0),
                 "details": {
-                    "invoices_affected": generic_items[0].get("invoice_count", 0),
-                    "line_items": generic_items[0].get("line_count", 0),
+                    "invoices_affected": generic_item.get("invoice_count", 0),
+                    "line_items": generic_item.get("line_count", 0),
                 },
             }
         )

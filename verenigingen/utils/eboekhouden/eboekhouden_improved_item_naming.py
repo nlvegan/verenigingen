@@ -169,26 +169,59 @@ def clean_item_name(account_name):
 
 
 def get_or_create_item_group(group_name):
-    """Get or create item group"""
+    """Get or create item group with proper validation (for eBoekhouden migration only)"""
     if frappe.db.exists("Item Group", group_name):
         return group_name
 
-    # Find parent group
-    parent = "Services"
-    if not frappe.db.exists("Item Group", parent):
-        parent = frappe.db.get_value("Item Group", {"is_group": 1}, "name")
+    # Log auto-creation for audit trail
+    frappe.log_error(
+        f"Auto-creating item group '{group_name}' during eBoekhouden migration. "
+        "Consider pre-creating item groups for better data organization.",
+        "eBoekhouden Migration Auto-Creation",
+    )
 
-    # Create new group
+    # Find parent group with explicit validation
+    parent = None
+    if frappe.db.exists("Item Group", "Services"):
+        parent = "Services"
+    else:
+        # Look for any group parent
+        parent = frappe.db.get_value("Item Group", {"is_group": 1}, "name")
+        if not parent:
+            frappe.throw(
+                "No parent item group found. Please ensure 'Services' item group exists or configure a parent group before running eBoekhouden migration."
+            )
+
+    # Create new group with explicit error handling
     try:
         group = frappe.new_doc("Item Group")
         group.item_group_name = group_name
         group.parent_item_group = parent
         group.is_group = 1
         group.insert(ignore_permissions=True)
+
+        frappe.logger().info(
+            f"eBoekhouden Migration: Created item group '{group_name}' under parent '{parent}'"
+        )
         return group_name
-    except Exception:
-        # Return default group
-        return frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
+
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to create item group '{group_name}': {str(e)}",
+            "eBoekhouden Migration Item Group Creation Error",
+        )
+
+        # Use fallback with explicit validation
+        fallback_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name")
+        if not fallback_group:
+            frappe.throw(
+                "Cannot create item group and no fallback group available. Please configure item groups before running eBoekhouden migration."
+            )
+
+        frappe.logger().warning(
+            f"eBoekhouden Migration: Using fallback item group '{fallback_group}' for '{group_name}'"
+        )
+        return fallback_group
 
 
 def get_or_create_generic_item(company):

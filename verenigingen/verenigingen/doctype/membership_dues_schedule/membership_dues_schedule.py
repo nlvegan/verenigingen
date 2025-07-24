@@ -30,12 +30,22 @@ class MembershipDuesSchedule(Document):
 
         try:
             template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+
+            # Validate template has required configuration before using it
+            if not template.suggested_amount:
+                frappe.throw(
+                    f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+                )
+
             values.update(
                 {
-                    "minimum_amount": template.minimum_amount or 0,
-                    "suggested_amount": template.suggested_amount or 0,
-                    "billing_frequency": template.billing_frequency or "Annual",
-                    "invoice_days_before": template.invoice_days_before or 30,
+                    "minimum_amount": template.minimum_amount if template.minimum_amount is not None else 0,
+                    "suggested_amount": template.suggested_amount,  # Required field, validated above
+                    "billing_frequency": template.billing_frequency
+                    or "Annual",  # Explicit default, validated in template creation
+                    "invoice_days_before": template.invoice_days_before
+                    if template.invoice_days_before is not None
+                    else 30,  # Explicit null check
                 }
             )
         except Exception as e:
@@ -43,16 +53,12 @@ class MembershipDuesSchedule(Document):
                 f"Failed to load dues schedule template '{membership_type.dues_schedule_template}': {str(e)}"
             )
 
-        # Validate template has required values
-        if not values["suggested_amount"]:
-            frappe.throw(
-                f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
-            )
-
-        # Validate template respects membership type minimum
-        membership_type_minimum = membership_type.minimum_amount or 0
-        template_minimum = values["minimum_amount"] or 0
-        template_suggested = values["suggested_amount"] or 0
+        # Validate template respects membership type minimum (both required)
+        membership_type_minimum = (
+            membership_type.minimum_amount if membership_type.minimum_amount is not None else 0
+        )
+        template_minimum = values["minimum_amount"]  # Already validated above
+        template_suggested = values["suggested_amount"]  # Already validated above
 
         if template_minimum < membership_type_minimum:
             frappe.throw(
@@ -361,7 +367,13 @@ class MembershipDuesSchedule(Document):
                 self.dues_rate = tier.amount
             elif self.contribution_mode == "Calculator":
                 template_values = self.get_template_values()
-                self.dues_rate = template_values.get("suggested_amount", 0) * (self.base_multiplier or 1.0)
+                suggested_amount = template_values.get("suggested_amount", 0)
+                if not suggested_amount:
+                    frappe.throw("Cannot calculate dues: template has no suggested_amount configured")
+
+                # Use base multiplier, defaulting to 1.0 if not set
+                multiplier = self.base_multiplier if self.base_multiplier is not None else 1.0
+                self.dues_rate = suggested_amount * multiplier
             elif self.contribution_mode == "Custom":
                 if not self.uses_custom_amount:
                     frappe.throw("Custom dues rate must be enabled for custom contribution mode")
@@ -423,7 +435,11 @@ class MembershipDuesSchedule(Document):
                     )
 
                 template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                suggested_amount = template.suggested_amount or 0
+                if not template.suggested_amount:
+                    frappe.throw(
+                        f"Dues schedule template '{membership_type.dues_schedule_template}' must have a suggested_amount configured"
+                    )
+                suggested_amount = template.suggested_amount
 
                 if suggested_amount > 0:
                     multiplier = float(self.dues_rate) / float(suggested_amount)
@@ -566,7 +582,8 @@ class MembershipDuesSchedule(Document):
                 return False, "Member is not eligible for billing"
 
         # Check if it's time to generate invoice
-        days_before = self.invoice_days_before or 30
+        # Use configured days_before or system default
+        days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
         generate_on_date = add_days(self.next_invoice_date, -days_before)
 
         if getdate(today()) < getdate(generate_on_date):
@@ -690,9 +707,14 @@ class MembershipDuesSchedule(Document):
             period_end = invoice_date.replace(month=12, day=31)
             return period_start, period_end
         elif self.billing_frequency == "Custom":
-            # For custom frequency, use the custom settings
-            frequency_number = getattr(self, "custom_frequency_number", 1) or 1
-            frequency_unit = getattr(self, "custom_frequency_unit", "Months") or "Months"
+            # For custom frequency, use the custom settings (both required for custom billing)
+            frequency_number = getattr(self, "custom_frequency_number", None)
+            if not frequency_number or frequency_number < 1:
+                frequency_number = 1  # Safe default
+
+            frequency_unit = getattr(self, "custom_frequency_unit", None)
+            if not frequency_unit:
+                frequency_unit = "Months"  # Safe default
 
             if frequency_unit == "Days":
                 # Custom daily periods
@@ -891,8 +913,14 @@ class MembershipDuesSchedule(Document):
     def get_membership_dues_item(self):
         """Get or create the membership dues item"""
         if self.billing_frequency == "Custom":
-            frequency_number = getattr(self, "custom_frequency_number", 1) or 1
-            frequency_unit = getattr(self, "custom_frequency_unit", "Months") or "Months"
+            # Get custom frequency settings with validation
+            frequency_number = getattr(self, "custom_frequency_number", None)
+            if not frequency_number or frequency_number < 1:
+                frequency_number = 1  # Safe default
+
+            frequency_unit = getattr(self, "custom_frequency_unit", None)
+            if not frequency_unit:
+                frequency_unit = "Months"  # Safe default
             frequency_desc = f"Every {frequency_number} {frequency_unit}"
             item_name = f"Membership Dues - Custom ({frequency_desc})"
         else:
@@ -987,9 +1015,14 @@ class MembershipDuesSchedule(Document):
         elif self.billing_frequency == "Annual":
             return add_years(from_date, 1)
         elif self.billing_frequency == "Custom":
-            # Use custom frequency settings
-            frequency_number = getattr(self, "custom_frequency_number", 1) or 1
-            frequency_unit = getattr(self, "custom_frequency_unit", "Months") or "Months"
+            # Use custom frequency settings with validation
+            frequency_number = getattr(self, "custom_frequency_number", None)
+            if not frequency_number or frequency_number < 1:
+                frequency_number = 1  # Safe default
+
+            frequency_unit = getattr(self, "custom_frequency_unit", None)
+            if not frequency_unit:
+                frequency_unit = "Months"  # Safe default
 
             if frequency_unit == "Days":
                 return add_days(from_date, frequency_number)
@@ -1593,8 +1626,15 @@ def debug_template_daglid_issue():
         billing_frequency = "Annual"  # Default from auto_creator
         if membership_type.dues_schedule_template:
             template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-            # This is the problematic line
-            billing_frequency = template.billing_frequency or "Annual"
+            # Use explicit validation instead of fallback
+            if template.billing_frequency:
+                billing_frequency = template.billing_frequency
+            else:
+                billing_frequency = "Annual"
+                frappe.log_error(
+                    f"Template '{membership_type.dues_schedule_template}' has no billing_frequency configured, using default 'Annual'",
+                    "Membership Dues Schedule Template Configuration",
+                )
 
         result["inheritance_tests"]["auto_creator_logic"] = {
             "would_set": billing_frequency,

@@ -168,7 +168,16 @@ def fix_specific_member_sepa_mandate(member_name):
     result = create_missing_sepa_mandates(dry_run=False)
 
     # Check if this specific member was processed
-    for mandate_info in result.get("results", {}).get("mandates", []):
+    # Safe extraction of results data
+    results_data = result.get("results")
+    if not results_data or not isinstance(results_data, dict):
+        return {"success": False, "message": "Invalid results format from mandate creation"}
+
+    mandates_list = results_data.get("mandates", [])
+    if not isinstance(mandates_list, list):
+        mandates_list = []
+
+    for mandate_info in mandates_list:
         if mandate_info.get("member") == member_name:
             return {
                 "success": True,
@@ -177,7 +186,11 @@ def fix_specific_member_sepa_mandate(member_name):
             }
 
     # Check errors
-    for error_info in result.get("results", {}).get("errors", []):
+    errors_list = results_data.get("errors", [])
+    if not isinstance(errors_list, list):
+        errors_list = []
+
+    for error_info in errors_list:
         if error_info.get("member") == member_name:
             return {"success": False, "message": f"Error creating mandate: {error_info.get('error')}"}
 

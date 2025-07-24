@@ -516,9 +516,16 @@ def approve_membership_application(member_name, notes=None):
         # Send approval email with payment instructions
         # Get application invoice from payment history child table
         application_invoice_name = None
-        for payment in member.payment_history or []:
-            if payment.invoice_type == "Application" or "application" in (payment.description or "").lower():
-                application_invoice_name = payment.invoice
+        # Safe iteration over payment history
+        payment_history = getattr(member, "payment_history", None)
+        if not payment_history:
+            payment_history = []
+
+        for payment in payment_history:
+            payment_description = getattr(payment, "description", None) or ""
+            invoice_type = getattr(payment, "invoice_type", None)
+            if invoice_type == "Application" or "application" in payment_description.lower():
+                application_invoice_name = getattr(payment, "invoice", None)
                 break
 
         if application_invoice_name:
@@ -580,9 +587,16 @@ def process_application_payment_endpoint(member_name, payment_method, payment_re
         member = frappe.get_doc("Member", member_name)
         # Get application invoice from payment history child table
         application_invoice_name = None
-        for payment in member.payment_history or []:
-            if payment.invoice_type == "Application" or "application" in (payment.description or "").lower():
-                application_invoice_name = payment.invoice
+        # Safe iteration over payment history
+        payment_history = getattr(member, "payment_history", None)
+        if not payment_history:
+            payment_history = []
+
+        for payment in payment_history:
+            payment_description = getattr(payment, "description", None) or ""
+            invoice_type = getattr(payment, "invoice_type", None)
+            if invoice_type == "Application" or "application" in payment_description.lower():
+                application_invoice_name = getattr(payment, "invoice", None)
                 break
 
         if application_invoice_name:

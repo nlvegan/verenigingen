@@ -462,7 +462,7 @@ class EnhancedEBoekhoudenMigration:
         # Add items (simplified)
         data["items"].append(
             {
-                "item_code": self.settings.get("standaard_item") or "Algemeen",
+                "item_code": self._get_standard_item(),
                 "description": mutation.get("Omschrijving", "")[:140],
                 "qty": 1,
                 "rate": abs(float(mutation.get("Bedrag", 0) or 0)),
@@ -489,6 +489,23 @@ class EnhancedEBoekhoudenMigration:
         frappe.throw(
             "Payable account must be explicitly configured in payment mappings. "
             "Implicit account lookup by type has been disabled for data safety."
+        )
+
+    def _get_standard_item(self):
+        """Get standard item from explicit configuration"""
+        if self.settings.standaard_item:
+            if frappe.db.exists("Item", self.settings.standaard_item):
+                return self.settings.standaard_item
+            else:
+                frappe.throw(
+                    f"Configured standard item '{self.settings.standaard_item}' does not exist. "
+                    "Please configure a valid standard item in E-Boekhouden Settings."
+                )
+
+        frappe.throw(
+            "No standard item configured in E-Boekhouden Settings. "
+            "Please configure 'standaard_item' field for migration processing. "
+            "Implicit item fallbacks have been disabled for data safety."
         )
 
     def _process_purchase_invoices(self, mutations, checkpoint):

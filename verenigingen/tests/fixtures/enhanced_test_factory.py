@@ -186,8 +186,9 @@ class EnhancedTestDataFactory:
                         data[field.fieldname] = f"Test-{field.fieldname}"
                     elif field.fieldtype == "Select" and field.options:
                         data[field.fieldname] = field.options.split("\n")[0]
-        except:
-            pass
+        except (frappe.DoesNotExistError, AttributeError) as e:
+            frappe.log_error(f"Failed to get Member meta for field validation: {e}", "EnhancedTestFactory")
+            # Continue without meta validation - let document validation catch issues
         
         try:
             member = frappe.get_doc({
@@ -234,8 +235,9 @@ class EnhancedTestDataFactory:
                         data[field.fieldname] = f"Test-{field.fieldname}"
                     elif field.fieldtype == "Select" and field.options:
                         data[field.fieldname] = field.options.split("\n")[0]
-        except:
-            pass
+        except (frappe.DoesNotExistError, AttributeError) as e:
+            frappe.log_error(f"Failed to get Volunteer meta for field validation: {e}", "EnhancedTestFactory")
+            # Continue without meta validation - let document validation catch issues
         
         try:
             volunteer = frappe.get_doc({
@@ -270,8 +272,9 @@ class EnhancedTestDataFactory:
                         data[field.fieldname] = f"Test-{field.fieldname}"
                     elif field.fieldtype == "Select" and field.options:
                         data[field.fieldname] = field.options.split("\n")[0]
-        except:
-            pass
+        except (frappe.DoesNotExistError, AttributeError) as e:
+            frappe.log_error(f"Failed to get Chapter meta for field validation: {e}", "EnhancedTestFactory")
+            # Continue without meta validation - let document validation catch issues
         
         try:
             chapter = frappe.get_doc({
@@ -312,8 +315,9 @@ class EnhancedTestDataFactory:
                         data[field.fieldname] = f"Test-{field.fieldname}"
                     elif field.fieldtype == "Select" and field.options:
                         data[field.fieldname] = field.options.split("\n")[0]
-        except:
-            pass
+        except (frappe.DoesNotExistError, AttributeError) as e:
+            frappe.log_error(f"Failed to get Volunteer Skill meta for field validation: {e}", "EnhancedTestFactory")
+            # Continue without meta validation - let document validation catch issues
         
         try:
             skill = frappe.get_doc({

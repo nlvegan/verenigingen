@@ -14,7 +14,12 @@ class ExpenseMixin:
         try:
             # Check if expense already exists in history
             existing_idx = None
-            for idx, row in enumerate(self.volunteer_expenses or []):
+            # Safe iteration over volunteer expenses
+            volunteer_expenses = getattr(self, "volunteer_expenses", None)
+            if not volunteer_expenses:
+                volunteer_expenses = []
+
+            for idx, row in enumerate(volunteer_expenses):
                 if row.expense_claim == expense_claim_name:
                     existing_idx = idx
                     break

@@ -1,33 +1,40 @@
-// UI utility functions for Member doctype
+// UI utility functions for Member doctype - modernized for performance
 
 function setup_payment_history_grid(frm) {
-	if (frm.fields_dict.payment_history) {
-		$(frm.fields_dict.payment_history.grid.wrapper).addClass('payment-history-grid');
+	if (!frm.fields_dict.payment_history) return;
 
-		// Remove 'No.' column from the payment history grid
-		setTimeout(function() {
-			const gridWrapper = $(frm.fields_dict.payment_history.grid.wrapper);
+	const gridWrapper = $(frm.fields_dict.payment_history.grid.wrapper);
+	gridWrapper.addClass('payment-history-grid');
 
-			// Find and hide the idx column
-			gridWrapper.find('.grid-heading-row .grid-row-check').hide();
-			gridWrapper.find('.grid-heading-row .row-index').hide();
+	// Remove 'No.' column from the payment history grid - optimized approach
+	const hideGridColumns = () => {
+		// Use more efficient CSS-based hiding instead of individual jQuery calls
+		gridWrapper.addClass('no-idx-column');
 
-			// Hide idx column in all rows
-			gridWrapper.find('.grid-body .data-row .row-index').hide();
-			gridWrapper.find('.grid-body .data-row .grid-row-check').hide();
+		// Batch hide operations for better performance
+		const elementsToHide = gridWrapper.find(
+			'.grid-heading-row .grid-row-check, ' +
+			'.grid-heading-row .row-index, ' +
+			'.grid-body .data-row .row-index, ' +
+			'.grid-body .data-row .grid-row-check'
+		);
+		elementsToHide.hide();
+	};
 
-			// Add a class to enable custom styling via CSS
-			gridWrapper.addClass('no-idx-column');
-		}, 500);
+	// Use requestAnimationFrame for better performance than setTimeout
+	if (window.requestAnimationFrame) {
+		requestAnimationFrame(hideGridColumns);
+	} else {
+		setTimeout(hideGridColumns, 100); // Reduced timeout for faster response
+	}
 
-		// Format existing rows
-		if (frm.fields_dict.payment_history.grid && frm.fields_dict.payment_history.grid.grid_rows) {
-			frm.fields_dict.payment_history.grid.grid_rows.forEach(row => {
-				if (window.PaymentUtils && window.PaymentUtils.format_payment_history_row) {
-					window.PaymentUtils.format_payment_history_row(row);
-				}
-			});
-		}
+	// Format existing rows with optimization
+	const grid = frm.fields_dict.payment_history.grid;
+	if (grid?.grid_rows?.length && window.PaymentUtils?.format_payment_history_row) {
+		grid.grid_rows.forEach(row => {
+			window.PaymentUtils.format_payment_history_row(row);
+		});
+	}
 	}
 }
 
