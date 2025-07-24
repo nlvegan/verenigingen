@@ -324,18 +324,8 @@ def fix_member_schedule_issues(member_list):
         results = []
         from verenigingen.api.test_fixes import fix_schedule_dates
 
-        # Get default membership type for new schedules
-        default_membership_type = frappe.db.get_value(
-            "Membership Type",
-            {"is_active": 1, "default_for_new_members": 1},
-            ["name", "minimum_amount", "billing_period"],
-        )
-
-        if not default_membership_type:
-            # Fallback to first active membership type
-            default_membership_type = frappe.db.get_value(
-                "Membership Type", {"is_active": 1}, ["name", "minimum_amount", "billing_period"]
-            )
+        # Get default membership type for new schedules with correct dues information
+        default_membership_type_info = _get_default_membership_type_with_dues_info()
 
         for member_id in member_list:
             try:
@@ -394,7 +384,7 @@ def fix_member_schedule_issues(member_list):
                     else:
                         # Member has no schedule - create membership and schedule
                         create_result = _create_membership_and_schedule(
-                            member_id, member_doc, default_membership_type
+                            member_id, member_doc, default_membership_type_info
                         )
                         results.append(create_result)
 
@@ -414,7 +404,7 @@ def fix_member_schedule_issues(member_list):
         return {"success": False, "error": str(e)}
 
 
-def _create_membership_and_schedule(member_id, member_doc, default_membership_type):
+def _create_membership_and_schedule(member_id, member_doc, default_membership_type_info):
     """Helper function to create membership and dues schedule for a member"""
     try:
         from frappe.utils import add_months, today
@@ -461,7 +451,7 @@ def _create_membership_and_schedule(member_id, member_doc, default_membership_ty
                     membership = frappe.new_doc("Membership")
                     membership.member = member_id
                     membership.membership_type = (
-                        default_membership_type[0] if default_membership_type else "Maandlid"
+                        default_membership_type_info["name"] if default_membership_type_info else "Maandlid"
                     )
                     membership.start_date = today()
                     membership.renewal_date = add_months(today(), 12)  # 1 year from now
@@ -476,43 +466,29 @@ def _create_membership_and_schedule(member_id, member_doc, default_membership_ty
                         "message": "Membership creation failed due to document modification conflict",
                     }
 
-        # Create dues schedule using the default membership type settings
+        # Create dues schedule using the correct dues information
         schedule = frappe.new_doc("Membership Dues Schedule")
-        schedule.schedule_name = (
-            f"Auto-{member_id}-{default_membership_type[2] if default_membership_type else 'Monthly'}"
-        )
+        schedule.schedule_name = f"Auto-{member_id}-{default_membership_type_info['billing_frequency'] if default_membership_type_info else 'Monthly'}"
         schedule.member = member_id
         schedule.membership = membership_name
         schedule.membership_type = (
-            default_membership_type[0] if default_membership_type else "Maandlid"
+            default_membership_type_info["name"] if default_membership_type_info else "Maandlid"
         )  # Required field
         schedule.status = "Active"  # Required field
 
-        # Use the billing frequency from the default membership type
+        # Use the billing frequency from the membership type (no conversion needed)
         schedule.billing_frequency = (
-            default_membership_type[2] if default_membership_type else "Monthly"
+            default_membership_type_info["billing_frequency"] if default_membership_type_info else "Monthly"
         )  # Required field
         schedule.currency = "EUR"  # Required field
 
-        # Use the amount from the default membership type, but convert to appropriate rate
-        if default_membership_type:
-            base_amount = float(default_membership_type[1])
-            billing_freq = default_membership_type[2]
-
-            # Convert annual amount to appropriate billing frequency rate
-            if billing_freq == "Annual":
-                schedule.dues_rate = base_amount
-            elif billing_freq == "Monthly":
-                schedule.dues_rate = base_amount / 12  # Convert annual to monthly
-            elif billing_freq == "Quarterly":
-                schedule.dues_rate = base_amount / 4  # Convert annual to quarterly
-            elif billing_freq == "Daily":
-                schedule.dues_rate = base_amount / 365  # Convert annual to daily
-            else:
-                schedule.dues_rate = base_amount  # Use as-is for other frequencies
+        # Use the correct dues rate from the template (already in the right period)
+        if default_membership_type_info:
+            # The dues_rate from the template is already in the correct billing period
+            schedule.dues_rate = default_membership_type_info["dues_rate"]
         else:
             # Fallback if no default membership type found
-            schedule.dues_rate = 3.0  # €3 annual as fallback
+            schedule.dues_rate = 15.0  # €15 monthly as fallback
 
         schedule.auto_generate = 1
         schedule.next_invoice_date = today()
@@ -584,4 +560,60 @@ def _create_membership_and_schedule(member_id, member_doc, default_membership_ty
             "member": member_id,
             "success": False,
             "message": f"Failed to create membership/schedule: {str(e)}",
+        }
+
+
+def _get_default_membership_type_with_dues_info():
+    """Get default membership type with correct dues information from template"""
+    try:
+        # Get default membership type
+        membership_type = frappe.db.get_value(
+            "Membership Type",
+            {"is_active": 1, "default_for_new_members": 1},
+            ["name", "billing_period", "dues_schedule_template", "minimum_amount"],
+            as_dict=True,
+        )
+
+        if not membership_type:
+            # Fallback to first active membership type
+            membership_type = frappe.db.get_value(
+                "Membership Type",
+                {"is_active": 1},
+                ["name", "billing_period", "dues_schedule_template", "minimum_amount"],
+                as_dict=True,
+            )
+
+        if not membership_type:
+            return None
+
+        # Get the dues rate from the template
+        template_name = membership_type.get("dues_schedule_template")
+        if template_name:
+            template = frappe.get_doc("Membership Dues Schedule", template_name)
+            # Use suggested_amount first, then dues_rate, then minimum_amount as fallback
+            dues_rate = (
+                template.suggested_amount
+                or template.dues_rate
+                or membership_type.minimum_amount
+                or 15.0  # Final fallback
+            )
+        else:
+            # No template - use minimum_amount
+            dues_rate = membership_type.minimum_amount or 15.0
+
+        return {
+            "name": membership_type.name,
+            "billing_frequency": membership_type.billing_period,
+            "dues_rate": float(dues_rate),
+            "minimum_amount": float(membership_type.minimum_amount or 0),
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error getting default membership type info: {str(e)}", "Membership Type Error")
+        # Return safe fallback
+        return {
+            "name": "Maandlid",
+            "billing_frequency": "Monthly",
+            "dues_rate": 15.0,
+            "minimum_amount": 5.0,
         }

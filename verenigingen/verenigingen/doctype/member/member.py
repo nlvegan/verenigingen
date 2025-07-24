@@ -12,13 +12,16 @@ from verenigingen.utils.dutch_name_utils import (
 )
 from verenigingen.verenigingen.doctype.member.member_id_manager import validate_member_id_change
 from verenigingen.verenigingen.doctype.member.mixins.chapter_mixin import ChapterMixin
+from verenigingen.verenigingen.doctype.member.mixins.expense_mixin import ExpenseMixin
 from verenigingen.verenigingen.doctype.member.mixins.financial_mixin import FinancialMixin
 from verenigingen.verenigingen.doctype.member.mixins.payment_mixin import PaymentMixin
 from verenigingen.verenigingen.doctype.member.mixins.sepa_mixin import SEPAMandateMixin
 from verenigingen.verenigingen.doctype.member.mixins.termination_mixin import TerminationMixin
 
 
-class Member(Document, PaymentMixin, SEPAMandateMixin, ChapterMixin, TerminationMixin, FinancialMixin):
+class Member(
+    Document, PaymentMixin, ExpenseMixin, SEPAMandateMixin, ChapterMixin, TerminationMixin, FinancialMixin
+):
     """
     Member doctype with refactored structure using mixins for better organization
     """

@@ -68,6 +68,7 @@ doc_events = {
         "on_submit": [
             "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
             "verenigingen.utils.payment_notifications.on_payment_submit",
+            "verenigingen.events.expense_events.emit_expense_payment_made",
         ],
         "on_cancel": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
         "on_trash": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
@@ -116,7 +117,11 @@ doc_events = {
     "Brand Settings": {"on_update": "verenigingen.utils.brand_css_generator.generate_brand_css_file"},
     # Account Group Project Framework - validate and apply defaults
     "Journal Entry": {"validate": "verenigingen.utils.account_group_validation_hooks.validate_journal_entry"},
-    "Expense Claim": {"validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim"},
+    "Expense Claim": {
+        "validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim",
+        "on_update_after_submit": "verenigingen.events.expense_events.emit_expense_claim_approved",
+        "on_cancel": "verenigingen.events.expense_events.emit_expense_claim_cancelled",
+    },
     "Purchase Invoice": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_purchase_invoice"
     },

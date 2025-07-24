@@ -113,8 +113,10 @@ def _emit_invoice_event(event_name, event_data):
                         job_name=f"payment_history_update_{member.name}",
                         dedupe=True,  # This prevents multiple jobs for same member
                         timeout=300,  # 5 minutes timeout
-                        event_name=event_name,
-                        event_data=event_data,
+                        **{  # Separate method arguments from enqueue parameters
+                            "event_name": event_name,
+                            "event_data": event_data,
+                        },
                     )
             else:
                 # Fallback to original behavior if no customer
@@ -122,8 +124,10 @@ def _emit_invoice_event(event_name, event_data):
                     method=subscriber,
                     queue="short",
                     job_name=f"{event_name}_{event_data.get('invoice')}_{subscriber}",
-                    event_name=event_name,
-                    event_data=event_data,
+                    **{
+                        "event_name": event_name,
+                        "event_data": event_data,
+                    },
                 )
         else:
             # For other subscribers, use the original approach
@@ -131,8 +135,10 @@ def _emit_invoice_event(event_name, event_data):
                 method=subscriber,
                 queue="short",
                 job_name=f"{event_name}_{event_data.get('invoice')}_{subscriber}",
-                event_name=event_name,
-                event_data=event_data,
+                **{
+                    "event_name": event_name,
+                    "event_data": event_data,
+                },
             )
 
 

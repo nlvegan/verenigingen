@@ -30,6 +30,15 @@ class PaymentMixin:
         if not self.customer:
             return
 
+        # New approach: Only show 20 most recent entries
+        # Keep existing entries if possible for incremental updates
+        existing_invoice_map = {}
+        if hasattr(self, "payment_history") and self.payment_history:
+            existing_invoice_map = {row.invoice: row for row in self.payment_history if row.invoice}
+
+        # Limit to 20 most recent entries
+        MAX_PAYMENT_HISTORY_ENTRIES = 20
+
         self.payment_history = []
 
         try:
@@ -59,6 +68,7 @@ class PaymentMixin:
 
             query_fields = base_fields + coverage_fields
 
+            # Only get the most recent invoices
             invoices = frappe.get_all(
                 "Sales Invoice",
                 filters={
@@ -67,6 +77,7 @@ class PaymentMixin:
                 },  # Include both draft and submitted
                 fields=query_fields,
                 order_by="posting_date desc",
+                limit=MAX_PAYMENT_HISTORY_ENTRIES,
             )
 
         except Exception as e:
@@ -788,3 +799,239 @@ class PaymentMixin:
         except Exception as e:
             frappe.logger().error(f"Error refreshing financial history for member {self.name}: {str(e)}")
             return {"success": False, "message": f"Error refreshing financial history: {str(e)}"}
+
+    # ===== NEW INCREMENTAL UPDATE METHODS =====
+
+    def add_invoice_to_payment_history(self, invoice_name):
+        """Add a single invoice to payment history incrementally"""
+        if not self.customer:
+            return
+
+        try:
+            # Check if invoice already exists in payment history
+            existing_idx = None
+            for idx, row in enumerate(self.payment_history or []):
+                if row.invoice == invoice_name:
+                    existing_idx = idx
+                    break
+
+            # Get invoice details
+            invoice = frappe.get_doc("Sales Invoice", invoice_name)
+
+            # Skip if not for this customer
+            if invoice.customer != self.customer:
+                return
+
+            # Build payment history entry
+            entry_data = self._build_payment_history_entry(invoice)
+
+            if existing_idx is not None:
+                # Update existing entry
+                for key, value in entry_data.items():
+                    setattr(self.payment_history[existing_idx], key, value)
+            else:
+                # Add new entry at the beginning
+                self.payment_history.insert(0, entry_data)
+
+                # Keep only 20 most recent entries
+                if len(self.payment_history) > 20:
+                    self.payment_history = self.payment_history[:20]
+
+            # Save with minimal logging
+            self.flags.ignore_version = True
+            self.flags.ignore_links = True
+            self.save(ignore_permissions=True)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error adding invoice {invoice_name} to payment history: {str(e)}",
+                "Incremental Payment History Update",
+            )
+
+    def remove_invoice_from_payment_history(self, invoice_name):
+        """Remove a cancelled invoice from payment history"""
+        if not hasattr(self, "payment_history") or not self.payment_history:
+            return
+
+        try:
+            # Find and remove the invoice
+            updated_history = []
+            removed = False
+
+            for row in self.payment_history:
+                if row.invoice != invoice_name:
+                    updated_history.append(row)
+                else:
+                    removed = True
+
+            if removed:
+                self.payment_history = updated_history
+
+                # Save with minimal logging
+                self.flags.ignore_version = True
+                self.flags.ignore_links = True
+                self.save(ignore_permissions=True)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error removing invoice {invoice_name} from payment history: {str(e)}",
+                "Incremental Payment History Update",
+            )
+
+    def update_invoice_in_payment_history(self, invoice_name):
+        """Update an existing invoice in payment history"""
+        if not hasattr(self, "payment_history") or not self.payment_history:
+            # If no history exists, just add it
+            self.add_invoice_to_payment_history(invoice_name)
+            return
+
+        try:
+            # Find the invoice in payment history
+            found = False
+            for idx, row in enumerate(self.payment_history):
+                if row.invoice == invoice_name:
+                    found = True
+                    # Get updated invoice details
+                    invoice = frappe.get_doc("Sales Invoice", invoice_name)
+                    entry_data = self._build_payment_history_entry(invoice)
+
+                    # Update the entry
+                    for key, value in entry_data.items():
+                        setattr(self.payment_history[idx], key, value)
+                    break
+
+            if not found:
+                # Invoice not in history, add it
+                self.add_invoice_to_payment_history(invoice_name)
+            else:
+                # Save the updates with minimal logging
+                self.flags.ignore_version = True
+                self.flags.ignore_links = True
+                self.save(ignore_permissions=True)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error updating invoice {invoice_name} in payment history: {str(e)}",
+                "Incremental Payment History Update",
+            )
+
+    def _build_payment_history_entry(self, invoice):
+        """Build a payment history entry from an invoice document"""
+        try:
+            # Extract all the invoice details as in the original method
+            reference_doctype = None
+            reference_name = None
+            transaction_type = "Regular Invoice"
+
+            # Check if invoice is linked to a membership
+            if hasattr(invoice, "membership") and invoice.membership:
+                transaction_type = "Membership Invoice"
+                reference_doctype = "Membership"
+                reference_name = invoice.membership
+
+            # Find linked payment entries
+            payment_entries = frappe.get_all(
+                "Payment Entry Reference",
+                filters={"reference_doctype": "Sales Invoice", "reference_name": invoice.name},
+                fields=["parent", "allocated_amount"],
+            )
+
+            payment_status = "Unpaid"
+            payment_date = None
+            payment_entry = None
+            payment_method = None
+            paid_amount = 0
+            reconciled = 0
+
+            if payment_entries:
+                for pe in payment_entries:
+                    paid_amount += float(pe.allocated_amount or 0)
+
+                most_recent_payment = frappe.get_all(
+                    "Payment Entry",
+                    filters={"name": ["in", [pe.parent for pe in payment_entries]]},
+                    fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
+                    order_by="posting_date desc",
+                )
+
+                if most_recent_payment:
+                    payment_entry = most_recent_payment[0].name
+                    payment_date = most_recent_payment[0].posting_date
+                    payment_method = most_recent_payment[0].mode_of_payment
+                    reconciled = 1
+
+            # Set payment status
+            if invoice.docstatus == 0:
+                payment_status = "Draft"
+            elif invoice.status == "Paid":
+                payment_status = "Paid"
+            elif invoice.status == "Overdue":
+                payment_status = "Overdue"
+            elif invoice.status == "Cancelled":
+                payment_status = "Cancelled"
+            elif paid_amount > 0 and paid_amount < invoice.grand_total:
+                payment_status = "Partially Paid"
+
+            # Get coverage dates
+            coverage_start_date = None
+            coverage_end_date = None
+
+            try:
+                schedule_coverage = self._get_coverage_from_schedule(invoice.name)
+                invoice_coverage = self._get_coverage_from_invoice(invoice)
+
+                coverage_start_date = schedule_coverage[0] or invoice_coverage[0]
+                coverage_end_date = schedule_coverage[1] or invoice_coverage[1]
+            except:
+                pass
+
+            # Check for SEPA mandate
+            has_mandate = 0
+            sepa_mandate = None
+            mandate_status = None
+            mandate_reference = None
+
+            default_mandate = self.get_default_sepa_mandate()
+            if default_mandate:
+                has_mandate = 1
+                sepa_mandate = default_mandate.name
+                mandate_status = default_mandate.status
+                mandate_reference = default_mandate.mandate_id
+
+            return {
+                "invoice": invoice.name,
+                "posting_date": invoice.posting_date,
+                "due_date": invoice.due_date,
+                "coverage_start_date": coverage_start_date,
+                "coverage_end_date": coverage_end_date,
+                "transaction_type": transaction_type,
+                "reference_doctype": reference_doctype,
+                "reference_name": reference_name,
+                "amount": invoice.grand_total,
+                "outstanding_amount": invoice.outstanding_amount,
+                "status": invoice.status,
+                "payment_status": payment_status,
+                "payment_date": payment_date,
+                "payment_entry": payment_entry,
+                "payment_method": payment_method,
+                "paid_amount": paid_amount,
+                "reconciled": reconciled,
+                "has_mandate": has_mandate,
+                "sepa_mandate": sepa_mandate,
+                "mandate_status": mandate_status,
+                "mandate_reference": mandate_reference,
+            }
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error building payment history entry for invoice {invoice.name}: {str(e)}",
+                "Payment History Entry Build Error",
+            )
+            # Return minimal entry on error
+            return {
+                "invoice": invoice.name,
+                "posting_date": invoice.posting_date,
+                "amount": invoice.grand_total,
+                "status": invoice.status,
+                "payment_status": "Unknown",
+            }

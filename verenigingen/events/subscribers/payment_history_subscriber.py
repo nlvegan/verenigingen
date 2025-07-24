@@ -109,7 +109,7 @@ def _update_member_payment_history_with_lock(member_name):
 
 def handle_invoice_submitted(event_name=None, event_data=None):
     """
-    Handle invoice submission - update member payment history immediately.
+    Handle invoice submission - update member payment history incrementally.
 
     This is called by the event system when a Sales Invoice is submitted.
     """
@@ -122,24 +122,27 @@ def handle_invoice_submitted(event_name=None, event_data=None):
     if not customer or not invoice:
         return
 
-    # Find members for this customer and update their payment history
+    # Find members for this customer and update their payment history incrementally
     members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
 
     for member in members:
         try:
-            _update_member_payment_history_with_lock(member.name)
+            # Use new incremental update method
+            member_doc = frappe.get_doc("Member", member.name)
+            member_doc.add_invoice_to_payment_history(invoice)
+
             frappe.logger("payment_history").info(
-                f"Updated payment history for member {member.name} due to invoice {invoice}"
+                f"Added invoice {invoice} to payment history for member {member.name}"
             )
         except Exception as e:
             frappe.log_error(
-                f"Failed to update payment history for member {member.name} after invoice {invoice}: {str(e)}",
+                f"Failed to add invoice {invoice} to payment history for member {member.name}: {str(e)}",
                 "Invoice Payment History Update Error",
             )
 
 
 def handle_invoice_cancelled(event_name=None, event_data=None):
-    """Handle invoice cancellation - update member payment history."""
+    """Handle invoice cancellation - remove from member payment history."""
     if not event_data:
         return
 
@@ -149,18 +152,21 @@ def handle_invoice_cancelled(event_name=None, event_data=None):
     if not customer or not invoice:
         return
 
-    # Find members for this customer and update their payment history
+    # Find members for this customer and remove invoice from their payment history
     members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
 
     for member in members:
         try:
-            _update_member_payment_history_with_lock(member.name)
+            # Use new incremental removal method
+            member_doc = frappe.get_doc("Member", member.name)
+            member_doc.remove_invoice_from_payment_history(invoice)
+
             frappe.logger("payment_history").info(
-                f"Updated payment history for member {member.name} due to cancelled invoice {invoice}"
+                f"Removed cancelled invoice {invoice} from payment history for member {member.name}"
             )
         except Exception as e:
             frappe.log_error(
-                f"Failed to update payment history for member {member.name} after cancelling invoice {invoice}: {str(e)}",
+                f"Failed to remove cancelled invoice {invoice} from payment history for member {member.name}: {str(e)}",
                 "Invoice Cancellation Payment History Update Error",
             )
 
@@ -176,18 +182,21 @@ def handle_invoice_updated(event_name=None, event_data=None):
     if not customer or not invoice:
         return
 
-    # Find members for this customer and update their payment history
+    # Find members for this customer and update their payment history incrementally
     members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
 
     for member in members:
         try:
-            _update_member_payment_history_with_lock(member.name)
+            # Use new incremental update method
+            member_doc = frappe.get_doc("Member", member.name)
+            member_doc.update_invoice_in_payment_history(invoice)
+
             frappe.logger("payment_history").info(
-                f"Updated payment history for member {member.name} due to updated invoice {invoice}"
+                f"Updated invoice {invoice} in payment history for member {member.name}"
             )
         except Exception as e:
             frappe.log_error(
-                f"Failed to update payment history for member {member.name} after updating invoice {invoice}: {str(e)}",
+                f"Failed to update invoice {invoice} in payment history for member {member.name}: {str(e)}",
                 "Invoice Update Payment History Update Error",
             )
 
