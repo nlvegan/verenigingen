@@ -406,6 +406,11 @@ fixtures = [
         "doctype": "Membership Type",
         "filters": [["name", "in", ["Monthly Membership", "Annual Membership"]]],
     },
+    # Membership Dues Schedule Templates
+    {
+        "doctype": "Membership Dues Schedule",
+        "filters": [["name", "in", ["Monthly Membership Template", "Annual Membership Template"]]],
+    },
     # Items
     {
         "doctype": "Item",
