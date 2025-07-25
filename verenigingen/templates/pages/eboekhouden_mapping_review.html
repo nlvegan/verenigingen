@@ -83,7 +83,7 @@ frappe.ready(function() {
         btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Loading...');
 
         frappe.call({
-            method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.get_account_type_recommendations',
+            method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.get_account_type_recommendations',
             args: {
                 company: defaultCompany,
                 show_all: true
@@ -254,7 +254,7 @@ frappe.ready(function() {
                 let completed = 0;
                 changes.forEach(function(change) {
                     frappe.call({
-                        method: 'verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.update_account_type_mapping',
+                        method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.update_account_type_mapping',
                         args: {
                             account_name: change.account,
                             new_account_type: change.new_type,
@@ -329,7 +329,7 @@ frappe.ready(function() {
         btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
 
         frappe.call({
-            method: 'verenigingen.utils.eboekhouden_account_analyzer.create_mapping_from_suggestion',
+            method: 'verenigingen.e_boekhouden.utils_account_analyzer.create_mapping_from_suggestion',
             args: { suggestion: suggestion },
             callback: function(r) {
                 if (r.message && r.message.success) {
@@ -359,7 +359,7 @@ frappe.ready(function() {
             `Create ${analysisData.suggestions.length} mapping suggestions?`,
             function() {
                 frappe.call({
-                    method: 'verenigingen.utils.eboekhouden_account_analyzer.bulk_create_mappings',
+                    method: 'verenigingen.e_boekhouden.utils_account_analyzer.bulk_create_mappings',
                     args: { suggestions: analysisData.suggestions },
                     callback: function(r) {
                         if (r.message) {
@@ -384,7 +384,7 @@ frappe.ready(function() {
         btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Creating...');
 
         frappe.call({
-            method: 'verenigingen.utils.eboekhouden_account_analyzer.create_default_range_mappings',
+            method: 'verenigingen.e_boekhouden.utils_account_analyzer.create_default_range_mappings',
             callback: function(r) {
                 if (r.message) {
                     frappe.msgprint({
@@ -479,7 +479,7 @@ frappe.ready(function() {
     // New transaction type mapping functionality
     $('#show-type-mapping').click(function() {
         frappe.call({
-            method: 'verenigingen.utils.eboekhouden_transaction_type_mapper.get_transaction_type_mapping',
+            method: 'verenigingen.e_boekhouden.utils_transaction_type_mapper.get_transaction_type_mapping',
             callback: function(r) {
                 if (r.message) {
                     const tbody = $('#type-mapping-table');
@@ -529,7 +529,7 @@ frappe.ready(function() {
             }
         ], function(values) {
             frappe.call({
-                method: 'verenigingen.utils.eboekhouden_transaction_type_mapper.test_transaction_type_detection',
+                method: 'verenigingen.e_boekhouden.utils_transaction_type_mapper.test_transaction_type_detection',
                 args: {
                     transaction_type: values.transaction_type
                 },

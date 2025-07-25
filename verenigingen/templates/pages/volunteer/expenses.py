@@ -193,7 +193,7 @@ def update_workspace_links():
                 "title": "Verenigingen",
                 "label": "Verenigingen",
                 "icon": "non-profit",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
                 "public": 1,
                 "is_hidden": 0,
                 "content": """[

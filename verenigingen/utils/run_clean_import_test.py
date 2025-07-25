@@ -31,7 +31,7 @@ def run_clean_import_test():
 
     # Run the import
     print("\n3. Running import...")
-    from verenigingen.utils.eboekhouden_rest_full_migration import start_full_rest_import
+    from verenigingen.e_boekhouden.utils_rest_full_migration import start_full_rest_import
 
     try:
         # result = start_full_rest_import(migration.name)

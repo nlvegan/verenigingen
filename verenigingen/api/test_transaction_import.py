@@ -15,8 +15,8 @@ def test_transaction_import():
         response.append("=== Testing Transaction Import ===")
 
         # Import the iterator to fetch real data using existing working logic
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import _process_single_mutation
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import _process_single_mutation
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
         iterator = EBoekhoudenRESTIterator()
 
@@ -161,8 +161,8 @@ def test_specific_mutation(mutation_id):
         response.append(f"=== Testing Specific Mutation {mutation_id} ===")
 
         # Import required modules
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import _process_single_mutation
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import _process_single_mutation
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
         iterator = EBoekhoudenRESTIterator()
 

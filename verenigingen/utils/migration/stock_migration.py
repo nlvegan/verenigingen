@@ -26,7 +26,7 @@ class StockTransactionMigrator:
     def migrate_stock_transactions(self, settings, date_from=None, date_to=None):
         """Migrate stock transactions from e-Boekhouden"""
         try:
-            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
             # Debug logging
             print("Starting stock transaction migration...")
@@ -198,7 +198,7 @@ class StockTransactionMigrator:
 
         print("Building ledger ID to account code mapping...")
         try:
-            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+            from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
             settings = frappe.get_single("E-Boekhouden Settings")
             api = EBoekhoudenAPI(settings)
@@ -553,7 +553,7 @@ class StockTransactionMigrator:
 def test_eboekhouden_product_data():
     """Test what product/inventory data is available from e-Boekhouden API"""
     try:
-        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
         settings = frappe.get_single("E-Boekhouden Settings")
         api = EBoekhoudenAPI(settings)

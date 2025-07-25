@@ -11,7 +11,7 @@ def test_party_extraction_with_samples():
     """Test party extraction with sample Dutch banking descriptions"""
 
     try:
-        from verenigingen.utils.eboekhouden.party_extractor import EBoekhoudenPartyExtractor
+        from verenigingen.e_boekhouden.utils.party_extractor import EBoekhoudenPartyExtractor
 
         # Sample eBoekhouden mutations with Dutch descriptions
         test_mutations = [
@@ -120,7 +120,7 @@ def test_pattern_matching():
     """Test individual pattern matching with various descriptions"""
 
     try:
-        from verenigingen.utils.eboekhouden.party_extractor import EBoekhoudenPartyExtractor
+        from verenigingen.e_boekhouden.utils.party_extractor import EBoekhoudenPartyExtractor
 
         extractor = EBoekhoudenPartyExtractor("NVV")
 
@@ -171,7 +171,7 @@ def test_party_resolution_simulation():
     """Test party resolution without actually creating parties"""
 
     try:
-        from verenigingen.utils.eboekhouden.party_extractor import EBoekhoudenPartyExtractor
+        from verenigingen.e_boekhouden.utils.party_extractor import EBoekhoudenPartyExtractor
 
         extractor = EBoekhoudenPartyExtractor("NVV")
 

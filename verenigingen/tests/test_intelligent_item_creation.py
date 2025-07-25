@@ -10,7 +10,7 @@ def test_intelligent_item_creation():
     """Test the intelligent item creation function"""
 
     # Import the function
-    from verenigingen.utils.eboekhouden.eboekhouden_improved_item_naming import get_or_create_item_improved
+    from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import get_or_create_item_improved
 
     # Test parameters
     test_cases = [
@@ -63,7 +63,7 @@ def test_enhanced_import_ready():
 
     # Check if the function exists
     try:
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import start_full_rest_import
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import start_full_rest_import
 
         function_exists = True
     except ImportError as e:
@@ -72,7 +72,7 @@ def test_enhanced_import_ready():
 
     # Check if intelligent item creation is available
     try:
-        from verenigingen.utils.eboekhouden.eboekhouden_improved_item_naming import (
+        from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import (
             get_or_create_item_improved,
         )
 

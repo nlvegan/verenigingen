@@ -14,8 +14,8 @@ def test_import_one_real_transaction():
         response.append("=== Real Transaction Import Test ===")
 
         # Import required modules
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import _process_single_mutation
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import _process_single_mutation
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
         company = "Ned Ver Vegan"
         cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")

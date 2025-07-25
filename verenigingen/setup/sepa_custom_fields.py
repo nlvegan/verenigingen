@@ -163,7 +163,7 @@ def create_sepa_bank_transaction_link_doctype():
         {
             "doctype": "DocType",
             "name": doctype_name,
-            "module": "Verenigingen",
+            "module": "E-Boekhouden",
             "istable": 1,  # Child table
             "fields": [
                 {

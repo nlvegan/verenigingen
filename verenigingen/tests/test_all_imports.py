@@ -27,8 +27,8 @@ class TestAllImports(FrappeTestCase):
         import verenigingen.api.volunteer_skills
         
         # E-Boekhouden API modules
-        import verenigingen.api.eboekhouden_clean_reimport
-        import verenigingen.api.eboekhouden_migration
+        import verenigingen.e_boekhouden.api.eboekhouden_clean_reimport
+        import verenigingen.e_boekhouden.api.eboekhouden_migration
         
         # SEPA API modules
         import verenigingen.api.sepa_batch_ui
@@ -51,19 +51,19 @@ class TestAllImports(FrappeTestCase):
         import verenigingen.utils.sepa_reconciliation
         
         # E-Boekhouden utils
-        import verenigingen.utils.eboekhouden.eboekhouden_rest_client
-        import verenigingen.utils.eboekhouden.eboekhouden_rest_iterator
-        import verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration
-        import verenigingen.utils.eboekhouden.import_manager
-        import verenigingen.utils.eboekhouden.field_mapping
-        import verenigingen.utils.eboekhouden.invoice_helpers
-        import verenigingen.utils.eboekhouden.uom_manager
+        import verenigingen.e_boekhouden.utils.eboekhouden_rest_client
+        import verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator
+        import verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration
+        import verenigingen.e_boekhouden.utils.import_manager
+        import verenigingen.e_boekhouden.utils.field_mapping
+        import verenigingen.e_boekhouden.utils.invoice_helpers
+        import verenigingen.e_boekhouden.utils.uom_manager
         
         # Payment processing
-        import verenigingen.utils.eboekhouden.payment_processing.payment_entry_handler
+        import verenigingen.e_boekhouden.utils.payment_processing.payment_entry_handler
         
         # Enhanced features
-        import verenigingen.utils.eboekhouden.eboekhouden_payment_import
+        import verenigingen.e_boekhouden.utils.eboekhouden_payment_import
         
         self.assertTrue(True, "All utils imports successful")
         
@@ -87,9 +87,9 @@ class TestAllImports(FrappeTestCase):
         import verenigingen.verenigingen.doctype.sepa_mandate.sepa_mandate
         import verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch
         
-        # E-Boekhouden
-        import verenigingen.verenigingen.doctype.e_boekhouden_settings.e_boekhouden_settings
-        import verenigingen.verenigingen.doctype.e_boekhouden_ledger_mapping.e_boekhouden_ledger_mapping
+        # E-Boekhouden (now in submodule)
+        import verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings
+        import verenigingen.e_boekhouden.doctype.e_boekhouden_ledger_mapping.e_boekhouden_ledger_mapping
         
         self.assertTrue(True, "All DocType controller imports successful")
         

@@ -7,7 +7,7 @@ import frappe
 def test_uom_mapping():
     """Test the enhanced UOM mapping system"""
 
-    from verenigingen.utils.eboekhouden.uom_manager import UOMManager, map_unit_of_measure
+    from verenigingen.e_boekhouden.utils.uom_manager import UOMManager, map_unit_of_measure
 
     results = {
         "dutch_to_erpnext": [],
@@ -96,6 +96,6 @@ def test_uom_mapping():
 @frappe.whitelist()
 def setup_dutch_uoms():
     """Setup all Dutch UOMs and conversions"""
-    from verenigingen.utils.eboekhouden.uom_manager import setup_dutch_uoms as setup
+    from verenigingen.e_boekhouden.utils.uom_manager import setup_dutch_uoms as setup
 
     return setup()

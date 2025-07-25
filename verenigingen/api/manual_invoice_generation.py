@@ -2,7 +2,7 @@
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate, today
+from frappe.utils import add_days, flt, getdate, today
 
 
 @frappe.whitelist()
@@ -391,3 +391,52 @@ def test_sepa_mandate_pattern():
     except Exception as e:
         result.append(f"\n❌ Error during testing: {str(e)}")
         return {"success": False, "error": str(e), "message": "\n".join(result)}
+
+
+@frappe.whitelist()
+def check_dues_schedules():
+    """Check status of dues schedules"""
+
+    # Get schedules with upcoming invoice dates
+    schedules = frappe.get_all(
+        "Membership Dues Schedule",
+        filters={"status": "Active", "auto_generate": 1, "is_template": 0},
+        fields=["name", "member_name", "next_invoice_date", "billing_frequency"],
+        order_by="next_invoice_date",
+        limit=10,
+    )
+
+    result = {"today": today(), "cutoff_date": add_days(today(), 30), "schedules": schedules}
+
+    # Count schedules by next invoice date range
+    result["due_now"] = frappe.db.count(
+        "Membership Dues Schedule",
+        {"status": "Active", "auto_generate": 1, "next_invoice_date": ["<=", today()], "is_template": 0},
+    )
+
+    result["due_30_days"] = frappe.db.count(
+        "Membership Dues Schedule",
+        {
+            "status": "Active",
+            "auto_generate": 1,
+            "next_invoice_date": ["<=", add_days(today(), 30)],
+            "is_template": 0,
+        },
+    )
+
+    # Get some that are past due if any
+    past_due = frappe.get_all(
+        "Membership Dues Schedule",
+        filters={
+            "status": "Active",
+            "auto_generate": 1,
+            "next_invoice_date": ["<", today()],
+            "is_template": 0,
+        },
+        fields=["name", "member_name", "next_invoice_date"],
+        limit=5,
+    )
+
+    result["past_due_schedules"] = past_due
+
+    return result

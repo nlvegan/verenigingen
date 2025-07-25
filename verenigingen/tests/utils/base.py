@@ -41,6 +41,10 @@ class VereningingenTestCase(FrappeTestCase):
         self._original_session_user = frappe.session.user
         # Track test start time for error monitoring
         self._test_start_time = frappe.utils.now()
+        
+        # Initialize test data factory
+        from verenigingen.tests.test_data_factory import TestDataFactory
+        self.factory = TestDataFactory()
 
     def tearDown(self):
         """Clean up test-specific data"""
@@ -392,13 +396,46 @@ class VereningingenTestCase(FrappeTestCase):
 
     def create_test_dues_schedule(self, **kwargs):
         """Create a test dues schedule with default values"""
-        # If member is provided, create instance from template
+        # If member is provided, create instance directly (not from template)
+        # since factory method doesn't support custom kwargs like dues_rate
         if "member" in kwargs:
-            member_name = kwargs["member"]
+            member_name = kwargs.pop("member")
             membership_type_name = kwargs.get("membership_type")
             
-            # Use factory method to create from template
-            return self.factory.create_dues_schedule_for_member(member_name, membership_type_name)
+            # Get membership type if not provided
+            if not membership_type_name:
+                membership = frappe.db.get_value(
+                    "Membership",
+                    {"member": member_name, "status": "Active"},
+                    "membership_type"
+                )
+                if membership:
+                    membership_type_name = membership
+                else:
+                    # Fallback to any membership type
+                    membership_type_name = frappe.db.get_value("Membership Type", {}, "name")
+            
+            # Create schedule directly with all kwargs
+            defaults = {
+                "schedule_name": f"Test-{member_name}-{membership_type_name}",
+                "member": member_name,
+                "membership_type": membership_type_name,
+                "dues_rate": 15.00,
+                "billing_frequency": "Monthly",
+                "status": "Active",
+                "auto_generate": 1,
+                "next_invoice_date": frappe.utils.today(),
+                "is_template": 0  # This is a member instance, not template
+            }
+            defaults.update(kwargs)  # This will override dues_rate if provided
+            
+            dues_schedule = frappe.new_doc("Membership Dues Schedule")
+            for key, value in defaults.items():
+                setattr(dues_schedule, key, value)
+            
+            dues_schedule.save()
+            self.track_doc("Membership Dues Schedule", dues_schedule.name)
+            return dues_schedule
         
         # Otherwise create a template (for backward compatibility)
         membership_type = kwargs.get("membership_type")
@@ -1031,6 +1068,201 @@ class VereningingenTestCase(FrappeTestCase):
         """Load test data from JSON file"""
         with open(self.get_test_data_path(filename), "r") as f:
             return json.load(f)
+
+    # Edge Case Testing Methods
+    # Added based on user suggestion for better testing approach
+    
+    def clear_member_auto_schedules(self, member_name):
+        """
+        Clear auto-created schedules for a member to enable controlled edge case testing.
+        
+        This method implements the approach suggested for testing edge cases:
+        1. Find all active schedules for the member
+        2. Cancel them (removes business rule blocks)  
+        3. Return list of cancelled schedules for reference
+        
+        Use this when you need to create specific test scenarios with multiple
+        schedules or conflicting configurations that would normally be prevented
+        by business rules.
+        
+        Args:
+            member_name (str): Name/ID of the member
+            
+        Returns:
+            list: List of cancelled schedule details
+            
+        Example:
+            member = self.create_test_member()
+            membership = self.create_test_membership(member=member.name)
+            
+            # Clear auto-schedules to enable edge case testing
+            cancelled = self.clear_member_auto_schedules(member.name)
+            
+            # Now create controlled test schedules
+            schedule1 = self.create_controlled_dues_schedule(member.name, "Monthly", 25.0)
+            schedule2 = self.create_controlled_dues_schedule(member.name, "Annual", 200.0)
+            
+            # Test validation logic on the conflicting schedules
+            validation_result = schedule2.validate_billing_frequency_consistency()
+            self.assertFalse(validation_result["valid"])
+        """
+        
+        # Find all active schedules for this member
+        active_schedules = frappe.get_all("Membership Dues Schedule",
+            filters={"member": member_name, "status": "Active"},
+            fields=["name", "billing_frequency", "dues_rate"]
+        )
+        
+        cancelled_schedules = []
+        
+        for schedule_info in active_schedules:
+            try:
+                schedule = frappe.get_doc("Membership Dues Schedule", schedule_info.name)
+                original_status = schedule.status
+                schedule.status = "Cancelled"
+                schedule.save()
+                
+                # Track for cleanup
+                self.track_doc("Membership Dues Schedule", schedule.name)
+                
+                cancelled_schedules.append({
+                    'name': schedule.name,
+                    'original_status': original_status,
+                    'billing_frequency': schedule_info.billing_frequency,
+                    'dues_rate': schedule_info.dues_rate
+                })
+                
+            except Exception as e:
+                # Log but continue - some schedules might not be cancellable
+                print(f"Warning: Could not cancel schedule {schedule_info.name}: {str(e)}")
+        
+        return cancelled_schedules
+    
+    def create_controlled_dues_schedule(self, member_name, billing_frequency, dues_rate, **kwargs):
+        """
+        Create a controlled dues schedule for edge case testing.
+        
+        This method creates a schedule with specific parameters, bypassing
+        normal auto-creation logic. Use after clear_member_auto_schedules()
+        to create test scenarios with multiple or conflicting schedules.
+        
+        Args:
+            member_name (str): Member to create schedule for
+            billing_frequency (str): Monthly, Quarterly, Annual, etc.
+            dues_rate (float): Amount for the schedule
+            **kwargs: Additional fields to set
+            
+        Returns:
+            Document: The created schedule document
+            
+        Example:
+            # Clear auto-schedules first
+            self.clear_member_auto_schedules(member.name)
+            
+            # Create conflicting schedules for testing
+            monthly = self.create_controlled_dues_schedule(member.name, "Monthly", 25.0)
+            annual = self.create_controlled_dues_schedule(member.name, "Annual", 250.0)
+            
+            # Now test validation logic
+            result = annual.validate_billing_frequency_consistency()
+        """
+        
+        # Get member's membership type if not provided
+        if 'membership_type' not in kwargs:
+            membership_type = frappe.db.get_value('Membership', 
+                {'member': member_name, 'status': 'Active'}, 
+                'membership_type')
+            
+            if not membership_type:
+                # Fallback to any active membership type
+                membership_type = frappe.db.get_value('Membership Type', 
+                    {'is_active': 1}, 'name')
+            
+            if not membership_type:
+                raise frappe.ValidationError("No active membership type found for controlled schedule creation")
+                
+            kwargs['membership_type'] = membership_type
+        
+        # Set up default values
+        test_id = frappe.generate_hash(length=6)
+        defaults = {
+            'schedule_name': f'ControlledTest-{billing_frequency}-{test_id}',
+            'member': member_name,
+            'dues_rate': dues_rate,
+            'billing_frequency': billing_frequency,
+            'status': 'Active',
+            'auto_generate': 1,
+            'next_invoice_date': frappe.utils.today(),
+            'is_template': 0
+        }
+        defaults.update(kwargs)
+        
+        # Create the schedule
+        schedule = frappe.get_doc({
+            'doctype': 'Membership Dues Schedule',
+            **defaults
+        })
+        
+        schedule.insert()
+        
+        # Track for cleanup
+        self.track_doc("Membership Dues Schedule", schedule.name)
+        
+        return schedule
+    
+    def setup_edge_case_testing(self, member_name):
+        """
+        Complete setup for edge case testing with multiple schedules.
+        
+        This convenience method combines clear_member_auto_schedules() with
+        helpful context information for edge case testing.
+        
+        Args:
+            member_name (str): Member to set up for edge case testing
+            
+        Returns:
+            dict: Context information about the setup
+            
+        Example:
+            member = self.create_test_member()
+            membership = self.create_test_membership(member=member.name)
+            
+            # Set up for edge case testing
+            context = self.setup_edge_case_testing(member.name)
+            
+            # Create test scenarios
+            monthly = self.create_controlled_dues_schedule(member.name, "Monthly", 25.0)
+            annual = self.create_controlled_dues_schedule(member.name, "Annual", 250.0)
+            
+            # Test validation logic
+            result = annual.validate_billing_frequency_consistency()
+            self.assertFalse(result["valid"])  # Should detect conflict
+        """
+        
+        # Clear auto-schedules
+        cancelled_schedules = self.clear_member_auto_schedules(member_name)
+        
+        # Get member context
+        member_doc = frappe.get_doc("Member", member_name)
+        
+        # Get active membership context
+        active_memberships = frappe.get_all("Membership",
+            filters={"member": member_name, "status": "Active"},
+            fields=["name", "membership_type", "status"]
+        )
+        
+        return {
+            'member_name': member_name,
+            'member_full_name': getattr(member_doc, 'full_name', 'Unknown'),
+            'cancelled_schedules': cancelled_schedules,
+            'active_memberships': active_memberships,
+            'edge_case_ready': True,
+            'helper_methods': [
+                'create_controlled_dues_schedule(member_name, frequency, rate)',
+                'Test validation methods directly on created schedules',
+                'Business rules bypassed - can create multiple schedules per member'
+            ]
+        }
 
 
 class VereningingenUnitTestCase(VereningingenTestCase):

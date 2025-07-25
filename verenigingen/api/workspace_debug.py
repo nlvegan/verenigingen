@@ -273,7 +273,7 @@ def create_minimal_workspace():
                     "doctype": "Workspace",
                     "name": "Verenigingen",
                     "label": "Verenigingen",
-                    "module": "Verenigingen",
+                    "module": "E-Boekhouden",
                     "icon": "non-profit",
                     "public": 1,
                     "is_hidden": 0,

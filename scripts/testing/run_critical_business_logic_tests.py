@@ -14,10 +14,10 @@ CRITICAL_TEST_MODULES = [
     "verenigingen.tests.backend.business_logic.test_critical_business_logic",
     # High-risk doctype tests
     "verenigingen.verenigingen.doctype.membership_termination_request.test_membership_termination_request_critical",
-    "verenigingen.verenigingen.doctype.e_boekhouden_migration.test_e_boekhouden_migration_critical",
+    "verenigingen.e_boekhouden.doctype.e_boekhouden_migration.test_e_boekhouden_migration_critical",
     # Comprehensive doctype tests
     "verenigingen.verenigingen.doctype.membership_termination_request.test_membership_termination_request",
-    "verenigingen.verenigingen.doctype.e_boekhouden_migration.test_e_boekhouden_migration",
+    "verenigingen.e_boekhouden.doctype.e_boekhouden_migration.test_e_boekhouden_migration",
     # Core doctype tests that should always pass
     "verenigingen.verenigingen.doctype.membership.test_membership",
     "verenigingen.verenigingen.doctype.member.test_member",

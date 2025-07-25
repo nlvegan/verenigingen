@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Fix incorrect import paths for eboekhouden utilities.
-All eboekhouden utility files are in verenigingen.utils.eboekhouden subdirectory,
+All eboekhouden utility files are in verenigingen.e_boekhouden.utils subdirectory,
 but many imports are trying to import them directly from verenigingen.utils.
 """
 
@@ -11,13 +11,13 @@ import subprocess
 
 # Mapping of incorrect imports to correct imports
 IMPORT_FIXES = {
-    'from verenigingen.utils.eboekhouden_api': 'from verenigingen.utils.eboekhouden.eboekhouden_api',
-    'from verenigingen.utils.eboekhouden_account_group_fix': 'from verenigingen.utils.eboekhouden.eboekhouden_account_group_fix',
-    'from verenigingen.utils.eboekhouden_cost_center_fix': 'from verenigingen.utils.eboekhouden.eboekhouden_cost_center_fix',
-    'from verenigingen.utils.eboekhouden_enhanced_migration': 'from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration',
-    'from verenigingen.utils.eboekhouden_migration_enhancements': 'from verenigingen.utils.eboekhouden.eboekhouden_migration_enhancements',
-    'from verenigingen.utils.eboekhouden_coa_import': 'from verenigingen.utils.eboekhouden.eboekhouden_coa_import',
-    'from verenigingen.utils.eboekhouden_rest_iterator': 'from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator',
+    'from verenigingen.e_boekhouden.utils_api': 'from verenigingen.e_boekhouden.utils.eboekhouden_api',
+    'from verenigingen.e_boekhouden.utils_account_group_fix': 'from verenigingen.e_boekhouden.utils.eboekhouden_account_group_fix',
+    'from verenigingen.e_boekhouden.utils_cost_center_fix': 'from verenigingen.e_boekhouden.utils.eboekhouden_cost_center_fix',
+    'from verenigingen.e_boekhouden.utils_enhanced_migration': 'from verenigingen.e_boekhouden.utils.eboekhouden_enhanced_migration',
+    'from verenigingen.e_boekhouden.utils_migration_enhancements': 'from verenigingen.e_boekhouden.utils.eboekhouden_migration_enhancements',
+    'from verenigingen.e_boekhouden.utils_coa_import': 'from verenigingen.e_boekhouden.utils.eboekhouden_coa_import',
+    'from verenigingen.e_boekhouden.utils_rest_iterator': 'from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator',
 }
 
 # Files to fix based on grep results

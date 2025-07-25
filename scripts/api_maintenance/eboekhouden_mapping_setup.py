@@ -28,12 +28,12 @@ def setup_eboekhouden_mapping_fields():
         fields_added.append("Journal Entry.eboekhouden_invoice_number")
 
     # Add custom fields from the original migration
-    from verenigingen.utils.eboekhouden_soap_migration import add_eboekhouden_custom_fields
+    from verenigingen.e_boekhouden.utils_soap_migration import add_eboekhouden_custom_fields
 
     add_eboekhouden_custom_fields()
 
     # Create default mappings
-    from verenigingen.utils.eboekhouden_account_analyzer import create_default_range_mappings
+    from verenigingen.e_boekhouden.utils_account_analyzer import create_default_range_mappings
 
     mapping_result = create_default_range_mappings()
 
@@ -85,7 +85,7 @@ def test_mutation_mapping(mutation_nr=None, account_code=None, description=None)
     if not account_code and not description:
         frappe.throw("Either account code or description must be provided")
 
-    from verenigingen.verenigingen.doctype.e_boekhouden_account_mapping.e_boekhouden_account_mapping import (
+    from verenigingen.e_boekhouden.doctype.e_boekhouden_account_mapping.e_boekhouden_account_mapping import (
         get_mapping_for_mutation,
     )
 

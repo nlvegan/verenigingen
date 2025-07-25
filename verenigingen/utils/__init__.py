@@ -617,7 +617,7 @@ def debug_workspace_breadcrumb():
     # Get all workspaces for Verenigingen module
     workspaces = frappe.get_all(
         "Workspace",
-        filters={"module": "Verenigingen"},
+        filters={"module": "E-Boekhouden"},
         fields=["name", "label", "module", "sequence_id", "is_hidden", "public"],
         order_by="sequence_id",
     )
@@ -627,7 +627,7 @@ def debug_workspace_breadcrumb():
     # Check which workspace would be loaded first
     first_workspace = frappe.db.get_value(
         "Workspace",
-        {"module": "Verenigingen", "is_hidden": 0, "public": 1},
+        {"module": "E-Boekhouden", "is_hidden": 0, "public": 1},
         "name",
         order_by="sequence_id asc",
     )
@@ -676,7 +676,7 @@ def debug_breadcrumb_detailed():
     }
 
     # Check doctype assignments
-    doctypes = frappe.get_all("DocType", filters={"module": "Verenigingen"}, fields=["name"], limit=5)
+    doctypes = frappe.get_all("DocType", filters={"module": "E-Boekhouden"}, fields=["name"], limit=5)
     result["sample_doctypes"] = doctypes
 
     return result

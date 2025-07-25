@@ -10,7 +10,7 @@ def check_opening_balance_type():
     """Check what type the opening balance mutations have"""
 
     try:
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
         iterator = EBoekhoudenRESTIterator()
 

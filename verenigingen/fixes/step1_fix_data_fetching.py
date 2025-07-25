@@ -422,7 +422,7 @@ def map_unit_of_measure(dutch_unit: str) -> str:
 @frappe.whitelist()
 def test_new_invoice_creation(mutation_id: int):
     """Test the new invoice creation with full data"""
-    from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+    from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
     company = frappe.get_single("E-Boekhouden Settings").default_company
     cost_center = frappe.db.get_value("Company", company, "cost_center")
@@ -448,7 +448,7 @@ def test_new_invoice_creation(mutation_id: int):
 @frappe.whitelist()
 def compare_old_vs_new_import(mutation_id: int):
     """Compare current implementation vs new implementation"""
-    from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+    from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
     iterator = EBoekhoudenRESTIterator()
 

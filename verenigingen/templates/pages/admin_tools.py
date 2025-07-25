@@ -104,7 +104,7 @@ def get_context(context):
         {
             "title": "Cleanup Imported Data",
             "description": "Clean up all e-Boekhouden imported data for fresh migration",
-            "method": "verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data",
+            "method": "verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data",
             "icon": "fa fa-trash-o",
             "color": "danger",
             "warning": "This will permanently delete all imported e-Boekhouden data. Use with caution!",
@@ -127,7 +127,7 @@ def get_context(context):
         },
         {
             "description": "Clean up all e-Boekhouden imported data",
-            "command": "bench --site dev.veganisme.net execute verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data",
+            "command": "bench --site dev.veganisme.net execute verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data",
         },
     ]
 

@@ -21,7 +21,7 @@ frappe.connect()
 
 def analyze_specific_mutations():
     """Fetch and analyze mutations 7833, 5473, 6217 as requested"""
-    from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+    from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
     # Initialize API
     settings = frappe.get_single("E-Boekhouden Settings")

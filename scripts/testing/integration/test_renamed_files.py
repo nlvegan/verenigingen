@@ -11,8 +11,8 @@ def test_renamed_file_imports():
         ("SEPA Validator", "verenigingen.utils.sepa_validator", "validate_sepa_integration"),
         ("Dues Schedule Manager", "verenigingen.verenigingen.doctype.membership.dues_schedule_manager", "sync_membership_with_dues_schedule"),
         ("Payment History Subscriber", "verenigingen.events.subscribers.payment_history_subscriber", None),
-        ("eBoekhouden Payment Import", "verenigingen.utils.eboekhouden.eboekhouden_payment_import", "create_payment_entry"),
-        ("eBoekhouden COA Import", "verenigingen.utils.eboekhouden.eboekhouden_coa_import", "coa_import_with_bank_accounts"),
+        ("eBoekhouden Payment Import", "verenigingen.e_boekhouden.utils.eboekhouden_payment_import", "create_payment_entry"),
+        ("eBoekhouden COA Import", "verenigingen.e_boekhouden.utils.eboekhouden_coa_import", "coa_import_with_bank_accounts"),
     ]
     
     results = []

@@ -25,12 +25,12 @@ def test_renamed_file_imports():
         ("Payment History Subscriber", "verenigingen.events.subscribers.payment_history_subscriber", None),
         (
             "eBoekhouden Payment Import",
-            "verenigingen.utils.eboekhouden.eboekhouden_payment_import",
+            "verenigingen.e_boekhouden.utils.eboekhouden_payment_import",
             "create_payment_entry",
         ),
         (
             "eBoekhouden COA Import",
-            "verenigingen.utils.eboekhouden.eboekhouden_coa_import",
+            "verenigingen.e_boekhouden.utils.eboekhouden_coa_import",
             "coa_import_with_bank_accounts",
         ),
     ]

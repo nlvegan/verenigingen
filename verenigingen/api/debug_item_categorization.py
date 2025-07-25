@@ -7,8 +7,8 @@ import frappe
 def debug_categorization():
     """Debug why kantoorartikelen is being categorized as Products"""
 
-    from verenigingen.utils.eboekhouden.field_mapping import ITEM_GROUP_KEYWORDS
-    from verenigingen.utils.eboekhouden.invoice_helpers import determine_item_group
+    from verenigingen.e_boekhouden.utils.field_mapping import ITEM_GROUP_KEYWORDS
+    from verenigingen.e_boekhouden.utils.invoice_helpers import determine_item_group
 
     description = "Kantoorartikelen en paperclips"
     description_lower = description.lower()
@@ -92,7 +92,7 @@ def get_raw_eboekhouden_mutations():
     """Fetch raw E-Boekhouden data for specific mutations: 1339, 1344, 3697, 6334, 6738, 2461, 2457, 3688, 3698, 4595"""
     import json
 
-    from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+    from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
     mutation_ids = [1339, 1344, 3697, 6334, 6738, 2461, 2457, 3688, 3698, 4595]
 
@@ -360,7 +360,7 @@ def verify_ledger_mappings():
 
     # Get raw E-Boekhouden ledger data for these IDs
     try:
-        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
         settings = frappe.get_single("E-Boekhouden Settings")
         api = EBoekhoudenAPI(settings)
@@ -582,7 +582,7 @@ def analyze_account_categories():
 
     # Fetch account details for all ledger IDs
     try:
-        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+        from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
         settings = frappe.get_single("E-Boekhouden Settings")
         api = EBoekhoudenAPI(settings)

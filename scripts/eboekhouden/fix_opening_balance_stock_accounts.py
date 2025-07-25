@@ -73,7 +73,7 @@ def main():
 def analyze_stock_accounts():
     """Analyze stock accounts in opening balances"""
     try:
-        from verenigingen.utils.eboekhouden.stock_account_handler import analyze_stock_accounts_in_opening_balances
+        from verenigingen.e_boekhouden.utils.stock_account_handler import analyze_stock_accounts_in_opening_balances
         
         settings = frappe.get_single("E-Boekhouden Settings")
         company = settings.default_company
@@ -98,7 +98,7 @@ def skip_stock_accounts_solution():
         return
     
     try:
-        from verenigingen.utils.eboekhouden.stock_account_handler import import_opening_balances_with_stock_handling
+        from verenigingen.e_boekhouden.utils.stock_account_handler import import_opening_balances_with_stock_handling
         
         settings = frappe.get_single("E-Boekhouden Settings")
         company = settings.default_company
@@ -204,7 +204,7 @@ def import_with_stock_filtering():
         print("Running opening balance import with stock filtering...")
         
         # Use the enhanced stock handler
-        from verenigingen.utils.eboekhouden.stock_account_handler import import_opening_balances_with_stock_handling
+        from verenigingen.e_boekhouden.utils.stock_account_handler import import_opening_balances_with_stock_handling
         
         result = import_opening_balances_with_stock_handling(
             company=company,

@@ -21,7 +21,7 @@ class PartyEnrichmentQueue(Document):
     def process_enrichment(self):
         """Process this enrichment queue entry"""
         try:
-            from verenigingen.utils.eboekhouden.party_resolver import EBoekhoudenPartyResolver
+            from verenigingen.e_boekhouden.utils.party_resolver import EBoekhoudenPartyResolver
 
             resolver = EBoekhoudenPartyResolver()
             debug_info = []

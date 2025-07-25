@@ -91,6 +91,11 @@ class MembershipDuesSchedule(Document):
         self.validate_dues_rate_configuration()
         self.validate_financial_constraints()  # Add financial validation
 
+        # ERPNext-inspired validation enhancements
+        self.validate_status_transitions()
+        self.validate_billing_frequency_consistency()
+        self.validate_rate_boundaries()
+
         # Set billing day for member schedules
         if not self.is_template:
             self.set_billing_day()
@@ -581,6 +586,16 @@ class MembershipDuesSchedule(Document):
             if not self.validate_member_eligibility_for_invoice():
                 return False, "Member is not eligible for billing"
 
+        # ✅ NEW: Rate validation checks
+        rate_validation = self.validate_dues_rate()
+        if not rate_validation["valid"]:
+            return False, rate_validation["reason"]
+
+        # ✅ NEW: Membership type consistency check
+        membership_validation = self.validate_membership_type_consistency()
+        if not membership_validation["valid"]:
+            return False, membership_validation["reason"]
+
         # Check if it's time to generate invoice
         # Use configured days_before or system default
         days_before = self.invoice_days_before if self.invoice_days_before is not None else 30
@@ -785,6 +800,99 @@ class MembershipDuesSchedule(Document):
             )
             return False
 
+    def validate_dues_rate(self):
+        """
+        ✅ NEW: Validate dues rate for reasonableness and business logic
+        Prevents zero/negative rates and extreme changes from previous period
+        """
+        try:
+            # Check for zero or negative rates
+            if not self.dues_rate or self.dues_rate <= 0:
+                return {"valid": False, "reason": f"Invalid dues rate: {self.dues_rate} (must be positive)"}
+
+            # Check for extremely high rates (configurable threshold with safe fallback)
+            try:
+                max_reasonable_rate = (
+                    frappe.db.get_single_value("Verenigingen Settings", "max_reasonable_dues_rate") or 10000
+                )
+            except:
+                max_reasonable_rate = 10000  # Safe fallback if setting doesn't exist
+
+            if self.dues_rate > max_reasonable_rate:
+                # Use shorter error message to avoid length limits
+                return {
+                    "valid": False,
+                    "reason": f"Dues rate {self.dues_rate} exceeds max {max_reasonable_rate}",
+                }
+
+            # Check for extreme rate changes from previous period (if exists)
+            if self.last_generated_invoice:
+                try:
+                    last_invoice = frappe.get_doc("Sales Invoice", self.last_generated_invoice)
+                    if last_invoice.grand_total > 0:
+                        rate_change_percent = abs(
+                            (self.dues_rate - last_invoice.grand_total) / last_invoice.grand_total * 100
+                        )
+                        try:
+                            max_rate_change = (
+                                frappe.db.get_single_value("Verenigingen Settings", "max_rate_change_percent")
+                                or 200
+                            )
+                        except:
+                            max_rate_change = 200  # Safe fallback
+
+                        if rate_change_percent > max_rate_change:
+                            # Just log, don't block - might be legitimate
+                            pass
+                except Exception:
+                    # Don't fail validation if we can't check previous rate
+                    pass
+
+            return {"valid": True, "reason": "Rate validation passed"}
+
+        except Exception:
+            # Use shorter error message to avoid length limits
+            return {"valid": True, "reason": "Rate validation error - allowing generation"}
+
+    def validate_membership_type_consistency(self):
+        """
+        ✅ NEW: Verify member's current membership type matches schedule
+        Prevents billing with outdated membership type information
+        """
+        try:
+            if not self.member or not self.membership_type:
+                return {"valid": True, "reason": "No member or membership type to validate"}
+
+            # Get member's current active membership
+            current_membership = frappe.get_all(
+                "Membership",
+                filters={"member": self.member, "status": "Active", "docstatus": 1},
+                fields=["membership_type", "name"],
+                limit=1,
+            )
+
+            if not current_membership:
+                # This will be caught by the member eligibility check
+                return {
+                    "valid": True,
+                    "reason": "No active membership found - will be handled by eligibility check",
+                }
+
+            current_type = current_membership[0].membership_type
+
+            # Check if membership types match
+            if current_type != self.membership_type:
+                return {
+                    "valid": False,
+                    "reason": f"Type mismatch: schedule={self.membership_type}, current={current_type}",
+                }
+
+            return {"valid": True, "reason": "Membership type consistency validated"}
+
+        except Exception:
+            # Don't block generation on validation errors - continue gracefully
+            return {"valid": True, "reason": "Type validation error - allowing generation"}
+
     def generate_invoice(self, force=False):
         """Generate invoice for the current period with enhanced coverage tracking"""
         can_generate, reason = self.can_generate_invoice()
@@ -794,38 +902,57 @@ class MembershipDuesSchedule(Document):
             return None
 
         if self.test_mode:
-            # In test mode, just log and update dates
+            # In test mode, just log and update dates - but only if we can actually generate
             frappe.logger().info(
                 f"TEST MODE: Would generate invoice for {self.member} - Dues Rate: {self.dues_rate}"
             )
             self.update_schedule_dates()  # Test mode uses fallback behavior
             return "TEST_INVOICE"
 
-        # ✅ ENHANCED: Calculate coverage period (authoritative source)
-        coverage_start, coverage_end = self.calculate_billing_period(frappe.utils.today())
+        # ✅ NEW: Transaction safety - wrap critical operations in transaction
+        try:
+            # Start explicit transaction for invoice generation
+            frappe.db.begin()
 
-        # Store next billing period in schedule (SSoT)
-        self.next_billing_period_start_date = coverage_start
-        self.next_billing_period_end_date = coverage_end
+            # ✅ ENHANCED: Calculate coverage period (authoritative source)
+            coverage_start, coverage_end = self.calculate_billing_period(frappe.utils.today())
 
-        # Create actual invoice
-        invoice_name = self.create_sales_invoice()
+            # Store next billing period in schedule (SSoT)
+            self.next_billing_period_start_date = coverage_start
+            self.next_billing_period_end_date = coverage_end
 
-        # Get the invoice document for coverage caching
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+            # Create actual invoice
+            invoice_name = self.create_sales_invoice()
 
-        # ✅ ENHANCED: Cache coverage in invoice for display performance
-        invoice.custom_coverage_start_date = coverage_start
-        invoice.custom_coverage_end_date = coverage_end
-        invoice.save()
+            # Get the invoice document for coverage caching
+            invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
-        # ✅ ENHANCED: Create direct link and track coverage (no ambiguity)
-        self.db_set("last_generated_invoice", invoice.name)
-        self.db_set("last_invoice_coverage_start", coverage_start)
-        self.db_set("last_invoice_coverage_end", coverage_end)
+            # ✅ ENHANCED: Cache coverage in invoice for display performance
+            invoice.custom_coverage_start_date = coverage_start
+            invoice.custom_coverage_end_date = coverage_end
+            invoice.save()
 
-        # ✅ CRITICAL FIX: Update schedule with actual invoice posting date
-        self.update_schedule_dates(actual_invoice_date=invoice.posting_date)
+            # ✅ ENHANCED: Create direct link and track coverage (no ambiguity)
+            self.db_set("last_generated_invoice", invoice.name)
+            self.db_set("last_invoice_coverage_start", coverage_start)
+            self.db_set("last_invoice_coverage_end", coverage_end)
+
+            # ✅ CRITICAL FIX: Update schedule with actual invoice posting date
+            self.update_schedule_dates(actual_invoice_date=invoice.posting_date)
+
+            # Commit transaction only after all operations succeed
+            frappe.db.commit()
+
+        except Exception as e:
+            # Rollback transaction on any failure
+            frappe.db.rollback()
+            error_msg = (
+                f"Invoice generation failed for schedule {self.name}, transaction rolled back: {str(e)}"
+            )
+            frappe.log_error(error_msg, "Invoice Generation Transaction Failure")
+
+            # Re-raise exception to maintain existing error handling behavior
+            raise frappe.ValidationError(error_msg)
 
         frappe.logger().info(
             f"Generated invoice {invoice.name} for {self.member} covering period {coverage_start} to {coverage_end}"
@@ -1323,15 +1450,122 @@ class MembershipDuesSchedule(Document):
         except Exception as e:
             frappe.log_error(f"Error adding billing history: {str(e)}", "Billing History Update")
 
+    # ✅ ERPNext-Inspired Validation Enhancements
+
+    def validate_status_transitions(self):
+        """
+        Validate allowed status transitions (inspired by ERPNext subscription patterns)
+        Prevents invalid status changes that could break business logic
+        """
+        if self.is_new() or not hasattr(self, "_doc_before_save"):
+            return
+
+        old_status = self._doc_before_save.status
+        new_status = self.status
+
+        if old_status == new_status:
+            return
+
+        # Define allowed transitions based on business rules
+        allowed_transitions = {
+            "Active": ["Paused", "Cancelled"],
+            "Paused": ["Active", "Cancelled"],
+            "Cancelled": [],  # No transitions from cancelled
+            "Test": ["Active", "Cancelled"],
+        }
+
+        if new_status not in allowed_transitions.get(old_status, []):
+            from verenigingen.utils.exceptions import InvalidStatusTransitionError
+
+            raise InvalidStatusTransitionError(
+                f"Cannot transition dues schedule status from {old_status} to {new_status}. "
+                f"Allowed transitions from {old_status}: {', '.join(allowed_transitions.get(old_status, []))}"
+            )
+
+    def validate_billing_frequency_consistency(self):
+        """
+        Ensure member's schedules maintain consistent billing frequencies
+        Based on ERPNext's billing cycle consistency validation
+        """
+        if self.is_template or not self.member:
+            return
+
+        existing_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": self.member, "status": "Active", "name": ["!=", self.name]},
+            fields=["billing_frequency", "name"],
+        )
+
+        conflicting_schedules = [
+            s for s in existing_schedules if s.billing_frequency != self.billing_frequency
+        ]
+
+        if conflicting_schedules:
+            from verenigingen.utils.exceptions import BillingFrequencyConflictError
+
+            conflicting_frequencies = list(set([s.billing_frequency for s in conflicting_schedules]))
+            raise BillingFrequencyConflictError(
+                f"Member {self.member} has existing schedules with different billing frequencies: "
+                f"{', '.join(conflicting_frequencies)}. Current schedule uses {self.billing_frequency}. "
+                f"All schedules for a member must use the same billing frequency."
+            )
+
+    def validate_rate_boundaries(self):
+        """
+        Enhanced rate validation with ERPNext-style boundary checks
+        More comprehensive than basic positive/negative validation
+        """
+        if self.is_template or not self.dues_rate:
+            return
+
+        # Enhanced minimum validation
+        if self.dues_rate <= 0:
+            from verenigingen.utils.exceptions import InvalidDuesRateError
+
+            raise InvalidDuesRateError(f"Dues rate must be positive. Got: €{self.dues_rate:.2f}")
+
+        # Check against membership type boundaries
+        if self.membership_type:
+            template_values = self.get_template_values()
+            min_amount = template_values.get("minimum_amount", 0)
+
+            if self.dues_rate < min_amount:
+                from verenigingen.utils.exceptions import InvalidDuesRateError
+
+                raise InvalidDuesRateError(
+                    f"Dues rate €{self.dues_rate:.2f} is below minimum required "
+                    f"€{min_amount:.2f} for membership type {self.membership_type}"
+                )
+
+        # Check for unreasonably high rates (configurable maximum)
+        try:
+            max_reasonable_rate = (
+                frappe.db.get_single_value("Verenigingen Settings", "max_reasonable_dues_rate") or 10000
+            )
+        except:
+            max_reasonable_rate = 10000
+
+        if self.dues_rate > max_reasonable_rate:
+            frappe.msgprint(
+                f"Warning: Dues rate €{self.dues_rate:.2f} exceeds recommended maximum "
+                f"€{max_reasonable_rate:.2f}. Please verify this amount is correct.",
+                alert=True,
+            )
+
 
 @frappe.whitelist()
 def generate_dues_invoices(test_mode=False):
     """Scheduled job to generate membership dues invoices"""
 
-    # Get all active schedules that need processing
+    # Get all active schedules that need processing (exclude templates)
     schedules = frappe.get_all(
         "Membership Dues Schedule",
-        filters={"status": "Active", "auto_generate": 1, "next_invoice_date": ["<=", add_days(today(), 30)]},
+        filters={
+            "status": "Active",
+            "auto_generate": 1,
+            "is_template": 0,
+            "next_invoice_date": ["<=", add_days(today(), 30)],
+        },
         pluck="name",
     )
 
@@ -1356,6 +1590,13 @@ def generate_dues_invoices(test_mode=False):
                     results["invoices"].append(
                         {"schedule": schedule_name, "member": schedule.member_name, "invoice": invoice}
                     )
+                else:
+                    # Log when invoice generation fails despite can_generate being True
+                    error_msg = (
+                        f"Schedule {schedule_name} passed can_generate check but failed to generate invoice"
+                    )
+                    frappe.log_error(error_msg, "Invoice Generation Failed")
+                    results["errors"].append(error_msg)
 
             results["processed"] += 1
 

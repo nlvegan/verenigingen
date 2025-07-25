@@ -14,7 +14,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import nowdate, add_days
 from decimal import Decimal
 
-from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+from verenigingen.e_boekhouden.utils.payment_processing import PaymentEntryHandler
 
 
 class TestPaymentEntryHandler(FrappeTestCase):

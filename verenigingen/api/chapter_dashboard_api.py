@@ -641,7 +641,7 @@ def test_eboekhouden_framework():
 def test_eboekhouden_api_mock():
     """Test e-Boekhouden API utilities with mock data"""
     try:
-        from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenXMLParser
+        from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenXMLParser
 
         # Test XML parsing with sample data
         results = {}
@@ -753,7 +753,7 @@ def test_eboekhouden_complete():
         try:
             eb_doctypes = frappe.get_all(
                 "DocType",
-                filters={"module": "Verenigingen", "name": ["like", "%Boekhouden%"]},
+                filters={"module": "E-Boekhouden", "name": ["like", "%Boekhouden%"]},
                 fields=["name", "module"],
             )
             results["tests"]["doctype_registration"] = {
@@ -811,7 +811,7 @@ def test_eboekhouden_complete():
 
         # Test 5: API utilities comprehensive test
         try:
-            from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenXMLParser
+            from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenXMLParser
 
             # Test XML parser with real-world structure
             complex_xml = """<?xml version="1.0" encoding="utf-8"?>
@@ -1382,7 +1382,7 @@ def create_chapter_number_cards():
                 options: "Chapter",
                 reqd: 1
             }]""",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         card1.insert()
@@ -1408,7 +1408,7 @@ def create_chapter_number_cards():
                 options: "Chapter",
                 reqd: 1
             }]""",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         card2.insert()
@@ -1434,7 +1434,7 @@ def create_chapter_number_cards():
                 options: "Chapter",
                 reqd: 1
             }]""",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         card3.insert()
@@ -1460,7 +1460,7 @@ def create_chapter_number_cards():
                 options: "Chapter",
                 reqd: 1
             }]""",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         card4.insert()
@@ -1490,7 +1490,7 @@ def create_chapter_charts():
                 "is_public": 1,
                 "timeseries": 0,
                 "filters_json": "[]",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         chart1.insert()
@@ -1512,7 +1512,7 @@ def create_chapter_charts():
                 "is_public": 1,
                 "timeseries": 0,
                 "filters_json": "[]",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         chart2.insert()
@@ -1532,7 +1532,7 @@ def create_chapter_dashboard_doc():
             "doctype": "Dashboard",
             "dashboard_name": "Chapter Board Dashboard",
             "is_standard": 0,
-            "module": "Verenigingen",
+            "module": "E-Boekhouden",
             "cards": [
                 {"card": "Active Chapter Members", "width": "Half"},
                 {"card": "Pending Member Applications", "width": "Half"},
@@ -1571,7 +1571,7 @@ def create_simple_dashboard():
                 "doctype": "Dashboard",
                 "dashboard_name": "Chapter Board Dashboard",
                 "is_standard": 0,
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
                 "charts": [{"chart": existing_chart[0].name, "width": "Full"}],
             }
         )
@@ -1680,7 +1680,7 @@ def add_chapter_specific_chart():
                     "timeseries": 0,
                     "number_of_groups": 10,
                     "filters_json": "[]",
-                    "module": "Verenigingen",
+                    "module": "E-Boekhouden",
                 }
             )
             chart.insert()
@@ -1810,7 +1810,7 @@ def fix_dashboard_chart_issue():
                     "timeseries": 0,
                     "number_of_groups": 5,
                     "filters_json": '[["Chapter", "published", "=", 1]]',
-                    "module": "Verenigingen",
+                    "module": "E-Boekhouden",
                 }
             )
             new_chart.insert()
@@ -1874,7 +1874,7 @@ def fix_all_chart_issues():
                     "timeseries": 0,
                     "number_of_groups": 0,
                     "filters_json": "[]",
-                    "module": "Verenigingen",
+                    "module": "E-Boekhouden",
                 }
             )
             member_chart.insert()
@@ -1894,7 +1894,7 @@ def fix_all_chart_issues():
                     "timeseries": 0,
                     "number_of_groups": 10,
                     "filters_json": '[["Chapter", "published", "=", 1]]',
-                    "module": "Verenigingen",
+                    "module": "E-Boekhouden",
                 }
             )
             chapter_chart.insert()
@@ -2017,7 +2017,7 @@ def recreate_working_charts():
                 "filters_json": "[]",
                 "type": "Bar",
                 "color": "#2ecc71",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         member_chart.insert()
@@ -2037,7 +2037,7 @@ def recreate_working_charts():
                 "filters_json": "[]",
                 "type": "Bar",
                 "color": "#3498db",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         chapter_chart.insert()
@@ -2168,7 +2168,7 @@ def create_proper_chapter_charts():
                 "filters_json": "[]",
                 "type": "Percentage",  # Simple percentage chart
                 "color": "#2ecc71",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
                 # Copy exact same fields as working chart
                 "timespan": working_chart.timespan,
                 "time_interval": working_chart.time_interval,
@@ -2195,7 +2195,7 @@ def create_proper_chapter_charts():
                 "filters_json": "[]",
                 "type": "Percentage",
                 "color": "#3498db",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
                 # Copy exact same fields as working chart
                 "timespan": working_chart.timespan,
                 "time_interval": working_chart.time_interval,
@@ -2260,7 +2260,7 @@ def create_minimal_working_charts():
                 "timeseries": 0,
                 "number_of_groups": 0,
                 "type": "Pie",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         simple_chart.insert()
@@ -2447,7 +2447,7 @@ def create_chapter_member_charts():
                 "filters_json": "[]",
                 "type": "Donut",
                 "color": "#2ecc71",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         member_status_chart.insert()
@@ -2467,7 +2467,7 @@ def create_chapter_member_charts():
                 "filters_json": "[]",
                 "type": "Bar",
                 "color": "#3498db",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         chapter_activity_chart.insert()
@@ -2600,7 +2600,7 @@ def clean_dashboard_completely():
                 "is_public": 1,
                 "show_percentage_stats": 0,
                 "color": "#2ecc71",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         active_card.insert()
@@ -2616,7 +2616,7 @@ def clean_dashboard_completely():
                 "is_public": 1,
                 "show_percentage_stats": 0,
                 "color": "#f39c12",
-                "module": "Verenigingen",
+                "module": "E-Boekhouden",
             }
         )
         pending_card.insert()

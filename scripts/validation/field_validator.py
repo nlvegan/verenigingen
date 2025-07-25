@@ -489,7 +489,6 @@ class FinalFieldValidator:
     def validate_frappe_get_all_fields(self, content: str, source_lines: List[str], file_path: Path) -> List[Dict]:
         """Validate field names in frappe.get_all calls"""
         violations = []
-        import re
         
         # Pattern to match frappe.get_all calls with fields parameter
         pattern = r'frappe\.get_all\s*\(\s*["\']([^"\']+)["\'][^)]*fields\s*=\s*\[([^\]]+)\]'

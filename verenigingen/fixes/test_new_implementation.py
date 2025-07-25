@@ -16,7 +16,7 @@ def test_data_comparison():
     # Test with a known mutation ID
     test_mutation_id = 7420  # You can change this to any valid ID
 
-    from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+    from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
     iterator = EBoekhoudenRESTIterator()
 
@@ -101,7 +101,7 @@ def test_invoice_creation_comparison(mutation_id=None):
 
     mutation_id = int(mutation_id)
 
-    from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+    from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
     iterator = EBoekhoudenRESTIterator()
     company = frappe.get_single("E-Boekhouden Settings").default_company
@@ -267,7 +267,7 @@ def calculate_improvements(current, new):
 def validate_api_capabilities():
     """Validate what we can get from the e-boekhouden API"""
 
-    from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+    from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
     iterator = EBoekhoudenRESTIterator()
 

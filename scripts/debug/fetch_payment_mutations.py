@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Run from bench console
 def analyze_mutations():
-    from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+    from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
     
     # Initialize API
     settings = frappe.get_single("E-Boekhouden Settings")

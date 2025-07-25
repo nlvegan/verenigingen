@@ -32,7 +32,7 @@ def run_migration_test():
 
         # Test 2: Check payment mappings
         try:
-            from verenigingen.utils.eboekhouden_payment_mapping import get_payment_account_mappings
+            from verenigingen.e_boekhouden.utils_payment_mapping import get_payment_account_mappings
 
             mappings = get_payment_account_mappings(settings.default_company)
             add_test_result("Payment Mappings", "passed", f"Found {len(mappings)} mappings", mappings)
@@ -68,7 +68,7 @@ def run_migration_test():
 
         # Test 4: Test dry run
         try:
-            from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration import run_migration_dry_run
+            from verenigingen.e_boekhouden.utils.eboekhouden_enhanced_migration import run_migration_dry_run
 
             dry_run_result = run_migration_dry_run(migration_doc.name)
 
@@ -88,7 +88,7 @@ def run_migration_test():
 
         # Test 5: Test validation
         try:
-            from verenigingen.utils.eboekhouden.eboekhouden_enhanced_migration import validate_migration_data
+            from verenigingen.e_boekhouden.utils.eboekhouden_enhanced_migration import validate_migration_data
 
             # validation_result = validate_migration_data(migration_doc.name)
             validate_migration_data(migration_doc.name)
@@ -183,7 +183,7 @@ def run_migration_test():
 def test_soap_api_connection():
     """Test the SOAP API connection"""
     try:
-        from verenigingen.utils.eboekhouden_soap_api import EBoekhoudenSOAPAPI
+        from verenigingen.e_boekhouden.utils_soap_api import EBoekhoudenSOAPAPI
 
         settings = frappe.get_single("E-Boekhouden Settings")
 

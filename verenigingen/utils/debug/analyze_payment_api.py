@@ -9,7 +9,7 @@ import frappe
 @frappe.whitelist()
 def analyze_payment_mutations():
     """Fetch and analyze specific payment mutations: 7833, 5473, 6217"""
-    from verenigingen.utils.eboekhouden.eboekhouden_api import EBoekhoudenAPI
+    from verenigingen.e_boekhouden.utils.eboekhouden_api import EBoekhoudenAPI
 
     # Initialize API
     settings = frappe.get_single("E-Boekhouden Settings")

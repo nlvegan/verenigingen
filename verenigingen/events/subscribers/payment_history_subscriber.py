@@ -107,7 +107,7 @@ def _update_member_payment_history_with_lock(member_name):
     return False
 
 
-def handle_invoice_submitted(event_name=None, event_data=None):
+def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
     """
     Handle invoice submission - update member payment history incrementally.
 
@@ -141,7 +141,7 @@ def handle_invoice_submitted(event_name=None, event_data=None):
             )
 
 
-def handle_invoice_cancelled(event_name=None, event_data=None):
+def handle_invoice_cancelled(event_name=None, event_data=None, **kwargs):
     """Handle invoice cancellation - remove from member payment history."""
     if not event_data:
         return
@@ -171,7 +171,7 @@ def handle_invoice_cancelled(event_name=None, event_data=None):
             )
 
 
-def handle_invoice_updated(event_name=None, event_data=None):
+def handle_invoice_updated(event_name=None, event_data=None, **kwargs):
     """Handle invoice update after submit (e.g., payment received) - update member payment history."""
     if not event_data:
         return
@@ -201,12 +201,12 @@ def handle_invoice_updated(event_name=None, event_data=None):
             )
 
 
-def handle_invoice_submitted_immediate(event_name=None, event_data=None):
+def handle_invoice_submitted_immediate(event_name=None, event_data=None, **kwargs):
     """
     Legacy immediate handler - kept for backward compatibility.
     The new handle_invoice_submitted method should be used instead.
     """
-    return handle_invoice_submitted(event_name, event_data)
+    return handle_invoice_submitted(event_name, event_data, **kwargs)
 
 
 # Scheduler method to be called periodically

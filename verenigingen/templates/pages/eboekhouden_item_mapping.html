@@ -128,7 +128,7 @@ frappe.ready(function() {
             'This will create default item mappings based on account name patterns. Continue?',
             function() {
                 frappe.call({
-                    method: 'verenigingen.verenigingen.doctype.e_boekhouden_item_mapping.e_boekhouden_item_mapping.create_default_mappings',
+                    method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_item_mapping.e_boekhouden_item_mapping.create_default_mappings',
                     args: {
                         company: defaultCompany
                     },

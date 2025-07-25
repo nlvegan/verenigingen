@@ -44,7 +44,7 @@ def cleanup_function_summary():
             "status": "✅ FULLY FUNCTIONAL",
         },
         "usage": {
-            "original_call": "frappe.call('verenigingen.verenigingen.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data')",
+            "original_call": "frappe.call('verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data')",
             "direct_call": "bench --site dev.veganisme.net execute verenigingen.utils.simple_robust_cleanup.simple_robust_cleanup",
             "parameters": "Optional company parameter (defaults to E-Boekhouden Settings default_company)",
         },

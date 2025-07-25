@@ -19,7 +19,7 @@ class EBoekhoudenCorrectImporter:
 
     def import_mutation(self, mutation_id: int) -> Dict:
         """Import a single mutation with all details"""
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
         iterator = EBoekhoudenRESTIterator()
 

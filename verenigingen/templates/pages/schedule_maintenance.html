@@ -1,0 +1,403 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Schedule Maintenance") }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h1 class="mb-0">{{ _("Dues Schedule Maintenance") }}</h1>
+                <button class="btn btn-primary" onclick="loadHealthReport()">
+                    <i class="fa fa-refresh"></i> {{ _("Refresh Report") }}
+                </button>
+            </div>
+
+            <!-- Health Report Card -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fa fa-heartbeat text-success"></i> {{ _("Schedule Health Report") }}
+                    </h5>
+                </div>
+                <div class="card-body" id="health-report">
+                    <div class="text-center">
+                        <div class="spinner-border" role="status">
+                            <span class="sr-only">{{ _("Loading...") }}</span>
+                        </div>
+                        <p class="mt-2">{{ _("Loading health report...") }}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Issues Card -->
+            <div class="card mb-4" id="issues-card" style="display: none;">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fa fa-exclamation-triangle text-warning"></i> {{ _("Issues Found") }}
+                    </h5>
+                </div>
+                <div class="card-body" id="issues-content">
+                </div>
+            </div>
+
+            <!-- Prevention Card -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">
+                        <i class="fa fa-shield text-info"></i> {{ _("Prevention Check") }}
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted">{{ _("Check for potential issues before they become problems") }}</p>
+                    <button class="btn btn-info" onclick="runPreventionCheck()">
+                        <i class="fa fa-search"></i> {{ _("Run Prevention Check") }}
+                    </button>
+                    <div id="prevention-results" class="mt-3"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Cleanup Confirmation Modal -->
+<div class="modal fade" id="cleanupModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{{ _("Confirm Cleanup Action") }}</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p id="cleanup-confirmation-text"></p>
+                <div class="alert alert-warning">
+                    <i class="fa fa-warning"></i>
+                    <strong>{{ _("Warning:") }}</strong> {{ _("This action cannot be undone. Schedules will be cancelled permanently.") }}
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ _("Cancel") }}</button>
+                <button type="button" class="btn btn-warning" onclick="executeDryRun()">{{ _("Preview Changes") }}</button>
+                {% if can_cleanup %}
+                <button type="button" class="btn btn-danger" onclick="executeCleanup()">{{ _("Execute Cleanup") }}</button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Results Modal -->
+<div class="modal fade" id="resultsModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">{{ _("Cleanup Results") }}</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="results-content">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ _("Close") }}</button>
+                <button type="button" class="btn btn-primary" onclick="loadHealthReport()">{{ _("Refresh Report") }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentIssueType = '';
+
+// Load health report on page load
+$(document).ready(function() {
+    loadHealthReport();
+});
+
+function loadHealthReport() {
+    $('#health-report').html(`
+        <div class="text-center">
+            <div class="spinner-border" role="status"></div>
+            <p class="mt-2">{{ _("Loading health report...") }}</p>
+        </div>
+    `);
+
+    frappe.call({
+        method: 'verenigingen.api.schedule_maintenance.get_schedule_health_report',
+        callback: function(r) {
+            if (r.message) {
+                displayHealthReport(r.message);
+            }
+        },
+        error: function(r) {
+            $('#health-report').html(`
+                <div class="alert alert-danger">
+                    <i class="fa fa-exclamation-circle"></i>
+                    {{ _("Error loading health report:") }} ${r.message}
+                </div>
+            `);
+        }
+    });
+}
+
+function displayHealthReport(report) {
+    const totalIssues = report.issues.orphaned_members.count +
+                       report.issues.orphaned_types.count +
+                       report.issues.inappropriate_zero_rates.count;
+
+    let healthHtml = `
+        <div class="row">
+            <div class="col-md-3">
+                <div class="text-center">
+                    <h3 class="text-primary">${report.total_active_schedules}</h3>
+                    <p class="text-muted">{{ _("Total Active Schedules") }}</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center">
+                    <h3 class="text-success">${report.healthy_schedules}</h3>
+                    <p class="text-muted">{{ _("Healthy Schedules") }}</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center">
+                    <h3 class="text-info">${report.template_schedules}</h3>
+                    <p class="text-muted">{{ _("Template Schedules") }}</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center">
+                    <h3 class="${totalIssues > 0 ? 'text-warning' : 'text-success'}">${totalIssues}</h3>
+                    <p class="text-muted">{{ _("Issues Found") }}</p>
+                </div>
+            </div>
+        </div>
+        <hr>
+        <small class="text-muted">{{ _("Report generated:") }} ${new Date(report.report_date).toLocaleString()}</small>
+    `;
+
+    $('#health-report').html(healthHtml);
+
+    // Display issues if any
+    if (totalIssues > 0) {
+        displayIssues(report.issues);
+        $('#issues-card').show();
+    } else {
+        $('#issues-card').hide();
+    }
+}
+
+function displayIssues(issues) {
+    let issuesHtml = '';
+
+    if (issues.orphaned_members.count > 0) {
+        issuesHtml += createIssueSection(
+            'orphaned_members',
+            '{{ _("Orphaned Member References") }}',
+            issues.orphaned_members.count,
+            'danger',
+            '{{ _("These schedules reference members that no longer exist. They should be cancelled to prevent invoice errors.") }}'
+        );
+    }
+
+    if (issues.orphaned_types.count > 0) {
+        issuesHtml += createIssueSection(
+            'orphaned_types',
+            '{{ _("Orphaned Membership Types") }}',
+            issues.orphaned_types.count,
+            'warning',
+            '{{ _("These schedules reference membership types that no longer exist.") }}'
+        );
+    }
+
+    if (issues.inappropriate_zero_rates.count > 0) {
+        issuesHtml += createIssueSection(
+            'inappropriate_zero_rates',
+            '{{ _("Inappropriate Zero Rate Schedules") }}',
+            issues.inappropriate_zero_rates.count,
+            'warning',
+            '{{ _("These schedules have zero rates but their membership types require payment.") }}'
+        );
+    }
+
+    $('#issues-content').html(issuesHtml);
+}
+
+function createIssueSection(issueType, title, count, alertType, description) {
+    return `
+        <div class="alert alert-${alertType}">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <h6 class="mb-1">${title}</h6>
+                    <p class="mb-1">${description}</p>
+                    <small>${count} {{ _("schedules affected") }}</small>
+                </div>
+                <div>
+                    {% if can_cleanup %}
+                    <button class="btn btn-sm btn-outline-${alertType}" onclick="confirmCleanup('${issueType}', '${title}', ${count})">
+                        <i class="fa fa-trash"></i> {{ _("Clean Up") }}
+                    </button>
+                    {% else %}
+                    <span class="text-muted">{{ _("Insufficient permissions") }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function confirmCleanup(issueType, title, count) {
+    currentIssueType = issueType;
+    $('#cleanup-confirmation-text').text(`{{ _("Are you sure you want to clean up") }} ${count} {{ _("schedules for") }} ${title}?`);
+    $('#cleanupModal').modal('show');
+}
+
+function executeDryRun() {
+    performCleanup(true);
+}
+
+function executeCleanup() {
+    performCleanup(false);
+}
+
+function performCleanup(dryRun) {
+    $('#cleanupModal').modal('hide');
+
+    frappe.call({
+        method: 'verenigingen.api.schedule_maintenance.cleanup_orphaned_schedules',
+        args: {
+            issue_type: currentIssueType,
+            dry_run: dryRun
+        },
+        callback: function(r) {
+            if (r.message) {
+                displayCleanupResults(r.message);
+            }
+        },
+        error: function(r) {
+            displayCleanupResults({
+                success: false,
+                message: `{{ _("Error:") }} ${r.message}`
+            });
+        }
+    });
+}
+
+function displayCleanupResults(result) {
+    let resultHtml = '';
+
+    if (result.success) {
+        resultHtml = `
+            <div class="alert alert-${result.dry_run ? 'info' : 'success'}">
+                <i class="fa fa-${result.dry_run ? 'eye' : 'check'}"></i>
+                <strong>${result.dry_run ? '{{ _("Preview:") }}' : '{{ _("Success:") }}'}</strong>
+                ${result.message}
+            </div>
+        `;
+
+        if (result.actions && result.actions.length > 0) {
+            resultHtml += `
+                <h6>{{ _("Actions Taken:") }}</h6>
+                <div class="table-responsive">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr>
+                                <th>{{ _("Schedule") }}</th>
+                                <th>{{ _("Action") }}</th>
+                                <th>{{ _("Reason") }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            result.actions.slice(0, 10).forEach(action => {
+                resultHtml += `
+                    <tr>
+                        <td><small>${action.schedule_name || action.schedule}</small></td>
+                        <td><span class="badge badge-${result.dry_run ? 'info' : 'success'}">${action.action}</span></td>
+                        <td><small>${action.reason}</small></td>
+                    </tr>
+                `;
+            });
+
+            resultHtml += '</tbody></table></div>';
+
+            if (result.total_found > result.actions.length) {
+                resultHtml += `<p class="text-muted">{{ _("Showing first 10 of") }} ${result.total_found} {{ _("actions") }}</p>`;
+            }
+        }
+    } else {
+        resultHtml = `
+            <div class="alert alert-danger">
+                <i class="fa fa-exclamation-circle"></i>
+                <strong>{{ _("Error:") }}</strong> ${result.message}
+            </div>
+        `;
+    }
+
+    $('#results-content').html(resultHtml);
+    $('#resultsModal').modal('show');
+}
+
+function runPreventionCheck() {
+    $('#prevention-results').html(`
+        <div class="text-center">
+            <div class="spinner-border spinner-border-sm" role="status"></div>
+            {{ _("Running prevention check...") }}
+        </div>
+    `);
+
+    frappe.call({
+        method: 'verenigingen.api.schedule_maintenance.prevent_orphaned_schedules',
+        callback: function(r) {
+            if (r.message) {
+                displayPreventionResults(r.message);
+            }
+        },
+        error: function(r) {
+            $('#prevention-results').html(`
+                <div class="alert alert-danger">
+                    {{ _("Error running prevention check:") }} ${r.message}
+                </div>
+            `);
+        }
+    });
+}
+
+function displayPreventionResults(results) {
+    let html = '';
+
+    if (results.total_warnings === 0) {
+        html = `
+            <div class="alert alert-success">
+                <i class="fa fa-check-circle"></i>
+                {{ _("No potential issues detected. All schedules appear safe.") }}
+            </div>
+        `;
+    } else {
+        html = `<div class="alert alert-info"><strong>${results.total_warnings} {{ _("potential issues detected") }}</strong></div>`;
+
+        results.warnings.forEach(warning => {
+            let alertType = 'warning';
+            if (warning.type === 'inappropriate_zero_rates') {
+                alertType = 'danger'; // More serious for billing issues
+            }
+
+            html += `
+                <div class="alert alert-${alertType}">
+                    <h6>${warning.message}</h6>
+                    <p class="mb-1">${warning.count} {{ _("schedules affected") }}</p>
+                    <small class="text-muted">{{ _("Type:") }} ${warning.type}</small>
+                </div>
+            `;
+        });
+    }
+
+    html += `<small class="text-muted">{{ _("Check performed:") }} ${new Date(results.check_date).toLocaleString()}</small>`;
+
+    $('#prevention-results').html(html);
+}
+</script>
+{% endblock %}

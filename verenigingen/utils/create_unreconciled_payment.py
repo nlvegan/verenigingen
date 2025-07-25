@@ -66,10 +66,11 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                 # For SEPA transfers, the description often contains the party name
                 if description and len(description) > 10:
                     # Import the SEPA extraction function
-                    from .eboekhouden_soap_migration import extract_name_from_sepa_description
+                    from verenigingen.e_boekhouden.utils.party_extractor import EBoekhoudenPartyExtractor
 
                     # Try to extract meaningful name from SEPA description
-                    extracted_name = extract_name_from_sepa_description(description)
+                    extractor = EBoekhoudenPartyExtractor()
+                    extracted_name = extractor._extract_party_name_from_description(description)
 
                     MAX_CUSTOMER_NAME_LENGTH = 140
                     prefix = "Unmatched Payment - "
@@ -137,10 +138,11 @@ def create_unreconciled_payment_entry(mutation, company, cost_center, payment_ty
                 # Try to extract party info from description
                 if description and len(description) > 10:
                     # Import the SEPA extraction function
-                    from .eboekhouden_soap_migration import extract_name_from_sepa_description
+                    from verenigingen.e_boekhouden.utils.party_extractor import EBoekhoudenPartyExtractor
 
                     # Try to extract meaningful name from SEPA description
-                    extracted_name = extract_name_from_sepa_description(description)
+                    extractor = EBoekhoudenPartyExtractor()
+                    extracted_name = extractor._extract_party_name_from_description(description)
 
                     MAX_SUPPLIER_NAME_LENGTH = 140
                     prefix = "Unmatched Payment - "

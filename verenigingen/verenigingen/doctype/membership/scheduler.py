@@ -18,11 +18,10 @@ def setup_membership_scheduler_events():
 def notify_about_orphaned_records():
     """Send email notifications about orphaned memberships and dues schedules"""
     try:
-        from verenigingen.verenigingen.report.orphaned_dues_schedules_report.orphaned_dues_schedules_report import (
-            get_data,
-        )
+        # TODO: The orphaned_dues_schedules_report module is missing
+        # For now, we'll implement a simple query directly here
 
-        orphaned_data = get_data()
+        orphaned_data = _get_orphaned_records_data()
 
         if not orphaned_data:
             return
@@ -256,3 +255,65 @@ def enqueue_process_auto_renewals():
         "status": "deprecated",
         "message": "Auto-renewal is now handled by the billing/dues schedule system",
     }
+
+
+def _get_orphaned_records_data():
+    """Get orphaned memberships and dues schedules data"""
+    orphaned_records = []
+
+    try:
+        # Find memberships without dues schedules
+        orphaned_memberships = frappe.db.sql(
+            """
+            SELECT
+                m.name,
+                m.member,
+                m.membership_type,
+                m.membership_status
+            FROM `tabMembership` m
+            LEFT JOIN `tabMembership Dues Schedule` mds ON mds.membership = m.name
+            WHERE m.docstatus = 1
+            AND m.membership_status = 'Active'
+            AND mds.name IS NULL
+        """,
+            as_dict=True,
+        )
+
+        for membership in orphaned_memberships:
+            orphaned_records.append(
+                {
+                    "record_type": "Membership",
+                    "document": membership.name,
+                    "status": membership.membership_status,
+                    "issue": "No dues schedule found",
+                }
+            )
+
+        # Find dues schedules without active memberships
+        orphaned_schedules = frappe.db.sql(
+            """
+            SELECT
+                mds.name,
+                mds.membership,
+                mds.status
+            FROM `tabMembership Dues Schedule` mds
+            LEFT JOIN `tabMembership` m ON m.name = mds.membership
+            WHERE mds.docstatus = 1
+            AND (m.name IS NULL OR m.membership_status != 'Active')
+        """,
+            as_dict=True,
+        )
+
+        for schedule in orphaned_schedules:
+            orphaned_records.append(
+                {
+                    "record_type": "Membership Dues Schedule",
+                    "document": schedule.name,
+                    "status": schedule.status,
+                    "issue": "Membership not found or inactive",
+                }
+            )
+    except Exception as e:
+        frappe.log_error(f"Error getting orphaned records data: {str(e)}", "Orphaned Records Query Error")
+
+    return orphaned_records

@@ -425,7 +425,7 @@ function refreshDashboard() {
 
 function testConnection() {
 	frappe.call({
-		method: 'verenigingen.utils.eboekhouden.eboekhouden_api.test_api_connection',
+		method: 'verenigingen.e_boekhouden.utils.eboekhouden_api.test_api_connection',
 		callback: function(r) {
 			if (r.message && r.message.success) {
 				frappe.show_alert({

@@ -9,7 +9,7 @@ import frappe
 def test_enhanced_item_categorization():
     """Test the enhanced item categorization logic"""
 
-    from verenigingen.utils.eboekhouden.invoice_helpers import determine_item_group, generate_item_code
+    from verenigingen.e_boekhouden.utils.invoice_helpers import determine_item_group, generate_item_code
 
     results = {"tests": [], "summary": {"passed": 0, "failed": 0}}
 

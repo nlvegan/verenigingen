@@ -42,7 +42,7 @@ def test_money_transfer_implementation():
         print(f"Cost Center: {cost_center}")
         
         # Import the functions we want to test
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import (
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
             _process_money_transfer_with_mapping,
             _resolve_account_mapping,
             _resolve_money_source_account,

@@ -50,7 +50,7 @@ def test_stock_account_handling():
         
         # Test 3: Test stock account handler import
         try:
-            from verenigingen.utils.eboekhouden.stock_account_handler import StockAccountHandler
+            from verenigingen.e_boekhouden.utils.stock_account_handler import StockAccountHandler
             
             settings = frappe.get_single("E-Boekhouden Settings")
             company = settings.default_company

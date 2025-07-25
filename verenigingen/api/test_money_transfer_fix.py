@@ -22,7 +22,7 @@ def test_money_transfer_implementation():
 
         # Test that the functions exist and can be imported
         try:
-            from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import (
+            from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
                 _get_appropriate_cash_account,
                 _get_appropriate_expense_account,
                 _get_appropriate_income_account,
@@ -62,7 +62,7 @@ def test_money_transfer_implementation():
         # Test that the dispatch logic is integrated
         try:
             # Import the main processing function
-            from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import (
+            from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
                 _process_single_mutation,
             )
 

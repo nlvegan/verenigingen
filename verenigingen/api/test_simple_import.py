@@ -14,7 +14,7 @@ def test_simple_money_transfer_import():
         response.append("=== Simple Money Transfer Import Test ===")
 
         # Use the existing working full import logic but limit to recent data
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import start_full_rest_import
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import start_full_rest_import
 
         # Get company
         company = "Ned Ver Vegan"
@@ -100,7 +100,7 @@ def test_simple_money_transfer_import():
             start_date = end_date - timedelta(days=2)
 
             # Use existing import logic with date filter
-            from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+            from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
             iterator = EBoekhoudenRESTIterator()
 
@@ -149,7 +149,7 @@ def test_money_transfer_process_directly():
         response.append("=== Direct Money Transfer Processing Test ===")
 
         # Import the functions
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration import (
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
             _get_appropriate_cash_account,
             _get_appropriate_expense_account,
             _get_appropriate_income_account,

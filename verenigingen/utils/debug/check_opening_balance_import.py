@@ -52,7 +52,7 @@ def check_opening_balance_mutations():
         )
 
         # Use the REST iterator to fetch a type 0 mutation
-        from verenigingen.utils.eboekhouden.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
+        from verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator import EBoekhoudenRESTIterator
 
         iterator = EBoekhoudenRESTIterator()
 

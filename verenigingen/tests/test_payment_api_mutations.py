@@ -13,7 +13,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import nowdate
 import json
 
-from verenigingen.utils.eboekhouden.payment_processing import PaymentEntryHandler
+from verenigingen.e_boekhouden.utils.payment_processing import PaymentEntryHandler
 
 
 class TestActualPaymentMutations(FrappeTestCase):
