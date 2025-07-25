@@ -54,6 +54,7 @@ class PaymentEntryHandler:
             # Parse invoice numbers
             invoice_numbers = self._parse_invoice_numbers(mutation.get("invoiceNumber"))
             self._log(f"Found {len(invoice_numbers)} invoice(s): {invoice_numbers}")
+            self._current_invoice_numbers = invoice_numbers  # Store for account lookup
 
             # Determine payment type and party
             payment_type = "Receive" if mutation_type == 3 else "Pay"
@@ -273,16 +274,30 @@ class PaymentEntryHandler:
         pe.posting_date = getdate(mutation.get("date"))
         pe.payment_type = payment_type
 
-        # Set amounts - calculate from rows if no direct amount
-        amount = abs(flt(mutation.get("amount", 0), 2))
+        # Always calculate amount from rows (rows are source of truth)
+        top_level_amount = abs(flt(mutation.get("amount", 0), 2))
+        self._log(f"Top-level amount from mutation: {top_level_amount}")
 
-        # If no direct amount, calculate from rows
-        if amount == 0 and mutation.get("rows"):
-            amount = sum(abs(flt(row.get("amount", 0), 2)) for row in mutation.get("rows", []))
+        if mutation.get("rows"):
+            row_amounts = [abs(flt(row.get("amount", 0), 2)) for row in mutation.get("rows", [])]
+            amount = sum(row_amounts)
+            self._log(f"Row amounts: {row_amounts}")
             self._log(f"Calculated amount {amount} from {len(mutation.get('rows', []))} rows")
 
+            # Validate top-level amount matches rows (if non-zero)
+            if top_level_amount > 0 and abs(top_level_amount - amount) > 0.01:
+                self._log(
+                    f"WARNING: Top-level amount ({top_level_amount}) doesn't match row total ({amount})"
+                )
+        else:
+            # Fallback to top-level amount only if no rows exist
+            amount = top_level_amount
+            self._log(f"No rows found, using top-level amount: {amount}")
+
+        # Check for zero-amount payments
         if amount == 0:
-            raise ValueError("Cannot determine payment amount - no amount field and no rows with amounts")
+            self._log("Zero amount payment detected")
+            # Let ERPNext handle the validation - if it requires non-zero amounts, it will fail properly
 
         if payment_type == "Receive":
             pe.received_amount = amount
@@ -300,15 +315,11 @@ class PaymentEntryHandler:
         if payment_type == "Receive":
             pe.paid_to = bank_account
             if party:
-                pe.paid_from = frappe.db.get_value(
-                    "Account", {"account_type": "Receivable", "company": self.company}, "name"
-                )
+                pe.paid_from = self._get_party_account(party, "Customer")
         else:
             pe.paid_from = bank_account
             if party:
-                pe.paid_to = frappe.db.get_value(
-                    "Account", {"account_type": "Payable", "company": self.company}, "name"
-                )
+                pe.paid_to = self._get_party_account(party, "Supplier")
 
         # Set reference details
         invoice_number = mutation.get("invoiceNumber")
@@ -533,6 +544,68 @@ class PaymentEntryHandler:
         remarks.append(f"Original Ledger ID: {mutation.get('ledgerId')}")
 
         return "\n".join(remarks)
+
+    def _get_party_account(self, party: str, party_type: str) -> str:
+        """Get the correct party account, checking invoices first for specific accounts."""
+        # First check if there are invoices that specify a particular account
+        invoice_numbers = self._current_invoice_numbers if hasattr(self, "_current_invoice_numbers") else []
+
+        if invoice_numbers and party_type == "Customer":
+            # Check if any Sales Invoice has a specific debtors account
+            for invoice_num in invoice_numbers:
+                debtors_account = frappe.db.get_value(
+                    "Sales Invoice",
+                    {"customer": party, "eboekhouden_invoice_number": invoice_num, "docstatus": 1},
+                    "debit_to",
+                )
+                if debtors_account:
+                    self._log(f"Using debtors account from invoice: {debtors_account}")
+                    return debtors_account
+        elif invoice_numbers and party_type == "Supplier":
+            # Check if any Purchase Invoice has a specific creditors account
+            for invoice_num in invoice_numbers:
+                creditors_account = frappe.db.get_value(
+                    "Purchase Invoice",
+                    {"supplier": party, "eboekhouden_invoice_number": invoice_num, "docstatus": 1},
+                    "credit_to",
+                )
+                if creditors_account:
+                    self._log(f"Using creditors account from invoice: {creditors_account}")
+                    return creditors_account
+
+        # Fall back to party's default account
+        if party_type == "Customer":
+            # Get default receivable account from customer's accounts child table
+            accounts = frappe.db.sql(
+                """
+                SELECT pa.account
+                FROM `tabParty Account` pa
+                WHERE pa.parent = %s AND pa.parenttype = 'Customer' AND pa.company = %s
+                LIMIT 1
+            """,
+                (party, self.company),
+                as_dict=True,
+            )
+            if accounts:
+                return accounts[0].account
+        else:
+            # Get default payable account from supplier's accounts child table
+            accounts = frappe.db.sql(
+                """
+                SELECT pa.account
+                FROM `tabParty Account` pa
+                WHERE pa.parent = %s AND pa.parenttype = 'Supplier' AND pa.company = %s
+                LIMIT 1
+            """,
+                (party, self.company),
+                as_dict=True,
+            )
+            if accounts:
+                return accounts[0].account
+
+        # Final fallback to default receivable/payable account
+        account_type = "Receivable" if party_type == "Customer" else "Payable"
+        return frappe.db.get_value("Account", {"account_type": account_type, "company": self.company}, "name")
 
     def _log(self, message: str):
         """Add to debug log."""

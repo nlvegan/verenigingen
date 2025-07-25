@@ -32,9 +32,6 @@
   "skip_existing",
   "batch_size",
   "column_break_enhanced",
-  "use_date_chunking",
-  "enable_audit_trail",
-  "enable_rollback",
   "progress_section",
   "progress_percentage",
   "current_operation",
@@ -175,7 +172,7 @@
    "fieldname": "use_enhanced_migration",
    "fieldtype": "Check",
    "label": "Use Enhanced Migration",
-   "description": "Enable all migration improvements including error recovery, performance optimization, and audit trail"
+   "description": "Enable all migration improvements including error recovery and performance optimization"
   },
   {
    "default": 1,
@@ -194,27 +191,6 @@
   {
    "fieldname": "column_break_enhanced",
    "fieldtype": "Column Break"
-  },
-  {
-   "default": 1,
-   "fieldname": "use_date_chunking",
-   "fieldtype": "Check",
-   "label": "Use Date Range Chunking",
-   "description": "Automatically split large date ranges to respect API limits"
-  },
-  {
-   "default": 1,
-   "fieldname": "enable_audit_trail",
-   "fieldtype": "Check",
-   "label": "Enable Audit Trail",
-   "description": "Create comprehensive audit log of all migration operations"
-  },
-  {
-   "default": 1,
-   "fieldname": "enable_rollback",
-   "fieldtype": "Check",
-   "label": "Enable Transaction Rollback",
-   "description": "Allow rollback of failed operations (requires more processing time)"
   },
   {
    "fieldname": "progress_section",

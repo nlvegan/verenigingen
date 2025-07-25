@@ -57,7 +57,6 @@ class EnhancedEBoekhoudenMigration:
         self.dry_run = migration_doc.get("dry_run", False)
         self.batch_size = migration_doc.get("batch_size", 100)
         self.skip_existing = migration_doc.get("skip_existing", True)
-        self.use_date_chunking = migration_doc.get("use_date_chunking", True)
 
         # Initialize simulators if in dry-run mode
         if self.dry_run:

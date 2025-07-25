@@ -23,11 +23,10 @@ def test_money_transfer_implementation():
         # Test that the functions exist and can be imported
         try:
             from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
-                _get_appropriate_cash_account,
                 _get_appropriate_expense_account,
                 _get_appropriate_income_account,
+                _get_appropriate_payment_account,
                 _process_money_transfer_mutation,
-                _process_money_transfer_with_mapping,
                 _resolve_account_mapping,
                 _resolve_money_destination_account,
                 _resolve_money_source_account,
@@ -43,7 +42,7 @@ def test_money_transfer_implementation():
 
         try:
             # Test cash account resolution
-            cash_account = _get_appropriate_cash_account(company, debug_info)
+            cash_account = _get_appropriate_payment_account(company, debug_info)
             response.append(f"Cash Account: {cash_account}")
 
             # Test income account resolution
@@ -77,7 +76,7 @@ def test_money_transfer_implementation():
             }
 
             response.append(f"✅ Dispatch integration ready for types 5 & 6")
-            response.append(f"   Type 5 & 6 mutations will use _process_money_transfer_with_mapping")
+            response.append(f"   Type 5 & 6 mutations will use _create_journal_entry directly")
 
         except Exception as e:
             response.append(f"❌ Dispatch integration error: {str(e)}")
@@ -92,11 +91,11 @@ def test_money_transfer_implementation():
         response.append("")
         response.append("=== Key Changes Made ===")
         response.append("1. Updated dispatch logic in _process_single_mutation() for types 5 & 6")
-        response.append("2. Added _process_money_transfer_with_mapping() wrapper function")
+        response.append("2. Integrated types 5 & 6 to use _create_journal_entry directly")
         response.append("3. Added account resolution helper functions:")
         response.append("   - _resolve_money_source_account() for type 5")
         response.append("   - _resolve_money_destination_account() for type 6")
-        response.append("   - _get_appropriate_cash_account() for internal transfers")
+        response.append("   - _get_appropriate_payment_account() for internal transfers")
         response.append("   - _get_appropriate_income_account() for external income")
         response.append("   - _get_appropriate_expense_account() for external expenses")
         response.append("4. Enhanced _process_money_transfer_mutation() with proper debit/credit logic")

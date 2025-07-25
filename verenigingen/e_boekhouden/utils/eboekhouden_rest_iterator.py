@@ -170,6 +170,10 @@ class EBoekhoudenRESTIterator:
                             if mutation_id is not None:
                                 detailed = self.fetch_mutation_detail(mutation_id)
                                 if detailed:
+                                    # Preserve amount field from summary if not in detailed data
+                                    if "amount" not in detailed or detailed.get("amount") is None:
+                                        if "amount" in mutation:
+                                            detailed["amount"] = mutation["amount"]
                                     detailed_mutations.append(detailed)
 
                         all_mutations.extend(detailed_mutations)
@@ -245,6 +249,10 @@ class EBoekhoudenRESTIterator:
                 if real_id == 0 or real_id != mutation_id:
                     detail_data = self.fetch_mutation_detail(mutation_id)
                     if detail_data:
+                        # Preserve amount field from summary if not in detailed data
+                        if "amount" not in detail_data or detail_data.get("amount") is None:
+                            if "amount" in mutation_data:
+                                detail_data["amount"] = mutation_data["amount"]
                         mutations.append(detail_data)
                         found_count += 1
                         consecutive_not_found = 0
@@ -256,6 +264,10 @@ class EBoekhoudenRESTIterator:
                     # Try to get more details
                     detail_data = self.fetch_mutation_detail(mutation_id)
                     if detail_data:
+                        # Preserve amount field from summary if not in detailed data
+                        if "amount" not in detail_data or detail_data.get("amount") is None:
+                            if "amount" in mutation_data:
+                                detail_data["amount"] = mutation_data["amount"]
                         mutations.append(detail_data)
                     else:
                         mutations.append(mutation_data)
@@ -399,45 +411,6 @@ def fix_crediteuren_accounts():
             "success": True,
             "fixed_count": fixed_count,
             "accounts_fixed": [acc["name"] for acc in accounts],
-        }
-
-    except Exception as e:
-        import traceback
-
-        return {"success": False, "error": str(e), "traceback": traceback.format_exc()}
-
-
-@frappe.whitelist()
-def continue_rest_import_from_680():
-    """Continue the REST import from mutation 680 where it left of"""
-    try:
-        # Simple approach: Create a new migration and import the remaining range
-        from verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration import (
-            start_transaction_import,
-        )
-
-        # Create a new migration document for the continuation
-        new_migration = frappe.new_doc("E-Boekhouden Migration")
-        new_migration.migration_name = f"REST Continue from 680 - {frappe.utils.today()}"
-        new_migration.company = frappe.get_single("E-Boekhouden Settings").default_company
-        new_migration.migrate_accounts = 0
-        new_migration.migrate_cost_centers = 0
-        new_migration.migrate_customers = 1  # May find new customers
-        new_migration.migrate_suppliers = 1  # May find new suppliers
-        new_migration.migrate_transactions = 1
-        new_migration.date_from = "2018-12-31"  # Start from opening balances
-        new_migration.date_to = frappe.utils.today()
-        new_migration.migration_status = "Draft"
-        new_migration.save()
-
-        # Start the full REST import
-        result = start_transaction_import(new_migration.name, import_type="all")
-
-        return {
-            "success": True,
-            "migration_created": new_migration.name,
-            "import_result": result,
-            "message": "New migration started to import remaining transactions",
         }
 
     except Exception as e:

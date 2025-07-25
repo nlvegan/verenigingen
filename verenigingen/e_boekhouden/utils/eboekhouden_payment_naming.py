@@ -51,10 +51,13 @@ def get_payment_entry_title(mutation, party_name, payment_type, relation_data=No
     if mutation.get("MutatieRegels"):  # SOAP format
         for regel in mutation.get("MutatieRegels", []):
             amount += abs(float(regel.get("BedragInvoer", 0) or regel.get("BedragInclBTW", 0)))
-    elif mutation.get("lines"):  # REST format
+    elif mutation.get("lines"):  # REST format (lines)
         for line in mutation.get("lines", []):
             amount += abs(float(line.get("amount", 0)))
-    else:  # Simple amount field for REST
+    elif mutation.get("rows"):  # REST format (rows) - rows are source of truth
+        for row in mutation.get("rows", []):
+            amount += abs(float(row.get("amount", 0)))
+    else:  # Fallback to top-level amount only if no line items exist
         amount = abs(float(mutation.get("amount", 0)))
 
     if amount:
@@ -194,10 +197,13 @@ def get_journal_entry_title(mutation, transaction_type):
     if mutation.get("MutatieRegels"):  # SOAP format
         for regel in mutation.get("MutatieRegels", []):
             amount += abs(float(regel.get("BedragInclBTW", 0) or regel.get("BedragExclBTW", 0)))
-    elif mutation.get("lines"):  # REST format
+    elif mutation.get("lines"):  # REST format (lines)
         for line in mutation.get("lines", []):
             amount += abs(float(line.get("amount", 0)))
-    else:  # Simple amount field for REST
+    elif mutation.get("rows"):  # REST format (rows) - rows are source of truth
+        for row in mutation.get("rows", []):
+            amount += abs(float(row.get("amount", 0)))
+    else:  # Fallback to top-level amount only if no line items exist
         amount = abs(float(mutation.get("amount", 0)))
 
     if amount:

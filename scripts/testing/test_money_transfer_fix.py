@@ -43,11 +43,10 @@ def test_money_transfer_implementation():
         
         # Import the functions we want to test
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
-            _process_money_transfer_with_mapping,
             _resolve_account_mapping,
             _resolve_money_source_account,
             _resolve_money_destination_account,
-            _get_appropriate_cash_account,
+            _get_appropriate_payment_account,
             _get_appropriate_income_account,
             _get_appropriate_expense_account,
         )
@@ -58,7 +57,7 @@ def test_money_transfer_implementation():
         debug_info = []
         
         # Test cash account resolution
-        cash_account = _get_appropriate_cash_account(company, debug_info)
+        cash_account = _get_appropriate_payment_account(company, debug_info)
         print(f"Cash Account: {cash_account}")
         
         # Test income account resolution  

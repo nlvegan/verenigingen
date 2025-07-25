@@ -150,10 +150,9 @@ def test_money_transfer_process_directly():
 
         # Import the functions
         from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
-            _get_appropriate_cash_account,
             _get_appropriate_expense_account,
             _get_appropriate_income_account,
-            _process_money_transfer_with_mapping,
+            _get_appropriate_payment_account,
             _resolve_account_mapping,
         )
 
@@ -168,7 +167,7 @@ def test_money_transfer_process_directly():
 
         response.append(f"\n=== Testing Account Resolution ===")
 
-        cash_account = _get_appropriate_cash_account(company, debug_info)
+        cash_account = _get_appropriate_payment_account(company, debug_info)
         response.append(f"Cash Account: {cash_account['erpnext_account']}")
 
         income_account = _get_appropriate_income_account(company, debug_info)

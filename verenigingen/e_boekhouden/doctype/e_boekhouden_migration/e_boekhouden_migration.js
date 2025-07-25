@@ -568,14 +568,14 @@ function handle_start_migration(frm) {
 						indicator: 'blue'
 					});
 				} else {
-					// Fall back to 5-year range
+					// Fall back to 10-year range
 					const today = frappe.datetime.get_today();
-					const fiveYearsAgo = frappe.datetime.add_days(today, -1825);
+					const tenYearsAgo = frappe.datetime.add_days(today, -3650);
 
-					frm.set_value('date_from', fiveYearsAgo);
+					frm.set_value('date_from', tenYearsAgo);
 					frm.set_value('date_to', today);
 					frappe.show_alert({
-						message: __('Using default 5-year date range. Click "Analyze Data" to detect actual range.'),
+						message: __('Using default 10-year date range. Click "Analyze Data" to detect actual range.'),
 						indicator: 'yellow'
 					});
 				}
@@ -1035,8 +1035,8 @@ function start_coa_import(frm) {
 
 	// Set date range to full range
 	const today = frappe.datetime.get_today();
-	const fiveYearsAgo = frappe.datetime.add_days(today, -1825);
-	frm.set_value('date_from', fiveYearsAgo);
+	const tenYearsAgo = frappe.datetime.add_days(today, -3650);
+	frm.set_value('date_from', tenYearsAgo);
 	frm.set_value('date_to', today);
 
 	// Save and start
@@ -1377,26 +1377,32 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 					const ninety_days_ago = frappe.datetime.add_days(today, -90);
 					frm.set_value('date_from', ninety_days_ago);
 				} else {
-					// For 'all' transactions, try to get mutation 0 date or use fallback
-					if (window.eboekhouden_date_range && window.eboekhouden_date_range.earliest_date) {
-						frm.set_value('date_from', window.eboekhouden_date_range.earliest_date);
-					} else {
-						// Fallback to 5 years ago for full import
-						const today = frappe.datetime.get_today();
-						const five_years_ago = frappe.datetime.add_days(today, -1825);
-						frm.set_value('date_from', five_years_ago);
-					}
+					// For 'all' transactions, clear date filters to import everything
+					frm.set_value('date_from', '');
+					frm.set_value('date_to', '');
 				}
 			}
 
-			if (options.date_to) {
-				frm.set_value('date_to', options.date_to);
-			} else {
-				// Always use today as end date for complete import
-				frm.set_value('date_to', frappe.datetime.get_today());
+			// Function to continue with import after date is set
+			function continue_rest_import() {
+				if (options.date_to) {
+					frm.set_value('date_to', options.date_to);
+				} else {
+					// Always use today as end date for complete import
+					frm.set_value('date_to', frappe.datetime.get_today());
+				}
+
+				// Continue with the rest of the import logic
+				finish_rest_import_setup();
 			}
 
-			// Save document first, then start import
+			// For non-'all' imports, continue immediately
+			if (import_type !== 'all') {
+				continue_rest_import();
+			}
+
+			function finish_rest_import_setup() {
+				// Save document first, then start import
 			frm.save().then(() => {
 				// Double-check that document exists before calling API
 				if (!frm.doc.name) {
@@ -1443,6 +1449,7 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 					indicator: 'red'
 				});
 			});
+			} // Close finish_rest_import_setup function
 		}
 
 	});

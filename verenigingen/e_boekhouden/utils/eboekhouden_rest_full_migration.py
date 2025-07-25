@@ -59,78 +59,45 @@ def get_default_cost_center(company):
     return fallback_cost_center
 
 
-def get_appropriate_cash_account(company, mutation=None, debug_info=None):
-    """Get the most appropriate cash account for the company, avoiding hardcoded values"""
-    if debug_info is None:
-        debug_info = []
-
-    # 1. Try to get company's default cash account
-    company_cash_account = frappe.db.get_value("Company", company, "default_cash_account")
-    if company_cash_account:
-        debug_info.append(f"Using company default cash account: {company_cash_account}")
-        return company_cash_account
-
-    # 2. Look for a cash account with "Kas" (Dutch for cash) in the name
-    kas_account = frappe.db.get_value(
-        "Account", {"account_type": "Cash", "company": company, "account_name": ["like", "%Kas%"]}, "name"
-    )
-    if kas_account:
-        debug_info.append(f"Using Kas cash account: {kas_account}")
-        return kas_account
-
-    # 3. Get any cash account for the company (with explicit ordering for consistency)
-    any_cash_account = frappe.db.get_value(
-        "Account", {"account_type": "Cash", "company": company}, "name", order_by="creation"
-    )
-    if any_cash_account:
-        debug_info.append(f"Using first available cash account: {any_cash_account}")
-        return any_cash_account
-
-    # 4. Look for bank account as fallback (with explicit ordering for consistency)
-    bank_account = frappe.db.get_value(
-        "Account", {"account_type": "Bank", "company": company}, "name", order_by="creation"
-    )
-    if bank_account:
-        debug_info.append(f"Using bank account as cash fallback: {bank_account}")
-        return bank_account
-
-    # 5. Create a basic cash account if none exists
-    debug_info.append("No cash account found, creating basic cash account")
-    return create_basic_cash_account(company)
-
-
-def create_basic_cash_account(company):
-    """Create a basic cash account for the company"""
-    try:
-        # Find a suitable parent account
-        parent_account = frappe.db.get_value(
-            "Account", {"account_type": "Cash", "is_group": 1, "company": company}, "name"
+def get_party_account(party, party_type, company):
+    """
+    Get the correct party account, preferring party-specific accounts over defaults.
+    """
+    # Try to get party's default account
+    if party_type == "Customer":
+        party_account = frappe.db.sql(
+            """
+            SELECT pa.account
+            FROM `tabParty Account` pa
+            WHERE pa.parent = %s AND pa.parenttype = 'Customer'
+            AND pa.company = %s
+            LIMIT 1
+        """,
+            (party, company),
         )
+        if party_account:
+            return party_account[0][0]
+    else:
+        party_account = frappe.db.sql(
+            """
+            SELECT pa.account
+            FROM `tabParty Account` pa
+            WHERE pa.parent = %s AND pa.parenttype = 'Supplier'
+            AND pa.company = %s
+            LIMIT 1
+        """,
+            (party, company),
+        )
+        if party_account:
+            return party_account[0][0]
 
-        if not parent_account:
-            # Look for any Asset group account
-            parent_account = frappe.db.get_value(
-                "Account", {"root_type": "Asset", "is_group": 1, "company": company}, "name"
-            )
+    # Fallback to default receivable/payable account
+    account_type = "Receivable" if party_type == "Customer" else "Payable"
+    return frappe.db.get_value("Account", {"account_type": account_type, "company": company}, "name")
 
-        if not parent_account:
-            frappe.throw(f"Could not find suitable parent account for cash account in company {company}")
 
-        # Create the cash account
-        cash_account = frappe.new_doc("Account")
-        cash_account.account_name = "Cash - eBoekhouden Import"
-        cash_account.account_type = "Cash"
-        cash_account.root_type = "Asset"
-        cash_account.parent_account = parent_account
-        cash_account.company = company
-        cash_account.insert(ignore_permissions=True)
-
-        return cash_account.name
-
-    except Exception as e:
-        frappe.log_error(f"Failed to create basic cash account for company {company}: {str(e)}")
-        # Return a fallback - this should rarely happen
-        return frappe.db.get_value("Account", {"company": company}, "name")
+# Removed unused get_appropriate_cash_account() and create_basic_cash_account() functions
+# All payment processing now uses the mapping-aware _get_appropriate_payment_account()
 
 
 def should_skip_mutation(mutation, debug_info=None):
@@ -474,7 +441,7 @@ def migration_status_summary(company=None):
 def _check_if_already_imported(mutation_id, doctype):
     """Check if a mutation has already been imported"""
     existing = frappe.db.get_value(doctype, {"eboekhouden_mutation_nr": str(mutation_id)}, "name")
-    return existing is not None
+    return existing
 
 
 def _check_if_invoice_number_exists(invoice_number, doctype):
@@ -639,6 +606,8 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
         try:
             # Skip if already imported
             mutation_id = mutation.get("id")
+            mutation_type = mutation.get("type", 0)
+
             if not mutation_id:
                 errors.append("Mutation missing ID, skipping")
                 debug_info.append("ERROR - Mutation missing ID")
@@ -666,13 +635,6 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
             debug_info.append(
                 f"Processing mutation {mutation_id}: type={mutation_type}, amount={amount}, ledger={ledger_id}, rows={len(rows)}"
             )
-
-            # Special handling for opening balances (type 0)
-            if mutation_type == 0 and not opening_balances_imported:
-                debug_info.append(
-                    "Skipping opening balance mutation - should be imported via separate process"
-                )
-                continue
 
             # Skip if no amount and no rows (empty transaction)
             if amount == 0 and len(rows) == 0:
@@ -709,16 +671,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
     return {"imported": imported, "failed": len(mutations) - imported, "errors": errors}
 
 
-def _process_money_transfer_with_mapping(mutation, company, cost_center, debug_info):
-    """Process money transfer with automatic account mapping resolution"""
-    mutation_id = mutation.get("id")
-    mutation_type = mutation.get("type")
-    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
-
-    debug_info.append(f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}")
-
-    # This function is orphaned from the cleanup - delegate to the enhanced processor
-    return _process_single_mutation(mutation, company, cost_center, debug_info)
+# Removed _process_money_transfer_with_mapping - types 5 & 6 now handled directly by _create_journal_entry
 
 
 def _resolve_account_mapping(ledger_id, debug_info):
@@ -755,7 +708,7 @@ def _resolve_money_source_account(mutation, company, debug_info):
         return _get_appropriate_income_account(company, debug_info)
 
     # No relation - likely internal transfer from cash or other bank account
-    return _get_appropriate_cash_account(company, debug_info)
+    return _get_appropriate_payment_account(company, debug_info)
 
 
 def _resolve_money_destination_account(mutation, company, debug_info):
@@ -770,7 +723,7 @@ def _resolve_money_destination_account(mutation, company, debug_info):
         return _get_appropriate_expense_account(company, debug_info)
 
     # No relation - likely internal transfer to cash or other bank account
-    return _get_appropriate_cash_account(company, debug_info)
+    return _get_appropriate_payment_account(company, debug_info)
 
 
 def _get_appropriate_income_account(company, debug_info):
@@ -831,8 +784,8 @@ def _get_appropriate_expense_account(company, debug_info):
     )
 
 
-def _get_appropriate_cash_account(company, debug_info):
-    """Get appropriate cash account from explicit payment mappings"""
+def _get_appropriate_payment_account(company, debug_info):
+    """Get appropriate payment account (cash or bank) from explicit payment mappings"""
     # Import here to avoid circular imports
     from .eboekhouden_payment_mapping import get_payment_account_mappings
 
@@ -866,9 +819,28 @@ def _process_money_transfer_mutation(
     """Process a money transfer mutation (type 5 or 6) with enhanced party extraction"""
     mutation_id = mutation.get("id")
     description = mutation.get("description", f"Money Transfer {mutation_id}")
-    amount = abs(frappe.utils.flt(mutation.get("amount", 0), 2))
-    mutation_type = mutation.get("type", 5)
 
+    # Always calculate amount from rows (rows are source of truth)
+    top_level_amount = abs(frappe.utils.flt(mutation.get("amount", 0), 2))
+
+    if mutation.get("rows"):
+        row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in mutation.get("rows", [])]
+        amount = sum(row_amounts)
+        debug_info.append(
+            f"Money transfer calculated amount {amount} from {len(mutation.get('rows', []))} rows"
+        )
+
+        # Validate top-level amount matches rows (if non-zero)
+        if top_level_amount > 0 and abs(top_level_amount - amount) > 0.01:
+            debug_info.append(
+                f"WARNING: Money transfer top-level amount ({top_level_amount}) doesn't match row total ({amount})"
+            )
+    else:
+        # Fallback to top-level amount only if no rows exist
+        amount = top_level_amount
+        debug_info.append(f"Money transfer no rows found, using top-level amount: {amount}")
+
+    mutation_type = mutation.get("type", 5)
     debug_info.append(f"Processing money transfer: ID={mutation_id}, Type={mutation_type}, Amount={amount}")
 
     # Extract party information from mutation description
@@ -1908,10 +1880,9 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
             return _create_purchase_invoice(mutation_detail, company, cost_center, debug_info)
         elif mutation_type in [3, 4]:  # Payment types
             return _create_payment_entry(mutation_detail, company, cost_center, debug_info)
-        elif mutation_type in [5, 6]:  # Money transfers
-            return _process_money_transfer_with_mapping(mutation_detail, company, cost_center, debug_info)
         else:
-            # Create Journal Entry for other types (7, 8, 9, 10, etc.)
+            # Create Journal Entry for other types (5, 6, 7, 8, 9, 10, etc.)
+            # Types 5 & 6 are Money Received/Money Paid - handled as journal entries
             return _create_journal_entry(mutation_detail, company, cost_center, debug_info)
 
     except Exception as e:
@@ -2114,7 +2085,27 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
 
     # Basic implementation (legacy fallback)
     mutation_id = mutation.get("id")
-    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
+    top_level_amount = frappe.utils.flt(mutation.get("amount", 0), 2)
+    debug_info.append(f"Top-level amount from mutation: {top_level_amount}")
+
+    # Always calculate amount from rows (rows are source of truth)
+    if mutation.get("rows"):
+        row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in mutation.get("rows", [])]
+        amount = sum(row_amounts)
+        debug_info.append(
+            f"Calculated amount {amount} from {len(mutation.get('rows', []))} rows (basic implementation)"
+        )
+
+        # Validate top-level amount matches rows (if non-zero)
+        if top_level_amount > 0 and abs(top_level_amount - amount) > 0.01:
+            debug_info.append(
+                f"WARNING: Top-level amount ({top_level_amount}) doesn't match row total ({amount})"
+            )
+    else:
+        # Fallback to top-level amount only if no rows exist
+        amount = top_level_amount
+        debug_info.append(f"No rows found, using top-level amount: {amount}")
+
     relation_id = mutation.get("relationId")
     invoice_number = mutation.get("invoiceNumber")
     mutation_type = mutation.get("type", 3)
@@ -2131,33 +2122,72 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
     try:
         from .eboekhouden_payment_naming import get_payment_entry_title
 
-        party_name = customer if payment_type == "Receive" else supplier
+        # Get party name after it's been determined
+        party_name = None
+        if relation_id:
+            if payment_type == "Receive":
+                party_name = _get_or_create_customer(relation_id, debug_info)
+            else:
+                party_name = _get_or_create_supplier(relation_id, "", debug_info)
+
         pe.title = get_payment_entry_title(mutation, party_name, payment_type)
     except Exception as e:
         debug_info.append(f"Could not set improved payment title: {str(e)}")
         pe.title = f"eBoekhouden {payment_type} {mutation_id}"
 
-    # Use dynamic cash account lookup instead of hardcoded values
-    cash_account = get_appropriate_cash_account(company, mutation, debug_info)
+    # Use dynamic cash account lookup with payment mapping support
+    try:
+        # Try payment mappings first
+        from .eboekhouden_payment_mapping import get_payment_account_mappings
+
+        payment_mappings = get_payment_account_mappings(company)
+
+        if "cash_account" in payment_mappings:
+            cash_account = payment_mappings["cash_account"]
+            debug_info.append("Using company default cash account")
+        elif "bank_account" in payment_mappings:
+            cash_account = payment_mappings["bank_account"]
+            debug_info.append("Using bank account as cash fallback")
+        else:
+            # Fallback to ERPNext defaults
+            cash_account = frappe.db.get_value(
+                "Account", {"account_type": "Cash", "company": company}, "name"
+            )
+            if not cash_account:
+                cash_account = frappe.db.get_value(
+                    "Account", {"account_type": "Bank", "company": company}, "name"
+                )
+            debug_info.append(f"Using default account: {cash_account}")
+    except Exception as e:
+        debug_info.append(f"Error getting cash account: {str(e)}")
+        cash_account = frappe.db.get_value("Account", {"account_type": "Cash", "company": company}, "name")
+        if not cash_account:
+            cash_account = frappe.db.get_value(
+                "Account", {"account_type": "Bank", "company": company}, "name"
+            )
+
+    # Log if zero amount
+    if amount == 0:
+        debug_info.append("WARNING: Zero amount payment detected")
 
     if payment_type == "Receive":
         pe.paid_to = cash_account
         pe.received_amount = amount
+        pe.paid_amount = amount  # ERPNext requires both fields to be set
         if relation_id:
             pe.party_type = "Customer"
             pe.party = _get_or_create_customer(relation_id, debug_info)
-            pe.paid_from = frappe.db.get_value(
-                "Account", {"account_type": "Receivable", "company": company}, "name"
-            )
+            # Get party account - use party's default if available
+            pe.paid_from = get_party_account(pe.party, "Customer", company)
     else:
         pe.paid_from = cash_account
         pe.paid_amount = amount
+        pe.received_amount = amount  # ERPNext requires both fields to be set
         if relation_id:
             pe.party_type = "Supplier"
             pe.party = _get_or_create_supplier(relation_id, "", debug_info)
-            pe.paid_to = frappe.db.get_value(
-                "Account", {"account_type": "Payable", "company": company}, "name"
-            )
+            # Get party account - use party's default if available
+            pe.paid_to = get_party_account(pe.party, "Supplier", company)
 
     pe.reference_no = invoice_number if invoice_number else f"EB-{mutation_id}"
     pe.reference_date = mutation.get("date")
@@ -2166,6 +2196,160 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
     pe.submit()
     debug_info.append(f"Created Payment Entry {pe.name} (Basic Implementation)")
     return pe
+
+
+def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info):
+    """Create a Payment Entry for zero-amount transactions"""
+    mutation_id = mutation.get("id")
+    mutation_type = mutation.get("type", 0)
+    description = mutation.get("description", f"eBoekhouden Zero-Amount Import {mutation_id}")
+    ledger_id = mutation.get("ledgerId")
+
+    try:
+        # Create Payment Entry with minimal amount (0.01) to satisfy ERPNext validation
+        pe = frappe.new_doc("Payment Entry")
+        pe.company = company
+        pe.posting_date = mutation.get("date")
+        pe.eboekhouden_mutation_nr = str(mutation_id)
+        pe.eboekhouden_main_ledger_id = str(ledger_id) if ledger_id else ""
+        pe.reference_no = f"EBH-Zero-{mutation_id}"
+        pe.reference_date = mutation.get("date")
+
+        # Set payment type based on mutation type
+        if mutation_type == 5:  # Money Received
+            pe.payment_type = "Receive"
+            pe.mode_of_payment = "Bank Transfer"
+        elif mutation_type == 6:  # Money Paid
+            pe.payment_type = "Pay"
+            pe.mode_of_payment = "Bank Transfer"
+        elif mutation_type == 3:  # Customer Payment
+            pe.payment_type = "Receive"
+            pe.mode_of_payment = "Bank Transfer"
+        elif mutation_type == 4:  # Supplier Payment
+            pe.payment_type = "Pay"
+            pe.mode_of_payment = "Bank Transfer"
+        else:
+            pe.payment_type = "Internal Transfer"
+
+        # Get bank account from main ledger
+        bank_account = None
+        if ledger_id:
+            mapping_result = frappe.db.sql(
+                """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
+                ledger_id,
+            )
+            if mapping_result:
+                bank_account = mapping_result[0][0]
+
+        # Fallback to default bank account
+        if not bank_account:
+            bank_account = _get_appropriate_payment_account(company, debug_info)
+
+        # Set accounts properly for Payment Entry
+        if pe.payment_type == "Receive":
+            # Money coming in: from customer/bank to our bank account
+            pe.paid_from = bank_account  # Source account
+            pe.paid_to = bank_account  # Our bank account
+        elif pe.payment_type == "Pay":
+            # Money going out: from our bank to supplier/bank
+            pe.paid_from = bank_account  # Our bank account
+            pe.paid_to = bank_account  # Destination account
+        else:  # Internal Transfer
+            pe.paid_from = bank_account
+            pe.paid_to = bank_account
+
+        # Set minimal amount (0.01) to satisfy validation, but mark as zero-amount
+        pe.paid_amount = 0.01
+        pe.received_amount = 0.01
+        pe.remarks = f"Zero-amount transaction from eBoekhouden. Original amount: €0.00. {description}"
+
+        # Add reference to original zero-amount nature
+        pe.user_remark = f"ZERO-AMOUNT IMPORT: {description}"
+
+        # Save the payment entry
+        pe.save()
+        pe.submit()
+
+        debug_info.append(f"Created zero-amount Payment Entry {pe.name} for mutation {mutation_id}")
+        return pe
+
+    except Exception as e:
+        debug_info.append(f"Failed to create zero-amount Payment Entry: {str(e)}")
+        # If Payment Entry fails, create a simple log entry instead
+        return _create_import_log_entry(mutation, company, debug_info)
+
+
+def _create_import_log_entry(mutation, company, debug_info):
+    """Create a comprehensive log entry for zero-amount transactions that can't be imported as financial documents"""
+    mutation_id = mutation.get("id")
+    mutation_type = mutation.get("type", 0)
+    description = mutation.get("description", f"eBoekhouden Import {mutation_id}")
+    posting_date = mutation.get("date")
+    ledger_id = mutation.get("ledgerId")
+    rows = mutation.get("rows", [])
+
+    # Build detailed log content
+    type_names = {
+        1: "Sales Invoice",
+        2: "Purchase Invoice",
+        3: "Customer Payment",
+        4: "Supplier Payment",
+        5: "Money Received",
+        6: "Money Paid",
+        7: "Memorial Booking",
+    }
+    type_name = type_names.get(mutation_type, f"Type {mutation_type}")
+
+    log_content = f"""ZERO-AMOUNT EBOEKHOUDEN TRANSACTION IMPORTED
+
+Mutation ID: {mutation_id}
+Type: {type_name} ({mutation_type})
+Date: {posting_date}
+Description: {description}
+Main Ledger ID: {ledger_id}
+
+This transaction had zero financial impact and was logged for audit purposes only.
+No ERPNext financial document was created due to zero amount.
+
+Row Details:"""
+
+    for i, row in enumerate(rows):
+        row_amount = frappe.utils.flt(row.get("amount", 0), 2)
+        row_ledger = row.get("ledgerId")
+        row_desc = row.get("description", "")
+        log_content += f"\n  Row {i + 1}: Amount €{row_amount}, Ledger {row_ledger}, {row_desc}"
+
+    try:
+        # Create error log entry for better tracking
+        error_log = frappe.new_doc("Error Log")
+        error_log.method = "eBoekhouden Zero-Amount Import"
+        error_log.error = log_content
+        error_log.save()
+
+        debug_info.append(
+            f"Created comprehensive log entry {error_log.name} for zero-amount mutation {mutation_id}"
+        )
+
+        # Return the Error Log document directly so it has .doctype and .name attributes
+        return error_log
+
+    except Exception as e:
+        debug_info.append(f"Failed to create log entry: {str(e)}")
+        # Fallback to simple comment
+        try:
+            comment = frappe.new_doc("Comment")
+            comment.comment_type = "Info"
+            comment.reference_doctype = "Company"
+            comment.reference_name = company
+            comment.content = f"Zero-amount eBoekhouden transaction {mutation_id}: {description}"
+            comment.save()
+
+            debug_info.append(f"Created fallback comment {comment.name} for mutation {mutation_id}")
+            return comment
+        except Exception as e2:
+            debug_info.append(f"Both log entry and comment creation failed: {str(e2)}")
+            # Return None to indicate failure
+            return None
 
 
 def _create_journal_entry(mutation, company, cost_center, debug_info):
@@ -2178,6 +2362,21 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     invoice_number = mutation.get("invoiceNumber")
     ledger_id = mutation.get("ledgerId")
     rows = mutation.get("rows", [])
+
+    # Check if this is a zero-amount transaction
+    row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in rows]
+    total_row_amount = sum(row_amounts)
+    is_zero_amount = total_row_amount == 0 and abs(amount) == 0
+
+    # For zero-amount transactions, create a log entry instead of Journal Entry
+    # This avoids ERPNext's validation that prevents zero-amount Journal Entry rows
+    if is_zero_amount:
+        debug_info.append(
+            f"Zero-amount transaction detected for mutation {mutation_id}, creating log entry instead of financial document"
+        )
+        return _create_import_log_entry(mutation, company, debug_info)
+
+    # Continue with regular Journal Entry creation for non-zero amounts
 
     je = frappe.new_doc("Journal Entry")
     je.company = company
@@ -2367,6 +2566,22 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
         )
 
         # No automatic balancing - let journal entry validation handle unbalanced entries
+
+    # Check for stock accounts before saving
+    stock_accounts_found = []
+    for account_entry in je.accounts:
+        if account_entry.account:
+            account_type = frappe.db.get_value("Account", account_entry.account, "account_type")
+            if account_type == "Stock":
+                stock_accounts_found.append(account_entry.account)
+
+    if stock_accounts_found:
+        error_msg = f"Cannot create Journal Entry: Stock accounts {', '.join(stock_accounts_found)} can only be updated via Stock Transactions"
+        debug_info.append(error_msg)
+        debug_info.append(
+            "Skipping this mutation as it involves stock accounts which require Stock Entry instead of Journal Entry"
+        )
+        raise Exception(error_msg)
 
     try:
         je.save()
@@ -2578,6 +2793,7 @@ def start_full_rest_import(migration_name):
         company = getattr(migration_doc, "company", None) or settings.default_company
         date_from = getattr(migration_doc, "date_from", None)
         date_to = getattr(migration_doc, "date_to", None)
+        migrate_transactions = getattr(migration_doc, "migrate_transactions", 1)
 
         if not company:
             return {"success": False, "error": "No company specified"}
@@ -2592,8 +2808,28 @@ def start_full_rest_import(migration_name):
 
         iterator = EBoekhoudenRESTIterator()
 
-        # Import all mutation types (Sales, Purchase, Payments, Journal)
-        mutation_types = [1, 2, 3, 4]
+        # Import all mutation types (Sales, Purchase, Payments, Money Transfers, Memorial)
+        mutation_types = [1, 2, 3, 4, 5, 6, 7]
+
+        # Add opening balances (type 0) if this is a full migration
+        # Opening balances should be imported when:
+        # 1. No date_from is specified (import all transactions)
+        # 2. date_from is set to 2019-01-01 or earlier (includes 2018-12-31 opening balances)
+        # getdate already imported at top of file
+
+        is_full_import = migrate_transactions and (
+            not date_from
+            or (
+                date_from and getdate(date_from) <= getdate("2019-01-01")
+            )  # Cutoff for "full" import (includes 2018-12-31 opening balances)
+        )
+
+        if is_full_import:
+            mutation_types.insert(0, 0)  # Add type 0 at the beginning
+            frappe.log_error(
+                f"Including opening balances (type 0) in migration. Date from: {date_from}",
+                "eBoekhouden Import",
+            )
         total_imported = 0
         total_failed = 0
         total_skipped = 0
@@ -2601,17 +2837,35 @@ def start_full_rest_import(migration_name):
 
         for i, mutation_type in enumerate(mutation_types):
             try:
-                # Update progress
-                progress = 10 + (i * 20)  # 10%, 30%, 50%, 70%
-                migration_doc.db_set("current_operation", f"Processing mutation type {mutation_type}...")
-                migration_doc.db_set("progress_percentage", progress)
+                # Update progress dynamically based on total mutation types
+                total_types = len(mutation_types)
+                progress_step = (
+                    80 / total_types
+                )  # Use 80% for mutation processing (10% for setup, 10% for completion)
+                progress = 10 + (i * progress_step)  # Start at 10%, increment dynamically
+
+                # Get descriptive type name
+                type_names = {
+                    0: "Opening Balances",
+                    1: "Sales Invoices",
+                    2: "Purchase Invoices",
+                    3: "Customer Payments",
+                    4: "Supplier Payments",
+                    5: "Money Received",
+                    6: "Money Paid",
+                    7: "Memorial Bookings",
+                }
+                type_name = type_names.get(mutation_type, f"Type {mutation_type}")
+
+                migration_doc.db_set("current_operation", f"Processing {type_name} (type {mutation_type})...")
+                migration_doc.db_set("progress_percentage", int(progress))
                 frappe.db.commit()
 
                 # Fetch all mutations of this type
                 mutations = iterator.fetch_mutations_by_type(mutation_type=mutation_type, limit=500)
 
-                # Filter by date if specified
-                if date_from or date_to:
+                # Filter by date if specified (but not for opening balances - type 0)
+                if (date_from or date_to) and mutation_type != 0:
                     filtered_mutations = []
                     for mutation in mutations:
                         mutation_date = mutation.get("date")
@@ -2629,12 +2883,71 @@ def start_full_rest_import(migration_name):
                     mutations = filtered_mutations
 
                 if mutations:
-                    # Process mutations using the batch import with enhanced error handling
-                    batch_result = _import_rest_mutations_batch_enhanced(migration_name, mutations, settings)
+                    # Special handling for opening balances (type 0)
+                    if mutation_type == 0:
+                        # Use the specialized opening balance import function
+                        debug_info = []
+                        company = settings.default_company
+                        cost_center = get_default_cost_center(company)
+
+                        # Call the advanced opening balance import function
+                        result = _import_opening_balances(company, cost_center, debug_info, dry_run=False)
+
+                        # Convert result to batch result format
+                        if result.get("success"):
+                            batch_result = {
+                                "imported": 1 if result.get("journal_entry") else 0,
+                                "failed": 0,
+                                "skipped": 0,
+                                "errors": [],
+                            }
+                        else:
+                            batch_result = {
+                                "imported": 0,
+                                "failed": len(mutations),  # All mutations failed
+                                "skipped": 0,
+                                "errors": [result.get("error", "Opening balance import failed")],
+                            }
+
+                        # Create summary log for opening balances
+                        summary_title = "eBoekhouden REST Import - Opening Balances Complete"
+                        summary_content = "BATCH SUMMARY for Opening Balances:\n"
+                        summary_content += f"• Processed: {len(mutations)} mutations\n"
+                        summary_content += f"• Imported: {batch_result['imported']}\n"
+                        summary_content += f"• Failed: {batch_result['failed']}\n"
+                        summary_content += f"• Skipped: {batch_result['skipped']}\n"
+                        summary_content += f"• Errors: {len(batch_result['errors'])}\n\n"
+                        summary_content += "DETAILED LOG:\n" + "\n".join(debug_info)
+                        frappe.log_error(summary_content, summary_title)
+                    else:
+                        # Process other mutations using the batch import with enhanced error handling
+                        batch_result = _import_rest_mutations_batch_enhanced(
+                            migration_name, mutations, settings, mutation_type
+                        )
+
                     total_imported += batch_result.get("imported", 0)
                     total_failed += batch_result.get("failed", 0)
                     total_skipped += batch_result.get("skipped", 0)
                     errors.extend(batch_result.get("errors", []))
+                else:
+                    # Create summary log even when no mutations found
+                    type_names = {
+                        0: "Opening Balances",
+                        1: "Sales Invoices",
+                        2: "Purchase Invoices",
+                        3: "Customer Payments",
+                        4: "Supplier Payments",
+                        5: "Money Received",
+                        6: "Money Paid",
+                        7: "Memorial Bookings",
+                    }
+                    type_name = type_names.get(mutation_type, f"Type {mutation_type}")
+
+                    debug_info = [f"No {type_name.lower()} mutations found in the specified date range"]
+                    frappe.log_error(
+                        "ENHANCED BATCH Log:\n" + "\n".join(debug_info),
+                        f"eBoekhouden Import - {type_name} - No Data Found",
+                    )
 
                     # Update running totals in the migration document
                     current_total = total_imported + total_failed + total_skipped
@@ -2674,7 +2987,7 @@ def start_full_rest_import(migration_name):
         return {"success": False, "error": str(e)}
 
 
-def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):
+def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, mutation_type=None):
     """
     Enhanced batch import that handles new fields gracefully.
 
@@ -2687,11 +3000,31 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):
     errors = []
     debug_info = []
 
-    debug_info.append(f"Starting enhanced batch import with {len(mutations) if mutations else 0} mutations")
+    # Get descriptive mutation type name
+    mutation_type_names = {
+        0: "Opening Balances",
+        1: "Sales Invoices",
+        2: "Purchase Invoices",
+        3: "Customer Payments",
+        4: "Supplier Payments",
+        5: "Money Received",
+        6: "Money Paid",
+        7: "Memorial Bookings",
+    }
+    type_name = (
+        mutation_type_names.get(mutation_type, f"Type {mutation_type}") if mutation_type else "Mixed Types"
+    )
+
+    debug_info.append(
+        f"Starting enhanced batch import with {len(mutations) if mutations else 0} mutations of {type_name}"
+    )
 
     if not mutations:
         debug_info.append("No mutations provided, returning early")
-        frappe.log_error("ENHANCED BATCH Log:\n" + "\n".join(debug_info), "REST Enhanced Batch Debug")
+        frappe.log_error(
+            "ENHANCED BATCH Log:\n" + "\n".join(debug_info),
+            f"eBoekhouden Import - {type_name} - No Mutations",
+        )
         return {"imported": 0, "failed": 0, "skipped": 0, "errors": []}
 
     company = settings.default_company
@@ -2704,13 +3037,18 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):
     if not cost_center:
         errors.append("No cost center found")
         debug_info.append("ERROR - No cost center found")
-        frappe.log_error("ENHANCED BATCH Log:\n" + "\n".join(debug_info), "REST Enhanced Batch Debug")
+        frappe.log_error(
+            "ENHANCED BATCH Log:\n" + "\n".join(debug_info),
+            f"eBoekhouden Import - {type_name} - Cost Center Error",
+        )
         return {"imported": 0, "failed": len(mutations), "skipped": 0, "errors": errors}
 
     for i, mutation in enumerate(mutations):
         try:
             # Skip if already imported
             mutation_id = mutation.get("id")
+            mutation_type = mutation.get("type", 0)
+
             if not mutation_id:
                 errors.append("Mutation missing ID, skipping")
                 debug_info.append("ERROR - Mutation missing ID")
@@ -2752,10 +3090,21 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):
                     debug_info.append(f"Failed to process mutation {mutation_id} - no document returned")
 
             except Exception as processing_error:
-                failed += 1
-                error_msg = f"Error processing mutation {mutation_id}: {str(processing_error)}"
-                errors.append(error_msg)
-                debug_info.append(f"PROCESSING ERROR - {error_msg}")
+                error_str = str(processing_error)
+
+                # Handle stock account errors more gracefully
+                if (
+                    "Stock accounts" in error_str
+                    and "can only be updated via Stock Transactions" in error_str
+                ):
+                    skipped += 1
+                    error_msg = f"Skipped mutation {mutation_id}: {error_str}"
+                    debug_info.append(f"STOCK ACCOUNT SKIP - {error_msg}")
+                else:
+                    failed += 1
+                    error_msg = f"Error processing mutation {mutation_id}: {error_str}"
+                    errors.append(error_msg)
+                    debug_info.append(f"PROCESSING ERROR - {error_msg}")
 
                 # Log the specific error for debugging
                 frappe.log_error(
@@ -2769,7 +3118,16 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings):
             errors.append(error_msg)
             debug_info.append(f"LOOP ERROR - {error_msg}")
 
-    # Log comprehensive debug info
-    frappe.log_error("ENHANCED BATCH Log:\n" + "\n".join(debug_info), "REST Enhanced Batch Debug")
+    # Log comprehensive debug info with more descriptive title
+    summary_title = f"eBoekhouden REST Import - {type_name} Complete"
+    summary_content = f"BATCH SUMMARY for {type_name}:\n"
+    summary_content += f"• Processed: {len(mutations) if mutations else 0} mutations\n"
+    summary_content += f"• Imported: {imported}\n"
+    summary_content += f"• Failed: {failed}\n"
+    summary_content += f"• Skipped: {skipped}\n"
+    summary_content += f"• Errors: {len(errors)}\n\n"
+    summary_content += "DETAILED LOG:\n" + "\n".join(debug_info)
+
+    frappe.log_error(summary_content, summary_title)
 
     return {"imported": imported, "failed": failed, "skipped": skipped, "errors": errors}

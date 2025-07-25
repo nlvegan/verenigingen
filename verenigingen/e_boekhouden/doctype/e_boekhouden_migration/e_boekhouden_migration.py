@@ -14,8 +14,13 @@ class EBoekhoudenMigration(Document):
         # Debug logging
         frappe.logger().debug(f"Validating migration: {self.migration_name}, Status: {self.migration_status}")
 
-        if getattr(self, "migrate_transactions", 0) and not (self.date_from and self.date_to):
-            frappe.throw("Date range is required when migrating transactions")
+        # Allow empty dates for "import all transactions" - empty dates mean import everything
+        if (
+            getattr(self, "migrate_transactions", 0)
+            and (self.date_from or self.date_to)
+            and not (self.date_from and self.date_to)
+        ):
+            frappe.throw("If specifying a date range, both Date From and Date To are required")
 
         if self.date_from and self.date_to and getdate(self.date_from) > getdate(self.date_to):
             frappe.throw("Date From cannot be after Date To")
@@ -3386,13 +3391,14 @@ def import_opening_balances_only(migration_name):
     except Exception as e:
         frappe.log_error(f"Opening balance import failed: {str(e)}")
 
-        # Update migration record with error
-        try:
-            migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
-            migration.db_set({"migration_status": "Failed", "error_log": str(e)})
-            frappe.db.commit()
-        except:
-            pass
+        # Only try to update migration record if the document exists
+        if frappe.db.exists("E-Boekhouden Migration", migration_name):
+            try:
+                migration = frappe.get_doc("E-Boekhouden Migration", migration_name)
+                migration.db_set({"migration_status": "Failed", "error_log": str(e)})
+                frappe.db.commit()
+            except Exception as update_error:
+                frappe.log_error(f"Could not update migration status: {str(update_error)}")
 
         return {"success": False, "error": str(e)}
 
