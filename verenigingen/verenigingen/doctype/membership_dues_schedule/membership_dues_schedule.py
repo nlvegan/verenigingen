@@ -1410,6 +1410,19 @@ class MembershipDuesSchedule(Document):
         except Exception as e:
             frappe.log_error(f"Error updating member dues rate: {str(e)}", "Member Dues Rate Update")
 
+    def update_member_fee_change_history(self):
+        """Update the member's fee change history from all dues schedules"""
+        try:
+            # Import the refresh function
+            from verenigingen.verenigingen.doctype.member.member import refresh_fee_change_history
+
+            # Call the refresh function to rebuild the fee change history
+            refresh_fee_change_history(self.member)
+        except Exception as e:
+            frappe.log_error(
+                f"Error updating member fee change history: {str(e)}", "Fee Change History Update"
+            )
+
     def add_billing_history_entry(self, change_type, old_rate, new_rate):
         """Add entry to member's billing history"""
         try:

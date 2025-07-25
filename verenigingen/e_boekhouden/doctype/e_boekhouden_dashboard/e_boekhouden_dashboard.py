@@ -131,15 +131,15 @@ class EBoekhoudenDashboard(Document):
         """Generate main dashboard HTML"""
         try:
             # Status indicators
-            "green" if "✅" in (self.connection_status or "") else "red"
+            connection_color = "green" if "✅" in (self.connection_status or "") else "red"
 
             # Calculate percentages and status
-            # total_available = (
-            #     (self.accounts_available or 0)
-            #     + (self.cost_centers_available or 0)
-            #     + (self.customers_available or 0)
-            #     + (self.suppliers_available or 0)
-            # )
+            total_available = (
+                (self.accounts_available or 0)
+                + (self.cost_centers_available or 0)
+                + (self.customers_available or 0)
+                + (self.suppliers_available or 0)
+            )
 
             html = f"""
             <div class="dashboard-container">

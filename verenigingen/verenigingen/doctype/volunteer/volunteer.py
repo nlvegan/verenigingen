@@ -81,7 +81,7 @@ class Volunteer(Document):
             # Get minimum volunteer age from configuration
             from verenigingen.utils.config_manager import ConfigManager
 
-            min_volunteer_age = ConfigManager.get("min_volunteer_age", 16)
+            min_volunteer_age = ConfigManager.get("min_volunteer_age", 12)
 
             if age < min_volunteer_age:
                 frappe.throw(

@@ -727,7 +727,7 @@ class Member(
 
                 # Additional validation for volunteering
                 if hasattr(self, "interested_in_volunteering") and self.interested_in_volunteering:
-                    min_volunteer_age = ConfigManager.get("min_volunteer_age", 16)
+                    min_volunteer_age = ConfigManager.get("min_volunteer_age", 12)
                     if self.age < min_volunteer_age:
                         frappe.throw(
                             _("Volunteers must be at least {0} years old. Current age: {1}").format(
@@ -2834,6 +2834,130 @@ def refresh_fee_change_history(member_name):
         error_msg = str(e)[:100] + "..." if len(str(e)) > 100 else str(e)  # Truncate long errors
         frappe.log_error(f"Fee change history error: {error_msg}", "Fee History Refresh")
         return {"success": False, "message": f"Error: {error_msg}"}
+
+
+@frappe.whitelist()
+def test_amendment_filtering():
+    """Test the new amendment filtering logic"""
+
+    # Test with a real member that might have amendments
+    member_name = "Assoc-Member-2025-07-0017"
+
+    # Import the function
+    from verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request import (
+        get_member_pending_contribution_amendments,
+    )
+
+    # Get amendments with new filtering
+    amendments = get_member_pending_contribution_amendments(member_name)
+
+    print(f"Found {len(amendments)} pending amendments for {member_name}")
+
+    # Also test the raw query to see what would be returned without filtering
+    raw_amendments = frappe.get_all(
+        "Contribution Amendment Request",
+        filters={"member": member_name, "status": ["in", ["Draft", "Pending Approval", "Approved"]]},
+        fields=["name", "status", "effective_date", "creation"],
+        order_by="creation desc",
+    )
+
+    print(f"Raw query returned {len(raw_amendments)} amendments")
+
+    # Show the difference
+    for amendment in raw_amendments:
+        in_filtered = any(a.name == amendment.name for a in amendments)
+        status_str = "✓ INCLUDED" if in_filtered else "✗ FILTERED OUT"
+
+        if amendment.effective_date:
+            date_status = f"(effective: {amendment.effective_date})"
+            if amendment.status == "Approved":
+                from frappe.utils import getdate, today
+
+                is_future = getdate(amendment.effective_date) >= getdate(today())
+                date_status += f" - {'FUTURE' if is_future else 'PAST'}"
+        else:
+            date_status = "(no effective date)"
+
+        print(f"  {status_str}: {amendment.name} - {amendment.status} {date_status}")
+
+    return {
+        "member": member_name,
+        "filtered_count": len(amendments),
+        "raw_count": len(raw_amendments),
+        "success": True,
+    }
+
+
+@frappe.whitelist()
+def test_automatic_fee_history_update(member_name="Assoc-Member-2025-07-0017"):
+    """Test that fee change history updates automatically when dues schedules are modified"""
+
+    print(f"Testing automatic fee change history update for {member_name}")
+
+    # Get current fee change history count
+    current_count = frappe.db.count("Member Fee Change History", {"parent": member_name})
+    print(f"Current fee change history count: {current_count}")
+
+    # Get member's current active dues schedule
+    active_schedule = frappe.db.get_value(
+        "Membership Dues Schedule",
+        {"member": member_name, "status": "Active"},
+        ["name", "dues_rate"],
+        as_dict=True,
+    )
+
+    if not active_schedule:
+        return {"success": False, "message": "No active dues schedule found for member"}
+
+    print(f"Current active schedule: {active_schedule.name} with rate: €{active_schedule.dues_rate}")
+
+    # Update the dues rate to trigger the automatic fee change history update
+    schedule_doc = frappe.get_doc("Membership Dues Schedule", active_schedule.name)
+    old_rate = schedule_doc.dues_rate
+    new_rate = max(old_rate + 5.00, 10.00)  # Add €5 or set to €10, whichever is higher
+
+    print(f"Changing dues rate from €{old_rate} to €{new_rate}")
+
+    # Update the schedule
+    schedule_doc.dues_rate = new_rate
+    schedule_doc.save()
+
+    # Check if fee change history was updated automatically
+    new_count = frappe.db.count("Member Fee Change History", {"parent": member_name})
+    print(f"New fee change history count: {new_count}")
+
+    success = new_count > current_count
+
+    if success:
+        print("✅ SUCCESS: Fee change history was updated automatically!")
+
+        # Get the latest entry
+        latest_entry = frappe.db.get_value(
+            "Member Fee Change History",
+            {"parent": member_name},
+            ["change_date", "old_dues_rate", "new_dues_rate", "change_type"],
+            as_dict=True,
+            order_by="idx DESC",
+        )
+
+        if latest_entry:
+            print(
+                f"Latest entry: {latest_entry.change_type} - €{latest_entry.old_dues_rate} → €{latest_entry.new_dues_rate}"
+            )
+    else:
+        print("❌ FAILED: Fee change history was not updated automatically")
+
+    # Revert the change
+    schedule_doc.dues_rate = old_rate
+    schedule_doc.save()
+    print(f"Reverted dues rate back to €{old_rate}")
+
+    return {
+        "success": success,
+        "current_count": current_count,
+        "new_count": new_count,
+        "test_completed": True,
+    }
 
 
 @frappe.whitelist()

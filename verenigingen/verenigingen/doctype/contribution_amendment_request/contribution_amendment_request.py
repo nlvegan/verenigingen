@@ -741,6 +741,8 @@ def create_fee_change_amendment(member_name, new_amount, reason, effective_date=
 @frappe.whitelist()
 def get_member_pending_contribution_amendments(member_name):
     """Get pending contribution amendments for a member"""
+    from frappe.utils import getdate, today
+
     amendments = frappe.get_all(
         "Contribution Amendment Request",
         filters={"member": member_name, "status": ["in", ["Draft", "Pending Approval", "Approved"]]},
@@ -748,7 +750,21 @@ def get_member_pending_contribution_amendments(member_name):
         order_by="creation desc",
     )
 
-    return amendments
+    # Filter out approved amendments that have passed their effective date
+    filtered_amendments = []
+    for amendment in amendments:
+        # Always show Draft and Pending Approval amendments
+        if amendment.status in ["Draft", "Pending Approval"]:
+            filtered_amendments.append(amendment)
+        # For Approved amendments, only show if effective date hasn't passed
+        elif amendment.status == "Approved" and amendment.effective_date:
+            if getdate(amendment.effective_date) >= getdate(today()):
+                filtered_amendments.append(amendment)
+        # For Approved amendments without effective date, show them (edge case)
+        elif amendment.status == "Approved" and not amendment.effective_date:
+            filtered_amendments.append(amendment)
+
+    return filtered_amendments
 
 
 @frappe.whitelist()

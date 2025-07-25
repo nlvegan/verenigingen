@@ -20,8 +20,8 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
         """Set up test environment for each test"""
         super().setUp()
         
-        # Clean up any existing Standard Monthly membership types
-        existing_types = frappe.get_all("Membership Type", filters={"membership_type_name": "Standard Monthly"})
+        # Clean up any existing Monthly Standard membership types
+        existing_types = frappe.get_all("Membership Type", filters={"membership_type_name": "Monthly Standard"})
         for mt in existing_types:
             frappe.delete_doc("Membership Type", mt.name, force=True, ignore_permissions=True)
         frappe.db.commit()
@@ -48,7 +48,7 @@ class TestSelfServiceFeeAdjustment(BaseTestCase):
         
         # Create membership type and membership
         self.membership_type = self.create_membership_type(
-            name="Standard Monthly",
+            name="Monthly Standard",
             amount=20.00
         )
         

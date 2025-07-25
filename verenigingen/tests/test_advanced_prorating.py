@@ -28,7 +28,7 @@ class TestAdvancedProrating(BaseTestCase):
         """Create membership types with explicit dues schedule templates"""
         membership_types_data = [
             {
-                "membership_type_name": "Standard Monthly",
+                "membership_type_name": "Monthly Standard",
                 "billing_period": "Monthly",
                 "minimum_amount": 25.00,
                 "description": "Standard monthly membership"
