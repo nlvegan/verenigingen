@@ -101,6 +101,14 @@ repos:
         stages: [pre-commit]
         exclude: '^(archived_unused/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
 
+      - id: hooks-event-validator
+        name: Validate hooks and event handlers
+        entry: python scripts/validation/hooks_event_validator.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
 
       - id: workspace-validator
         name: Validate workspace integrity

@@ -456,6 +456,12 @@ def get_audit_logger() -> SEPAAuditLogger:
     return _audit_logger
 
 
+# Standalone functions for hooks and scheduled tasks
+def cleanup_old_audit_logs():
+    """Wrapper function for scheduled cleanup of old audit logs"""
+    return get_audit_logger().cleanup_old_logs()
+
+
 # Convenience functions for common audit events
 def log_sepa_event(event_type: str, details: Dict[str, Any] = None, severity: str = "info"):
     """Log SEPA-specific audit event"""

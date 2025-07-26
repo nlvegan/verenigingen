@@ -155,6 +155,53 @@ verenigingen.verenigingen.doctype.membership_amendment_request.membership_amendm
 bench --site <site_name> execute "verenigingen.verenigingen.doctype.contribution_amendment_request.contribution_amendment_request.process_pending_amendments"
 ```
 
+### Pre-commit Hook Import Errors (NEW - January 2025)
+**Problem:** Pre-commit hooks failing with `ModuleNotFoundError: No module named 'barista'` or similar import errors.
+
+**Root Cause:** Pre-commit hooks attempting to run bench commands outside of Frappe environment context.
+
+**Example Error:**
+```bash
+Run quick validation tests......................Failed
+- hook id: run-quick-tests
+- exit code: 1
+ModuleNotFoundError: No module named 'barista'
+```
+
+**Solution:** Update `.pre-commit-config.yaml` to use direct Python script execution:
+```yaml
+# ❌ OLD (fails with module imports)
+- id: run-quick-tests
+  name: Run quick validation tests
+  entry: bench --site dev.veganisme.net execute "module.function"
+
+# ✅ NEW (works reliably)
+- id: run-quick-tests
+  name: Run quick validation tests
+  entry: python scripts/testing/integration/simple_test.py
+  language: system
+```
+
+**Key Changes Made:**
+- Changed from bench command execution to direct Python script execution
+- Updated test entry points to use standalone scripts
+- Enhanced validation scripts to work independently of Frappe context
+
+**Verification:** Test the updated hook:
+```bash
+# Run the updated pre-commit hook manually
+python scripts/testing/integration/simple_test.py
+
+# Run all pre-commit hooks
+pre-commit run --all-files
+```
+
+**Benefits:**
+- More reliable pre-commit execution
+- Faster hook execution (no bench overhead)
+- Better error reporting and debugging
+- Independence from Frappe environment setup
+
 ## Prevention Best Practices
 
 ### 1. Workspace Management

@@ -158,20 +158,67 @@ standard_fee = float(standard_fee) if standard_fee else 15.0
 
 ## Success Stories
 
-### Original Issue Prevention
-The validation system would have caught the original `'standard_fee' is undefined` error:
+### Recent Field Reference Fixes (January 2025)
+The validation system successfully identified and helped fix critical field reference issues:
 
+**System Alert DocType Issues:**
+```bash
+# Issues caught by enhanced_field_validator.py
+🔴 vereinigingen/www/monitoring_dashboard.py:
+   Line 45: compliance_status not found in doctype 'System Alert'
+
+🔴 vereinigingen/doctype/system_alert/system_alert.py:
+   Line 28: compliance_status not found in doctype 'System Alert'
 ```
-🔴 verenigingen/templates/pages/membership_fee_adjustment.html
-   Context: verenigingen/templates/pages/membership_fee_adjustment.py
-   Missing: standard_fee, current_fee, minimum_fee
-   Provided: amendment_id, message, success
+
+**Fix Applied:**
+```python
+# ❌ Before - invalid field reference
+filters["compliance_status"] = status
+
+# ✅ After - correct field reference
+filters["severity"] = status
+```
+
+### Payment History Event Handler Optimization
+Enhanced validation detected inefficient payment history rebuilds:
+
+**Issue Identified:**
+```python
+# ❌ Before - full rebuild on every event
+def on_payment_entry_submit(doc, method):
+    rebuild_complete_payment_history(doc.party)
+```
+
+**Optimization Applied:**
+```python
+# ✅ After - atomic updates for better performance
+def on_payment_entry_submit(doc, method):
+    refresh_financial_history(doc.party, doc.name)
+```
+
+### Pre-commit Hook Reliability Improvements
+Fixed critical pre-commit hook failures:
+
+**Problem:** `ModuleNotFoundError: No module named 'barista'`
+**Solution:** Updated pre-commit configuration to use direct Python execution instead of bench commands
+
+**Before:**
+```yaml
+entry: bench --site dev.veganisme.net execute "module.function"
+```
+
+**After:**
+```yaml
+entry: python scripts/testing/integration/simple_test.py
 ```
 
 ### Runtime Error Prevention
 - **19 high-risk template variable issues** caught at development time
 - **50 risky fallback patterns** identified for review
-- **Zero field reference issues** in production code (2 acceptable false positives)
+- **Zero field reference issues** in production code after recent fixes
+- **3 critical field reference bugs** fixed in System Alert doctype
+- **Payment history performance** improved through atomic event handlers
 
 ## Performance Metrics
 

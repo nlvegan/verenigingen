@@ -193,7 +193,7 @@ scheduler_events = {
         # Payment plan processing
         "verenigingen.verenigingen.doctype.payment_plan.payment_plan.process_overdue_installments",
         # Security audit log cleanup
-        "verenigingen.utils.security.audit_logging.get_audit_logger().cleanup_old_logs",
+        "verenigingen.utils.security.audit_logging.cleanup_old_audit_logs",
         # Monitoring and alerting system
         "verenigingen.utils.alert_manager.run_daily_checks",
     ],

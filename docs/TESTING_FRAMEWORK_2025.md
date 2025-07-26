@@ -107,6 +107,30 @@ def test_performance_critical_operation(self):
 ### Phase 3: Workflows & Integration ✅ COMPLETED
 **Files Migrated**: Complex workflow and integration tests
 
+### Phase 4: Enhanced Testing Infrastructure ✅ COMPLETED (January 2025)
+**Major Improvements**: Testing infrastructure and reliability enhancements
+
+#### Testing Infrastructure Enhancements:
+1. **Coverage Reporter with HTML Dashboard**
+   - Enhanced coverage reporting with visual HTML dashboard
+   - Integration with existing test runners
+   - Performance metrics and trend analysis
+
+2. **Enhanced Test Runner CLI**
+   - Multiple output formats (JSON, HTML, text)
+   - Suite-based test execution
+   - Improved error reporting and debugging
+
+3. **Mock Bank Testing Support**
+   - Enhanced IBAN validation for test environments
+   - TEST, MOCK, and DEMO bank support with proper MOD-97 checksums
+   - Full integration with SEPA mandate testing workflows
+
+4. **Pre-commit Hook Reliability**
+   - Fixed critical ModuleNotFoundError issues in pre-commit hooks
+   - Changed from bench command execution to direct Python scripts
+   - Enhanced validation layers for better error detection
+
 #### Successful Examples:
 1. **`test_member_lifecycle_simple.py`** ✅ **FULLY WORKING**
    - 10-stage complete member lifecycle test
@@ -200,6 +224,32 @@ bench --site dev.veganisme.net run-tests --app verenigingen --module vereniginge
 
 # Integration tests (3-10 minutes)
 bench --site dev.veganisme.net run-tests --app verenigingen --module verenigingen.tests.backend.integration.test_suspension_integration
+```
+
+#### Enhanced Test Infrastructure Commands (NEW - January 2025)
+```bash
+# Coverage Reporter with HTML Dashboard
+python scripts/coverage_report.py                    # Basic coverage report
+python scripts/coverage_report.py --html            # Generate HTML dashboard
+python scripts/coverage_report.py --with-tests      # Run tests and generate coverage
+
+# Enhanced Test Runner CLI
+python verenigingen/tests/test_runner.py --format json       # JSON output format
+python verenigingen/tests/test_runner.py --format html       # HTML report format
+python verenigingen/tests/test_runner.py --suite comprehensive  # Full test suite
+
+# Mock Bank Testing (Enhanced IBAN validation)
+python verenigingen/tests/test_mock_banks.py         # Test mock banking system
+python scripts/testing/integration/sepa_mandate_test.py     # SEPA with mock banks
+
+# Pre-commit Hook Testing (Fixed reliability issues)
+python scripts/testing/integration/simple_test.py   # Direct execution (reliable)
+pre-commit run --all-files                          # Run all hooks
+
+# Field Reference Validation (Enhanced)
+python scripts/validation/unified_field_validator.py --pre-commit
+python scripts/validation/enhanced_field_validator.py
+python scripts/validation/hooks_event_validator.py  # Validate event handlers
 ```
 
 ## Test Organization (July 2025 Structure)

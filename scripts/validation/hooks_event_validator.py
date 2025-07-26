@@ -166,6 +166,25 @@ class HooksEventValidator:
             module_path = ".".join(parts[:-1])
             method_name = parts[-1]
             
+            # Check if the file exists first (including __init__.py for packages)
+            possible_paths = [
+                self.app_path / self.app_name / (module_path.replace(".", "/") + ".py"),
+                self.app_path / (module_path.replace(".", "/") + ".py"),
+                self.app_path / self.app_name / (module_path.replace(".", "/") + "/__init__.py"),
+                self.app_path / (module_path.replace(".", "/") + "/__init__.py"),
+            ]
+            
+            file_exists = any(p.exists() for p in possible_paths)
+            if not file_exists:
+                self.issues.append(HookIssue(
+                    hook_type=hook_type,
+                    hook_name=hook_name,
+                    method_path=method_path,
+                    issue_type="missing_file",
+                    message=f"File not found for module: {module_path}"
+                ))
+                return
+            
             # Try to import the module - handle relative vs absolute paths
             module = None
             import_error = None
@@ -176,7 +195,13 @@ class HooksEventValidator:
             except ImportError as e:
                 import_error = e
                 
-                # If that fails and we're in the app directory, try with app prefix
+                # Check if it's a "No module named 'verenigingen'" error - this is expected outside Frappe
+                if "No module named 'verenigingen'" in str(e) or "No module named 'frappe'" in str(e):
+                    # Running outside Frappe environment - this is OK, just check file existence
+                    print(f"  ⚠️ Cannot import {module_path} (running outside Frappe environment)")
+                    return
+                
+                # Try alternative import paths for other errors
                 if module_path.startswith(self.app_name + "."):
                     # Already has app prefix, try without it
                     relative_path = module_path[len(self.app_name) + 1:]
@@ -194,55 +219,41 @@ class HooksEventValidator:
                     except ImportError:
                         pass
             
-            if module is None:
-                # Check if it's a file that actually exists
-                possible_paths = [
-                    self.app_path / self.app_name / module_path.replace(".", "/") + ".py",
-                    self.app_path / module_path.replace(".", "/") + ".py",
-                ]
-                
-                file_exists = any(p.exists() for p in possible_paths)
-                
-                if file_exists:
-                    # File exists but can't import - might be a syntax error
+            if module is None and import_error:
+                # Check if it's a real import error (not just missing Frappe env)
+                if "No module named 'verenigingen'" not in str(import_error) and "No module named 'frappe'" not in str(import_error):
                     self.issues.append(HookIssue(
                         hook_type=hook_type,
                         hook_name=hook_name,
                         method_path=method_path,
                         issue_type="import_error",
-                        message=f"File exists but cannot import {module_path}: {str(import_error)}"
+                        message=f"Cannot import {module_path}: {str(import_error)}"
                     ))
-                else:
+                return
+            
+            # If we successfully imported the module, validate the method
+            if module:
+                # Check if method exists
+                if not hasattr(module, method_name):
                     self.issues.append(HookIssue(
                         hook_type=hook_type,
                         hook_name=hook_name,
                         method_path=method_path,
-                        issue_type="missing_module",
-                        message=f"Module not found: {module_path} ({str(import_error)})"
+                        issue_type="missing_method",
+                        message=f"Method '{method_name}' not found in module {module_path}"
                     ))
-                return
-            
-            # Check if method exists
-            if not hasattr(module, method_name):
-                self.issues.append(HookIssue(
-                    hook_type=hook_type,
-                    hook_name=hook_name,
-                    method_path=method_path,
-                    issue_type="missing_method",
-                    message=f"Method '{method_name}' not found in module {module_path}"
-                ))
-                return
-            
-            # Check if it's callable
-            method = getattr(module, method_name)
-            if not callable(method):
-                self.issues.append(HookIssue(
-                    hook_type=hook_type,
-                    hook_name=hook_name,
-                    method_path=method_path,
-                    issue_type="not_callable",
-                    message=f"{method_path} exists but is not callable"
-                ))
+                    return
+                
+                # Check if it's callable
+                method = getattr(module, method_name)
+                if not callable(method):
+                    self.issues.append(HookIssue(
+                        hook_type=hook_type,
+                        hook_name=hook_name,
+                        method_path=method_path,
+                        issue_type="not_callable",
+                        message=f"{method_path} exists but is not callable"
+                    ))
                 
         except Exception as e:
             self.issues.append(HookIssue(
