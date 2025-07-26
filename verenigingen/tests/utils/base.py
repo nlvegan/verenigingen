@@ -368,10 +368,19 @@ class VereningingenTestCase(FrappeTestCase):
 
     def create_test_membership(self, **kwargs):
         """Create a test membership with default values"""
-        # Get a test membership type
-        membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
+        # Get a test membership type with low minimum amount
+        membership_type = frappe.db.get_value(
+            "Membership Type", 
+            {"minimum_amount": ["<=", 5.0]}, 
+            "name",
+            order_by="minimum_amount asc"
+        )
         if not membership_type:
-            membership_type = frappe.db.get_value("Membership Type", {}, "name")
+            # Fallback to any test membership type
+            membership_type = frappe.db.get_value("Membership Type", {"name": ["like", "%Test%"]}, "name")
+        if not membership_type:
+            # Final fallback
+            membership_type = "Test Membership"
         
         defaults = {
             "membership_type": membership_type,
@@ -563,7 +572,21 @@ class VereningingenTestCase(FrappeTestCase):
         return event
 
     def create_test_sepa_mandate(self, **kwargs):
-        """Create a test SEPA mandate with default values and configurable naming support"""
+        """
+        Create a test SEPA mandate with enhanced validation and scenarios
+        
+        Args:
+            scenario: Predefined scenario ("normal", "first_payment", "one_time", "suspended", "expired", "cancelled")
+            bank_code: Mock bank code ("TEST", "MOCK", "DEMO")
+            **kwargs: Additional field overrides
+        
+        Returns:
+            SEPA Mandate document with automatic cleanup tracking
+        """
+        # Extract scenario-specific parameters
+        scenario = kwargs.pop("scenario", "normal")
+        bank_code = kwargs.pop("bank_code", "TEST")
+        
         # Create a member first if not provided
         if "member" not in kwargs:
             member = self.create_test_member(
@@ -573,58 +596,125 @@ class VereningingenTestCase(FrappeTestCase):
             )
             kwargs["member"] = member.name
         
-        # Handle party/customer relationship (from main branch)
-        if "party" not in kwargs and "member" in kwargs:
-            member = frappe.get_doc("Member", kwargs["member"])
-            # Ensure member has a customer
-            if not member.customer:
-                customer = frappe.new_doc("Customer")
-                customer.customer_name = f"{member.first_name} {member.last_name}"
-                customer.customer_type = "Individual"
-                customer.member = member.name  # Direct link to member
-                customer.save()
-                member.customer = customer.name
-                member.save()
-                self.track_doc("Customer", customer.name)
-            kwargs["party"] = member.customer
-            kwargs["party_type"] = "Customer"
+        # Ensure member has a customer (required for mandates)
+        member_doc = frappe.get_doc("Member", kwargs["member"])
+        if not member_doc.customer:
+            customer = frappe.new_doc("Customer")
+            customer.customer_name = f"{member_doc.first_name} {member_doc.last_name}"
+            customer.customer_type = "Individual"
+            customer.member = member_doc.name  # Direct link to member
+            customer.save()
+            member_doc.customer = customer.name
+            member_doc.save()
+            self.track_doc("Customer", customer.name)
         
-        defaults = {
-            "party_type": "Customer",
-            "account_holder_name": "Test Account Holder",
-            "account_holder": "Test Account Holder",  # Support both field names
-            "iban": self._get_test_iban(),  # Use unique test IBANs from develop branch
-            "mandate_type": "RCUR",
-            "status": "Active",
-            "sign_date": frappe.utils.today(),
-            "consent_date": frappe.utils.today(),  # Support both field names
-            "consent_method": "Online Portal",
-            "scheme": "SEPA",
-            "used_for_memberships": 1
+        # Scenario-based defaults with realistic test data
+        scenario_defaults = {
+            "normal": {
+                "iban": self._get_test_iban(bank_code),
+                "status": "Active",
+                "mandate_type": "RCUR",
+                "is_active": 1,
+                "frequency": "Monthly",
+                "maximum_amount": 100.00,
+                "used_for_memberships": 1,
+                "used_for_donations": 0
+            },
+            "first_payment": {
+                "iban": self._get_test_iban(bank_code),
+                "status": "Active",
+                "mandate_type": "CORE",  # First payment in sequence
+                "is_active": 1,
+                "frequency": "Monthly",
+                "maximum_amount": 50.00,
+                "used_for_memberships": 1,
+                "first_collection_date": frappe.utils.add_days(frappe.utils.today(), 5)
+            },
+            "one_time": {
+                "iban": self._get_test_iban(bank_code),
+                "status": "Active",
+                "mandate_type": "OOFF",  # One-off payment
+                "is_active": 1,
+                "frequency": "Variable",
+                "maximum_amount": 500.00,
+                "used_for_donations": 1,
+                "used_for_memberships": 0
+            },
+            "suspended": {
+                "iban": self._get_test_iban(bank_code),
+                "status": "Suspended",
+                "mandate_type": "RCUR",
+                "is_active": 0,  # Suspended mandate
+                "frequency": "Monthly",
+                "maximum_amount": 75.00,
+                "used_for_memberships": 1
+            },
+            "expired": {
+                "iban": self._get_test_iban(bank_code),
+                "status": "Expired",
+                "mandate_type": "RCUR",
+                "is_active": 0,
+                "frequency": "Monthly",
+                "maximum_amount": 25.00,
+                "expiry_date": frappe.utils.add_days(frappe.utils.today(), -30),  # Expired 30 days ago
+                "used_for_memberships": 1
+            },
+            "cancelled": {
+                "iban": self._get_test_iban(bank_code),
+                "status": "Cancelled",
+                "mandate_type": "RCUR",
+                "is_active": 0,
+                "frequency": "Monthly",
+                "maximum_amount": 30.00,
+                "cancelled_date": frappe.utils.add_days(frappe.utils.today(), -7),  # Cancelled 7 days ago
+                "cancellation_reason": "Member request - account change",
+                "used_for_memberships": 1
+            }
         }
+        
+        # Get scenario-specific defaults
+        defaults = scenario_defaults.get(scenario, scenario_defaults["normal"])
+        
+        # Add common defaults for all scenarios
+        common_defaults = {
+            "account_holder_name": f"{member_doc.first_name} {member_doc.last_name}",
+            "sign_date": frappe.utils.today(),
+            "scheme": "SEPA"
+        }
+        defaults.update(common_defaults)
+        
+        # Apply user overrides
         defaults.update(kwargs)
         
+        # Create mandate with proper field validation
         mandate = frappe.new_doc("SEPA Mandate")
-        for key, value in defaults.items():
-            setattr(mandate, key, value)
         
-        # Don't set mandate_id - let it auto-generate using configurable pattern
+        # Validate fields exist in DocType before setting
+        valid_fields = [field.get("fieldname") for field in mandate.meta.fields]
+        for key, value in defaults.items():
+            if key in valid_fields:
+                setattr(mandate, key, value)
+        
+        # Auto-generate mandate_id if not provided
         if "mandate_id" not in kwargs:
-            mandate.mandate_id = None
+            # Generate unique mandate ID based on scenario
+            scenario_prefix = scenario.upper()[:4]
+            hash_suffix = frappe.generate_hash(length=6)
+            mandate.mandate_id = f"{scenario_prefix}-{hash_suffix}"
         
         mandate.save()
         self.track_doc("SEPA Mandate", mandate.name)
         return mandate
     
-    def _get_test_iban(self):
+    def _get_test_iban(self, bank_code="TEST"):
         """Generate a unique valid test IBAN for testing"""
         try:
             # Try to use the main generator when Frappe is available
             from verenigingen.utils.validation.iban_validator import generate_test_iban
-            return generate_test_iban("TEST")
+            return generate_test_iban(bank_code)
         except (ImportError, ModuleNotFoundError):
             # Fallback to standalone IBAN generation when Frappe is not available
-            return self._generate_standalone_test_iban("TEST")
+            return self._generate_standalone_test_iban(bank_code)
     
     def _generate_standalone_test_iban(self, bank_code="TEST", account_number=None):
         """Generate a valid test IBAN without Frappe dependencies"""
@@ -778,16 +868,107 @@ class VereningingenTestCase(FrappeTestCase):
         
         # Add a default item if no items provided
         if not invoice.items:
+            # Get a valid income account for the company 
+            company = defaults.get("company")
+            income_account = frappe.get_all("Account", 
+                filters={"account_type": "Income Account", "company": company, "is_group": 0}, 
+                limit=1, pluck="name")
+            if not income_account:
+                # Fallback - create a basic income account if none exists
+                income_account = self._get_or_create_income_account(company)
+            else:
+                income_account = income_account[0]
+            
+            # Get or create a test item
+            item_code = self._get_or_create_test_item()
+            
             invoice.append("items", {
-                "item_code": "MEMBERSHIP-MONTHLY",
+                "item_code": item_code,
                 "qty": 1,
                 "rate": 25.0,
-                "income_account": "Sales - TC"
+                "income_account": income_account
             })
         
         invoice.save()
         self.track_doc("Sales Invoice", invoice.name)
         return invoice
+
+    def _get_or_create_income_account(self, company):
+        """Get or create a basic income account for testing"""
+        account_name = f"Test Sales Income - {company}"
+        
+        # Check if account already exists
+        existing = frappe.db.get_value("Account", {"account_name": "Test Sales Income", "company": company})
+        if existing:
+            return existing
+        
+        # Create new income account
+        account = frappe.new_doc("Account")
+        account.account_name = "Test Sales Income"
+        account.company = company
+        account.account_type = "Income Account"
+        account.root_type = "Income"
+        account.report_type = "Profit and Loss"
+        account.is_group = 0
+        
+        # Find parent group
+        parent_account = frappe.get_all("Account", 
+            filters={"account_type": "Income Account", "company": company, "is_group": 1}, 
+            limit=1, pluck="name")
+        if parent_account:
+            account.parent_account = parent_account[0]
+        else:
+            # Create basic Income group if it doesn't exist
+            income_group = frappe.new_doc("Account")
+            income_group.account_name = "Income"
+            income_group.company = company
+            income_group.root_type = "Income"
+            income_group.report_type = "Profit and Loss"
+            income_group.is_group = 1
+            income_group.save()
+            self.track_doc("Account", income_group.name)
+            account.parent_account = income_group.name
+        
+        account.save()
+        self.track_doc("Account", account.name)
+        return account.name
+
+    def _get_or_create_test_item(self):
+        """Get or create a test item for invoices"""
+        item_code = "TEST-MEMBERSHIP"
+        
+        # Check if item already exists
+        if frappe.db.exists("Item", item_code):
+            return item_code
+        
+        # Create new test item
+        item = frappe.new_doc("Item")
+        item.item_code = item_code
+        item.item_name = "Test Membership Item"
+        item.item_group = "Services"  # Common item group
+        item.is_sales_item = 1
+        item.is_service_item = 1
+        item.include_item_in_manufacturing = 0
+        item.is_stock_item = 0
+        item.has_variants = 0
+        item.variant_of = ""
+        item.standard_rate = 25.0
+        
+        # Try to find item group or create one
+        if not frappe.db.exists("Item Group", "Services"):
+            # Create basic Services item group
+            item_group = frappe.new_doc("Item Group")
+            item_group.item_group_name = "Services"
+            item_group.is_group = 0
+            # Find or create parent group
+            if frappe.db.exists("Item Group", "All Item Groups"):
+                item_group.parent_item_group = "All Item Groups"
+            item_group.save()
+            self.track_doc("Item Group", item_group.name)
+        
+        item.save()
+        self.track_doc("Item", item.name)
+        return item.name
 
     def create_test_donor(self, **kwargs):
         """Create a test donor with default values"""
@@ -926,19 +1107,60 @@ class VereningingenTestCase(FrappeTestCase):
         return payment
 
     def create_test_direct_debit_batch(self, **kwargs):
-        """Create a test direct debit batch with default values"""
+        """Create a test direct debit batch with default values and invoices"""
         defaults = {
-            "batch_name": f"Test DD Batch {frappe.generate_hash(length=6)}",
-            "collection_date": frappe.utils.add_days(frappe.utils.today(), 3),
-            "batch_status": "Draft",
-            "payment_method": "SEPA Direct Debit",
-            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+            "batch_date": frappe.utils.today(),
+            "batch_description": f"Test DD Batch {frappe.generate_hash(length=6)}",
+            "batch_type": "CORE",
+            "currency": "EUR"
         }
         defaults.update(kwargs)
         
         batch = frappe.new_doc("Direct Debit Batch")
         for key, value in defaults.items():
             setattr(batch, key, value)
+        
+        # Create test invoice to satisfy validation requirement
+        if not kwargs.get("skip_invoice_creation", False):
+            # Create a member, membership, and invoice for the batch
+            test_member = self.create_test_member()
+            test_membership = self.create_test_membership(member=test_member.name)
+            test_invoice = self.create_test_sales_invoice(
+                customer=test_member.customer,
+                is_membership_invoice=1,
+                membership=test_membership.name
+            )
+            
+            # Create SEPA mandate for the member
+            test_mandate = self.create_test_sepa_mandate(
+                member=test_member.name,
+                bank_code="TEST"  # Use mock bank
+            )
+            
+            # Ensure invoice is unpaid for batch validation
+            # Reset any payment allocations that might exist from test pollution
+            frappe.db.sql("""
+                DELETE FROM `tabPayment Entry Reference` 
+                WHERE reference_doctype = 'Sales Invoice' AND reference_name = %s
+            """, (test_invoice.name,))
+            
+            # Update invoice status to be unpaid
+            frappe.db.set_value("Sales Invoice", test_invoice.name, {
+                "outstanding_amount": test_invoice.grand_total,
+                "status": "Unpaid"
+            })
+            
+            # Add invoice to batch with all required fields
+            batch.append("invoices", {
+                "invoice": test_invoice.name,
+                "membership": test_membership.name,
+                "member": test_member.name,
+                "member_name": f"{test_member.first_name} {test_member.last_name}",
+                "amount": test_invoice.grand_total,
+                "currency": "EUR",
+                "iban": test_mandate.iban,
+                "mandate_reference": test_mandate.mandate_id
+            })
         
         batch.save()
         self.track_doc("Direct Debit Batch", batch.name)
@@ -1263,6 +1485,150 @@ class VereningingenTestCase(FrappeTestCase):
                 'Business rules bypassed - can create multiple schedules per member'
             ]
         }
+    
+    def create_payment_failure_test_scenario(self, failure_type="insufficient_funds", member=None, **kwargs):
+        """
+        Create a complete payment failure test scenario with SEPA error codes
+        
+        Args:
+            failure_type: Type of payment failure to simulate
+            member: Member name (creates test member if None)
+            **kwargs: Additional scenario parameters
+        
+        Returns:
+            dict with failure scenario, member, mandate, and test context
+        """
+        try:
+            from verenigingen.utils.testing.sepa_payment_failure_scenarios import create_payment_failure_scenario
+        except ImportError:
+            # Fallback for when module is not available
+            return self._create_basic_failure_scenario(failure_type, **kwargs)
+        
+        # Create test member if not provided
+        if not member:
+            test_member = self.create_test_member(
+                first_name="PaymentTest",
+                last_name="Member",
+                email=f"payment.{frappe.generate_hash(length=6)}@example.com"
+            )
+            member = test_member.name
+        
+        # Create mandate for payment failures
+        mandate = self.create_test_sepa_mandate(
+            member=member,
+            scenario="normal",  # Start with valid mandate
+            bank_code="TEST"
+        )
+        
+        # Generate failure scenario
+        failure_scenario = create_payment_failure_scenario(failure_type, **kwargs)
+        
+        # Add test context
+        test_context = {
+            "member": member,
+            "mandate": mandate,
+            "failure_scenario": failure_scenario,
+            "test_type": "payment_failure",
+            "created_at": frappe.utils.now()
+        }
+        
+        return test_context
+    
+    def _create_basic_failure_scenario(self, failure_type, **kwargs):
+        """Fallback method for basic failure scenarios when full module unavailable"""
+        basic_scenarios = {
+            "insufficient_funds": {
+                "error_code": "AM04",
+                "error_message": "Insufficient funds",
+                "retry_eligible": True,
+                "retry_days": 3,
+                "severity": "medium"
+            },
+            "account_closed": {
+                "error_code": "AC04", 
+                "error_message": "Account closed",
+                "retry_eligible": False,
+                "retry_days": 0,
+                "severity": "high"
+            },
+            "invalid_mandate": {
+                "error_code": "AM02",
+                "error_message": "No valid mandate",
+                "retry_eligible": False,
+                "retry_days": 0,
+                "severity": "high"
+            }
+        }
+        
+        scenario = basic_scenarios.get(failure_type, basic_scenarios["insufficient_funds"])
+        scenario.update(kwargs)
+        return {"failure_scenario": scenario}
+    
+    def simulate_payment_retry_sequence(self, member_name, failure_types=None):
+        """
+        Simulate a complete payment retry sequence for testing retry logic
+        
+        Args:
+            member_name: Member to test retry sequence for
+            failure_types: Sequence of failure types (defaults to realistic progression)
+        
+        Returns:
+            List of retry scenarios with timing and context
+        """
+        try:
+            from verenigingen.utils.testing.sepa_payment_failure_scenarios import simulate_payment_failure_sequence
+            return simulate_payment_failure_sequence(member_name, failure_types)
+        except ImportError:
+            # Fallback to basic retry simulation
+            if not failure_types:
+                failure_types = ["insufficient_funds", "insufficient_funds", "account_closed"]
+            
+            sequence = []
+            for i, failure_type in enumerate(failure_types):
+                scenario = self._create_basic_failure_scenario(failure_type)
+                scenario["sequence_number"] = i + 1
+                scenario["member"] = member_name
+                sequence.append(scenario)
+            
+            return sequence
+    
+    def validate_sepa_error_handling(self, error_code, expected_behavior):
+        """
+        Validate that SEPA error codes are handled correctly in tests
+        
+        Args:
+            error_code: SEPA error code to validate (e.g., "AM04")
+            expected_behavior: Expected system behavior dict
+        
+        Returns:
+            bool indicating if error handling matches expectations
+        """
+        try:
+            from verenigingen.utils.testing.sepa_payment_failure_scenarios import SEPA_ERROR_CODES
+            
+            if error_code not in SEPA_ERROR_CODES:
+                return False
+            
+            error_info = SEPA_ERROR_CODES[error_code]
+            
+            # Validate key behavior expectations
+            checks = [
+                error_info.get("retry_eligible") == expected_behavior.get("should_retry", False),
+                error_info.get("customer_action_required") == expected_behavior.get("requires_customer_action", False),
+                error_info.get("severity") == expected_behavior.get("severity", "medium")
+            ]
+            
+            return all(checks)
+        except ImportError:
+            # Basic validation without full module
+            basic_expectations = {
+                "AM04": {"should_retry": True, "requires_customer_action": False, "severity": "medium"},
+                "AC04": {"should_retry": False, "requires_customer_action": True, "severity": "high"},
+                "AM02": {"should_retry": False, "requires_customer_action": True, "severity": "high"}
+            }
+            
+            expected = basic_expectations.get(error_code, {})
+            return expected == expected_behavior
 
 
 class VereningingenUnitTestCase(VereningingenTestCase):

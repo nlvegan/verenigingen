@@ -375,3 +375,98 @@ def derive_bic_from_iban(iban):
     #     return fr_bic_codes.get(bank_code)
 
     return None
+
+
+@frappe.whitelist()
+def generate_invalid_iban(error_type="checksum"):
+    """
+    Generate invalid IBANs for negative testing
+
+    Args:
+        error_type: Type of invalid IBAN to generate
+                   - "checksum": Wrong checksum (default)
+                   - "length": Wrong length
+                   - "country": Invalid country code
+                   - "bank": Invalid bank code
+                   - "format": Invalid format/characters
+
+    Returns:
+        Invalid IBAN string for testing validation
+    """
+    invalid_patterns = {
+        "checksum": "NL00TEST0123456789",  # Wrong checksum (00 instead of calculated)
+        "length": "NL91TEST012345678",  # Too short (17 chars instead of 18)
+        "country": "XX91TEST0123456789",  # Invalid country code
+        "bank": "NL91XXXX0123456789",  # Invalid bank code
+        "format": "NL91TEST012345678A",  # Invalid character in account number
+        "too_long": "NL91TEST01234567890",  # Too long (19 chars instead of 18)
+        "no_digits": "NLAATEST0123456789",  # Letters instead of digits in checksum
+        "empty": "",  # Empty IBAN
+        "spaces": "NL 91 TEST 0123456789",  # Improperly formatted with spaces
+    }
+    return invalid_patterns.get(error_type, invalid_patterns["checksum"])
+
+
+@frappe.whitelist()
+def create_mock_bank_scenario(scenario="normal"):
+    """
+    Create different banking scenarios for testing
+
+    Args:
+        scenario: Banking scenario to simulate
+                 - "normal": Standard active bank (default)
+                 - "maintenance": Bank under maintenance
+                 - "timeout": Bank connection timeout
+                 - "unavailable": Bank service unavailable
+                 - "rate_limited": Bank API rate limited
+
+    Returns:
+        dict with scenario details for testing
+    """
+    scenarios = {
+        "normal": {
+            "bank": "TEST",
+            "status": "active",
+            "iban": generate_test_iban("TEST"),
+            "bic": "TESTNL2A",
+            "response_time": 100,  # ms
+            "success_rate": 1.0,
+        },
+        "maintenance": {
+            "bank": "MOCK",
+            "status": "maintenance",
+            "iban": generate_test_iban("MOCK"),
+            "bic": "MOCKNL2A",
+            "response_time": 5000,  # ms
+            "success_rate": 0.0,
+            "error_message": "Bank under scheduled maintenance",
+        },
+        "timeout": {
+            "bank": "DEMO",
+            "status": "timeout",
+            "iban": generate_test_iban("DEMO"),
+            "bic": "DEMONL2A",
+            "response_time": 30000,  # ms
+            "success_rate": 0.1,
+            "error_message": "Connection timeout",
+        },
+        "unavailable": {
+            "bank": "TEST",
+            "status": "unavailable",
+            "iban": generate_test_iban("TEST"),
+            "bic": "TESTNL2A",
+            "response_time": None,
+            "success_rate": 0.0,
+            "error_message": "Service temporarily unavailable",
+        },
+        "rate_limited": {
+            "bank": "MOCK",
+            "status": "rate_limited",
+            "iban": generate_test_iban("MOCK"),
+            "bic": "MOCKNL2A",
+            "response_time": 200,
+            "success_rate": 0.3,
+            "error_message": "Rate limit exceeded - try again later",
+        },
+    }
+    return scenarios.get(scenario, scenarios["normal"])

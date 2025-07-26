@@ -14,7 +14,7 @@ def check_eboekhouden_workspace():
     print("=" * 50)
     
     # Check fixtures file
-    fixtures_path = "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/fixtures/workspace.json"
+    fixtures_path = os.path.join(frappe.get_app_path("verenigingen"), "verenigingen", "fixtures", "workspace.json"
     
     if not os.path.exists(fixtures_path):
         print("❌ Fixtures file not found:", fixtures_path)

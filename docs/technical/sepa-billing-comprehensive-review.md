@@ -365,6 +365,7 @@ class BillingFrequencyTransitionManager:
    - Add performance dashboards
    - Implement alerting for issues
    - Create reporting tools for admins
+   - Improve existing Zabbix integration for SEPA operations and dues invoicing
 
 3. **Documentation and Polish** (Day 5)
    - Update technical documentation
@@ -711,6 +712,7 @@ class SEPAPerformanceMonitor:
   - [ ] Performance dashboards operational
   - [ ] Alerting system configured
   - [ ] Reporting tools available
+  - [ ] Zabbix integration improved for SEPA operations and dues invoicing monitoring
 - [ ] **Day 5:** Documentation and polish
   - [ ] Technical documentation updated
   - [ ] User guides created

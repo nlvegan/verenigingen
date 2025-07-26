@@ -1,17 +1,59 @@
+"""
+Secure SEPA Batch UI API with Comprehensive Security Hardening
+
+This module provides secure API endpoints for SEPA batch operations with:
+- CSRF protection
+- Rate limiting
+- Comprehensive audit logging
+- Role-based authorization
+- Input validation
+"""
+
 import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, today
 
+# Existing imports
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, validate_required_fields
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, audit_log, log_sepa_event
+from verenigingen.utils.security.authorization import (
+    SEPAOperation,
+    require_sepa_create,
+    require_sepa_permission,
+    require_sepa_process,
+    require_sepa_read,
+)
+
+# Security imports
+from verenigingen.utils.security.csrf_protection import require_csrf_token
+from verenigingen.utils.security.rate_limiting import (
+    rate_limit_sepa_analytics,
+    rate_limit_sepa_batch_creation,
+    rate_limit_sepa_loading,
+    rate_limit_sepa_validation,
+)
 from verenigingen.utils.sepa_input_validation import SEPAInputValidator
 
 
 @handle_api_error
+@require_csrf_token
+@rate_limit_sepa_loading
+@require_sepa_read
+@audit_log("sepa_invoice_loading", "info", capture_args=True)
 @frappe.whitelist()
-def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
-    """Load unpaid invoices for batch processing"""
+def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limit=100):
+    """
+    Securely load unpaid invoices for batch processing
+
+    Enhanced with comprehensive security measures:
+    - CSRF protection
+    - Rate limiting
+    - Authorization checks
+    - Input validation
+    - Audit logging
+    """
 
     # Input validation
     if limit and (not isinstance(limit, int) or limit <= 0 or limit > SEPAInputValidator.MAX_BATCH_SIZE):
@@ -20,6 +62,12 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
     valid_date_ranges = ["overdue", "due_this_week", "due_this_month", "all"]
     if date_range not in valid_date_ranges:
         raise SEPAError(_(f'Invalid date_range. Valid options: {", ".join(valid_date_ranges)}'))
+
+    # Log the operation
+    log_sepa_event(
+        AuditEventType.SEPA_INVOICE_LOADED.value,
+        details={"date_range": date_range, "membership_type": membership_type, "limit": limit},
+    )
 
     filters = {"status": ["in", ["Unpaid", "Overdue"]], "docstatus": 1}
 
@@ -33,12 +81,16 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
 
     # Add membership type filter if specified
     if membership_type:
+        # Validate membership type exists
+        if not frappe.db.exists("Membership Type", membership_type):
+            raise SEPAError(_(f"Invalid membership type: {membership_type}"))
+
         # Get memberships of this type
         memberships = frappe.get_all("Membership", filters={"membership_type": membership_type}, pluck="name")
         if memberships:
             filters["membership"] = ["in", memberships]
 
-    # Get invoices
+    # Get invoices with optimized query
     invoices = frappe.get_all(
         "Sales Invoice",
         filters=filters,
@@ -130,9 +182,32 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
     return invoices
 
 
+@handle_api_error
+@require_csrf_token
+@rate_limit_sepa_validation
+@require_sepa_read
+@audit_log("sepa_mandate_info_retrieval", "info")
 @frappe.whitelist()
-def get_invoice_mandate_info(invoice):
-    """Get mandate information for an invoice - optimized single query"""
+def get_invoice_mandate_info_secure(invoice):
+    """
+    Securely get mandate information for an invoice
+
+    Enhanced with security measures
+    """
+
+    # Validate invoice parameter
+    if not invoice:
+        raise SEPAError(_("Invoice parameter is required"))
+
+    # Verify invoice exists and user has access
+    if not frappe.db.exists("Sales Invoice", invoice):
+        raise SEPAError(_("Invoice not found: {0}").format(invoice))
+
+    # Log the operation
+    log_sepa_event(
+        AuditEventType.SEPA_MANDATE_VALIDATED.value,
+        details={"invoice": invoice, "operation": "mandate_info_retrieval"},
+    )
 
     # Single query to get invoice, membership dues schedule, member, and mandate data
     result = frappe.db.sql(
@@ -182,9 +257,36 @@ def get_invoice_mandate_info(invoice):
     return {"valid": False, "error": _("No active SEPA mandate found")}
 
 
+@handle_api_error
+@require_csrf_token
+@rate_limit_sepa_validation
+@require_sepa_permission(SEPAOperation.INVOICE_VALIDATE)
+@audit_log("sepa_mandate_validation", "info")
 @frappe.whitelist()
-def validate_invoice_mandate(invoice, member):
-    """Validate mandate for a specific invoice - optimized single query"""
+def validate_invoice_mandate_secure(invoice, member):
+    """
+    Securely validate mandate for a specific invoice
+
+    Enhanced with comprehensive security and validation
+    """
+
+    # Validate parameters
+    if not invoice:
+        raise SEPAError(_("Invoice parameter is required"))
+    if not member:
+        raise SEPAError(_("Member parameter is required"))
+
+    # Verify entities exist
+    if not frappe.db.exists("Sales Invoice", invoice):
+        raise SEPAError(_("Invoice not found: {0}").format(invoice))
+    if not frappe.db.exists("Member", member):
+        raise SEPAError(_("Member not found: {0}").format(member))
+
+    # Log the operation
+    log_sepa_event(
+        AuditEventType.SEPA_MANDATE_VALIDATED.value,
+        details={"invoice": invoice, "member": member, "operation": "mandate_validation"},
+    )
 
     try:
         # Single query to get member and active mandate data
@@ -244,9 +346,31 @@ def validate_invoice_mandate(invoice, member):
 
 
 @handle_api_error
+@require_csrf_token
+@rate_limit_sepa_analytics
+@require_sepa_read
+@audit_log("sepa_batch_analytics", "info")
 @frappe.whitelist()
-def get_batch_analytics(batch_name):
-    """Get detailed analytics for a batch"""
+def get_batch_analytics_secure(batch_name):
+    """
+    Securely get detailed analytics for a batch
+
+    Enhanced with authorization and audit logging
+    """
+
+    # Validate batch parameter
+    if not batch_name:
+        raise SEPAError(_("Batch name is required"))
+
+    # Verify batch exists and user has access
+    if not frappe.db.exists("Direct Debit Batch", batch_name):
+        raise SEPAError(_("Batch not found: {0}").format(batch_name))
+
+    # Log the operation
+    log_sepa_event(
+        AuditEventType.SEPA_BATCH_VALIDATED.value,
+        details={"batch_name": batch_name, "operation": "analytics_retrieval"},
+    )
 
     batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
@@ -288,9 +412,32 @@ def get_batch_analytics(batch_name):
     return analytics
 
 
+@handle_api_error
+@require_csrf_token
+@rate_limit_sepa_analytics
+@require_sepa_read
+@audit_log("sepa_xml_preview", "info")
 @frappe.whitelist()
-def preview_sepa_xml(batch_name):
-    """Preview SEPA XML content before generation"""
+def preview_sepa_xml_secure(batch_name):
+    """
+    Securely preview SEPA XML content before generation
+
+    Enhanced with security measures and sensitive data protection
+    """
+
+    # Validate batch parameter
+    if not batch_name:
+        raise SEPAError(_("Batch name is required"))
+
+    # Verify batch exists and user has access
+    if not frappe.db.exists("Direct Debit Batch", batch_name):
+        raise SEPAError(_("Batch not found: {0}").format(batch_name))
+
+    # Log the operation
+    log_sepa_event(
+        AuditEventType.SEPA_XML_GENERATED.value,
+        details={"batch_name": batch_name, "operation": "xml_preview"},
+    )
 
     batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
@@ -312,7 +459,7 @@ def preview_sepa_xml(batch_name):
         "transactions": [],
     }
 
-    # Add transaction preview (first 5)
+    # Add transaction preview (first 5) with sensitive data protection
     for i, inv in enumerate(batch.invoices[:5]):
         preview["transactions"].append(
             {
@@ -332,25 +479,50 @@ def preview_sepa_xml(batch_name):
 
 
 @handle_api_error
+@require_csrf_token
+@rate_limit_sepa_batch_creation
+@require_sepa_create
+@audit_log("sepa_batch_creation", "info", capture_args=True)
 @frappe.whitelist()
-def create_sepa_batch_validated(**params):
+def create_sepa_batch_validated_secure(**params):
     """
-    Create SEPA batch with comprehensive input validation
+    Securely create SEPA batch with comprehensive security measures
 
-    Args:
-        **params: Batch creation parameters including:
-            - batch_date: Collection date (ISO format)
-            - batch_type: SEPA batch type (CORE, B2B, COR1)
-            - invoice_list: List of invoice dictionaries
-            - description: Optional batch description
-
-    Returns:
-        Dictionary with batch creation result
+    Enhanced with:
+    - CSRF protection
+    - Rate limiting
+    - Authorization checks
+    - Comprehensive input validation
+    - Audit logging
+    - Sensitive data handling
     """
+
+    # Log the batch creation attempt
+    log_sepa_event(
+        AuditEventType.SEPA_BATCH_CREATED.value,
+        details={
+            "operation": "batch_creation_attempt",
+            "params_count": len(params),
+            "has_invoice_list": "invoice_list" in params,
+            "invoice_count": len(params.get("invoice_list", []))
+            if isinstance(params.get("invoice_list"), list)
+            else 0,
+        },
+        severity=AuditSeverity.INFO,
+    )
+
     # Comprehensive input validation
     validation_result = SEPAInputValidator.validate_batch_creation_params(**params)
 
     if not validation_result["valid"]:
+        log_sepa_event(
+            "sepa_batch_creation_validation_failed",
+            details={
+                "errors": validation_result["errors"],
+                "warnings": validation_result.get("warnings", []),
+            },
+            severity=AuditSeverity.WARNING,
+        )
         return {
             "success": False,
             "errors": validation_result["errors"],
@@ -369,6 +541,14 @@ def create_sepa_batch_validated(**params):
         )
 
         if existing_batches:
+            log_sepa_event(
+                "sepa_batch_creation_duplicate_date",
+                details={
+                    "batch_date": cleaned_params["batch_date"],
+                    "existing_batches": [b.name for b in existing_batches],
+                },
+                severity=AuditSeverity.WARNING,
+            )
             return {
                 "success": False,
                 "errors": [f"Batch already exists for date {cleaned_params['batch_date']}"],
@@ -429,6 +609,15 @@ def create_sepa_batch_validated(**params):
             validated_invoices.append(invoice)
 
         if invoice_validation_errors:
+            log_sepa_event(
+                "sepa_batch_creation_invoice_validation_failed",
+                details={
+                    "validation_errors": invoice_validation_errors,
+                    "failed_count": len(invoice_validation_errors),
+                    "total_invoices": len(cleaned_params["invoice_list"]),
+                },
+                severity=AuditSeverity.WARNING,
+            )
             return {
                 "success": False,
                 "errors": invoice_validation_errors,
@@ -469,6 +658,20 @@ def create_sepa_batch_validated(**params):
         batch_doc.total_amount = total_amount
         batch_doc.insert()
 
+        # Log successful batch creation
+        log_sepa_event(
+            AuditEventType.SEPA_BATCH_CREATED.value,
+            details={
+                "batch_name": batch_doc.name,
+                "batch_date": cleaned_params["batch_date"],
+                "batch_type": cleaned_params["batch_type"],
+                "invoice_count": len(validated_invoices),
+                "total_amount": total_amount,
+                "operation": "batch_creation_success",
+            },
+            severity=AuditSeverity.INFO,
+        )
+
         return {
             "success": True,
             "batch_name": batch_doc.name,
@@ -479,6 +682,17 @@ def create_sepa_batch_validated(**params):
         }
 
     except Exception as e:
+        # Log batch creation failure
+        log_sepa_event(
+            "sepa_batch_creation_system_error",
+            details={
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "operation": "batch_creation_failed",
+            },
+            severity=AuditSeverity.ERROR,
+        )
+
         frappe.log_error(f"SEPA batch creation error: {str(e)}", "SEPA Batch Creation")
         return {
             "success": False,
@@ -488,39 +702,154 @@ def create_sepa_batch_validated(**params):
 
 
 @handle_api_error
+@require_csrf_token
+@rate_limit_sepa_validation
+@require_sepa_permission(SEPAOperation.BATCH_VALIDATE)
+@audit_log("sepa_batch_invoice_validation", "info")
 @frappe.whitelist()
-def validate_batch_invoices(invoice_list):
+def validate_batch_invoices_secure(invoice_list):
     """
-    Validate a list of invoices for SEPA batch processing
+    Securely validate a list of invoices for SEPA batch processing
 
-    Args:
-        invoice_list: List of invoice dictionaries or JSON string
-
-    Returns:
-        Validation result with detailed feedback
+    Enhanced with comprehensive security measures
     """
+
     import json
+
+    # Log validation attempt
+    log_sepa_event(
+        AuditEventType.SEPA_BATCH_VALIDATED.value,
+        details={
+            "operation": "invoice_list_validation",
+            "list_type": type(invoice_list).__name__,
+            "list_length": len(invoice_list) if isinstance(invoice_list, list) else "unknown",
+        },
+    )
 
     # Handle JSON string input
     if isinstance(invoice_list, str):
         try:
             invoice_list = json.loads(invoice_list)
         except json.JSONDecodeError as e:
+            log_sepa_event(
+                "sepa_invoice_validation_json_error",
+                details={
+                    "error": str(e),
+                    "input_preview": str(invoice_list)[:100] + "..."
+                    if len(str(invoice_list)) > 100
+                    else str(invoice_list),
+                },
+                severity=AuditSeverity.ERROR,
+            )
             return {"valid": False, "errors": [f"Invalid JSON format: {str(e)}"], "validated_invoices": []}
 
     # Use the comprehensive validator
-    return SEPAInputValidator.validate_invoice_list(invoice_list)
+    result = SEPAInputValidator.validate_invoice_list(invoice_list)
+
+    # Log validation result
+    log_sepa_event(
+        AuditEventType.SEPA_BATCH_VALIDATED.value,
+        details={
+            "operation": "invoice_list_validation_complete",
+            "valid": result["valid"],
+            "error_count": len(result.get("errors", [])),
+            "warning_count": len(result.get("warnings", [])),
+            "validated_count": len(result.get("validated_invoices", [])),
+        },
+        severity=AuditSeverity.INFO if result["valid"] else AuditSeverity.WARNING,
+    )
+
+    return result
 
 
+# API endpoint to get SEPA validation constraints with security
 @handle_api_error
+@require_sepa_read
 @frappe.whitelist()
-def get_sepa_validation_constraints():
+def get_sepa_validation_constraints_secure():
     """
-    Get SEPA validation constraints for frontend validation
+    Securely get SEPA validation constraints for frontend validation
 
-    Returns:
-        Dictionary of validation rules and constraints
+    Enhanced with authorization checks
     """
     from verenigingen.utils.sepa_input_validation import get_sepa_validation_rules
 
+    log_sepa_event(
+        "sepa_validation_constraints_retrieved", details={"operation": "validation_constraints_request"}
+    )
+
     return get_sepa_validation_rules()
+
+
+# Health check endpoint for security monitoring
+@frappe.whitelist(allow_guest=False)
+def sepa_security_health_check():
+    """
+    Security health check endpoint for monitoring
+
+    Returns status of security systems
+    """
+    try:
+        from verenigingen.utils.security.audit_logging import get_audit_logger
+        from verenigingen.utils.security.authorization import get_auth_manager
+        from verenigingen.utils.security.csrf_protection import get_csrf_token
+        from verenigingen.utils.security.rate_limiting import get_rate_limiter
+
+        # Test each security component
+        health_status = {
+            "csrf_protection": {"status": "unknown", "details": {}},
+            "rate_limiting": {"status": "unknown", "details": {}},
+            "authorization": {"status": "unknown", "details": {}},
+            "audit_logging": {"status": "unknown", "details": {}},
+        }
+
+        # Test CSRF protection
+        try:
+            csrf_result = get_csrf_token()
+            health_status["csrf_protection"] = {
+                "status": "healthy" if csrf_result.get("success") else "error",
+                "details": {"token_generated": csrf_result.get("success", False)},
+            }
+        except Exception as e:
+            health_status["csrf_protection"] = {"status": "error", "details": {"error": str(e)}}
+
+        # Test rate limiting
+        try:
+            limiter = get_rate_limiter()
+            health_status["rate_limiting"] = {"status": "healthy", "details": {"backend": limiter.backend}}
+        except Exception as e:
+            health_status["rate_limiting"] = {"status": "error", "details": {"error": str(e)}}
+
+        # Test authorization
+        try:
+            auth_manager = get_auth_manager()
+            permissions = auth_manager.get_user_permissions()
+            health_status["authorization"] = {
+                "status": "healthy",
+                "details": {"permissions_count": len(permissions)},
+            }
+        except Exception as e:
+            health_status["authorization"] = {"status": "error", "details": {"error": str(e)}}
+
+        # Test audit logging
+        try:
+            audit_logger = get_audit_logger()
+            health_status["audit_logging"] = {
+                "status": "healthy",
+                "details": {"logger_available": audit_logger is not None},
+            }
+        except Exception as e:
+            health_status["audit_logging"] = {"status": "error", "details": {"error": str(e)}}
+
+        # Overall health
+        all_healthy = all(status["status"] == "healthy" for status in health_status.values())
+
+        return {
+            "success": True,
+            "overall_health": "healthy" if all_healthy else "degraded",
+            "components": health_status,
+            "timestamp": frappe.utils.now(),
+        }
+
+    except Exception as e:
+        return {"success": False, "overall_health": "error", "error": str(e), "timestamp": frappe.utils.now()}

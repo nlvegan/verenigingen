@@ -192,6 +192,8 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch",
         # Payment plan processing
         "verenigingen.verenigingen.doctype.payment_plan.payment_plan.process_overdue_installments",
+        # Security audit log cleanup
+        "verenigingen.utils.security.audit_logging.get_audit_logger().cleanup_old_logs",
     ],
     "hourly": [
         # Check analytics alert rules
@@ -200,6 +202,8 @@ scheduler_events = {
     "weekly": [
         # Termination reports and reviews
         "verenigingen.utils.termination_utils.generate_weekly_termination_report",
+        # Security system health check
+        "verenigingen.utils.security.audit_logging.log_sepa_event('security_weekly_health_check', severity='info')",
     ],
 }
 
@@ -212,6 +216,7 @@ jinja = {"methods": ["verenigingen.utils.jinja_methods"], "filters": ["verenigin
 after_migrate = [
     "verenigingen.verenigingen.doctype.brand_settings.brand_settings.create_default_brand_settings",
     "verenigingen.setup.membership_application_workflow_setup.setup_membership_application_workflow",
+    "verenigingen.utils.security.setup_all_security",
 ]
 
 # Portal Configuration
@@ -237,7 +242,7 @@ update_website_context = ["verenigingen.utils.portal_customization.add_brand_bod
 
 # Installation
 # ------------
-after_install = ["verenigingen.setup.execute_after_install"]
+after_install = ["verenigingen.setup.execute_after_install", "verenigingen.utils.security.setup_all_security"]
 
 # Permissions
 # -----------

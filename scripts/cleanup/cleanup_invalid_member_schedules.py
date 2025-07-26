@@ -19,12 +19,30 @@ def identify_invalid_schedules():
     )
     
     invalid_schedules = []
-    for schedule in schedules:
-        if schedule.member:
-            # Check if member exists
-            member_exists = frappe.db.exists('Member', schedule.member)
-            if not member_exists:
-                invalid_schedules.append(schedule)
+    
+    # Optimized: Eliminate N+1 query by batch checking member existence
+    if schedules:
+        # Collect all unique member IDs (eliminate None values)
+        member_ids = list(set([s.member for s in schedules if s.member]))
+        
+        if member_ids:
+            # Single query to get all existing member IDs
+            existing_members = set(frappe.get_all('Member', 
+                filters={'name': ['in', member_ids]},
+                pluck='name'
+            ))
+            
+            # Find schedules with non-existent members
+            for schedule in schedules:
+                if schedule.member:
+                    if schedule.member not in existing_members:
+                        invalid_schedules.append(schedule)
+                else:
+                    # Schedule with no member reference is also invalid
+                    invalid_schedules.append(schedule)
+        else:
+            # All schedules have no member reference
+            invalid_schedules = [s for s in schedules if not s.member]
     
     return {
         'total_schedules': len(schedules),

@@ -1,0 +1,178 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-07-25 19:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "member",
+  "member_name",
+  "old_frequency",
+  "new_frequency",
+  "effective_date",
+  "reason",
+  "column_break_7",
+  "old_schedules_cancelled",
+  "new_schedules_created",
+  "financial_adjustment",
+  "transition_status",
+  "section_break_12",
+  "processed_by",
+  "processed_at",
+  "column_break_15",
+  "created_by",
+  "creation_time"
+ ],
+ "fields": [
+  {
+   "fieldname": "member",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Member",
+   "options": "Member",
+   "reqd": 1
+  },
+  {
+   "fetch_from": "member.full_name",
+   "fieldname": "member_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Member Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "old_frequency",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Old Frequency",
+   "options": "Monthly\nQuarterly\nSemi-Annual\nAnnual",
+   "reqd": 1
+  },
+  {
+   "fieldname": "new_frequency",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "New Frequency",
+   "options": "Monthly\nQuarterly\nSemi-Annual\nAnnual",
+   "reqd": 1
+  },
+  {
+   "fieldname": "effective_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Effective Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Reason for Transition"
+  },
+  {
+   "fieldname": "column_break_7",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "old_schedules_cancelled",
+   "fieldtype": "Int",
+   "label": "Old Schedules Cancelled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_schedules_created",
+   "fieldtype": "Int",
+   "label": "New Schedules Created",
+   "read_only": 1
+  },
+  {
+   "fieldname": "financial_adjustment",
+   "fieldtype": "Currency",
+   "label": "Financial Adjustment Amount",
+   "precision": "2",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transition_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Transition Status",
+   "options": "Pending\nCompleted\nFailed\nRolled Back",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_12",
+   "fieldtype": "Section Break",
+   "label": "Processing Information"
+  },
+  {
+   "fieldname": "processed_by",
+   "fieldtype": "Link",
+   "label": "Processed By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "processed_at",
+   "fieldtype": "Datetime",
+   "label": "Processed At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_15",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "created_by",
+   "fieldtype": "Link",
+   "label": "Created By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "creation_time",
+   "fieldtype": "Datetime",
+   "label": "Creation Time",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 0,
+ "links": [],
+ "modified": "2025-07-25 19:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Billing Frequency Transition Audit",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1
+  },
+  {
+   "read": 1,
+   "role": "Verenigingen Member Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
