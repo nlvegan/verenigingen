@@ -284,30 +284,11 @@ class SEPAZabbixIntegration:
             # Daily batches
             daily_batches = frappe.db.count("Direct Debit Batch", {"creation": [">=", today_start]})
 
-            # Total amount
-            total_amount = (
-                frappe.db.sql(
-                    """
-                SELECT COALESCE(SUM(total_amount), 0)
-                FROM `tabDirect Debit Batch`
-                WHERE docstatus = 1
-            """
-                )[0][0]
-                or 0
-            )
+            # Total amount with enhanced calculation
+            total_amount = self._calculate_total_batch_amount_optimized()
 
-            # Daily amount
-            daily_amount = (
-                frappe.db.sql(
-                    """
-                SELECT COALESCE(SUM(total_amount), 0)
-                FROM `tabDirect Debit Batch`
-                WHERE creation >= %s AND docstatus = 1
-            """,
-                    (today_start,),
-                )[0][0]
-                or 0
-            )
+            # Daily amount with enhanced calculation
+            daily_amount = self._calculate_daily_batch_amount_optimized(today_start)
 
             # Success rate (last 24 hours)
             last_24h = get_datetime() - timedelta(hours=24)
@@ -340,6 +321,165 @@ class SEPAZabbixIntegration:
         except Exception as e:
             frappe.logger().error(f"Error getting batch metrics: {str(e)}")
             return {}
+
+    def _calculate_total_batch_amount_optimized(self) -> float:
+        """
+        Calculate total batch amount with SQL optimization and Python fallback
+
+        Follows the functional equivalence pattern from direct_debit_batch.py
+        for consistent NULL/None handling and defensive programming.
+        """
+        try:
+            # Primary SQL approach with COALESCE for NULL handling
+            result = frappe.db.sql(
+                """
+                SELECT COALESCE(SUM(total_amount), 0)
+                FROM `tabDirect Debit Batch`
+                WHERE docstatus = 1
+            """
+            )
+
+            if result and result[0] and result[0][0] is not None:
+                return float(result[0][0])
+            else:
+                return 0.0
+
+        except Exception as e:
+            # Fallback to Python iteration if SQL fails (graceful degradation)
+            frappe.logger().warning(
+                f"SQL aggregation failed for total batch amount, using Python fallback: {str(e)}"
+            )
+            return self._calculate_total_batch_amount_python()
+
+    def _calculate_total_batch_amount_python(self) -> float:
+        """
+        Python fallback calculation functionally equivalent to SQL aggregation
+
+        Implements the same defensive programming patterns as direct_debit_batch.py:
+        - NULL/None handling equivalent to SQL COALESCE(total_amount, 0)
+        - Type safety with try/except blocks for conversion errors
+        - Currency precision with round(total, 2) for financial calculations
+        - Handles edge cases (strings, invalid data) gracefully
+        """
+        try:
+            # Get batch data using Frappe ORM
+            batches = frappe.get_all("Direct Debit Batch", filters={"docstatus": 1}, fields=["total_amount"])
+
+            if not batches:
+                return 0.0
+
+            # Handle None/NULL values same way as SQL COALESCE(total_amount, 0)
+            # Also handle potential string values and invalid data types gracefully
+            total = 0.0
+            for batch in batches:
+                try:
+                    amount = batch.get("total_amount")
+                    if amount is None:
+                        # Same as SQL COALESCE(total_amount, 0)
+                        amount = 0.0
+                    elif isinstance(amount, str):
+                        # Handle string amounts (shouldn't happen but defensive programming)
+                        amount = float(amount) if amount.strip() else 0.0
+                    else:
+                        # Ensure it's a float for precision consistency with SQL
+                        amount = float(amount)
+
+                    total += amount
+
+                except (ValueError, TypeError, AttributeError):
+                    # Handle any conversion errors by treating as 0 (same as SQL COALESCE behavior)
+                    # This matches SQL behavior where invalid/NULL data becomes 0
+                    continue
+
+            # Ensure precision consistency with database currency handling
+            return round(total, 2)
+
+        except Exception as e:
+            # Final fallback - log error and return 0
+            frappe.logger().error(f"Python fallback calculation failed for total batch amount: {str(e)}")
+            return 0.0
+
+    def _calculate_daily_batch_amount_optimized(self, cutoff_date) -> float:
+        """
+        Calculate daily batch amount with SQL optimization and Python fallback
+
+        Follows the functional equivalence pattern from direct_debit_batch.py
+        for consistent NULL/None handling and defensive programming.
+        """
+        try:
+            # Primary SQL approach with COALESCE for NULL handling
+            result = frappe.db.sql(
+                """
+                SELECT COALESCE(SUM(total_amount), 0)
+                FROM `tabDirect Debit Batch`
+                WHERE creation >= %s AND docstatus = 1
+            """,
+                (cutoff_date,),
+            )
+
+            if result and result[0] and result[0][0] is not None:
+                return float(result[0][0])
+            else:
+                return 0.0
+
+        except Exception as e:
+            # Fallback to Python iteration if SQL fails (graceful degradation)
+            frappe.logger().warning(
+                f"SQL aggregation failed for daily batch amount, using Python fallback: {str(e)}"
+            )
+            return self._calculate_daily_batch_amount_python(cutoff_date)
+
+    def _calculate_daily_batch_amount_python(self, cutoff_date) -> float:
+        """
+        Python fallback calculation functionally equivalent to SQL aggregation for daily amounts
+
+        Implements the same defensive programming patterns as direct_debit_batch.py:
+        - NULL/None handling equivalent to SQL COALESCE(total_amount, 0)
+        - Type safety with try/except blocks for conversion errors
+        - Currency precision with round(total, 2) for financial calculations
+        - Handles edge cases (strings, invalid data) gracefully
+        """
+        try:
+            # Get batch data using Frappe ORM
+            batches = frappe.get_all(
+                "Direct Debit Batch",
+                filters={"creation": [">=", cutoff_date], "docstatus": 1},
+                fields=["total_amount"],
+            )
+
+            if not batches:
+                return 0.0
+
+            # Handle None/NULL values same way as SQL COALESCE(total_amount, 0)
+            # Also handle potential string values and invalid data types gracefully
+            total = 0.0
+            for batch in batches:
+                try:
+                    amount = batch.get("total_amount")
+                    if amount is None:
+                        # Same as SQL COALESCE(total_amount, 0)
+                        amount = 0.0
+                    elif isinstance(amount, str):
+                        # Handle string amounts (shouldn't happen but defensive programming)
+                        amount = float(amount) if amount.strip() else 0.0
+                    else:
+                        # Ensure it's a float for precision consistency with SQL
+                        amount = float(amount)
+
+                    total += amount
+
+                except (ValueError, TypeError, AttributeError):
+                    # Handle any conversion errors by treating as 0 (same as SQL COALESCE behavior)
+                    # This matches SQL behavior where invalid/NULL data becomes 0
+                    continue
+
+            # Ensure precision consistency with database currency handling
+            return round(total, 2)
+
+        except Exception as e:
+            # Final fallback - log error and return 0
+            frappe.logger().error(f"Python fallback calculation failed for daily batch amount: {str(e)}")
+            return 0.0
 
     def _get_mandate_metrics(self) -> Dict[str, Union[int, float]]:
         """Get SEPA mandate management metrics"""

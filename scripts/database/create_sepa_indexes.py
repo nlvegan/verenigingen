@@ -41,7 +41,7 @@ def create_sepa_indexes():
         {
             "table": "tabMembership Dues Schedule",
             "name": "idx_membership_dues_schedule_member_freq",
-            "columns": ["member", "status", "billing_frequency", "start_date", "end_date"],
+            "columns": ["member", "status", "billing_frequency", "next_billing_period_start_date", "next_billing_period_end_date"],
             "description": "Optimizes billing frequency transition queries"
         },
         
@@ -49,7 +49,7 @@ def create_sepa_indexes():
         {
             "table": "tabSEPA Mandate",
             "name": "idx_sepa_mandate_status_dates",
-            "columns": ["status", "valid_from", "valid_until", "creation"],
+            "columns": ["status", "sign_date", "expiry_date", "creation"],
             "description": "Optimizes mandate validation and batch processing"
         },
         

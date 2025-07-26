@@ -474,11 +474,10 @@ def send_consent_requests(filters=None):
             SELECT DISTINCT
                 donor.name,
                 donor.donor_name,
-                donor.donor_email,
-                donor.preferred_language
+                donor.donor_email
             FROM `tabDonor` donor
             INNER JOIN `tabDonation` donation ON donation.donor = donor.name
-            WHERE (donor.anbi_consent_given = 0 OR donor.anbi_consent_given IS NULL)
+            WHERE (donor.anbi_consent = 0 OR donor.anbi_consent IS NULL)
             AND donor.donor_email IS NOT NULL
             AND donor.donor_email != ''
             AND donation.paid = 1

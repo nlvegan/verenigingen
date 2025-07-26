@@ -299,10 +299,10 @@ def get_user_volunteer_record_optimized(user_email: str) -> Optional[Dict[str, A
         volunteer_data = frappe.db.sql(
             """
             SELECT v.name, v.volunteer_name, v.member, v.skills, v.availability,
-                   m.name as member_name, m.email_id, m.first_name, m.last_name
+                   m.name as member_name, m.email, m.first_name, m.last_name
             FROM `tabVolunteer` v
             JOIN `tabMember` m ON v.member = m.name
-            WHERE m.email_id = %s
+            WHERE m.email = %s
             LIMIT 1
         """,
             [user_email],
@@ -371,7 +371,7 @@ DATABASE_INDEX_RECOMMENDATIONS = [
     {
         "table": "tabMember",
         "index": "idx_member_email_status",
-        "columns": ["email_id", "status"],
+        "columns": ["email", "status"],
         "reason": "Frequent lookups by email and filtering by status",
     },
     {
@@ -383,7 +383,7 @@ DATABASE_INDEX_RECOMMENDATIONS = [
     {
         "table": "tabChapter Member",
         "index": "idx_chapter_member_active",
-        "columns": ["member", "is_active"],
+        "columns": ["member", "enabled"],
         "reason": "Permission checking queries",
     },
     {

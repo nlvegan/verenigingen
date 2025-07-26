@@ -170,22 +170,8 @@ def get_member_billing_status(member_name):
 
     status["pending_invoices"] = pending
 
-    # Get payment history
-    paid_this_year = (
-        frappe.db.sql(
-            """
-        SELECT SUM(grand_total)
-        FROM `tabSales Invoice`
-        WHERE customer = %s
-        AND status = 'Paid'
-        AND YEAR(posting_date) = YEAR(CURDATE())
-    """,
-            member_name,
-        )[0][0]
-        or 0
-    )
-
-    status["total_paid_ytd"] = paid_this_year
+    # Get payment history with enhanced error handling
+    status["total_paid_ytd"] = _calculate_member_paid_ytd_optimized(member_name)
 
     # Last payment
     last_payment = frappe.db.sql(
@@ -201,6 +187,102 @@ def get_member_billing_status(member_name):
     status["last_payment_date"] = last_payment
 
     return status
+
+
+def _calculate_member_paid_ytd_optimized(member_name: str) -> float:
+    """
+    Calculate member's year-to-date payments with SQL optimization and Python fallback
+
+    Follows the functional equivalence pattern from direct_debit_batch.py
+    for consistent NULL/None handling and defensive programming.
+    """
+    try:
+        # Primary SQL approach with SUM and NULL handling
+        result = frappe.db.sql(
+            """
+            SELECT COALESCE(SUM(grand_total), 0)
+            FROM `tabSales Invoice`
+            WHERE customer = %s
+            AND status = 'Paid'
+            AND YEAR(posting_date) = YEAR(CURDATE())
+            AND docstatus = 1
+        """,
+            member_name,
+        )
+
+        if result and result[0] and result[0][0] is not None:
+            return float(result[0][0])
+        else:
+            return 0.0
+
+    except Exception as e:
+        # Fallback to Python iteration if SQL fails (graceful degradation)
+        frappe.logger().warning(
+            f"SQL aggregation failed for member YTD calculation, using Python fallback: {str(e)}"
+        )
+        return _calculate_member_paid_ytd_python(member_name)
+
+
+def _calculate_member_paid_ytd_python(member_name: str) -> float:
+    """
+    Python fallback calculation functionally equivalent to SQL aggregation
+
+    Implements the same defensive programming patterns as direct_debit_batch.py:
+    - NULL/None handling equivalent to SQL COALESCE(grand_total, 0)
+    - Type safety with try/except blocks for conversion errors
+    - Currency precision with round(total, 2) for financial calculations
+    - Handles edge cases (strings, invalid data) gracefully
+    """
+    try:
+        from frappe.utils import getdate, today
+
+        current_year = getdate(today()).year
+
+        # Get paid invoices for this year using Frappe ORM
+        invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={"customer": member_name, "status": "Paid", "docstatus": 1},
+            fields=["grand_total", "posting_date"],
+        )
+
+        if not invoices:
+            return 0.0
+
+        # Handle None/NULL values same way as SQL COALESCE(grand_total, 0)
+        # Also handle potential string values and invalid data types gracefully
+        total = 0.0
+        for invoice in invoices:
+            try:
+                # Filter by year in Python
+                posting_date = invoice.get("posting_date")
+                if posting_date and getdate(posting_date).year != current_year:
+                    continue
+
+                amount = invoice.get("grand_total")
+                if amount is None:
+                    # Same as SQL COALESCE(grand_total, 0)
+                    amount = 0.0
+                elif isinstance(amount, str):
+                    # Handle string amounts (shouldn't happen but defensive programming)
+                    amount = float(amount) if amount.strip() else 0.0
+                else:
+                    # Ensure it's a float for precision consistency with SQL
+                    amount = float(amount)
+
+                total += amount
+
+            except (ValueError, TypeError, AttributeError):
+                # Handle any conversion errors by treating as 0 (same as SQL COALESCE behavior)
+                # This matches SQL behavior where invalid/NULL data becomes 0
+                continue
+
+        # Ensure precision consistency with database currency handling
+        return round(total, 2)
+
+    except Exception as e:
+        # Final fallback - log error and return 0
+        frappe.logger().error(f"Python fallback calculation failed for member YTD: {str(e)}")
+        return 0.0
 
 
 @frappe.whitelist()

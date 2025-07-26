@@ -74,14 +74,15 @@ repos:
         files: \.py$
         stages: [pre-commit]
 
-      - id: enhanced-field-validator
-        name: Validate DocType field references (comprehensive)
-        entry: python scripts/validation/enhanced_field_validator.py
+      - id: unified-field-validator
+        name: Validate DocType field references (unified AST + SQL)
+        entry: python scripts/validation/unified_field_validator.py --pre-commit
         language: system
         pass_filenames: false
         files: \.py$
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+
 
       - id: workspace-validator
         name: Validate workspace integrity

@@ -123,7 +123,7 @@ def create_customers_for_donors():
         SELECT DISTINCT
             d.name,
             d.donor_name,
-            d.email,
+            d.donor_email,
             d.phone,
             d.donor_type
         FROM `tabDonor` d

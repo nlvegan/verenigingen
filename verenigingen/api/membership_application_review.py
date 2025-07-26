@@ -620,7 +620,8 @@ def get_pending_applications(chapter=None, days_overdue=None):
                 SELECT DISTINCT c.name
                 FROM `tabChapter` c
                 JOIN `tabChapter Board Member` cbm ON cbm.parent = c.name
-                WHERE cbm.member = %s AND cbm.is_active = 1
+                JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+                WHERE v.member = %s AND cbm.is_active = 1
             """,
                 user_member,
                 as_dict=True,

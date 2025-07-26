@@ -1,124 +1,121 @@
 """
 API functions to test calculate_totals equivalence
+between SQL aggregation and Python fallback methods.
 """
 
+import time
 from decimal import Decimal
 
 import frappe
+from frappe.utils import random_string, today
 
 
 @frappe.whitelist()
-def test_calculate_totals_equivalence():
-    """Test that SQL and Python methods produce identical results"""
+def test_sql_vs_python_equivalence():
+    """Test SQL aggregation vs Python fallback for functional equivalence"""
 
-    # Test cases with direct invoice data (no DB references needed)
     test_cases = [
         {"name": "Empty batch", "invoices": []},
-        {
-            "name": "Normal amounts",
-            "amounts": [25.00, 50.00, 75.50],
-            "expected_total": 150.50,
-            "expected_count": 3,
-        },
-        {
-            "name": "Zero amounts",
-            "amounts": [0.00, 25.00, 0.00],
-            "expected_total": 25.00,
-            "expected_count": 3,
-        },
-        {
-            "name": "Precision test",
-            "amounts": [33.333, 66.667, 0.001],
-            "expected_total": 100.00,  # After rounding
-            "expected_count": 3,
-        },
+        {"name": "Normal amounts", "invoices": [{"amount": 25.00}, {"amount": 50.00}, {"amount": 75.50}]},
+        {"name": "Null/None amounts", "invoices": [{"amount": 25.00}, {"amount": None}, {"amount": 50.00}]},
+        {"name": "Zero amounts", "invoices": [{"amount": 0.00}, {"amount": 25.00}, {"amount": 0.00}]},
+        {"name": "Precision test", "invoices": [{"amount": 33.333}, {"amount": 66.667}, {"amount": 0.001}]},
+        {"name": "Large amounts", "invoices": [{"amount": 9999.99}, {"amount": 1.01}, {"amount": 8888.88}]},
     ]
 
     results = []
+    overall_success = True
 
     for test_case in test_cases:
-        result = {"test_name": test_case["name"], "status": "pending"}
+        test_result = {
+            "test_name": test_case["name"],
+            "success": False,
+            "sql_count": 0,
+            "python_count": 0,
+            "sql_total": 0.0,
+            "python_total": 0.0,
+            "count_match": False,
+            "total_match": False,
+            "error": None,
+        }
 
         try:
-            if test_case["name"] == "Empty batch":
-                # Test empty batch behavior
-                batch = frappe.new_doc("Direct Debit Batch")
+            # Create test batch
+            batch = frappe.new_doc("Direct Debit Batch")
+            batch.batch_date = today()
+            batch.batch_description = f"Test Batch {random_string(6)}"
+            batch.batch_type = "RCUR"
+            batch.currency = "EUR"
 
-                # Test Python fallback on new document
-                batch._calculate_totals_python()
-                python_count = batch.entry_count
-                python_total = batch.total_amount
-
-                result.update(
+            # Add test invoices
+            for i, invoice_data in enumerate(test_case["invoices"]):
+                batch.append(
+                    "invoices",
                     {
-                        "status": "completed",
-                        "python_count": python_count,
-                        "python_total": python_total,
-                        "expected_count": 0,
-                        "expected_total": 0.0,
-                        "count_match": python_count == 0,
-                        "total_match": python_total == 0.0,
-                        "overall_match": python_count == 0 and python_total == 0.0,
-                    }
+                        "invoice": f"TEST-INV-{i+1:03d}",
+                        "amount": invoice_data["amount"],
+                        "currency": "EUR",
+                        "member": f"TEST-MEMBER-{i+1:03d}",
+                        "member_name": f"Test Member {i+1}",
+                        "iban": "NL91ABNA0417164300",
+                        "mandate_reference": f"TEST-MANDATE-{i+1:03d}",
+                        "status": "Pending",
+                    },
                 )
-            else:
-                # Create batch with test data
-                batch = frappe.new_doc("Direct Debit Batch")
-                batch.batch_name = f"Test-{frappe.generate_hash(length=6)}"
-                batch.collection_date = frappe.utils.today()
-                batch.batch_status = "Draft"
-                batch.payment_method = "SEPA Direct Debit"
 
-                # Get first available company
-                companies = frappe.get_all("Company", limit=1, pluck="name")
-                if companies:
-                    batch.company = companies[0]
+            # Save to enable SQL testing
+            batch.insert()
 
-                # Mock invoice objects for Python testing
-                class MockInvoice:
-                    def __init__(self, amount):
-                        self.amount = amount
+            # Test SQL aggregation (for saved documents)
+            batch.calculate_totals()
+            sql_count = batch.entry_count
+            sql_total = batch.total_amount
 
-                # Test Python method with mock data
-                batch.invoices = [MockInvoice(amount) for amount in test_case["amounts"]]
-                batch._calculate_totals_python()
-                python_count = batch.entry_count
-                python_total = batch.total_amount
+            # Test Python fallback
+            batch._calculate_totals_python()
+            python_count = batch.entry_count
+            python_total = batch.total_amount
 
-                # Compare with expected values
-                count_match = python_count == test_case["expected_count"]
-                total_match = abs(python_total - test_case["expected_total"]) < 0.01
+            # Compare results
+            count_match = sql_count == python_count
+            total_match = abs(float(sql_total) - float(python_total)) < 0.01
 
-                result.update(
-                    {
-                        "status": "completed",
-                        "python_count": python_count,
-                        "python_total": python_total,
-                        "expected_count": test_case["expected_count"],
-                        "expected_total": test_case["expected_total"],
-                        "count_match": count_match,
-                        "total_match": total_match,
-                        "overall_match": count_match and total_match,
-                    }
-                )
+            test_result.update(
+                {
+                    "success": count_match and total_match,
+                    "sql_count": sql_count,
+                    "python_count": python_count,
+                    "sql_total": float(sql_total),
+                    "python_total": float(python_total),
+                    "count_match": count_match,
+                    "total_match": total_match,
+                }
+            )
+
+            if not (count_match and total_match):
+                overall_success = False
+                test_result[
+                    "error"
+                ] = f"Mismatch: SQL({sql_count}, {sql_total:.2f}) vs Python({python_count}, {python_total:.2f})"
 
         except Exception as e:
-            result.update({"status": "error", "error": str(e)})
+            test_result["error"] = str(e)
+            overall_success = False
+        finally:
+            # Cleanup
+            try:
+                if "batch" in locals() and batch.name:
+                    frappe.delete_doc("Direct Debit Batch", batch.name, force=True)
+            except:
+                pass
 
-        results.append(result)
-
-    # Summary
-    passed_tests = sum(1 for r in results if r.get("overall_match", False))
-    total_tests = len(results)
+        results.append(test_result)
 
     return {
-        "summary": {
-            "total_tests": total_tests,
-            "passed_tests": passed_tests,
-            "success_rate": f"{passed_tests}/{total_tests}",
-            "all_passed": passed_tests == total_tests,
-        },
-        "test_results": results,
+        "success": overall_success,
+        "total_tests": len(test_cases),
+        "passed_tests": sum(1 for r in results if r["success"]),
+        "results": results,
     }
 
 
@@ -126,60 +123,236 @@ def test_calculate_totals_equivalence():
 def test_python_fallback_edge_cases():
     """Test Python fallback with edge cases that can't be stored in DB"""
 
-    # Create a mock batch for testing
+    # Create a test batch (not saved)
     batch = frappe.new_doc("Direct Debit Batch")
-    batch.batch_name = f"EdgeTest-{frappe.generate_hash(length=6)}"
-    batch.collection_date = frappe.utils.today()
-    batch.batch_status = "Draft"
-    batch.payment_method = "SEPA Direct Debit"
+    batch.batch_date = today()
+    batch.batch_description = f"Edge Test {random_string(6)}"
+    batch.batch_type = "RCUR"
+    batch.currency = "EUR"
 
-    # Mock invoice class for edge case testing
+    # Manually create invoice objects with edge case data
     class MockInvoice:
         def __init__(self, amount):
             self.amount = amount
 
-    edge_cases = [
-        {"name": "All None amounts", "invoices": [MockInvoice(None), MockInvoice(None), MockInvoice(None)]},
+    edge_test_cases = [
+        {"name": "String amounts", "invoices": [MockInvoice("25.50"), MockInvoice("30.00")]},
+        {"name": "All None amounts", "invoices": [MockInvoice(None), MockInvoice(None)]},
+        {"name": "Empty string amounts", "invoices": [MockInvoice(""), MockInvoice("  ")]},
         {
-            "name": "String amounts",
-            "invoices": [MockInvoice("25.50"), MockInvoice("30.00"), MockInvoice("10.75")],
+            "name": "Mixed types",
+            "invoices": [MockInvoice(25.5), MockInvoice("30.00"), MockInvoice(None), MockInvoice("")],
         },
-        {"name": "Empty string amounts", "invoices": [MockInvoice(""), MockInvoice("  "), MockInvoice("0")]},
-        {
-            "name": "Mixed valid/invalid",
-            "invoices": [MockInvoice(25.00), MockInvoice(None), MockInvoice("30.50")],
-        },
-        {"name": "Zero amounts", "invoices": [MockInvoice(0), MockInvoice(0.0), MockInvoice("0.00")]},
     ]
 
     results = []
 
-    for case in edge_cases:
+    for test_case in edge_test_cases:
         try:
-            # Set mock invoices and test Python calculation
-            batch.invoices = case["invoices"]
+            batch.invoices = test_case["invoices"]
             batch._calculate_totals_python()
 
             results.append(
                 {
-                    "test_name": case["name"],
-                    "status": "passed",
-                    "entry_count": batch.entry_count,
-                    "total_amount": batch.total_amount,
-                    "expected_behavior": "No errors, graceful handling",
+                    "test_name": test_case["name"],
+                    "success": True,
+                    "count": batch.entry_count,
+                    "total": float(batch.total_amount),
+                    "error": None,
+                }
+            )
+        except Exception as e:
+            results.append(
+                {"test_name": test_case["name"], "success": False, "count": 0, "total": 0.0, "error": str(e)}
+            )
+
+    return {"success": all(r["success"] for r in results), "results": results}
+
+
+@frappe.whitelist()
+def benchmark_calculation_performance():
+    """Benchmark performance difference between SQL and Python methods"""
+
+    test_sizes = [10, 50, 100, 500]
+    results = []
+
+    for size in test_sizes:
+        try:
+            # Create test batch
+            batch = frappe.new_doc("Direct Debit Batch")
+            batch.batch_date = today()
+            batch.batch_description = f"Performance Test {random_string(6)}"
+            batch.batch_type = "RCUR"
+            batch.currency = "EUR"
+
+            # Add test invoices
+            for i in range(size):
+                batch.append(
+                    "invoices",
+                    {
+                        "invoice": f"PERF-TEST-{i+1:05d}",
+                        "amount": 25.00 + (i % 100),
+                        "currency": "EUR",
+                        "member": f"PERF-MEMBER-{i+1:05d}",
+                        "member_name": f"Performance Test Member {i+1}",
+                        "iban": "NL91ABNA0417164300",
+                        "mandate_reference": f"PERF-MANDATE-{i+1:05d}",
+                        "status": "Pending",
+                    },
+                )
+
+            # Test Python method (works on unsaved doc)
+            start_time = time.time()
+            batch._calculate_totals_python()
+            python_time = time.time() - start_time
+            python_result = {"count": batch.entry_count, "total": float(batch.total_amount)}
+
+            # Save and test SQL method
+            batch.insert()
+            start_time = time.time()
+            batch.calculate_totals()
+            sql_time = time.time() - start_time
+            sql_result = {"count": batch.entry_count, "total": float(batch.total_amount)}
+
+            # Compare results
+            count_match = sql_result["count"] == python_result["count"]
+            total_match = abs(sql_result["total"] - python_result["total"]) < 0.01
+
+            results.append(
+                {
+                    "invoice_count": size,
+                    "python_time_ms": round(python_time * 1000, 2),
+                    "sql_time_ms": round(sql_time * 1000, 2),
+                    "python_result": python_result,
+                    "sql_result": sql_result,
+                    "results_match": count_match and total_match,
+                    "performance_ratio": round(python_time / sql_time, 2) if sql_time > 0 else "N/A",
                 }
             )
 
         except Exception as e:
-            results.append({"test_name": case["name"], "status": "failed", "error": str(e)})
-
-    passed = sum(1 for r in results if r["status"] == "passed")
+            results.append({"invoice_count": size, "error": str(e)})
+        finally:
+            try:
+                if "batch" in locals() and batch.name:
+                    frappe.delete_doc("Direct Debit Batch", batch.name, force=True)
+            except:
+                pass
 
     return {
+        "success": all(r.get("results_match", False) for r in results if "error" not in r),
+        "results": results,
+    }
+
+
+@frappe.whitelist()
+def test_null_handling_compatibility():
+    """Specific test for NULL/None value handling between SQL and Python"""
+
+    # Test various NULL combinations
+    null_test_cases = [
+        {"invoices": [{"amount": None}]},
+        {"invoices": [{"amount": 100.0}, {"amount": None}]},
+        {"invoices": [{"amount": None}, {"amount": None}, {"amount": None}]},
+        {"invoices": [{"amount": 0.0}, {"amount": None}, {"amount": 50.0}]},
+    ]
+
+    results = []
+
+    for i, test_case in enumerate(null_test_cases):
+        try:
+            # Create test batch
+            batch = frappe.new_doc("Direct Debit Batch")
+            batch.batch_date = today()
+            batch.batch_description = f"NULL Test {i+1}"
+            batch.batch_type = "RCUR"
+            batch.currency = "EUR"
+
+            # Add invoices
+            for j, invoice_data in enumerate(test_case["invoices"]):
+                batch.append(
+                    "invoices",
+                    {
+                        "invoice": f"NULL-TEST-{i+1}-{j+1}",
+                        "amount": invoice_data["amount"],
+                        "currency": "EUR",
+                        "member": f"NULL-MEMBER-{i+1}-{j+1}",
+                        "member_name": f"Null Test Member {i+1}-{j+1}",
+                        "iban": "NL91ABNA0417164300",
+                        "mandate_reference": f"NULL-MANDATE-{i+1}-{j+1}",
+                        "status": "Pending",
+                    },
+                )
+
+            batch.insert()
+
+            # Test SQL
+            batch.calculate_totals()
+            sql_result = {"count": batch.entry_count, "total": float(batch.total_amount)}
+
+            # Test Python
+            batch._calculate_totals_python()
+            python_result = {"count": batch.entry_count, "total": float(batch.total_amount)}
+
+            # Compare
+            count_match = sql_result["count"] == python_result["count"]
+            total_match = abs(sql_result["total"] - python_result["total"]) < 0.01
+
+            results.append(
+                {
+                    "test_case": i + 1,
+                    "null_count": sum(1 for inv in test_case["invoices"] if inv["amount"] is None),
+                    "total_invoices": len(test_case["invoices"]),
+                    "sql_result": sql_result,
+                    "python_result": python_result,
+                    "count_match": count_match,
+                    "total_match": total_match,
+                    "success": count_match and total_match,
+                }
+            )
+
+        except Exception as e:
+            results.append({"test_case": i + 1, "error": str(e), "success": False})
+        finally:
+            try:
+                if "batch" in locals() and batch.name:
+                    frappe.delete_doc("Direct Debit Batch", batch.name, force=True)
+            except:
+                pass
+
+    return {"success": all(r["success"] for r in results), "results": results}
+
+
+@frappe.whitelist()
+def run_comprehensive_calculation_tests():
+    """Run all calculation tests and return comprehensive results"""
+
+    equivalence_results = test_sql_vs_python_equivalence()
+    edge_case_results = test_python_fallback_edge_cases()
+    null_handling_results = test_null_handling_compatibility()
+    performance_results = benchmark_calculation_performance()
+
+    return {
+        "equivalence_tests": equivalence_results,
+        "edge_case_tests": edge_case_results,
+        "null_handling_tests": null_handling_results,
+        "performance_tests": performance_results,
+        "overall_success": (
+            equivalence_results["success"]
+            and edge_case_results["success"]
+            and null_handling_results["success"]
+            and performance_results["success"]
+        ),
         "summary": {
-            "total_tests": len(results),
-            "passed_tests": passed,
-            "all_passed": passed == len(results),
+            "equivalence_passed": equivalence_results["passed_tests"],
+            "equivalence_total": equivalence_results["total_tests"],
+            "edge_cases_passed": sum(1 for r in edge_case_results["results"] if r["success"]),
+            "edge_cases_total": len(edge_case_results["results"]),
+            "null_handling_passed": sum(1 for r in null_handling_results["results"] if r["success"]),
+            "null_handling_total": len(null_handling_results["results"]),
+            "performance_passed": sum(
+                1 for r in performance_results["results"] if r.get("results_match", False)
+            ),
+            "performance_total": len(performance_results["results"]),
         },
-        "edge_case_results": results,
     }

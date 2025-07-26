@@ -532,7 +532,8 @@ def get_volunteer_permission_query(user):
             """
             SELECT DISTINCT cbm.parent
             FROM `tabChapter Board Member` cbm
-            JOIN `tabMember` m ON cbm.member = m.name
+            JOIN `tabVolunteer` v ON cbm.volunteer = v.name
+            JOIN `tabMember` m ON v.member = m.name
             WHERE m.user = %s AND cbm.is_active = 1
         """,
             (user,),

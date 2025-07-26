@@ -114,14 +114,47 @@ def get_dues_summary_for_member(member_name):
                     }
                 )
 
-                # Calculate totals
+                # Calculate totals with enhanced error handling
+                # Follows direct_debit_batch.py patterns for financial calculations
                 if (
                     payment.payment_status == "Paid"
                     and getdate(payment.posting_date).year == getdate(today()).year
                 ):
-                    summary["total_paid_ytd"] += float(payment.paid_amount or 0)
+                    try:
+                        paid_amount = payment.paid_amount
+                        if paid_amount is None:
+                            # Same as SQL COALESCE(paid_amount, 0)
+                            paid_amount = 0.0
+                        elif isinstance(paid_amount, str):
+                            # Handle string amounts gracefully
+                            paid_amount = float(paid_amount) if paid_amount.strip() else 0.0
+                        else:
+                            paid_amount = float(paid_amount)
+
+                        summary["total_paid_ytd"] += round(paid_amount, 2)
+
+                    except (ValueError, TypeError, AttributeError):
+                        # Handle conversion errors gracefully
+                        continue
 
                 if payment.payment_status in ["Unpaid", "Overdue"]:
-                    summary["total_pending"] += float(payment.outstanding_amount or 0)
+                    try:
+                        outstanding_amount = payment.outstanding_amount
+                        if outstanding_amount is None:
+                            # Same as SQL COALESCE(outstanding_amount, 0)
+                            outstanding_amount = 0.0
+                        elif isinstance(outstanding_amount, str):
+                            # Handle string amounts gracefully
+                            outstanding_amount = (
+                                float(outstanding_amount) if outstanding_amount.strip() else 0.0
+                            )
+                        else:
+                            outstanding_amount = float(outstanding_amount)
+
+                        summary["total_pending"] += round(outstanding_amount, 2)
+
+                    except (ValueError, TypeError, AttributeError):
+                        # Handle conversion errors gracefully
+                        continue
 
     return summary

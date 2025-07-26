@@ -203,8 +203,8 @@ def get_payment_history(member=None, year=None, status=None, **kwargs):
         LEFT JOIN `tabMembership Dues Schedule` mds ON mds.member = %(member)s
         LEFT JOIN `tabMembership` m ON m.member = %(member)s
         WHERE {conditions}
-        AND (mds.start_date IS NULL OR si.posting_date >= mds.start_date)
-        AND (mds.end_date IS NULL OR si.posting_date <= mds.end_date)
+        AND (mds.next_billing_period_start_date IS NULL OR si.posting_date >= mds.next_billing_period_start_date)
+        AND (mds.next_billing_period_end_date IS NULL OR si.posting_date <= mds.next_billing_period_end_date)
         ORDER BY si.posting_date DESC
         LIMIT %(limit)s OFFSET %(offset)s
     """.format(

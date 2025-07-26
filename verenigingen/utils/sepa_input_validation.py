@@ -258,7 +258,28 @@ class SEPAInputValidator:
                 continue
 
             seen_invoices.add(invoice_id)
-            total_amount += cleaned_invoice["amount"]
+
+            # Enhanced amount aggregation with functional equivalence to SQL patterns
+            # Follows direct_debit_batch.py defensive programming patterns
+            try:
+                invoice_amount = cleaned_invoice.get("amount")
+                if invoice_amount is None:
+                    # Handle None values same way as SQL COALESCE(amount, 0)
+                    invoice_amount = Decimal("0")
+                elif isinstance(invoice_amount, (str, int, float)):
+                    # Ensure consistent Decimal conversion for precision
+                    invoice_amount = Decimal(str(invoice_amount))
+                elif not isinstance(invoice_amount, Decimal):
+                    # Handle unexpected types gracefully
+                    invoice_amount = Decimal(str(invoice_amount))
+
+                total_amount += invoice_amount
+
+            except (ValueError, TypeError, InvalidOperation) as e:
+                # Handle conversion errors gracefully (same as SQL COALESCE behavior)
+                frappe.logger().warning(f"Invalid amount in invoice {invoice_id}, treating as 0: {str(e)}")
+                # Skip adding to total_amount, effectively treating as 0
+
             result["cleaned_invoices"].append(cleaned_invoice)
 
             # Add any warnings

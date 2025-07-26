@@ -245,7 +245,7 @@ class SEPAConflictDetector:
                     si.name as invoice,
                     si.custom_membership_dues_schedule as schedule_id,
                     mds.member,
-                    mds.next_due_date,
+                    mds.next_invoice_date,
                     mds.billing_frequency,
                     mds.status as schedule_status,
                     mem.full_name as member_name

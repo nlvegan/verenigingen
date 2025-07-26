@@ -198,8 +198,8 @@ def validate_invoice_mandate(invoice, member):
                 sm.bic,
                 sm.mandate_id,
                 sm.sign_date,
-                sm.valid_from,
-                sm.valid_until,
+                sm.first_collection_date,
+                sm.expiry_date,
                 sm.status
             FROM `tabMember` mem
             LEFT JOIN `tabSEPA Mandate` sm ON sm.member = mem.name AND sm.status = 'Active'
@@ -228,7 +228,7 @@ def validate_invoice_mandate(invoice, member):
             return {"valid": False, "error": iban_validation["message"]}
 
         # Check mandate expiry
-        if data.valid_until and getdate(data.valid_until) < getdate(today()):
+        if data.expiry_date and getdate(data.expiry_date) < getdate(today()):
             return {"valid": False, "error": _("Mandate has expired")}
 
         return {
