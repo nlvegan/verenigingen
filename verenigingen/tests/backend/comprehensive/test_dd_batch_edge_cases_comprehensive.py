@@ -379,7 +379,7 @@ class TestDDBatchSecurityValidation(FrappeTestCase):
         log_entries = frappe.get_all(
             "DD Security Audit Log",
             filters={"batch_id": test_batch_id, "action": test_action},
-            fields=["name", "timestamp", "user", "ip_address", "details"],
+            fields=["name", "timestamp", "user", "action", "details"],
         )
 
         self.assertGreater(len(log_entries), 0, "Audit log entry should be created")
@@ -412,8 +412,8 @@ class TestDDBatchSecurityValidation(FrappeTestCase):
         # Verify events were logged
         security_events = frappe.get_all(
             "DD Security Event Log",
-            filters={"severity": "high", "details": ["like", f"%{self.unique_id}%"]},
-            fields=["name", "event_type", "severity", "description"],
+            filters={"compliance_status": "high", "details": ["like", f"%{self.unique_id}%"]},
+            fields=["name", "process_type", "compliance_status", "description"],
         )
 
         self.assertEqual(

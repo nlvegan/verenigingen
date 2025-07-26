@@ -504,7 +504,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "membership_type": self.membership_type.name,
                 "status": "Active",
                 "annual_fee": 100.00,
-                "next_billing_date": add_days(today(), 15),  # Future billing
+                # Note: next_billing_date field removed - now handled by dues schedule
             }
         )
         membership.insert()

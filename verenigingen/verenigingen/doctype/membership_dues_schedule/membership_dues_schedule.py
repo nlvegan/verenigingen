@@ -54,23 +54,26 @@ class MembershipDuesSchedule(Document):
             )
 
         # Validate template respects membership type minimum (both required)
+        # Skip this validation when updating existing schedules to allow flexible dues rates
         membership_type_minimum = (
             membership_type.minimum_amount if membership_type.minimum_amount is not None else 0
         )
         template_minimum = values["minimum_amount"]  # Already validated above
         template_suggested = values["suggested_amount"]  # Already validated above
 
-        if template_minimum < membership_type_minimum:
-            frappe.throw(
-                f"Template minimum amount (€{template_minimum:.2f}) cannot be less than "
-                f"membership type minimum (€{membership_type_minimum:.2f})"
-            )
+        # Only enforce template-level validation for new templates, not when updating existing schedules
+        if not getattr(self, "_skip_template_validation", False):
+            if template_minimum < membership_type_minimum:
+                frappe.throw(
+                    f"Template minimum amount (€{template_minimum:.2f}) cannot be less than "
+                    f"membership type minimum (€{membership_type_minimum:.2f})"
+                )
 
-        if template_suggested < membership_type_minimum:
-            frappe.throw(
-                f"Template suggested amount (€{template_suggested:.2f}) cannot be less than "
-                f"membership type minimum (€{membership_type_minimum:.2f})"
-            )
+            if template_suggested < membership_type_minimum:
+                frappe.throw(
+                    f"Template suggested amount (€{template_suggested:.2f}) cannot be less than "
+                    f"membership type minimum (€{membership_type_minimum:.2f})"
+                )
 
         return values
 
@@ -161,6 +164,18 @@ class MembershipDuesSchedule(Document):
     def validate_dates(self):
         """Validate schedule dates"""
         today_date = getdate(today())
+
+        # Validate last_invoice_date is not in the future
+        if self.last_invoice_date:
+            last_date = getdate(self.last_invoice_date)
+            if last_date > today_date:
+                # Auto-correct invalid future last invoice dates
+                frappe.msgprint(
+                    f"Warning: Last Invoice Date ({last_date}) was in the future and has been reset to today ({today_date}). "
+                    "Last invoice dates should only reflect actual past invoices.",
+                    alert=True,
+                )
+                self.last_invoice_date = today_date
 
         if self.last_invoice_date and self.next_invoice_date:
             if getdate(self.last_invoice_date) >= getdate(self.next_invoice_date):
@@ -911,6 +926,9 @@ class MembershipDuesSchedule(Document):
 
         # ✅ NEW: Transaction safety - wrap critical operations in transaction
         try:
+            # Set flag to skip strict validation during invoice generation
+            frappe.flags.in_invoice_generation = True
+
             # Start explicit transaction for invoice generation
             frappe.db.begin()
 
@@ -946,13 +964,19 @@ class MembershipDuesSchedule(Document):
         except Exception as e:
             # Rollback transaction on any failure
             frappe.db.rollback()
-            error_msg = (
-                f"Invoice generation failed for schedule {self.name}, transaction rolled back: {str(e)}"
-            )
-            frappe.log_error(error_msg, "Invoice Generation Transaction Failure")
+            # Shorten error message to avoid database field length limits
+            error_msg = f"Invoice gen failed for {self.name}: {str(e)[:100]}"
+            try:
+                frappe.log_error(error_msg, "Invoice Generation Failure")
+            except:
+                # If logging fails, just continue
+                pass
 
             # Re-raise exception to maintain existing error handling behavior
             raise frappe.ValidationError(error_msg)
+        finally:
+            # Always clear the flag
+            frappe.flags.in_invoice_generation = False
 
         frappe.logger().info(
             f"Generated invoice {invoice.name} for {self.member} covering period {coverage_start} to {coverage_end}"
@@ -1067,7 +1091,7 @@ class MembershipDuesSchedule(Document):
     def get_invoice_description(self):
         """Generate invoice description with appropriate period formatting"""
         period_start = self.last_invoice_date or self.next_invoice_date
-        period_end = self.calculate_next_billing_date(self.next_invoice_date)
+        period_end = self.calculate_next_invoice_date(self.next_invoice_date)
 
         # Format period description based on billing frequency
         if self.billing_frequency == "Daily":
@@ -1090,11 +1114,11 @@ class MembershipDuesSchedule(Document):
         if actual_invoice_date:
             # Use the actual posting date from the created invoice
             self.last_invoice_date = actual_invoice_date
-            self.next_invoice_date = self.calculate_next_billing_date(actual_invoice_date)
+            self.next_invoice_date = self.calculate_next_invoice_date(actual_invoice_date)
         else:
             # Fallback to old behavior (for test mode)
             self.last_invoice_date = self.next_invoice_date
-            self.next_invoice_date = self.calculate_next_billing_date(self.next_invoice_date)
+            self.next_invoice_date = self.calculate_next_invoice_date(self.next_invoice_date)
 
         self.save()
 
@@ -1124,7 +1148,7 @@ class MembershipDuesSchedule(Document):
             "name",
         )
 
-    def calculate_next_billing_date(self, from_date=None):
+    def calculate_next_invoice_date(self, from_date=None):
         """Calculate next billing date based on frequency"""
         if not from_date:
             from_date = self.next_invoice_date or today()
@@ -1341,7 +1365,7 @@ class MembershipDuesSchedule(Document):
         schedule.member_name = member.full_name
 
         # Set initial billing date based on member anniversary and frequency
-        next_billing = schedule.calculate_next_billing_date()
+        next_billing = schedule.calculate_next_invoice_date()
         if next_billing:
             schedule.next_invoice_date = next_billing
         else:
@@ -1458,10 +1482,14 @@ class MembershipDuesSchedule(Document):
                 },
             )
 
+            # Allow updates after submit for billing history
+            member_doc.flags.ignore_validate_update_after_submit = True
             member_doc.save(ignore_permissions=True)
 
         except Exception as e:
-            frappe.log_error(f"Error adding billing history: {str(e)}", "Billing History Update")
+            # Shorten error message to avoid database field length limits
+            error_msg = f"Billing history error for {self.name}: {str(e)[:80]}"
+            frappe.log_error(error_msg, "Billing History Update")
 
     # ✅ ERPNext-Inspired Validation Enhancements
 
@@ -1537,12 +1565,30 @@ class MembershipDuesSchedule(Document):
 
             raise InvalidDuesRateError(f"Dues rate must be positive. Got: €{self.dues_rate:.2f}")
 
-        # Check against membership type boundaries
-        if self.membership_type:
+        # Check against membership type boundaries - but only during user edits, not invoice generation
+        # Skip strict validation if we're in an automated context like invoice generation
+        if (
+            self.membership_type
+            and not getattr(self, "_skip_minimum_validation", False)
+            and not frappe.flags.in_invoice_generation
+        ):
+            # Skip template validation for existing schedules when changing membership type
+            self._skip_template_validation = not self.is_new()
             template_values = self.get_template_values()
             min_amount = template_values.get("minimum_amount", 0)
 
             if self.dues_rate < min_amount:
+                # For existing schedules, allow the rate to remain as-is when changing membership type
+                if not self.is_new():
+                    # Only show warning, don't block the change
+                    frappe.msgprint(
+                        f"Warning: Dues rate €{self.dues_rate:.2f} is below minimum required "
+                        f"€{min_amount:.2f} for membership type {self.membership_type}. "
+                        f"This is allowed for existing schedules to maintain member flexibility.",
+                        alert=True,
+                    )
+                    return  # Don't block existing schedules
+
                 from verenigingen.utils.exceptions import InvalidDuesRateError
 
                 raise InvalidDuesRateError(
@@ -1555,7 +1601,8 @@ class MembershipDuesSchedule(Document):
             max_reasonable_rate = (
                 frappe.db.get_single_value("Verenigingen Settings", "max_reasonable_dues_rate") or 10000
             )
-        except:
+        except Exception:
+            # Fallback if field doesn't exist yet
             max_reasonable_rate = 10000
 
         if self.dues_rate > max_reasonable_rate:
@@ -1614,8 +1661,13 @@ def generate_dues_invoices(test_mode=False):
             results["processed"] += 1
 
         except Exception as e:
-            error_msg = f"Error processing schedule {schedule_name}: {str(e)}"
-            frappe.log_error(error_msg, "Membership Dues Generation")
+            # Shorten error message to avoid database field length limits
+            error_msg = f"Error processing {schedule_name}: {str(e)[:80]}"
+            try:
+                frappe.log_error(error_msg, "Membership Dues Generation")
+            except:
+                # If logging fails, just continue
+                pass
             results["errors"].append(error_msg)
 
     # Log results

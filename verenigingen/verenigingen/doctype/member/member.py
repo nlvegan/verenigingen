@@ -2767,15 +2767,8 @@ def refresh_fee_change_history(member_name):
         # Get the member document
         member_doc = frappe.get_doc("Member", member_name)
 
-        # Clear existing fee_change_history and rebuild from dues schedules
-        # First, delete existing entries directly from database to avoid submission issues
-        frappe.db.sql(
-            """
-            DELETE FROM `tabMember Fee Change History`
-            WHERE parent = %s
-        """,
-            member_name,
-        )
+        # Clear existing fee_change_history
+        member_doc.fee_change_history = []
 
         # Get all dues schedules for this member
         dues_schedules = frappe.get_all(
@@ -2785,43 +2778,30 @@ def refresh_fee_change_history(member_name):
             order_by="creation",
         )
 
-        # Create fee change history entries directly in database to avoid submission validation
-        for i, schedule in enumerate(dues_schedules):
+        # Create fee change history entries in the member document's child table
+        for schedule in dues_schedules:
             # Validate billing frequency - use "Custom" for unsupported frequencies
             valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
             billing_freq = (
                 schedule.billing_frequency if schedule.billing_frequency in valid_frequencies else "Custom"
             )
 
-            frappe.db.sql(
-                """
-                INSERT INTO `tabMember Fee Change History`
-                (name, parent, parenttype, parentfield, idx, change_date, dues_schedule,
-                 billing_frequency, old_dues_rate, new_dues_rate, change_type, reason, changed_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-                (
-                    frappe.generate_hash(length=10),  # Generate unique name
-                    member_name,  # parent
-                    "Member",  # parenttype
-                    "fee_change_history",  # parentfield
-                    i + 1,  # idx
-                    schedule.creation,  # change_date
-                    schedule.name,  # dues_schedule
-                    billing_freq,  # billing_frequency
-                    0,  # old_dues_rate
-                    schedule.dues_rate,  # new_dues_rate
-                    "Schedule Created",  # change_type
-                    f"Dues schedule: {schedule.schedule_name or schedule.name}",  # reason
-                    frappe.session.user if frappe.session.user else "Administrator",  # changed_by
-                ),
-            )
+            # Add a new row to the fee_change_history child table
+            history_row = member_doc.append("fee_change_history", {})
+            history_row.change_date = schedule.creation
+            history_row.dues_schedule = schedule.name
+            history_row.billing_frequency = billing_freq
+            history_row.old_dues_rate = 0  # First schedule for this member
+            history_row.new_dues_rate = schedule.dues_rate
+            history_row.change_type = "Schedule Created"
+            history_row.reason = f"Dues schedule: {schedule.schedule_name or schedule.name}"
+            history_row.changed_by = frappe.session.user if frappe.session.user else "Administrator"
 
-        # Commit the database changes
-        frappe.db.commit()
-
-        # Refresh the member document to show updated data
-        member_doc.reload()
+        # Save the member document to persist the changes
+        # Use flags to avoid validation issues during refresh
+        member_doc.flags.ignore_validate_update_after_submit = True
+        member_doc.flags.ignore_permissions = True
+        member_doc.save()
 
         return {
             "success": True,

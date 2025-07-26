@@ -194,10 +194,14 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.payment_plan.payment_plan.process_overdue_installments",
         # Security audit log cleanup
         "verenigingen.utils.security.audit_logging.get_audit_logger().cleanup_old_logs",
+        # Monitoring and alerting system
+        "verenigingen.utils.alert_manager.run_daily_checks",
     ],
     "hourly": [
         # Check analytics alert rules
         "verenigingen.verenigingen.doctype.analytics_alert_rule.analytics_alert_rule.check_all_active_alerts",
+        # Monitoring and alerting system
+        "verenigingen.utils.alert_manager.run_hourly_checks",
     ],
     "weekly": [
         # Termination reports and reviews

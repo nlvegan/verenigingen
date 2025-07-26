@@ -16,13 +16,27 @@ def test_expiring_memberships_report():
             from `tabMember` m
             inner join (
                 select
-                    name,
-                    membership_type,
-                    member,
-                    COALESCE(next_billing_date, renewal_date) as expiry_date
-                from `tabMembership`
-                where status in ('Active', 'Pending')
-                  and COALESCE(next_billing_date, renewal_date) is not null
+                    memb.name,
+                    memb.membership_type,
+                    memb.member,
+                    COALESCE(
+                        (SELECT next_invoice_date 
+                         FROM `tabMembership Dues Schedule` 
+                         WHERE member = memb.member 
+                         ORDER BY creation DESC 
+                         LIMIT 1),
+                        memb.renewal_date
+                    ) as expiry_date
+                from `tabMembership` memb
+                where memb.status in ('Active', 'Pending')
+                  and (
+                      (SELECT next_invoice_date 
+                       FROM `tabMembership Dues Schedule` 
+                       WHERE member = memb.member 
+                       ORDER BY creation DESC 
+                       LIMIT 1) is not null
+                      or memb.renewal_date is not null
+                  )
             ) ms on m.name = ms.member
             where month(ms.expiry_date) = 12 and year(ms.expiry_date) = 2025
             order by ms.expiry_date asc

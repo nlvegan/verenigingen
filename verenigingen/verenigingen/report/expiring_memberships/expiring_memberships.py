@@ -49,15 +49,29 @@ def get_data(filters):
         from `tabMember` m
         inner join (
             select
-                name,
-                membership_type,
-                member,
-                grace_period_status,
-                grace_period_expiry_date,
-                COALESCE(next_billing_date, renewal_date) as expiry_date
-            from `tabMembership`
-            where status in ('Active', 'Pending')
-              and COALESCE(next_billing_date, renewal_date) is not null
+                memb.name,
+                memb.membership_type,
+                memb.member,
+                memb.grace_period_status,
+                memb.grace_period_expiry_date,
+                COALESCE(
+                    (SELECT next_invoice_date
+                     FROM `tabMembership Dues Schedule`
+                     WHERE member = memb.member
+                     ORDER BY creation DESC
+                     LIMIT 1),
+                    memb.renewal_date
+                ) as expiry_date
+            from `tabMembership` memb
+            where memb.status in ('Active', 'Pending')
+              and (
+                  (SELECT next_invoice_date
+                   FROM `tabMembership Dues Schedule`
+                   WHERE member = memb.member
+                   ORDER BY creation DESC
+                   LIMIT 1) is not null
+                  or memb.renewal_date is not null
+              )
         ) ms on m.name = ms.member
         where month(ms.expiry_date) = %(month)s and year(ms.expiry_date) = %(year)s
         order by ms.expiry_date asc

@@ -375,7 +375,7 @@ class SEPAAuditLogger:
                 else:
                     filters["timestamp"] = ["<=", end_date]
             if severity:
-                filters["severity"] = severity
+                filters["compliance_status"] = severity
 
             logs = frappe.get_all(
                 "SEPA Audit Log",
@@ -383,10 +383,10 @@ class SEPAAuditLogger:
                 fields=[
                     "event_id",
                     "timestamp",
-                    "event_type",
-                    "severity",
+                    "process_type",
+                    "action",
                     "user",
-                    "ip_address",
+                    "compliance_status",
                     "details",
                     "sensitive_data",
                 ],

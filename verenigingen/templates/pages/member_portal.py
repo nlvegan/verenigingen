@@ -459,12 +459,24 @@ def get_payment_status(member, membership):
                 )
                 total_outstanding += invoice.outstanding_amount
 
-        # Get next billing date
+        # Get next billing date from dues schedule (not membership renewal date)
         next_billing = None
-        if membership:
-            next_billing = getattr(membership, "next_billing_date", None)
-            if not next_billing and hasattr(membership, "renewal_date"):
-                next_billing = membership.renewal_date
+
+        # First, try to get from the member's current dues schedule
+        if hasattr(member, "current_dues_schedule") and member.current_dues_schedule:
+            try:
+                schedule_doc = frappe.get_doc("Membership Dues Schedule", member.current_dues_schedule)
+                next_billing = getattr(schedule_doc, "next_invoice_date", None)
+            except Exception as e:
+                frappe.log_error(f"Error getting next invoice date from dues schedule: {str(e)}")
+
+        # Fallback: if no schedule or no next_invoice_date, try member's next_invoice_date field
+        if not next_billing and hasattr(member, "next_invoice_date"):
+            next_billing = member.next_invoice_date
+
+        # Last resort: use membership renewal date (but this should rarely be needed)
+        if not next_billing and membership and hasattr(membership, "renewal_date"):
+            next_billing = membership.renewal_date
 
         # Determine current fee amount based on billing frequency
         current_fee_amount = current_fee_info.get("amount", 0)
@@ -482,7 +494,7 @@ def get_payment_status(member, membership):
             "fee_source": current_fee_info.get("source", "unknown"),
             "outstanding_amount": total_outstanding,
             "outstanding_invoices": outstanding_invoices,
-            "next_billing_date": next_billing,
+            "next_invoice_date": next_billing,
             "payment_up_to_date": total_outstanding == 0,
             "has_overdue": any(inv["is_overdue"] for inv in outstanding_invoices),
         }

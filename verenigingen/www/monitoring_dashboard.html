@@ -1,0 +1,512 @@
+{% extends "templates/web.html" %}
+
+{% block title %}System Monitoring Dashboard{% endblock %}
+
+{% block head_include %}
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+    .monitoring-dashboard {
+        padding: 20px;
+        background-color: #f8f9fa;
+        min-height: 100vh;
+    }
+
+    .metric-card {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-bottom: 20px;
+        transition: transform 0.2s;
+    }
+
+    .metric-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+    }
+
+    .metric-number {
+        font-size: 2.5rem;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+
+    .metric-label {
+        color: #6c757d;
+        font-size: 0.9rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+
+    .status-good { color: #28a745; }
+    .status-warning { color: #ffc107; }
+    .status-danger { color: #dc3545; }
+    .status-info { color: #17a2b8; }
+
+    .alert-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: bold;
+        text-transform: uppercase;
+    }
+
+    .alert-critical { background: #dc3545; color: white; }
+    .alert-high { background: #fd7e14; color: white; }
+    .alert-medium { background: #ffc107; color: black; }
+    .alert-low { background: #6c757d; color: white; }
+
+    .refresh-button {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 1000;
+    }
+
+    .error-table, .audit-table, .alert-table {
+        font-size: 0.9rem;
+    }
+
+    .error-count {
+        background: #dc3545;
+        color: white;
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-weight: bold;
+    }
+
+    .compliance-status {
+        padding: 2px 6px;
+        border-radius: 3px;
+        font-size: 0.8rem;
+        font-weight: bold;
+    }
+
+    .compliance-compliant { background: #d4edda; color: #155724; }
+    .compliance-exception { background: #fff3cd; color: #856404; }
+    .compliance-failed { background: #f8d7da; color: #721c24; }
+    .compliance-pending { background: #d1ecf1; color: #0c5460; }
+
+    .auto-refresh-status {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: rgba(0,0,0,0.7);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        z-index: 1000;
+    }
+
+    .section-header {
+        border-bottom: 2px solid #007bff;
+        padding-bottom: 10px;
+        margin-bottom: 20px;
+        color: #333;
+    }
+
+    @media (max-width: 768px) {
+        .monitoring-dashboard { padding: 10px; }
+        .metric-card { padding: 15px; }
+        .metric-number { font-size: 2rem; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="monitoring-dashboard">
+    <button class="btn btn-primary refresh-button" onclick="refreshDashboard()">
+        <i class="fa fa-refresh"></i> Refresh
+    </button>
+
+    <div class="container-fluid">
+        <h1 class="mb-4">
+            <i class="fa fa-dashboard"></i> System Monitoring Dashboard
+            <small class="text-muted">Real-time System Health</small>
+        </h1>
+
+        <!-- System Metrics Overview -->
+        <h2 class="section-header">System Metrics</h2>
+        <div class="row" id="system-metrics">
+            {% if system_metrics and not system_metrics.error %}
+            <div class="col-lg-2 col-md-4 col-sm-6">
+                <div class="metric-card text-center">
+                    <div class="metric-label">Active Members</div>
+                    <div class="metric-number status-good">{{ system_metrics.members.active }}</div>
+                    <small>Total: {{ system_metrics.members.total }}</small>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-sm-6">
+                <div class="metric-card text-center">
+                    <div class="metric-label">Volunteers</div>
+                    <div class="metric-number status-info">{{ system_metrics.volunteers.active }}</div>
+                    <small>of {{ system_metrics.volunteers.total }}</small>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-sm-6">
+                <div class="metric-card text-center">
+                    <div class="metric-label">SEPA Mandates</div>
+                    <div class="metric-number status-info">{{ system_metrics.sepa.active_mandates }}</div>
+                    <small>{{ system_metrics.sepa.recent_batches }} recent batches</small>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-sm-6">
+                <div class="metric-card text-center">
+                    <div class="metric-label">Errors (24h)</div>
+                    <div class="metric-number {% if system_metrics.errors.last_24h > 10 %}status-danger{% elif system_metrics.errors.last_24h > 5 %}status-warning{% else %}status-good{% endif %}">
+                        {{ system_metrics.errors.last_24h }}
+                    </div>
+                    <small>{{ system_metrics.errors.last_hour }} in last hour</small>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-sm-6">
+                <div class="metric-card text-center">
+                    <div class="metric-label">Invoices</div>
+                    <div class="metric-number status-info">{{ system_metrics.invoices.paid }}</div>
+                    <small>{{ system_metrics.invoices.draft }} draft, {{ system_metrics.invoices.submitted }} submitted</small>
+                </div>
+            </div>
+            <div class="col-lg-2 col-md-4 col-sm-6">
+                <div class="metric-card text-center">
+                    <div class="metric-label">Pending Payments</div>
+                    <div class="metric-number {% if system_metrics.sepa.pending_payments > 5 %}status-warning{% else %}status-good{% endif %}">
+                        {{ system_metrics.sepa.pending_payments }}
+                    </div>
+                    <small>Payment entries</small>
+                </div>
+            </div>
+            {% else %}
+            <div class="col-12">
+                <div class="alert alert-danger">
+                    <i class="fa fa-exclamation-triangle"></i>
+                    Failed to load system metrics: {{ system_metrics.error if system_metrics.error else "Unknown error" }}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Active Alerts Section -->
+        {% if alerts %}
+        <h2 class="section-header">Active Alerts</h2>
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="metric-card">
+                    <table class="table table-sm alert-table">
+                        <thead>
+                            <tr>
+                                <th>Type</th>
+                                <th>Severity</th>
+                                <th>Message</th>
+                                <th>Status</th>
+                                <th>Time</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for alert in alerts %}
+                            <tr>
+                                <td>{{ alert.alert_type }}</td>
+                                <td>
+                                    <span class="alert-badge alert-{{ alert.compliance_status.lower() }}">
+                                        {{ alert.compliance_status }}
+                                    </span>
+                                </td>
+                                <td>{{ alert.message[:100] }}{% if alert.message|length > 100 %}...{% endif %}</td>
+                                <td>{{ alert.status }}</td>
+                                <td>{{ frappe.format(alert.timestamp, 'Datetime') }}</td>
+                                <td>
+                                    {% if alert.status == "Active" %}
+                                    <button class="btn btn-sm btn-warning" onclick="acknowledgeAlert('{{ alert.name }}')">
+                                        Acknowledge
+                                    </button>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-success" onclick="resolveAlert('{{ alert.name }}')">
+                                        Resolve
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Recent Errors Section -->
+        <h2 class="section-header">Recent Errors (Last 24 Hours)</h2>
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="metric-card">
+                    {% if recent_errors %}
+                    <table class="table table-striped error-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 50%;">Error Summary</th>
+                                <th>Count</th>
+                                <th>Latest</th>
+                                <th>First Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for error in recent_errors %}
+                            <tr>
+                                <td>
+                                    <code>{{ error.error_summary }}...</code>
+                                </td>
+                                <td>
+                                    <span class="error-count">{{ error.count }}</span>
+                                </td>
+                                <td>{{ frappe.format(error.latest, 'Datetime') }}</td>
+                                <td>{{ frappe.format(error.first_occurrence, 'Datetime') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="fa fa-check-circle fa-3x mb-3"></i>
+                        <p>No errors in the last 24 hours</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Audit Activity Section -->
+        <h2 class="section-header">SEPA Audit Activity (Last 7 Days)</h2>
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="metric-card">
+                    {% if audit_summary %}
+                    <table class="table table-hover audit-table">
+                        <thead>
+                            <tr>
+                                <th>Process Type</th>
+                                <th>Action</th>
+                                <th>Compliance Status</th>
+                                <th>Count</th>
+                                <th>Latest</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for audit in audit_summary %}
+                            <tr>
+                                <td><strong>{{ audit.process_type }}</strong></td>
+                                <td>{{ audit.action }}</td>
+                                <td>
+                                    <span class="compliance-status compliance-{{ audit.compliance_status.lower() }}">
+                                        {{ audit.compliance_status }}
+                                    </span>
+                                </td>
+                                <td>{{ audit.count }}</td>
+                                <td>{{ frappe.format(audit.latest, 'Datetime') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="fa fa-clock-o fa-3x mb-3"></i>
+                        <p>No SEPA audit activity in the last 7 days</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Performance Metrics Section -->
+        {% if performance_metrics and not performance_metrics.error %}
+        <h2 class="section-header">Performance Metrics</h2>
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="metric-card">
+                    <h5><i class="fa fa-database"></i> Database</h5>
+                    <p><strong>Tables:</strong> {{ performance_metrics.database.total_tables }}</p>
+                    <p><strong>Error Logs:</strong> {{ performance_metrics.database.error_logs_size }}</p>
+                    <p><strong>Recent Query Issues:</strong> {{ performance_metrics.database.recent_queries }}</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="metric-card">
+                    <h5><i class="fa fa-users"></i> System</h5>
+                    <p><strong>Active Users:</strong> {{ performance_metrics.system.active_users }}</p>
+                    <p><strong>Background Jobs:</strong> {{ performance_metrics.system.background_jobs }}</p>
+                    <p><strong>Cache Status:</strong> {{ performance_metrics.system.cache_status }}</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="metric-card">
+                    <h5><i class="fa fa-line-chart"></i> Business</h5>
+                    <p><strong>Daily Transactions:</strong> {{ performance_metrics.business.daily_transactions }}</p>
+                    <p><strong>Payment Success Rate:</strong> {{ performance_metrics.business.payment_success_rate }}%</p>
+                    <p><strong>Member Growth Today:</strong> {{ performance_metrics.business.member_growth.today }}</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="auto-refresh-status" id="refresh-status">
+    Auto-refresh: ON (5 min)
+</div>
+
+<script>
+let autoRefreshInterval;
+let refreshEnabled = true;
+
+function refreshDashboard() {
+    const btn = document.querySelector('.refresh-button');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa fa-spin fa-spinner"></i> Refreshing...';
+    btn.disabled = true;
+
+    frappe.call({
+        method: 'verenigingen.www.monitoring_dashboard.refresh_dashboard_data',
+        callback: function(r) {
+            if (r.message && !r.message.error) {
+                updateDashboardData(r.message);
+                showNotification('Dashboard refreshed successfully', 'success');
+            } else {
+                showNotification('Failed to refresh dashboard: ' + (r.message?.error || 'Unknown error'), 'error');
+            }
+        },
+        always: function() {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    });
+}
+
+function updateDashboardData(data) {
+    // Update system metrics
+    if (data.system_metrics && !data.system_metrics.error) {
+        updateSystemMetrics(data.system_metrics);
+    }
+
+    // Update timestamp
+    document.getElementById('refresh-status').innerHTML =
+        `Last updated: ${new Date().toLocaleTimeString()} - Auto-refresh: ${refreshEnabled ? 'ON' : 'OFF'} (5 min)`;
+}
+
+function updateSystemMetrics(metrics) {
+    // Update the metrics display (simplified version)
+    // In a full implementation, you'd update each metric individually
+    console.log('Updated metrics:', metrics);
+}
+
+function acknowledgeAlert(alertName) {
+    frappe.call({
+        method: 'verenigingen.doctype.system_alert.system_alert.acknowledge_alert',
+        args: { alert_name: alertName },
+        callback: function(r) {
+            if (r.message && r.message.status === 'success') {
+                showNotification('Alert acknowledged', 'success');
+                refreshDashboard();
+            } else {
+                showNotification('Failed to acknowledge alert', 'error');
+            }
+        }
+    });
+}
+
+function resolveAlert(alertName) {
+    frappe.call({
+        method: 'verenigingen.doctype.system_alert.system_alert.resolve_alert',
+        args: { alert_name: alertName },
+        callback: function(r) {
+            if (r.message && r.message.status === 'success') {
+                showNotification('Alert resolved', 'success');
+                refreshDashboard();
+            } else {
+                showNotification('Failed to resolve alert', 'error');
+            }
+        }
+    });
+}
+
+function showNotification(message, type) {
+    const alertClass = type === 'success' ? 'alert-success' : 'alert-danger';
+    const notification = document.createElement('div');
+    notification.className = `alert ${alertClass} alert-dismissible fade show`;
+    notification.style.position = 'fixed';
+    notification.style.top = '20px';
+    notification.style.left = '50%';
+    notification.style.transform = 'translateX(-50%)';
+    notification.style.zIndex = '9999';
+    notification.innerHTML = `
+        ${message}
+        <button type="button" class="close" data-dismiss="alert">
+            <span>&times;</span>
+        </button>
+    `;
+
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        notification.remove();
+    }, 5000);
+}
+
+function toggleAutoRefresh() {
+    refreshEnabled = !refreshEnabled;
+
+    if (refreshEnabled) {
+        startAutoRefresh();
+    } else {
+        clearInterval(autoRefreshInterval);
+    }
+
+    document.getElementById('refresh-status').innerHTML =
+        `Auto-refresh: ${refreshEnabled ? 'ON' : 'OFF'} (5 min)`;
+}
+
+function startAutoRefresh() {
+    autoRefreshInterval = setInterval(function() {
+        if (refreshEnabled) {
+            refreshDashboard();
+        }
+    }, 300000); // 5 minutes
+}
+
+// Initialize auto-refresh
+document.addEventListener('DOMContentLoaded', function() {
+    startAutoRefresh();
+
+    // Add click handler for refresh status
+    document.getElementById('refresh-status').addEventListener('click', toggleAutoRefresh);
+    document.getElementById('refresh-status').style.cursor = 'pointer';
+    document.getElementById('refresh-status').title = 'Click to toggle auto-refresh';
+});
+
+// Test monitoring system
+function testMonitoringSystem() {
+    frappe.call({
+        method: 'verenigingen.www.monitoring_dashboard.test_monitoring_system',
+        callback: function(r) {
+            if (r.message && r.message.status === 'success') {
+                showNotification('Test alert created successfully', 'success');
+                setTimeout(refreshDashboard, 1000);
+            } else {
+                showNotification('Failed to create test alert: ' + (r.message?.message || 'Unknown error'), 'error');
+            }
+        }
+    });
+}
+
+// Add test button to dashboard (optional)
+document.addEventListener('DOMContentLoaded', function() {
+    const testBtn = document.createElement('button');
+    testBtn.className = 'btn btn-secondary btn-sm';
+    testBtn.style.position = 'fixed';
+    testBtn.style.top = '70px';
+    testBtn.style.right = '20px';
+    testBtn.innerHTML = '<i class="fa fa-test"></i> Test System';
+    testBtn.onclick = testMonitoringSystem;
+    document.body.appendChild(testBtn);
+});
+</script>
+{% endblock %}

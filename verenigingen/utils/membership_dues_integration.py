@@ -80,14 +80,14 @@ def create_dues_schedule_from_application(membership_application):
         # Payment already made during application
         # Just update the schedule to reflect prepayment
         dues_schedule.last_invoice_date = today()
-        dues_schedule.next_invoice_date = calculate_next_billing_date(today(), billing_frequency)
+        dues_schedule.next_invoice_date = calculate_next_invoice_date(today(), billing_frequency)
         dues_schedule.notes = f"Initial payment made during application: {membership_application.payment_id}"
         dues_schedule.save()
 
     return dues_schedule.name, None
 
 
-def calculate_next_billing_date(from_date, billing_frequency):
+def calculate_next_invoice_date(from_date, billing_frequency):
     """Calculate next billing date based on frequency"""
     from_date = getdate(from_date)
 

@@ -17,6 +17,8 @@ class PaymentMixin:
         # Use flags to reduce activity logging for bulk payment history updates
         self.flags.ignore_version = True
         self.flags.ignore_links = True
+        # Allow updates after submit for payment history refresh
+        self.flags.ignore_validate_update_after_submit = True
         self.save(ignore_permissions=True)
         return True
 

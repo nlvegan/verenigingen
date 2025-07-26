@@ -83,8 +83,8 @@
                         <div class="space-y-2">
                             <p><span class="font-medium">{{ _("Amount") }}:</span> {{ frappe.format_value(payment_status.current_fee, {"fieldtype": "Currency"}) }} {{ _(payment_status.billing_frequency.lower()) }}</p>
                             <p><span class="font-medium">{{ _("Billing") }}:</span> {{ _(payment_status.billing_frequency) }}</p>
-                            {% if payment_status.next_billing_date %}
-                            <p><span class="font-medium">{{ _("Next Payment") }}:</span> {{ frappe.utils.formatdate(payment_status.next_billing_date) }}</p>
+                            {% if payment_status.next_invoice_date %}
+                            <p><span class="font-medium">{{ _("Next Payment") }}:</span> {{ frappe.utils.formatdate(payment_status.next_invoice_date) }}</p>
                             {% endif %}
                         </div>
                     </div>

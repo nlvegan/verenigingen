@@ -249,7 +249,7 @@ def debug_dues_schedule_dates(member_name):
         # Calculate expected next date
         expected_next_date = None
         if last_actual_invoice_date:
-            expected_next_date = schedule.calculate_next_billing_date(last_actual_invoice_date)
+            expected_next_date = schedule.calculate_next_invoice_date(last_actual_invoice_date)
 
         return {
             "member_name": member_name,

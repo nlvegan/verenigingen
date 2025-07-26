@@ -3,6 +3,25 @@ Debug member membership status and Create Membership button logic
 """
 
 import frappe
+from frappe.utils import getdate, today
+
+
+def get_member_next_invoice_date(member_name):
+    """Get the next invoice date from the member's current dues schedule"""
+    try:
+        # Get member's current dues schedule
+        member = frappe.get_doc("Member", member_name)
+        if hasattr(member, "current_dues_schedule") and member.current_dues_schedule:
+            schedule_doc = frappe.get_doc("Membership Dues Schedule", member.current_dues_schedule)
+            return str(schedule_doc.next_invoice_date) if schedule_doc.next_invoice_date else None
+
+        # Fallback to member's next_invoice_date field
+        if hasattr(member, "next_invoice_date"):
+            return str(member.next_invoice_date) if member.next_invoice_date else None
+
+        return None
+    except Exception:
+        return None
 
 
 @frappe.whitelist()
@@ -468,7 +487,6 @@ def debug_member_billing_issues(member_name):
                 "creation",
                 "modified",
                 "docstatus",
-                "next_billing_date",
                 "renewal_date",
             ],
             order_by="creation desc",
@@ -651,7 +669,6 @@ def debug_specific_member_sinv_issue():
                 "creation",
                 "modified",
                 "docstatus",
-                "next_billing_date",
             ],
             order_by="creation desc",
         )
@@ -678,9 +695,7 @@ def debug_specific_member_sinv_issue():
                 "cancellation_date": str(membership.cancellation_date)
                 if membership.cancellation_date
                 else None,
-                "next_billing_date": str(membership.next_billing_date)
-                if membership.next_billing_date
-                else None,
+                "next_invoice_date": get_member_next_invoice_date(member_name),
                 "status": membership.status,
                 "docstatus": membership.docstatus,
                 "created": str(membership.creation),

@@ -299,8 +299,8 @@ class TestAuditLogging(VereningingenTestCase):
             
             # Check if stored in database
             audit_log = frappe.get_doc("SEPA Audit Log", event_id)
-            self.assertEqual(audit_log.event_type, AuditEventType.SEPA_BATCH_VALIDATED.value)
-            self.assertEqual(audit_log.severity, "warning")
+            self.assertEqual(audit_log.process_type, AuditEventType.SEPA_BATCH_VALIDATED.value)
+            self.assertEqual(audit_log.compliance_status, "warning")
             self.assertEqual(audit_log.user, "test@example.com")
     
     def test_audit_log_search(self):

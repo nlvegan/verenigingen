@@ -1,7 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
- "autoname": "field:event_id",
+ "autoname": "hash",
  "creation": "2025-07-25 10:00:00.000000",
  "doctype": "DocType",
  "document_type": "System",
@@ -9,15 +9,15 @@
  "field_order": [
   "event_id",
   "timestamp",
-  "event_type",
-  "severity",
+  "process_type",
+  "action",
   "column_break_5",
-  "user",
-  "ip_address",
-  "session_id",
-  "user_agent",
+  "compliance_status",
+  "reference_doctype",
+  "reference_name",
   "section_break_10",
-  "referer",
+  "user",
+  "trace_id",
   "details",
   "sensitive_data"
  ],
@@ -27,7 +27,6 @@
    "fieldtype": "Data",
    "label": "Event ID",
    "read_only": 1,
-   "reqd": 1,
    "unique": 1
   },
   {
@@ -38,23 +37,49 @@
    "reqd": 1
   },
   {
-   "fieldname": "event_type",
-   "fieldtype": "Data",
-   "label": "Event Type",
+   "fieldname": "process_type",
+   "fieldtype": "Select",
+   "label": "Process Type",
+   "options": "Mandate Creation\nBatch Generation\nBank Submission\nPayment Processing",
    "read_only": 1,
    "reqd": 1
   },
   {
-   "fieldname": "severity",
-   "fieldtype": "Select",
-   "label": "Severity",
-   "options": "info\nwarning\nerror\ncritical",
+   "fieldname": "action",
+   "fieldtype": "Data",
+   "label": "Action",
    "read_only": 1,
    "reqd": 1
   },
   {
    "fieldname": "column_break_5",
    "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "compliance_status",
+   "fieldtype": "Select",
+   "label": "Compliance Status",
+   "options": "Compliant\nException\nFailed\nPending Review",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference DocType",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "label": "Reference Name",
+   "options": "reference_doctype",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_10",
+   "fieldtype": "Section Break"
   },
   {
    "fieldname": "user",
@@ -64,31 +89,9 @@
    "read_only": 1
   },
   {
-   "fieldname": "ip_address",
+   "fieldname": "trace_id",
    "fieldtype": "Data",
-   "label": "IP Address",
-   "read_only": 1
-  },
-  {
-   "fieldname": "session_id",
-   "fieldtype": "Data",
-   "label": "Session ID",
-   "read_only": 1
-  },
-  {
-   "fieldname": "user_agent",
-   "fieldtype": "Text",
-   "label": "User Agent",
-   "read_only": 1
-  },
-  {
-   "fieldname": "section_break_10",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "referer",
-   "fieldtype": "Text",
-   "label": "Referer",
+   "label": "Trace ID",
    "read_only": 1
   },
   {

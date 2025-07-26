@@ -28,6 +28,7 @@
   "income_percentage_rate",
   "calculator_description",
   "maximum_fee_multiplier",
+  "max_reasonable_dues_rate",
   "financial_section",
   "company_iban",
   "company_account_holder",
@@ -536,6 +537,13 @@
    "fieldname": "maximum_fee_multiplier",
    "fieldtype": "Int",
    "label": "Maximum Fee Multiplier"
+  },
+  {
+   "default": "10000",
+   "description": "Maximum reasonable dues rate to prevent obviously incorrect entries (e.g., €10,000 per year)",
+   "fieldname": "max_reasonable_dues_rate",
+   "fieldtype": "Currency",
+   "label": "Maximum Reasonable Dues Rate"
   },
   {
    "default": "30",

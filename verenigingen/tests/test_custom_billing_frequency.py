@@ -28,7 +28,7 @@ class TestCustomBillingFrequency(VereningingenTestCase):
         start_date = getdate("2025-01-01")
         
         # Test daily calculation
-        next_date = schedule.calculate_next_billing_date(start_date)
+        next_date = schedule.calculate_next_invoice_date(start_date)
         expected_date = add_days(start_date, 1)
         
         self.assertEqual(next_date, expected_date)
@@ -51,7 +51,7 @@ class TestCustomBillingFrequency(VereningingenTestCase):
         start_date = getdate("2025-01-01")
         
         # Test custom weeks calculation (2 weeks = 14 days)
-        next_date = schedule.calculate_next_billing_date(start_date)
+        next_date = schedule.calculate_next_invoice_date(start_date)
         expected_date = add_days(start_date, 14)
         
         self.assertEqual(next_date, expected_date)
@@ -74,7 +74,7 @@ class TestCustomBillingFrequency(VereningingenTestCase):
         start_date = getdate("2025-01-01")
         
         # Test custom months calculation (3 months)
-        next_date = schedule.calculate_next_billing_date(start_date)
+        next_date = schedule.calculate_next_invoice_date(start_date)
         expected_date = add_months(start_date, 3)
         
         self.assertEqual(next_date, expected_date)
@@ -166,7 +166,7 @@ class TestCustomBillingFrequency(VereningingenTestCase):
             schedule = frappe.new_doc("Membership Dues Schedule")
             schedule.billing_frequency = frequency
             
-            next_date = schedule.calculate_next_billing_date(start_date)
+            next_date = schedule.calculate_next_invoice_date(start_date)
             expected_date = func(start_date, amount)
             
             self.assertEqual(next_date, expected_date)

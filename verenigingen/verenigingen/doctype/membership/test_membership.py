@@ -326,15 +326,18 @@ class TestMembership(FrappeTestCase):
         # Verify dues schedule exists
         self.assertTrue(membership.dues_schedule)
 
-        # Manually set next billing date using db_set to bypass validation
-        next_billing_date = add_months(today(), 1)
-        membership.db_set("next_billing_date", next_billing_date)
+        # Test dues schedule next invoice date (replacement for next_billing_date)
+        next_invoice_date = add_months(today(), 1)
+
+        # Get the dues schedule associated with this membership
+        dues_schedule = frappe.get_doc("Membership Dues Schedule", membership.dues_schedule)
+        dues_schedule.db_set("next_invoice_date", next_invoice_date)
 
         # Reload the document
-        membership.reload()
+        dues_schedule.reload()
 
-        # Verify next_billing_date was set
-        self.assertEqual(getdate(membership.next_billing_date), getdate(next_billing_date))
+        # Verify next_invoice_date was set
+        self.assertEqual(getdate(dues_schedule.next_invoice_date), getdate(next_invoice_date))
 
     def test_multiple_membership_validation(self):
         """Test validation preventing multiple active memberships"""
