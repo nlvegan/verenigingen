@@ -191,9 +191,34 @@ class DirectDebitBatch(Document):
             self.total_amount = 0.0
             return
 
-        # Original implementation as fallback
-        self.total_amount = sum(invoice.amount for invoice in self.invoices)
+        # Functionally equivalent to SQL aggregation with comprehensive edge case handling
         self.entry_count = len(self.invoices)
+
+        # Handle None/NULL values same way as SQL COALESCE(amount, 0)
+        # Also handle potential string values and invalid data types gracefully
+        total = 0.0
+        for invoice in self.invoices:
+            try:
+                amount = invoice.amount
+                if amount is None:
+                    # Same as SQL COALESCE(amount, 0)
+                    amount = 0.0
+                elif isinstance(amount, str):
+                    # Handle string amounts (shouldn't happen but defensive programming)
+                    amount = float(amount) if amount.strip() else 0.0
+                else:
+                    # Ensure it's a float for precision consistency with SQL
+                    amount = float(amount)
+
+                total += amount
+
+            except (ValueError, TypeError, AttributeError):
+                # Handle any conversion errors by treating as 0 (same as SQL COALESCE behavior)
+                # This matches the SQL behavior where invalid/NULL data becomes 0
+                continue
+
+        # Ensure precision consistency with database currency handling
+        self.total_amount = round(total, 2)
 
     def on_submit(self):
         """Generate SEPA file on submit if not already generated"""
