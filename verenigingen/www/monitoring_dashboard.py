@@ -171,7 +171,7 @@ def get_active_alerts():
         return frappe.get_all(
             "System Alert",
             filters={"status": ["in", ["Active", "Acknowledged"]]},
-            fields=["name", "alert_type", "compliance_status", "message", "status", "timestamp"],
+            fields=["name", "alert_type", "severity", "message", "status", "timestamp"],
             order_by="timestamp DESC",
             limit=20,
         )

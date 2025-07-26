@@ -21,7 +21,7 @@ def install_onboarding():
     if frappe.db.exists("Module Onboarding", "Verenigingen"):
         print("Module Onboarding 'Verenigingen' already exists")
         # Delete and recreate
-        frappe.delete_doc("Module Onboarding", "Verenigingen")
+        frappe.delete("Module Onboarding", "Verenigingen")
         frappe.db.commit()
 
     # Create the document

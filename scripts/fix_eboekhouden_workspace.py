@@ -29,7 +29,7 @@ def install_eboekhouden_workspace():
         if frappe.db.exists("Workspace", workspace_name):
             print(f"⚠️  Workspace '{workspace_name}' already exists, updating...")
             # Delete existing to recreate with latest version
-            frappe.delete_doc("Workspace", workspace_name, force=True)
+            frappe.delete("Workspace", workspace_name, force=True)
         
         # Create new workspace
         workspace_doc = frappe.get_doc(workspace_data)

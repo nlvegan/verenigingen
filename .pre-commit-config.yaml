@@ -59,7 +59,7 @@ repos:
     hooks:
       - id: run-quick-tests
         name: Run quick validation tests
-        entry: bash -c 'cd /home/frappe/frappe-bench && bench --site dev.veganisme.net execute verenigingen.tests.utils.quick_validation.run_quick_tests || echo "Tests failed but continuing commit"'
+        entry: python scripts/testing/integration/simple_test.py
         language: system
         pass_filenames: false
         always_run: true
@@ -91,6 +91,15 @@ repos:
         files: '\.(py|html|js)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py)'
+
+      - id: fast-method-validator
+        name: Fast method call validation
+        entry: python scripts/validation/fast_method_validator.py
+        language: system
+        pass_filenames: false
+        files: '\.py$'
+        stages: [pre-commit]
+        exclude: '^(archived_unused/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
 
 
       - id: workspace-validator

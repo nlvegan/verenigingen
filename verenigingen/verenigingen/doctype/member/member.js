@@ -1186,16 +1186,16 @@ function refresh_dues_schedule_history(frm) {
 			if (r.message && r.message.success) {
 				frm.refresh_field('fee_change_history');
 
-				// Also refresh payment history
+				// Also refresh financial history using modern atomic method
 				frm.call({
-					method: 'load_payment_history',
+					method: 'refresh_financial_history',
 					doc: frm.doc,
 					callback: function(payment_r) {
 						frm.refresh_field('payment_history');
 
 						let message = `Dues schedule history refreshed: ${r.message.history_count} entries from ${r.message.dues_schedules_found} schedules`;
-						if (payment_r.message) {
-							message += '. Payment history also refreshed.';
+						if (payment_r.message && payment_r.message.success) {
+							message += `. Financial history refreshed: ${payment_r.message.payment_history_count || 0} payment entries.`;
 						}
 
 						frappe.show_alert({

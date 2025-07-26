@@ -263,10 +263,10 @@ class SEPAConflictDetector:
             batch_date_obj = getdate(batch_date)
 
             for schedule in schedule_conflicts:
-                if not schedule.next_due_date:
+                if not schedule.next_invoice_date:
                     continue
 
-                next_due = getdate(schedule.next_due_date)
+                next_due = getdate(schedule.next_invoice_date)
                 days_diff = (batch_date_obj - next_due).days
 
                 # Check for schedule timing conflicts
@@ -275,13 +275,13 @@ class SEPAConflictDetector:
                         ConflictResult(
                             severity=ConflictSeverity.WARNING,
                             conflict_type="early_collection",
-                            message=f"Invoice {schedule.invoice} scheduled for collection too early (next due: {schedule.next_due_date})",
+                            message=f"Invoice {schedule.invoice} scheduled for collection too early (next due: {schedule.next_invoice_date})",
                             affected_resources=[schedule.invoice, schedule.member],
                             suggested_action="Consider adjusting batch date or removing invoice",
                             details={
                                 "invoice": schedule.invoice,
                                 "member": schedule.member_name,
-                                "next_due_date": str(schedule.next_due_date),
+                                "next_invoice_date": str(schedule.next_invoice_date),
                                 "batch_date": batch_date,
                                 "days_early": abs(days_diff),
                             },
@@ -298,7 +298,7 @@ class SEPAConflictDetector:
                             details={
                                 "invoice": schedule.invoice,
                                 "member": schedule.member_name,
-                                "next_due_date": str(schedule.next_due_date),
+                                "next_invoice_date": str(schedule.next_invoice_date),
                                 "batch_date": batch_date,
                                 "days_overdue": days_diff,
                             },
@@ -511,12 +511,11 @@ class SEPAConflictDetector:
                 SELECT
                     mandate_id,
                     status,
-                    valid_from,
-                    valid_until,
+                    first_collection_date,
+                    expiry_date,
                     member,
                     iban,
-                    sign_date,
-                    usage_count
+                    sign_date
                 FROM `tabSEPA Mandate`
                 WHERE mandate_id IN %(mandates)s
             """,
@@ -556,17 +555,17 @@ class SEPAConflictDetector:
                     )
 
                 # Check mandate expiry
-                if mandate.valid_until and getdate(mandate.valid_until) < getdate(today()):
+                if mandate.expiry_date and getdate(mandate.expiry_date) < getdate(today()):
                     conflicts.append(
                         ConflictResult(
                             severity=ConflictSeverity.CRITICAL,
                             conflict_type="expired_mandate",
-                            message=f"Mandate {mandate_ref} has expired (valid until: {mandate.valid_until})",
+                            message=f"Mandate {mandate_ref} has expired (valid until: {mandate.expiry_date})",
                             affected_resources=[inv.get("invoice") for inv in invoices],
                             suggested_action="Renew mandate before processing",
                             details={
                                 "mandate_reference": mandate_ref,
-                                "valid_until": str(mandate.valid_until),
+                                "expiry_date": str(mandate.expiry_date),
                             },
                         )
                     )

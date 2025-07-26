@@ -109,7 +109,7 @@ def _update_member_payment_history_with_lock(member_name):
 
 def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
     """
-    Handle invoice submission - update member payment history incrementally.
+    Handle invoice submission - update member payment history.
 
     This is called by the event system when a Sales Invoice is submitted.
     """
@@ -122,12 +122,12 @@ def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
     if not customer or not invoice:
         return
 
-    # Find members for this customer and update their payment history incrementally
+    # Find members for this customer and update their payment history
     members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
 
     for member in members:
         try:
-            # Use new incremental update method
+            # Use atomic add method instead of full rebuild
             member_doc = frappe.get_doc("Member", member.name)
             member_doc.add_invoice_to_payment_history(invoice)
 
@@ -136,7 +136,7 @@ def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
             )
         except Exception as e:
             frappe.log_error(
-                f"Failed to add invoice {invoice} to payment history for member {member.name}: {str(e)}",
+                f"Failed to update payment history for member {member.name} after invoice {invoice}: {str(e)}",
                 "Invoice Payment History Update Error",
             )
 
@@ -157,7 +157,7 @@ def handle_invoice_cancelled(event_name=None, event_data=None, **kwargs):
 
     for member in members:
         try:
-            # Use new incremental removal method
+            # Use atomic removal method
             member_doc = frappe.get_doc("Member", member.name)
             member_doc.remove_invoice_from_payment_history(invoice)
 
@@ -187,7 +187,7 @@ def handle_invoice_updated(event_name=None, event_data=None, **kwargs):
 
     for member in members:
         try:
-            # Use new incremental update method
+            # Use atomic update method
             member_doc = frappe.get_doc("Member", member.name)
             member_doc.update_invoice_in_payment_history(invoice)
 

@@ -388,13 +388,13 @@ def cleanup_test_data():
     # Clean up test alerts
     test_alerts = frappe.get_all("System Alert", filters={"source": ["like", "%test%"]}, pluck="name")
     for alert in test_alerts:
-        frappe.delete_doc("System Alert", alert, force=True)
+        frappe.delete("System Alert", alert, force=True)
     print(f"  Cleaned {len(test_alerts)} test alerts")
 
     # Clean up test audit logs
     test_audits = frappe.get_all("SEPA Audit Log", filters={"entity_name": ["like", "%TEST%"]}, pluck="name")
     for audit in test_audits:
-        frappe.delete_doc("SEPA Audit Log", audit, force=True)
+        frappe.delete("SEPA Audit Log", audit, force=True)
     print(f"  Cleaned {len(test_audits)} test audit logs")
 
     frappe.db.commit()

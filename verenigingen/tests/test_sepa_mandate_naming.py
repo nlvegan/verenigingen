@@ -62,8 +62,8 @@ class TestSEPAMandateNaming(VereningingenTestCase):
         mandate.sign_date = today()
         mandate.member = self.test_member.name
         
-        # Validate should trigger auto-generation
-        mandate.validate()
+        # Save should trigger auto-generation via validate
+        mandate.save()
         
         self.assertTrue(mandate.mandate_id, "mandate_id should be auto-generated")
         self.assertTrue(mandate.mandate_id.startswith("MANDATE-"), 
@@ -91,7 +91,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             mandate.sign_date = today()
             mandate.member = self.test_member.name
             
-            mandate.validate()
+            mandate.save()
             
             self.assertTrue(mandate.mandate_id.startswith("CUSTOM-"), 
                            f"mandate_id '{mandate.mandate_id}' should start with 'CUSTOM-'")
@@ -130,7 +130,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             mandate1.sign_date = today()
             mandate1.member = self.test_member.name
             
-            mandate1.validate()
+            mandate1.save()
             
             # Should start with configured counter
             self.assertIn("2500", mandate1.mandate_id, 
@@ -151,7 +151,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             mandate2.sign_date = today()
             mandate2.member = test_member2.name
             
-            mandate2.validate()
+            mandate2.save()
             
             # Should increment from first mandate
             self.assertIn("2501", mandate2.mandate_id, 
@@ -178,7 +178,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
         mandate.sign_date = today()
         mandate.member = self.test_member.name
         
-        mandate.validate()
+        mandate.save()
         
         # Should preserve manual ID
         self.assertEqual(mandate.mandate_id, manual_id, 
@@ -204,7 +204,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             mandate.sign_date = today()
             mandate.member = self.test_member.name
             
-            mandate.validate()
+            mandate.save()
             
             # Check that date tokens were replaced
             from frappe.utils import now_datetime
@@ -245,7 +245,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             mandate1.iban = generate_test_iban("TEST")
             mandate1.sign_date = today()
             mandate1.member = self.test_member.name
-            mandate1.validate()
+            mandate1.save()
             
             self.track_doc("SEPA Mandate", mandate1.name)
             
@@ -261,7 +261,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             mandate2.iban = generate_test_iban("DEMO")
             mandate2.sign_date = today() 
             mandate2.member = test_member2.name
-            mandate2.validate()
+            mandate2.save()
             
             # Should have different mandate_ids
             self.assertNotEqual(mandate1.mandate_id, mandate2.mandate_id,
@@ -291,7 +291,7 @@ class TestSEPAMandateNaming(VereningingenTestCase):
             mandate.sign_date = today()
             mandate.member = self.test_member.name
             
-            mandate.validate()
+            mandate.save()
             
             # Should still get a mandate_id (from fallback)
             self.assertTrue(mandate.mandate_id, "Should get mandate_id from fallback mechanism")
