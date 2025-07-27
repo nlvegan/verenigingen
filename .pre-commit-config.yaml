@@ -61,7 +61,8 @@ repos:
     hooks:
       - id: bandit
         name: 🔍 Security Linting (Bandit)
-        args: ['-r', 'verenigingen/', '--skip', 'B101,B601']
+        args: ['-r', 'verenigingen/', '--skip', 'B101,B601', '--exclude', 'archived_removal,archived_unused']
+        pass_filenames: false
         exclude: '^(tests/|scripts/testing/)'
 
   - repo: local
@@ -129,7 +130,7 @@ repos:
         pass_filenames: false
         files: '\.py$'
         stages: [pre-commit]
-        exclude: '^(archived_unused/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
+        exclude: '^(archived_unused/|archived_removal/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
 
       - id: workspace-validator
         name: Validate workspace integrity

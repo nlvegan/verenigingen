@@ -403,7 +403,7 @@
         <div class="financial-card">
             <div class="financial-metric">
                 <div>
-                    <div class="metric-label">{{ _("Next Payment") }}</div>
+                    <div class="metric-label">{{ _("Next Payment Request") }}</div>
                     <div class="metric-value">
                         {% if next_payment %}
                             {{ frappe.format_value(next_payment.amount, {"fieldtype": "Currency"}) }}

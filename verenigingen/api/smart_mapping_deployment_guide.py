@@ -1,6 +1,10 @@
 import frappe
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
+
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def smart_mapping_deployment_summary():
     """Final summary of smart tegenrekening mapping deployment"""
@@ -76,6 +80,7 @@ def smart_mapping_deployment_summary():
         return f"Error: {e}\n{frappe.get_traceback()}"
 
 
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_migration_readiness():
     """Test if the system is ready for migration with smart mapping"""

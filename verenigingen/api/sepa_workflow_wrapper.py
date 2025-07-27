@@ -24,12 +24,16 @@ from verenigingen.api.sepa_reconciliation import (
     process_sepa_return_file,
     process_sepa_transaction_conservative,
 )
+
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
 from verenigingen.utils.security.rate_limiting import rate_limit
 
 
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 @rate_limit(calls=30, period=60)  # 30 calls per minute
 @require_role(["Accounts Manager", "System Manager"])
@@ -74,6 +78,7 @@ def execute_complete_reconciliation(workflow_data: dict) -> dict:
     return execute_idempotent_operation(workflow_key, execute_workflow)
 
 
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 @rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["Accounts Manager", "System Manager"])
@@ -138,6 +143,7 @@ def process_complete_return_file(return_file_content: str, file_name: str = "") 
         return {"success": False, "error": str(e)}
 
 
+@high_security_api(operation_type=OperationType.AUDIT)
 @frappe.whitelist()
 @rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
 @require_role(["Accounts Manager", "System Manager"])
@@ -241,6 +247,7 @@ def run_comprehensive_sepa_audit() -> dict:
     return audit_results
 
 
+@high_security_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 @rate_limit(calls=10, period=60)  # 10 calls per minute
 @require_role(["Accounts Manager", "System Manager"])

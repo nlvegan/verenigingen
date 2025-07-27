@@ -4,7 +4,11 @@ Simple test to check mutation IDs returned by API
 
 import frappe
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
+
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def test_mutation_1363_date():
     """Check what date mutation 1363 has"""
@@ -41,6 +45,7 @@ def test_mutation_1363_date():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def test_early_mutations_in_api():
     """Test if early mutations (17-100) are returned by the API"""
@@ -74,6 +79,7 @@ def test_early_mutations_in_api():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def test_opening_balances_exist():
     """Test if type 0 (opening balances) mutations exist in the API"""
@@ -111,6 +117,7 @@ def test_opening_balances_exist():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def test_iterator_all_mutations():
     """Test how many mutations the iterator fetches by default"""
@@ -145,6 +152,7 @@ def test_iterator_all_mutations():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def check_api_mutation_order():
     """Check what mutation IDs the API returns and in what order"""

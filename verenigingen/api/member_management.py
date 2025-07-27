@@ -1128,6 +1128,130 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+def debug_payment_history_refresh_simple(member_id="Assoc-Member-2025-07-0030"):
+    """Debug payment history refresh issue for specific member"""
+
+    results = {
+        "member_found": False,
+        "member_data": {},
+        "payment_history": [],
+        "dues_schedules": [],
+        "customer_data": {},
+        "invoices": [],
+        "refresh_test": {},
+        "errors": [],
+    }
+
+    try:
+        # 1. Find the member record
+        member = frappe.get_doc("Member", member_id)
+        results["member_found"] = True
+        results["member_data"] = {
+            "name": member.name,
+            "first_name": member.first_name,
+            "last_name": member.last_name,
+            "email_address": getattr(member, "email_address", None),
+            "status": member.status,
+            "customer": getattr(member, "customer", None),
+            "creation": str(member.creation),
+            "modified": str(member.modified),
+        }
+
+        # 2. Get payment history entries from member's child table
+        if hasattr(member, "payment_history") and member.payment_history:
+            payment_history = []
+            for row in member.payment_history:
+                payment_history.append(
+                    {
+                        "invoice": row.invoice,
+                        "amount": row.amount,
+                        "payment_date": getattr(row, "payment_date", None),
+                        "status": getattr(row, "status", None),
+                        "payment_status": getattr(row, "payment_status", None),
+                        "posting_date": getattr(row, "posting_date", None),
+                    }
+                )
+            results["payment_history"] = payment_history
+        else:
+            results["payment_history"] = []
+
+        # 3. Get dues schedules
+        dues_schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={"member": member_id},
+            fields=["name", "billing_frequency", "dues_rate", "status", "creation", "modified"],
+            order_by="creation desc",
+        )
+        results["dues_schedules"] = dues_schedules
+
+        # 4. Get customer record if exists
+        if hasattr(member, "customer") and member.customer:
+            try:
+                customer = frappe.get_doc("Customer", member.customer)
+                results["customer_data"] = {
+                    "name": customer.name,
+                    "customer_name": customer.customer_name,
+                    "customer_type": customer.customer_type,
+                    "creation": str(customer.creation),
+                    "modified": str(customer.modified),
+                }
+
+                # 5. Get associated invoices
+                invoices = frappe.get_all(
+                    "Sales Invoice",
+                    filters={"customer": member.customer},
+                    fields=["name", "total", "outstanding_amount", "status", "posting_date", "creation"],
+                    order_by="posting_date desc",
+                )
+                results["invoices"] = invoices
+
+            except Exception as e:
+                results["errors"].append(f"Error getting customer data: {str(e)}")
+
+        # 6. Test refresh functionality
+        try:
+            # Count payment history entries before refresh
+            before_count = (
+                len(member.payment_history)
+                if hasattr(member, "payment_history") and member.payment_history
+                else 0
+            )
+            results["refresh_test"]["before_count"] = before_count
+            results["refresh_test"]["before_payment_history"] = [
+                row.invoice for row in (member.payment_history or [])
+            ]
+
+            # Try to find and execute refresh function
+            member_doc = frappe.get_doc("Member", member_id)
+            refresh_result = member_doc.refresh_financial_history()
+            results["refresh_test"]["refresh_result"] = refresh_result
+            results["refresh_test"]["refresh_attempted"] = True
+
+            # Get updated member record and count payment history entries after refresh
+            updated_member = frappe.get_doc("Member", member_id)
+            after_count = (
+                len(updated_member.payment_history)
+                if hasattr(updated_member, "payment_history") and updated_member.payment_history
+                else 0
+            )
+            results["refresh_test"]["after_count"] = after_count
+            results["refresh_test"]["after_payment_history"] = [
+                row.invoice for row in (updated_member.payment_history or [])
+            ]
+            results["refresh_test"]["count_changed"] = after_count != before_count
+
+        except Exception as e:
+            results["refresh_test"]["error"] = str(e)
+            results["errors"].append(f"Error testing refresh: {str(e)}")
+
+    except frappe.DoesNotExistError:
+        results["errors"].append(f"Member {member_id} not found")
+    except Exception as e:
+        results["errors"].append(f"Error getting member data: {str(e)}")
+
+    return results
+
+
 @frappe.whitelist()
 @critical_api(operation_type=OperationType.FINANCIAL)
 def import_mt940_improved(file_content, bank_account=None, company=None):

@@ -84,7 +84,7 @@
                             <p><span class="font-medium">{{ _("Amount") }}:</span> {{ frappe.format_value(payment_status.current_fee, {"fieldtype": "Currency"}) }} {{ _(payment_status.billing_frequency.lower()) }}</p>
                             <p><span class="font-medium">{{ _("Billing") }}:</span> {{ _(payment_status.billing_frequency) }}</p>
                             {% if payment_status.next_invoice_date %}
-                            <p><span class="font-medium">{{ _("Next Payment") }}:</span> {{ frappe.utils.formatdate(payment_status.next_invoice_date) }}</p>
+                            <p><span class="font-medium">{{ _("Next Payment Request") }}:</span> {{ frappe.utils.formatdate(payment_status.next_invoice_date) }}</p>
                             {% endif %}
                         </div>
                     </div>
@@ -108,12 +108,12 @@
 
                         {% if payment_status.outstanding_invoices %}
                         <div class="mt-4">
-                            <h5 class="font-medium text-gray-700 mb-2">{{ _("Outstanding Invoices") }}:</h5>
+                            <h5 class="font-medium text-gray-700 mb-2">{{ _("Unpaid dues") }}:</h5>
                             <div class="space-y-2">
                                 {% for invoice in payment_status.outstanding_invoices %}
                                 <div class="p-3 bg-gray-50 rounded-lg text-sm">
                                     <div class="flex justify-between items-center">
-                                        <span>{{ frappe.utils.formatdate(invoice.due_date) if invoice.due_date else _("No due date") }}</span>
+                                        <span>{{ invoice.coverage_period if invoice.coverage_period else (frappe.utils.formatdate(invoice.due_date) if invoice.due_date else _("No due date")) }}</span>
                                         <span class="font-medium">{{ frappe.format_value(invoice.outstanding, {"fieldtype": "Currency"}) }}</span>
                                     </div>
                                     {% if invoice.is_overdue %}

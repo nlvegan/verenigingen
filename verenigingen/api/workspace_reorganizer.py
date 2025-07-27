@@ -7,7 +7,11 @@ Reorganizes the Verenigingen workspace with proper logical categorization.
 
 import frappe
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
+
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def reorganize_workspace():
     """Reorganize workspace links into logical categories"""

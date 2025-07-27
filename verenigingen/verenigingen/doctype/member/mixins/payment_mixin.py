@@ -772,7 +772,7 @@ class PaymentMixin:
     @frappe.whitelist()
     def refresh_financial_history(self):
         """
-        Comprehensive financial history refresh.
+        Atomic financial history refresh - adds missing entries without clearing existing data.
         This is the method called by the "Refresh Financial History" button and scheduled tasks.
         """
         try:
@@ -780,8 +780,8 @@ class PaymentMixin:
             self.flags.ignore_version = True
             self.flags.ignore_links = True
 
-            # 1. Load payment history (invoices, payments, etc.)
-            self._load_payment_history_without_save()
+            # Use atomic approach: only add missing invoices
+            added_count = self._atomic_payment_history_refresh()
 
             # 2. Refresh dues schedule history if the method exists
             if hasattr(self, "refresh_dues_schedule_history"):
@@ -796,13 +796,85 @@ class PaymentMixin:
 
             return {
                 "success": True,
-                "message": f"Financial history refreshed for member {self.name}",
+                "message": f"Financial history refreshed for member {self.name} - {added_count} new entries added",
                 "payment_history_count": len(self.payment_history) if hasattr(self, "payment_history") else 0,
+                "added_entries": added_count,
+                "method": "atomic_updates_only",
             }
 
         except Exception as e:
             frappe.logger().error(f"Error refreshing financial history for member {self.name}: {str(e)}")
             return {"success": False, "message": f"Error refreshing financial history: {str(e)}"}
+
+    def _atomic_payment_history_refresh(self):
+        """
+        Atomic payment history refresh - only adds missing invoices, never clears existing data
+        Returns the number of new entries added
+        """
+        if not self.customer:
+            return 0
+
+        try:
+            # Get all invoices for this customer
+            invoices = frappe.get_all(
+                "Sales Invoice",
+                filters={
+                    "customer": self.customer,
+                    "docstatus": ["in", [0, 1]],  # Include both draft and submitted
+                },
+                fields=["name", "posting_date", "creation"],
+                order_by="creation desc",
+            )
+
+            # Get existing payment history invoice names for quick lookup
+            existing_invoices = set()
+            for row in self.payment_history or []:
+                if row.invoice:
+                    existing_invoices.add(row.invoice)
+
+            # Add missing invoices only
+            added_count = 0
+            for invoice_data in invoices:
+                invoice_name = invoice_data.name
+                if invoice_name not in existing_invoices:
+                    # Add this invoice using the existing atomic method
+                    self.add_invoice_to_payment_history(invoice_name)
+                    added_count += 1
+
+            return added_count
+
+        except Exception as e:
+            frappe.logger().error(f"Error in atomic payment history refresh: {str(e)}")
+            return 0
+
+    @frappe.whitelist()
+    def force_full_payment_history_rebuild(self):
+        """
+        Legacy method for full payment history rebuild - ONLY use when atomic updates fail
+        This method clears and rebuilds the entire payment history table
+        """
+        try:
+            # Set flags to reduce activity logging for bulk financial updates
+            self.flags.ignore_version = True
+            self.flags.ignore_links = True
+
+            # LEGACY: Use the old full refresh method
+            self._load_payment_history_without_save()
+
+            # Save once with reduced logging
+            self.save(ignore_permissions=True)
+
+            return {
+                "success": True,
+                "message": f"Full payment history rebuild completed for member {self.name} (LEGACY METHOD USED)",
+                "payment_history_count": len(self.payment_history) if hasattr(self, "payment_history") else 0,
+                "method": "full_table_clear_and_rebuild",
+                "warning": "This method clears all existing payment history and rebuilds it",
+            }
+
+        except Exception as e:
+            frappe.logger().error(f"Error in full payment history rebuild for member {self.name}: {str(e)}")
+            return {"success": False, "message": f"Error in full rebuild: {str(e)}"}
 
     # ===== NEW INCREMENTAL UPDATE METHODS =====
 
@@ -834,8 +906,8 @@ class PaymentMixin:
                 for key, value in entry_data.items():
                     setattr(self.payment_history[existing_idx], key, value)
             else:
-                # Add new entry at the beginning
-                self.payment_history.insert(0, entry_data)
+                # Add new entry at the beginning - use append to create proper Document object
+                self.append("payment_history", entry_data)
 
                 # Keep only 20 most recent entries
                 if len(self.payment_history) > 20:

@@ -6,7 +6,11 @@ API endpoint to validate SQL fixes
 import frappe
 from frappe import _
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
+
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_fixed_queries():
     """Test the SQL queries that were fixed"""

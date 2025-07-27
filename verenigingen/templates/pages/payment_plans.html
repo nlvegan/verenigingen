@@ -315,7 +315,7 @@ function renderPaymentPlan(plan) {
                 </div>
                 <div class="col-md-6">
                     <p><strong>Installment:</strong> €${plan.installment_amount.toFixed(2)} ${plan.frequency.toLowerCase()}</p>
-                    <p><strong>Next Payment:</strong> ${plan.next_payment_date ? formatDate(plan.next_payment_date) : 'N/A'}</p>
+                    <p><strong>Next Payment Request:</strong> ${plan.next_payment_date ? formatDate(plan.next_payment_date) : 'N/A'}</p>
                     ${plan.consecutive_missed_payments > 0 ?
                         `<p style="color: #d63031;"><strong>Missed Payments:</strong> ${plan.consecutive_missed_payments}</p>` : ''}
                 </div>

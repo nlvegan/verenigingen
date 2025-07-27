@@ -1,7 +1,11 @@
 import frappe
 from frappe.utils import getdate, today
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
+
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def fix_invalid_last_invoice_dates():
     """Fix schedules with last_invoice_date in the future"""

@@ -37,6 +37,7 @@ def setup_dues_fields():
                 "insert_after": "membership_dues_section",
                 "read_only": 0,
                 "allow_on_submit": 0,
+                "module": "Verenigingen",
             },
             {
                 "fieldname": "dues_schedule_column_break",
@@ -49,6 +50,7 @@ def setup_dues_fields():
                 "fieldtype": "Data",
                 "insert_after": "dues_schedule_column_break",
                 "read_only": 1,
+                "module": "Verenigingen",
             },
             {
                 "fieldname": "coverage_period_section",
@@ -64,6 +66,7 @@ def setup_dues_fields():
                 "fieldtype": "Date",
                 "insert_after": "coverage_period_section",
                 "read_only": 0,
+                "module": "Verenigingen",
             },
             {
                 "fieldname": "coverage_period_column_break",
@@ -76,6 +79,7 @@ def setup_dues_fields():
                 "fieldtype": "Date",
                 "insert_after": "coverage_period_column_break",
                 "read_only": 0,
+                "module": "Verenigingen",
             },
             # Partner payment fields for cases where parent/spouse pays
             {
@@ -94,6 +98,7 @@ def setup_dues_fields():
                 "insert_after": "partner_payment_section",
                 "read_only": 0,
                 "description": "If this invoice is paid by someone other than the member (e.g., parent, spouse)",
+                "module": "Verenigingen",
             },
             {
                 "fieldname": "partner_payment_column_break",
@@ -107,6 +112,7 @@ def setup_dues_fields():
                 "options": "\nParent\nSpouse\nPartner\nGuardian\nOther Family Member\nOrganization\nOther",
                 "insert_after": "partner_payment_column_break",
                 "depends_on": "eval:doc.custom_paying_for_member",
+                "module": "Verenigingen",
             },
         ]
     }

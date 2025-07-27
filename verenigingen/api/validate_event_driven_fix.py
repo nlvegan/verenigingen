@@ -6,7 +6,11 @@ the payment history validation blocking issue
 import frappe
 from frappe.utils import add_days, today
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
+
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def validate_architectural_fix():
     """
@@ -139,6 +143,7 @@ def validate_architectural_fix():
     return results
 
 
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def compare_architectures():
     """

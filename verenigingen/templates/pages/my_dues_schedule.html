@@ -271,7 +271,7 @@
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="text-sm font-medium text-gray-500">{{ _("Next Payment") }}</p>
+                    <p class="text-sm font-medium text-gray-500">{{ _("Next Payment Request") }}</p>
                     <p class="text-2xl font-bold text-gray-800">
                         {% if next_payment %}
                             {{ frappe.format_value(next_payment.due_date, {"fieldtype": "Date"}) }}

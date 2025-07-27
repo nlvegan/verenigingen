@@ -1176,7 +1176,7 @@ function get_fee_source_label(source) {
 }
 
 function refresh_dues_schedule_history(frm) {
-	// Refresh both fee change history AND payment history
+	// Refresh both fee change history AND payment history with proper error handling
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.member.member.refresh_fee_change_history',
 		args: {
@@ -1187,15 +1187,37 @@ function refresh_dues_schedule_history(frm) {
 				// Check if document reload is needed
 				if (r.message.reload_doc) {
 					frappe.show_alert({
-						message: `Dues schedule history refreshed: ${r.message.history_count} entries. Reloading document...`,
+						message: `Dues schedule history refreshed: ${r.message.history_count} entries. Reloading document and refreshing financial history...`,
 						indicator: 'green'
 					}, 3);
 
-					// Reload the document to avoid timestamp conflicts
-					frm.reload_doc();
+					// Reload the document and then refresh financial history with fresh doc
+					frm.reload_doc().then(() => {
+						// After reload, refresh financial history with the fresh document
+						frm.call({
+							method: 'refresh_financial_history',
+							doc: frm.doc,
+							callback: function(payment_r) {
+								frm.refresh_field('payment_history');
+
+								let message = `Dues schedule history refreshed: ${r.message.history_count} entries from ${r.message.dues_schedules_found} schedules`;
+								if (payment_r.message && payment_r.message.success) {
+									message += `. Financial history refreshed: ${payment_r.message.added_entries || 0} new payment entries added (atomic updates only).`;
+								} else if (payment_r.message) {
+									message += `. Financial history refresh failed: ${payment_r.message.message}`;
+								}
+
+								frappe.show_alert({
+									message: message,
+									indicator: payment_r.message && payment_r.message.success ? 'green' : 'orange'
+								}, 5);
+							}
+						});
+					});
 					return;
 				}
 
+				// If no reload needed, proceed normally
 				frm.refresh_field('fee_change_history');
 
 				// Also refresh financial history using modern atomic method
@@ -1207,12 +1229,14 @@ function refresh_dues_schedule_history(frm) {
 
 						let message = `Dues schedule history refreshed: ${r.message.history_count} entries from ${r.message.dues_schedules_found} schedules`;
 						if (payment_r.message && payment_r.message.success) {
-							message += `. Financial history refreshed: ${payment_r.message.payment_history_count || 0} payment entries.`;
+							message += `. Financial history refreshed: ${payment_r.message.added_entries || 0} new payment entries added (atomic updates only).`;
+						} else if (payment_r.message) {
+							message += `. Financial history refresh failed: ${payment_r.message.message}`;
 						}
 
 						frappe.show_alert({
 							message: message,
-							indicator: 'green'
+							indicator: payment_r.message && payment_r.message.success ? 'green' : 'orange'
 						}, 5);
 					}
 				});

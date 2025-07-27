@@ -320,6 +320,9 @@ def get_payment_status(member, membership):
         return None
 
     try:
+        # Import the coverage enhancement function
+        from verenigingen.utils.member_portal_utils import enhance_outstanding_invoices_with_coverage
+
         # Get current fee information
         current_fee_info = member.get_current_membership_fee()
 
@@ -371,6 +374,11 @@ def get_payment_status(member, membership):
                     }
                 )
                 total_outstanding += invoice.outstanding_amount
+
+        # Enhance invoices with coverage period information
+        outstanding_invoices = enhance_outstanding_invoices_with_coverage(
+            outstanding_invoices, billing_frequency
+        )
 
         # Get next billing date from dues schedule (not legacy field)
         next_billing = None

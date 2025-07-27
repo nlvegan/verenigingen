@@ -17,6 +17,9 @@ from frappe.utils import add_days, now_datetime
 
 from verenigingen.api.security_monitoring_dashboard import get_security_dashboard_data
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 # Import existing monitoring systems
 from verenigingen.utils.security.security_monitoring import get_security_monitor, get_security_tester
 from verenigingen.utils.sepa_alerting_system import get_alerting_system
@@ -25,6 +28,7 @@ from verenigingen.utils.sepa_zabbix_enhanced import get_zabbix_integration_insta
 from verenigingen.www.monitoring_dashboard import get_unified_security_summary
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def get_unified_monitoring_overview():
     """Get comprehensive overview of all monitoring systems"""
@@ -106,6 +110,7 @@ def get_unified_monitoring_overview():
         }
 
 
+@high_security_api(operation_type=OperationType.SECURITY)
 @frappe.whitelist()
 def get_integrated_security_metrics(hours_back: int = 24):
     """Get security metrics integrated across all monitoring systems"""
@@ -169,6 +174,7 @@ def get_integrated_security_metrics(hours_back: int = 24):
         return {"success": False, "error": str(e), "message": "Failed to get integrated security metrics"}
 
 
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_monitoring_system_health():
     """Get health status of all monitoring system components"""
@@ -267,6 +273,7 @@ def get_monitoring_system_health():
         return {"success": False, "error": str(e), "message": "Failed to get monitoring system health"}
 
 
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def trigger_unified_security_test():
     """Trigger comprehensive security test across all monitoring systems"""

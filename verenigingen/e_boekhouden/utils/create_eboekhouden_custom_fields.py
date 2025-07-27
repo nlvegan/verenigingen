@@ -18,6 +18,7 @@ def create_eboekhouden_tracking_fields():
                 "insert_after": "naming_series",
                 "unique": 1,
                 "allow_on_submit": 1,
+                "module": "E Boekhouden",
             }
         ],
         "Purchase Invoice": [
@@ -28,6 +29,7 @@ def create_eboekhouden_tracking_fields():
                 "insert_after": "naming_series",
                 "unique": 1,
                 "allow_on_submit": 1,
+                "module": "E Boekhouden",
             }
         ],
         "Customer": [
@@ -37,6 +39,7 @@ def create_eboekhouden_tracking_fields():
                 "fieldtype": "Data",
                 "insert_after": "customer_name",
                 "unique": 1,
+                "module": "E Boekhouden",
             }
         ],
         "Supplier": [
@@ -46,6 +49,7 @@ def create_eboekhouden_tracking_fields():
                 "fieldtype": "Data",
                 "insert_after": "supplier_name",
                 "unique": 1,
+                "module": "E Boekhouden",
             }
         ],
         "Journal Entry": [
@@ -56,6 +60,7 @@ def create_eboekhouden_tracking_fields():
                 "insert_after": "naming_series",
                 "unique": 1,
                 "allow_on_submit": 1,
+                "module": "E Boekhouden",
             },
             {
                 "fieldname": "eboekhouden_relation_code",

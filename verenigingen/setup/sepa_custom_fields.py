@@ -140,6 +140,7 @@ def create_custom_fields(doctype, fields):
                     "read_only": field.get("read_only", 0),
                     "default": field.get("default", ""),
                     "description": field.get("description", ""),
+                    "module": "Verenigingen",  # Add proper module assignment
                 }
             )
             custom_field.insert()
@@ -262,6 +263,7 @@ def create_direct_debit_fields_only():
                         "insert_after": field["insert_after"],
                         "read_only": field.get("read_only", 0),
                         "description": field.get("description", ""),
+                        "module": "Verenigingen",  # Add proper module assignment
                     }
                 )
                 custom_field.insert()
