@@ -10,7 +10,14 @@ from typing import Dict, List
 
 import frappe
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+from verenigingen.utils.security.audit_logging import log_security_event
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.rate_limiting import rate_limit
 
+
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def validate_workspace_comprehensive(workspace_name: str = "Verenigingen") -> Dict:
     """
@@ -19,6 +26,12 @@ def validate_workspace_comprehensive(workspace_name: str = "Verenigingen") -> Di
     Returns:
         Dict with validation results, errors, warnings, and exit status
     """
+    # Log this sensitive operation
+    log_security_event(
+        "workspace_validation",
+        {"workspace_name": workspace_name, "requested_by": frappe.session.user},
+    )
+
     validator = WorkspaceValidator(workspace_name)
     return validator.validate_all()
 
@@ -271,19 +284,30 @@ class WorkspaceValidator:
         }
 
 
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def validate_specific_workspace(workspace_name: str) -> Dict:
     """Validate a specific workspace by name"""
+    # Log this sensitive operation
+    log_security_event(
+        "workspace_validation",
+        {"workspace_name": workspace_name, "requested_by": frappe.session.user},
+    )
+
     validator = WorkspaceValidator(workspace_name)
     return validator.validate_all()
 
 
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def run_workspace_pre_commit_check():
     """
     Pre-commit specific workspace validation
     Returns simple pass/fail for integration with pre-commit hooks
     """
+    # Log this sensitive operation
+    log_security_event("workspace_pre_commit_check", {"requested_by": frappe.session.user})
+
     result = validate_workspace_comprehensive()
 
     # Format for pre-commit output

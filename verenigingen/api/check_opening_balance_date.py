@@ -4,7 +4,11 @@ Check if opening balances mutation (type 0) includes a date
 
 import frappe
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
 
+
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def check_opening_balance_mutation_date():
     """Check what date information is available in opening balance mutations"""
@@ -54,6 +58,7 @@ def check_opening_balance_mutation_date():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def check_earliest_mutation_date():
     """Check the earliest mutation date across all types to see the true start of data"""
@@ -118,6 +123,7 @@ def check_earliest_mutation_date():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_opening_balance_date_for_js():
     """Get the opening balance date that can be used by JavaScript for date_from setting"""

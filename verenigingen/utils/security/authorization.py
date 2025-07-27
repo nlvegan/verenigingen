@@ -642,6 +642,24 @@ def check_sepa_operation_permission(operation: str, context: str = None):
         return {"success": False, "allowed": False, "error": _("Permission check failed"), "message": str(e)}
 
 
+def require_role(roles):
+    """Simple role-based authorization decorator"""
+
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            if not frappe.session.user or frappe.session.user == "Guest":
+                frappe.throw(_("Authentication required"), frappe.PermissionError)
+
+            user_roles = frappe.get_roles(frappe.session.user)
+            if not any(role in user_roles for role in roles):
+                frappe.throw(_("Insufficient permissions"), frappe.PermissionError)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 def setup_authorization():
     """
     Setup authorization system during app initialization

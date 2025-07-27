@@ -9,6 +9,9 @@ from verenigingen.utils.error_handling import cache_with_ttl, handle_api_error, 
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
 
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+
 
 def validate_member_exists(member_id: str | None) -> str:
     """Validate member exists and return member ID - development helper"""
@@ -21,6 +24,7 @@ def validate_member_exists(member_id: str | None) -> str:
 @handle_api_error
 @performance_monitor()
 @frappe.whitelist()
+@high_security_api  # Payment data access
 def get_dashboard_data(member=None):
     """Get payment dashboard summary data"""
     # Get actual member ID
@@ -111,6 +115,7 @@ def get_dashboard_data(member=None):
 
 
 @frappe.whitelist()
+@high_security_api  # Payment method access
 def get_payment_method(member=None):
     """Get active payment method details"""
     # Get actual member ID

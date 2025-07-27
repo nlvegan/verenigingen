@@ -11,11 +11,17 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
+
 # =============================================================================
 # DUPLICATE PAYMENT PREVENTION
 # =============================================================================
 
 
+@require_role(["Accounts Manager", "System Manager"])
 def create_payment_entry_with_duplicate_check(invoice_name: str, amount: float, payment_data: Dict) -> Dict:
     """
     Create payment entry with comprehensive duplicate checking
@@ -31,6 +37,13 @@ def create_payment_entry_with_duplicate_check(invoice_name: str, amount: float, 
     Raises:
         ValidationError: If duplicate payment detected
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "sepa_processing",
+        "create_payment_entry_with_duplicate_check",
+        {"invoice_name": invoice_name, "amount": amount},
+    )
+
     # Check for existing payments
     existing_payments = frappe.get_all(
         "Payment Entry Reference",
@@ -90,6 +103,7 @@ def _create_payment_entry(payment_data: Dict) -> Dict:
 # =============================================================================
 
 
+@require_role(["Accounts Manager", "System Manager"])
 def check_batch_processing_status(batch_name: str, transaction_name: str) -> None:
     """
     Check if SEPA batch has already been processed
@@ -101,6 +115,13 @@ def check_batch_processing_status(batch_name: str, transaction_name: str) -> Non
     Raises:
         ValidationError: If batch already processed
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "sepa_processing",
+        "check_batch_processing_status",
+        {"batch_name": batch_name, "transaction_name": transaction_name},
+    )
+
     # Check for existing payment entries linked to this batch
     existing_payments = frappe.get_all(
         "Payment Entry",
@@ -131,6 +152,7 @@ def check_batch_processing_status(batch_name: str, transaction_name: str) -> Non
             )
 
 
+@require_role(["Accounts Manager", "System Manager"])
 def check_return_file_processed(return_file_hash: str) -> None:
     """
     Check if return file has already been processed
@@ -141,6 +163,11 @@ def check_return_file_processed(return_file_hash: str) -> None:
     Raises:
         ValidationError: If return file already processed
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "sepa_processing", "check_return_file_processed", {"file_hash": return_file_hash[:16] + "..."}
+    )
+
     if frappe.db.exists("SEPA Return File Log", {"file_hash": return_file_hash}):
         raise frappe.ValidationError(_("Return file already processed"))
 

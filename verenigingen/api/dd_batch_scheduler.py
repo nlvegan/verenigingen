@@ -9,6 +9,17 @@ from frappe import _
 from frappe.utils import add_days, get_weekday, getdate, now_datetime
 
 from verenigingen.api.dd_batch_optimizer import DEFAULT_CONFIG, create_optimal_batches
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+from verenigingen.utils.security.authorization import (
+    SEPAOperation,
+    SEPAPermissionLevel,
+    require_sepa_permission,
+)
 
 
 def daily_batch_optimization():
@@ -395,6 +406,8 @@ def create_system_notification(result):
         frappe.log_error(f"Error creating system notification: {str(e)}", "System Notification Error")
 
 
+@standard_api(operation_type=OperationType.REPORTING)
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_batch_creation_schedule():
     """Get the current schedule for automatic batch creation"""
@@ -444,6 +457,8 @@ def get_batch_creation_schedule():
     }
 
 
+@critical_api(operation_type=OperationType.ADMIN)
+@require_sepa_permission(SEPAPermissionLevel.ADMIN, SEPAOperation.BATCH_CREATE)
 @frappe.whitelist()
 def toggle_auto_batch_creation(enabled):
     """Enable or disable automatic batch creation"""
@@ -459,6 +474,8 @@ def toggle_auto_batch_creation(enabled):
     return {"success": True, "message": f"Auto batch creation {action}", "enabled": bool(enabled)}
 
 
+@critical_api(operation_type=OperationType.FINANCIAL)
+@require_sepa_permission(SEPAPermissionLevel.CREATE, SEPAOperation.BATCH_CREATE)
 @frappe.whitelist()
 def run_batch_creation_now():
     """Manually trigger batch creation (for testing/emergency use)"""
@@ -496,6 +513,8 @@ def run_batch_creation_now():
         return {"success": False, "error": str(e)}
 
 
+@standard_api(operation_type=OperationType.UTILITY)
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def validate_batch_creation_days(days_string):
     """Validate and parse batch creation days configuration"""
@@ -558,6 +577,8 @@ def validate_batch_creation_days(days_string):
         return {"valid": False, "error": f"Error validating days: {str(e)}", "parsed_days": []}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_batch_optimization_stats():
     """Get statistics about batch optimization performance"""
@@ -604,6 +625,8 @@ def get_batch_optimization_stats():
         return {"success": False, "error": str(e)}
 
 
+@standard_api(operation_type=OperationType.UTILITY)
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def test_batch_scheduler_config():
     """Test the batch scheduler configuration - for development/testing"""

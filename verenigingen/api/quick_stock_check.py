@@ -4,11 +4,24 @@ Quick check of stock account usage
 
 import frappe
 
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
+
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Accounts Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def find_stock_account_mutations():
     """Find mutations that actually use stock accounts"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "stock_check", "find_stock_account_mutations", {"requested_by": frappe.session.user}
+        )
+
         # The actual stock ledger ID from our mapping
         stock_ledger_id = 13201884  # ledger_code "30000"
 
@@ -56,9 +69,17 @@ def find_stock_account_mutations():
 
 
 @frappe.whitelist()
+@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
+@require_role(["System Manager", "Accounts Manager"])
+@validate_csrf_token
 def check_why_these_5_failed():
     """Check why the specific 5 mutations failed if they don't use stock accounts"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "stock_check", "check_why_these_5_failed", {"requested_by": frappe.session.user}
+        )
+
         failing_mutations = [1256, 4549, 5570, 5577, 6338]
 
         # Let's see what error they would actually produce

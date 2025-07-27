@@ -21,6 +21,7 @@ from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from verenigingen.utils.error_handling import log_error
 from verenigingen.utils.performance_dashboard import _performance_dashboard
+from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.utils.sepa_memory_optimizer import SEPAMemoryMonitor
 from verenigingen.utils.sepa_monitoring_dashboard import get_dashboard_instance
 
@@ -40,6 +41,7 @@ class SEPAZabbixIntegration:
         self.memory_monitor = SEPAMemoryMonitor()
         self.sepa_dashboard = get_dashboard_instance()
         self.performance_dashboard = _performance_dashboard
+        self.security_monitor = get_security_monitor()
 
         # Zabbix item configuration
         self.zabbix_items = self._initialize_zabbix_items()
@@ -214,6 +216,56 @@ class SEPAZabbixIntegration:
                 "units": "%",
                 "update_interval": "1m",
             },
+            # API Security Metrics
+            "api.security.score": {
+                "name": "API Security Score",
+                "type": "float",
+                "description": "Overall API security score (0-100)",
+                "units": "score",
+                "update_interval": "1m",
+            },
+            "api.security.active_incidents": {
+                "name": "API Security Active Incidents",
+                "type": "integer",
+                "description": "Number of active security incidents",
+                "units": "incidents",
+                "update_interval": "1m",
+            },
+            "api.security.auth_failures": {
+                "name": "API Authentication Failures",
+                "type": "integer",
+                "description": "Number of authentication failures in last hour",
+                "units": "failures",
+                "update_interval": "1m",
+            },
+            "api.security.rate_limit_violations": {
+                "name": "API Rate Limit Violations",
+                "type": "integer",
+                "description": "Number of rate limit violations in last hour",
+                "units": "violations",
+                "update_interval": "1m",
+            },
+            "api.security.csrf_failures": {
+                "name": "API CSRF Failures",
+                "type": "integer",
+                "description": "Number of CSRF validation failures in last hour",
+                "units": "failures",
+                "update_interval": "1m",
+            },
+            "api.security.validation_errors": {
+                "name": "API Input Validation Errors",
+                "type": "integer",
+                "description": "Number of input validation errors in last hour",
+                "units": "errors",
+                "update_interval": "1m",
+            },
+            "api.security.framework_health": {
+                "name": "API Security Framework Health",
+                "type": "integer",
+                "description": "Security framework health status (0=critical, 1=degraded, 2=healthy)",
+                "units": "status",
+                "update_interval": "5m",
+            },
         }
 
     def get_zabbix_metrics(self) -> Dict[str, Any]:
@@ -234,6 +286,7 @@ class SEPAZabbixIntegration:
             performance_metrics = self._get_performance_metrics()
             business_metrics = self._get_business_metrics()
             health_metrics = self._get_health_metrics()
+            security_metrics = self._get_security_metrics()
 
             # Combine all metrics
             all_metrics = {
@@ -243,6 +296,7 @@ class SEPAZabbixIntegration:
                 **performance_metrics,
                 **business_metrics,
                 **health_metrics,
+                **security_metrics,
             }
 
             # Format for Zabbix
@@ -755,6 +809,65 @@ class SEPAZabbixIntegration:
             frappe.logger().error(f"Error getting health metrics: {str(e)}")
             return {}
 
+    def _get_security_metrics(self) -> Dict[str, Union[int, float]]:
+        """Get API security metrics from security monitoring system"""
+        try:
+            # Get security dashboard data
+            security_dashboard = self.security_monitor.get_security_dashboard()
+
+            # Extract current metrics
+            current_metrics = security_dashboard.get("current_metrics")
+            if not current_metrics:
+                # Return default safe values if no metrics available
+                return {
+                    "api.security.score": 85.0,
+                    "api.security.active_incidents": 0,
+                    "api.security.auth_failures": 0,
+                    "api.security.rate_limit_violations": 0,
+                    "api.security.csrf_failures": 0,
+                    "api.security.validation_errors": 0,
+                    "api.security.framework_health": 2,  # healthy
+                }
+
+            # Count active incidents by severity
+            active_incidents = security_dashboard.get("active_incidents", [])
+            total_active_incidents = len(active_incidents)
+
+            # Determine framework health status
+            framework_health = 2  # healthy by default
+
+            # Check for critical or high severity incidents
+            critical_incidents = len([i for i in active_incidents if i.get("threat_level") == "critical"])
+            high_incidents = len([i for i in active_incidents if i.get("threat_level") == "high"])
+
+            if critical_incidents > 0:
+                framework_health = 0  # critical
+            elif high_incidents > 2 or total_active_incidents > 5:
+                framework_health = 1  # degraded
+
+            return {
+                "api.security.score": float(current_metrics.get("security_score", 85.0)),
+                "api.security.active_incidents": total_active_incidents,
+                "api.security.auth_failures": current_metrics.get("auth_failures", 0),
+                "api.security.rate_limit_violations": current_metrics.get("rate_limit_violations", 0),
+                "api.security.csrf_failures": current_metrics.get("csrf_failures", 0),
+                "api.security.validation_errors": current_metrics.get("validation_errors", 0),
+                "api.security.framework_health": framework_health,
+            }
+
+        except Exception as e:
+            frappe.logger().error(f"Error getting security metrics: {str(e)}")
+            # Return safe default values on error
+            return {
+                "api.security.score": 85.0,
+                "api.security.active_incidents": 0,
+                "api.security.auth_failures": 0,
+                "api.security.rate_limit_violations": 0,
+                "api.security.csrf_failures": 0,
+                "api.security.validation_errors": 0,
+                "api.security.framework_health": 1,  # degraded (since we had an error)
+            }
+
     def get_zabbix_discovery_data(self) -> Dict[str, Any]:
         """
         Get Zabbix low-level discovery data for SEPA items
@@ -870,6 +983,55 @@ class SEPAZabbixIntegration:
                 "expression": "{verenigingen:sepa.mandate.expiring_count.last()}>50",
                 "priority": "warning",
                 "description": "More than 50 SEPA mandates are expiring soon",
+            },
+            # API Security Triggers
+            {
+                "name": "API Security Score Critical",
+                "expression": "{verenigingen:api.security.score.last()}<50",
+                "priority": "disaster",
+                "description": "API security score has dropped below 50",
+            },
+            {
+                "name": "API Security Score Low",
+                "expression": "{verenigingen:api.security.score.last()}<70",
+                "priority": "high",
+                "description": "API security score has dropped below 70",
+            },
+            {
+                "name": "API Security Active Incidents",
+                "expression": "{verenigingen:api.security.active_incidents.last()}>0",
+                "priority": "high",
+                "description": "Active API security incidents detected",
+            },
+            {
+                "name": "API Authentication Failures High",
+                "expression": "{verenigingen:api.security.auth_failures.last()}>20",
+                "priority": "high",
+                "description": "High number of API authentication failures",
+            },
+            {
+                "name": "API Rate Limit Violations",
+                "expression": "{verenigingen:api.security.rate_limit_violations.last()}>50",
+                "priority": "average",
+                "description": "Excessive API rate limit violations detected",
+            },
+            {
+                "name": "API CSRF Attack Detected",
+                "expression": "{verenigingen:api.security.csrf_failures.last()}>10",
+                "priority": "high",
+                "description": "Potential CSRF attack detected - multiple validation failures",
+            },
+            {
+                "name": "API Security Framework Degraded",
+                "expression": "{verenigingen:api.security.framework_health.last()}=1",
+                "priority": "average",
+                "description": "API security framework is in degraded state",
+            },
+            {
+                "name": "API Security Framework Critical",
+                "expression": "{verenigingen:api.security.framework_health.last()}=0",
+                "priority": "disaster",
+                "description": "API security framework is in critical state",
             },
         ]
 

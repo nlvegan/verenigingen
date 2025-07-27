@@ -8,11 +8,24 @@ import json
 import frappe
 from frappe.utils import now
 
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
+
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def validate_doctype_installation():
     """Validate that monitoring DocTypes are properly installed"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "monitoring", "validate_doctype_installation", {"requested_by": frappe.session.user}
+        )
+
         results = {}
 
         # Check SEPA Audit Log DocType
@@ -61,9 +74,17 @@ def validate_doctype_installation():
 
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def validate_scheduler_configuration():
     """Validate scheduler configuration for monitoring"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "monitoring", "validate_scheduler_configuration", {"requested_by": frappe.session.user}
+        )
+
         from verenigingen.utils.alert_manager import run_daily_checks, run_hourly_checks
 
         results = {}
@@ -100,9 +121,17 @@ def validate_scheduler_configuration():
 
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def validate_configuration_completeness():
     """Validate monitoring configuration is complete"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "monitoring", "validate_configuration_completeness", {"requested_by": frappe.session.user}
+        )
+
         results = {}
 
         # Check alert recipients
@@ -135,9 +164,17 @@ def validate_configuration_completeness():
 
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def validate_security_compliance():
     """Validate security compliance of monitoring implementation"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "monitoring", "validate_security_compliance", {"requested_by": frappe.session.user}
+        )
+
         results = {}
 
         # Check audit log security
@@ -171,9 +208,17 @@ def validate_security_compliance():
 
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def validate_performance_acceptance():
     """Validate that monitoring performance is acceptable"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "monitoring", "validate_performance_acceptance", {"requested_by": frappe.session.user}
+        )
+
         import time
 
         from verenigingen.utils.alert_manager import AlertManager
@@ -205,8 +250,16 @@ def validate_performance_acceptance():
 
 
 @frappe.whitelist()
+@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
+@require_role(["System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def run_production_readiness_check():
     """Run complete production readiness validation"""
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "monitoring", "run_production_readiness_check", {"requested_by": frappe.session.user}
+    )
+
     results = {}
 
     # Validation 1: DocType installation

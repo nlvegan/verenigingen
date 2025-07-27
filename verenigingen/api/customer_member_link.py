@@ -7,6 +7,9 @@ Adds navigation links from Customer to Member records
 import frappe
 from frappe import _
 
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+
 
 def add_customer_to_member_link():
     """Add Member link to Customer dashboard"""
@@ -39,6 +42,7 @@ def add_customer_to_member_link():
 
 
 @frappe.whitelist()
+@standard_api  # Customer-member relationship lookup
 def get_member_from_customer(customer):
     """Get member associated with a customer"""
     # First try the new direct customer.member field

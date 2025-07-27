@@ -4,11 +4,27 @@ Check actual role names in the system
 
 import frappe
 
+# Import comprehensive security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
 
+
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def get_verenigingen_roles():
     """Get all roles related to verenigingen"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation("role_check", "get_verenigingen_roles", {"requested_by": frappe.session.user})
+
         # Get all roles that contain "verenigingen" or related terms
         all_roles = frappe.get_all("Role", fields=["name"], order_by="name")
 
@@ -42,10 +58,16 @@ def get_verenigingen_roles():
         return {"error": str(e)}
 
 
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def validate_role_names_in_code():
     """Validate that role names used in code actually exist"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "role_check", "validate_role_names_in_code", {"requested_by": frappe.session.user}
+        )
+
         # Roles used in the validation logic
         code_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
 
@@ -70,6 +92,7 @@ def validate_role_names_in_code():
         return {"error": str(e)}
 
 
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
 def debug_member_payment_history(member_name):
     """Debug payment history for a specific member"""
@@ -123,6 +146,7 @@ def debug_member_payment_history(member_name):
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @frappe.whitelist()
 def refresh_member_payment_history(member_name):
     """Manually refresh payment history for a specific member"""
@@ -163,6 +187,7 @@ def refresh_member_payment_history(member_name):
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_invoice_submission_trigger(member_name):
     """Test if automatic payment history update works by simulating an invoice submission event"""
@@ -224,6 +249,7 @@ def test_invoice_submission_trigger(member_name):
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def debug_dues_schedule_dates(member_name):
     """Debug why the next invoice date changed to the 26th"""
@@ -272,6 +298,7 @@ def debug_dues_schedule_dates(member_name):
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def investigate_duplicate_invoices(member_name):
     """Investigate the critical duplicate invoice generation bug"""
@@ -351,6 +378,7 @@ def investigate_duplicate_invoices(member_name):
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_duplicate_prevention(member_name):
     """Test the new duplicate invoice prevention system"""
@@ -392,6 +420,7 @@ def test_duplicate_prevention(member_name):
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def check_coverage_period_fields():
     """Check if coverage period fields were added to Sales Invoice"""
@@ -435,6 +464,7 @@ def check_coverage_period_fields():
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def populate_missing_coverage_fields():
     """Populate coverage fields for existing invoices that are missing them"""
@@ -497,6 +527,7 @@ def populate_missing_coverage_fields():
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_coverage_fields_in_payment_history():
     """Test if coverage fields are properly populated in payment history"""
@@ -554,6 +585,7 @@ def test_coverage_fields_in_payment_history():
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def audit_coverage_data_consistency():
     """Audit coverage data consistency - LOG issues, don't fix submitted docs"""
@@ -638,6 +670,7 @@ def audit_coverage_data_consistency():
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_enhanced_coverage_architecture():
     """Test the enhanced coverage architecture with Schedule SSoT + Invoice cache + Payment history"""
@@ -719,6 +752,7 @@ def test_enhanced_coverage_architecture():
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def test_new_invoice_generation():
     """Test generating a new invoice with enhanced coverage tracking"""
@@ -800,6 +834,7 @@ def test_new_invoice_generation():
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_payment_history_popup_data():
     """Test the actual data that would appear in the payment history popup"""
@@ -877,6 +912,7 @@ def test_payment_history_popup_data():
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_duplicate_prevention_in_action():
     """Test that duplicate prevention actually blocks invoice generation"""
@@ -922,6 +958,7 @@ def test_duplicate_prevention_in_action():
         return {"error": str(e), "traceback": frappe.get_traceback()}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_complete_billing_fix():
     """Test the complete billing system fix - duplicate prevention + coverage fields"""

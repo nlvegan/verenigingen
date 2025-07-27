@@ -50,7 +50,8 @@ class TestDataFactory:
                     "name": chapter_name,
                     "region": f"Test Region {i + 1}",
                     "postal_codes": f"{1000 + i:04d}",
-                    "introduction": f"Automated test chapter {i + 1} - {self.test_run_id}"}
+                    "introduction": f"Automated test chapter {i + 1} - {self.test_run_id}",
+                }
             )
             chapter.insert(ignore_permissions=True)
             self._track_record("Chapter", chapter.name)
@@ -74,29 +75,29 @@ class TestDataFactory:
 
         for i in range(min(count, len(type_configs))):
             config = type_configs[i]
-            
+
             # Create membership type directly
-            membership_type = frappe.get_doc({
-                "doctype": "Membership Type",
-                "membership_type_name": config["name"],
-                "amount": config["amount"],
-                "is_active": 1,
-                # Enhanced dues system fields
-                "contribution_mode": "Calculator",
-                "enable_income_calculator": 1,
-                "income_percentage_rate": 0.75
-            })
+            membership_type = frappe.get_doc(
+                {
+                    "doctype": "Membership Type",
+                    "membership_type_name": config["name"],
+                    "amount": config["amount"],
+                    "is_active": 1,
+                    # Enhanced dues system fields
+                    "contribution_mode": "Calculator",
+                    "enable_income_calculator": 1,
+                    "income_percentage_rate": 0.75,
+                }
+            )
             membership_type.insert(ignore_permissions=True)
             self._track_record("Membership Type", membership_type.name)
             membership_types.append(membership_type)
-            
+
             # The membership type creation should automatically create a template
             # due to the after_insert hook, but let's verify and track it
             if with_dues_schedules:
                 template_name = frappe.db.get_value(
-                    "Membership Dues Schedule",
-                    {"membership_type": membership_type.name, "is_template": 1},
-                    "name"
+                    "Membership Dues Schedule", {"membership_type": membership_type.name, "is_template": 1}, "name"
                 )
                 if template_name:
                     self._track_record("Membership Dues Schedule", template_name)
@@ -110,20 +111,22 @@ class TestDataFactory:
             # Check if item already exists
             if frappe.db.exists("Item", "MEMBERSHIP-MONTHLY"):
                 return frappe.get_doc("Item", "MEMBERSHIP-MONTHLY")
-            
-            item = frappe.get_doc({
-                "doctype": "Item",
-                "item_code": "MEMBERSHIP-MONTHLY",
-                "item_name": "Monthly Membership",
-                "item_group": "Services",
-                "is_service_item": 1,
-                "is_fixed_asset": 0,
-                "is_stock_item": 0,
-                "include_item_in_manufacturing": 0,
-                "disabled": 0,
-                "standard_rate": 10.00,
-                "description": "Monthly membership dues - test item"
-            })
+
+            item = frappe.get_doc(
+                {
+                    "doctype": "Item",
+                    "item_code": "MEMBERSHIP-MONTHLY",
+                    "item_name": "Monthly Membership",
+                    "item_group": "Services",
+                    "is_service_item": 1,
+                    "is_fixed_asset": 0,
+                    "is_stock_item": 0,
+                    "include_item_in_manufacturing": 0,
+                    "disabled": 0,
+                    "standard_rate": 10.00,
+                    "description": "Monthly membership dues - test item",
+                }
+            )
             item.insert(ignore_permissions=True)
             self._track_record("Item", item.name)
             print("✅ Created MEMBERSHIP-MONTHLY item")
@@ -175,9 +178,7 @@ class TestDataFactory:
                 )
                 member.suspension_date = add_days(today(), -random.randint(1, 30))
             elif status == "Terminated":
-                member.termination_reason = random.choice(
-                    ["Voluntary resignation", "Non-payment", "Policy violation"]
-                )
+                member.termination_reason = random.choice(["Voluntary resignation", "Non-payment", "Policy violation"])
                 member.termination_date = add_days(today(), -random.randint(1, 90))
 
             member.insert(ignore_permissions=True)
@@ -197,30 +198,31 @@ class TestDataFactory:
             start_date = member.join_date or today()
 
             # Create membership directly
-            membership = frappe.get_doc({
-                "doctype": "Membership",
-                "member": member.name,
-                "membership_type": membership_type.name,
-                "start_date": start_date,
-                "status": "Active" if member.status == "Active" else "Inactive"})
+            membership = frappe.get_doc(
+                {
+                    "doctype": "Membership",
+                    "member": member.name,
+                    "membership_type": membership_type.name,
+                    "start_date": start_date,
+                    "status": "Active" if member.status == "Active" else "Inactive",
+                }
+            )
             membership.insert(ignore_permissions=True)
-            
+
             # Submit membership to make it active
             if membership.status == "Active":
                 membership.submit()
-            
+
             self._track_record("Membership", membership.name)
             memberships.append(membership)
-            
+
             # Create dues schedule from template if requested and membership is active
             if with_dues_schedules and membership.status == "Active" and membership.docstatus == 1:
                 try:
                     # The membership submission should trigger dues schedule creation
                     # but let's verify and track it
                     schedule_name = frappe.db.get_value(
-                        "Membership Dues Schedule",
-                        {"member": member.name, "is_template": 0},
-                        "name"
+                        "Membership Dues Schedule", {"member": member.name, "is_template": 0}, "name"
                     )
                     if schedule_name:
                         self._track_record("Membership Dues Schedule", schedule_name)
@@ -256,7 +258,8 @@ class TestDataFactory:
                             "Photography",
                             "Translation",
                         ]
-                    )}
+                    ),
+                }
             )
             volunteer.insert(ignore_permissions=True)
             self._track_record("Volunteer", volunteer.name)
@@ -264,87 +267,81 @@ class TestDataFactory:
 
         print(f"✅ Created {len(volunteers)} volunteers")
         return volunteers
-    
+
     def create_dues_schedule_template(self, membership_type_name, **kwargs):
         """Create a dues schedule template for a membership type"""
         # Check if template already exists
         existing = frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"membership_type": membership_type_name, "is_template": 1},
-            "name"
+            "Membership Dues Schedule", {"membership_type": membership_type_name, "is_template": 1}, "name"
         )
-        
+
         if existing:
             return frappe.get_doc("Membership Dues Schedule", existing)
-        
+
         # Create template
-        template = frappe.get_doc({
-            "doctype": "Membership Dues Schedule",
-            "is_template": 1,
-            "schedule_name": f"Template-{membership_type_name}",
-            "membership_type": membership_type_name,
-            "status": "Active",
-            "contribution_mode": kwargs.get("contribution_mode", "Calculator"),
-            "minimum_amount": kwargs.get("minimum_amount", 5.0),
-            "suggested_amount": kwargs.get("suggested_amount", 15.0),
-            "auto_generate": kwargs.get("auto_generate", 1),
-            "dues_rate": kwargs.get("dues_rate", 15.0),
-            "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
-            "invoice_days_before": kwargs.get("invoice_days_before", 30)
-        })
-        
+        template = frappe.get_doc(
+            {
+                "doctype": "Membership Dues Schedule",
+                "is_template": 1,
+                "schedule_name": f"Template-{membership_type_name}",
+                "membership_type": membership_type_name,
+                "status": "Active",
+                "contribution_mode": kwargs.get("contribution_mode", "Calculator"),
+                "minimum_amount": kwargs.get("minimum_amount", 5.0),
+                "suggested_amount": kwargs.get("suggested_amount", 15.0),
+                "auto_generate": kwargs.get("auto_generate", 1),
+                "dues_rate": kwargs.get("dues_rate", 15.0),
+                "billing_frequency": kwargs.get("billing_frequency", "Monthly"),
+                "invoice_days_before": kwargs.get("invoice_days_before", 30),
+            }
+        )
+
         template.insert(ignore_permissions=True)
         self._track_record("Membership Dues Schedule", template.name)
-        
+
         return template
-    
+
     def create_dues_schedule_for_member(self, member_name, membership_type_name=None):
         """Create a dues schedule instance for a member from template"""
-        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import MembershipDuesSchedule
-        
+        from verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule import (
+            MembershipDuesSchedule,
+        )
+
         # Get membership type if not provided
         if not membership_type_name:
             membership = frappe.db.get_value(
-                "Membership",
-                {"member": member_name, "status": "Active"},
-                ["membership_type", "name"],
-                as_dict=True
+                "Membership", {"member": member_name, "status": "Active"}, ["membership_type", "name"], as_dict=True
             )
             if not membership:
                 # Create a test membership if none exists
                 test_membership_type = self.create_test_membership_types(1)[0]
-                membership_doc = frappe.get_doc({
-                    "doctype": "Membership",
-                    "member": member_name,
-                    "membership_type": test_membership_type.name,
-                    "start_date": today(),
-                    "status": "Active"
-                })
+                membership_doc = frappe.get_doc(
+                    {
+                        "doctype": "Membership",
+                        "member": member_name,
+                        "membership_type": test_membership_type.name,
+                        "start_date": today(),
+                        "status": "Active",
+                    }
+                )
                 membership_doc.insert(ignore_permissions=True)
                 membership_doc.submit()
                 self._track_record("Membership", membership_doc.name)
                 membership_type_name = test_membership_type.name
             else:
                 membership_type_name = membership.membership_type
-        
+
         # Check if schedule already exists
-        existing = frappe.db.get_value(
-            "Membership Dues Schedule",
-            {"member": member_name, "is_template": 0},
-            "name"
-        )
-        
+        existing = frappe.db.get_value("Membership Dues Schedule", {"member": member_name, "is_template": 0}, "name")
+
         if existing:
             return frappe.get_doc("Membership Dues Schedule", existing)
-        
+
         # Create from template
-        schedule_name = MembershipDuesSchedule.create_from_template(
-            member_name, 
-            membership_type=membership_type_name
-        )
-        
+        schedule_name = MembershipDuesSchedule.create_from_template(member_name, membership_type=membership_type_name)
+
         self._track_record("Membership Dues Schedule", schedule_name)
-        
+
         return frappe.get_doc("Membership Dues Schedule", schedule_name)
 
     def create_test_sepa_mandates(self, members, mandate_ratio=0.6):
@@ -358,12 +355,9 @@ class TestDataFactory:
         # Generate valid test IBANs
         from verenigingen.utils.validation.iban_validator import generate_test_iban
         import random
-        
+
         banks = ["TEST", "MOCK", "DEMO"]
-        sample_ibans = [
-            generate_test_iban(random.choice(banks), f"012345678{i}")
-            for i in range(6)
-        ]
+        sample_ibans = [generate_test_iban(random.choice(banks), f"012345678{i}") for i in range(6)]
 
         for member in mandate_members:
             iban = random.choice(sample_ibans)
@@ -375,9 +369,11 @@ class TestDataFactory:
                     "doctype": "SEPA Mandate",
                     "member": member.name,
                     "iban": iban,
+                    "account_holder_name": f"{member.first_name} {member.last_name}",
                     "status": "Active",
                     "mandate_date": add_days(member.join_date, random.randint(0, 30)),
-                    "mandate_reference": f"MANDT{random.randint(100000, 999999)}"}
+                    "mandate_reference": f"MANDT{random.randint(100000, 999999)}",
+                }
             )
             mandate.insert(ignore_permissions=True)
             self._track_record("SEPA Mandate", mandate.name)
@@ -389,15 +385,15 @@ class TestDataFactory:
     def generate_test_iban(self, bank_code=None):
         """Generate a valid test IBAN using mock banks"""
         from verenigingen.utils.validation.iban_validator import generate_test_iban
-        
+
         if not bank_code:
             # Randomly choose from available mock banks
             bank_code = random.choice(["TEST", "MOCK", "DEMO"])
-        
+
         # Generate unique account number for this test run
         account_suffix = random.randint(1000, 9999)
         account_number = f"000{account_suffix:04d}789"[:10]
-        
+
         return generate_test_iban(bank_code, account_number)
 
     def create_test_expenses(self, volunteers, expense_count_per_volunteer=5):
@@ -418,7 +414,8 @@ class TestDataFactory:
                         "currency": "EUR",
                         "expense_date": add_days(today(), -random.randint(1, 180)),
                         "status": random.choice(["Draft", "Submitted", "Approved", "Reimbursed"]),
-                        "category": random.choice(expense_categories)}
+                        "category": random.choice(expense_categories),
+                    }
                 )
                 expense.insert(ignore_permissions=True)
                 self._track_record("Volunteer Expense", expense.name)
@@ -451,7 +448,8 @@ class TestDataFactory:
             "memberships": memberships,
             "volunteers": volunteers,
             "sepa_mandates": mandates,
-            "expenses": expenses}
+            "expenses": expenses,
+        }
 
         print("✅ Stress test dataset complete:")
         for key, items in dataset.items():
@@ -478,7 +476,8 @@ class TestDataFactory:
                 "last_name": "VeryLongLastNameThatTestsFieldLimitsAndDatabaseConstraints",
                 "email": f"longnametest.{self.test_run_id}@test.com",
                 "status": "Active",
-                "chapter": chapters[0].name}
+                "chapter": chapters[0].name,
+            }
         )
         long_name_member.insert(ignore_permissions=True)
         self._track_record("Member", long_name_member.name)
@@ -492,7 +491,8 @@ class TestDataFactory:
                 "last_name": "González-Pérez",
                 "email": f"specialchars.{self.test_run_id}@test.com",
                 "status": "Active",
-                "chapter": chapters[0].name}
+                "chapter": chapters[0].name,
+            }
         )
         special_char_member.insert(ignore_permissions=True)
         self._track_record("Member", special_char_member.name)
@@ -532,10 +532,7 @@ class TestDataFactory:
 
         print(f"✅ Created {len(edge_case_members)} edge case members")
 
-        return {
-            "chapters": chapters,
-            "membership_types": membership_types,
-            "edge_case_members": edge_case_members}
+        return {"chapters": chapters, "membership_types": membership_types, "edge_case_members": edge_case_members}
 
 
 # Convenience functions for quick test data creation
@@ -547,11 +544,7 @@ def create_minimal_test_data():
     membership_types = factory.create_test_membership_types(count=2)
     members = factory.create_test_members(chapters, count=10)
 
-    return {
-        "factory": factory,
-        "chapters": chapters,
-        "membership_types": membership_types,
-        "members": members}
+    return {"factory": factory, "chapters": chapters, "membership_types": membership_types, "members": members}
 
 
 def create_performance_test_data(member_count=1000):

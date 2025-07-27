@@ -4,8 +4,12 @@ Get user's chapter memberships
 
 import frappe
 
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 @frappe.whitelist(allow_guest=True)
+@standard_api(operation_type=OperationType.MEMBER_DATA)  # User chapter data - personal membership info
 def get_user_chapter_data():
     """Get current user's chapter memberships"""
 

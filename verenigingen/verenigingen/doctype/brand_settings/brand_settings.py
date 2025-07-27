@@ -557,7 +557,6 @@ def create_default_brand_settings():
             "doctype": "Brand Settings",
             "settings_name": "Default Brand Settings",
             "description": "Default brand colors for the organization",
-            "is_active": 1,
             "primary_color": "#cf3131",
             "primary_hover_color": "#b82828",
             "secondary_color": "#01796f",
@@ -583,17 +582,14 @@ def create_default_brand_settings():
 def sync_brand_settings_to_owl_theme():
     """Manual function to sync active Brand Settings to Owl Theme"""
     try:
-        # Get active brand settings
-        active_settings = frappe.get_all("Brand Settings", filters={"is_active": 1}, limit=1)
-
-        if not active_settings:
-            return {"success": False, "message": "No active Brand Settings found"}
-
-        # Get the brand settings document
-        brand_doc = frappe.get_doc("Brand Settings", active_settings[0].name)
+        # Get brand settings (single doctype)
+        try:
+            brand_settings = frappe.get_single("Brand Settings")
+        except frappe.DoesNotExistError:
+            return {"success": False, "message": "Brand Settings not found"}
 
         # Sync to owl theme
-        brand_doc.sync_to_owl_theme()
+        brand_settings.sync_to_owl_theme()
 
         return {"success": True, "message": "Successfully synced Brand Settings to Owl Theme"}
 
@@ -653,14 +649,15 @@ def test_owl_theme_integration():
         # Test 3: Verify sync actually changed Owl Theme Settings
         if sync_result.get("success"):
             owl_settings = frappe.get_single("Owl Theme Settings")
-            brand_settings = frappe.get_all(
-                "Brand Settings", filters={"is_active": 1}, fields=["primary_color"], limit=1
-            )
+            try:
+                brand_settings = frappe.get_single("Brand Settings")
+                brand_primary = brand_settings.primary_color
+            except frappe.DoesNotExistError:
+                brand_primary = None
 
-            if brand_settings and len(brand_settings) > 0:
-                brand_primary = brand_settings[0].get("primary_color")
-                owl_navbar = getattr(owl_settings, "navbar_background_color", None)
+            owl_navbar = getattr(owl_settings, "navbar_background_color", None)
 
+            if brand_primary:
                 results["sync_verification"] = {
                     "success": brand_primary == owl_navbar,
                     "brand_primary_color": brand_primary,
@@ -672,18 +669,15 @@ def test_owl_theme_integration():
 
         # Test 4: Test automatic sync trigger
         if results["owl_theme_detection"]["success"]:
-            brand_doc = frappe.get_all("Brand Settings", filters={"is_active": 1}, limit=1)
-
-            if brand_doc:
-                doc = frappe.get_doc("Brand Settings", brand_doc[0].name)
-                try:
-                    doc.sync_to_owl_theme()
-                    results["auto_sync_trigger"] = {
-                        "success": True,
-                        "message": "Auto-sync method executed successfully",
-                    }
-                except Exception as e:
-                    results["auto_sync_trigger"] = {"success": False, "error": str(e)}
+            try:
+                doc = frappe.get_single("Brand Settings")
+                doc.sync_to_owl_theme()
+                results["auto_sync_trigger"] = {
+                    "success": True,
+                    "message": "Auto-sync method executed successfully",
+                }
+            except Exception as e:
+                results["auto_sync_trigger"] = {"success": False, "error": str(e)}
 
         # Overall test result
         all_tests_passed = all(

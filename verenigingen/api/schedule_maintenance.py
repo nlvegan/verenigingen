@@ -6,13 +6,25 @@ Admin tools for managing dues schedules and preventing orphaned records
 import frappe
 from frappe.utils import now_datetime, today
 
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
+
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def get_schedule_health_report():
     """
     Generate a comprehensive health report for all dues schedules
     Safe for regular use by administrators
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "schedule_maintenance", "get_schedule_health_report", {"requested_by": frappe.session.user}
+    )
 
     # Check user permissions
     if not frappe.has_permission("Membership Dues Schedule", "read"):
@@ -105,6 +117,9 @@ def get_schedule_health_report():
 
 
 @frappe.whitelist()
+@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
+@require_role(["Accounts Manager", "System Manager"])
+@validate_csrf_token
 def cleanup_orphaned_schedules(issue_type, dry_run=True):
     """
     Clean up orphaned schedules with proper audit trail
@@ -113,6 +128,12 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True):
         issue_type: 'orphaned_members', 'orphaned_types', or 'zero_rates'
         dry_run: True to preview actions, False to execute
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "schedule_maintenance",
+        "cleanup_orphaned_schedules",
+        {"issue_type": issue_type, "dry_run": dry_run, "requested_by": frappe.session.user},
+    )
 
     # Check permissions
     if not frappe.has_permission("Membership Dues Schedule", "write"):
@@ -224,11 +245,18 @@ def cleanup_orphaned_schedules(issue_type, dry_run=True):
 
 
 @frappe.whitelist()
+@rate_limit(calls=15, period=60)  # 15 calls per minute
+@require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def prevent_orphaned_schedules():
     """
     Check for potential issues before they become orphaned schedules
     Returns warnings about at-risk schedules
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "schedule_maintenance", "prevent_orphaned_schedules", {"requested_by": frappe.session.user}
+    )
 
     if not frappe.has_permission("Membership Dues Schedule", "read"):
         frappe.throw("Insufficient permissions to view schedule maintenance")

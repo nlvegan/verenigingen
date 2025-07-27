@@ -5,10 +5,22 @@ Check if payment history was updated for manually generated invoices
 import frappe
 from frappe.utils import today
 
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
+
 
 @frappe.whitelist()
+@rate_limit(calls=15, period=60)  # 15 calls per minute
+@require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def check_invoice_payment_history_sync():
     """Check if payment history was updated for today's generated invoices"""
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "payment_history", "check_invoice_payment_history_sync", {"requested_by": frappe.session.user}
+    )
 
     today_date = today()
 
@@ -86,8 +98,17 @@ def check_invoice_payment_history_sync():
 
 
 @frappe.whitelist()
+@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
+@require_role(["Accounts Manager", "System Manager"])
+@validate_csrf_token
 def manually_sync_payment_history_for_todays_invoices():
     """Manually trigger payment history sync for today's invoices"""
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "payment_history",
+        "manually_sync_payment_history_for_todays_invoices",
+        {"requested_by": frappe.session.user},
+    )
 
     today_date = today()
 

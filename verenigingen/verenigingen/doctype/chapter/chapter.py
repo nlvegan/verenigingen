@@ -687,14 +687,17 @@ def get_board_memberships(member_name):
 
                 user_board_chapters = []
                 if current_member:
-                    user_board_chapters = frappe.db.sql(
-                        """
-                        SELECT parent FROM `tabChapter Board Member`
-                        WHERE member = %s AND is_active = 1
-                    """,
-                        (current_member,),
-                        as_dict=True,
-                    )
+                    # Get volunteer linked to this member
+                    current_volunteer = frappe.db.get_value("Volunteer", {"member": current_member}, "name")
+                    if current_volunteer:
+                        user_board_chapters = frappe.db.sql(
+                            """
+                            SELECT parent FROM `tabChapter Board Member`
+                            WHERE volunteer = %s AND is_active = 1
+                        """,
+                            (current_volunteer,),
+                            as_dict=True,
+                        )
 
                 # Check if user has board access to any of the chapters this member belongs to
                 has_access = False
@@ -709,11 +712,16 @@ def get_board_memberships(member_name):
                 if not has_access:
                     frappe.throw(_("You don't have permission to view this member's board information"))
 
+        # First find the volunteer record for this member
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+        if not volunteer_name:
+            return []
+
         CBM = DocType("Chapter Board Member")
         board_memberships = (
             frappe.qb.from_(CBM)
             .select(CBM.parent, CBM.chapter_role)
-            .where((CBM.member == member_name) & (CBM.is_active == 1))
+            .where((CBM.volunteer == volunteer_name) & (CBM.is_active == 1))
         ).run(as_dict=True)
 
         return board_memberships
@@ -758,9 +766,14 @@ def get_chapter_board_history(chapter_name):
             # Check if user is a board member of this chapter
             current_member = frappe.db.get_value("Member", {"user": current_user}, "name")
             if current_member:
-                is_board_member = frappe.db.exists(
-                    "Chapter Board Member", {"parent": chapter_name, "member": current_member, "is_active": 1}
-                )
+                # Get volunteer linked to this member
+                current_volunteer = frappe.db.get_value("Volunteer", {"member": current_member}, "name")
+                is_board_member = False
+                if current_volunteer:
+                    is_board_member = frappe.db.exists(
+                        "Chapter Board Member",
+                        {"parent": chapter_name, "volunteer": current_volunteer, "is_active": 1},
+                    )
                 if not is_board_member:
                     frappe.throw(_("You don't have permission to view board history for this chapter"))
             else:
@@ -1020,9 +1033,15 @@ def assign_member_to_chapter_with_cleanup(member, chapter, note=None):
                 frappe.logger().info(f"Member {member} is already in target chapter {chapter}")
 
         # 2. Check for board memberships and end them
-        board_memberships = frappe.get_all(
-            "Chapter Board Member", filters={"volunteer": member, "is_active": 1}, fields=["name", "parent"]
-        )
+        # Get volunteer linked to this member
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member}, "name")
+        board_memberships = []
+        if volunteer_name:
+            board_memberships = frappe.get_all(
+                "Chapter Board Member",
+                filters={"volunteer": volunteer_name, "is_active": 1},
+                fields=["name", "parent"],
+            )
 
         for board_membership in board_memberships:
             try:

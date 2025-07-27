@@ -11,7 +11,11 @@ def sync_membership_with_dues_schedule(membership_doc):
     - Update payment status based on dues schedule invoices
     - Track payment history
     """
-    if not membership_doc.dues_schedule:
+    # Find dues schedule that links to this membership
+    dues_schedule = frappe.db.get_value(
+        "Membership Dues Schedule", {"membership": membership_doc.name}, "name"
+    )
+    if not dues_schedule:
         return
 
     member = frappe.get_doc("Member", membership_doc.member)
@@ -61,7 +65,11 @@ def get_membership_payment_history(membership_doc):
     """
     Get payment history for a membership from linked dues schedule
     """
-    if not membership_doc.dues_schedule:
+    # Find dues schedule that links to this membership
+    dues_schedule = frappe.db.get_value(
+        "Membership Dues Schedule", {"membership": membership_doc.name}, "name"
+    )
+    if not dues_schedule:
         return []
 
     # Get member customer
@@ -240,14 +248,22 @@ def get_unpaid_membership_invoices():
     Get all unpaid invoices related to memberships
     Used by SEPA Direct Debit Batch for selecting invoices
     """
-    # Get all active memberships with dues schedules
-    memberships = frappe.get_all(
-        "Membership",
-        filters={
-            "status": ["in", ["Active", "Pending"]],
-            "dues_schedule": ["is", "set"],
-        },
-        fields=["name", "member", "member_name"],
+    # Get all active memberships that have dues schedules
+    membership_names_with_schedules = frappe.get_all(
+        "Membership Dues Schedule", filters={"status": "Active"}, pluck="membership"
+    )
+
+    memberships = (
+        frappe.get_all(
+            "Membership",
+            filters={
+                "status": ["in", ["Active", "Pending"]],
+                "name": ["in", membership_names_with_schedules],
+            },
+            fields=["name", "member", "member_name"],
+        )
+        if membership_names_with_schedules
+        else []
     )
 
     if not memberships:
@@ -327,7 +343,9 @@ def add_to_direct_debit_batch(membership_name):
     """
     membership = frappe.get_doc("Membership", membership_name)
 
-    if not membership.dues_schedule:
+    # Find dues schedule that links to this membership
+    dues_schedule = frappe.db.get_value("Membership Dues Schedule", {"membership": membership.name}, "name")
+    if not dues_schedule:
         frappe.throw(_("Membership must have a dues schedule to add to direct debit batch"))
 
     if membership.unpaid_amount <= 0:

@@ -2,10 +2,18 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate, today
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.verenigingen.doctype.member.member import derive_bic_from_iban
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_missing_sepa_mandates(dry_run=True):
     """
     Create SEPA mandates for members with SEPA Direct Debit payment method but no active mandate.
@@ -140,6 +148,7 @@ def create_missing_sepa_mandates(dry_run=True):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def fix_specific_member_sepa_mandate(member_name):
     """
     Create SEPA mandate for a specific member
@@ -198,6 +207,7 @@ def fix_specific_member_sepa_mandate(member_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def periodic_sepa_mandate_child_table_sync():
     """
     Periodic cleanup to sync SEPA mandate child tables for all members.
@@ -335,6 +345,7 @@ def periodic_sepa_mandate_child_table_sync():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def detect_sepa_mandate_inconsistencies():
     """
     Detect various inconsistencies in SEPA mandate data without fixing them.

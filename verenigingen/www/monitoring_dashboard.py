@@ -20,6 +20,9 @@ import json
 import frappe
 from frappe.utils import add_to_date, now
 
+from verenigingen.api.security_monitoring_dashboard import get_security_dashboard_data
+from verenigingen.utils.security.security_monitoring import get_security_monitor
+
 
 def get_context(context):
     """Get context for monitoring dashboard page"""
@@ -47,6 +50,9 @@ def get_context(context):
                 "compliance_metrics": get_compliance_metrics(),
                 "optimization_insights": get_optimization_insights(),
                 "executive_summary": get_executive_summary(),
+                # Security Monitoring Integration
+                "security_dashboard": get_security_metrics_for_dashboard(),
+                "security_framework_health": get_security_framework_health(),
             }
         )
     except Exception as e:
@@ -64,6 +70,8 @@ def get_context(context):
                 "compliance_metrics": {"error": "Failed to load compliance data"},
                 "optimization_insights": {"error": "Failed to load insights"},
                 "executive_summary": {"error": "Failed to load executive summary"},
+                "security_dashboard": {"error": "Failed to load security metrics"},
+                "security_framework_health": {"error": "Failed to load security framework health"},
             }
         )
 
@@ -220,7 +228,19 @@ def get_slow_query_count():
         return frappe.db.count(
             "Error Log", {"error": ("like", "%timeout%"), "creation": (">=", add_to_date(now(), hours=-1))}
         )
-    except:
+    except frappe.db.DatabaseError as e:
+        frappe.log_error(
+            message=f"Database error while counting slow queries: {str(e)}",
+            title="Monitoring Dashboard - Database Error (Slow Queries)",
+            reference_doctype="Error Log",
+        )
+        return 0
+    except Exception as e:
+        frappe.log_error(
+            message=f"Unexpected error while counting slow queries: {str(e)}",
+            title="Monitoring Dashboard - Unexpected Error (Slow Queries)",
+            reference_doctype="Error Log",
+        )
         return 0
 
 
@@ -228,7 +248,19 @@ def get_background_job_count():
     """Get background job queue length"""
     try:
         return frappe.db.count("RQ Job", {"status": "queued"})
-    except:
+    except frappe.db.DatabaseError as e:
+        frappe.log_error(
+            message=f"Database error while counting background jobs: {str(e)}",
+            title="Monitoring Dashboard - Database Error (Background Jobs)",
+            reference_doctype="RQ Job",
+        )
+        return 0
+    except Exception as e:
+        frappe.log_error(
+            message=f"Unexpected error while counting background jobs: {str(e)}",
+            title="Monitoring Dashboard - Unexpected Error (Background Jobs)",
+            reference_doctype="RQ Job",
+        )
         return 0
 
 
@@ -236,7 +268,19 @@ def get_daily_transaction_count():
     """Get daily transaction count"""
     try:
         return frappe.db.count("Payment Entry", {"creation": (">=", frappe.utils.today()), "docstatus": 1})
-    except:
+    except frappe.db.DatabaseError as e:
+        frappe.log_error(
+            message=f"Database error while counting daily transactions: {str(e)}",
+            title="Monitoring Dashboard - Database Error (Daily Transactions)",
+            reference_doctype="Payment Entry",
+        )
+        return 0
+    except Exception as e:
+        frappe.log_error(
+            message=f"Unexpected error while counting daily transactions: {str(e)}",
+            title="Monitoring Dashboard - Unexpected Error (Daily Transactions)",
+            reference_doctype="Payment Entry",
+        )
         return 0
 
 
@@ -252,7 +296,19 @@ def get_payment_success_rate():
         )
 
         return round(((total_today - failed_today) / total_today) * 100, 2)
-    except:
+    except (ZeroDivisionError, TypeError, ValueError) as e:
+        frappe.log_error(
+            message=f"Error calculating payment success rate: {str(e)}",
+            title="Monitoring Dashboard - Payment Success Rate Error",
+            reference_doctype="Payment Entry",
+        )
+        return 100.0
+    except Exception as e:
+        frappe.log_error(
+            message=f"Unexpected error in payment success rate calculation: {str(e)}",
+            title="Monitoring Dashboard - Unexpected Payment Error",
+            reference_doctype="Payment Entry",
+        )
         return 100.0
 
 
@@ -265,7 +321,19 @@ def get_member_growth_rate():
         )
 
         return {"today": today_count, "week": week_count, "daily_average": round(week_count / 7, 1)}
-    except:
+    except frappe.db.DatabaseError as e:
+        frappe.log_error(
+            message=f"Database error while calculating member growth rate: {str(e)}",
+            title="Monitoring Dashboard - Database Error (Member Growth)",
+            reference_doctype="Member",
+        )
+        return {"today": 0, "week": 0, "daily_average": 0}
+    except Exception as e:
+        frappe.log_error(
+            message=f"Unexpected error while calculating member growth rate: {str(e)}",
+            title="Monitoring Dashboard - Unexpected Error (Member Growth)",
+            reference_doctype="Member",
+        )
         return {"today": 0, "week": 0, "daily_average": 0}
 
 
@@ -279,6 +347,8 @@ def refresh_dashboard_data():
             "audit_summary": get_audit_summary(),
             "alerts": get_active_alerts(),
             "performance_metrics": get_performance_metrics(),
+            "security_dashboard": get_security_metrics_for_dashboard(),
+            "security_framework_health": get_security_framework_health(),
             "timestamp": now(),
         }
     except Exception as e:
@@ -308,6 +378,148 @@ def test_monitoring_system():
     except Exception as e:
         frappe.log_error(f"Test monitoring system failed: {str(e)}")
         return {"status": "error", "message": str(e)}
+
+
+# ===== SECURITY MONITORING INTEGRATION =====
+
+
+@frappe.whitelist()
+def get_security_metrics_for_dashboard():
+    """Get security metrics optimized for main dashboard display"""
+    try:
+        security_monitor = get_security_monitor()
+        dashboard_data = security_monitor.get_security_dashboard()
+
+        # Extract key metrics for main dashboard
+        current_metrics = dashboard_data.get("current_metrics")
+        active_incidents = dashboard_data.get("active_incidents", [])
+        threat_summary = dashboard_data.get("threat_summary", {})
+
+        # Simplify for main dashboard
+        return {
+            "security_score": current_metrics.get("security_score", 85.0) if current_metrics else 85.0,
+            "active_incidents_count": len(active_incidents),
+            "critical_incidents": threat_summary.get("critical", 0),
+            "high_incidents": threat_summary.get("high", 0),
+            "auth_failures_1h": current_metrics.get("auth_failures", 0) if current_metrics else 0,
+            "rate_violations_1h": current_metrics.get("rate_limit_violations", 0) if current_metrics else 0,
+            "csrf_failures_1h": current_metrics.get("csrf_failures", 0) if current_metrics else 0,
+            "validation_errors_1h": current_metrics.get("validation_errors", 0) if current_metrics else 0,
+            "api_calls_5m": current_metrics.get("api_calls_total", 0) if current_metrics else 0,
+            "response_time_avg": current_metrics.get("response_time_avg", 0) if current_metrics else 0,
+            "last_updated": now(),
+        }
+    except Exception as e:
+        frappe.log_error(f"Error getting security metrics for dashboard: {str(e)}")
+        return {
+            "security_score": 85.0,
+            "active_incidents_count": 0,
+            "critical_incidents": 0,
+            "high_incidents": 0,
+            "auth_failures_1h": 0,
+            "rate_violations_1h": 0,
+            "csrf_failures_1h": 0,
+            "validation_errors_1h": 0,
+            "api_calls_5m": 0,
+            "response_time_avg": 0,
+            "last_updated": now(),
+            "error": str(e),
+        }
+
+
+@frappe.whitelist()
+def get_security_framework_health():
+    """Get security framework health status"""
+    try:
+        # Get framework health from security dashboard API
+        security_data = get_security_dashboard_data(hours_back=1)
+
+        if security_data.get("success"):
+            framework_health = security_data.get("data", {}).get("framework_health", {})
+            return {
+                "overall_status": framework_health.get("overall_status", "UNKNOWN"),
+                "components": framework_health.get("components", {}),
+                "last_checked": now(),
+            }
+        else:
+            return {
+                "overall_status": "ERROR",
+                "components": {},
+                "last_checked": now(),
+                "error": security_data.get("error", "Unknown error"),
+            }
+    except Exception as e:
+        frappe.log_error(f"Error getting security framework health: {str(e)}")
+        return {"overall_status": "ERROR", "components": {}, "last_checked": now(), "error": str(e)}
+
+
+@frappe.whitelist()
+def get_unified_security_summary():
+    """Get unified security summary combining security monitoring with SEPA security"""
+    try:
+        # Get security monitoring data
+        security_metrics = get_security_metrics_for_dashboard()
+        framework_health = get_security_framework_health()
+
+        # Get SEPA-specific security metrics
+        sepa_security = {
+            "mandate_validation_failures": frappe.db.count(
+                "SEPA Audit Log",
+                {
+                    "process_type": "mandate_validation",
+                    "compliance_status": ["in", ["FAILED", "ERROR"]],
+                    "creation": (">=", add_to_date(now(), hours=-24)),
+                },
+            )
+            if frappe.db.exists("DocType", "SEPA Audit Log")
+            else 0,
+            "payment_security_events": frappe.db.count(
+                "SEPA Audit Log",
+                {
+                    "process_type": ["in", ["payment_processing", "batch_creation"]],
+                    "compliance_status": ["in", ["FAILED", "ERROR"]],
+                    "creation": (">=", add_to_date(now(), hours=-24)),
+                },
+            )
+            if frappe.db.exists("DocType", "SEPA Audit Log")
+            else 0,
+        }
+
+        # Calculate unified security score
+        base_score = security_metrics.get("security_score", 85.0)
+
+        # Deduct points for SEPA security issues
+        if sepa_security["mandate_validation_failures"] > 5:
+            base_score -= 10
+        if sepa_security["payment_security_events"] > 0:
+            base_score -= 15
+
+        unified_score = max(0, base_score)
+
+        return {
+            "unified_security_score": unified_score,
+            "api_security": security_metrics,
+            "sepa_security": sepa_security,
+            "framework_health": framework_health,
+            "overall_status": "HEALTHY"
+            if unified_score >= 80
+            else "DEGRADED"
+            if unified_score >= 60
+            else "CRITICAL",
+            "generated_at": now(),
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error getting unified security summary: {str(e)}")
+        return {
+            "unified_security_score": 70.0,
+            "api_security": {},
+            "sepa_security": {},
+            "framework_health": {},
+            "overall_status": "ERROR",
+            "generated_at": now(),
+            "error": str(e),
+        }
 
 
 # ===== PHASE 3 ENHANCEMENT: ADVANCED ANALYTICS FUNCTIONS =====
@@ -625,6 +837,10 @@ def refresh_advanced_dashboard_data():
             "compliance_metrics": get_compliance_metrics(),
             "optimization_insights": get_optimization_insights(),
             "executive_summary": get_executive_summary(),
+            # Security monitoring integration
+            "security_dashboard": get_security_metrics_for_dashboard(),
+            "security_framework_health": get_security_framework_health(),
+            "unified_security_summary": get_unified_security_summary(),
             "timestamp": now(),
         }
     except Exception as e:
@@ -762,10 +978,10 @@ def test_phase2_components():
             # Create test system alert
             alert = frappe.new_doc("System Alert")
             alert.alert_type = "Comprehensive Test Alert"
-            alert.severity = "Medium"
+            alert.severity = "MEDIUM"
             alert.message = "End-to-end monitoring system validation"
-            alert.source = "comprehensive_test"
-            alert.status = "Open"
+            alert.details = {"source": "comprehensive_test", "test_type": "automated_validation"}
+            alert.status = "Active"
             alert.insert()
             frappe.db.commit()
 
@@ -967,7 +1183,7 @@ def test_integration():
         try:
             # Intentionally cause error
             ae.analyze_error_patterns(days="invalid")
-        except:
+        except (TypeError, ValueError, AttributeError):
             results["error_handling"]["graceful"] = "PASS"
             print("  ✓ Error Handling: Graceful failure")
         else:
@@ -1190,13 +1406,15 @@ def cleanup_test_data():
     print("\nCleaning up comprehensive test data...")
 
     # Clean up test alerts
-    test_alerts = frappe.get_all("System Alert", filters={"source": ["like", "%test%"]}, pluck="name")
+    test_alerts = frappe.get_all("System Alert", filters={"message": ["like", "%test%"]}, pluck="name")
     for alert in test_alerts:
         frappe.delete_doc("System Alert", alert, force=True)
     print(f"  Cleaned {len(test_alerts)} test system alerts")
 
     # Clean up test audit logs
-    test_audits = frappe.get_all("SEPA Audit Log", filters={"entity_name": ["like", "%TEST%"]}, pluck="name")
+    test_audits = frappe.get_all(
+        "SEPA Audit Log", filters={"reference_name": ["like", "%TEST%"]}, pluck="name"
+    )
     for audit in test_audits:
         frappe.delete_doc("SEPA Audit Log", audit, force=True)
     print(f"  Cleaned {len(test_audits)} test audit logs")

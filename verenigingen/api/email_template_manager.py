@@ -6,7 +6,10 @@ Centralizes all email templates and provides template rendering with fallbacks
 import frappe
 from frappe.utils import get_url
 
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 
+
+@critical_api
 @frappe.whitelist()
 def create_comprehensive_email_templates():
     """Create all email templates used throughout the verenigingen app"""
@@ -491,6 +494,7 @@ def send_template_email(template_name, recipients, context=None, **kwargs):
         return False
 
 
+@standard_api
 @frappe.whitelist()
 def test_email_template(template_name, test_context=None):
     """Test email template rendering with sample context"""
@@ -531,6 +535,7 @@ def test_email_template(template_name, test_context=None):
         return {"success": False, "error": str(e), "template_name": template_name}
 
 
+@standard_api
 @frappe.whitelist()
 def list_all_email_templates():
     """List all email templates in the system"""

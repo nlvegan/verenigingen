@@ -307,8 +307,9 @@ def get_top_insights(year):
         )
 
     # Identify at-risk members (simplified version)
+    # Note: last_activity field was removed - using last_duration_update as alternative
     at_risk_count = frappe.db.count(
-        "Member", filters={"status": "Active", "last_activity": ["<", getdate() - timedelta(days=90)]}
+        "Member", filters={"status": "Active", "last_duration_update": ["<", getdate() - timedelta(days=90)]}
     )
 
     if at_risk_count > 0:

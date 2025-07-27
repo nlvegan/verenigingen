@@ -313,14 +313,19 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
         teams_affected = 0
 
         # Get all active team memberships for this member
-        team_memberships = frappe.get_all(
-            "Team Member",
-            filters={
-                "user": frappe.db.get_value("Member", member_name, "user"),
-                "docstatus": ["!=", 2],  # Not cancelled
-            },
-            fields=["name", "parent", "user", "role"],
-        )
+        # First get the volunteer linked to this member
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+
+        team_memberships = []
+        if volunteer_name:
+            team_memberships = frappe.get_all(
+                "Team Member",
+                filters={
+                    "volunteer": volunteer_name,
+                    "docstatus": ["!=", 2],  # Not cancelled
+                },
+                fields=["name", "parent", "volunteer", "role"],
+            )
 
         for team_membership in team_memberships:
             try:
@@ -332,7 +337,7 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                     team_member_doc.cancel()
                     teams_affected += 1
                     frappe.logger().info(
-                        f"Cancelled team membership for {team_membership.user} in team {team_membership.parent}"
+                        f"Cancelled team membership for {team_membership.volunteer} in team {team_membership.parent}"
                     )
                 elif team_member_doc.docstatus == 0:
                     # Delete draft team memberships
@@ -340,7 +345,7 @@ def suspend_team_memberships_safe(member_name, termination_date, reason):
                     team_member_doc.delete()
                     teams_affected += 1
                     frappe.logger().info(
-                        f"Deleted draft team membership for {team_membership.user} in team {team_membership.parent}"
+                        f"Deleted draft team membership for {team_membership.volunteer} in team {team_membership.parent}"
                     )
 
             except Exception as e:
@@ -717,7 +722,7 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
                     filters={
                         "volunteer": volunteer_data.name,
                         "docstatus": 0,  # Draft status
-                        "approval_status": ["in", ["Pending", "Under Review"]],
+                        "status": ["in", ["Pending", "Under Review"]],
                     },
                     fields=["name"],
                 )
@@ -888,7 +893,10 @@ def get_member_suspension_status(member_name):
         # Check for active team memberships
         active_teams = 0
         if user_email:
-            active_teams = frappe.db.count("Team Member", {"user": user_email, "docstatus": 1})
+            # Get volunteer linked to the user/member
+            volunteer_name = frappe.db.get_value("Volunteer", {"user": user_email}, "name")
+            if volunteer_name:
+                active_teams = frappe.db.count("Team Member", {"volunteer": volunteer_name, "docstatus": 1})
 
         return {
             "is_suspended": is_suspended,

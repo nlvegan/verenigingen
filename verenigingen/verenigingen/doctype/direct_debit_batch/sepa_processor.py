@@ -91,7 +91,7 @@ class SEPAProcessor:
             "status": "Active",
             "auto_generate": 1,
             "test_mode": 0,
-            "payment_method": "SEPA Direct Debit",
+            "payment_terms_template": "SEPA Direct Debit",
             "next_invoice_date": ["<=", max_due_date],
         }
 
@@ -133,7 +133,7 @@ class SEPAProcessor:
             filters={
                 "customer": schedule.member,
                 "custom_membership_dues_schedule": schedule.name,
-                "custom_coverage_start_date": schedule.current_coverage_start,
+                "custom_coverage_start_date": schedule.last_invoice_coverage_start,
                 "docstatus": ["!=", 2],  # Not cancelled
                 "status": ["in", ["Unpaid", "Overdue"]],  # Only unpaid invoices
             },
@@ -146,7 +146,7 @@ class SEPAProcessor:
         """Check if member has SEPA Direct Debit enabled and active mandate"""
         try:
             # Check if schedule has SEPA payment method
-            if getattr(schedule, "payment_method", None) != "SEPA Direct Debit":
+            if getattr(schedule, "payment_terms_template", None) != "SEPA Direct Debit":
                 return False
 
             # Check if member has active SEPA mandate
@@ -227,14 +227,14 @@ class SEPAProcessor:
 
             # Add custom fields for tracking
             invoice.custom_membership_dues_schedule = schedule.name
-            invoice.custom_coverage_start_date = schedule.current_coverage_start
-            invoice.custom_coverage_end_date = schedule.current_coverage_end
+            invoice.custom_coverage_start_date = schedule.last_invoice_coverage_start
+            invoice.custom_coverage_end_date = schedule.last_invoice_coverage_end
             invoice.custom_contribution_mode = schedule.contribution_mode
 
             # Add reference
             invoice.remarks = (
                 f"Membership dues for {member.full_name}\n"
-                f"Period: {schedule.current_coverage_start} to {schedule.current_coverage_end}\n"
+                f"Period: {schedule.last_invoice_coverage_start} to {schedule.last_invoice_coverage_end}\n"
                 f"Schedule: {schedule.name}"
             )
 
@@ -268,7 +268,9 @@ class SEPAProcessor:
             if schedule.custom_amount_reason:
                 base_desc += f": {schedule.custom_amount_reason}"
 
-        base_desc += f"\nCoverage: {schedule.current_coverage_start} to {schedule.current_coverage_end}"
+        base_desc += (
+            f"\nCoverage: {schedule.last_invoice_coverage_start} to {schedule.last_invoice_coverage_end}"
+        )
 
         return base_desc
 
@@ -521,15 +523,15 @@ Organization
                     mds.member,
                     mds.billing_frequency,
                     mds.next_invoice_date,
-                    mds.current_coverage_start,
-                    mds.current_coverage_end,
-                    mds.payment_method,
+                    mds.last_invoice_coverage_start,
+                    mds.last_invoice_coverage_end,
+                    mds.payment_terms_template,
                     COUNT(si.name) as invoice_count
                 FROM `tabMembership Dues Schedule` mds
                 LEFT JOIN `tabSales Invoice` si ON (
                     si.custom_membership_dues_schedule = mds.name
-                    AND si.custom_coverage_start_date = mds.current_coverage_start
-                    AND si.custom_coverage_end_date = mds.current_coverage_end
+                    AND si.custom_coverage_start_date = mds.last_invoice_coverage_start
+                    AND si.custom_coverage_end_date = mds.last_invoice_coverage_end
                     AND si.docstatus != 2
                 )
                 WHERE
@@ -548,9 +550,9 @@ Organization
                     "name": row["schedule_name"],
                     "member": row["member"],
                     "billing_frequency": row["billing_frequency"],
-                    "current_coverage_start": row["current_coverage_start"],
-                    "current_coverage_end": row["current_coverage_end"],
-                    "payment_method": row["payment_method"],
+                    "last_invoice_coverage_start": row["last_invoice_coverage_start"],
+                    "last_invoice_coverage_end": row["last_invoice_coverage_end"],
+                    "payment_terms_template": row["payment_terms_template"],
                 }
                 for row in coverage_data
             ]
@@ -573,7 +575,7 @@ Organization
                     )
 
                 # Check if invoice exists for SEPA schedules
-                if row["payment_method"] == "SEPA Direct Debit" and row["invoice_count"] == 0:
+                if row["payment_terms_template"] == "SEPA Direct Debit" and row["invoice_count"] == 0:
                     issues.append(
                         {
                             "schedule": schedule_name,
@@ -603,11 +605,11 @@ Organization
 
     def validate_coverage_period(self, schedule, collection_date):
         """Validate coverage period against billing frequency (rolling periods)"""
-        if not schedule["current_coverage_start"] or not schedule["current_coverage_end"]:
+        if not schedule["last_invoice_coverage_start"] or not schedule["last_invoice_coverage_end"]:
             return "Missing coverage period dates"
 
-        start_date = getdate(schedule["current_coverage_start"])
-        end_date = getdate(schedule["current_coverage_end"])
+        start_date = getdate(schedule["last_invoice_coverage_start"])
+        end_date = getdate(schedule["last_invoice_coverage_end"])
         billing_freq = schedule["billing_frequency"]
 
         # Calculate expected period length
@@ -973,7 +975,7 @@ def get_upcoming_dues_collections(days_ahead=30):
         "Membership Dues Schedule",
         filters={
             "status": "Active",
-            "payment_method": "SEPA Direct Debit",
+            "payment_terms_template": "SEPA Direct Debit",
             "next_invoice_date": ["between", [today(), future_date]],
         },
         fields=[
@@ -984,8 +986,8 @@ def get_upcoming_dues_collections(days_ahead=30):
             "billing_frequency",
             "next_invoice_date",
             "contribution_mode",
-            "current_coverage_start",
-            "current_coverage_end",
+            "last_invoice_coverage_start",
+            "last_invoice_coverage_end",
         ],
         order_by="next_invoice_date",
     )

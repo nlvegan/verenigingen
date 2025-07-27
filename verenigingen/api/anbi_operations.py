@@ -9,6 +9,9 @@ from datetime import datetime
 import frappe
 from frappe import _
 
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+
 
 def has_donor_permlevel_access(permission_type="read"):
     """Check if user has permlevel 1 access to Donor doctype"""
@@ -29,6 +32,7 @@ def has_donor_permlevel_access(permission_type="read"):
 
 
 @frappe.whitelist()
+@high_security_api  # Tax identifier management
 def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method=None):
     """
     Update donor tax identifiers with proper security checks

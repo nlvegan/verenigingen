@@ -17,6 +17,14 @@ from frappe.utils import add_days, getdate, today
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, validate_required_fields
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
+
+# API Security Framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.security.audit_logging import AuditEventType, AuditSeverity, audit_log, log_sepa_event
 from verenigingen.utils.security.authorization import (
     SEPAOperation,
@@ -37,11 +45,7 @@ from verenigingen.utils.security.rate_limiting import (
 from verenigingen.utils.sepa_input_validation import SEPAInputValidator
 
 
-@handle_api_error
-@require_csrf_token
-@rate_limit_sepa_loading
-@require_sepa_read
-@audit_log("sepa_invoice_loading", "info", capture_args=True)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limit=100):
     """
@@ -182,11 +186,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
     return invoices
 
 
-@handle_api_error
-@require_csrf_token
-@rate_limit_sepa_validation
-@require_sepa_read
-@audit_log("sepa_mandate_info_retrieval", "info")
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_invoice_mandate_info_secure(invoice):
     """
@@ -257,11 +257,7 @@ def get_invoice_mandate_info_secure(invoice):
     return {"valid": False, "error": _("No active SEPA mandate found")}
 
 
-@handle_api_error
-@require_csrf_token
-@rate_limit_sepa_validation
-@require_sepa_permission(SEPAOperation.INVOICE_VALIDATE)
-@audit_log("sepa_mandate_validation", "info")
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def validate_invoice_mandate_secure(invoice, member):
     """
@@ -345,11 +341,7 @@ def validate_invoice_mandate_secure(invoice, member):
         return {"valid": False, "error": str(e)}
 
 
-@handle_api_error
-@require_csrf_token
-@rate_limit_sepa_analytics
-@require_sepa_read
-@audit_log("sepa_batch_analytics", "info")
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_batch_analytics_secure(batch_name):
     """
@@ -412,11 +404,7 @@ def get_batch_analytics_secure(batch_name):
     return analytics
 
 
-@handle_api_error
-@require_csrf_token
-@rate_limit_sepa_analytics
-@require_sepa_read
-@audit_log("sepa_xml_preview", "info")
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def preview_sepa_xml_secure(batch_name):
     """
@@ -478,11 +466,7 @@ def preview_sepa_xml_secure(batch_name):
     return preview
 
 
-@handle_api_error
-@require_csrf_token
-@rate_limit_sepa_batch_creation
-@require_sepa_create
-@audit_log("sepa_batch_creation", "info", capture_args=True)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def create_sepa_batch_validated_secure(**params):
     """
@@ -701,11 +685,7 @@ def create_sepa_batch_validated_secure(**params):
         }
 
 
-@handle_api_error
-@require_csrf_token
-@rate_limit_sepa_validation
-@require_sepa_permission(SEPAOperation.BATCH_VALIDATE)
-@audit_log("sepa_batch_invoice_validation", "info")
+@critical_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def validate_batch_invoices_secure(invoice_list):
     """
@@ -763,8 +743,7 @@ def validate_batch_invoices_secure(invoice_list):
 
 
 # API endpoint to get SEPA validation constraints with security
-@handle_api_error
-@require_sepa_read
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def get_sepa_validation_constraints_secure():
     """
@@ -782,6 +761,7 @@ def get_sepa_validation_constraints_secure():
 
 
 # Health check endpoint for security monitoring
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist(allow_guest=False)
 def sepa_security_health_check():
     """

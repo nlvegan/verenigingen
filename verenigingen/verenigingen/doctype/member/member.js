@@ -1184,6 +1184,18 @@ function refresh_dues_schedule_history(frm) {
 		},
 		callback: function(r) {
 			if (r.message && r.message.success) {
+				// Check if document reload is needed
+				if (r.message.reload_doc) {
+					frappe.show_alert({
+						message: `Dues schedule history refreshed: ${r.message.history_count} entries. Reloading document...`,
+						indicator: 'green'
+					}, 3);
+
+					// Reload the document to avoid timestamp conflicts
+					frm.reload_doc();
+					return;
+				}
+
 				frm.refresh_field('fee_change_history');
 
 				// Also refresh financial history using modern atomic method

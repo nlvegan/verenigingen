@@ -54,14 +54,17 @@ def validate_termination_readiness(member_name):
                 "Chapter Board Member", {"volunteer": volunteer.name, "is_active": 1}
             )
 
-        # Method 2: Check for direct member linkage (if Chapter Board Member has member field)
+        # Method 2: Check for volunteer-based board positions
         try:
-            direct_board_positions = frappe.db.count(
-                "Chapter Board Member", {"member": member_name, "is_active": 1}
-            )
-            board_positions += direct_board_positions
+            # Get volunteer linked to this member
+            volunteer_name = frappe.db.get_value("Volunteer", {"member": member_name}, "name")
+            if volunteer_name:
+                direct_board_positions = frappe.db.count(
+                    "Chapter Board Member", {"volunteer": volunteer_name, "is_active": 1}
+                )
+                board_positions += direct_board_positions
         except Exception:
-            # If member field doesn't exist in Chapter Board Member, that's OK
+            # If queries fail, that's OK - continue with 0
             pass
 
         readiness["impact"]["board_positions"] = board_positions
@@ -120,7 +123,7 @@ def validate_termination_readiness(member_name):
                 INNER JOIN `tabVolunteer` v ON ve.volunteer = v.name
                 WHERE v.member = %s
                 AND ve.docstatus = 0
-                AND ve.approval_status IN ('Pending', 'Under Review')
+                AND ve.status IN ('Pending', 'Under Review')
             """,
                 (member_name,),
             )[0][0]

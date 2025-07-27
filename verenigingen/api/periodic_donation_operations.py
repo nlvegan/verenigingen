@@ -10,7 +10,17 @@ import frappe
 from frappe import _
 from frappe.utils import add_years, flt, getdate, today
 
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
 
+
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def create_periodic_agreement(
     donor,
@@ -83,6 +93,7 @@ def create_periodic_agreement(
         return {"success": False, "message": str(e)}
 
 
+@standard_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def get_donor_agreements(donor, status=None):
     """
@@ -126,6 +137,7 @@ def get_donor_agreements(donor, status=None):
         return {"success": False, "message": str(e)}
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def link_donation_to_agreement(donation, agreement):
     """
@@ -167,6 +179,7 @@ def link_donation_to_agreement(donation, agreement):
         return {"success": False, "message": str(e)}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def generate_periodic_donation_report(from_date=None, to_date=None):
     """
@@ -250,6 +263,7 @@ def generate_periodic_donation_report(from_date=None, to_date=None):
         return {"success": False, "message": str(e)}
 
 
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def check_expiring_agreements(days_ahead=90):
     """
@@ -295,6 +309,7 @@ def check_expiring_agreements(days_ahead=90):
         return {"success": False, "message": str(e)}
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def create_donation_from_agreement(agreement_name):
     """
@@ -353,6 +368,7 @@ def create_donation_from_agreement(agreement_name):
         return {"success": False, "message": str(e)}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def get_agreement_statistics():
     """
@@ -423,6 +439,7 @@ def get_agreement_statistics():
         return {"success": False, "message": str(e)}
 
 
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def send_renewal_reminders(days_before_expiry=90):
     """
@@ -541,6 +558,7 @@ def get_renewal_reminder_email(agreement, days_remaining):
     """
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @frappe.whitelist()
 def generate_tax_receipts(filters):
     """
@@ -613,6 +631,7 @@ def generate_tax_receipt_content(agreement):
     """
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def export_agreements(filters):
     """
@@ -706,6 +725,7 @@ def export_agreements(filters):
         return {"success": False, "message": str(e)}
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def test_periodic_donation_system():
     """Test that the periodic donation agreement system is working"""

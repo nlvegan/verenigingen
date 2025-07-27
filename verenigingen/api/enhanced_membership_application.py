@@ -8,8 +8,12 @@ import frappe
 from frappe import _
 from frappe.utils import cstr, flt, getdate, today
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, public_api, standard_api
+
 
 @frappe.whitelist(allow_guest=True)
+@public_api(operation_type=OperationType.PUBLIC)
 def submit_enhanced_application():
     """Submit enhanced membership application with flexible contribution"""
     try:
@@ -453,6 +457,7 @@ def send_application_confirmation(application, invoice):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def get_membership_types_for_application():
     """Get membership types with contribution options for application form"""
     try:

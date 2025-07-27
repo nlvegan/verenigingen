@@ -62,8 +62,8 @@ def get_data(filters):
             donor.anbi_consent as consent_given,
             SUM(d.amount) as total_donations,
             COUNT(d.name) as donation_count,
-            MIN(d.date) as first_donation,
-            MAX(d.date) as last_donation,
+            MIN(d.donation_date) as first_donation,
+            MAX(d.donation_date) as last_donation,
             MAX(d.belastingdienst_reportable) as reportable,
             GROUP_CONCAT(DISTINCT d.periodic_donation_agreement) as agreements,
             GROUP_CONCAT(DISTINCT d.anbi_agreement_number) as agreement_numbers
@@ -154,10 +154,10 @@ def get_conditions(filters):
     conditions = []
 
     if filters.get("from_date"):
-        conditions.append("d.date >= %(from_date)s")
+        conditions.append("d.donation_date >= %(from_date)s")
 
     if filters.get("to_date"):
-        conditions.append("d.date <= %(to_date)s")
+        conditions.append("d.donation_date <= %(to_date)s")
 
     if filters.get("donor"):
         conditions.append("d.donor = %(donor)s")

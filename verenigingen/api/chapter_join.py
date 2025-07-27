@@ -5,8 +5,12 @@ Chapter Join API
 import frappe
 from frappe import _
 
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+
 
 @frappe.whitelist()
+@standard_api  # Chapter join context - read-only
 def get_chapter_join_context(chapter_name):
     """Get context for chapter join page"""
     try:
@@ -55,6 +59,7 @@ def get_chapter_join_context(chapter_name):
 
 
 @frappe.whitelist()
+@high_security_api  # Chapter membership operations
 def join_chapter(chapter_name, introduction):
     """Handle chapter join request"""
     try:

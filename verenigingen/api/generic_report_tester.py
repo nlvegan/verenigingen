@@ -6,8 +6,16 @@ Can be used to test any Frappe query report for basic functionality and regressi
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
+
 
 @frappe.whitelist()
+@rate_limit(calls=20, period=60)  # 20 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
+@validate_csrf_token
 def test_generic_report_loading(
     report_name, test_filters=None, expected_errors=None, regression_patterns=None
 ):
@@ -21,6 +29,13 @@ def test_generic_report_loading(
         regression_patterns: List of error patterns that indicate regressions (optional)
     """
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "reporting",
+            "test_generic_report_loading",
+            {"report_name": report_name, "requested_by": frappe.session.user},
+        )
+
         # Set default filters if none provided
         if test_filters is None:
             test_filters = {}
@@ -138,6 +153,9 @@ def analyze_report_structure(report_result):
 
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
+@validate_csrf_token
 def test_multiple_reports(report_configs):
     """
     Test multiple reports with their specific configurations
@@ -154,6 +172,16 @@ def test_multiple_reports(report_configs):
             }
         ]
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "reporting",
+        "test_multiple_reports",
+        {
+            "config_count": len(report_configs) if isinstance(report_configs, list) else "string",
+            "requested_by": frappe.session.user,
+        },
+    )
+
     if isinstance(report_configs, str):
         # Handle JSON string input
         import json
@@ -211,12 +239,23 @@ VERENIGINGEN_REPORT_CONFIGS = [
 
 
 @frappe.whitelist()
+@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
+@require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
+@validate_csrf_token
 def test_all_verenigingen_reports():
     """Test all Verenigingen reports with their specific configurations"""
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "reporting", "test_all_verenigingen_reports", {"requested_by": frappe.session.user}
+    )
+
     return test_multiple_reports(VERENIGINGEN_REPORT_CONFIGS)
 
 
 @frappe.whitelist()
+@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
+@require_role(["System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def discover_and_test_reports(app_name="verenigingen"):
     """
     Discover all reports in an app and test them with basic configuration
@@ -225,6 +264,13 @@ def discover_and_test_reports(app_name="verenigingen"):
         app_name: Name of the app to discover reports from
     """
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "reporting",
+            "discover_and_test_reports",
+            {"app_name": app_name, "requested_by": frappe.session.user},
+        )
+
         # Get all reports for the app
         reports = frappe.get_all(
             "Report",

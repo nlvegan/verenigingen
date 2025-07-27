@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
+LEGACY MIGRATION SCRIPT - DO NOT USE
 Migration script to convert membership_fee_override data to Membership Dues Schedule records
 This script migrates the legacy override system to the new child DocType architecture
+
+NOTE: The membership_fee_override field was removed from the Member doctype.
+This script is kept for historical reference only and will not function on current installations.
 """
 
 import frappe
@@ -17,16 +21,22 @@ def migrate_fee_overrides():
     print("Starting migration of membership fee overrides to dues schedules...")
     
     # Get all members with fee overrides
-    members_with_overrides = frappe.get_all(
-        "Member",
-        filters={
-            "membership_fee_override": [">", 0]
-        },
-        fields=[
-            "name", "full_name", "membership_fee_override", 
-            "fee_override_reason", "fee_override_date", "fee_override_by"
-        ]
-    )
+    # NOTE: membership_fee_override field was removed - this script is for legacy data migration only
+    try:
+        # NOTE: This query will fail as membership_fee_override was removed
+        members_with_overrides = frappe.get_all(
+            "Member",
+            filters={
+                "membership_fee_override": [">", 0]  # LEGACY: field removed, handled by exception
+            },
+            fields=[
+                "name", "full_name", "membership_fee_override",  # LEGACY: field removed
+                "fee_override_reason", "fee_override_date", "fee_override_by"
+            ]
+        )
+    except Exception:
+        print("membership_fee_override field no longer exists - this script is for legacy data only")
+        return {"migrated": 0, "errors": 0, "total": 0}
     
     print(f"Found {len(members_with_overrides)} members with fee overrides")
     
@@ -166,11 +176,17 @@ def validate_migration():
     print("\nValidating migration...")
     
     # Get members with overrides
-    members_with_overrides = frappe.get_all(
-        "Member",
-        filters={"membership_fee_override": [">", 0]},
-        fields=["name", "membership_fee_override"]
-    )
+    # NOTE: membership_fee_override field was removed - this is for legacy data validation only
+    try:
+        # NOTE: This query will fail as membership_fee_override was removed
+        members_with_overrides = frappe.get_all(
+            "Member",
+            filters={"membership_fee_override": [">", 0]},  # LEGACY: field removed, handled by exception
+            fields=["name", "membership_fee_override"]  # LEGACY: field removed
+        )
+    except Exception:
+        print("membership_fee_override field no longer exists - validation skipped")
+        return {"matches": 0, "mismatches": 0, "missing": 0}
     
     validation_results = {"matches": 0, "mismatches": 0, "missing": 0}
     
@@ -209,15 +225,25 @@ def create_migration_report():
     """
     print("\nGenerating migration report...")
     
-    report_data = {
-        "migration_date": datetime.now(),
-        "total_members_with_overrides": frappe.db.count("Member", {"membership_fee_override": [">", 0]}),
-        "total_dues_schedules_created": frappe.db.count("Membership Dues Schedule", {"migration_source": "fee_override_migration"}),
-        "total_override_amount": frappe.db.sql("""
+    # NOTE: membership_fee_override field was removed - this is for legacy reporting only
+    try:
+        # NOTE: These queries will fail as membership_fee_override was removed
+        total_members_with_overrides = frappe.db.count("Member", {"membership_fee_override": [">", 0]})
+        total_override_amount = frappe.db.sql("""
             SELECT SUM(membership_fee_override) 
             FROM `tabMember` 
             WHERE membership_fee_override > 0
-        """)[0][0] or 0,
+        """)[0][0] or 0
+    except Exception:
+        print("membership_fee_override field no longer exists - reporting legacy data as 0")
+        total_members_with_overrides = 0
+        total_override_amount = 0
+    
+    report_data = {
+        "migration_date": datetime.now(),
+        "total_members_with_overrides": total_members_with_overrides,
+        "total_dues_schedules_created": frappe.db.count("Membership Dues Schedule", {"migration_source": "fee_override_migration"}),
+        "total_override_amount": total_override_amount,
         "total_migrated_amount": frappe.db.sql("""
             SELECT SUM(dues_rate) 
             FROM `tabMembership Dues Schedule` 

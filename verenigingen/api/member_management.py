@@ -13,8 +13,21 @@ from verenigingen.utils.error_handling import (
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
 
+# Import comprehensive security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    SecurityLevel,
+    critical_api,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
+from verenigingen.utils.security.enhanced_validation import validate_with_schema
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.MEMBER_DATA)
+@validate_with_schema("member_data")
 @handle_api_error
 @performance_monitor(threshold_ms=500)
 def assign_member_to_chapter(member_name, chapter_name):
@@ -123,6 +136,7 @@ def can_assign_member_to_chapter(member_name, chapter_name):
 
 @handle_api_error
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_members_without_chapter(**kwargs):
     """Get list of members without chapter assignment"""
     try:
@@ -202,6 +216,7 @@ def can_view_members_without_chapter():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_assign_members_to_chapters(assignments):
     """Bulk assign multiple members to chapters
 
@@ -266,6 +281,7 @@ def add_member_to_chapter_roster(member_name, new_chapter):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def debug_address_members(member_id):
     """Debug method to test address members functionality"""
     try:
@@ -299,6 +315,7 @@ def debug_address_members(member_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def manually_populate_address_members(member_id):
     """Manually populate the address members field to test UI"""
     try:
@@ -323,6 +340,7 @@ def manually_populate_address_members(member_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def clear_address_members_field(member_id):
     """Clear the address members field to test automatic population"""
     try:
@@ -337,6 +355,7 @@ def clear_address_members_field(member_id):
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def test_simple_field_population(member_id):
     """Test setting a simple value to verify field visibility"""
     try:
@@ -354,6 +373,7 @@ def test_simple_field_population(member_id):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 @handle_api_error
 def get_address_members_html_api(member_id):
     """Dedicated API method to get address members HTML - completely separate from document methods"""
@@ -528,12 +548,14 @@ def get_status_color_simple(status):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_mt940_import_url():
     """Get URL for MT940 import page"""
     return "/mt940_import"
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def test_mt940_extraction(file_content, bank_account=None):
     """Test the extraction function on first transaction"""
     try:
@@ -599,6 +621,7 @@ def test_mt940_extraction(file_content, bank_account=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def debug_mt940_import_improved(file_content, bank_account=None):
     """Debug version of MT940 import with improved transaction parsing"""
     try:
@@ -692,6 +715,7 @@ def debug_mt940_import_improved(file_content, bank_account=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def debug_mt940_import(file_content, bank_account=None):
     """Debug version of MT940 import to see what's happening"""
     try:
@@ -779,6 +803,7 @@ def debug_mt940_import(file_content, bank_account=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def debug_bank_account_search(iban):
     """Debug bank account search by IBAN"""
     try:
@@ -816,6 +841,7 @@ def debug_bank_account_search(iban):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def debug_duplicate_detection(file_content_b64, bank_account, company=None):
     """Debug the duplicate detection logic specifically"""
     try:
@@ -989,6 +1015,7 @@ def debug_duplicate_detection(file_content_b64, bank_account, company=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
     """Debug version that shows exactly what's happening during import"""
     try:
@@ -1102,6 +1129,7 @@ def debug_mt940_import_detailed(file_content, bank_account=None, company=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def import_mt940_improved(file_content, bank_account=None, company=None):
     """Improved MT940 import with better transaction handling"""
     try:

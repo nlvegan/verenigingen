@@ -1,0 +1,48 @@
+{
+  "description": "Configuration for insecure API detector",
+  "version": "1.0",
+  "settings": {
+    "fail_on_critical": true,
+    "fail_on_high": true,
+    "fail_on_medium": false,
+    "fail_on_low": false,
+    "enable_verbose_output": false,
+    "max_issues_to_display": 10
+  },
+  "whitelisted_functions": [
+    "get_security_framework_status",
+    "analyze_api_security_status",
+    "get_mt940_import_url"
+  ],
+  "custom_patterns": {
+    "high_risk_keywords": [
+      "admin", "sudo", "root", "superuser"
+    ],
+    "sensitive_data_patterns": [
+      "ssn", "social_security", "credit_card", "passport"
+    ]
+  },
+  "security_levels": {
+    "financial_operations": "critical",
+    "member_data_operations": "high",
+    "administrative_operations": "critical",
+    "reporting_operations": "medium",
+    "utility_operations": "low"
+  },
+  "frameworks": {
+    "required_decorators": [
+      "@critical_api",
+      "@high_security_api", 
+      "@standard_api",
+      "@utility_api",
+      "@public_api"
+    ],
+    "performance_decorators": [
+      "@performance_monitor",
+      "@handle_api_error"
+    ],
+    "validation_decorators": [
+      "@validate_with_schema"
+    ]
+  }
+}

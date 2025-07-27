@@ -153,7 +153,21 @@ class EBoekhoudenPartyResolver:
                                 customer_name = f"{meaningful_desc[:40]} (eBoekhouden Import)"
                                 debug_info.append(f"Using description-based name: {customer_name}")
                                 break
-                        except:
+                        except ImportError as e:
+                            frappe.log_error(
+                                message=f"Failed to import get_meaningful_description function: {str(e)}",
+                                title="Party Resolver - Import Error",
+                                reference_doctype="Customer",
+                                reference_name=relation_details.get("id", "Unknown"),
+                            )
+                            pass
+                        except Exception as e:
+                            frappe.log_error(
+                                message=f"Failed to get meaningful description from debug info '{info}': {str(e)}",
+                                title="Party Resolver - Description Processing Error",
+                                reference_doctype="Customer",
+                                reference_name=relation_details.get("id", "Unknown"),
+                            )
                             pass
 
             # Final fallback
@@ -226,7 +240,21 @@ class EBoekhoudenPartyResolver:
                                 supplier_name = f"{meaningful_desc[:40]} (eBoekhouden Import)"
                                 debug_info.append(f"Using description-based name: {supplier_name}")
                                 break
-                        except:
+                        except ImportError as e:
+                            frappe.log_error(
+                                message=f"Failed to import get_meaningful_description function for supplier: {str(e)}",
+                                title="Party Resolver - Import Error (Supplier)",
+                                reference_doctype="Supplier",
+                                reference_name=relation_details.get("id", "Unknown"),
+                            )
+                            pass
+                        except Exception as e:
+                            frappe.log_error(
+                                message=f"Failed to get meaningful description from debug info '{info}' for supplier: {str(e)}",
+                                title="Party Resolver - Description Processing Error (Supplier)",
+                                reference_doctype="Supplier",
+                                reference_name=relation_details.get("id", "Unknown"),
+                            )
                             pass
 
             # Final fallback

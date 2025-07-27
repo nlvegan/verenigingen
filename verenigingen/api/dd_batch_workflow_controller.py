@@ -7,7 +7,21 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, now_datetime
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+from verenigingen.utils.security.authorization import (
+    SEPAOperation,
+    SEPAPermissionLevel,
+    require_sepa_permission,
+)
 
+
+@high_security_api(operation_type=OperationType.FINANCIAL)
+@require_sepa_permission(SEPAPermissionLevel.VALIDATE, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def validate_batch_for_approval(batch_name):
     """
@@ -185,6 +199,8 @@ def normalize_iban(iban):
     return iban.replace(" ", "").upper()
 
 
+@critical_api
+@require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
 def approve_batch(batch_name, approval_notes=None):
     """
@@ -245,6 +261,8 @@ def approve_batch(batch_name, approval_notes=None):
         frappe.throw(_("Error approving batch: {0}").format(str(e)))
 
 
+@critical_api
+@require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_CANCEL)
 @frappe.whitelist()
 def reject_batch(batch_name, rejection_reason):
     """
@@ -300,6 +318,8 @@ def can_user_approve_batch(batch):
     return False
 
 
+@standard_api
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_batch_approval_history(batch_name):
     """Get approval history for a batch"""
@@ -338,6 +358,8 @@ def get_batch_approval_history(batch_name):
         return {"success": False, "error": str(e)}
 
 
+@critical_api
+@require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.XML_GENERATE)
 @frappe.whitelist()
 def trigger_sepa_generation(batch_name):
     """
@@ -385,6 +407,8 @@ def trigger_sepa_generation(batch_name):
         frappe.throw(_("Error generating SEPA file: {0}").format(str(e)))
 
 
+@standard_api
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_batches_pending_approval():
     """Get all batches pending approval for current user"""

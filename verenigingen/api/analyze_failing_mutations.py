@@ -4,7 +4,11 @@ Analyze the specific failing mutations to see what they are in eBoekhouden
 
 import frappe
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
+
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def analyze_failing_stock_mutations():
     """Analyze the specific mutations that failed due to stock accounts"""
@@ -78,6 +82,7 @@ def analyze_failing_stock_mutations():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
+@standard_api(operation_type=OperationType.REPORTING)
 @frappe.whitelist()
 def check_stock_ledger_usage():
     """Check how the stock ledger (30000) is being used across all mutation types"""
@@ -133,6 +138,7 @@ def check_stock_ledger_usage():
         return {"success": False, "error": str(e), "traceback": frappe.get_traceback()}
 
 
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def suggest_stock_account_solution():
     """Suggest solutions for handling stock account mutations"""

@@ -9,6 +9,9 @@ from typing import Dict, List, Set
 
 import frappe
 
+# Security framework imports
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+
 
 class EnhancedWorkspaceValidator:
     """Validates workspaces in both database and fixtures file"""
@@ -192,6 +195,7 @@ class EnhancedWorkspaceValidator:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_workspaces_enhanced():
     """Enhanced workspace validation that checks both fixtures and database"""
     validator = EnhancedWorkspaceValidator()
@@ -199,6 +203,7 @@ def validate_workspaces_enhanced():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_workspace_rendering_issue(workspace_name: str = "E-Boekhouden"):
     """Debug why a workspace might not render properly"""
 

@@ -97,9 +97,19 @@ class APIService {
 				reject(new Error(`Request timeout after ${this.options.timeout}ms`));
 			}, options.timeout || this.options.timeout);
 
+			// Prepare headers with CSRF token
+			const headers = {};
+
+			// Include CSRF token if available (for both custom and Frappe native)
+			if (frappe.csrf_token) {
+				headers['X-CSRF-Token'] = frappe.csrf_token;
+				headers['X-Frappe-CSRF-Token'] = frappe.csrf_token;
+			}
+
 			frappe.call({
 				method,
 				args,
+				headers,
 				callback: (response) => {
 					clearTimeout(timeoutId);
 
@@ -122,7 +132,8 @@ class APIService {
 						method,
 						args,
 						status: response.status,
-						statusText: response.statusText
+						statusText: response.statusText,
+						headers: headers
 					});
 
 					reject(error);

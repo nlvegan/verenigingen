@@ -134,6 +134,30 @@ class EnhancedFieldValidator:
             # Pattern 6: Dictionary keys and get() calls
             self._check_dictionary_patterns(file_path, content, lines)
             
+            # Pattern 7: get_single_value calls for Singles doctypes
+            self._check_get_single_value_patterns(file_path, content, lines)
+            
+            # Pattern 8: Database filter dictionaries
+            self._check_filter_dictionary_patterns(file_path, content, lines)
+            
+            # Pattern 9: Child table field access
+            self._check_child_table_field_access(file_path, content, lines)
+            
+            # Pattern 10: set_single_value calls
+            self._check_set_single_value_patterns(file_path, content, lines)
+            
+            # Pattern 11: set_value calls
+            self._check_set_value_patterns(file_path, content, lines)
+            
+            # Pattern 12: SQL WHERE/ORDER BY/GROUP BY fields
+            self._check_sql_field_patterns(file_path, content, lines)
+            
+            # Pattern 13: Report column/filter definitions
+            self._check_report_field_patterns(file_path, content, lines)
+            
+            # Pattern 14: Meta field validation calls
+            self._check_meta_field_patterns(file_path, content, lines)
+            
         except Exception as e:
             print(f"Error validating {file_path}: {e}")
     
@@ -146,6 +170,9 @@ class EnhancedFieldValidator:
             
             # Check Jinja2 template variables
             self._check_template_variables(file_path, content, lines)
+            
+            # Check email template field variables
+            self._check_email_template_variables(file_path, content, lines)
             
         except Exception as e:
             print(f"Error validating template {file_path}: {e}")
@@ -294,6 +321,205 @@ class EnhancedFieldValidator:
                         suggested_fix=self._get_suggested_fix(field_name, doctype)
                     ))
     
+    def _check_get_single_value_patterns(self, file_path: Path, content: str, lines: List[str]):
+        """Check get_single_value calls for Singles doctypes"""
+        patterns = [
+            # frappe.db.get_single_value("DocType", "field")
+            r'frappe\.db\.get_single_value\(["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']',
+            # frappe.get_single_value("DocType", "field")
+            r'frappe\.get_single_value\(["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']',
+            # doc.get_single_value("field")
+            r'\.get_single_value\(["\']([^"\']+)["\']'
+        ]
+        
+        for pattern in patterns:
+            for match in re.finditer(pattern, content):
+                if match.lastindex == 2:  # Pattern with doctype and field
+                    doctype = match.group(1)
+                    field_name = match.group(2)
+                else:  # Pattern with just field
+                    doctype = self._guess_doctype_from_context(content, match.start())
+                    field_name = match.group(1)
+                
+                line_num = content[:match.start()].count('\n') + 1
+                
+                # Check if this is a Singles doctype and if the field exists
+                if doctype and doctype in self.doctypes:
+                    doctype_fields = self.doctypes.get(doctype, {})
+                    if isinstance(doctype_fields, dict):
+                        fields = doctype_fields.get('fields', set())
+                    else:
+                        fields = doctype_fields
+                    
+                    if field_name not in fields and not self._is_standard_field(field_name):
+                        self.issues.append(ValidationIssue(
+                            file=str(file_path.relative_to(self.app_path)),
+                            line=line_num,
+                            field=field_name,
+                            doctype=doctype,
+                            reference=f"get_single_value: {field_name}",
+                            message=f"Field '{field_name}' does not exist in Singles doctype '{doctype}'",
+                            context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                            confidence="high",
+                            issue_type="missing_singles_field",
+                            suggested_fix=f"Add field '{field_name}' to {doctype} doctype or use an existing field"
+                        ))
+    
+    def _check_filter_dictionary_patterns(self, file_path: Path, content: str, lines: List[str]):
+        """Check database filter dictionary patterns"""
+        # Pattern: frappe.get_all("DocType", filters={"field": "value"})
+        filter_patterns = [
+            r'frappe\.(?:db\.)?(?:get_all|get_list|get_value|exists|count)\(\s*["\']([^"\']+)["\']\s*,\s*[^)]*filters\s*=\s*(\{[^}]+\})',
+            r'frappe\.(?:db\.)?(?:get_all|get_list|get_value|exists|count)\(\s*["\']([^"\']+)["\']\s*,\s*filters\s*=\s*(\{[^}]+\})',
+        ]
+        
+        for pattern in filter_patterns:
+            for match in re.finditer(pattern, content, re.DOTALL):
+                doctype = match.group(1)
+                filter_dict_str = match.group(2)
+                line_num = content[:match.start()].count('\n') + 1
+                
+                # Extract field names from the filter dictionary
+                field_matches = re.findall(r'["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']', filter_dict_str)
+                
+                if doctype in self.doctypes:
+                    doctype_fields = self.doctypes.get(doctype, {})
+                    if isinstance(doctype_fields, dict):
+                        fields = doctype_fields.get('fields', set())
+                    else:
+                        fields = doctype_fields
+                    
+                    for field_name in field_matches:
+                        if field_name not in fields and not self._is_standard_field(field_name):
+                            self.issues.append(ValidationIssue(
+                                file=str(file_path.relative_to(self.app_path)),
+                                line=line_num,
+                                field=field_name,
+                                doctype=doctype,
+                                reference=f"filter dict: {field_name}",
+                                message=f"Field '{field_name}' in filter dictionary does not exist in '{doctype}'",
+                                context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                                confidence="high",
+                                issue_type="missing_filter_field",
+                                suggested_fix=f"Add field '{field_name}' to {doctype} doctype or check field name"
+                            ))
+    
+    def _check_child_table_field_access(self, file_path: Path, content: str, lines: List[str]):
+        """Check child table field access patterns"""
+        # Pattern: for row in doc.table: value = row.field_name
+        child_access_patterns = [
+            r'for\s+(\w+)\s+in\s+[^:]+:\s*[^=]*\1\.([a-zA-Z_][a-zA-Z0-9_]*)',
+            r'(\w+)\.([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:=|==|!=|in|not\s+in)',
+        ]
+        
+        for pattern in child_access_patterns:
+            for match in re.finditer(pattern, content, re.MULTILINE):
+                var_name = match.group(1)
+                field_name = match.group(2)
+                line_num = content[:match.start()].count('\n') + 1
+                
+                # Skip common non-field patterns
+                if field_name in {'name', 'idx', 'append', 'insert', 'remove', 'get', 'set', 'update', 'save', 'delete'}:
+                    continue
+                
+                # Try to determine if this is a child table access
+                context_before = content[max(0, match.start() - 200):match.start()]
+                if 'for' in context_before and 'in' in context_before:
+                    # This looks like child table access - we'd need more sophisticated detection
+                    # For now, flag as potential issue with lower confidence
+                    self.issues.append(ValidationIssue(
+                        file=str(file_path.relative_to(self.app_path)),
+                        line=line_num,
+                        field=field_name,
+                        doctype="Unknown Child Table",
+                        reference=f"child table access: {var_name}.{field_name}",
+                        message=f"Potential child table field '{field_name}' access - verify field exists",
+                        context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                        confidence="medium",
+                        issue_type="potential_child_table_field",
+                        suggested_fix=f"Verify that field '{field_name}' exists in the child table"
+                    ))
+    
+    def _check_set_single_value_patterns(self, file_path: Path, content: str, lines: List[str]):
+        """Check set_single_value calls for Singles doctypes"""
+        patterns = [
+            # frappe.db.set_single_value("DocType", "field", "value")
+            r'frappe\.db\.set_single_value\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,',
+            # frappe.set_single_value("DocType", "field", "value")
+            r'frappe\.set_single_value\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*,',
+        ]
+        
+        for pattern in patterns:
+            for match in re.finditer(pattern, content):
+                doctype = match.group(1)
+                field_name = match.group(2)
+                line_num = content[:match.start()].count('\n') + 1
+                
+                # Check if this is a Singles doctype and if the field exists
+                if doctype in self.doctypes:
+                    doctype_fields = self.doctypes.get(doctype, {})
+                    if isinstance(doctype_fields, dict):
+                        fields = doctype_fields.get('fields', set())
+                    else:
+                        fields = doctype_fields
+                    
+                    if field_name not in fields and not self._is_standard_field(field_name):
+                        self.issues.append(ValidationIssue(
+                            file=str(file_path.relative_to(self.app_path)),
+                            line=line_num,
+                            field=field_name,
+                            doctype=doctype,
+                            reference=f"set_single_value: {field_name}",
+                            message=f"Field '{field_name}' does not exist in Singles doctype '{doctype}'",
+                            context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                            confidence="high",
+                            issue_type="missing_singles_field_write",
+                            suggested_fix=f"Add field '{field_name}' to {doctype} doctype or use an existing field"
+                        ))
+    
+    def _check_set_value_patterns(self, file_path: Path, content: str, lines: List[str]):
+        """Check frappe.db.set_value calls"""
+        patterns = [
+            # frappe.db.set_value("DocType", "name", "field", "value")
+            r'frappe\.db\.set_value\(\s*["\']([^"\']+)["\']\s*,\s*[^,]+,\s*["\']([^"\']+)["\']\s*,',
+            # frappe.db.set_value("DocType", "name", {"field": "value"})
+            r'frappe\.db\.set_value\(\s*["\']([^"\']+)["\']\s*,\s*[^,]+,\s*(\{[^}]+\})',
+        ]
+        
+        for pattern in patterns:
+            for match in re.finditer(pattern, content, re.DOTALL):
+                doctype = match.group(1)
+                line_num = content[:match.start()].count('\n') + 1
+                
+                if match.lastindex >= 3 and match.group(3):  # Dictionary pattern
+                    # Extract field names from dictionary
+                    dict_str = match.group(3)
+                    field_matches = re.findall(r'["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']', dict_str)
+                else:  # Single field pattern
+                    field_matches = [match.group(2)]
+                
+                if doctype in self.doctypes:
+                    doctype_fields = self.doctypes.get(doctype, {})
+                    if isinstance(doctype_fields, dict):
+                        fields = doctype_fields.get('fields', set())
+                    else:
+                        fields = doctype_fields
+                    
+                    for field_name in field_matches:
+                        if field_name not in fields and not self._is_standard_field(field_name):
+                            self.issues.append(ValidationIssue(
+                                file=str(file_path.relative_to(self.app_path)),
+                                line=line_num,
+                                field=field_name,
+                                doctype=doctype,
+                                reference=f"set_value: {field_name}",
+                                message=f"Field '{field_name}' does not exist in '{doctype}'",
+                                context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                                confidence="high",
+                                issue_type="missing_set_value_field",
+                                suggested_fix=f"Add field '{field_name}' to {doctype} doctype or check field name"
+                            ))
+    
     def _check_dictionary_patterns(self, file_path: Path, content: str, lines: List[str]):
         """Check dictionary access patterns"""
         patterns = [
@@ -374,6 +600,147 @@ class EnhancedFieldValidator:
                     suggested_fix=f"Update JavaScript to use current field name"
                 ))
     
+    def _check_sql_field_patterns(self, file_path: Path, content: str, lines: List[str]):
+        """Check SQL WHERE/ORDER BY/GROUP BY field references"""
+        # Patterns for SQL clauses with field names
+        sql_patterns = [
+            r'WHERE\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]',  # WHERE field =
+            r'ORDER\s+BY\s+([a-zA-Z_][a-zA-Z0-9_]*)',      # ORDER BY field
+            r'GROUP\s+BY\s+([a-zA-Z_][a-zA-Z0-9_]*)',      # GROUP BY field
+            r'FROM\s+tab\w+\s+WHERE\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[=<>!]',  # FROM tabDoc WHERE field
+            r'SELECT\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*,',     # SELECT field,
+            r',\s*([a-zA-Z_][a-zA-Z0-9_]*)\s+FROM',        # , field FROM
+        ]
+        
+        for pattern in sql_patterns:
+            for match in re.finditer(pattern, content, re.IGNORECASE):
+                field_name = match.group(1)
+                line_num = content[:match.start()].count('\n') + 1
+                
+                # Skip SQL keywords and common non-field words
+                if field_name.upper() in ['SELECT', 'FROM', 'WHERE', 'ORDER', 'GROUP', 'BY', 'AND', 'OR', 'NOT',
+                                          'COUNT', 'SUM', 'AVG', 'MIN', 'MAX', 'DISTINCT', 'AS', 'LIKE', 'IN',
+                                          'BETWEEN', 'IS', 'NULL', 'ASC', 'DESC', 'LIMIT', 'OFFSET']:
+                    continue
+                
+                # Try to determine doctype from context
+                doctype = self._guess_doctype_from_sql_context(content, match.start())
+                
+                if doctype and self._is_deprecated_field(field_name, doctype):
+                    self.issues.append(ValidationIssue(
+                        file=str(file_path.relative_to(self.app_path)),
+                        line=line_num,
+                        field=field_name,
+                        doctype=doctype,
+                        reference=f"SQL field: {field_name}",
+                        message=f"Deprecated field '{field_name}' in SQL query for {doctype}",
+                        context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                        confidence="high",
+                        issue_type="deprecated_field_sql_clause",
+                        suggested_fix=self._get_suggested_fix(field_name, doctype)
+                    ))
+    
+    def _check_report_field_patterns(self, file_path: Path, content: str, lines: List[str]):
+        """Check report column/filter field definitions"""
+        # Patterns for report configurations
+        report_patterns = [
+            r'columns\s*=\s*\[.*?{.*?"fieldname"\s*:\s*["\']([^"\']*)["\']',  # columns = [{"fieldname": "field"}
+            r'filters\s*=\s*\[.*?{.*?"fieldname"\s*:\s*["\']([^"\']*)["\']',  # filters = [{"fieldname": "field"}
+            r'{\s*["\']fieldname["\']\s*:\s*["\']([^"\']*)["\']',              # {"fieldname": "field"}
+            r'"fieldname"\s*:\s*["\']([^"\']*)["\']',                        # "fieldname": "field"
+        ]
+        
+        for pattern in report_patterns:
+            for match in re.finditer(pattern, content, re.DOTALL):
+                field_name = match.group(1)
+                line_num = content[:match.start()].count('\n') + 1
+                
+                # Try to determine doctype from report context
+                doctype = self._guess_doctype_from_report_context(content, match.start())
+                
+                if doctype and self._is_deprecated_field(field_name, doctype):
+                    self.issues.append(ValidationIssue(
+                        file=str(file_path.relative_to(self.app_path)),
+                        line=line_num,
+                        field=field_name,
+                        doctype=doctype,
+                        reference=f"report field: {field_name}",
+                        message=f"Deprecated field '{field_name}' in report configuration for {doctype}",
+                        context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                        confidence="high",
+                        issue_type="deprecated_field_report_config",
+                        suggested_fix=self._get_suggested_fix(field_name, doctype)
+                    ))
+    
+    def _check_meta_field_patterns(self, file_path: Path, content: str, lines: List[str]):
+        """Check meta field validation calls"""
+        # Patterns for meta field access
+        meta_patterns = [
+            r'frappe\.get_meta\(["\']([^"\']*)["\']?\)\.get_field\(["\']([^"\']*)["\']?\)',  # get_meta("DocType").get_field("field")
+            r'frappe\.get_meta\(["\']([^"\']*)["\']?\)\.has_field\(["\']([^"\']*)["\']?\)',  # get_meta("DocType").has_field("field")
+            r'meta\.get_field\(["\']([^"\']*)["\']?\)',                                    # meta.get_field("field")
+            r'meta\.has_field\(["\']([^"\']*)["\']?\)',                                    # meta.has_field("field")
+        ]
+        
+        for pattern in meta_patterns:
+            for match in re.finditer(pattern, content):
+                if match.lastindex == 2:  # Pattern with doctype and field
+                    doctype = match.group(1)
+                    field_name = match.group(2)
+                else:  # Pattern with just field (meta variable context)
+                    field_name = match.group(1)
+                    doctype = self._guess_doctype_from_meta_context(content, match.start())
+                
+                line_num = content[:match.start()].count('\n') + 1
+                
+                if doctype and self._is_deprecated_field(field_name, doctype):
+                    self.issues.append(ValidationIssue(
+                        file=str(file_path.relative_to(self.app_path)),
+                        line=line_num,
+                        field=field_name,
+                        doctype=doctype,
+                        reference=f"meta field: {field_name}",
+                        message=f"Deprecated field '{field_name}' in meta field access for {doctype}",
+                        context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                        confidence="high",
+                        issue_type="deprecated_field_meta_access",
+                        suggested_fix=self._get_suggested_fix(field_name, doctype)
+                    ))
+    
+    def _check_email_template_variables(self, file_path: Path, content: str, lines: List[str]):
+        """Check email template field variables in HTML files"""
+        # Enhanced patterns for Jinja2 template variables
+        template_patterns = [
+            r'\{\{\s*doc\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}',                    # {{ doc.field }}
+            r'\{\{\s*doc\.([a-zA-Z_][a-zA-Z0-9_]*)\|[^}]*\}\}',               # {{ doc.field|filter }}
+            r'\{%\s*if\s+doc\.([a-zA-Z_][a-zA-Z0-9_]*)\s*%\}',               # {% if doc.field %}
+            r'\{%\s*for\s+\w+\s+in\s+doc\.([a-zA-Z_][a-zA-Z0-9_]*)\s*%\}',   # {% for item in doc.field %}
+            r'\{%\s*set\s+\w+\s*=\s*doc\.([a-zA-Z_][a-zA-Z0-9_]*)\s*%\}',   # {% set var = doc.field %}
+        ]
+        
+        for pattern in template_patterns:
+            for match in re.finditer(pattern, content):
+                field_name = match.group(1)
+                line_num = content[:match.start()].count('\n') + 1
+                
+                # Try to determine doctype from template context
+                doctype = self._guess_doctype_from_template_context(content, match.start())
+                
+                if doctype and self._is_deprecated_field(field_name, doctype):
+                    confidence = "medium"  # Template variables can have false positives
+                    self.issues.append(ValidationIssue(
+                        file=str(file_path.relative_to(self.app_path)),
+                        line=line_num,
+                        field=field_name,
+                        doctype=doctype,
+                        reference=f"template var: doc.{field_name}",
+                        message=f"Deprecated field '{field_name}' in email template for {doctype}",
+                        context=lines[line_num - 1].strip() if line_num <= len(lines) else "",
+                        confidence=confidence,
+                        issue_type="deprecated_field_email_template",
+                        suggested_fix=self._get_suggested_fix(field_name, doctype)
+                    ))
+    
     def _is_deprecated_field(self, field_name: str, doctype: str = None) -> bool:
         """Check if a field is deprecated for a specific doctype"""
         if doctype and doctype in self.deprecated_fields:
@@ -417,6 +784,91 @@ class EnhancedFieldValidator:
                 return match.group(1)
         
         return None
+    
+    def _guess_doctype_from_sql_context(self, content: str, position: int) -> Optional[str]:
+        """Guess DocType from SQL context"""
+        context_before = content[max(0, position - 300):position]
+        
+        # Look for table references in SQL
+        table_patterns = [
+            r'FROM\s+`?tab([^`\s]+)`?',
+            r'JOIN\s+`?tab([^`\s]+)`?',
+            r'UPDATE\s+`?tab([^`\s]+)`?',
+            r'INSERT\s+INTO\s+`?tab([^`\s]+)`?',
+        ]
+        
+        for pattern in table_patterns:
+            matches = list(re.finditer(pattern, context_before, re.IGNORECASE))
+            if matches:
+                return matches[-1].group(1)
+        
+        return None
+    
+    def _guess_doctype_from_report_context(self, content: str, position: int) -> Optional[str]:
+        """Guess DocType from report context"""
+        context_before = content[max(0, position - 500):position]
+        
+        # Look for report doctype references
+        report_patterns = [
+            r'ref_doctype["\']?\s*:\s*["\']([^"\']*)["\']',
+            r'"ref_doctype"\s*:\s*["\']([^"\']*)["\']',
+            r'doctype["\']?\s*:\s*["\']([^"\']*)["\']',
+            r'get_all\(["\']([^"\']*)["\']',
+        ]
+        
+        for pattern in report_patterns:
+            matches = list(re.finditer(pattern, context_before))
+            if matches:
+                return matches[-1].group(1)
+        
+        return None
+    
+    def _guess_doctype_from_meta_context(self, content: str, position: int) -> Optional[str]:
+        """Guess DocType from meta context"""
+        context_before = content[max(0, position - 200):position]
+        
+        # Look for meta variable assignments
+        meta_patterns = [
+            r'meta\s*=\s*frappe\.get_meta\(["\']([^"\']*)["\']?\)',
+            r'get_meta\(["\']([^"\']*)["\']?\)',
+        ]
+        
+        for pattern in meta_patterns:
+            matches = list(re.finditer(pattern, context_before))
+            if matches:
+                return matches[-1].group(1)
+        
+        return None
+    
+    def _guess_doctype_from_template_context(self, content: str, position: int) -> Optional[str]:
+        """Guess DocType from template context"""
+        # Look for HTML comments or template headers that indicate doctype
+        context_before = content[max(0, position - 800):position]
+        
+        template_patterns = [
+            r'<!--\s*([A-Z][a-zA-Z\s]+)\s*template\s*-->',
+            r'{{.*?doctype.*?["\']([^"\']*)["\'].*?}}',
+            r'{%\s*set.*?doctype.*?["\']([^"\']*)["\'].*?%}',
+        ]
+        
+        for pattern in template_patterns:
+            matches = list(re.finditer(pattern, context_before, re.IGNORECASE))
+            if matches:
+                doctype_name = matches[-1].group(1).strip()
+                # Clean up doctype name
+                if doctype_name.replace(' ', '') in self.doctypes:
+                    return doctype_name.replace(' ', '')
+        
+        return None
+    
+    def _is_standard_field(self, field_name: str) -> bool:
+        """Check if field is a standard Frappe field"""
+        standard_fields = {
+            'name', 'creation', 'modified', 'modified_by', 'owner',
+            'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
+            'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
+        }
+        return field_name in standard_fields
     
     def _get_suggested_fix(self, field_name: str, doctype: str) -> Optional[str]:
         """Get suggested fix for deprecated field"""

@@ -29,6 +29,7 @@
   "calculator_description",
   "maximum_fee_multiplier",
   "max_reasonable_dues_rate",
+  "max_rate_change_percent",
   "financial_section",
   "company_iban",
   "company_account_holder",
@@ -82,7 +83,18 @@
   "financial_admin_emails",
   "column_break_batch",
   "batch_optimization_config",
-  "last_batch_creation_run"
+  "last_batch_creation_run",
+  "sepa_strict_period_mode",
+  "contact_email",
+  "default_periodic_donation_type",
+  "mollie_api_key",
+  "sepa_allowed_ips",
+  "default_cash_account",
+  "auto_submit_membership_invoices",
+  "default_item_group",
+  "monitoring_section",
+  "stuck_schedule_notification_emails",
+  "payment_history_failure_threshold"
  ],
  "fields": [
   {
@@ -546,6 +558,13 @@
    "label": "Maximum Reasonable Dues Rate"
   },
   {
+   "default": "200",
+   "description": "Maximum allowed rate change percentage between consecutive invoices (e.g., 200 allows up to 200% change)",
+   "fieldname": "max_rate_change_percent",
+   "fieldtype": "Percent",
+   "label": "Maximum Rate Change Percent"
+  },
+  {
    "default": "30",
    "description": "Number of days to automatically extend membership grace periods",
    "fieldname": "default_grace_period_days",
@@ -611,12 +630,84 @@
    "fieldtype": "Datetime",
    "label": "Last Batch Creation Run",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Enable strict period mode for SEPA batch processing - prevents overlapping payment periods",
+   "fieldname": "sepa_strict_period_mode",
+   "fieldtype": "Check",
+   "label": "SEPA Strict Period Mode"
+  },
+  {
+   "description": "General contact email for notifications and communications",
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email"
+  },
+  {
+   "description": "Default type for periodic donation agreements created through the system",
+   "fieldname": "default_periodic_donation_type",
+   "fieldtype": "Link",
+   "label": "Default Periodic Donation Type",
+   "options": "Donation Type"
+  },
+  {
+   "description": "API key for Mollie payment gateway integration",
+   "fieldname": "mollie_api_key",
+   "fieldtype": "Password",
+   "label": "Mollie API Key"
+  },
+  {
+   "description": "Comma-separated list of IP addresses allowed for SEPA operations (for security)",
+   "fieldname": "sepa_allowed_ips",
+   "fieldtype": "Text",
+   "label": "SEPA Allowed IP Addresses"
+  },
+  {
+   "description": "Default cash account for payment processing",
+   "fieldname": "default_cash_account",
+   "fieldtype": "Link",
+   "label": "Default Cash Account",
+   "options": "Account"
+  },
+  {
+   "default": "0",
+   "description": "Automatically submit membership invoices when created",
+   "fieldname": "auto_submit_membership_invoices",
+   "fieldtype": "Check",
+   "label": "Auto-Submit Membership Invoices"
+  },
+  {
+   "description": "Default item group for membership items",
+   "fieldname": "default_item_group",
+   "fieldtype": "Link",
+   "label": "Default Item Group",
+   "options": "Item Group"
+  },
+  {
+   "fieldname": "monitoring_section",
+   "fieldtype": "Section Break",
+   "label": "System Monitoring"
+  },
+  {
+   "description": "Comma-separated list of email addresses to notify about stuck dues schedules. Leave empty to use default admin roles (System Manager, Verenigingen Administrator).",
+   "fieldname": "stuck_schedule_notification_emails",
+   "fieldtype": "Data",
+   "label": "Stuck Schedule Notification Emails"
+  },
+  {
+   "default": "10",
+   "description": "Minimum number of payment history failures to trigger alert notifications",
+   "fieldname": "payment_history_failure_threshold",
+   "fieldtype": "Int",
+   "label": "Payment History Failure Threshold"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-07-24 17:45:07.008663",
+ "modified": "2025-07-27 14:30:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Verenigingen Settings",

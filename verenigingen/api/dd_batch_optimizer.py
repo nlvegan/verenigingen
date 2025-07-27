@@ -9,6 +9,13 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, flt, getdate, now_datetime
 
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security.authorization import (
+    SEPAOperation,
+    SEPAPermissionLevel,
+    require_sepa_permission,
+)
+
 # Configuration constants
 DEFAULT_CONFIG = {
     "max_amount_per_batch": 4000,  # Stay below €5000 high-risk threshold
@@ -24,6 +31,8 @@ DEFAULT_CONFIG = {
 }
 
 
+@critical_api
+@require_sepa_permission(SEPAPermissionLevel.CREATE, SEPAOperation.BATCH_CREATE)
 @frappe.whitelist()
 def create_optimal_batches(target_date=None, config=None):
     """
@@ -220,6 +229,8 @@ def validate_member_eligibility_for_billing(invoice_data):
         return False
 
 
+@high_security_api
+@require_sepa_permission(SEPAPermissionLevel.VALIDATE, SEPAOperation.INVOICE_VALIDATE)
 @frappe.whitelist()
 def validate_all_pending_invoices():
     """
@@ -726,6 +737,8 @@ def calculate_efficiency_score(avg_batch_size, target_size, risk_dist, batch_cou
     return min(100, max(0, round(total_score)))
 
 
+@standard_api
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_batching_preview(config=None):
     """Preview what batches would be created without actually creating them"""
@@ -771,6 +784,8 @@ def get_batching_preview(config=None):
     }
 
 
+@critical_api
+@require_sepa_permission(SEPAPermissionLevel.ADMIN, SEPAOperation.BATCH_CREATE)
 @frappe.whitelist()
 def update_batch_optimization_config(new_config):
     """Update batch optimization configuration"""

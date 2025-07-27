@@ -3,7 +3,10 @@ Workspace debugging API
 """
 import frappe
 
+from verenigingen.utils.security.api_security_framework import high_security_api, standard_api, utility_api
 
+
+@utility_api
 @frappe.whitelist()
 def check_workspace_status():
     """Check Verenigingen workspace status and links"""
@@ -48,6 +51,7 @@ def check_workspace_status():
         return {"success": False, "error": str(e)}
 
 
+@utility_api
 @frappe.whitelist()
 def check_eboekhouden_workspace():
     """Check if E-Boekhouden workspace exists and is valid"""
@@ -88,6 +92,81 @@ def check_eboekhouden_workspace():
 
 
 @frappe.whitelist()
+def check_dues_system_status():
+    """Check core dues invoice submission system status"""
+
+    status = {
+        "database_connection": False,
+        "payment_history_doctype": False,
+        "dues_schedule_doctype": False,
+        "auto_submit_available": False,
+        "invoice_generation_api": False,
+        "payment_history_sync": False,
+    }
+
+    try:
+        # Database connection
+        frappe.db.sql("SELECT 1")
+        status["database_connection"] = True
+
+        # Member Payment History doctype
+        meta = frappe.get_meta("Member Payment History")
+        if meta:
+            status["payment_history_doctype"] = True
+
+        # Membership Dues Schedule doctype
+        meta = frappe.get_meta("Membership Dues Schedule")
+        if meta:
+            status["dues_schedule_doctype"] = True
+
+        # Auto-submit setting in System Settings
+        try:
+            from frappe.core.doctype.system_settings.system_settings import get_system_settings
+
+            settings = get_system_settings()
+            if hasattr(settings, "auto_submit_invoices"):
+                status["auto_submit_available"] = True
+        except:
+            pass
+
+        # Invoice generation API
+        try:
+            from verenigingen.api.manual_invoice_generation import generate_dues_invoice_for_member
+
+            status["invoice_generation_api"] = True
+        except:
+            pass
+
+        # Payment history sync
+        try:
+            from verenigingen.events.subscribers.payment_history_queue import refresh_financial_history
+
+            status["payment_history_sync"] = True
+        except:
+            pass
+
+        # Summary
+        working_components = sum(status.values())
+        total_components = len(status)
+        health_percentage = (working_components / total_components) * 100
+
+        return {
+            "success": True,
+            "status": status,
+            "summary": {
+                "working_components": working_components,
+                "total_components": total_components,
+                "health_percentage": health_percentage,
+                "overall_status": "HEALTHY" if health_percentage >= 80 else "NEEDS_ATTENTION",
+            },
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e), "status": status}
+
+
+@high_security_api
+@frappe.whitelist()
 def fix_eboekhouden_workspace_content():
     """Fix the E-Boekhouden workspace content structure"""
     import json
@@ -122,6 +201,7 @@ def fix_eboekhouden_workspace_content():
         return {"success": False, "error": str(e)}
 
 
+@utility_api
 @frappe.whitelist()
 def check_eboekhouden_doctypes():
     """Check which E-Boekhouden doctypes exist in the database"""
@@ -159,6 +239,7 @@ def check_eboekhouden_doctypes():
         return {"success": False, "error": str(e)}
 
 
+@high_security_api
 @frappe.whitelist()
 def add_missing_eboekhouden_doctypes():
     """Add the missing E-Boekhouden doctypes to the workspace"""
@@ -241,6 +322,7 @@ def add_missing_eboekhouden_doctypes():
         return {"success": False, "error": str(e)}
 
 
+@high_security_api
 @frappe.whitelist()
 def force_reload_workspace():
     """Force reload the workspace from JSON file"""
@@ -261,6 +343,7 @@ def force_reload_workspace():
         return {"success": False, "error": str(e)}
 
 
+@high_security_api
 @frappe.whitelist()
 def create_minimal_workspace():
     """Create minimal workspace and add workflow demo link"""
@@ -318,6 +401,7 @@ def create_minimal_workspace():
         return {"success": False, "error": str(e)}
 
 
+@high_security_api
 @frappe.whitelist()
 def restore_full_workspace_structure():
     """Restore full workspace structure with all sections and links"""

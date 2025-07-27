@@ -1,6 +1,10 @@
 import frappe
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
 
+
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def fix_membership_types_billing_frequency():
     """Fix membership types to have appropriate billing frequencies"""
@@ -42,6 +46,7 @@ def fix_membership_types_billing_frequency():
     return results
 
 
+@standard_api(operation_type=OperationType.UTILITY)
 @frappe.whitelist()
 def verify_membership_types_fixed():
     """Verify that membership types now have correct billing frequencies"""

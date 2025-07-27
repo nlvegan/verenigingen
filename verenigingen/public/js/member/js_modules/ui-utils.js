@@ -35,7 +35,6 @@ function setup_payment_history_grid(frm) {
 			window.PaymentUtils.format_payment_history_row(row);
 		});
 	}
-	}
 }
 
 function add_custom_css() {

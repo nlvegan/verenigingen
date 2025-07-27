@@ -102,8 +102,45 @@ class EBoekhoudenRESTIterator:
                     )
                 return None
 
+        except requests.exceptions.Timeout:
+            frappe.log_error(
+                message=f"Timeout while fetching mutation {mutation_id} from E-Boekhouden API",
+                title="E-Boekhouden REST Iterator - Timeout",
+                reference_doctype="E-Boekhouden API",
+                reference_name=str(mutation_id),
+            )
+            return None
+        except requests.exceptions.ConnectionError:
+            frappe.log_error(
+                message=f"Connection error while fetching mutation {mutation_id} from E-Boekhouden API",
+                title="E-Boekhouden REST Iterator - Connection Error",
+                reference_doctype="E-Boekhouden API",
+                reference_name=str(mutation_id),
+            )
+            return None
+        except requests.exceptions.HTTPError as e:
+            frappe.log_error(
+                message=f"HTTP error while fetching mutation {mutation_id}: {str(e)}",
+                title="E-Boekhouden REST Iterator - HTTP Error",
+                reference_doctype="E-Boekhouden API",
+                reference_name=str(mutation_id),
+            )
+            return None
+        except requests.exceptions.RequestException as e:
+            frappe.log_error(
+                message=f"Request error while fetching mutation {mutation_id}: {str(e)}",
+                title="E-Boekhouden REST Iterator - Request Error",
+                reference_doctype="E-Boekhouden API",
+                reference_name=str(mutation_id),
+            )
+            return None
         except Exception as e:
-            frappe.log_error(f"Error fetching mutation {mutation_id}: {str(e)}", "E-Boekhouden REST Iterator")
+            frappe.log_error(
+                message=f"Unexpected error fetching mutation {mutation_id}: {str(e)}",
+                title="E-Boekhouden REST Iterator - Unexpected Error",
+                reference_doctype="E-Boekhouden API",
+                reference_name=str(mutation_id),
+            )
             return None
 
     def fetch_mutation_detail(self, mutation_id: int) -> Optional[Dict[str, Any]]:

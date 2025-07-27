@@ -41,13 +41,13 @@ def get_columns():
         {"label": _("Member Since"), "fieldname": "member_since", "fieldtype": "Date", "width": 100},
         {
             "label": _("Availability"),
-            "fieldname": "volunteer_availability",
+            "fieldname": "commitment_level",
             "fieldtype": "Data",
             "width": 100,
         },
         {
             "label": _("Experience Level"),
-            "fieldname": "volunteer_experience_level",
+            "fieldname": "experience_level",
             "fieldtype": "Data",
             "width": 120,
         },
@@ -68,10 +68,10 @@ def get_data(filters):
         # Chapter filtering will be done post-query
 
         if filters.get("availability"):
-            conditions.append("m.volunteer_availability = %(availability)s")
+            conditions.append("v.commitment_level = %(availability)s")
 
         if filters.get("experience_level"):
-            conditions.append("m.volunteer_experience_level = %(experience_level)s")
+            conditions.append("v.experience_level = %(experience_level)s")
 
         if filters.get("has_volunteer_record"):
             conditions.append("v.name IS NOT NULL")
@@ -92,8 +92,8 @@ def get_data(filters):
             m.full_name,
             m.email,
             m.member_since,
-            m.volunteer_availability,
-            m.volunteer_experience_level,
+            v.commitment_level,
+            v.experience_level,
             v.name as volunteer_id,
             v.status as volunteer_status
         FROM `tabMember` m
@@ -190,7 +190,7 @@ def get_volunteer_summary(data):
     # Count by availability
     availability_counts = {}
     for row in data:
-        avail = row.get("volunteer_availability") or "Not Specified"
+        avail = row.get("commitment_level") or "Not Specified"
         availability_counts[avail] = availability_counts.get(avail, 0) + 1
 
     # Most common availability

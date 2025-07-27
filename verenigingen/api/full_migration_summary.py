@@ -1,10 +1,21 @@
 import frappe
 
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
+
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator", "Accounts Manager"])
+@validate_csrf_token
 def full_migration_summary():
     """Summary of the completed full migration system"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation("migration", "full_migration_summary", {"requested_by": frappe.session.user})
+
         response = []
         response.append("=== E-BOEKHOUDEN FULL MIGRATION SYSTEM COMPLETE ===")
 
@@ -115,9 +126,17 @@ def full_migration_summary():
 
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["System Manager", "Verenigingen Administrator"])
+@validate_csrf_token
 def migration_deployment_checklist():
     """Pre-deployment checklist for production migration"""
     try:
+        # Log this sensitive operation
+        log_sensitive_operation(
+            "migration", "migration_deployment_checklist", {"requested_by": frappe.session.user}
+        )
+
         response = []
         response.append("=== MIGRATION DEPLOYMENT CHECKLIST ===")
 

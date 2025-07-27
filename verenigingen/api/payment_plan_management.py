@@ -9,8 +9,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, getdate, today
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api, high_security_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def request_payment_plan(
     member, total_amount, preferred_installments=None, preferred_frequency=None, reason=None
 ):
@@ -77,6 +81,7 @@ def request_payment_plan(
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_payment_plans(member=None):
     """
     Get payment plans for a member
@@ -143,6 +148,7 @@ def get_member_payment_plans(member=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def make_payment_plan_payment(payment_plan_id, installment_number, payment_amount, payment_reference=None):
     """
     Record a payment for a payment plan installment
@@ -178,6 +184,7 @@ def make_payment_plan_payment(payment_plan_id, installment_number, payment_amoun
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_payment_plan_summary(payment_plan_id):
     """
     Get detailed summary of a payment plan
@@ -229,6 +236,7 @@ def get_payment_plan_summary(payment_plan_id):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def approve_payment_plan_request(payment_plan_id, approval_notes=None):
     """
     Approve a payment plan request (admin only)
@@ -265,6 +273,7 @@ def approve_payment_plan_request(payment_plan_id, approval_notes=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reject_payment_plan_request(payment_plan_id, rejection_reason=None):
     """
     Reject a payment plan request (admin only)
@@ -298,6 +307,7 @@ def reject_payment_plan_request(payment_plan_id, rejection_reason=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def get_pending_payment_plan_requests():
     """
     Get all pending payment plan requests (admin only)
@@ -448,6 +458,7 @@ def send_payment_plan_approval_notification(payment_plan, approved=True, reason=
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def calculate_payment_plan_preview(total_amount, installments, frequency):
     """
     Calculate payment plan preview for display

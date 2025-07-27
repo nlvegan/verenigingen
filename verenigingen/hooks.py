@@ -161,6 +161,8 @@ scheduler_events = {
         "verenigingen.utils.dues_schedule_auto_creator.auto_create_missing_dues_schedules_scheduled",
         # Generate invoices from membership dues schedules
         "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.generate_dues_invoices",
+        # Check for stuck dues schedules and notify administrators
+        "verenigingen.api.fix_stuck_dues_schedule.check_and_notify_stuck_schedules",
         # Analytics and goals updates
         "verenigingen.verenigingen.doctype.membership_goal.membership_goal.update_all_goals",
         # Termination system maintenance
@@ -207,7 +209,7 @@ scheduler_events = {
         # Termination reports and reviews
         "verenigingen.utils.termination_utils.generate_weekly_termination_report",
         # Security system health check
-        "verenigingen.utils.security.audit_logging.log_sepa_event('security_weekly_health_check', severity='info')",
+        "verenigingen.utils.security.audit_logging.weekly_security_health_check",
     ],
 }
 

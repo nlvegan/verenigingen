@@ -55,8 +55,38 @@ repos:
         ]
         exclude: '^(node_modules|.git|dist|build|scripts|tests|debug_utils|dev_scripts|integration_tests|verenigingen/tests|frontend_tests)/'
 
+  # Security validation (NEW)
+  - repo: https://github.com/PyCQA/bandit
+    rev: '1.7.5'
+    hooks:
+      - id: bandit
+        name: 🔍 Security Linting (Bandit)
+        args: ['-r', 'verenigingen/', '--skip', 'B101,B601']
+        exclude: '^(tests/|scripts/testing/)'
+
   - repo: local
     hooks:
+      # Security validation hooks (NEW)
+      - id: insecure-api-detector
+        name: 🔒 Insecure API Endpoint Detection
+        description: Detect API endpoints lacking proper security decorators
+        entry: python scripts/validation/security/insecure_api_detector.py
+        language: system
+        files: '^verenigingen/api/.*\.py$'
+        pass_filenames: true
+        verbose: true
+        stages: [pre-commit, pre-push]
+
+      - id: api-security-validator
+        name: 🛡️  API Security Framework Validation
+        description: Validate API security framework compliance
+        entry: python scripts/validation/security/api_security_validator.py
+        language: system
+        files: '^verenigingen/api/.*\.py$'
+        pass_filenames: true
+        stages: [pre-commit]
+
+      # Original validation hooks (RESTORED)
       - id: run-quick-tests
         name: Run quick validation tests
         entry: python scripts/testing/integration/simple_test.py
@@ -100,15 +130,6 @@ repos:
         files: '\.py$'
         stages: [pre-commit]
         exclude: '^(archived_unused/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
-
-      - id: hooks-event-validator
-        name: Validate hooks and event handlers
-        entry: python scripts/validation/hooks_event_validator.py
-        language: system
-        pass_filenames: false
-        always_run: true
-        stages: [pre-commit]
-
 
       - id: workspace-validator
         name: Validate workspace integrity

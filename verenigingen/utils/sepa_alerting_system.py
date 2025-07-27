@@ -23,6 +23,7 @@ from frappe.core.doctype.communication.email import make
 from frappe.utils import cint, flt, get_datetime, now_datetime
 
 from verenigingen.utils.error_handling import log_error
+from verenigingen.utils.security.security_monitoring import get_security_monitor
 from verenigingen.utils.sepa_notification_manager import SEPANotificationManager
 
 
@@ -107,6 +108,7 @@ class SEPAAlertingSystem:
         self.alert_history = deque(maxlen=1000)  # Keep last 1000 alerts
         self.metric_buffer = defaultdict(deque)  # Buffer for time-window calculations
         self.notification_manager = SEPANotificationManager()
+        self.security_monitor = get_security_monitor()
 
         # Load configuration
         self.thresholds = self._load_alert_thresholds()
@@ -115,6 +117,10 @@ class SEPAAlertingSystem:
         # Alert suppression tracking
         self.suppression_rules = {}
         self.escalation_schedules = {}
+
+        # Security integration flags
+        self.security_integration_enabled = True
+        self.last_security_check = get_datetime()
 
     def _load_alert_thresholds(self) -> List[AlertThreshold]:
         """Load alert threshold configurations"""
@@ -200,6 +206,47 @@ class SEPAAlertingSystem:
                 severity=AlertSeverity.WARNING,
                 time_window_minutes=1440,  # 24 hours
                 description="No batches created today",
+            ),
+            # Security Alert Thresholds
+            AlertThreshold(
+                metric_name="api_security_score",
+                operator="<",
+                threshold_value=50.0,
+                severity=AlertSeverity.CRITICAL,
+                time_window_minutes=5,
+                description="API security score critically low",
+            ),
+            AlertThreshold(
+                metric_name="api_security_score",
+                operator="<",
+                threshold_value=70.0,
+                severity=AlertSeverity.WARNING,
+                time_window_minutes=10,
+                description="API security score degraded",
+            ),
+            AlertThreshold(
+                metric_name="api_active_security_incidents",
+                operator=">",
+                threshold_value=0,
+                severity=AlertSeverity.CRITICAL,
+                time_window_minutes=1,
+                description="Active API security incidents detected",
+            ),
+            AlertThreshold(
+                metric_name="api_auth_failures_rate",
+                operator=">",
+                threshold_value=20.0,
+                severity=AlertSeverity.WARNING,
+                time_window_minutes=5,
+                description="High API authentication failure rate",
+            ),
+            AlertThreshold(
+                metric_name="api_csrf_attack_detected",
+                operator=">",
+                threshold_value=5,
+                severity=AlertSeverity.CRITICAL,
+                time_window_minutes=5,
+                description="Potential CSRF attack detected",
             ),
         ]
 
@@ -494,6 +541,141 @@ Please investigate and acknowledge this alert when resolved.
 
         return list(set(recipients))  # Remove duplicates
 
+    def check_security_incidents(self) -> List[SEPAAlert]:
+        """
+        Check for security incidents and convert them to SEPA alerts
+
+        Returns:
+            List of security-related SEPA alerts
+        """
+        if not self.security_integration_enabled:
+            return []
+
+        try:
+            # Get security dashboard data
+            security_dashboard = self.security_monitor.get_security_dashboard()
+
+            # Check if we should process (avoid too frequent checks)
+            now = get_datetime()
+            if (now - self.last_security_check).total_seconds() < 60:  # Max once per minute
+                return []
+
+            self.last_security_check = now
+
+            security_alerts = []
+
+            # Get current metrics
+            current_metrics = security_dashboard.get("current_metrics")
+            if current_metrics:
+                # Check security score
+                security_score = current_metrics.get("security_score", 100.0)
+                alerts = self.check_metric(
+                    "api_security_score",
+                    security_score,
+                    {"source": "security_monitoring", "metric_type": "security_score"},
+                )
+                security_alerts.extend(alerts)
+
+                # Check active incidents
+                active_incidents = len(security_dashboard.get("active_incidents", []))
+                if active_incidents > 0:
+                    alerts = self.check_metric(
+                        "api_active_security_incidents",
+                        active_incidents,
+                        {
+                            "source": "security_monitoring",
+                            "metric_type": "active_incidents",
+                            "incident_details": security_dashboard.get("active_incidents", []),
+                        },
+                    )
+                    security_alerts.extend(alerts)
+
+                # Check authentication failures
+                auth_failures = current_metrics.get("auth_failures", 0)
+                if auth_failures > 0:
+                    alerts = self.check_metric(
+                        "api_auth_failures_rate",
+                        auth_failures,
+                        {"source": "security_monitoring", "metric_type": "auth_failures"},
+                    )
+                    security_alerts.extend(alerts)
+
+                # Check CSRF failures
+                csrf_failures = current_metrics.get("csrf_failures", 0)
+                if csrf_failures > 0:
+                    alerts = self.check_metric(
+                        "api_csrf_attack_detected",
+                        csrf_failures,
+                        {"source": "security_monitoring", "metric_type": "csrf_failures"},
+                    )
+                    security_alerts.extend(alerts)
+
+            # Process individual security incidents for detailed alerts
+            active_incidents = security_dashboard.get("active_incidents", [])
+            for incident in active_incidents:
+                # Convert security incident to SEPA alert format
+                incident_alert = self._convert_security_incident_to_alert(incident)
+                if incident_alert and incident_alert.alert_id not in self.active_alerts:
+                    security_alerts.append(incident_alert)
+                    self.active_alerts[incident_alert.alert_id] = incident_alert
+                    self.alert_history.append(incident_alert)
+                    self._schedule_notification(incident_alert)
+
+            return security_alerts
+
+        except Exception as e:
+            frappe.logger().error(f"Error checking security incidents: {str(e)}")
+            return []
+
+    def _convert_security_incident_to_alert(self, incident: Dict[str, Any]) -> Optional[SEPAAlert]:
+        """
+        Convert a security incident to a SEPA alert
+
+        Args:
+            incident: Security incident dictionary
+
+        Returns:
+            SEPAAlert or None
+        """
+        try:
+            # Map threat levels to alert severities
+            threat_level_map = {
+                "low": AlertSeverity.INFO,
+                "medium": AlertSeverity.WARNING,
+                "high": AlertSeverity.CRITICAL,
+                "critical": AlertSeverity.EMERGENCY,
+            }
+
+            threat_level = incident.get("threat_level", "medium")
+            severity = threat_level_map.get(threat_level, AlertSeverity.WARNING)
+
+            alert_id = f"SEC_{incident.get('incident_id', int(time.time()))}"
+
+            alert = SEPAAlert(
+                alert_id=alert_id,
+                alert_type=f"security_incident_{incident.get('incident_type', 'unknown')}",
+                severity=severity,
+                title=f"Security Alert: {incident.get('incident_type', 'Unknown Incident').replace('_', ' ').title()}",
+                message=incident.get("description", "Security incident detected"),
+                details={
+                    "security_incident_id": incident.get("incident_id"),
+                    "incident_type": incident.get("incident_type"),
+                    "source_ip": incident.get("source_ip", "unknown"),
+                    "affected_user": incident.get("user", "unknown"),
+                    "endpoint": incident.get("endpoint", "unknown"),
+                    "threat_level": threat_level,
+                    **incident.get("details", {}),
+                },
+                timestamp=get_datetime(),
+                source_operation="security_monitoring",
+            )
+
+            return alert
+
+        except Exception as e:
+            frappe.logger().error(f"Error converting security incident to alert: {str(e)}")
+            return None
+
     def _send_email_notification(self, recipient: str, notification_data: Dict[str, Any]) -> None:
         """Send email notification"""
         try:
@@ -711,10 +893,15 @@ Please take immediate action to resolve this issue.
             ]
             avg_resolution_time = sum(resolution_times) / len(resolution_times) if resolution_times else 0
 
+        # Include security integration status
+        security_alerts = len([a for a in recent_alerts if a.source_operation == "security_monitoring"])
+
         return {
             "time_period_days": days,
             "total_alerts": len(recent_alerts),
             "active_alerts": len([a for a in recent_alerts if a.status == AlertStatus.ACTIVE]),
+            "security_alerts": security_alerts,
+            "security_integration_status": "enabled" if self.security_integration_enabled else "disabled",
             "severity_distribution": dict(severity_counts),
             "type_distribution": dict(type_counts),
             "status_distribution": dict(status_counts),
@@ -795,6 +982,58 @@ def get_alert_statistics(days: int = 7) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+def check_security_integration() -> Dict[str, Any]:
+    """
+    Check security incidents and integrate with alerting system
+
+    Returns:
+        Security integration status and alerts
+    """
+    try:
+        security_alerts = _alerting_system.check_security_incidents()
+
+        return {
+            "success": True,
+            "security_alerts_generated": len(security_alerts),
+            "security_integration_enabled": _alerting_system.security_integration_enabled,
+            "last_security_check": _alerting_system.last_security_check.isoformat(),
+            "alert_details": [alert.to_dict() for alert in security_alerts],
+            "message": f"Security integration check completed. Generated {len(security_alerts)} security alerts.",
+        }
+
+    except Exception as e:
+        log_error(e, context={"operation": "check_security_integration"}, module="sepa_alerting_system")
+        return {"success": False, "error": str(e), "message": "Security integration check failed"}
+
+
+@frappe.whitelist()
+def toggle_security_integration(enabled: bool = True) -> Dict[str, Any]:
+    """
+    Enable or disable security integration
+
+    Args:
+        enabled: Whether to enable security integration
+
+    Returns:
+        Status confirmation
+    """
+    if not frappe.has_permission("System Manager"):
+        frappe.throw(_("Only system managers can toggle security integration"))
+
+    try:
+        _alerting_system.security_integration_enabled = bool(enabled)
+
+        return {
+            "success": True,
+            "security_integration_enabled": _alerting_system.security_integration_enabled,
+            "message": f"Security integration {'enabled' if enabled else 'disabled'} successfully",
+        }
+
+    except Exception as e:
+        return {"success": False, "error": str(e), "message": "Failed to toggle security integration"}
+
+
+@frappe.whitelist()
 def test_alert_system() -> Dict[str, Any]:
     """
     Test the alert system with sample data
@@ -870,3 +1109,15 @@ def process_alert_escalations():
         _alerting_system.process_escalations()
     except Exception as e:
         log_error(e, context={"operation": "process_alert_escalations"}, module="sepa_alerting_system")
+
+
+# Scheduler function for security monitoring integration
+def process_security_monitoring():
+    """Process security incidents and integrate with alerting system (called by Frappe scheduler)"""
+    try:
+        if _alerting_system.security_integration_enabled:
+            security_alerts = _alerting_system.check_security_incidents()
+            if security_alerts:
+                frappe.logger().info(f"Security monitoring: Generated {len(security_alerts)} security alerts")
+    except Exception as e:
+        log_error(e, context={"operation": "process_security_monitoring"}, module="sepa_alerting_system")

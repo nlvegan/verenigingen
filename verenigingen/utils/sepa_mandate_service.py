@@ -173,7 +173,7 @@ class SEPAMandateService:
                 AND si.status IN ('Unpaid', 'Overdue')
                 AND si.outstanding_amount > 0
                 AND si.posting_date >= %(lookback_date)s
-                AND mds.payment_method = 'SEPA Direct Debit'
+                AND mds.payment_terms_template = 'SEPA Direct Debit'
                 AND sm.iban IS NOT NULL
                 AND sm.iban != ''
                 AND sm.mandate_id IS NOT NULL

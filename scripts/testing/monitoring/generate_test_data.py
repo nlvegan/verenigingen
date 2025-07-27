@@ -150,7 +150,7 @@ def cleanup_test_data():
     
     # Clean up test alerts
     test_alerts = frappe.get_all("System Alert", 
-        filters={"source": ["like", "%test%"]},
+        filters={"title": ["like", "%test%"]},
         pluck="name"
     )
     for alert in test_alerts:

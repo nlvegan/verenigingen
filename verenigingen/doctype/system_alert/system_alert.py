@@ -69,7 +69,7 @@ class SystemAlert(Document):
         return frappe.get_all(
             "System Alert",
             filters={"timestamp": (">=", add_to_date(now(), hours=-hours))},
-            fields=["name", "alert_type", "compliance_status", "message", "status", "timestamp"],
+            fields=["name", "alert_type", "severity", "message", "status", "timestamp"],
             order_by="timestamp DESC",
         )
 

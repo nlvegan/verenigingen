@@ -106,7 +106,7 @@ class CSRFProtection:
     @classmethod
     def validate_token(cls, token: str, user: str = None) -> bool:
         """
-        Validate CSRF token
+        Validate CSRF token (supports both custom and Frappe native tokens)
 
         Args:
             token: CSRF token to validate
@@ -127,10 +127,21 @@ class CSRFProtection:
         if not token:
             raise CSRFError(_("CSRF token is required"))
 
+        # First try to validate using Frappe's native CSRF validation
+        try:
+            if hasattr(frappe.session, "csrf_token") and frappe.session.csrf_token == token:
+                return True
+        except Exception:
+            pass  # Fall through to custom validation
+
+        # Custom token validation
         try:
             # Parse token
             parts = token.split(":")
             if len(parts) != 3:
+                # This might be a Frappe native token, try simple comparison
+                if hasattr(frappe.session, "csrf_token") and frappe.session.csrf_token == token:
+                    return True
                 raise CSRFError(_("Invalid CSRF token format"))
 
             token_user, timestamp_str, signature = parts
@@ -165,6 +176,12 @@ class CSRFProtection:
             return True
 
         except (ValueError, IndexError) as e:
+            # Final fallback - try Frappe's native validation
+            try:
+                if hasattr(frappe.session, "csrf_token") and frappe.session.csrf_token == token:
+                    return True
+            except Exception:
+                pass
             raise CSRFError(_("Invalid CSRF token format: {0}").format(str(e)))
         except Exception as e:
             log_error(
@@ -182,12 +199,20 @@ class CSRFProtection:
         Returns:
             CSRF token if found, None otherwise
         """
-        # Check header first
+        # Check custom header first
         token = frappe.get_request_header(cls.HEADER_NAME)
+
+        if not token:
+            # Check Frappe's native CSRF header
+            token = frappe.get_request_header("X-Frappe-CSRF-Token")
 
         if not token:
             # Check form data
             token = frappe.form_dict.get(cls.FORM_FIELD_NAME)
+
+        if not token:
+            # Fallback to Frappe's session CSRF token
+            token = getattr(frappe.session, "csrf_token", None)
 
         return token
 

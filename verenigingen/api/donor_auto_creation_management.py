@@ -6,8 +6,18 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_auto_creation_dashboard():
     """
     Get comprehensive dashboard data for donor auto-creation management
@@ -85,6 +95,7 @@ def get_auto_creation_dashboard():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def update_auto_creation_settings(
     enabled, donations_gl_account=None, eligible_customer_groups=None, minimum_amount=0
 ):
@@ -131,6 +142,7 @@ def update_auto_creation_settings(
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def test_customer_eligibility(customer_name, amount):
     """
     Test if a customer would be eligible for donor auto-creation
@@ -151,6 +163,7 @@ def test_customer_eligibility(customer_name, amount):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_donations_gl_accounts():
     """
     Get available GL accounts suitable for donations
@@ -175,6 +188,7 @@ def get_donations_gl_accounts():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_customer_groups():
     """
     Get available customer groups for eligibility configuration
@@ -202,6 +216,7 @@ def get_customer_groups():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def simulate_auto_creation(customer_name, amount, donations_account=None):
     """
     Simulate donor auto-creation without actually creating records
@@ -292,6 +307,7 @@ def simulate_auto_creation(customer_name, amount, donations_account=None):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_recent_error_logs():
     """Get recent error logs for debugging"""
     try:
@@ -316,6 +332,7 @@ def get_recent_error_logs():
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def check_test_accounts():
     """Check available accounts for testing purposes"""
     try:
@@ -363,6 +380,7 @@ def check_test_accounts():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_process_pending_payments(donations_account=None, date_from=None, date_to=None):
     """
     Process existing payments retroactively for donor creation

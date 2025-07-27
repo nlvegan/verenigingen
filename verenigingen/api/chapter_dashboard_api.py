@@ -17,6 +17,9 @@ from verenigingen.utils.error_handling import (
 )
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import QueryOptimizer, cached, performance_monitor
+
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
     rate_limit,
@@ -26,10 +29,10 @@ from verenigingen.utils.validation.api_validators import (
 
 
 @frappe.whitelist()
+@high_security_api  # Member data access
 @handle_api_error
 @performance_monitor(threshold_ms=500)
 @cached(ttl=300)  # Cache for 5 minutes
-@handle_api_error
 def get_chapter_member_emails(chapter_name):
     """Get email addresses of all active chapter members"""
 
@@ -66,6 +69,7 @@ def get_chapter_member_emails(chapter_name):
 
 
 @frappe.whitelist()
+@high_security_api  # Member approval operations
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 def quick_approve_member(member_name, chapter_name=None):
@@ -874,6 +878,7 @@ def test_eboekhouden_complete():
 
 
 @frappe.whitelist()
+@standard_api  # Dashboard notifications - read-only
 def get_dashboard_notifications():
     """Get notifications for dashboard (upcoming deadlines, overdue items, etc.)"""
 
@@ -943,6 +948,7 @@ def get_dashboard_notifications():
 
 
 @frappe.whitelist()
+@standard_api  # Chapter statistics - read-only
 def get_chapter_quick_stats(chapter_name):
     """Get quick statistics for a specific chapter"""
 
@@ -999,6 +1005,7 @@ def get_chapter_quick_stats(chapter_name):
 
 
 @frappe.whitelist()
+@high_security_api  # Member application rejection
 def reject_member_application(member_name, chapter_name, reason=None):
     """Reject a member application from dashboard"""
 
@@ -1052,6 +1059,7 @@ def reject_member_application(member_name, chapter_name, reason=None):
 
 
 @frappe.whitelist()
+@high_security_api  # Chapter announcement operations
 def send_chapter_announcement(chapter_name, subject, message, send_to="all"):
     """Send announcement to chapter members"""
 
@@ -1230,6 +1238,7 @@ def test_url_access():
 
 # Number Card API methods for Frappe Dashboard
 @frappe.whitelist()
+@standard_api  # Member count statistics - read-only
 def get_active_members_count(chapter=None):
     """Get count of active members for dashboard number card"""
 
@@ -1258,6 +1267,7 @@ def get_active_members_count(chapter=None):
 
 
 @frappe.whitelist()
+@standard_api  # Application count statistics - read-only
 def get_pending_applications_count(chapter=None):
     """Get count of pending applications for dashboard number card"""
 
@@ -1279,6 +1289,7 @@ def get_pending_applications_count(chapter=None):
 
 
 @frappe.whitelist()
+@standard_api  # Board member count statistics - read-only
 def get_board_members_count(chapter=None):
     """Get count of active board members for dashboard number card"""
 
@@ -1300,6 +1311,7 @@ def get_board_members_count(chapter=None):
 
 
 @frappe.whitelist()
+@standard_api  # New member count statistics - read-only
 def get_new_members_count(chapter=None):
     """Get count of new members this month for dashboard number card"""
 

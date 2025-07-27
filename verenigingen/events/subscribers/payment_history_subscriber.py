@@ -109,11 +109,19 @@ def _update_member_payment_history_with_lock(member_name):
 
 def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
     """
-    Handle invoice submission - update member payment history.
+    Handle invoice submission - update member payment history with smart detection.
 
     This is called by the event system when a Sales Invoice is submitted.
+    Includes smart detection to prevent duplicate processing during bulk operations.
     """
     if not event_data:
+        return
+
+    # SMART DETECTION: Skip processing if we're in bulk invoice generation mode
+    if getattr(frappe.flags, "bulk_invoice_generation", False):
+        frappe.logger("payment_history").info(
+            f"Skipping individual payment history update for invoice {event_data.get('invoice')} - bulk processing active"
+        )
         return
 
     customer = event_data.get("customer")
@@ -142,8 +150,15 @@ def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
 
 
 def handle_invoice_cancelled(event_name=None, event_data=None, **kwargs):
-    """Handle invoice cancellation - remove from member payment history."""
+    """Handle invoice cancellation - remove from member payment history with smart detection."""
     if not event_data:
+        return
+
+    # SMART DETECTION: Skip processing if we're in bulk invoice generation mode
+    if getattr(frappe.flags, "bulk_invoice_generation", False):
+        frappe.logger("payment_history").info(
+            f"Skipping individual payment history update for cancelled invoice {event_data.get('invoice')} - bulk processing active"
+        )
         return
 
     customer = event_data.get("customer")
@@ -172,8 +187,15 @@ def handle_invoice_cancelled(event_name=None, event_data=None, **kwargs):
 
 
 def handle_invoice_updated(event_name=None, event_data=None, **kwargs):
-    """Handle invoice update after submit (e.g., payment received) - update member payment history."""
+    """Handle invoice update after submit (e.g., payment received) - update member payment history with smart detection."""
     if not event_data:
+        return
+
+    # SMART DETECTION: Skip processing if we're in bulk invoice generation mode
+    if getattr(frappe.flags, "bulk_invoice_generation", False):
+        frappe.logger("payment_history").info(
+            f"Skipping individual payment history update for updated invoice {event_data.get('invoice')} - bulk processing active"
+        )
         return
 
     customer = event_data.get("customer")

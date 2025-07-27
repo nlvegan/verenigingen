@@ -5,8 +5,12 @@ Check and Fix Account Types for E-Boekhouden Migration
 import frappe
 from frappe.utils import flt
 
+# Security framework imports
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api, standard_api
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def review_account_types(company):
     """Review account types for E-Boekhouden imported accounts and suggest fixes"""
     try:
@@ -60,6 +64,7 @@ def review_account_types(company):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def fix_account_type_issues(issues):
     """Fix multiple account type issues"""
     try:

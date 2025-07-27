@@ -52,11 +52,15 @@ class ChapterMixin:
             )
 
         # Add board member chapters if not already included
-        board_chapters = frappe.get_all(
-            "Chapter Board Member",
-            filters={"member": self.name, "is_active": 1},
-            fields=["parent as chapter"],
-        )
+        # Get volunteer linked to this member
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": self.name}, "name")
+        board_chapters = []
+        if volunteer_name:
+            board_chapters = frappe.get_all(
+                "Chapter Board Member",
+                filters={"volunteer": volunteer_name, "is_active": 1},
+                fields=["parent as chapter"],
+            )
 
         for bc in board_chapters:
             if not any(c["chapter"] == bc.chapter for c in chapters):
@@ -81,11 +85,15 @@ class ChapterMixin:
         if not self._is_chapter_management_enabled():
             return []
 
-        board_roles = frappe.get_all(
-            "Chapter Board Member",
-            filters={"member": self.name, "is_active": 1},
-            fields=["parent as chapter", "chapter_role as role"],
-        )
+        # Get volunteer linked to this member
+        volunteer_name = frappe.db.get_value("Volunteer", {"member": self.name}, "name")
+        board_roles = []
+        if volunteer_name:
+            board_roles = frappe.get_all(
+                "Chapter Board Member",
+                filters={"volunteer": volunteer_name, "is_active": 1},
+                fields=["parent as chapter", "chapter_role as role"],
+            )
 
         return board_roles
 

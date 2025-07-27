@@ -7,6 +7,13 @@ import frappe
 from frappe import _
 from frappe.utils import get_url_to_form, today
 
+from verenigingen.utils.security.api_security_framework import high_security_api, standard_api
+from verenigingen.utils.security.authorization import (
+    SEPAOperation,
+    SEPAPermissionLevel,
+    require_sepa_permission,
+)
+
 
 def get_financial_admin_emails():
     """Get email addresses for financial administrators"""
@@ -284,6 +291,8 @@ def handle_automated_batch_validation(batch, critical_errors, warnings):
         return {"action": "error", "requires_intervention": True}
 
 
+@standard_api
+@require_sepa_permission(SEPAPermissionLevel.ADMIN, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def test_notification_system():
     """Test the notification system - for development/testing only"""

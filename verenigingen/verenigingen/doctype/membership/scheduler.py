@@ -269,11 +269,11 @@ def _get_orphaned_records_data():
                 m.name,
                 m.member,
                 m.membership_type,
-                m.membership_status
+                m.status
             FROM `tabMembership` m
             LEFT JOIN `tabMembership Dues Schedule` mds ON mds.membership = m.name
             WHERE m.docstatus = 1
-            AND m.membership_status = 'Active'
+            AND m.status = 'Active'
             AND mds.name IS NULL
         """,
             as_dict=True,
@@ -284,7 +284,7 @@ def _get_orphaned_records_data():
                 {
                     "record_type": "Membership",
                     "document": membership.name,
-                    "status": membership.membership_status,
+                    "status": membership.status,
                     "issue": "No dues schedule found",
                 }
             )
@@ -299,7 +299,7 @@ def _get_orphaned_records_data():
             FROM `tabMembership Dues Schedule` mds
             LEFT JOIN `tabMembership` m ON m.name = mds.membership
             WHERE mds.docstatus = 1
-            AND (m.name IS NULL OR m.membership_status != 'Active')
+            AND (m.name IS NULL OR m.status != 'Active')
         """,
             as_dict=True,
         )

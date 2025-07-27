@@ -24,9 +24,16 @@ from verenigingen.api.sepa_reconciliation import (
     process_sepa_return_file,
     process_sepa_transaction_conservative,
 )
+from verenigingen.utils.security.audit_logging import log_sensitive_operation
+from verenigingen.utils.security.authorization import require_role
+from verenigingen.utils.security.csrf_protection import validate_csrf_token
+from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()
+@rate_limit(calls=30, period=60)  # 30 calls per minute
+@require_role(["Accounts Manager", "System Manager"])
+@validate_csrf_token
 def execute_complete_reconciliation(workflow_data: dict) -> dict:
     """
     Execute complete SEPA reconciliation workflow with all safeguards
@@ -41,6 +48,11 @@ def execute_complete_reconciliation(workflow_data: dict) -> dict:
     Returns:
         Workflow execution result
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "sepa_workflow", "execute_complete_reconciliation", {"workflow_data": str(workflow_data)}
+    )
+
     bank_transaction = workflow_data.get("bank_transaction")
     sepa_batch = workflow_data.get("sepa_batch")
     processing_mode = workflow_data.get("processing_mode", "conservative")
@@ -63,6 +75,9 @@ def execute_complete_reconciliation(workflow_data: dict) -> dict:
 
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["Accounts Manager", "System Manager"])
+@validate_csrf_token
 def process_complete_return_file(return_file_content: str, file_name: str = "") -> dict:
     """
     Process complete return file with duplicate prevention
@@ -74,6 +89,13 @@ def process_complete_return_file(return_file_content: str, file_name: str = "") 
     Returns:
         Processing result
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "sepa_workflow",
+        "process_complete_return_file",
+        {"file_name": file_name, "content_length": len(return_file_content)},
+    )
+
     # Generate file hash for duplicate detection
     file_hash = hashlib.sha256(return_file_content.encode()).hexdigest()
 
@@ -117,6 +139,9 @@ def process_complete_return_file(return_file_content: str, file_name: str = "") 
 
 
 @frappe.whitelist()
+@rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
+@require_role(["Accounts Manager", "System Manager"])
+@validate_csrf_token
 def run_comprehensive_sepa_audit() -> dict:
     """
     Run comprehensive audit of SEPA reconciliation system
@@ -124,6 +149,11 @@ def run_comprehensive_sepa_audit() -> dict:
     Returns:
         Audit results with recommendations
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "sepa_workflow", "run_comprehensive_sepa_audit", {"requested_by": frappe.session.user}
+    )
+
     audit_results = {"timestamp": now_datetime(), "audit_sections": []}
 
     # 1. Check for orphaned payments
@@ -212,6 +242,9 @@ def run_comprehensive_sepa_audit() -> dict:
 
 
 @frappe.whitelist()
+@rate_limit(calls=10, period=60)  # 10 calls per minute
+@require_role(["Accounts Manager", "System Manager"])
+@validate_csrf_token
 def generate_duplicate_prevention_report() -> dict:
     """
     Generate report on duplicate prevention effectiveness
@@ -219,6 +252,11 @@ def generate_duplicate_prevention_report() -> dict:
     Returns:
         Report on prevented duplicates and system protection status
     """
+    # Log this sensitive operation
+    log_sensitive_operation(
+        "sepa_workflow", "generate_duplicate_prevention_report", {"requested_by": frappe.session.user}
+    )
+
     report = {
         "generated_at": now_datetime(),
         "protection_status": {},

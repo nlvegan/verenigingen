@@ -17,6 +17,15 @@ from verenigingen.utils.error_handling import (
     validate_required_fields,
 )
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
+
+# Import comprehensive security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    SecurityLevel,
+    critical_api,
+    high_security_api,
+)
+from verenigingen.utils.security.enhanced_validation import validate_with_schema
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
     rate_limit,
@@ -26,10 +35,9 @@ from verenigingen.utils.validation.api_validators import (
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
-@require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Manager"])
-@rate_limit(max_requests=10, window_minutes=60)
 def send_overdue_payment_reminders(
     reminder_type="Friendly Reminder",
     include_payment_link=True,
@@ -98,10 +106,9 @@ def send_overdue_payment_reminders(
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=5000)
-@require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Manager"])
-@rate_limit(max_requests=5, window_minutes=60)
 def export_overdue_payments(filters=None, format="CSV"):
     """Export overdue payments data for external processing"""
 
@@ -182,10 +189,9 @@ def export_overdue_payments(filters=None, format="CSV"):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=10000)
-@require_roles(["System Manager", "Verenigingen Administrator"])
-@rate_limit(max_requests=3, window_minutes=60)
 def execute_bulk_payment_action(action, apply_to="All Visible Records", filters=None):
     """Execute bulk actions on overdue payments"""
 
@@ -562,8 +568,8 @@ def process_application_refund(member_name, reason):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 @handle_api_error
-@require_roles(["System Manager", "Verenigingen Administrator"])
 def check_scheduler_logs():
     """Check dues schedule scheduler error logs in the last 7 days"""
     from datetime import datetime, timedelta
@@ -633,8 +639,22 @@ def check_scheduler_logs():
                     "error": error_doc.error[:1000],  # First 1000 chars
                 }
             )
-        except:
-            pass
+        except frappe.DoesNotExistError:
+            frappe.log_error(
+                message=f"Error Log {error_log['name']} does not exist",
+                title="Payment Processing - Missing Error Log",
+                reference_doctype="Error Log",
+                reference_name=error_log["name"],
+            )
+            # Continue processing other errors
+        except Exception as e:
+            frappe.log_error(
+                message=f"Failed to retrieve error log details: {str(e)}",
+                title="Payment Processing - Error Log Retrieval Failed",
+                reference_doctype="Error Log",
+                reference_name=error_log.get("name", "Unknown"),
+            )
+            # Continue processing other errors
 
     results["detailed_errors"] = detailed_errors
 

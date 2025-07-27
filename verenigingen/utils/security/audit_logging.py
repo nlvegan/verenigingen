@@ -21,7 +21,7 @@ from verenigingen.utils.error_handling import log_error
 class AuditEventType(Enum):
     """Audit event types for categorization"""
 
-    # SEPA Operations
+    # SEPA Operations (stored in SEPA Audit Log)
     SEPA_BATCH_CREATED = "sepa_batch_created"
     SEPA_BATCH_VALIDATED = "sepa_batch_validated"
     SEPA_BATCH_PROCESSED = "sepa_batch_processed"
@@ -30,7 +30,15 @@ class AuditEventType(Enum):
     SEPA_INVOICE_LOADED = "sepa_invoice_loaded"
     SEPA_MANDATE_VALIDATED = "sepa_mandate_validated"
 
-    # Security Events
+    # Additional SEPA process types to match SEPA Audit Log options
+    MANDATE_CREATION = "mandate_creation"
+    BATCH_GENERATION = "batch_generation"
+    BANK_SUBMISSION = "bank_submission"
+    PAYMENT_PROCESSING = "payment_processing"
+
+    # API and Security Events (stored in API Audit Log)
+    API_CALL_SUCCESS = "api_call_success"
+    API_CALL_FAILED = "api_call_failed"
     CSRF_VALIDATION_SUCCESS = "csrf_validation_success"
     CSRF_VALIDATION_FAILED = "csrf_validation_failed"
     RATE_LIMIT_EXCEEDED = "rate_limit_exceeded"
@@ -38,19 +46,19 @@ class AuditEventType(Enum):
     PERMISSION_DENIED = "permission_denied"
     SUSPICIOUS_ACTIVITY = "suspicious_activity"
 
-    # Authentication Events
+    # Authentication Events (stored in API Audit Log)
     USER_LOGIN = "user_login"
     USER_LOGOUT = "user_logout"
     SESSION_EXPIRED = "session_expired"
     FAILED_LOGIN_ATTEMPT = "failed_login_attempt"
 
-    # Data Events
+    # Data Events (stored in API Audit Log)
     SENSITIVE_DATA_ACCESS = "sensitive_data_access"
     DATA_EXPORT = "data_export"
     DATA_IMPORT = "data_import"
     DATA_MODIFICATION = "data_modification"
 
-    # System Events
+    # System Events (stored in API Audit Log)
     CONFIGURATION_CHANGE = "configuration_change"
     SYSTEM_ERROR = "system_error"
     PERFORMANCE_ALERT = "performance_alert"
@@ -67,11 +75,28 @@ class AuditSeverity(Enum):
 
 class SEPAAuditLogger:
     """
-    Comprehensive audit logging system for SEPA operations
+    Comprehensive audit logging system for SEPA operations and general API security events
 
     Provides structured logging with retention policies, alerting,
-    and security event monitoring.
+    and security event monitoring. Routes events to appropriate audit tables:
+    - SEPA-specific events go to SEPA Audit Log
+    - General API/security events go to API Audit Log
     """
+
+    # SEPA-specific event types that should go to SEPA Audit Log
+    SEPA_EVENT_TYPES = {
+        "sepa_batch_created",
+        "sepa_batch_validated",
+        "sepa_batch_processed",
+        "sepa_batch_cancelled",
+        "sepa_xml_generated",
+        "sepa_invoice_loaded",
+        "sepa_mandate_validated",
+        "mandate_creation",
+        "batch_generation",
+        "bank_submission",
+        "payment_processing",
+    }
 
     # Retention policies (days)
     RETENTION_POLICIES = {
@@ -93,6 +118,44 @@ class SEPAAuditLogger:
     def __init__(self):
         """Initialize audit logger"""
         self.logger = frappe.logger("sepa_audit", allow_site=True, file_count=50)
+
+    def _safe_get_request_header(self, header_name: str) -> str:
+        """Safely get request header, handling cases where there's no request context"""
+        try:
+            return frappe.get_request_header(header_name) or ""
+        except (RuntimeError, AttributeError):
+            # No request context available (e.g., when using bench execute)
+            return ""
+
+    def _is_sepa_event(self, event_type: str) -> bool:
+        """Determine if event should be stored in SEPA Audit Log"""
+        return event_type in self.SEPA_EVENT_TYPES
+
+    def _map_severity_for_sepa(self, severity: str) -> str:
+        """Map severity to SEPA Audit Log compliance_status options"""
+        severity_mapping = {
+            "info": "Compliant",
+            "warning": "Exception",
+            "error": "Failed",
+            "critical": "Pending Review",
+        }
+        return severity_mapping.get(severity, "Pending Review")
+
+    def _map_event_to_sepa_process_type(self, event_type: str) -> str:
+        """Map event type to SEPA Audit Log process_type options"""
+        process_type_mapping = {
+            "mandate_creation": "Mandate Creation",
+            "sepa_mandate_validated": "Mandate Creation",
+            "batch_generation": "Batch Generation",
+            "sepa_batch_created": "Batch Generation",
+            "sepa_batch_validated": "Batch Generation",
+            "bank_submission": "Bank Submission",
+            "sepa_xml_generated": "Bank Submission",
+            "payment_processing": "Payment Processing",
+            "sepa_batch_processed": "Payment Processing",
+            "sepa_invoice_loaded": "Payment Processing",
+        }
+        return process_type_mapping.get(event_type, "Batch Generation")
 
     def log_event(
         self,
@@ -140,8 +203,8 @@ class SEPAAuditLogger:
             "severity": severity,
             "user": user,
             "ip_address": ip_address,
-            "user_agent": frappe.get_request_header("User-Agent") or "unknown",
-            "referer": frappe.get_request_header("Referer") or "",
+            "user_agent": self._safe_get_request_header("User-Agent") or "unknown",
+            "referer": self._safe_get_request_header("Referer") or "",
             "session_id": getattr(frappe.session, "sid", "unknown"),
             "site": getattr(frappe.local, "site", "unknown"),
             "details": details or {},
@@ -153,7 +216,21 @@ class SEPAAuditLogger:
             try:
                 user_roles = frappe.get_roles(user)
                 audit_event["user_roles"] = user_roles
-            except:
+            except frappe.DoesNotExistError:
+                frappe.log_error(
+                    message=f"User {user} does not exist while getting roles for audit logging",
+                    title="Security Audit - User Not Found",
+                    reference_doctype="User",
+                    reference_name=user,
+                )
+                audit_event["user_roles"] = []
+            except Exception as e:
+                frappe.log_error(
+                    message=f"Failed to get user roles for {user} during audit logging: {str(e)}",
+                    title="Security Audit - Role Retrieval Failed",
+                    reference_doctype="User",
+                    reference_name=user,
+                )
                 audit_event["user_roles"] = []
 
         try:
@@ -174,21 +251,36 @@ class SEPAAuditLogger:
             return f"failed_{int(time.time())}"
 
     def _store_audit_event(self, audit_event: Dict[str, Any]):
-        """Store audit event in database"""
+        """Store audit event in appropriate database table"""
         try:
-            # Create audit log entry
+            event_type = audit_event["event_type"]
+
+            if self._is_sepa_event(event_type):
+                # Store SEPA-specific events in SEPA Audit Log
+                self._store_sepa_audit_event(audit_event)
+            else:
+                # Store general API/security events in API Audit Log
+                self._store_api_audit_event(audit_event)
+
+        except Exception as e:
+            # If database storage fails, log to error log
+            frappe.log_error(
+                f"Failed to store audit event in database: {str(e)}\nEvent: {json.dumps(audit_event, default=str)}",
+                "Audit Database Error",
+            )
+
+    def _store_sepa_audit_event(self, audit_event: Dict[str, Any]):
+        """Store SEPA-specific audit event in SEPA Audit Log"""
+        try:
             audit_doc = frappe.new_doc("SEPA Audit Log")
             audit_doc.update(
                 {
                     "event_id": audit_event["event_id"],
                     "timestamp": audit_event["timestamp"],
-                    "event_type": audit_event["event_type"],
-                    "severity": audit_event["severity"],
+                    "process_type": self._map_event_to_sepa_process_type(audit_event["event_type"]),
+                    "action": audit_event["event_type"],
+                    "compliance_status": self._map_severity_for_sepa(audit_event["severity"]),
                     "user": audit_event["user"],
-                    "ip_address": audit_event["ip_address"],
-                    "user_agent": audit_event["user_agent"][:500] if audit_event["user_agent"] else "",
-                    "referer": audit_event["referer"][:500] if audit_event["referer"] else "",
-                    "session_id": audit_event["session_id"],
                     "details": json.dumps(audit_event["details"], default=str),
                     "sensitive_data": audit_event["sensitive_data"],
                 }
@@ -199,10 +291,39 @@ class SEPAAuditLogger:
             frappe.db.commit()
 
         except Exception as e:
-            # If database storage fails, log to error log
             frappe.log_error(
-                f"Failed to store audit event in database: {str(e)}\nEvent: {json.dumps(audit_event, default=str)}",
-                "Audit Database Error",
+                f"Failed to store SEPA audit event: {str(e)}\nEvent: {json.dumps(audit_event, default=str)}",
+                "SEPA Audit Database Error",
+            )
+
+    def _store_api_audit_event(self, audit_event: Dict[str, Any]):
+        """Store general API/security audit event in API Audit Log"""
+        try:
+            audit_doc = frappe.new_doc("API Audit Log")
+            audit_doc.update(
+                {
+                    "event_id": audit_event["event_id"],
+                    "timestamp": audit_event["timestamp"],
+                    "event_type": audit_event["event_type"],
+                    "severity": audit_event["severity"],
+                    "user": audit_event["user"],
+                    "ip_address": audit_event["ip_address"],
+                    "user_agent": audit_event["user_agent"],
+                    "session_id": audit_event["session_id"],
+                    "referer": audit_event["referer"],
+                    "details": json.dumps(audit_event["details"], default=str),
+                    "sensitive_data": audit_event["sensitive_data"],
+                }
+            )
+
+            # Insert without triggering additional validation
+            audit_doc.insert(ignore_permissions=True)
+            frappe.db.commit()
+
+        except Exception as e:
+            frappe.log_error(
+                f"Failed to store API audit event: {str(e)}\nEvent: {json.dumps(audit_event, default=str)}",
+                "API Audit Database Error",
             )
 
     def _log_to_file(self, audit_event: Dict[str, Any]):
@@ -261,15 +382,25 @@ class SEPAAuditLogger:
             frappe.log_error(f"Alert checking failed: {str(e)}", "Audit Alert Error")
 
     def _count_recent_events(self, event_type: str, window_minutes: int) -> int:
-        """Count recent events of specific type"""
+        """Count recent events of specific type from both audit tables"""
         try:
             cutoff_time = add_days(now(), days=0, hours=0, minutes=-window_minutes)
+            total_count = 0
 
-            count = frappe.db.count(
-                "SEPA Audit Log", filters={"event_type": event_type, "timestamp": [">", cutoff_time]}
-            )
+            if self._is_sepa_event(event_type):
+                # Count from SEPA Audit Log using action field
+                count = frappe.db.count(
+                    "SEPA Audit Log", filters={"action": event_type, "timestamp": [">", cutoff_time]}
+                )
+                total_count += count
+            else:
+                # Count from API Audit Log using event_type field
+                count = frappe.db.count(
+                    "API Audit Log", filters={"event_type": event_type, "timestamp": [">", cutoff_time]}
+                )
+                total_count += count
 
-            return count
+            return total_count
 
         except Exception:
             return 0
@@ -347,7 +478,7 @@ class SEPAAuditLogger:
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         """
-        Search audit logs with filters
+        Search audit logs with filters from both SEPA and API audit tables
 
         Args:
             event_types: List of event types to filter
@@ -358,13 +489,55 @@ class SEPAAuditLogger:
             limit: Maximum number of results
 
         Returns:
-            List of audit log entries
+            List of audit log entries from both tables
         """
+        try:
+            all_logs = []
+
+            # Separate SEPA and API event types
+            sepa_event_types = []
+            api_event_types = []
+
+            if event_types:
+                for event_type in event_types:
+                    if self._is_sepa_event(event_type):
+                        sepa_event_types.append(event_type)
+                    else:
+                        api_event_types.append(event_type)
+            else:
+                # If no specific event types, search both tables
+                sepa_event_types = None
+                api_event_types = None
+
+            # Search SEPA Audit Log
+            if sepa_event_types or event_types is None:
+                sepa_logs = self._search_sepa_audit_logs(
+                    sepa_event_types, users, start_date, end_date, severity, limit // 2
+                )
+                all_logs.extend(sepa_logs)
+
+            # Search API Audit Log
+            if api_event_types or event_types is None:
+                api_logs = self._search_api_audit_logs(
+                    api_event_types, users, start_date, end_date, severity, limit // 2
+                )
+                all_logs.extend(api_logs)
+
+            # Sort by timestamp and limit results
+            all_logs.sort(key=lambda x: x["timestamp"], reverse=True)
+            return all_logs[:limit]
+
+        except Exception as e:
+            log_error(e, context={"filters": locals()}, module="verenigingen.utils.security.audit_logging")
+            return []
+
+    def _search_sepa_audit_logs(self, event_types, users, start_date, end_date, severity, limit):
+        """Search SEPA Audit Log table"""
         try:
             filters = {}
 
             if event_types:
-                filters["event_type"] = ["in", event_types]
+                filters["action"] = ["in", event_types]
             if users:
                 filters["user"] = ["in", users]
             if start_date:
@@ -375,7 +548,7 @@ class SEPAAuditLogger:
                 else:
                     filters["timestamp"] = ["<=", end_date]
             if severity:
-                filters["compliance_status"] = severity
+                filters["compliance_status"] = self._map_severity_for_sepa(severity)
 
             logs = frappe.get_all(
                 "SEPA Audit Log",
@@ -394,44 +567,104 @@ class SEPAAuditLogger:
                 limit=limit,
             )
 
-            # Parse details JSON
+            # Normalize field names and parse details
             for log in logs:
+                log["event_type"] = log["action"]  # Normalize field name
+                log["severity"] = self._unmap_severity_from_sepa(log["compliance_status"])
                 try:
                     log["details"] = json.loads(log["details"]) if log["details"] else {}
-                except:
+                except (json.JSONDecodeError, TypeError, ValueError):
                     log["details"] = {}
+                log["source_table"] = "SEPA Audit Log"
 
             return logs
 
         except Exception as e:
-            log_error(e, context={"filters": locals()}, module="verenigingen.utils.security.audit_logging")
+            frappe.log_error(f"Failed to search SEPA audit logs: {str(e)}", "SEPA Audit Search Error")
             return []
 
+    def _search_api_audit_logs(self, event_types, users, start_date, end_date, severity, limit):
+        """Search API Audit Log table"""
+        try:
+            filters = {}
+
+            if event_types:
+                filters["event_type"] = ["in", event_types]
+            if users:
+                filters["user"] = ["in", users]
+            if start_date:
+                filters["timestamp"] = [">=", start_date]
+            if end_date:
+                if "timestamp" in filters:
+                    filters["timestamp"] = ["between", [filters["timestamp"][1], end_date]]
+                else:
+                    filters["timestamp"] = ["<=", end_date]
+            if severity:
+                filters["severity"] = severity
+
+            logs = frappe.get_all(
+                "API Audit Log",
+                filters=filters,
+                fields=[
+                    "event_id",
+                    "timestamp",
+                    "event_type",
+                    "severity",
+                    "user",
+                    "ip_address",
+                    "user_agent",
+                    "details",
+                    "sensitive_data",
+                ],
+                order_by="timestamp desc",
+                limit=limit,
+            )
+
+            # Parse details and add source table
+            for log in logs:
+                try:
+                    log["details"] = json.loads(log["details"]) if log["details"] else {}
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    log["details"] = {}
+                log["source_table"] = "API Audit Log"
+
+            return logs
+
+        except Exception as e:
+            frappe.log_error(f"Failed to search API audit logs: {str(e)}", "API Audit Search Error")
+            return []
+
+    def _unmap_severity_from_sepa(self, compliance_status: str) -> str:
+        """Reverse map SEPA compliance_status to severity"""
+        reverse_mapping = {
+            "Compliant": "info",
+            "Exception": "warning",
+            "Failed": "error",
+            "Pending Review": "critical",
+        }
+        return reverse_mapping.get(compliance_status, "info")
+
     def cleanup_old_logs(self):
-        """Clean up old audit logs based on retention policies"""
+        """Clean up old audit logs from both tables based on retention policies"""
         try:
             for severity, retention_days in self.RETENTION_POLICIES.items():
                 cutoff_date = add_days(today(), -retention_days)
 
-                # Delete old logs
-                old_logs = frappe.get_all(
-                    "SEPA Audit Log",
-                    filters={"severity": severity.value, "timestamp": ["<", cutoff_date]},
-                    pluck="name",
-                )
+                # Clean up SEPA Audit Log
+                sepa_deleted = self._cleanup_sepa_logs(severity.value, cutoff_date)
 
-                if old_logs:
-                    for log_name in old_logs:
-                        frappe.delete_doc("SEPA Audit Log", log_name, ignore_permissions=True)
+                # Clean up API Audit Log
+                api_deleted = self._cleanup_api_logs(severity.value, cutoff_date)
 
-                    frappe.db.commit()
-
+                if sepa_deleted > 0 or api_deleted > 0:
                     self.log_event(
                         "audit_cleanup",
                         AuditSeverity.INFO,
                         details={
                             "severity": severity.value,
-                            "deleted_count": len(old_logs),
+                            "sepa_deleted_count": sepa_deleted,
+                            "api_deleted_count": api_deleted,
+                            "total_deleted": sepa_deleted + api_deleted,
                             "cutoff_date": str(cutoff_date),
                         },
                     )
@@ -442,6 +675,55 @@ class SEPAAuditLogger:
                 context={"retention_policies": self.RETENTION_POLICIES},
                 module="verenigingen.utils.security.audit_logging",
             )
+
+    def _cleanup_sepa_logs(self, severity: str, cutoff_date: str) -> int:
+        """Clean up old SEPA audit logs"""
+        try:
+            # Map severity to SEPA compliance status
+            compliance_status = self._map_severity_for_sepa(severity)
+
+            old_logs = frappe.get_all(
+                "SEPA Audit Log",
+                filters={"compliance_status": compliance_status, "timestamp": ["<", cutoff_date]},
+                pluck="name",
+            )
+
+            deleted_count = 0
+            if old_logs:
+                for log_name in old_logs:
+                    frappe.delete_doc("SEPA Audit Log", log_name, ignore_permissions=True)
+                    deleted_count += 1
+
+                frappe.db.commit()
+
+            return deleted_count
+
+        except Exception as e:
+            frappe.log_error(f"Failed to cleanup SEPA audit logs: {str(e)}", "SEPA Audit Cleanup Error")
+            return 0
+
+    def _cleanup_api_logs(self, severity: str, cutoff_date: str) -> int:
+        """Clean up old API audit logs"""
+        try:
+            old_logs = frappe.get_all(
+                "API Audit Log",
+                filters={"severity": severity, "timestamp": ["<", cutoff_date]},
+                pluck="name",
+            )
+
+            deleted_count = 0
+            if old_logs:
+                for log_name in old_logs:
+                    frappe.delete_doc("API Audit Log", log_name, ignore_permissions=True)
+                    deleted_count += 1
+
+                frappe.db.commit()
+
+            return deleted_count
+
+        except Exception as e:
+            frappe.log_error(f"Failed to cleanup API audit logs: {str(e)}", "API Audit Cleanup Error")
+            return 0
 
 
 # Global audit logger instance
@@ -575,7 +857,7 @@ def search_audit_logs(**filters):
 @frappe.whitelist()
 def get_audit_statistics(days: int = 7):
     """
-    Get audit log statistics
+    Get audit log statistics from both SEPA and API audit tables
 
     Args:
         days: Number of days to analyze
@@ -590,24 +872,58 @@ def get_audit_statistics(days: int = 7):
     try:
         start_date = add_days(today(), -days)
 
-        # Get event type counts
-        event_counts = frappe.db.sql(
+        # Get event type counts from both tables
+        sepa_event_counts = frappe.db.sql(
             """
-            SELECT event_type, COUNT(*) as count
+            SELECT action as event_type, COUNT(*) as count, 'SEPA' as source
             FROM `tabSEPA Audit Log`
             WHERE timestamp >= %s
-            GROUP BY event_type
-            ORDER BY count DESC
+            GROUP BY action
         """,
             [start_date],
             as_dict=True,
         )
 
-        # Get severity counts
-        severity_counts = frappe.db.sql(
+        api_event_counts = frappe.db.sql(
             """
-            SELECT severity, COUNT(*) as count
+            SELECT event_type, COUNT(*) as count, 'API' as source
+            FROM `tabAPI Audit Log`
+            WHERE timestamp >= %s
+            GROUP BY event_type
+        """,
+            [start_date],
+            as_dict=True,
+        )
+
+        # Combine and sort event counts
+        all_event_counts = sepa_event_counts + api_event_counts
+        all_event_counts.sort(key=lambda x: x["count"], reverse=True)
+
+        # Get severity counts (normalize SEPA compliance_status to severity)
+        sepa_severity_counts = frappe.db.sql(
+            """
+            SELECT
+                CASE compliance_status
+                    WHEN 'Compliant' THEN 'info'
+                    WHEN 'Exception' THEN 'warning'
+                    WHEN 'Failed' THEN 'error'
+                    WHEN 'Pending Review' THEN 'critical'
+                    ELSE 'info'
+                END as severity,
+                COUNT(*) as count,
+                'SEPA' as source
             FROM `tabSEPA Audit Log`
+            WHERE timestamp >= %s
+            GROUP BY compliance_status
+        """,
+            [start_date],
+            as_dict=True,
+        )
+
+        api_severity_counts = frappe.db.sql(
+            """
+            SELECT severity, COUNT(*) as count, 'API' as source
+            FROM `tabAPI Audit Log`
             WHERE timestamp >= %s
             GROUP BY severity
         """,
@@ -615,46 +931,125 @@ def get_audit_statistics(days: int = 7):
             as_dict=True,
         )
 
-        # Get user activity
-        user_activity = frappe.db.sql(
+        # Combine severity counts
+        all_severity_counts = sepa_severity_counts + api_severity_counts
+
+        # Get user activity from both tables
+        sepa_user_activity = frappe.db.sql(
             """
-            SELECT user, COUNT(*) as count
+            SELECT user, COUNT(*) as count, 'SEPA' as source
             FROM `tabSEPA Audit Log`
             WHERE timestamp >= %s AND user != 'System'
             GROUP BY user
-            ORDER BY count DESC
-            LIMIT 10
         """,
             [start_date],
             as_dict=True,
         )
 
-        # Get daily activity
-        daily_activity = frappe.db.sql(
+        api_user_activity = frappe.db.sql(
             """
-            SELECT DATE(timestamp) as date, COUNT(*) as count
-            FROM `tabSEPA Audit Log`
-            WHERE timestamp >= %s
-            GROUP BY DATE(timestamp)
-            ORDER BY date
+            SELECT user, COUNT(*) as count, 'API' as source
+            FROM `tabAPI Audit Log`
+            WHERE timestamp >= %s AND user != 'System'
+            GROUP BY user
         """,
             [start_date],
             as_dict=True,
         )
+
+        # Combine and aggregate user activity
+        user_activity_dict = {}
+        for activity in sepa_user_activity + api_user_activity:
+            user = activity["user"]
+            if user not in user_activity_dict:
+                user_activity_dict[user] = {"user": user, "count": 0}
+            user_activity_dict[user]["count"] += activity["count"]
+
+        user_activity = sorted(user_activity_dict.values(), key=lambda x: x["count"], reverse=True)[:10]
+
+        # Get daily activity from both tables
+        sepa_daily_activity = frappe.db.sql(
+            """
+            SELECT DATE(timestamp) as date, COUNT(*) as sepa_count
+            FROM `tabSEPA Audit Log`
+            WHERE timestamp >= %s
+            GROUP BY DATE(timestamp)
+        """,
+            [start_date],
+            as_dict=True,
+        )
+
+        api_daily_activity = frappe.db.sql(
+            """
+            SELECT DATE(timestamp) as date, COUNT(*) as api_count
+            FROM `tabAPI Audit Log`
+            WHERE timestamp >= %s
+            GROUP BY DATE(timestamp)
+        """,
+            [start_date],
+            as_dict=True,
+        )
+
+        # Combine daily activity
+        daily_activity_dict = {}
+        for activity in sepa_daily_activity:
+            date = activity["date"]
+            daily_activity_dict[date] = {
+                "date": date,
+                "sepa_count": activity["sepa_count"],
+                "api_count": 0,
+                "total_count": activity["sepa_count"],
+            }
+
+        for activity in api_daily_activity:
+            date = activity["date"]
+            if date not in daily_activity_dict:
+                daily_activity_dict[date] = {
+                    "date": date,
+                    "sepa_count": 0,
+                    "api_count": activity["api_count"],
+                    "total_count": activity["api_count"],
+                }
+            else:
+                daily_activity_dict[date]["api_count"] = activity["api_count"]
+                daily_activity_dict[date]["total_count"] += activity["api_count"]
+
+        daily_activity = sorted(daily_activity_dict.values(), key=lambda x: x["date"])
 
         return {
             "success": True,
             "period_days": days,
-            "event_types": event_counts,
-            "severity_levels": severity_counts,
+            "event_types": all_event_counts,
+            "severity_levels": all_severity_counts,
             "user_activity": user_activity,
             "daily_activity": daily_activity,
+            "table_summary": {
+                "sepa_events": len(sepa_event_counts),
+                "api_events": len(api_event_counts),
+                "total_events": len(all_event_counts),
+            },
         }
 
     except Exception as e:
         log_error(e, context={"days": days}, module="verenigingen.utils.security.audit_logging")
 
         return {"success": False, "error": _("Failed to get audit statistics"), "message": str(e)}
+
+
+def weekly_security_health_check():
+    """Weekly security system health check - called by scheduler"""
+    try:
+        log_sepa_event(
+            event_type="security_weekly_health_check",
+            details={
+                "check_type": "weekly_health_check",
+                "system_status": "operational",
+                "timestamp": frappe.utils.now_datetime().isoformat(),
+            },
+            severity="info",
+        )
+    except Exception as e:
+        frappe.log_error(f"Error in weekly security health check: {str(e)}", "Security Health Check")
 
 
 def setup_audit_logging():

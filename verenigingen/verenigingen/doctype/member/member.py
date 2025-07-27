@@ -2762,13 +2762,10 @@ def get_current_dues_schedule_details(member):
 
 @frappe.whitelist()
 def refresh_fee_change_history(member_name):
-    """Refresh fee change history from dues schedules"""
+    """Refresh fee change history from dues schedules using smart detection (atomic approach)"""
     try:
-        # Get the member document
-        member_doc = frappe.get_doc("Member", member_name)
-
-        # Clear existing fee_change_history
-        member_doc.fee_change_history = []
+        # Get the member document - use get_doc with for_update to handle concurrency
+        member_doc = frappe.get_doc("Member", member_name, for_update=True)
 
         # Get all dues schedules for this member
         dues_schedules = frappe.get_all(
@@ -2778,24 +2775,53 @@ def refresh_fee_change_history(member_name):
             order_by="creation",
         )
 
-        # Create fee change history entries in the member document's child table
-        for schedule in dues_schedules:
-            # Validate billing frequency - use "Custom" for unsupported frequencies
-            valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
-            billing_freq = (
-                schedule.billing_frequency if schedule.billing_frequency in valid_frequencies else "Custom"
-            )
+        # Get existing fee change history entries to compare
+        existing_entries = {row.dues_schedule: row for row in member_doc.fee_change_history or []}
 
-            # Add a new row to the fee_change_history child table
-            history_row = member_doc.append("fee_change_history", {})
-            history_row.change_date = schedule.creation
-            history_row.dues_schedule = schedule.name
-            history_row.billing_frequency = billing_freq
-            history_row.old_dues_rate = 0  # First schedule for this member
-            history_row.new_dues_rate = schedule.dues_rate
-            history_row.change_type = "Schedule Created"
-            history_row.reason = f"Dues schedule: {schedule.schedule_name or schedule.name}"
-            history_row.changed_by = frappe.session.user if frappe.session.user else "Administrator"
+        # Process each schedule with smart detection
+        for schedule in dues_schedules:
+            schedule_name = schedule.name
+
+            # Check if entry already exists
+            if schedule_name in existing_entries:
+                # Update existing entry if needed
+                existing_entry = existing_entries[schedule_name]
+
+                # Check if update is needed (compare key fields)
+                needs_update = (
+                    existing_entry.new_dues_rate != schedule.dues_rate
+                    or existing_entry.billing_frequency != schedule.billing_frequency
+                    or existing_entry.reason != f"Dues schedule: {schedule.schedule_name or schedule.name}"
+                )
+
+                if needs_update:
+                    # Use atomic update method
+                    schedule_data = {
+                        "name": schedule.name,
+                        "schedule_name": schedule.schedule_name,
+                        "dues_rate": schedule.dues_rate,
+                        "billing_frequency": schedule.billing_frequency,
+                        "old_dues_rate": existing_entry.old_dues_rate,  # Preserve old rate
+                        "change_type": "Schedule Updated",
+                        "reason": f"Dues schedule: {schedule.schedule_name or schedule.name}",
+                        "change_date": frappe.utils.now_datetime(),  # Update timestamp
+                        "changed_by": frappe.session.user or "Administrator",
+                    }
+                    member_doc.update_fee_change_in_history(schedule_data)
+            else:
+                # Add new entry using atomic method
+                schedule_data = {
+                    "name": schedule.name,
+                    "schedule_name": schedule.schedule_name,
+                    "dues_rate": schedule.dues_rate,
+                    "billing_frequency": schedule.billing_frequency,
+                    "creation": schedule.creation,
+                    "old_dues_rate": 0,  # First schedule for this member
+                    "change_type": "Schedule Created",
+                    "reason": f"Dues schedule: {schedule.schedule_name or schedule.name}",
+                    "changed_by": frappe.session.user or "Administrator",
+                }
+                member_doc.add_fee_change_to_history(schedule_data)
 
         # Save the member document to persist the changes
         # Use flags to avoid validation issues during refresh
@@ -2803,11 +2829,16 @@ def refresh_fee_change_history(member_name):
         member_doc.flags.ignore_permissions = True
         member_doc.save()
 
+        # Commit the changes to ensure they're saved
+        frappe.db.commit()
+
         return {
             "success": True,
-            "message": f"Fee change history refreshed for {member_name}",
+            "message": f"Fee change history refreshed for {member_name} using atomic updates",
             "history_count": len(dues_schedules),
+            "reload_doc": True,  # Signal to reload the document
             "dues_schedules_found": len(dues_schedules),
+            "method": "atomic_smart_detection",
         }
 
     except Exception as e:
@@ -2866,6 +2897,145 @@ def test_amendment_filtering():
         "raw_count": len(raw_amendments),
         "success": True,
     }
+
+    # ===== NEW ATOMIC FEE CHANGE HISTORY METHODS =====
+
+    def add_fee_change_to_history(self, schedule_data):
+        """Add a single fee change to history incrementally"""
+        try:
+            # Check if entry already exists for this schedule
+            existing_idx = None
+            for idx, row in enumerate(self.fee_change_history or []):
+                if row.dues_schedule == schedule_data.get(
+                    "schedule_name"
+                ) or row.dues_schedule == schedule_data.get("name"):
+                    existing_idx = idx
+                    break
+
+            # Validate billing frequency - use "Custom" for unsupported frequencies
+            valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
+            billing_freq = (
+                schedule_data.get("billing_frequency")
+                if schedule_data.get("billing_frequency") in valid_frequencies
+                else "Custom"
+            )
+
+            # Build entry data
+            entry_data = {
+                "change_date": schedule_data.get("creation") or frappe.utils.now_datetime(),
+                "dues_schedule": schedule_data.get("name") or schedule_data.get("schedule_name"),
+                "billing_frequency": billing_freq,
+                "old_dues_rate": schedule_data.get("old_dues_rate", 0),
+                "new_dues_rate": schedule_data.get("dues_rate") or schedule_data.get("new_dues_rate"),
+                "change_type": schedule_data.get("change_type", "Schedule Created"),
+                "reason": schedule_data.get("reason")
+                or f"Dues schedule: {schedule_data.get('schedule_name') or schedule_data.get('name')}",
+                "changed_by": schedule_data.get("changed_by") or frappe.session.user or "Administrator",
+            }
+
+            if existing_idx is not None:
+                # Update existing entry
+                for key, value in entry_data.items():
+                    setattr(self.fee_change_history[existing_idx], key, value)
+            else:
+                # Add new entry at the beginning (most recent first)
+                self.fee_change_history.insert(0, entry_data)
+
+                # Keep only 50 most recent entries to prevent unlimited growth
+                if len(self.fee_change_history) > 50:
+                    self.fee_change_history = self.fee_change_history[:50]
+
+            # Save with minimal logging
+            self.flags.ignore_version = True
+            self.flags.ignore_links = True
+            self.flags.ignore_validate_update_after_submit = True
+            self.save(ignore_permissions=True)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error adding fee change to history for member {self.name}: {str(e)}",
+                "Atomic Fee Change History Update",
+            )
+
+    def update_fee_change_in_history(self, schedule_data):
+        """Update an existing fee change in history"""
+        if not hasattr(self, "fee_change_history") or not self.fee_change_history:
+            # If no history exists, just add it
+            self.add_fee_change_to_history(schedule_data)
+            return
+
+        try:
+            # Find the schedule in fee change history
+            found = False
+            schedule_name = schedule_data.get("name") or schedule_data.get("schedule_name")
+
+            for idx, row in enumerate(self.fee_change_history):
+                if row.dues_schedule == schedule_name:
+                    found = True
+                    # Update the entry with new data
+                    valid_frequencies = ["Daily", "Monthly", "Quarterly", "Semi-Annual", "Annual", "Custom"]
+                    billing_freq = (
+                        schedule_data.get("billing_frequency")
+                        if schedule_data.get("billing_frequency") in valid_frequencies
+                        else "Custom"
+                    )
+
+                    # Update fields
+                    row.change_date = schedule_data.get("change_date") or frappe.utils.now_datetime()
+                    row.billing_frequency = billing_freq
+                    row.old_dues_rate = schedule_data.get("old_dues_rate", row.old_dues_rate)
+                    row.new_dues_rate = schedule_data.get("dues_rate") or schedule_data.get("new_dues_rate")
+                    row.change_type = schedule_data.get("change_type", "Fee Adjustment")
+                    row.reason = schedule_data.get("reason") or f"Updated: {schedule_name}"
+                    row.changed_by = schedule_data.get("changed_by") or frappe.session.user or "Administrator"
+                    break
+
+            if not found:
+                # Entry not in history, add it
+                self.add_fee_change_to_history(schedule_data)
+            else:
+                # Save the updates with minimal logging
+                self.flags.ignore_version = True
+                self.flags.ignore_links = True
+                self.flags.ignore_validate_update_after_submit = True
+                self.save(ignore_permissions=True)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error updating fee change in history for member {self.name}: {str(e)}",
+                "Atomic Fee Change History Update",
+            )
+
+    def remove_fee_change_from_history(self, schedule_name):
+        """Remove a fee change from history (e.g., when schedule is deleted)"""
+        if not hasattr(self, "fee_change_history") or not self.fee_change_history:
+            return
+
+        try:
+            # Find and remove the schedule
+            updated_history = []
+            removed = False
+
+            for row in self.fee_change_history:
+                if row.dues_schedule != schedule_name:
+                    updated_history.append(row)
+                else:
+                    removed = True
+
+            if removed:
+                self.fee_change_history = updated_history
+
+                # Save with minimal logging
+                self.flags.ignore_version = True
+                self.flags.ignore_links = True
+                self.flags.ignore_validate_update_after_submit = True
+                self.save(ignore_permissions=True)
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error removing fee change from history for member {self.name}: {str(e)}",
+                "Atomic Fee Change History Update",
+            )
 
 
 @frappe.whitelist()

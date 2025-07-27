@@ -18,6 +18,12 @@ from verenigingen.api.sepa_duplicate_prevention import (
 from verenigingen.utils.error_handling import handle_api_error, validate_required_fields
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security.authorization import (
+    SEPAOperation,
+    SEPAPermissionLevel,
+    require_sepa_permission,
+)
 
 # ========================
 # PHASE 1: CONSERVATIVE APPROACH
@@ -25,6 +31,8 @@ from verenigingen.utils.performance_utils import performance_monitor
 
 
 @handle_api_error
+@standard_api
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def identify_sepa_transactions():
     """Find bank transactions that might be from SEPA batches"""
@@ -119,6 +127,8 @@ def find_matching_sepa_batches(bank_transaction):
     return matches
 
 
+@critical_api
+@require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
 def process_sepa_transaction_conservative(bank_transaction_name, sepa_batch_name):
     """Process SEPA transaction with conservative approach and duplicate prevention"""
@@ -360,6 +370,8 @@ Action Required: Investigate source of excess payment
 # ========================
 
 
+@critical_api
+@require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
 def process_sepa_return_file(file_content, file_type="csv"):
     """Process SEPA return file with failure details"""
@@ -589,6 +601,8 @@ def notify_member_of_failed_payment(member_name, invoice_name, return_item):
     return task.name
 
 
+@high_security_api
+@require_sepa_permission(SEPAPermissionLevel.VALIDATE, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def correlate_return_transactions():
     """Look for return transactions and correlate with SEPA batches"""
@@ -672,6 +686,8 @@ def find_original_sepa_batch_for_return(return_transaction):
 
 @handle_api_error
 @performance_monitor()
+@standard_api
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_sepa_reconciliation_dashboard():
     """Get dashboard data for SEPA reconciliation status"""
@@ -717,6 +733,8 @@ def get_sepa_reconciliation_dashboard():
         return {"success": False, "error": str(e)}
 
 
+@critical_api
+@require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
 def manual_sepa_reconciliation(bank_transaction_name, batch_items_json):
     """Manually reconcile specific items from a SEPA batch"""

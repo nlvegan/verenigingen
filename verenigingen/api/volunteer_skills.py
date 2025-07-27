@@ -5,8 +5,12 @@ API endpoints for volunteer skills management and search
 import frappe
 from frappe import _
 
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+
 
 @frappe.whitelist()
+@standard_api  # Skills overview - read-only aggregated data
 def get_skills_overview():
     """Get comprehensive skills overview for dashboards and reports"""
     try:
@@ -89,6 +93,7 @@ def get_skills_overview():
 
 
 @frappe.whitelist()
+@high_security_api  # Volunteer search - personal data access
 def search_volunteers_advanced(filters=None):
     """Advanced volunteer search with multiple skill filters
 
@@ -216,6 +221,7 @@ def search_volunteers_advanced(filters=None):
 
 
 @frappe.whitelist()
+@standard_api  # Skill recommendations - algorithmic suggestions
 def get_skill_recommendations(volunteer_name, limit=10):
     """Get skill recommendations for a volunteer based on similar volunteers
 
@@ -300,6 +306,7 @@ def get_skill_recommendations(volunteer_name, limit=10):
 
 
 @frappe.whitelist()
+@standard_api  # Skill gaps analysis - organizational metrics
 def get_skill_gaps_analysis():
     """Analyze skill gaps in the organization"""
     try:
@@ -360,6 +367,7 @@ def get_skill_gaps_analysis():
 
 
 @frappe.whitelist()
+@high_security_api  # Data export - personal information
 def export_skills_data(format_type="json"):
     """Export skills data for external analysis
 

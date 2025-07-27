@@ -124,7 +124,7 @@ def get_context(context):
             d.donor,
             donor.donor_name,
             d.amount,
-            d.date,
+            d.donation_date,
             d.periodic_donation_agreement,
             pda.agreement_number,
             pda.anbi_eligible
@@ -133,7 +133,7 @@ def get_context(context):
         LEFT JOIN `tabPeriodic Donation Agreement` pda ON d.periodic_donation_agreement = pda.name
         WHERE d.paid = 1
         AND d.docstatus = 1
-        ORDER BY d.date DESC
+        ORDER BY d.donation_date DESC
         LIMIT 10
     """,
         as_dict=1,

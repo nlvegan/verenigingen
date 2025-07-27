@@ -86,18 +86,31 @@ def emit_invoice_updated_after_submit(doc, method=None):
 
 def _emit_invoice_event(event_name, event_data):
     """
-    Internal function to emit invoice events to all subscribers.
+    Internal function to emit invoice events to all subscribers with hybrid processing support.
 
     Uses Frappe's background job queue to ensure event processing
-    doesn't block the main transaction.
+    doesn't block the main transaction. Supports bulk processing flag
+    to prevent duplicate updates during bulk operations.
     """
+    # HYBRID ARCHITECTURE: Skip event emission during bulk processing
+    # The bulk process will handle payment history updates directly
+    if getattr(frappe.flags, "bulk_invoice_generation", False):
+        frappe.logger("events").info(
+            f"Skipping event emission for {event_name} during bulk processing - invoice: {event_data.get('invoice')}"
+        )
+        return
+
     # Get all registered subscribers for this event
     subscribers = _get_event_subscribers(event_name)
 
     for subscriber in subscribers:
         # For payment history updates, we need special handling to prevent
         # concurrent updates to the same member
-        if "payment_history_subscriber" in subscriber:
+        if (
+            subscriber.endswith("payment_history_subscriber.handle_invoice_submitted")
+            or subscriber.endswith("payment_history_subscriber.handle_invoice_cancelled")
+            or subscriber.endswith("payment_history_subscriber.handle_invoice_updated")
+        ):
             # Get the customer from event data
             customer = event_data.get("customer")
             if customer:

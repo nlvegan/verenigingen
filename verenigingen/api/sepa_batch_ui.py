@@ -5,11 +5,21 @@ from frappe.utils import add_days, getdate, today
 from verenigingen.utils.error_handling import SEPAError, handle_api_error, validate_required_fields
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
+
+# Import comprehensive security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    SecurityLevel,
+    critical_api,
+    high_security_api,
+)
+from verenigingen.utils.security.enhanced_validation import validate_with_schema
 from verenigingen.utils.sepa_input_validation import SEPAInputValidator
 
 
-@handle_api_error
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
+@handle_api_error
 def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
     """Load unpaid invoices for batch processing"""
 
@@ -131,6 +141,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def get_invoice_mandate_info(invoice):
     """Get mandate information for an invoice - optimized single query"""
 
@@ -183,6 +194,7 @@ def get_invoice_mandate_info(invoice):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def validate_invoice_mandate(invoice, member):
     """Validate mandate for a specific invoice - optimized single query"""
 
@@ -243,8 +255,9 @@ def validate_invoice_mandate(invoice, member):
         return {"valid": False, "error": str(e)}
 
 
-@handle_api_error
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+@handle_api_error
 def get_batch_analytics(batch_name):
     """Get detailed analytics for a batch"""
 
@@ -289,6 +302,7 @@ def get_batch_analytics(batch_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def preview_sepa_xml(batch_name):
     """Preview SEPA XML content before generation"""
 
@@ -331,8 +345,10 @@ def preview_sepa_xml(batch_name):
     return preview
 
 
-@handle_api_error
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
+@validate_with_schema("sepa_batch")
+@handle_api_error
 def create_sepa_batch_validated(**params):
     """
     Create SEPA batch with comprehensive input validation
@@ -487,8 +503,9 @@ def create_sepa_batch_validated(**params):
         }
 
 
-@handle_api_error
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+@handle_api_error
 def validate_batch_invoices(invoice_list):
     """
     Validate a list of invoices for SEPA batch processing
@@ -512,8 +529,9 @@ def validate_batch_invoices(invoice_list):
     return SEPAInputValidator.validate_invoice_list(invoice_list)
 
 
-@handle_api_error
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
+@handle_api_error
 def get_sepa_validation_constraints():
     """
     Get SEPA validation constraints for frontend validation

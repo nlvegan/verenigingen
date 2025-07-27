@@ -133,7 +133,7 @@ def calculate_financial_metrics(snapshot, period):
     revenue_data = frappe.db.sql(
         """
         SELECT
-            SUM(COALESCE(mem.dues_rate, mt.amount, 0)) as total_revenue,
+            SUM(COALESCE(mem.dues_rate, mt.minimum_amount, 0)) as total_revenue,
             COUNT(DISTINCT m.member) as member_count
         FROM `tabMembership` m
         JOIN `tabMember` mem ON m.member = mem.name
@@ -207,7 +207,7 @@ def calculate_segmentation_data(snapshot, period):
         SELECT
             ms.membership_type,
             COUNT(DISTINCT ms.member) as member_count,
-            SUM(COALESCE(m.dues_rate, mt.amount, 0)) as revenue
+            SUM(COALESCE(m.dues_rate, mt.minimum_amount, 0)) as revenue
         FROM `tabMembership` ms
         JOIN `tabMember` m ON ms.member = m.name
         JOIN `tabMembership Type` mt ON ms.membership_type = mt.name

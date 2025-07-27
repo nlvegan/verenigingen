@@ -2,8 +2,17 @@
 import frappe
 from frappe import _
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_termination_preview(member_name):
     """
     Public API to get termination impact preview
@@ -14,6 +23,7 @@ def get_termination_preview(member_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_impact_summary(member_name):
     """
     Public API to get termination impact summary
@@ -24,6 +34,7 @@ def get_impact_summary(member_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def execute_safe_termination(member_name, termination_type, termination_date=None, request_name=None):
     """
     Execute termination using safe integration methods

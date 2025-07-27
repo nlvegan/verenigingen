@@ -298,7 +298,7 @@ def get_user_volunteer_record_optimized(user_email: str) -> Optional[Dict[str, A
         # Single query with JOIN to get all required data
         volunteer_data = frappe.db.sql(
             """
-            SELECT v.name, v.volunteer_name, v.member, v.skills, v.availability,
+            SELECT v.name, v.volunteer_name, v.member, v.skills_and_qualifications, v.commitment_level,
                    m.name as member_name, m.email, m.first_name, m.last_name
             FROM `tabVolunteer` v
             JOIN `tabMember` m ON v.member = m.name
@@ -450,7 +450,7 @@ def analyze_query_performance():
     test_queries = [
         {
             "name": "member_lookup_by_email",
-            "query": "SELECT name FROM `tabMember` WHERE email_id = %s",
+            "query": "SELECT name FROM `tabMember` WHERE email = %s",
             "params": ["test@example.com"],
         },
         {

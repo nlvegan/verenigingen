@@ -6,8 +6,12 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, getdate, now_datetime, today
 
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+
 
 @frappe.whitelist()
+@high_security_api  # Member application approval workflow
 def approve_membership_application(
     member_name, membership_type=None, chapter=None, notes=None, create_invoice=True
 ):
@@ -350,6 +354,7 @@ def reject_membership_application(
 
 
 @frappe.whitelist()
+@standard_api  # User chapter access - read-only
 def get_user_chapter_access(**kwargs):
     """Get user's chapter access for filtering applications"""
     user = frappe.session.user
@@ -592,6 +597,7 @@ def send_rejection_notification(member, reason, email_template=None, rejection_c
 
 
 @frappe.whitelist()
+@standard_api  # Application listing - read-only
 def get_pending_applications(chapter=None, days_overdue=None):
     """Get list of pending membership applications"""
     filters = {"application_status": "Pending", "status": "Pending"}
@@ -936,6 +942,7 @@ def fix_backend_member_statuses():
 
 
 @frappe.whitelist()
+@standard_api  # Application statistics - read-only
 def get_application_stats():
     """Get statistics for membership applications"""
     # Check permissions

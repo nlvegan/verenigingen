@@ -43,6 +43,9 @@ from verenigingen.utils.config_manager import ConfigManager
 # Import enhanced utilities
 from verenigingen.utils.error_handling import PermissionError, ValidationError, handle_api_error, log_error
 from verenigingen.utils.performance_utils import QueryOptimizer, performance_monitor
+
+# Import security decorators
+from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 from verenigingen.utils.validation.api_validators import (
     APIValidator,
     rate_limit,
@@ -175,7 +178,7 @@ def get_application_form_data():
 
 @frappe.whitelist(allow_guest=True)
 @performance_monitor(threshold_ms=200)
-@rate_limit(max_requests=30, window_minutes=60)
+@rate_limit(max_requests=30)
 def validate_email(email):
     """Validate email format and check if it already exists"""
 
@@ -284,7 +287,7 @@ def check_application_eligibility_endpoint(data):
 @frappe.whitelist(allow_guest=True)
 @handle_api_error
 @performance_monitor(threshold_ms=3000)
-@rate_limit(max_requests=10, window_minutes=60)
+@rate_limit(max_requests=10)
 def submit_application(**kwargs):
     """Process membership application submission - Main entry point"""
     try:
@@ -489,6 +492,7 @@ def submit_application(**kwargs):
 
 
 @frappe.whitelist()
+@high_security_api  # Member application approval
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 @require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Manager"])
@@ -553,6 +557,7 @@ def approve_membership_application(member_name, notes=None):
 
 
 @frappe.whitelist()
+@high_security_api  # Member application rejection
 def reject_membership_application(member_name, reason):
     """Reject a membership application"""
     try:
@@ -578,6 +583,7 @@ def reject_membership_application(member_name, reason):
 
 
 @frappe.whitelist()
+@high_security_api  # Payment processing
 def process_application_payment_endpoint(member_name, payment_method, payment_reference=None):
     """Process payment for approved application"""
     try:

@@ -859,7 +859,21 @@ def get_ledger_info_for_analysis(ledger_id):
                 mapping.update(account_info)
 
         return mapping
-    except:
+    except frappe.DoesNotExistError:
+        frappe.log_error(
+            message=f"Ledger mapping not found for ledger ID: {ledger_id}",
+            title="E-Boekhouden - Ledger Mapping Not Found",
+            reference_doctype="E-Boekhouden Ledger Mapping",
+            reference_name=str(ledger_id),
+        )
+        return None
+    except Exception as e:
+        frappe.log_error(
+            message=f"Failed to retrieve ledger info for ledger ID {ledger_id}: {str(e)}",
+            title="E-Boekhouden - Ledger Info Retrieval Failed",
+            reference_doctype="E-Boekhouden Ledger Mapping",
+            reference_name=str(ledger_id),
+        )
         return None
 
 

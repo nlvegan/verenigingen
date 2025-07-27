@@ -1126,7 +1126,23 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
                     import json
 
                     interested_skills = json.loads(interested_skills)
-                except:
+                except json.JSONDecodeError as e:
+                    frappe.log_error(
+                        message=f"Failed to parse JSON skills data '{interested_skills}': {str(e)}",
+                        title="Volunteer - JSON Parsing Error",
+                        reference_doctype="Volunteer",
+                        reference_name=volunteer_data.get("name", "New Volunteer"),
+                    )
+                    # Fallback to treating the string as a single skill
+                    interested_skills = [interested_skills]
+                except Exception as e:
+                    frappe.log_error(
+                        message=f"Unexpected error parsing skills data '{interested_skills}': {str(e)}",
+                        title="Volunteer - Skills Parsing Error",
+                        reference_doctype="Volunteer",
+                        reference_name=volunteer_data.get("name", "New Volunteer"),
+                    )
+                    # Fallback to treating the string as a single skill
                     interested_skills = [interested_skills]
 
             if isinstance(interested_skills, list):

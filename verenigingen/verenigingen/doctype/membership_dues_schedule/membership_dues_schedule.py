@@ -830,7 +830,21 @@ class MembershipDuesSchedule(Document):
                 max_reasonable_rate = (
                     frappe.db.get_single_value("Verenigingen Settings", "max_reasonable_dues_rate") or 10000
                 )
-            except:
+            except frappe.DoesNotExistError:
+                frappe.log_error(
+                    message="Verenigingen Settings doctype does not exist, using default max_reasonable_dues_rate",
+                    title="Membership Dues - Missing Settings Doctype",
+                    reference_doctype="Membership Dues Schedule",
+                    reference_name=getattr(self, "name", "New Document"),
+                )
+                max_reasonable_rate = 10000  # Safe fallback if setting doesn't exist
+            except Exception as e:
+                frappe.log_error(
+                    message=f"Failed to access dues rate configuration: {str(e)}",
+                    title="Membership Dues - Configuration Access Failed",
+                    reference_doctype="Membership Dues Schedule",
+                    reference_name=getattr(self, "name", "New Document"),
+                )
                 max_reasonable_rate = 10000  # Safe fallback if setting doesn't exist
 
             if self.dues_rate > max_reasonable_rate:
@@ -853,7 +867,21 @@ class MembershipDuesSchedule(Document):
                                 frappe.db.get_single_value("Verenigingen Settings", "max_rate_change_percent")
                                 or 200
                             )
-                        except:
+                        except frappe.DoesNotExistError:
+                            frappe.log_error(
+                                message="Verenigingen Settings doctype does not exist, using default max_rate_change_percent",
+                                title="Membership Dues - Missing Settings for Rate Change",
+                                reference_doctype="Membership Dues Schedule",
+                                reference_name=getattr(self, "name", "New Document"),
+                            )
+                            max_rate_change = 200  # Safe fallback
+                        except Exception as e:
+                            frappe.log_error(
+                                message=f"Failed to access rate change configuration: {str(e)}",
+                                title="Membership Dues - Rate Change Config Access Failed",
+                                reference_doctype="Membership Dues Schedule",
+                                reference_name=getattr(self, "name", "New Document"),
+                            )
                             max_rate_change = 200  # Safe fallback
 
                         if rate_change_percent > max_rate_change:
@@ -968,9 +996,11 @@ class MembershipDuesSchedule(Document):
             error_msg = f"Invoice gen failed for {self.name}: {str(e)[:100]}"
             try:
                 frappe.log_error(error_msg, "Invoice Generation Failure")
-            except:
-                # If logging fails, just continue
-                pass
+            except Exception as log_error:
+                # If logging fails, attempt to log the logging failure
+                # Use print as absolute fallback to avoid infinite loops
+                print(f"Critical: Failed to log invoice generation error: {str(log_error)}")
+                print(f"Original error was: {error_msg}")
 
             # Re-raise exception to maintain existing error handling behavior
             raise frappe.ValidationError(error_msg)
@@ -1615,67 +1645,162 @@ class MembershipDuesSchedule(Document):
 
 @frappe.whitelist()
 def generate_dues_invoices(test_mode=False):
-    """Scheduled job to generate membership dues invoices"""
+    """
+    Scheduled job to generate membership dues invoices with hybrid payment history updates.
 
-    # Get all active schedules that need processing (exclude templates)
-    schedules = frappe.get_all(
-        "Membership Dues Schedule",
-        filters={
-            "status": "Active",
-            "auto_generate": 1,
-            "is_template": 0,
-            "next_invoice_date": ["<=", add_days(today(), 30)],
-        },
-        pluck="name",
-    )
+    This function implements Option C hybrid architecture:
+    - Bulk invoice generation handles its own payment history updates as a final step
+    - Smart detection prevents duplicate processing from event handlers
+    - Optimal performance for bulk operations while maintaining flexibility
+    """
 
-    results = {"processed": 0, "generated": 0, "errors": [], "invoices": []}
+    # Set bulk processing flag to prevent duplicate event handling
+    frappe.flags.bulk_invoice_generation = True
 
-    for schedule_name in schedules:
+    try:
+        # Get all active schedules that need processing (exclude templates)
+        schedules = frappe.get_all(
+            "Membership Dues Schedule",
+            filters={
+                "status": "Active",
+                "auto_generate": 1,
+                "is_template": 0,
+                "next_invoice_date": ["<=", add_days(today(), 30)],
+            },
+            pluck="name",
+        )
+
+        results = {"processed": 0, "generated": 0, "errors": [], "invoices": [], "payment_history_updates": 0}
+
+        # Track which members need payment history updates
+        members_to_update = set()
+        successful_invoices = []
+
+        for schedule_name in schedules:
+            try:
+                schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
+
+                # Skip if test_mode flag doesn't match
+                if test_mode and not schedule.test_mode:
+                    continue
+                elif not test_mode and schedule.test_mode:
+                    continue
+
+                can_generate, reason = schedule.can_generate_invoice()
+
+                if can_generate:
+                    invoice = schedule.generate_invoice()
+                    if invoice:
+                        results["generated"] += 1
+                        invoice_data = {
+                            "schedule": schedule_name,
+                            "member": schedule.member_name,
+                            "member_id": schedule.member,
+                            "invoice": invoice,
+                        }
+                        results["invoices"].append(invoice_data)
+                        successful_invoices.append(invoice_data)
+
+                        # Track member for payment history update
+                        if schedule.member:
+                            members_to_update.add(schedule.member)
+                    else:
+                        # Log when invoice generation fails despite can_generate being True
+                        error_msg = f"Schedule {schedule_name} passed can_generate check but failed to generate invoice"
+                        frappe.log_error(error_msg, "Invoice Generation Failed")
+                        results["errors"].append(error_msg)
+
+                results["processed"] += 1
+
+            except Exception as e:
+                # Shorten error message to avoid database field length limits
+                error_msg = f"Error processing {schedule_name}: {str(e)[:80]}"
+                try:
+                    frappe.log_error(error_msg, "Membership Dues Generation")
+                except Exception as log_error:
+                    # If logging fails, attempt to log the logging failure
+                    # Use print as absolute fallback to avoid infinite loops
+                    print(f"Critical: Failed to log membership dues generation error: {str(log_error)}")
+                    print(f"Original error was: {error_msg}")
+                results["errors"].append(error_msg)
+
+        # HYBRID ARCHITECTURE: Bulk update payment history for all affected members
+        if members_to_update:
+            try:
+                results["payment_history_updates"] = _bulk_update_payment_history(
+                    members_to_update, successful_invoices
+                )
+                frappe.logger().info(
+                    f"Bulk payment history update completed for {len(members_to_update)} members"
+                )
+            except Exception as e:
+                error_msg = f"Error in bulk payment history update: {str(e)[:100]}"
+                frappe.log_error(error_msg, "Bulk Payment History Update Error")
+                results["errors"].append(error_msg)
+
+        # Log results
+        frappe.logger().info(
+            f"Membership dues generation completed: {results['generated']} invoices from {results['processed']} schedules, "
+            f"{results['payment_history_updates']} payment history updates"
+        )
+
+        return results
+
+    finally:
+        # Always clear the bulk processing flag
+        if hasattr(frappe.flags, "bulk_invoice_generation"):
+            delattr(frappe.flags, "bulk_invoice_generation")
+
+
+def _bulk_update_payment_history(member_names, successful_invoices):
+    """
+    Efficiently update payment history for multiple members after bulk invoice generation.
+
+    Args:
+        member_names: Set of member names that need payment history updates
+        successful_invoices: List of invoice data dictionaries for tracking
+
+    Returns:
+        int: Number of members successfully updated
+    """
+    updated_count = 0
+
+    for member_name in member_names:
         try:
-            schedule = frappe.get_doc("Membership Dues Schedule", schedule_name)
-
-            # Skip if test_mode flag doesn't match
-            if test_mode and not schedule.test_mode:
+            # Get member document with error handling
+            if not frappe.db.exists("Member", member_name):
+                frappe.log_error(
+                    f"Member {member_name} not found during bulk payment history update",
+                    "Bulk Payment History Update",
+                )
                 continue
-            elif not test_mode and schedule.test_mode:
-                continue
 
-            can_generate, reason = schedule.can_generate_invoice()
+            # Use atomic add method for each new invoice for this member
+            member_invoices = [inv for inv in successful_invoices if inv.get("member_id") == member_name]
 
-            if can_generate:
-                invoice = schedule.generate_invoice()
-                if invoice:
-                    results["generated"] += 1
-                    results["invoices"].append(
-                        {"schedule": schedule_name, "member": schedule.member_name, "invoice": invoice}
-                    )
-                else:
-                    # Log when invoice generation fails despite can_generate being True
-                    error_msg = (
-                        f"Schedule {schedule_name} passed can_generate check but failed to generate invoice"
-                    )
-                    frappe.log_error(error_msg, "Invoice Generation Failed")
-                    results["errors"].append(error_msg)
+            if member_invoices:
+                member_doc = frappe.get_doc("Member", member_name)
 
-            results["processed"] += 1
+                # Add each invoice to payment history using atomic method
+                for inv_data in member_invoices:
+                    try:
+                        # Use existing atomic method from payment mixin
+                        member_doc.add_invoice_to_payment_history(inv_data["invoice"])
+                    except Exception as inv_error:
+                        frappe.log_error(
+                            f"Failed to add invoice {inv_data['invoice']} to payment history for member {member_name}: {str(inv_error)}",
+                            "Individual Invoice Payment History Update",
+                        )
+
+                updated_count += 1
 
         except Exception as e:
-            # Shorten error message to avoid database field length limits
-            error_msg = f"Error processing {schedule_name}: {str(e)[:80]}"
-            try:
-                frappe.log_error(error_msg, "Membership Dues Generation")
-            except:
-                # If logging fails, just continue
-                pass
-            results["errors"].append(error_msg)
+            frappe.log_error(
+                f"Error updating payment history for member {member_name}: {str(e)}",
+                "Bulk Payment History Member Update",
+            )
 
-    # Log results
-    frappe.logger().info(
-        f"Membership dues generation completed: {results['generated']} invoices from {results['processed']} schedules"
-    )
-
-    return results
+    return updated_count
 
 
 @frappe.whitelist()

@@ -7,8 +7,18 @@ from verenigingen.utils.error_handling import handle_api_error, validate_require
 from verenigingen.utils.migration.migration_performance import BatchProcessor
 from verenigingen.utils.performance_utils import performance_monitor
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+    utility_api,
+)
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def suspend_member(member_name, suspension_reason, suspend_user=True, suspend_teams=True):
     """
     Suspend a member with specified options
@@ -77,6 +87,7 @@ def suspend_member(member_name, suspension_reason, suspend_user=True, suspend_te
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def unsuspend_member(member_name, unsuspension_reason):
     """
     Unsuspend a member
@@ -134,6 +145,7 @@ def unsuspend_member(member_name, unsuspension_reason):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def get_suspension_status(member_name):
     """
     Get suspension status for a member
@@ -144,6 +156,7 @@ def get_suspension_status(member_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
 def can_suspend_member(member_name):
     """
     Check if current user can suspend/unsuspend a member
@@ -200,6 +213,7 @@ def _can_suspend_member_fallback(member_name):
 @handle_api_error
 @performance_monitor()
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_suspension_preview(member_name):
     """
     Preview what would be affected by suspension with caching
@@ -248,6 +262,7 @@ def get_suspension_preview(member_name):
 @handle_api_error
 @performance_monitor()
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, suspend_teams=True):
     """
     Suspend multiple members at once using optimized batch processing
@@ -341,6 +356,7 @@ def bulk_suspend_members(member_list, suspension_reason, suspend_user=True, susp
 @handle_api_error
 @performance_monitor()
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
 def get_suspension_list(limit=100, offset=0, status=None, chapter=None):
     """
     Get list of suspended members with pagination and filtering
@@ -389,8 +405,13 @@ def get_suspension_list(limit=100, offset=0, status=None, chapter=None):
         if member.get("email"):
             user_exists = frappe.db.exists("User", member["email"])
             if user_exists:
-                team_count = frappe.db.count("Team Member", {"user": member["email"], "docstatus": 1})
-                member["active_team_count"] = team_count
+                # Get volunteer linked to this user/member
+                volunteer_name = frappe.db.get_value("Volunteer", {"user": member["email"]}, "name")
+                if volunteer_name:
+                    team_count = frappe.db.count("Team Member", {"volunteer": volunteer_name, "docstatus": 1})
+                    member["active_team_count"] = team_count
+                else:
+                    member["active_team_count"] = 0
             else:
                 member["active_team_count"] = 0
         else:
@@ -406,6 +427,7 @@ def get_suspension_list(limit=100, offset=0, status=None, chapter=None):
 
 
 @frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
 def test_bank_details_debug():
     """Test function to debug bank details issue"""
     return {

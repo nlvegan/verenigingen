@@ -125,7 +125,7 @@ class DonationCampaign(Document):
                 COUNT(d.name) as donation_count
             FROM `tabDonation` d
             INNER JOIN `tabDonor` dn ON d.donor = dn.name
-            WHERE d.donation_campaign = %s
+            WHERE d.campaign = %s
                 AND d.paid = 1
                 AND d.docstatus = 1
                 AND d.anonymous = 0
