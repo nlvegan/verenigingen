@@ -1,6 +1,10 @@
 import frappe
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
 
+
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def create_root_accounts():
     """Create the basic root accounts for the company"""
@@ -74,6 +78,7 @@ def create_root_accounts():
     return {"created": created, "errors": errors}
 
 
+@high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
 def create_standard_coa_groups():
     """Create standard account groups under root accounts"""

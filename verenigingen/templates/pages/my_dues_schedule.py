@@ -1,5 +1,7 @@
 import calendar
 import json
+import os
+import tempfile
 from datetime import datetime, timedelta
 
 import frappe
@@ -267,7 +269,7 @@ def export_schedule():
 
     # Create file
     filename = f"dues_schedule_{member}_{today().replace('-', '')}.csv"
-    file_path = f"/tmp/{filename}"
+    file_path = os.path.join(tempfile.gettempdir(), filename)
 
     with open(file_path, "w") as f:
         f.write(csv_content)

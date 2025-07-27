@@ -67,7 +67,7 @@ class SEPADistributedLock:
         random_part = str(random.randint(1000, 9999))
 
         session_data = f"{user}:{site}:{timestamp}:{random_part}"
-        return hashlib.md5(session_data.encode()).hexdigest()[:16]
+        return hashlib.md5(session_data.encode(), usedforsecurity=False).hexdigest()[:16]
 
     def _ensure_lock_table(self):
         """Ensure distributed lock table exists"""
@@ -309,7 +309,7 @@ class SEPADistributedLock:
         """Generate unique lock ID"""
         timestamp = str(int(time.time() * 1000))
         lock_data = f"{resource}:{lock_type}:{self.session_id}:{timestamp}"
-        return hashlib.md5(lock_data.encode()).hexdigest()
+        return hashlib.md5(lock_data.encode(), usedforsecurity=False).hexdigest()
 
     def _cleanup_expired_locks(self):
         """Clean up expired locks"""
@@ -417,7 +417,7 @@ class SEPABatchRaceConditionManager:
             raise SEPAError(_("No valid invoice names found"))
 
         # Create resource identifier for this batch operation
-        batch_resource = f"batch_creation_{hashlib.md5(str(sorted(invoice_names)).encode()).hexdigest()[:16]}"
+        batch_resource = f"batch_creation_{hashlib.md5(str(sorted(invoice_names)).encode(), usedforsecurity=False).hexdigest()[:16]}"
 
         # Metadata for lock
         lock_metadata = {

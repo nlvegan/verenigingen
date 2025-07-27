@@ -1,4 +1,5 @@
 import os
+import tempfile
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -291,7 +292,7 @@ class DirectDebitBatch(Document):
             xml_pretty = xml.dom.minidom.parseString(xml_string).toprettyxml()
 
             # Create temporary file
-            temp_file_path = f"/tmp/sepa-{self.name}.xml"
+            temp_file_path = os.path.join(tempfile.gettempdir(), f"sepa-{self.name}.xml")
             with open(temp_file_path, "w") as f:
                 f.write(xml_pretty)
 

@@ -1221,7 +1221,7 @@ class VereningingenTestCase(FrappeTestCase):
         # Use deterministic but realistic names based on test context
         import hashlib
         test_context = f"{self._testMethodName}_{str(kwargs)}"
-        test_id = hashlib.md5(test_context.encode()).hexdigest()[:4]
+        test_id = hashlib.md5(test_context.encode(), usedforsecurity=False).hexdigest()[:4]
         name_index = int(test_id, 16) % len(common_names)
         first_name, last_name = common_names[name_index]
         

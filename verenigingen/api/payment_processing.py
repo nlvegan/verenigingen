@@ -3,6 +3,8 @@ API endpoints for overdue payment processing and management
 """
 
 import json
+import os
+import tempfile
 
 import frappe
 from frappe import _
@@ -131,7 +133,7 @@ def export_overdue_payments(filters=None, format="CSV"):
 
     # Create export file
     file_name = f"overdue_payments_{today()}.csv"
-    file_path = f"/tmp/{file_name}"
+    file_path = os.path.join(tempfile.gettempdir(), file_name)
 
     try:
         import csv

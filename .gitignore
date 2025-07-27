@@ -1,4 +1,5 @@
 .DS_Store
+bandit*.*
 *.pyc
 *.egg-info
 *.swp
