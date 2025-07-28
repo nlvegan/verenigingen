@@ -217,6 +217,7 @@ class PaymentPlan(Document):
         except Exception as e:
             frappe.log_error(f"Error updating dues schedule: {str(e)}")
 
+    @frappe.whitelist()
     def process_payment(self, installment_number, payment_amount, payment_reference=None, payment_date=None):
         """Process a payment for a specific installment"""
         if not payment_date:

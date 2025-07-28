@@ -612,7 +612,12 @@ class Member(
         self.update_membership_status()
         self.calculate_age()
         self.validate_age_requirements()  # Add age validation
-        self.calculate_cumulative_membership_duration()
+
+        # Only calculate duration if explicitly requested or if this is a new member
+        # Daily scheduler handles routine duration updates to avoid on-visit field changes
+        if getattr(self, "_force_duration_update", False) or self.is_new():
+            self.calculate_cumulative_membership_duration()
+
         self.validate_payment_method()
         self.set_payment_reference()
         self.validate_bank_details()
@@ -1301,6 +1306,30 @@ class Member(
             )
             self.cumulative_membership_duration = "Error calculating duration"
             return 0
+
+    @frappe.whitelist()
+    def force_update_membership_duration(self):
+        """Force update membership duration - can be called manually to update the field"""
+        try:
+            self._force_duration_update = True
+            self.calculate_cumulative_membership_duration()
+            # Save with minimal logging to avoid activity log entries
+            self.flags.ignore_version = True
+            self.flags.ignore_links = True
+            self.flags.ignore_validate_update_after_submit = True
+            self.save(ignore_permissions=True)
+            return {
+                "success": True,
+                "duration": self.cumulative_membership_duration,
+                "message": "Membership duration updated successfully",
+            }
+        except Exception as e:
+            frappe.log_error(f"Error force updating membership duration for {self.name}: {str(e)}")
+            return {"success": False, "error": str(e)}
+        finally:
+            # Clear the flag
+            if hasattr(self, "_force_duration_update"):
+                delattr(self, "_force_duration_update")
 
     @frappe.whitelist()
     def get_current_membership_fee(self):

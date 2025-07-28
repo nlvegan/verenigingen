@@ -172,6 +172,18 @@ class Chapter(WebsiteGenerator):
         """Bulk deactivate board members - delegates to BoardManager"""
         return self.board_manager.bulk_deactivate_board_members(board_members)
 
+    @frappe.whitelist()
+    def sync_board_members(self):
+        """Sync board members with volunteer system - delegates to VolunteerIntegrationManager"""
+        return self.volunteer_integration_manager.sync_board_members_with_volunteer_system()
+
+    @frappe.whitelist()
+    def update_volunteer_assignment_history(self, volunteer_id, role, start_date, end_date):
+        """Update volunteer assignment history - delegates to BoardManager"""
+        return self.board_manager.update_volunteer_assignment_history(
+            volunteer_id, role, start_date, end_date
+        )
+
     def get_board_members(self, include_inactive=False, role=None):
         """Get board members - delegates to BoardManager"""
         return self.board_manager.get_board_members(include_inactive, role)

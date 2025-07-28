@@ -264,7 +264,7 @@ def test_end_to_end_integration():
         try:
             # Intentionally cause an error
             ae.analyze_error_patterns(days="invalid")
-        except:
+        except Exception:
             results["error_handling"]["graceful"] = "PASS"
             print(f"  ✓ Error handling: Graceful failure")
         else:

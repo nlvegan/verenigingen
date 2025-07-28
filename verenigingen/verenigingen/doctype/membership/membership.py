@@ -412,6 +412,7 @@ class Membership(Document):
                 frappe.throw(f"Membership Type '{membership_type.name}' must have a dues schedule template")
         return 0
 
+    @frappe.whitelist()
     def get_billing_amount(self):
         """Get the billing amount for this membership"""
         # Get amount from member's dues schedule if exists

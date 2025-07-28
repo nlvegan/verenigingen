@@ -142,6 +142,139 @@ class AlertManager:
         <p><a href="/monitoring_dashboard">View Full Dashboard</a></p>
         """
 
+    def check_performance_alerts(self):
+        """Check for performance-related alerts"""
+        try:
+            # Check for slow queries or high resource usage
+            slow_queries = frappe.db.count(
+                "Error Log",
+                {"error": ("like", "%timeout%"), "creation": (">=", add_to_date(now(), hours=-1))},
+            )
+
+            if slow_queries > 5:
+                self.send_alert(
+                    alert_type="PERFORMANCE_DEGRADATION",
+                    severity="MEDIUM",
+                    message=f"Detected {slow_queries} potential slow queries in the last hour",
+                    details={"slow_query_count": slow_queries},
+                )
+
+            # Check background job queue
+            try:
+                queued_jobs = frappe.db.count("RQ Job", {"status": "queued"})
+                if queued_jobs > 20:
+                    self.send_alert(
+                        alert_type="HIGH_JOB_QUEUE",
+                        severity="MEDIUM",
+                        message=f"High background job queue: {queued_jobs} jobs pending",
+                        details={"queued_jobs": queued_jobs},
+                    )
+            except:
+                # RQ Job table may not exist
+                pass
+
+        except Exception as e:
+            frappe.log_error(f"Error checking performance alerts: {str(e)}")
+
+    def check_business_process_alerts(self):
+        """Check for business process-related alerts"""
+        try:
+            # Check for high member churn
+            member_changes = frappe.db.count(
+                "Member",
+                {
+                    "status": ("in", ["Terminated", "Expelled"]),
+                    "modified": (">=", add_to_date(now(), days=-1)),
+                },
+            )
+
+            if member_changes > self.alert_thresholds["member_churn_daily"]:
+                self.send_alert(
+                    alert_type="HIGH_MEMBER_CHURN",
+                    severity="MEDIUM",
+                    message=f"High member churn detected: {member_changes} members terminated/expelled today",
+                    details={"member_changes": member_changes},
+                )
+
+            # Check for stuck dues schedules
+            stuck_schedules = frappe.db.count(
+                "Membership Dues Schedule",
+                {
+                    "status": "Active",
+                    "next_invoice_date": ("<=", add_to_date(now(), days=-7)),
+                    "auto_generate": 1,
+                },
+            )
+
+            if stuck_schedules > 5:
+                self.send_alert(
+                    alert_type="STUCK_DUES_SCHEDULES",
+                    severity="MEDIUM",
+                    message=f"Found {stuck_schedules} dues schedules that appear stuck",
+                    details={"stuck_schedules": stuck_schedules},
+                )
+
+        except Exception as e:
+            frappe.log_error(f"Error checking business process alerts: {str(e)}")
+
+    def check_data_quality_alerts(self):
+        """Check for data quality issues"""
+        try:
+            # Check for members without customer records
+            members_without_customers = frappe.db.count(
+                "Member", {"customer": ("is", "not set"), "status": ("!=", "Terminated")}
+            )
+
+            if members_without_customers > 10:
+                self.send_alert(
+                    alert_type="DATA_QUALITY_ISSUE",
+                    severity="LOW",
+                    message=f"Found {members_without_customers} active members without customer records",
+                    details={"members_without_customers": members_without_customers},
+                )
+
+            # Check for orphaned payment entries
+            orphaned_payments = frappe.db.count(
+                "Payment Entry", {"reference_no": ("is", "not set"), "docstatus": 1}
+            )
+
+            if orphaned_payments > 5:
+                self.send_alert(
+                    alert_type="ORPHANED_PAYMENTS",
+                    severity="MEDIUM",
+                    message=f"Found {orphaned_payments} payment entries without proper references",
+                    details={"orphaned_payments": orphaned_payments},
+                )
+
+        except Exception as e:
+            frappe.log_error(f"Error checking data quality alerts: {str(e)}")
+
+    def get_alert_statistics(self):
+        """Get statistics for monitoring dashboard"""
+        try:
+            return {
+                "total_alerts_24h": frappe.db.count(
+                    "System Alert", {"creation": (">=", add_to_date(now(), days=-1))}
+                ),
+                "critical_alerts_24h": frappe.db.count(
+                    "System Alert",
+                    {"creation": (">=", add_to_date(now(), days=-1)), "severity": "CRITICAL"},
+                ),
+                "error_rate_1h": frappe.db.count(
+                    "Error Log", {"creation": (">=", add_to_date(now(), hours=-1))}
+                ),
+                "performance_alerts_24h": frappe.db.count(
+                    "System Alert",
+                    {
+                        "creation": (">=", add_to_date(now(), days=-1)),
+                        "alert_type": ("like", "%PERFORMANCE%"),
+                    },
+                ),
+            }
+        except Exception as e:
+            frappe.log_error(f"Error getting alert statistics: {str(e)}")
+            return {}
+
 
 @frappe.whitelist()
 def check_critical_errors():
@@ -205,133 +338,6 @@ def test_alert_system():
     except Exception as e:
         frappe.log_error(f"Test alert failed: {str(e)}")
         return {"status": "error", "message": str(e)}
-
-    def check_performance_alerts(self):
-        """Check for performance-related alerts"""
-        try:
-            # Check for slow queries or high resource usage
-            slow_queries = frappe.db.count(
-                "Error Log",
-                {"error": ("like", "%timeout%"), "creation": (">=", add_to_date(now(), hours=-1))},
-            )
-
-            if slow_queries > 5:
-                self.send_alert(
-                    alert_type="PERFORMANCE_DEGRADATION",
-                    severity="MEDIUM",
-                    message=f"Detected {slow_queries} potential slow queries in the last hour",
-                    details={"slow_query_count": slow_queries},
-                )
-
-            # Check background job queue
-            try:
-                queued_jobs = frappe.db.count("RQ Job", {"status": "queued"})
-                if queued_jobs > 20:
-                    self.send_alert(
-                        alert_type="HIGH_JOB_QUEUE",
-                        severity="MEDIUM",
-                        message=f"High background job queue: {queued_jobs} jobs pending",
-                        details={"queued_jobs": queued_jobs},
-                    )
-            except:
-                # RQ Job table may not exist
-                pass
-
-        except Exception as e:
-            frappe.log_error(f"Error checking performance alerts: {str(e)}")
-
-    def check_business_process_alerts(self):
-        """Check for business process issues"""
-        try:
-            # Check for stalled membership applications
-            stalled_applications = frappe.db.count(
-                "Membership Application",
-                {"workflow_state": "Pending Review", "creation": ("<=", add_to_date(now(), days=-7))},
-            )
-
-            if stalled_applications > 5:
-                self.send_alert(
-                    alert_type="STALLED_APPLICATIONS",
-                    severity="MEDIUM",
-                    message=f"Found {stalled_applications} membership applications pending review for over 7 days",
-                    details={"stalled_count": stalled_applications},
-                )
-
-            # Check for failed SEPA mandates
-            try:
-                failed_mandates = frappe.db.count(
-                    "SEPA Mandate", {"status": "Failed", "creation": (">=", add_to_date(now(), days=-1))}
-                )
-
-                if failed_mandates > 3:
-                    self.send_alert(
-                        alert_type="FAILED_SEPA_MANDATES",
-                        severity="HIGH",
-                        message=f"High number of failed SEPA mandates: {failed_mandates} in last 24 hours",
-                        details={"failed_mandates": failed_mandates},
-                    )
-            except:
-                # SEPA Mandate table may not exist
-                pass
-
-        except Exception as e:
-            frappe.log_error(f"Error checking business process alerts: {str(e)}")
-
-    def check_data_quality_alerts(self):
-        """Check for data quality issues"""
-        try:
-            # Check for members without SEPA mandates
-            members_without_mandates = frappe.db.sql(
-                """
-                SELECT COUNT(DISTINCT m.name) as count
-                FROM `tabMember` m
-                LEFT JOIN `tabSEPA Mandate` sm ON m.name = sm.member
-                WHERE m.status = 'Active'
-                AND (sm.name IS NULL OR sm.status != 'Active')
-            """,
-                as_dict=True,
-            )
-
-            if members_without_mandates and members_without_mandates[0]["count"] > 10:
-                count = members_without_mandates[0]["count"]
-                self.send_alert(
-                    alert_type="DATA_QUALITY_ISSUE",
-                    severity="MEDIUM",
-                    message=f"Found {count} active members without valid SEPA mandates",
-                    details={"members_without_mandates": count},
-                )
-
-        except Exception as e:
-            frappe.log_error(f"Error checking data quality alerts: {str(e)}")
-
-    def get_alert_statistics(self):
-        """Get alert statistics for reporting"""
-        try:
-            stats = {
-                "active_alerts": frappe.db.count("System Alert", {"status": "Active"}),
-                "acknowledged_alerts": frappe.db.count("System Alert", {"status": "Acknowledged"}),
-                "resolved_today": frappe.db.count(
-                    "System Alert", {"status": "Resolved", "resolved_at": (">=", frappe.utils.today())}
-                ),
-                "critical_alerts_24h": frappe.db.count(
-                    "System Alert", {"severity": "CRITICAL", "timestamp": (">=", add_to_date(now(), days=-1))}
-                ),
-                "alert_types_24h": frappe.db.sql(
-                    """
-                    SELECT alert_type, COUNT(*) as count
-                    FROM `tabSystem Alert`
-                    WHERE timestamp >= %s
-                    GROUP BY alert_type
-                    ORDER BY count DESC
-                """,
-                    [add_to_date(now(), days=-1)],
-                    as_dict=True,
-                ),
-            }
-            return stats
-        except Exception as e:
-            frappe.log_error(f"Error getting alert statistics: {str(e)}")
-            return {}
 
 
 @frappe.whitelist()

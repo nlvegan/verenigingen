@@ -11,6 +11,10 @@ import os
 import re
 from pathlib import Path
 
+import frappe
+
+from verenigingen.utils.security.api_security_framework import OperationType, utility_api
+
 # Define the correct import patterns
 CORRECT_IMPORTS = {
     "critical_api": "from verenigingen.utils.security.api_security_framework import critical_api, OperationType",
@@ -115,6 +119,7 @@ def fix_file_imports(file_path, content):
     return "\n".join(new_lines)
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 def main():
     """Main function to fix all import conflicts"""
     print("🔍 Analyzing API directory for import conflicts...")

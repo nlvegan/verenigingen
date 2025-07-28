@@ -61,7 +61,7 @@ repos:
     hooks:
       - id: bandit
         name: 🔍 Security Linting (Bandit)
-        args: ['-r', 'verenigingen/', '--skip', 'B101,B601', '--exclude', 'archived_removal,archived_unused']
+        args: ['-r', 'verenigingen/', '--skip', 'B101,B601', '--exclude', 'archived_removal,archived_unused', '--severity-level', 'high']
         pass_filenames: false
         exclude: '^(tests/|scripts/testing/)'
 

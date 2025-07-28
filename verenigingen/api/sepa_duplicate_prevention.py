@@ -11,17 +11,20 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
-from verenigingen.utils.security.authorization import require_role
-from verenigingen.utils.security.csrf_protection import validate_csrf_token
-from verenigingen.utils.security.rate_limiting import rate_limit
 
 # =============================================================================
 # DUPLICATE PAYMENT PREVENTION
 # =============================================================================
 
 
-@require_role(["Accounts Manager", "System Manager"])
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_payment_entry_with_duplicate_check(invoice_name: str, amount: float, payment_data: Dict) -> Dict:
     """
     Create payment entry with comprehensive duplicate checking
@@ -103,7 +106,7 @@ def _create_payment_entry(payment_data: Dict) -> Dict:
 # =============================================================================
 
 
-@require_role(["Accounts Manager", "System Manager"])
+@critical_api(operation_type=OperationType.FINANCIAL)
 def check_batch_processing_status(batch_name: str, transaction_name: str) -> None:
     """
     Check if SEPA batch has already been processed
@@ -152,7 +155,7 @@ def check_batch_processing_status(batch_name: str, transaction_name: str) -> Non
             )
 
 
-@require_role(["Accounts Manager", "System Manager"])
+@critical_api(operation_type=OperationType.FINANCIAL)
 def check_return_file_processed(return_file_hash: str) -> None:
     """
     Check if return file has already been processed
@@ -179,6 +182,7 @@ def check_return_file_processed(return_file_hash: str) -> None:
 _processing_locks = {}  # In-memory locks for testing; use Redis in production
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def acquire_processing_lock(resource_type: str, resource_id: str, timeout: int = 300) -> bool:
     """
     Acquire processing lock to prevent concurrent operations
@@ -208,6 +212,7 @@ def acquire_processing_lock(resource_type: str, resource_id: str, timeout: int =
     return True
 
 
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def release_processing_lock(resource_type: str, resource_id: str) -> None:
     """Release processing lock"""
     lock_key = f"{resource_type}:{resource_id}"
@@ -222,6 +227,7 @@ def release_processing_lock(resource_type: str, resource_id: str) -> None:
 _operation_cache = {}  # In-memory cache for testing; use Redis in production
 
 
+@standard_api(operation_type=OperationType.FINANCIAL)
 def generate_idempotency_key(bank_transaction: str, batch: str, operation: str) -> str:
     """
     Generate unique idempotency key for operation
@@ -238,6 +244,7 @@ def generate_idempotency_key(bank_transaction: str, batch: str, operation: str) 
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+@critical_api(operation_type=OperationType.FINANCIAL)
 def execute_idempotent_operation(idempotency_key: str, operation_func) -> Dict:
     """
     Execute operation with idempotency protection
@@ -292,6 +299,7 @@ def amounts_match_with_tolerance(expected: float, actual: float, tolerance: floa
 # =============================================================================
 
 
+@standard_api(operation_type=OperationType.FINANCIAL)
 def identify_split_payment_scenario(bank_transaction) -> List[Dict]:
     """
     Identify scenarios where one bank transaction covers multiple SEPA batches
@@ -363,6 +371,7 @@ def identify_split_payment_scenario(bank_transaction) -> List[Dict]:
 # =============================================================================
 
 
+@standard_api(operation_type=OperationType.FINANCIAL)
 def identify_partial_success_items(batch_items: List[Dict], received_amount: float) -> List[List[Dict]]:
     """
     Identify which batch items match the received amount in partial success scenarios
@@ -426,6 +435,7 @@ def process_out_of_order_transactions(transactions: List[Dict]) -> List[Dict]:
 # =============================================================================
 
 
+@standard_api(operation_type=OperationType.FINANCIAL)
 def detect_orphaned_payments() -> List[Dict]:
     """
     Detect payment entries without corresponding bank transactions
@@ -466,6 +476,7 @@ def detect_orphaned_payments() -> List[Dict]:
     return orphaned
 
 
+@standard_api(operation_type=OperationType.FINANCIAL)
 def detect_incomplete_reversals() -> List[Dict]:
     """
     Detect incomplete payment reversals from return processing
@@ -512,6 +523,7 @@ def detect_incomplete_reversals() -> List[Dict]:
 # =============================================================================
 
 
+@standard_api(operation_type=OperationType.FINANCIAL)
 def validate_batch_mandates(batch_data: Dict) -> Dict:
     """
     Validate that all batch items have valid SEPA mandates
@@ -555,6 +567,7 @@ def validate_batch_mandates(batch_data: Dict) -> Dict:
     }
 
 
+@standard_api(operation_type=OperationType.FINANCIAL)
 def validate_bank_details_consistency(batch_data: Dict) -> Dict:
     """
     Validate consistency of bank details between batch creation and processing

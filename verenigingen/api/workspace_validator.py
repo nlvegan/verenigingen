@@ -28,8 +28,12 @@ def validate_workspace_comprehensive(workspace_name: str = "Verenigingen") -> Di
     """
     # Log this sensitive operation
     log_security_event(
-        "workspace_validation",
-        {"workspace_name": workspace_name, "requested_by": frappe.session.user},
+        "configuration_change",
+        {
+            "workspace_name": workspace_name,
+            "requested_by": frappe.session.user,
+            "action": "workspace_validation",
+        },
     )
 
     validator = WorkspaceValidator(workspace_name)
@@ -290,8 +294,12 @@ def validate_specific_workspace(workspace_name: str) -> Dict:
     """Validate a specific workspace by name"""
     # Log this sensitive operation
     log_security_event(
-        "workspace_validation",
-        {"workspace_name": workspace_name, "requested_by": frappe.session.user},
+        "configuration_change",
+        {
+            "workspace_name": workspace_name,
+            "requested_by": frappe.session.user,
+            "action": "workspace_validation",
+        },
     )
 
     validator = WorkspaceValidator(workspace_name)
@@ -306,7 +314,9 @@ def run_workspace_pre_commit_check():
     Returns simple pass/fail for integration with pre-commit hooks
     """
     # Log this sensitive operation
-    log_security_event("workspace_pre_commit_check", {"requested_by": frappe.session.user})
+    log_security_event(
+        "configuration_change", {"requested_by": frappe.session.user, "action": "workspace_pre_commit_check"}
+    )
 
     result = validate_workspace_comprehensive()
 

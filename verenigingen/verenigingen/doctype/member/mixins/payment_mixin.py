@@ -906,17 +906,26 @@ class PaymentMixin:
                 for key, value in entry_data.items():
                     setattr(self.payment_history[existing_idx], key, value)
             else:
-                # Add new entry at the beginning - use append to create proper Document object
+                # Add new entry at the beginning for newest-first display
                 self.append("payment_history", entry_data)
 
-                # Keep only 20 most recent entries
-                if len(self.payment_history) > 20:
-                    self.payment_history = self.payment_history[:20]
+                # Move the newly added entry (which was appended to the end) to the beginning
+                if len(self.payment_history) > 1:
+                    new_entry = self.payment_history.pop()  # Remove from end
+                    self.payment_history.insert(0, new_entry)  # Insert at beginning
 
             # Save with minimal logging
             self.flags.ignore_version = True
             self.flags.ignore_links = True
             self.save(ignore_permissions=True)
+
+            # Now trim if needed - after save when Document objects are properly created
+            # Remove oldest entries (from the end) to keep newest at top
+            if len(self.payment_history) > 20:
+                while len(self.payment_history) > 20:
+                    self.payment_history.pop()  # Remove from end (oldest entries)
+                # Save again to persist the trimming
+                self.save(ignore_permissions=True)
 
         except Exception as e:
             frappe.log_error(

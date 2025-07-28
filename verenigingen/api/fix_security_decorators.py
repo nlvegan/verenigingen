@@ -11,6 +11,10 @@ import os
 import re
 from pathlib import Path
 
+import frappe
+
+from verenigingen.utils.security.api_security_framework import OperationType, utility_api
+
 # Operation type mapping based on function purpose
 OPERATION_TYPE_MAPPING = {
     # Financial operations
@@ -178,6 +182,7 @@ def fix_single_file(file_path):
     return False
 
 
+@utility_api(operation_type=OperationType.UTILITY)
 def main():
     """Fix all API files"""
 

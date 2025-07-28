@@ -372,7 +372,10 @@ def update_all_membership_durations():
                         member.last_duration_update = now()
                         member.calculate_cumulative_membership_duration()
 
-                        # Save without triggering full validation to avoid recursive calls
+                        # Save with minimal logging to avoid activity log entries
+                        member.flags.ignore_version = True
+                        member.flags.ignore_links = True
+                        member.flags.ignore_validate_update_after_submit = True
                         member.save(ignore_permissions=True)
                         total_updated += 1
 

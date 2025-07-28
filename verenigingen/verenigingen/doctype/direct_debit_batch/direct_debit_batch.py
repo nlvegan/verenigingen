@@ -231,6 +231,7 @@ class DirectDebitBatch(Document):
         self.status = "Cancelled"
         self.add_to_batch_log(_("Batch cancelled"))
 
+    @frappe.whitelist()
     def generate_sepa_xml(self):
         """Generate SEPA Direct Debit XML file for Dutch banks"""
         try:

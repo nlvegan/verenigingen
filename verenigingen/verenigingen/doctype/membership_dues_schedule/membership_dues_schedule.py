@@ -976,6 +976,9 @@ class MembershipDuesSchedule(Document):
             # ✅ ENHANCED: Cache coverage in invoice for display performance
             invoice.custom_coverage_start_date = coverage_start
             invoice.custom_coverage_end_date = coverage_end
+            # Save with minimal logging to avoid activity log entries for automated invoices
+            invoice.flags.ignore_version = True
+            invoice.flags.ignore_links = True
             invoice.save()
 
             # ✅ ENHANCED: Create direct link and track coverage (no ambiguity)
@@ -1069,6 +1072,9 @@ class MembershipDuesSchedule(Document):
         )
 
         # Save and optionally submit
+        # Insert with minimal logging for automated invoices
+        invoice.flags.ignore_version = True
+        invoice.flags.ignore_links = True
         invoice.insert()
 
         # Auto-submit if configured (default to True for membership invoices)
@@ -1078,10 +1084,16 @@ class MembershipDuesSchedule(Document):
             )
             # Default to auto-submit if setting doesn't exist (better UX)
             if auto_submit is None or auto_submit:
+                # Keep minimal logging flags for submit operation
+                invoice.flags.ignore_version = True
+                invoice.flags.ignore_links = True
                 invoice.submit()
         except Exception:
             # If setting doesn't exist, default to auto-submit for membership invoices
             try:
+                # Keep minimal logging flags for submit operation
+                invoice.flags.ignore_version = True
+                invoice.flags.ignore_links = True
                 invoice.submit()
             except Exception as e:
                 frappe.log_error(
