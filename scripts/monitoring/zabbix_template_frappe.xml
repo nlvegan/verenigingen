@@ -55,10 +55,85 @@
                     <preprocessing>
                         <step>
                             <type>JSONPATH</type>
-                            <params>$.message.metrics.active_members</params>
+                            <params>$.message.metrics["frappe.members.active"]</params>
                         </step>
                     </preprocessing>
                     <value_type>UNSIGNED</value_type>
+                </item>
+
+                <item>
+                    <uuid>845ee74bfbdb4eec9d9739580d019453</uuid>
+                    <name>Total Members Count</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.members.total</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.members.total"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                </item>
+
+                <item>
+                    <uuid>3e9fa3d746e34e44901a0267e2ffc32d</uuid>
+                    <name>Member Churn Rate</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.member.churn_rate</key>
+                    <delay>1h</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.member.churn_rate"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>FLOAT</value_type>
+                    <units>%</units>
+                    <triggers>
+                        <trigger>
+                            <uuid>f69dc848926742bba7226f9be22c6a75</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.member.churn_rate)&gt;5</expression>
+                            <name>High member churn rate</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <!-- Volunteer Metrics -->
+                <item>
+                    <uuid>25f9fd5163f1444e8cc4488be97cf855</uuid>
+                    <name>Active Volunteers</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.volunteers.active</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.volunteers.active"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                </item>
+
+                <item>
+                    <uuid>50cf8e1f5ba340b3b627be862880f7e4</uuid>
+                    <name>Volunteer Engagement Rate</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.volunteer.engagement</key>
+                    <delay>1h</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.volunteer.engagement"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>FLOAT</value_type>
+                    <units>%</units>
                 </item>
 
                 <!-- Financial Metrics -->
@@ -66,17 +141,139 @@
                     <uuid>4a5b6c7d8e9f0g1h2i3j4k5l6m7n8o9p</uuid>
                     <name>Daily Donations Total</name>
                     <type>HTTP_AGENT</type>
-                    <key>frappe.donations.daily</key>
+                    <key>frappe.donations.today</key>
                     <delay>5m</delay>
                     <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
                     <preprocessing>
                         <step>
                             <type>JSONPATH</type>
-                            <params>$.message.metrics.daily_donations</params>
+                            <params>$.message.metrics["frappe.donations.today"]</params>
                         </step>
                     </preprocessing>
                     <value_type>FLOAT</value_type>
                     <units>EUR</units>
+                </item>
+
+                <item>
+                    <uuid>d4da9ea737af4eaf9491d13d2fdc7071</uuid>
+                    <name>Sales Invoices Today</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.invoices.sales_today</key>
+                    <delay>10m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.invoices.sales_today"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                </item>
+
+                <item>
+                    <uuid>6688d2f666724731b8628288119eda52</uuid>
+                    <name>Membership Dues Invoices Today</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.invoices.membership_dues_today</key>
+                    <delay>10m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.invoices.membership_dues_today"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                </item>
+
+                <item>
+                    <uuid>e7a02cf3ab9b4390854ffa954dd36721</uuid>
+                    <name>Total Invoices Today</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.invoices.total_today</key>
+                    <delay>10m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.invoices.total_today"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                </item>
+
+                <item>
+                    <uuid>08a09bc0dbbc44c592368da91822bd60</uuid>
+                    <name>Overdue Invoices</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.invoices.overdue</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.invoices.overdue"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <triggers>
+                        <trigger>
+                            <uuid>3ca5912909fd4c4e84277fc33b8fcc24</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.invoices.overdue)&gt;10</expression>
+                            <name>Too many overdue invoices</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>ad56f4a0457c441d8a59177243178937</uuid>
+                    <name>Outstanding Invoice Amount</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.invoices.outstanding_amount</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.invoices.outstanding_amount"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>FLOAT</value_type>
+                    <units>EUR</units>
+                    <triggers>
+                        <trigger>
+                            <uuid>261b71c20f2748b0bd509cefa85ae53b</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.invoices.outstanding_amount)&gt;50000</expression>
+                            <name>High outstanding invoice amount</name>
+                            <priority>HIGH</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>c5879102a40242e192e6bf00c6c170a4</uuid>
+                    <name>Payment Success Rate</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.invoices.payment_success_rate</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.invoices.payment_success_rate"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>FLOAT</value_type>
+                    <units>%</units>
+                    <triggers>
+                        <trigger>
+                            <uuid>49edfca61d7149d4875958bbe50a1d08</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.invoices.payment_success_rate)&lt;80</expression>
+                            <name>Low payment success rate</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
                 </item>
 
                 <!-- Performance Metrics -->
@@ -90,7 +287,7 @@
                     <preprocessing>
                         <step>
                             <type>JSONPATH</type>
-                            <params>$.message.metrics.error_rate</params>
+                            <params>$.message.metrics["frappe.error.rate"]</params>
                         </step>
                     </preprocessing>
                     <value_type>FLOAT</value_type>
@@ -121,7 +318,7 @@
                     <preprocessing>
                         <step>
                             <type>JSONPATH</type>
-                            <params>$.message.metrics.response_time</params>
+                            <params>$.message.metrics["frappe.response.time"]</params>
                         </step>
                     </preprocessing>
                     <value_type>UNSIGNED</value_type>
@@ -136,27 +333,218 @@
                     </triggers>
                 </item>
 
-                <!-- System Health -->
+                <!-- System Metrics -->
                 <item>
-                    <uuid>0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p</uuid>
-                    <name>System Health Score</name>
+                    <uuid>0ed4b9287b7748d0a709464d3a573768</uuid>
+                    <name>Error Log Count</name>
                     <type>HTTP_AGENT</type>
-                    <key>frappe.health.score</key>
+                    <key>frappe.error_logs.count</key>
+                    <delay>1m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.error_logs.count"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <triggers>
+                        <trigger>
+                            <uuid>8352109de67842f3b8fc09b19532dd3e</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.error_logs.count)&gt;10</expression>
+                            <name>High error log count</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>54760802e33e47a596e3d310a1aa16cb</uuid>
+                    <name>Database Connections</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.db.connections</key>
+                    <delay>1m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.db.connections"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <triggers>
+                        <trigger>
+                            <uuid>371cb942b264411baf262523d9683797</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.db.connections)&gt;80</expression>
+                            <name>High database connection usage</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>45033c0b8b2e480ba73dca6aa06aaaf2</uuid>
+                    <name>Pending Background Jobs</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.queue.pending</key>
+                    <delay>1m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.queue.pending"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <triggers>
+                        <trigger>
+                            <uuid>cfcd5bf2309b4d03aab311b40db5c893</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.queue.pending)&gt;100</expression>
+                            <name>Large job queue backlog</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>a699dbefc1d94e6b928a56d208233f0d</uuid>
+                    <name>Stuck Background Jobs</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.queue.stuck_jobs</key>
+                    <delay>2m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.queue.stuck_jobs"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <triggers>
+                        <trigger>
+                            <uuid>0bac866e6c454495b86d6cd9ef08fbae</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.queue.stuck_jobs)&gt;0</expression>
+                            <name>Stuck background jobs detected</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <!-- Dues Schedule Metrics -->
+                <item>
+                    <uuid>81c7597a1f1445038f08555601655e22</uuid>
+                    <name>Active Dues Schedules</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.dues_schedules.active</key>
                     <delay>5m</delay>
                     <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
                     <preprocessing>
                         <step>
                             <type>JSONPATH</type>
-                            <params>$.message.metrics.system_health</params>
+                            <params>$.message.metrics["frappe.dues_schedules.active"]</params>
                         </step>
                     </preprocessing>
                     <value_type>UNSIGNED</value_type>
-                    <units>%</units>
+                </item>
+
+                <item>
+                    <uuid>0e680a0cd38249b8b22fe0f4ce8524f1</uuid>
+                    <name>Past Next Invoice Dates</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.dues_schedules.past_invoice_dates</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.dues_schedules.past_invoice_dates"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
                     <triggers>
                         <trigger>
-                            <uuid>1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q</uuid>
-                            <expression>last(/Template Frappe Cloud Monitoring/frappe.health.score)&lt;50</expression>
-                            <name>Low system health score</name>
+                            <uuid>07d5843390b7427ea3b51ddff87a74c2</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.dues_schedules.past_invoice_dates)&gt;0</expression>
+                            <name>Dues schedules with past invoice dates detected</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>1dfdba03fd554321b043ef1de40a1635</uuid>
+                    <name>Members Without Membership</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.members.without_membership</key>
+                    <delay>10m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.members.without_membership"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <triggers>
+                        <trigger>
+                            <uuid>58a0987634a04a3d97cbe5d2850b39d2</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.members.without_membership)&gt;0</expression>
+                            <name>Active members without membership record detected</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>e38d7fcdfd744ed4959b678f96dc15bb</uuid>
+                    <name>Members Without Dues Schedule</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.members.without_dues_schedule</key>
+                    <delay>10m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.members.without_dues_schedule"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>UNSIGNED</value_type>
+                    <triggers>
+                        <trigger>
+                            <uuid>a38cba217fd5434ea6215191302455ef</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.members.without_dues_schedule)&gt;20</expression>
+                            <name>Many members without dues schedule</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                    </triggers>
+                </item>
+
+                <item>
+                    <uuid>cc687c4abd2344f2970f7deea2202d10</uuid>
+                    <name>Hours Since Last Invoice Generation</name>
+                    <type>HTTP_AGENT</type>
+                    <key>frappe.invoices.last_generated_hours_ago</key>
+                    <delay>5m</delay>
+                    <url>{$FRAPPE_URL}/api/method/verenigingen.monitoring.zabbix_integration.get_metrics_for_zabbix</url>
+                    <preprocessing>
+                        <step>
+                            <type>JSONPATH</type>
+                            <params>$.message.metrics["frappe.invoices.last_generated_hours_ago"]</params>
+                        </step>
+                    </preprocessing>
+                    <value_type>FLOAT</value_type>
+                    <units>h</units>
+                    <triggers>
+                        <trigger>
+                            <uuid>68848e6a9451465c8d3de40ab26a6979</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.invoices.last_generated_hours_ago)&gt;24</expression>
+                            <name>Dues schedule processing delayed</name>
+                            <priority>WARNING</priority>
+                        </trigger>
+                        <trigger>
+                            <uuid>43d15ee4c1044e84aee0dd2c4bf4a101</uuid>
+                            <expression>last(/Template Frappe Cloud Monitoring/frappe.invoices.last_generated_hours_ago)&gt;48</expression>
+                            <name>Dues schedule processing severely delayed</name>
                             <priority>HIGH</priority>
                         </trigger>
                     </triggers>
@@ -173,7 +561,7 @@
                     <preprocessing>
                         <step>
                             <type>JSONPATH</type>
-                            <params>$.message.metrics.pending_expenses</params>
+                            <params>$.message.metrics["frappe.expenses.pending"]</params>
                         </step>
                     </preprocessing>
                     <value_type>UNSIGNED</value_type>
@@ -226,6 +614,51 @@
                     <macro>{$FRAPPE_API_KEY}</macro>
                     <value></value>
                     <description>Frappe API key for authentication</description>
+                </macro>
+                <macro>
+                    <macro>{$ERROR_RATE_WARN}</macro>
+                    <value>5</value>
+                    <description>Warning threshold for error rate (%)</description>
+                </macro>
+                <macro>
+                    <macro>{$ERROR_RATE_HIGH}</macro>
+                    <value>10</value>
+                    <description>High threshold for error rate (%)</description>
+                </macro>
+                <macro>
+                    <macro>{$RESPONSE_TIME_WARN}</macro>
+                    <value>2000</value>
+                    <description>Warning threshold for response time (ms)</description>
+                </macro>
+                <macro>
+                    <macro>{$CHURN_RATE_WARN}</macro>
+                    <value>5</value>
+                    <description>Warning threshold for member churn rate (%)</description>
+                </macro>
+                <macro>
+                    <macro>{$INVOICE_DELAY_WARN}</macro>
+                    <value>24</value>
+                    <description>Warning threshold for invoice generation delay (hours)</description>
+                </macro>
+                <macro>
+                    <macro>{$INVOICE_DELAY_HIGH}</macro>
+                    <value>48</value>
+                    <description>High threshold for invoice generation delay (hours)</description>
+                </macro>
+                <macro>
+                    <macro>{$OUTSTANDING_AMOUNT_HIGH}</macro>
+                    <value>50000</value>
+                    <description>High threshold for outstanding amount (EUR)</description>
+                </macro>
+                <macro>
+                    <macro>{$PAYMENT_SUCCESS_RATE_WARN}</macro>
+                    <value>80</value>
+                    <description>Warning threshold for payment success rate (%)</description>
+                </macro>
+                <macro>
+                    <macro>{$MEMBERS_WITHOUT_DUES_SCHEDULE_WARN}</macro>
+                    <value>20</value>
+                    <description>Warning threshold for members without dues schedule</description>
                 </macro>
             </macros>
         </template>

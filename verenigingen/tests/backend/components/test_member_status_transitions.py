@@ -429,11 +429,20 @@ class TestMemberStatusTransitions(VereningingenTestCase):
 
         # Attempt chapter transfer while suspended
         try:
-            member.chapter = chapter2.name
+            # Use Chapter Member relationships instead of deprecated member.chapter field
+            from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter
+            assign_member_to_chapter(member.name, chapter2.name)
             member.save()
 
             # Should either allow transfer or prevent it
-            self.assertIn(member.chapter, [self.chapter.name, chapter2.name])
+            # Check chapter through Chapter Member relationships
+            chapter_memberships = frappe.get_all(
+                "Chapter Member",
+                filters={"member": member.name, "status": "Active"},
+                fields=["chapter"]
+            )
+            chapter_names = [cm.chapter for cm in chapter_memberships]
+            self.assertTrue(any(ch in [self.chapter.name, chapter2.name] for ch in chapter_names), "Member should be assigned to one of the test chapters")
 
         except frappe.ValidationError:
             # Prevention is valid business rule

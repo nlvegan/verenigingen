@@ -462,16 +462,35 @@ def get_batch_creation_schedule():
 @frappe.whitelist()
 def toggle_auto_batch_creation(enabled):
     """Enable or disable automatic batch creation"""
-    settings = frappe.get_single("Verenigingen Settings")
-    from verenigingen.utils.boolean_utils import cbool
+    try:
+        # Input validation
+        if enabled is None:
+            frappe.throw(_("Parameter 'enabled' is required"))
 
-    settings.enable_auto_batch_creation = cbool(enabled)
-    settings.save()
+        # Validate enabled parameter is boolean-like
+        from verenigingen.utils.boolean_utils import cbool
 
-    action = "enabled" if enabled else "disabled"
-    frappe.logger().info(f"Auto batch creation {action} by {frappe.session.user}")
+        try:
+            enabled_bool = cbool(enabled)
+        except Exception:
+            frappe.throw(_("Parameter 'enabled' must be a boolean value (true/false, 1/0, yes/no)"))
 
-    return {"success": True, "message": f"Auto batch creation {action}", "enabled": bool(enabled)}
+        # Get and update settings
+        settings = frappe.get_single("Verenigingen Settings")
+        settings.enable_auto_batch_creation = enabled_bool
+        settings.save()
+
+        action = "enabled" if enabled_bool else "disabled"
+        frappe.logger().info(f"Auto batch creation {action} by {frappe.session.user}")
+
+        return {"success": True, "message": f"Auto batch creation {action}", "enabled": bool(enabled_bool)}
+
+    except Exception as e:
+        frappe.log_error(f"Failed to toggle auto batch creation: {str(e)}")
+        if hasattr(e, "message"):
+            frappe.throw(e.message)
+        else:
+            frappe.throw(_("Failed to toggle auto batch creation. Please check the system logs."))
 
 
 @critical_api(operation_type=OperationType.FINANCIAL)
@@ -484,9 +503,17 @@ def run_batch_creation_now():
         if not frappe.has_permission("SEPA Direct Debit Batch", "create"):
             return {"success": False, "error": "You don't have permission to create batches"}
 
+        # Input validation - ensure system is ready for batch creation
+        if should_skip_batch_creation():
+            return {"success": False, "error": "Batch creation is currently disabled or conditions not met"}
+
+        # Validate we're not in a bank holiday
+        target_date = get_next_business_day()
+        if is_bank_holiday(target_date):
+            return {"success": False, "error": f"Target date {target_date} is a bank holiday"}
+
         # Get configuration
         config = get_scheduler_config()
-        target_date = get_next_business_day()
 
         # Create batches
         result = create_optimal_batches(target_date=target_date, config=config)

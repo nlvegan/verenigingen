@@ -453,11 +453,13 @@ class TestPerformanceEdgeCases(unittest.TestCase):
                         c.chapter_name,
                         COUNT(DISTINCT m.name) as member_count,
                         COUNT(DISTINCT v.name) as volunteer_count,
-                        AVG(ms.annual_fee) as avg_fee
+                        AVG(mt.minimum_amount) as avg_fee
                     FROM `tabChapter` c
-                    LEFT JOIN `tabMember` m ON c.name = m.chapter
+                    LEFT JOIN `tabChapter Member` cm ON c.name = cm.chapter AND cm.status = 'Active'
+                    LEFT JOIN `tabMember` m ON cm.member = m.name
                     LEFT JOIN `tabVolunteer` v ON m.name = v.member
                     LEFT JOIN `tabMembership` ms ON m.name = ms.member
+                    LEFT JOIN `tabMembership Type` mt ON ms.membership_type = mt.name
                     GROUP BY c.name
                     HAVING member_count > 0
                 """,

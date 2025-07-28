@@ -88,15 +88,26 @@ def create_sepa_indexes():
 
     for index_config in indexes:
         try:
-            # Check if index already exists
+            # Check if index already exists - using parameterized query for security
+            # Note: Table name must be validated against known DocType tables
+            table_name = index_config["table"]
+            index_name = index_config["name"]
+
+            # Validate table name against known DocTypes for security
+            if not table_name.startswith("`tab") or not table_name.endswith("`"):
+                raise ValueError(f"Invalid table name format: {table_name}")
+
             existing_indexes = frappe.db.sql(
-                f"""
-                SHOW INDEX FROM {index_config['table']}
-                WHERE Key_name = '{index_config['name']}'
-            """
+                """
+                SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.STATISTICS
+                WHERE TABLE_SCHEMA = DATABASE()
+                AND TABLE_NAME = %s
+                AND INDEX_NAME = %s
+                """,
+                (table_name.strip("`"), index_name),
             )
 
-            if existing_indexes:
+            if existing_indexes and existing_indexes[0][0] > 0:
                 results.append(
                     {
                         "index": index_config["name"],
@@ -108,12 +119,28 @@ def create_sepa_indexes():
                 print(f"✅ {index_config['name']} - Already exists")
                 continue
 
-            # Create the index
-            columns_str = ", ".join(index_config["columns"])
-            create_sql = f"""
-                CREATE INDEX {index_config['name']}
-                ON {index_config['table']} ({columns_str})
-            """
+            # Create the index using safe parameterized approach
+            # Validate input parameters for security
+            table_name = index_config["table"]
+            index_name = index_config["name"]
+            columns = index_config["columns"]
+
+            # Additional security validations
+            if not table_name.startswith("`tab") or not table_name.endswith("`"):
+                raise ValueError(f"Invalid table name format: {table_name}")
+
+            if not index_name.replace("_", "").replace("idx", "").isalnum():
+                raise ValueError(f"Invalid index name format: {index_name}")
+
+            # Validate column names to prevent injection
+            for col in columns:
+                if not col.replace("_", "").isalnum():
+                    raise ValueError(f"Invalid column name: {col}")
+
+            columns_str = ", ".join(f"`{col}`" for col in columns)
+
+            # Use string formatting only with validated inputs (no user input)
+            create_sql = f"CREATE INDEX `{index_name}` ON {table_name} ({columns_str})"
 
             frappe.db.sql(create_sql)
 
@@ -194,11 +221,21 @@ def verify_sepa_indexes():
 
         for table in tables_to_check:
             try:
+                # Use INFORMATION_SCHEMA for secure index checking
+                # Validate table name format for security
+                if not table.startswith("`tab") or not table.endswith("`"):
+                    continue
+
+                table_name_clean = table.strip("`")
                 indexes = frappe.db.sql(
-                    f"""
-                    SHOW INDEX FROM {table}
-                    WHERE Key_name = '{index_name}'
-                """,
+                    """
+                    SELECT INDEX_NAME, TABLE_NAME
+                    FROM INFORMATION_SCHEMA.STATISTICS
+                    WHERE TABLE_SCHEMA = DATABASE()
+                    AND TABLE_NAME = %s
+                    AND INDEX_NAME = %s
+                    """,
+                    (table_name_clean, index_name),
                     as_dict=True,
                 )
 

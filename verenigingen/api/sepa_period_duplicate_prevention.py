@@ -10,6 +10,8 @@ import frappe
 from frappe import _
 from frappe.utils import add_months, flt, get_first_day, get_last_day, getdate
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 # =============================================================================
 # PERIOD-BASED DUPLICATE PREVENTION
 # =============================================================================
@@ -472,6 +474,7 @@ def validate_invoice_period_fields(invoice_doc) -> None:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def generate_period_duplicate_report(date_range: str = "Last 3 Months") -> Dict:
     """
     Generate comprehensive report on period duplicates

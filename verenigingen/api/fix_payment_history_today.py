@@ -6,8 +6,11 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_todays_invoices():
     """Add today's invoices to payment history"""
 

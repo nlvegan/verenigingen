@@ -1,0 +1,1039 @@
+{
+  "timestamp": "2025-07-28T12:59:52.521603",
+  "operations_profiled": {
+    "payment_batch_processing": {
+      "operation_name": "payment_batch_processing",
+      "total_functions_analyzed": 1504,
+      "top_time_consuming_functions": [
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0421,
+          "cumulative_time_seconds": 0.0421,
+          "call_count": 328,
+          "time_per_call_ms": 0.13
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "total_time_seconds": 0.0201,
+          "cumulative_time_seconds": 0.0611,
+          "call_count": 47571,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "total_time_seconds": 0.0199,
+          "cumulative_time_seconds": 0.1874,
+          "call_count": 7895,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<built-in method marshal.loads>)",
+          "total_time_seconds": 0.0197,
+          "cumulative_time_seconds": 0.0197,
+          "call_count": 213,
+          "time_per_call_ms": 0.09
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:236(_parse_field_descriptor)",
+          "total_time_seconds": 0.0174,
+          "cumulative_time_seconds": 0.0848,
+          "call_count": 7065,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "total_time_seconds": 0.0168,
+          "cumulative_time_seconds": 0.0208,
+          "call_count": 46272,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:1358(_get_descriptions)",
+          "total_time_seconds": 0.0132,
+          "cumulative_time_seconds": 0.1632,
+          "call_count": 208,
+          "time_per_call_ms": 0.06
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "total_time_seconds": 0.0128,
+          "cumulative_time_seconds": 0.0733,
+          "call_count": 15790,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:145(read_length_encoded_integer)",
+          "total_time_seconds": 0.0125,
+          "cumulative_time_seconds": 0.0204,
+          "call_count": 47781,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "<frozen importlib._bootstrap>:124(setdefault)",
+          "total_time_seconds": 0.0115,
+          "cumulative_time_seconds": 0.0121,
+          "call_count": 225,
+          "time_per_call_ms": 0.05
+        },
+        {
+          "function": "~:0(<method 'settimeout' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0109,
+          "cumulative_time_seconds": 0.0109,
+          "call_count": 16069,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/usr/lib/python3.12/copy.py:61(copy)",
+          "total_time_seconds": 0.0096,
+          "cumulative_time_seconds": 0.0218,
+          "call_count": 18224,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:112(read_uint8)",
+          "total_time_seconds": 0.0079,
+          "cumulative_time_seconds": 0.0079,
+          "call_count": 47781,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'read' of '_io.BufferedReader' objects>)",
+          "total_time_seconds": 0.0076,
+          "cumulative_time_seconds": 0.0505,
+          "call_count": 16003,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'sendall' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0075,
+          "cumulative_time_seconds": 0.0075,
+          "call_count": 269,
+          "time_per_call_ms": 0.03
+        },
+        {
+          "function": "~:0(<built-in method builtins.len>)",
+          "total_time_seconds": 0.007,
+          "cumulative_time_seconds": 0.0072,
+          "call_count": 72385,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'decode' of 'bytes' objects>)",
+          "total_time_seconds": 0.0065,
+          "cumulative_time_seconds": 0.0065,
+          "call_count": 32201,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'get' of 'dict' objects>)",
+          "total_time_seconds": 0.0057,
+          "cumulative_time_seconds": 0.0057,
+          "call_count": 36682,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'append' of 'list' objects>)",
+          "total_time_seconds": 0.0056,
+          "cumulative_time_seconds": 0.0056,
+          "call_count": 36932,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<built-in method builtins.isinstance>)",
+          "total_time_seconds": 0.0056,
+          "cumulative_time_seconds": 0.0056,
+          "call_count": 32855,
+          "time_per_call_ms": 0.0
+        }
+      ],
+      "total_function_time_seconds": 0.26,
+      "database_time_seconds": 0.121,
+      "database_time_percentage": 46.4,
+      "hotspots_identified": [
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0421,
+          "call_count": 328,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0201,
+          "call_count": 47571,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0199,
+          "call_count": 7895,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<built-in method marshal.loads>)",
+          "hotspot_type": "DATA_LOADING",
+          "time_seconds": 0.0197,
+          "call_count": 213,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:236(_parse_field_descriptor)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0174,
+          "call_count": 7065,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0168,
+          "call_count": 46272,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:1358(_get_descriptions)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0132,
+          "call_count": 208,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0128,
+          "call_count": 15790,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:145(read_length_encoded_integer)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0125,
+          "call_count": 47781,
+          "severity": "LOW"
+        },
+        {
+          "function": "<frozen importlib._bootstrap>:124(setdefault)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0115,
+          "call_count": 225,
+          "severity": "LOW"
+        }
+      ],
+      "total_execution_time": 0.525,
+      "operations_per_second": 0.0
+    },
+    "member_payment_history_generation": {
+      "operation_name": "member_payment_history_generation",
+      "total_functions_analyzed": 405,
+      "top_time_consuming_functions": [
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0404,
+          "cumulative_time_seconds": 0.0404,
+          "call_count": 87,
+          "time_per_call_ms": 0.46
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/model/base_document.py:1304(_filter)",
+          "total_time_seconds": 0.0056,
+          "cumulative_time_seconds": 0.0113,
+          "call_count": 76,
+          "time_per_call_ms": 0.07
+        },
+        {
+          "function": "~:0(<method 'sendall' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0032,
+          "cumulative_time_seconds": 0.0032,
+          "call_count": 82,
+          "time_per_call_ms": 0.04
+        },
+        {
+          "function": "~:0(<built-in method _pickle.loads>)",
+          "total_time_seconds": 0.0027,
+          "cumulative_time_seconds": 0.0027,
+          "call_count": 4,
+          "time_per_call_ms": 0.68
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "total_time_seconds": 0.0023,
+          "cumulative_time_seconds": 0.0517,
+          "call_count": 728,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<built-in method builtins.getattr>)",
+          "total_time_seconds": 0.002,
+          "cumulative_time_seconds": 0.0023,
+          "call_count": 9907,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/utils/data.py:1811(compare)",
+          "total_time_seconds": 0.0019,
+          "cumulative_time_seconds": 0.0027,
+          "call_count": 9112,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/werkzeug/local.py:82(__getattr__)",
+          "total_time_seconds": 0.0015,
+          "cumulative_time_seconds": 0.002,
+          "call_count": 3051,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/model/db_query.py:241(prepare_args)",
+          "total_time_seconds": 0.0014,
+          "cumulative_time_seconds": 0.0364,
+          "call_count": 76,
+          "time_per_call_ms": 0.02
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "total_time_seconds": 0.0014,
+          "cumulative_time_seconds": 0.044,
+          "call_count": 1456,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'items' of 'dict' objects>)",
+          "total_time_seconds": 0.0013,
+          "cumulative_time_seconds": 0.0013,
+          "call_count": 9192,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/utils/data.py:1822(get_filter)",
+          "total_time_seconds": 0.0013,
+          "cumulative_time_seconds": 0.0076,
+          "call_count": 76,
+          "time_per_call_ms": 0.02
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "total_time_seconds": 0.0013,
+          "cumulative_time_seconds": 0.004,
+          "call_count": 2595,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'settimeout' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0012,
+          "cumulative_time_seconds": 0.0012,
+          "call_count": 1542,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'match' of 're.Pattern' objects>)",
+          "total_time_seconds": 0.0012,
+          "cumulative_time_seconds": 0.0012,
+          "call_count": 2349,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/werkzeug/local.py:310(__get__)",
+          "total_time_seconds": 0.0012,
+          "cumulative_time_seconds": 0.0038,
+          "call_count": 1725,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/model/db_query.py:710(prepare_filter_condition)",
+          "total_time_seconds": 0.0012,
+          "cumulative_time_seconds": 0.0246,
+          "call_count": 76,
+          "time_per_call_ms": 0.02
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "total_time_seconds": 0.0012,
+          "cumulative_time_seconds": 0.0014,
+          "call_count": 2595,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/model/db_query.py:1119(validate_order_by_and_group_by)",
+          "total_time_seconds": 0.001,
+          "cumulative_time_seconds": 0.0045,
+          "call_count": 152,
+          "time_per_call_ms": 0.01
+        }
+      ],
+      "total_function_time_seconds": 0.073,
+      "database_time_seconds": 0.01,
+      "database_time_percentage": 13.4,
+      "hotspots_identified": [
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0404,
+          "call_count": 87,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/model/base_document.py:1304(_filter)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0056,
+          "call_count": 76,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<method 'sendall' of '_socket.socket' objects>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0032,
+          "call_count": 82,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<built-in method _pickle.loads>)",
+          "hotspot_type": "DATA_LOADING",
+          "time_seconds": 0.0027,
+          "call_count": 4,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0023,
+          "call_count": 728,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<built-in method builtins.getattr>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.002,
+          "call_count": 9907,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/utils/data.py:1811(compare)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0019,
+          "call_count": 9112,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/werkzeug/local.py:82(__getattr__)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0015,
+          "call_count": 3051,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/model/db_query.py:241(prepare_args)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0014,
+          "call_count": 76,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0014,
+          "call_count": 1456,
+          "severity": "LOW"
+        }
+      ],
+      "total_execution_time": 0.112,
+      "members_per_second": 223.55
+    },
+    "sepa_mandate_processing": {
+      "operation_name": "sepa_mandate_processing",
+      "total_functions_analyzed": 610,
+      "top_time_consuming_functions": [
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0072,
+          "cumulative_time_seconds": 0.0072,
+          "call_count": 58,
+          "time_per_call_ms": 0.12
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "total_time_seconds": 0.0025,
+          "cumulative_time_seconds": 0.0235,
+          "call_count": 941,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "total_time_seconds": 0.0023,
+          "cumulative_time_seconds": 0.0071,
+          "call_count": 5521,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<built-in method marshal.loads>)",
+          "total_time_seconds": 0.002,
+          "cumulative_time_seconds": 0.002,
+          "call_count": 23,
+          "time_per_call_ms": 0.09
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "total_time_seconds": 0.002,
+          "cumulative_time_seconds": 0.0025,
+          "call_count": 5322,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:236(_parse_field_descriptor)",
+          "total_time_seconds": 0.0019,
+          "cumulative_time_seconds": 0.0092,
+          "call_count": 746,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/usr/lib/python3.12/copy.py:61(copy)",
+          "total_time_seconds": 0.0018,
+          "cumulative_time_seconds": 0.004,
+          "call_count": 3408,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "total_time_seconds": 0.0016,
+          "cumulative_time_seconds": 0.0108,
+          "call_count": 1882,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:1358(_get_descriptions)",
+          "total_time_seconds": 0.0015,
+          "cumulative_time_seconds": 0.018,
+          "call_count": 43,
+          "time_per_call_ms": 0.03
+        },
+        {
+          "function": "~:0(<built-in method _pickle.loads>)",
+          "total_time_seconds": 0.0014,
+          "cumulative_time_seconds": 0.0014,
+          "call_count": 7,
+          "time_per_call_ms": 0.2
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:145(read_length_encoded_integer)",
+          "total_time_seconds": 0.0014,
+          "cumulative_time_seconds": 0.0024,
+          "call_count": 5564,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'settimeout' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0013,
+          "cumulative_time_seconds": 0.0013,
+          "call_count": 1939,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'sendall' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0012,
+          "cumulative_time_seconds": 0.0012,
+          "call_count": 50,
+          "time_per_call_ms": 0.02
+        }
+      ],
+      "total_function_time_seconds": 0.028,
+      "database_time_seconds": 0.013,
+      "database_time_percentage": 47.0,
+      "hotspots_identified": [
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0072,
+          "call_count": 58,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0025,
+          "call_count": 941,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0023,
+          "call_count": 5521,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<built-in method marshal.loads>)",
+          "hotspot_type": "DATA_LOADING",
+          "time_seconds": 0.002,
+          "call_count": 23,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.002,
+          "call_count": 5322,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:236(_parse_field_descriptor)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0019,
+          "call_count": 746,
+          "severity": "LOW"
+        },
+        {
+          "function": "/usr/lib/python3.12/copy.py:61(copy)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0018,
+          "call_count": 3408,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0016,
+          "call_count": 1882,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:1358(_get_descriptions)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0015,
+          "call_count": 43,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<built-in method _pickle.loads>)",
+          "hotspot_type": "DATA_LOADING",
+          "time_seconds": 0.0014,
+          "call_count": 7,
+          "severity": "LOW"
+        }
+      ],
+      "total_execution_time": 0.071,
+      "mandates_per_second": 28.23
+    },
+    "invoice_generation_batch": {
+      "operation_name": "invoice_generation_batch",
+      "total_functions_analyzed": 412,
+      "top_time_consuming_functions": [
+        {
+          "function": "~:0(<built-in method builtins.compile>)",
+          "total_time_seconds": 0.0122,
+          "cumulative_time_seconds": 0.0122,
+          "call_count": 1,
+          "time_per_call_ms": 12.15
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "total_time_seconds": 0.0036,
+          "cumulative_time_seconds": 0.0108,
+          "call_count": 8105,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0035,
+          "cumulative_time_seconds": 0.0035,
+          "call_count": 22,
+          "time_per_call_ms": 0.16
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "total_time_seconds": 0.0031,
+          "cumulative_time_seconds": 0.0272,
+          "call_count": 1254,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:236(_parse_field_descriptor)",
+          "total_time_seconds": 0.003,
+          "cumulative_time_seconds": 0.0144,
+          "call_count": 1147,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "total_time_seconds": 0.0028,
+          "cumulative_time_seconds": 0.0035,
+          "call_count": 7537,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:145(read_length_encoded_integer)",
+          "total_time_seconds": 0.0022,
+          "cumulative_time_seconds": 0.0037,
+          "call_count": 8127,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:1358(_get_descriptions)",
+          "total_time_seconds": 0.0021,
+          "cumulative_time_seconds": 0.027,
+          "call_count": 22,
+          "time_per_call_ms": 0.1
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "total_time_seconds": 0.002,
+          "cumulative_time_seconds": 0.0083,
+          "call_count": 2508,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'settimeout' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0016,
+          "cumulative_time_seconds": 0.0016,
+          "call_count": 2530,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:112(read_uint8)",
+          "total_time_seconds": 0.0015,
+          "cumulative_time_seconds": 0.0015,
+          "call_count": 8127,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'decode' of 'bytes' objects>)",
+          "total_time_seconds": 0.0012,
+          "cumulative_time_seconds": 0.0012,
+          "call_count": 5243,
+          "time_per_call_ms": 0.0
+        }
+      ],
+      "total_function_time_seconds": 0.039,
+      "database_time_seconds": 0.02,
+      "database_time_percentage": 52.3,
+      "hotspots_identified": [
+        {
+          "function": "~:0(<built-in method builtins.compile>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0122,
+          "call_count": 1,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0036,
+          "call_count": 8105,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0035,
+          "call_count": 22,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0031,
+          "call_count": 1254,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:236(_parse_field_descriptor)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.003,
+          "call_count": 1147,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0028,
+          "call_count": 7537,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:145(read_length_encoded_integer)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0022,
+          "call_count": 8127,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:1358(_get_descriptions)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0021,
+          "call_count": 22,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.002,
+          "call_count": 2508,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<method 'settimeout' of '_socket.socket' objects>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0016,
+          "call_count": 2530,
+          "severity": "LOW"
+        }
+      ],
+      "total_execution_time": 0.06,
+      "invoices_per_second": 0.0
+    },
+    "payment_reconciliation": {
+      "operation_name": "payment_reconciliation",
+      "total_functions_analyzed": 436,
+      "top_time_consuming_functions": [
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.031,
+          "cumulative_time_seconds": 0.031,
+          "call_count": 213,
+          "time_per_call_ms": 0.15
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "total_time_seconds": 0.0131,
+          "cumulative_time_seconds": 0.124,
+          "call_count": 5118,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/model/base_document.py:1304(_filter)",
+          "total_time_seconds": 0.0129,
+          "cumulative_time_seconds": 0.0258,
+          "call_count": 121,
+          "time_per_call_ms": 0.11
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "total_time_seconds": 0.0128,
+          "cumulative_time_seconds": 0.0387,
+          "call_count": 29647,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:236(_parse_field_descriptor)",
+          "total_time_seconds": 0.0109,
+          "cumulative_time_seconds": 0.0535,
+          "call_count": 4384,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "total_time_seconds": 0.0107,
+          "cumulative_time_seconds": 0.0131,
+          "call_count": 28882,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:1358(_get_descriptions)",
+          "total_time_seconds": 0.0085,
+          "cumulative_time_seconds": 0.1031,
+          "call_count": 181,
+          "time_per_call_ms": 0.05
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "total_time_seconds": 0.0084,
+          "cumulative_time_seconds": 0.0516,
+          "call_count": 10236,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:145(read_length_encoded_integer)",
+          "total_time_seconds": 0.0079,
+          "cumulative_time_seconds": 0.013,
+          "call_count": 29828,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'settimeout' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.0069,
+          "cumulative_time_seconds": 0.0069,
+          "call_count": 10419,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/usr/lib/python3.12/copy.py:61(copy)",
+          "total_time_seconds": 0.0056,
+          "cumulative_time_seconds": 0.0127,
+          "call_count": 10560,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'sendall' of '_socket.socket' objects>)",
+          "total_time_seconds": 0.005,
+          "cumulative_time_seconds": 0.005,
+          "call_count": 182,
+          "time_per_call_ms": 0.03
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:112(read_uint8)",
+          "total_time_seconds": 0.005,
+          "cumulative_time_seconds": 0.005,
+          "call_count": 29828,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<built-in method builtins.getattr>)",
+          "total_time_seconds": 0.0048,
+          "cumulative_time_seconds": 0.0053,
+          "call_count": 24667,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/utils/data.py:1811(compare)",
+          "total_time_seconds": 0.0043,
+          "cumulative_time_seconds": 0.0061,
+          "call_count": 21335,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'decode' of 'bytes' objects>)",
+          "total_time_seconds": 0.0041,
+          "cumulative_time_seconds": 0.0041,
+          "call_count": 20114,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<built-in method builtins.len>)",
+          "total_time_seconds": 0.0039,
+          "cumulative_time_seconds": 0.0039,
+          "call_count": 41492,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'read' of '_io.BufferedReader' objects>)",
+          "total_time_seconds": 0.0037,
+          "cumulative_time_seconds": 0.0355,
+          "call_count": 10236,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:175(read_struct)",
+          "total_time_seconds": 0.0037,
+          "cumulative_time_seconds": 0.005,
+          "call_count": 4565,
+          "time_per_call_ms": 0.0
+        },
+        {
+          "function": "~:0(<method 'get' of 'dict' objects>)",
+          "total_time_seconds": 0.0034,
+          "cumulative_time_seconds": 0.0034,
+          "call_count": 21475,
+          "time_per_call_ms": 0.0
+        }
+      ],
+      "total_function_time_seconds": 0.167,
+      "database_time_seconds": 0.081,
+      "database_time_percentage": 48.6,
+      "hotspots_identified": [
+        {
+          "function": "~:0(<method 'recv_into' of '_socket.socket' objects>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.031,
+          "call_count": 213,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:735(_read_packet)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0131,
+          "call_count": 5118,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/apps/frappe/frappe/model/base_document.py:1304(_filter)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0129,
+          "call_count": 121,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:163(read_length_coded_string)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0128,
+          "call_count": 29647,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:236(_parse_field_descriptor)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0109,
+          "call_count": 4384,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:62(read)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0107,
+          "call_count": 28882,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:1358(_get_descriptions)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0085,
+          "call_count": 181,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/connections.py:778(_read_bytes)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0084,
+          "call_count": 10236,
+          "severity": "LOW"
+        },
+        {
+          "function": "/home/frappe/frappe-bench/env/lib/python3.12/site-packages/pymysql/protocol.py:145(read_length_encoded_integer)",
+          "hotspot_type": "DATABASE",
+          "time_seconds": 0.0079,
+          "call_count": 29828,
+          "severity": "LOW"
+        },
+        {
+          "function": "~:0(<method 'settimeout' of '_socket.socket' objects>)",
+          "hotspot_type": "UNKNOWN",
+          "time_seconds": 0.0069,
+          "call_count": 10419,
+          "severity": "LOW"
+        }
+      ],
+      "total_execution_time": 0.289,
+      "payments_per_second": 103.63
+    }
+  },
+  "bottlenecks_identified": [
+    {
+      "operation": "payment_batch_processing",
+      "bottleneck_type": "LOW_THROUGHPUT",
+      "severity": "MEDIUM",
+      "throughput": 0.0,
+      "threshold": 1,
+      "description": "Low throughput: 0.0 operations per second"
+    },
+    {
+      "operation": "invoice_generation_batch",
+      "bottleneck_type": "LOW_THROUGHPUT",
+      "severity": "MEDIUM",
+      "throughput": 0.0,
+      "threshold": 2,
+      "description": "Low throughput: 0.0 invoices per second"
+    }
+  ],
+  "optimization_recommendations": [
+    {
+      "priority": "MEDIUM",
+      "category": "Throughput Optimization",
+      "affected_operations": [
+        "payment_batch_processing",
+        "invoice_generation_batch"
+      ],
+      "recommendation": "Implement batch processing and caching strategies",
+      "implementation": "Process records in batches, cache frequently accessed data",
+      "expected_improvement": "200-300% increase in processing throughput"
+    }
+  ]
+}

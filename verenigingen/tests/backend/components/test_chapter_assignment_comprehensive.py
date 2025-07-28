@@ -122,14 +122,20 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         original_chapter = member.chapter
         self.assertEqual(original_chapter, self.chapters["amsterdam"].name)
         
-        # Manual override
-        member.chapter = self.chapters["rotterdam"].name
-        member.manual_chapter_override = 1
-        member.chapter_override_reason = "Member prefers Rotterdam chapter activities"
-        member.save()
+        # Manual override - use Chapter Member relationship instead
+        from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter
+        assign_member_to_chapter(member.name, self.chapters["rotterdam"].name)
         
-        # Should maintain Rotterdam assignment despite Amsterdam postal code
-        self.assertEqual(member.chapter, self.chapters["rotterdam"].name)
+        # Add custom fields for override tracking if they exist in the Member doctype
+        member.reload()
+        
+        # Check chapter assignment through Chapter Member relationships
+        chapter_memberships = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member.name, "status": "Active", "chapter": self.chapters["rotterdam"].name},
+            fields=["chapter"]
+        )
+        self.assertTrue(len(chapter_memberships) > 0, "Member should be assigned to Rotterdam chapter")
         self.assertTrue(member.manual_chapter_override)
         
         # Verify override is tracked
@@ -144,23 +150,42 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         
         # Test Case 1: Cannot assign to inactive chapter
         with self.assertRaises(frappe.ValidationError):
-            member.chapter = self.chapters["inactive"].name
-            member.save()
+            from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter
+            assign_member_to_chapter(member.name, self.chapters["inactive"].name)
         
         # Reset member
         member.reload()
         
         # Test Case 2: Cannot remove chapter without reason for active member
         with self.assertRaises(frappe.ValidationError):
-            member.chapter = None
-            member.save()
+            # Try to remove member from all chapters (which should fail)
+            chapter_memberships = frappe.get_all(
+                "Chapter Member",
+                filters={"member": member.name, "status": "Active"},
+                fields=["name"]
+            )
+            for cm in chapter_memberships:
+                chapter_member_doc = frappe.get_doc("Chapter Member", cm.name)
+                chapter_member_doc.status = "Inactive"
+                chapter_member_doc.save()
         
         # Test Case 3: Valid chapter change with reason
-        member.chapter = self.chapters["utrecht"].name
-        member.chapter_change_reason = "Member relocated to Utrecht"
-        member.save()
+        from verenigingen.verenigingen.doctype.chapter.chapter import assign_member_to_chapter
+        assign_member_to_chapter(member.name, self.chapters["utrecht"].name)
         
-        self.assertEqual(member.chapter, self.chapters["utrecht"].name)
+        # Update chapter change reason if this field exists in Member doctype
+        member.reload()
+        if hasattr(member, 'chapter_change_reason'):
+            member.chapter_change_reason = "Member relocated to Utrecht"
+            member.save()
+        
+        # Verify chapter assignment through Chapter Member relationships
+        chapter_memberships = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member.name, "status": "Active", "chapter": self.chapters["utrecht"].name},
+            fields=["chapter"]
+        )
+        self.assertTrue(len(chapter_memberships) > 0, "Member should be assigned to Utrecht chapter")
         
     # Chapter Transfer Workflow Tests
     
@@ -208,7 +233,13 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         
         # Verify member chapter updated
         member.reload()
-        self.assertEqual(member.chapter, target_chapter)
+        # Check chapter through Chapter Member relationships instead of deprecated member.chapter
+        chapter_memberships = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member.name, "status": "Active", "chapter": target_chapter},
+            fields=["chapter"]
+        )
+        self.assertTrue(len(chapter_memberships) > 0, "Member should be assigned to target chapter")
         
         # Verify transfer history
         chapter_history = self.get_member_chapter_history(member.name)
@@ -246,7 +277,13 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         
         # Member should remain in original chapter
         member.reload()
-        self.assertEqual(member.chapter, original_chapter)
+        # Check chapter through Chapter Member relationships instead of deprecated member.chapter
+        chapter_memberships = frappe.get_all(
+            "Chapter Member",
+            filters={"member": member.name, "status": "Active", "chapter": original_chapter},
+            fields=["chapter"]
+        )
+        self.assertTrue(len(chapter_memberships) > 0, "Member should be assigned to original chapter")
         
     def test_chapter_transfer_with_financial_implications(self):
         """Test chapter transfer with financial obligations"""
@@ -429,7 +466,13 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         
         # Verify reassignment
         temp_member.reload()
-        self.assertEqual(temp_member.chapter, self.chapters["amsterdam"].name)
+        # Check chapter through Chapter Member relationships instead of deprecated member.chapter
+        chapter_memberships = frappe.get_all(
+            "Chapter Member",
+            filters={"member": temp_member.name, "status": "Active", "chapter": self.chapters["amsterdam"].name},
+            fields=["chapter"]
+        )
+        self.assertTrue(len(chapter_memberships) > 0, "Temporary member should be assigned to Amsterdam chapter")
         
     def test_chapter_merger_member_transfer(self):
         """Test member transfers during chapter mergers"""
@@ -468,7 +511,13 @@ class TestChapterAssignmentComprehensive(VereningingenTestCase):
         # Verify all members transferred
         for member in utrecht_members:
             member.reload()
-            self.assertEqual(member.chapter, target_chapter.name)
+            # Check chapter through Chapter Member relationships instead of deprecated member.chapter
+            chapter_memberships = frappe.get_all(
+                "Chapter Member",
+                filters={"member": member.name, "status": "Active", "chapter": target_chapter.name},
+                fields=["chapter"]
+            )
+            self.assertTrue(len(chapter_memberships) > 0, "Member should be assigned to target chapter")
         
         # Verify chapter history
         for member in utrecht_members:

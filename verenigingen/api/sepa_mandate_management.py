@@ -153,57 +153,77 @@ def fix_specific_member_sepa_mandate(member_name):
     """
     Create SEPA mandate for a specific member
     """
-    if not frappe.has_permission("SEPA Mandate", "create"):
-        frappe.throw(_("You don't have permission to create SEPA mandates"))
+    try:
+        # Input validation
+        if not member_name:
+            frappe.throw(_("Member name is required"))
 
-    member = frappe.get_doc("Member", member_name)
+        if not isinstance(member_name, str):
+            frappe.throw(_("Member name must be a string"))
 
-    # Validate member has required information
-    if not member.iban:
-        frappe.throw(_("Member does not have an IBAN"))
+        if not frappe.has_permission("SEPA Mandate", "create"):
+            frappe.throw(_("You don't have permission to create SEPA mandates"))
 
-    if member.payment_method != "SEPA Direct Debit":
-        frappe.throw(_("Member's payment method is not SEPA Direct Debit"))
+        # Validate member exists
+        if not frappe.db.exists("Member", member_name):
+            frappe.throw(_("Member {0} does not exist").format(member_name))
 
-    # Check if active mandate already exists
-    existing_active = frappe.db.exists(
-        "SEPA Mandate", {"member": member_name, "status": "Active", "is_active": 1}
-    )
+        member = frappe.get_doc("Member", member_name)
 
-    if existing_active:
-        return {"success": False, "message": _("Member already has an active SEPA mandate")}
+        # Validate member has required information
+        if not member.iban:
+            frappe.throw(_("Member does not have an IBAN"))
 
-    # Create the mandate
-    result = create_missing_sepa_mandates(dry_run=False)
+        if member.payment_method != "SEPA Direct Debit":
+            frappe.throw(_("Member's payment method is not SEPA Direct Debit"))
 
-    # Check if this specific member was processed
-    # Safe extraction of results data
-    results_data = result.get("results")
-    if not results_data or not isinstance(results_data, dict):
-        return {"success": False, "message": "Invalid results format from mandate creation"}
+        # Check if active mandate already exists
+        existing_active = frappe.db.exists(
+            "SEPA Mandate", {"member": member_name, "status": "Active", "is_active": 1}
+        )
 
-    mandates_list = results_data.get("mandates", [])
-    if not isinstance(mandates_list, list):
-        mandates_list = []
+        if existing_active:
+            return {"success": False, "message": _("Member already has an active SEPA mandate")}
 
-    for mandate_info in mandates_list:
-        if mandate_info.get("member") == member_name:
-            return {
-                "success": True,
-                "message": f"SEPA mandate created successfully: {mandate_info.get('mandate_id')}",
-                "mandate_id": mandate_info.get("mandate_id"),
-            }
+        # Create the mandate
+        result = create_missing_sepa_mandates(dry_run=False)
 
-    # Check errors
-    errors_list = results_data.get("errors", [])
-    if not isinstance(errors_list, list):
-        errors_list = []
+        # Check if this specific member was processed
+        # Safe extraction of results data
+        results_data = result.get("results")
+        if not results_data or not isinstance(results_data, dict):
+            return {"success": False, "message": "Invalid results format from mandate creation"}
 
-    for error_info in errors_list:
-        if error_info.get("member") == member_name:
-            return {"success": False, "message": f"Error creating mandate: {error_info.get('error')}"}
+        mandates_list = results_data.get("mandates", [])
+        if not isinstance(mandates_list, list):
+            mandates_list = []
 
-    return {"success": False, "message": "Member was not processed - please check the criteria"}
+        for mandate_info in mandates_list:
+            if mandate_info.get("member") == member_name:
+                return {
+                    "success": True,
+                    "message": f"SEPA mandate created successfully: {mandate_info.get('mandate_id')}",
+                    "mandate_id": mandate_info.get("mandate_id"),
+                }
+
+        # Check errors
+        errors_list = results_data.get("errors", [])
+        if not isinstance(errors_list, list):
+            errors_list = []
+
+        for error_info in errors_list:
+            if error_info.get("member") == member_name:
+                return {"success": False, "message": f"Error creating mandate: {error_info.get('error')}"}
+
+        return {"success": False, "message": "Member was not processed - please check the criteria"}
+
+    except Exception as e:
+        frappe.log_error(f"Error creating SEPA mandate for member {member_name}: {str(e)}")
+        # Don't expose internal errors to users
+        if hasattr(e, "message"):
+            frappe.throw(e.message)
+        else:
+            frappe.throw(_("Failed to create SEPA mandate. Please check the system logs."))
 
 
 @frappe.whitelist()

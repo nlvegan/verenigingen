@@ -6,8 +6,11 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def debug_payment_history_system():
     """Comprehensive debug of payment history update system"""
 
@@ -120,6 +123,7 @@ def debug_payment_history_system():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_single_invoice_update(invoice_name):
     """Test updating payment history for a single invoice"""
 

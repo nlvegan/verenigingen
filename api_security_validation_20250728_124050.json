@@ -1,0 +1,318 @@
+{
+  "timestamp": "2025-07-28T12:40:50.081149",
+  "validation_summary": {
+    "total_apis_tested": 6,
+    "apis_passed": 2,
+    "apis_failed": 4,
+    "pass_rate": 33.33333333333333,
+    "check_statistics": {
+      "decorator_applied": {
+        "passed": 4,
+        "failed": 2
+      },
+      "security_imports": {
+        "passed": 6,
+        "failed": 0
+      },
+      "permission_validation": {
+        "passed": 3,
+        "failed": 3
+      },
+      "input_validation": {
+        "passed": 4,
+        "failed": 2
+      },
+      "error_handling": {
+        "passed": 3,
+        "failed": 3
+      },
+      "audit_logging": {
+        "passed": 4,
+        "failed": 2
+      }
+    }
+  },
+  "api_validations": {
+    "verenigingen/api/sepa_mandate_management.py::create_missing_sepa_mandates": {
+      "api_info": {
+        "file_path": "verenigingen/api/sepa_mandate_management.py",
+        "function_name": "create_missing_sepa_mandates",
+        "line_number": 17,
+        "risk_level": "CRITICAL",
+        "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
+        "required_decorator": "Already secured",
+        "reason": "Creates financial instruments - already secured"
+      },
+      "checks": {
+        "decorator_applied": {
+          "passed": true,
+          "message": "@critical_api decorator is properly applied"
+        },
+        "security_imports": {
+          "passed": true,
+          "message": "All required security imports are present"
+        },
+        "permission_validation": {
+          "passed": true,
+          "message": "Permission validation found: frappe.has_permission"
+        },
+        "input_validation": {
+          "passed": true,
+          "message": "Input validation found: frappe.throw"
+        },
+        "error_handling": {
+          "passed": true,
+          "message": "Basic error handling: try/except blocks",
+          "warning": "Consider adding more comprehensive error handling"
+        },
+        "audit_logging": {
+          "passed": true,
+          "message": "Audit logging available: frappe.log_error"
+        }
+      },
+      "overall_pass": true,
+      "failed_checks": [],
+      "warnings": [
+        "error_handling: Consider adding more comprehensive error handling"
+      ]
+    },
+    "verenigingen/api/sepa_mandate_management.py::fix_specific_member_sepa_mandate": {
+      "api_info": {
+        "file_path": "verenigingen/api/sepa_mandate_management.py",
+        "function_name": "fix_specific_member_sepa_mandate",
+        "line_number": 152,
+        "risk_level": "HIGH",
+        "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
+        "required_decorator": "Already secured",
+        "reason": "Individual mandate creation - already secured"
+      },
+      "checks": {
+        "decorator_applied": {
+          "passed": true,
+          "message": "@critical_api decorator is properly applied"
+        },
+        "security_imports": {
+          "passed": true,
+          "message": "All required security imports are present"
+        },
+        "permission_validation": {
+          "passed": true,
+          "message": "Permission validation found: frappe.has_permission"
+        },
+        "input_validation": {
+          "passed": true,
+          "message": "Input validation found: frappe.throw"
+        },
+        "error_handling": {
+          "passed": false,
+          "message": "No explicit error handling found"
+        },
+        "audit_logging": {
+          "passed": true,
+          "message": "Audit logging available: frappe.log_error"
+        }
+      },
+      "overall_pass": false,
+      "failed_checks": [
+        "error_handling: No explicit error handling found"
+      ],
+      "warnings": []
+    },
+    "verenigingen/api/payment_processing.py::send_overdue_payment_reminders": {
+      "api_info": {
+        "file_path": "verenigingen/api/payment_processing.py",
+        "function_name": "send_overdue_payment_reminders",
+        "line_number": 43,
+        "risk_level": "CRITICAL",
+        "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
+        "required_decorator": "Already secured",
+        "reason": "Financial communication operations - already secured"
+      },
+      "checks": {
+        "decorator_applied": {
+          "passed": true,
+          "message": "@critical_api decorator is properly applied"
+        },
+        "security_imports": {
+          "passed": true,
+          "message": "All required security imports are present"
+        },
+        "permission_validation": {
+          "passed": false,
+          "message": "No explicit permission validation found",
+          "warning": "Permission validation may be handled by @critical_api decorator"
+        },
+        "input_validation": {
+          "passed": true,
+          "message": "Input validation found: validate_, ValidationError, validate_required_fields"
+        },
+        "error_handling": {
+          "passed": true,
+          "message": "Good error handling: try/except blocks, error logging, @handle_api_error decorator"
+        },
+        "audit_logging": {
+          "passed": true,
+          "message": "Audit logging available: frappe.log_error"
+        }
+      },
+      "overall_pass": false,
+      "failed_checks": [
+        "permission_validation: No explicit permission validation found"
+      ],
+      "warnings": [
+        "permission_validation: Permission validation may be handled by @critical_api decorator"
+      ]
+    },
+    "verenigingen/api/dd_batch_scheduler.py::admin_batch_function": {
+      "api_info": {
+        "file_path": "verenigingen/api/dd_batch_scheduler.py",
+        "function_name": "admin_batch_function",
+        "line_number": 460,
+        "risk_level": "HIGH",
+        "current_decorator": "@critical_api(operation_type=OperationType.ADMIN)",
+        "required_decorator": "Already secured",
+        "reason": "Administrative batch operations - already secured"
+      },
+      "checks": {
+        "decorator_applied": {
+          "passed": false,
+          "message": "Function admin_batch_function not found in verenigingen/api/dd_batch_scheduler.py"
+        },
+        "security_imports": {
+          "passed": true,
+          "message": "All required security imports are present"
+        },
+        "permission_validation": {
+          "passed": false,
+          "message": "Function admin_batch_function not found"
+        },
+        "input_validation": {
+          "passed": false,
+          "message": "Function admin_batch_function not found"
+        },
+        "error_handling": {
+          "passed": false,
+          "message": "Function admin_batch_function not found"
+        },
+        "audit_logging": {
+          "passed": false,
+          "message": "Function admin_batch_function not found"
+        }
+      },
+      "overall_pass": false,
+      "failed_checks": [
+        "decorator_applied: Function admin_batch_function not found in verenigingen/api/dd_batch_scheduler.py",
+        "permission_validation: Function admin_batch_function not found",
+        "input_validation: Function admin_batch_function not found",
+        "error_handling: Function admin_batch_function not found",
+        "audit_logging: Function admin_batch_function not found"
+      ],
+      "warnings": []
+    },
+    "verenigingen/api/dd_batch_scheduler.py::financial_batch_function": {
+      "api_info": {
+        "file_path": "verenigingen/api/dd_batch_scheduler.py",
+        "function_name": "financial_batch_function",
+        "line_number": 477,
+        "risk_level": "CRITICAL",
+        "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
+        "required_decorator": "Already secured",
+        "reason": "Financial batch operations - already secured"
+      },
+      "checks": {
+        "decorator_applied": {
+          "passed": false,
+          "message": "Function financial_batch_function not found in verenigingen/api/dd_batch_scheduler.py"
+        },
+        "security_imports": {
+          "passed": true,
+          "message": "All required security imports are present"
+        },
+        "permission_validation": {
+          "passed": false,
+          "message": "Function financial_batch_function not found"
+        },
+        "input_validation": {
+          "passed": false,
+          "message": "Function financial_batch_function not found"
+        },
+        "error_handling": {
+          "passed": false,
+          "message": "Function financial_batch_function not found"
+        },
+        "audit_logging": {
+          "passed": false,
+          "message": "Function financial_batch_function not found"
+        }
+      },
+      "overall_pass": false,
+      "failed_checks": [
+        "decorator_applied: Function financial_batch_function not found in verenigingen/api/dd_batch_scheduler.py",
+        "permission_validation: Function financial_batch_function not found",
+        "input_validation: Function financial_batch_function not found",
+        "error_handling: Function financial_batch_function not found",
+        "audit_logging: Function financial_batch_function not found"
+      ],
+      "warnings": []
+    },
+    "verenigingen/api/member_management.py::assign_member_to_chapter": {
+      "api_info": {
+        "file_path": "verenigingen/api/member_management.py",
+        "function_name": "assign_member_to_chapter",
+        "line_number": 33,
+        "risk_level": "HIGH",
+        "current_decorator": "@critical_api(operation_type=OperationType.MEMBER_DATA)",
+        "required_decorator": "Already secured",
+        "reason": "Member data operations - already secured"
+      },
+      "checks": {
+        "decorator_applied": {
+          "passed": true,
+          "message": "@critical_api decorator is properly applied"
+        },
+        "security_imports": {
+          "passed": true,
+          "message": "All required security imports are present"
+        },
+        "permission_validation": {
+          "passed": true,
+          "message": "Permission validation found: PermissionError"
+        },
+        "input_validation": {
+          "passed": true,
+          "message": "Input validation found: validate_, ValidationError, validate_required_fields"
+        },
+        "error_handling": {
+          "passed": true,
+          "message": "Basic error handling: @handle_api_error decorator",
+          "warning": "Consider adding more comprehensive error handling"
+        },
+        "audit_logging": {
+          "passed": true,
+          "message": "Audit logging available: frappe.log_error"
+        }
+      },
+      "overall_pass": true,
+      "failed_checks": [],
+      "warnings": [
+        "error_handling: Consider adding more comprehensive error handling"
+      ]
+    }
+  },
+  "security_compliance": {
+    "compliance_level": "POOR",
+    "pass_rate": 33.33333333333333,
+    "ready_for_production": false,
+    "critical_issues": 4,
+    "total_warnings": 3
+  },
+  "recommendations": [
+    "\ud83d\udd34 Security compliance needs improvement. Address failed validations immediately.",
+    "Add @critical_api decorators to 2 APIs",
+    "Implement explicit permission checks in 3 APIs",
+    "Add input validation to 2 APIs",
+    "Improve error handling in 3 APIs",
+    "Add audit logging to 2 APIs",
+    "Review 3 warnings for potential improvements"
+  ]
+}

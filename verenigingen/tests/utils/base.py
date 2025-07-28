@@ -43,7 +43,7 @@ class VereningingenTestCase(FrappeTestCase):
         self._test_start_time = frappe.utils.now()
         
         # Initialize test data factory
-        from verenigingen.tests.test_data_factory import TestDataFactory
+        from verenigingen.tests.fixtures.test_data_factory import StreamlinedTestDataFactory as TestDataFactory
         self.factory = TestDataFactory()
 
     def tearDown(self):
@@ -1629,6 +1629,43 @@ class VereningingenTestCase(FrappeTestCase):
             
             expected = basic_expectations.get(error_code, {})
             return expected == expected_behavior
+
+    
+    # STREAMLINED FACTORY CONVENIENCE METHODS
+    def create_test_member(self, **kwargs):
+        """Create test member with automatic tracking"""
+        member = self.factory.create_test_member(**kwargs)
+        self.track_doc("Member", member.name)
+        return member
+    
+    def create_test_volunteer(self, **kwargs):
+        """Create test volunteer with automatic tracking"""
+        volunteer = self.factory.create_test_volunteer(**kwargs)
+        self.track_doc("Volunteer", volunteer.name)
+        return volunteer
+    
+    def create_test_chapter(self, **kwargs):
+        """Create test chapter with automatic tracking"""
+        chapter = self.factory.create_test_chapter(**kwargs)
+        self.track_doc("Chapter", chapter.name)
+        return chapter
+    
+    def create_test_membership(self, **kwargs):
+        """Create test membership with automatic tracking"""
+        membership = self.factory.create_test_membership(**kwargs)
+        self.track_doc("Membership", membership.name)
+        return membership
+    
+    def create_complete_test_scenario(self, **kwargs):
+        """Create complete test scenario with automatic tracking"""
+        scenario = self.factory.create_complete_test_scenario(**kwargs)
+        
+        # Track all created documents
+        for doc_type, docs in scenario.items():
+            for doc in docs:
+                self.track_doc(doc.doctype, doc.name)
+        
+        return scenario
 
 
 class VereningingenUnitTestCase(VereningingenTestCase):

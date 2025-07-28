@@ -6,8 +6,11 @@ Debug Payment History Event Handler
 import frappe
 from frappe.utils import nowdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def debug_payment_history_for_member(member_name):
     """Debug payment history updates for a specific member"""
     try:
@@ -88,6 +91,7 @@ def debug_payment_history_for_member(member_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def debug_payment_history_hooks():
     """Debug the payment history event handlers"""
     try:
@@ -128,6 +132,7 @@ def debug_payment_history_hooks():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def manually_update_payment_history(member_name):
     """Manually trigger payment history update for a member"""
     try:

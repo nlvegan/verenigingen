@@ -66,13 +66,13 @@ doc_events = {
     },
     "Payment Entry": {
         "on_submit": [
-            "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
-            "verenigingen.utils.payment_notifications.on_payment_submit",
-            "verenigingen.events.expense_events.emit_expense_payment_made",
-            "verenigingen.utils.donor_auto_creation.process_payment_for_donor_creation",
+            "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
+            "verenigingen.utils.payment_notifications.on_payment_submit",  # Keep synchronous - fast
+            "verenigingen.utils.background_jobs.queue_expense_event_processing_handler",
+            "verenigingen.utils.background_jobs.queue_donor_auto_creation_handler",
         ],
-        "on_cancel": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
-        "on_trash": "verenigingen.verenigingen.doctype.member.member_utils.update_member_payment_history",
+        "on_cancel": "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
+        "on_trash": "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
     },
     "Sales Invoice": {
         "before_validate": ["verenigingen.utils.apply_tax_exemption_from_source"],

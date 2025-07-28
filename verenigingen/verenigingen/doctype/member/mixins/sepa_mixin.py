@@ -1,3 +1,5 @@
+from typing import Any, Dict
+
 import frappe
 from frappe.utils import today
 
@@ -96,7 +98,19 @@ class SEPAMandateMixin:
 
     @frappe.whitelist()
     def create_sepa_mandate(self):
-        """Create a new SEPA mandate for this member with enhanced prefilling"""
+        """
+        Create a new SEPA mandate for this member with enhanced prefilling
+
+        DEPRECATED: This method is deprecated. Use SEPAService.create_mandate_enhanced() instead.
+        This method will be removed in a future version.
+        """
+        # Show deprecation warning to users
+        frappe.msgprint(
+            "This SEPA mandate creation method is deprecated. "
+            "Please use the enhanced service layer method for better validation and error handling.",
+            alert=True,
+            indicator="orange",
+        )
         mandate_ref_result = self._generate_mandate_reference()
         suggested_reference = mandate_ref_result.get(
             "mandate_reference", f"M-{self.member_id}-{today().replace('-', '')}"
@@ -512,3 +526,98 @@ def _format_issue_list(issues, fields):
         formatted.append(f"... and {len(issues) - 10} more")
 
     return "\n".join(formatted)
+
+
+# Service Layer Integration Methods - Phase 3.3
+# These methods provide integration between existing mixins and the new service layer
+
+
+def create_sepa_mandate_via_service(self, iban: str, bic: str = None) -> Dict[str, Any]:
+    """
+    Service layer integration method for SEPA mandate creation
+
+    This method is called by the SEPAService to preserve existing business logic
+    while adding service layer benefits like enhanced validation and logging.
+
+    Args:
+        iban: International Bank Account Number
+        bic: Bank Identifier Code (optional)
+
+    Returns:
+        Dict containing mandate creation result
+    """
+    try:
+        # Use enhanced validation from service layer
+        from verenigingen.utils.services.sepa_service import SEPAService
+
+        # Validate inputs using service layer
+        if not SEPAService.validate_inputs(self.name, iban):
+            raise ValueError("Invalid input parameters")
+
+        if not SEPAService.validate_iban(iban):
+            raise ValueError(f"Invalid IBAN: {iban}")
+
+        # Auto-derive BIC if not provided
+        if not bic and iban.startswith("NL"):
+            bic = SEPAService.derive_bic_from_iban(iban)
+
+        # Check for existing mandate with same IBAN
+        existing = SEPAService.get_active_mandate_by_iban(self.name, iban)
+        if existing:
+            return {
+                "success": False,
+                "message": f"Active mandate already exists for IBAN {iban}",
+                "existing_mandate": existing,
+            }
+
+        # Generate mandate reference using existing logic
+        mandate_ref_result = self._generate_mandate_reference()
+        suggested_reference = mandate_ref_result.get(
+            "mandate_reference", f"M-{self.member_id}-{today().replace('-', '')}"
+        )
+
+        # Create mandate using enhanced approach
+        mandate = frappe.new_doc("SEPA Mandate")
+        mandate.member = self.name
+        mandate.member_name = self.full_name
+        mandate.mandate_id = suggested_reference
+        mandate.account_holder_name = self.bank_account_name or self.full_name
+        mandate.sign_date = today()
+        mandate.iban = iban
+        mandate.bic = bic
+        mandate.used_for_memberships = 1
+        mandate.used_for_donations = 0
+        mandate.mandate_type = "RCUR"
+        mandate.notes = f"Created via service layer from Member {self.name} on {today()}"
+
+        # Save the mandate
+        mandate.insert()
+
+        # Add to member's mandate table
+        self.append(
+            "sepa_mandates",
+            {
+                "sepa_mandate": mandate.name,
+                "mandate_reference": mandate.mandate_id,
+                "status": "Active",
+                "is_current": 1,
+                "valid_from": mandate.sign_date,
+            },
+        )
+
+        # Save member document
+        self.save(ignore_permissions=True)
+
+        return {
+            "success": True,
+            "mandate": mandate,
+            "message": f"SEPA mandate {mandate.mandate_id} created successfully",
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Failed to create SEPA mandate via service for {self.name}: {e}")
+        raise
+
+
+# Add service layer integration to SEPAMandateMixin class
+SEPAMandateMixin.create_sepa_mandate_via_service = create_sepa_mandate_via_service

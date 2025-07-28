@@ -1095,26 +1095,25 @@ def list_rollback_operations(batch_name: str = None, days_back: int = 30) -> Dic
         List of rollback operations
     """
     try:
-        filters = ["initiated_at >= %s"]
-        params = [add_days(today(), -days_back)]
-
-        if batch_name:
-            filters.append("batch_name = %s")
-            params.append(batch_name)
-
-        where_clause = " WHERE " + " AND ".join(filters)
-
-        operations = frappe.db.sql(
-            f"""
+        # Use safer approach with pre-built WHERE clauses
+        base_sql = """
             SELECT operation_id, batch_name, reason, scope, initiated_by, initiated_at,
                    total_amount, status, completed_at
             FROM `tabSEPA_Rollback_Operation`
-            {where_clause}
-            ORDER BY initiated_at DESC
-        """,
-            params,
-            as_dict=True,
-        )
+            WHERE initiated_at >= %s
+        """
+
+        params = [add_days(today(), -days_back)]
+
+        if batch_name:
+            # Add batch name filter safely
+            base_sql += " AND batch_name = %s"
+            params.append(batch_name)
+
+        # Add ordering
+        base_sql += " ORDER BY initiated_at DESC"
+
+        operations = frappe.db.sql(base_sql, params, as_dict=True)
 
         return {
             "success": True,

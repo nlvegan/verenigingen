@@ -71,7 +71,8 @@ class TestVolunteerAPI(BaseVereengingenTest):
             start_date=today(),
             end_date=end_date,
             reference_doctype="Chapter",
-            reference_name=self.test_member.chapter,
+            # Get chapter through Chapter Member relationships instead of deprecated member.chapter field
+            reference_name=frappe.get_value("Chapter Member", {"member": self.test_member.name, "status": "Active"}, "chapter") or "Test Chapter",
             estimated_hours=10,
             notes="Test activity notes",
         )

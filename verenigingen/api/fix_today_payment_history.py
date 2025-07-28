@@ -6,8 +6,11 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_today_invoices():
     """Add today's invoices to payment history"""
 
@@ -64,6 +67,7 @@ def fix_today_invoices():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def check_bulk_flag_status():
     """Check if bulk invoice generation flag is set"""
 

@@ -69,16 +69,24 @@ def simple_robust_cleanup(company=None):
                 je_names = [name[0] for name in je_list]
 
                 if je_names:
+                    # Use safer approach for bulk deletion with proper parameter binding
+                    # Validate that all names are valid document names
+                    for name in je_names:
+                        if not isinstance(name, str) or len(name) == 0:
+                            raise ValueError(f"Invalid document name: {name}")
+
+                    # Create parameterized query safely
+                    placeholders = ",".join(["%s"] * len(je_names))
+
                     # Delete child records first
-                    je_placeholder = ",".join(["%s"] * len(je_names))
-                    frappe.db.sql(
-                        f"DELETE FROM `tabJournal Entry Account` WHERE parent IN ({je_placeholder})", je_names
+                    child_delete_sql = (
+                        f"DELETE FROM `tabJournal Entry Account` WHERE parent IN ({placeholders})"
                     )
+                    frappe.db.sql(child_delete_sql, je_names)
 
                     # Delete Journal Entries
-                    frappe.db.sql(
-                        f"DELETE FROM `tabJournal Entry` WHERE name IN ({je_placeholder})", je_names
-                    )
+                    parent_delete_sql = f"DELETE FROM `tabJournal Entry` WHERE name IN ({placeholders})"
+                    frappe.db.sql(parent_delete_sql, je_names)
 
                     results["journal_entries_deleted"] = len(je_names)
                     results["steps_completed"].append(f"Journal Entries: {len(je_names)} deleted")
@@ -221,14 +229,18 @@ def simple_robust_cleanup(company=None):
             # Step 7: Clean up any remaining repost entries
             try:
                 repost_count = 0
-                for table in [
-                    "Repost Accounting Ledger",
-                    "Repost Accounting Ledger Items",
-                    "Repost Payment Ledger",
-                    "Repost Payment Ledger Items",
-                ]:
+                # Use hardcoded table names for security - no interpolation needed
+                repost_tables = [
+                    "`tabRepost Accounting Ledger`",
+                    "`tabRepost Accounting Ledger Items`",
+                    "`tabRepost Payment Ledger`",
+                    "`tabRepost Payment Ledger Items`",
+                ]
+
+                for table_name in repost_tables:
                     try:
-                        count = frappe.db.sql(f"DELETE FROM `tab{table}` WHERE company = %s", (company,))
+                        # Use hardcoded table names - safer than interpolation
+                        count = frappe.db.sql(f"DELETE FROM {table_name} WHERE company = %s", (company,))
                         repost_count += count
                     except Exception:
                         pass

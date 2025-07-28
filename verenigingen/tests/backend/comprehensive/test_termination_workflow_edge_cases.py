@@ -34,7 +34,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
             {
                 "doctype": "Membership Type",
                 "membership_type": "Termination Test Type",
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "currency": "EUR"}
         )
         cls.membership_type.insert()
@@ -165,7 +165,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Overdue",
-                "annual_fee": 100.00}
+                # Note: fee is defined in membership_type, not directly on membership}
         )
         membership.insert()
 
@@ -320,7 +320,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Active",
-                "annual_fee": 100.00}
+                # Note: fee is defined in membership_type, not directly on membership}
         )
         membership.insert()
 
@@ -369,7 +369,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Active",
-                "annual_fee": 100.00}
+                # Note: fee is defined in membership_type, not directly on membership}
         )
         membership.insert()
 
@@ -503,7 +503,7 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Active",
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 # Note: next_billing_date field removed - now handled by dues schedule
             }
         )

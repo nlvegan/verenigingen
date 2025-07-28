@@ -34,7 +34,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
             {
                 "doctype": "Membership Type",
                 "membership_type": "Payment Test Type",
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "currency": "EUR"}
         )
         cls.membership_type.insert(ignore_permissions=True)
@@ -99,7 +99,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "status": "Pending",  # Pending payment
             }
         )
@@ -144,7 +144,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "status": "Pending"}
         )
         membership.insert()
@@ -167,7 +167,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "status": "Pending"}
         )
         membership.insert()
@@ -200,7 +200,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "status": "Active",  # Already paid
             }
         )
@@ -458,7 +458,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "status": "Pending"}
         )
         membership.insert()
@@ -511,7 +511,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "status": "Pending"}
         )
         membership.insert()
@@ -557,7 +557,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                     "doctype": "Membership",
                     "member": self.member.name,
                     "membership_type": self.membership_type.name,
-                    "annual_fee": 100.00 + i,  # Different amounts
+                    # Note: fee is defined in membership_type, not directly on membership+ i,  # Different amounts
                     "status": "Failed",  # Failed payment status
                 }
             )
@@ -636,7 +636,7 @@ class TestPaymentFailureScenarios(unittest.TestCase):
                 "doctype": "Membership",
                 "member": self.member.name,
                 "membership_type": self.membership_type.name,
-                "annual_fee": 100.00,
+                # Note: fee is defined in membership_type, not directly on membership
                 "status": "Pending"}
         )
         membership.insert()
