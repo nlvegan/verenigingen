@@ -6,8 +6,11 @@ from datetime import datetime, timedelta
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def generate_test_members():
     """
     Generate test members from sample data
@@ -265,6 +268,7 @@ def generate_test_members():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_test_members():
     """
     Remove test members (those with @testvereniging.nl email addresses)
@@ -296,6 +300,7 @@ def cleanup_test_members():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def get_test_members_status():
     """
     Get status of test members

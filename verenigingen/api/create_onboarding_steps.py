@@ -4,8 +4,11 @@ Create or update onboarding steps for Verenigingen
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_test_data_onboarding_step():
     """
     Create an onboarding step for generating test data
@@ -66,6 +69,7 @@ def create_test_data_onboarding_step():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def add_quick_start_card():
     """
     Add a quick start card to the Verenigingen workspace

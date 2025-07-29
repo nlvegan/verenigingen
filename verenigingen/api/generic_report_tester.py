@@ -6,6 +6,12 @@ Can be used to test any Frappe query report for basic functionality and regressi
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token

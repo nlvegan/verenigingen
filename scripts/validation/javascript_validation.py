@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """
-JavaScript Validation Scanner
-============================
+JavaScript Validation Scanner (Updated January 2025)
+====================================================
 
 Scans HTML template files and JavaScript files for common issues that can cause runtime errors.
 
+IMPORTANT: This validator distinguishes between legitimate and problematic Jinja2 usage:
+- ✅ LEGITIMATE: Jinja2 syntax in HTML templates ({{ }} processed server-side)
+- ❌ PROBLEMATIC: Jinja2 syntax in standalone .js files (not processed by server)
+
 Issues detected:
 - Server-side function calls in client-side JavaScript
-- Template literal syntax errors
-- Common JavaScript-Jinja2 mixing issues
-- Undefined JavaScript variables
-- Invalid field references in API calls (NEW)
+- Jinja2 template syntax in standalone JavaScript files
+- Invalid field references in API calls
+- Undefined JavaScript variables in non-template contexts
 """
 
 import os
@@ -76,8 +79,10 @@ def scan_all_files(base_path: str, doctypes: Dict[str, Set[str]]) -> Dict[str, L
                 results["files_scanned"] += 1
                 
                 if file.endswith('.html'):
-                    issues = scan_html_file(file_path, doctypes)
+                    # Skip Jinja2 validation for HTML files - they're processed server-side
+                    issues = scan_html_file_for_serious_issues(file_path, doctypes)
                 else:
+                    # Only scan .js files for Jinja2 mixing - this is where it's problematic
                     issues = scan_js_file(file_path, doctypes)
                     
                 if issues:
@@ -221,13 +226,65 @@ def check_inline_javascript(line: str, line_num: int) -> List[Dict]:
     return issues
 
 
+def scan_html_file_for_serious_issues(file_path: str, doctypes: Dict[str, Set[str]]) -> List[Dict]:
+    """Scan HTML file for serious JavaScript issues, excluding legitimate Jinja2 server-side templating"""
+    issues = []
+    
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            lines = content.split('\n')
+        
+        in_javascript = False
+        for i, line in enumerate(lines, 1):
+            # Track JavaScript context
+            if '<script>' in line.lower():
+                in_javascript = True
+            elif '</script>' in line.lower():
+                in_javascript = False
+            
+            # Only check for serious issues in JavaScript contexts
+            if in_javascript:
+                # Check for server-side function calls that won't work client-side
+                server_functions = ['frappe.format_value', 'frappe.format_currency', 'frappe.format_date']
+                for func in server_functions:
+                    if func in line and '${' in line:  # Template literal context
+                        issues.append({
+                            "line": i,
+                            "type": "server_side_call",
+                            "description": f"Server-side function '{func}' called in client-side JavaScript template literal",
+                            "severity": "error",
+                            "suggestion": f"Use client-side formatting instead of {func}"
+                        })
+                
+                # Check for problematic undefined references (excluding legitimate Jinja2)
+                # Only flag if it's NOT within Jinja2 template context
+                if 'frappe.db' in line and '{{' not in line:
+                    issues.append({
+                        "line": i,
+                        "type": "undefined_reference",
+                        "description": "Database calls not available in client-side JavaScript",
+                        "severity": "warning",
+                        "suggestion": "Use frappe.call() for database operations"
+                    })
+    
+    except Exception as e:
+        issues.append({
+            "line": 0,
+            "type": "file_error",
+            "description": f"Could not read file: {e}",
+            "severity": "error"
+        })
+    
+    return issues
+
 def scan_html_file(file_path: str, doctypes: Dict[str, Set[str]]) -> List[Dict]:
     """Scan a single HTML file for JavaScript issues (updated to use doctypes)"""
     return scan_single_file(file_path)  # Use existing logic for HTML
 
 
 def scan_js_file(file_path: str, doctypes: Dict[str, Set[str]]) -> List[Dict]:
-    """Scan a JavaScript file for field reference issues"""
+    """Scan a JavaScript file for field reference issues and problematic Jinja2 usage"""
     issues = []
     
     try:
@@ -242,11 +299,59 @@ def scan_js_file(file_path: str, doctypes: Dict[str, Set[str]]) -> List[Dict]:
             "severity": "error"
         }]
     
-    # Check for field references in API calls
+    # Check each line for issues
     for line_num, line in enumerate(lines, 1):
+        # Check for field references in API calls
         issues.extend(check_field_references(line, line_num, content, doctypes))
+        
+        # Check for problematic Jinja2 in standalone JS files
+        # Only flag files in the app directory, not node_modules or third-party libraries
+        is_app_file = 'verenigingen/' in file_path and 'node_modules' not in file_path
+        
+        if is_app_file and '{{' in line and '}}' in line:
+            # Check if it's actual Jinja2 syntax (not Vue templates, regex, etc.)
+            if is_likely_jinja2_syntax(line):
+                issues.append({
+                    "line": line_num,
+                    "type": "jinja_in_js_file",
+                    "description": "Jinja2 template syntax found in standalone JavaScript file",
+                    "severity": "error",
+                    "suggestion": "Move server-side data injection to HTML template or use frappe.boot/frappe.call()"
+                })
     
     return issues
+
+
+def is_likely_jinja2_syntax(line: str) -> bool:
+    """Check if {{ }} syntax is likely Jinja2 template syntax vs other uses"""
+    
+    # Common Jinja2 patterns
+    jinja2_patterns = [
+        r'\{\{\s*_\(',           # Translation function: {{ _("text") }}
+        r'\{\{\s*\w+\s*\|\s*\w+', # Filters: {{ var|filter }}
+        r'\{\{\s*\w+\s*\}\}',     # Simple variables: {{ variable }}
+        r'\{\{\s*\w+\.\w+',       # Dot notation: {{ obj.prop }}
+    ]
+    
+    # Check if any Jinja2 patterns match
+    for pattern in jinja2_patterns:
+        if re.search(pattern, line):
+            return True
+    
+    # Exclude common non-Jinja2 uses
+    non_jinja2_patterns = [
+        r'\{\{\s*[#/]',          # Vue template comments: {{# or {{/
+        r'template\s*:\s*`.*\{\{', # Template literals with Vue syntax
+        r'regex.*\{\{',           # Regex patterns
+        r'RegExp.*\{\{',          # RegExp patterns
+        r'/.*\{\{.*/',            # Regex literals
+    ]
+    
+    for pattern in non_jinja2_patterns:
+        if re.search(pattern, line, re.IGNORECASE):
+            return False
+    
+    return False  # Default to false for ambiguous cases
 
 
 def check_field_references(line: str, line_num: int, full_content: str, doctypes: Dict[str, Set[str]]) -> List[Dict]:
@@ -294,25 +399,45 @@ def extract_doctype_from_get_list(content: str, current_line: int) -> str:
     """Extract doctype from frappe.client.get_list call context"""
     lines = content.split('\n')
     
-    # Look backwards from current line for doctype reference
+    # First, look for the specific frappe.db.get_list pattern (highest priority)
+    # This should match patterns like: frappe.db.get_list('DocType', {
     for i in range(max(0, current_line - 10), current_line + 1):
         if i < len(lines):
             line = lines[i]
             
-            # Pattern 1: doctype: 'SomeType' 
-            doctype_match = re.search(r'doctype\s*:\s*[\'"]([^\'"]+)[\'"]', line)
-            if doctype_match:
-                return doctype_match.group(1)
+            # Pattern 1 (HIGHEST PRIORITY): frappe.db.get_list('DocType', ...)
+            frappe_db_match = re.search(r'frappe\.db\.get_list\s*\(\s*[\'"]([^\'"]+)[\'"]', line)
+            if frappe_db_match:
+                return frappe_db_match.group(1)
             
-            # Pattern 2: getList('SomeType', ...) or get_list('SomeType', ...)
+            # Pattern 2: frappe.client.get_list with explicit DocType
+            client_match = re.search(r'frappe\.client\.get_list\s*\(\s*[\'"]([^\'"]+)[\'"]', line)
+            if client_match:
+                return client_match.group(1)
+            
+            # Pattern 3: getList('SomeType', ...) or get_list('SomeType', ...)  
             getlist_match = re.search(r'(?:getList|get_list)\s*\(\s*[\'"]([^\'"]+)[\'"]', line)
             if getlist_match:
                 return getlist_match.group(1)
+    
+    # Second pass: look for other patterns (lower priority)
+    for i in range(max(0, current_line - 10), current_line + 1):
+        if i < len(lines):
+            line = lines[i]
             
-            # Pattern 3: frappe.client.get_list with doctype on same line
+            # Pattern 4: frappe.client.get_list with doctype on same line
             combined_match = re.search(r'frappe\.client\.get_list.*?doctype\s*:\s*[\'"]([^\'"]+)[\'"]', line)
             if combined_match:
                 return combined_match.group(1)
+            
+            # Pattern 5 (LOWEST PRIORITY): generic doctype: 'SomeType' 
+            # Only use this if no specific get_list patterns found
+            doctype_match = re.search(r'doctype\s*:\s*[\'"]([^\'"]+)[\'"]', line)
+            if doctype_match:
+                # Check if this line also contains get_list - if so, skip it
+                # This prevents false matches from frappe.client.get_list contexts
+                if 'get_list' not in line:
+                    return doctype_match.group(1)
     
     return None
 
@@ -376,7 +501,10 @@ def generate_report(results: Dict) -> str:
     
     if not results['issues_found']:
         report.append("✅ No JavaScript issues found!")
-        report.append("🎉 All HTML templates are JavaScript-compliant!")
+        report.append("🎉 All templates and JavaScript files are compliant!")
+        report.append("")
+        report.append("ℹ️  Note: Jinja2 syntax in HTML templates is legitimate and expected.")
+        report.append("   This validator only flags problematic usage in standalone .js files.")
         return "\n".join(report)
     
     # Group issues by severity and type
@@ -386,13 +514,16 @@ def generate_report(results: Dict) -> str:
                        for file in results['issues_found'])
     field_errors = sum(len([i for i in file['issues'] if i['type'] == 'invalid_field_reference'])
                       for file in results['issues_found'])
-    jinja_warnings = sum(len([i for i in file['issues'] if i['type'] == 'jinja_in_js'])
-                        for file in results['issues_found'])
+    jinja_js_errors = sum(len([i for i in file['issues'] if i['type'] == 'jinja_in_js_file'])
+                         for file in results['issues_found'])
+    server_call_errors = sum(len([i for i in file['issues'] if i['type'] == 'server_side_call'])
+                            for file in results['issues_found'])
     
     report.append(f"❌ Critical Errors: {error_count}")
     report.append(f"   🔗 Field Reference Errors: {field_errors}")
+    report.append(f"   🔀 Jinja2 in JS Files: {jinja_js_errors}")
+    report.append(f"   🚫 Server-side Calls in Client JS: {server_call_errors}")
     report.append(f"⚠️  Warnings: {warning_count}")
-    report.append(f"   🔀 Jinja2 in JS: {jinja_warnings}")
     report.append("")
     
     # Show critical errors first (field references)
@@ -423,6 +554,11 @@ def generate_report(results: Dict) -> str:
     if warning_files:
         report.append("⚠️  Warnings Summary")
         report.append("=" * 30)
+        
+        # Count Jinja2 warnings
+        jinja_warnings = sum(len([i for i in file['issues'] if i['type'] == 'jinja_in_js_file'])
+                           for file in warning_files)
+        
         if jinja_warnings > 10:
             report.append(f"📊 Found {jinja_warnings} Jinja2-in-JavaScript warnings across {len(warning_files)} files")
             report.append("💡 Consider using frappe.render_template or JSON data passing")

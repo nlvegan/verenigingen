@@ -1,0 +1,720 @@
+{
+  "secured": [
+    {
+      "file": "verenigingen/api/performance_profiling_api.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "run_comprehensive_performance_profiling",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "establish_performance_baselines",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/performance_measurement_api.py",
+      "success": true,
+      "functions_secured": 12,
+      "details": [
+        {
+          "function": "test_measurement_infrastructure",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "benchmark_current_performance",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_performance_summary",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "analyze_system_bottlenecks",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.ADMIN"
+        },
+        {
+          "function": "get_recent_performance_reports",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "create_performance_baseline_snapshot",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_performance_measurement_history",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "collect_performance_baselines",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "generate_comprehensive_performance_report",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "measure_sepa_mandate_performance",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "measure_payment_history_performance",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "measure_member_performance",
+          "decorator": "high_security_api",
+          "operation_type": "OperationType.MEMBER_DATA"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/fix_custom_fields.py",
+      "success": true,
+      "functions_secured": 4,
+      "details": [
+        {
+          "function": "fix_all_custom_fields",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "create_other_missing_custom_fields",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "fix_custom_field_modules",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "create_sales_invoice_coverage_fields",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/update_prepare_system_button.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "analyze_eboekhouden_data",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "should_remove_prepare_system_button",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.ADMIN"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/job_status.py",
+      "success": true,
+      "functions_secured": 8,
+      "details": [
+        {
+          "function": "get_system_performance_metrics",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.ADMIN"
+        },
+        {
+          "function": "test_background_job_system",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.ADMIN"
+        },
+        {
+          "function": "clear_completed_jobs",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_recent_payment_history_jobs",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "get_job_queue_status",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "retry_failed_job",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_user_jobs",
+          "decorator": "high_security_api",
+          "operation_type": "OperationType.MEMBER_DATA"
+        },
+        {
+          "function": "get_job_status",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/onboarding_info.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "get_direct_onboarding_link",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_onboarding_info",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/deep_mutation_analysis.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "check_main_ledger_13201869",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "trace_journal_entry_creation",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/database_index_manager.py",
+      "success": true,
+      "functions_secured": 5,
+      "details": [
+        {
+          "function": "get_index_status",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "remove_performance_indexes",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "monitor_index_performance",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "validate_index_impact",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "add_performance_indexes",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/create_smart_item_mapping.py",
+      "success": true,
+      "functions_secured": 3,
+      "details": [
+        {
+          "function": "create_tegenrekening_mapping_helper",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "create_items_from_mappings",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "create_smart_item_mapping_system",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.ADMIN"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/debug_refresh_issue.py",
+      "success": true,
+      "functions_secured": 3,
+      "details": [
+        {
+          "function": "test_legacy_full_refresh",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_atomic_vs_full_refresh",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "debug_member_refresh_issue",
+          "decorator": "high_security_api",
+          "operation_type": "OperationType.MEMBER_DATA"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/performance_validation.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "generate_performance_report",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "validate_performance_improvements",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/debug_migration.py",
+      "success": true,
+      "functions_secured": 14,
+      "details": [
+        {
+          "function": "run_pre_implementation_tests",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_new_invoice_validations",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "debug_dues_generation_detailed",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "analyze_schedule_member_integrity",
+          "decorator": "high_security_api",
+          "operation_type": "OperationType.MEMBER_DATA"
+        },
+        {
+          "function": "debug_schedule_generation",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_dues_invoicing_errors",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "check_supplier_related_errors",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_payment_creation_fix",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "analyze_migration_error_types",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_payment_amount_calculation",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "test_payment_amount_edge_cases",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "get_migration_statistics",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_error_log_details",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_recent_migration_errors",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/test_refresh_reliability.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "comprehensive_refresh_test",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_refresh_button_reliability",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/manual_persona_test.py",
+      "success": true,
+      "functions_secured": 1,
+      "details": [
+        {
+          "function": "run_personas_in_reverse",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/debug_coverage_display.py",
+      "success": true,
+      "functions_secured": 1,
+      "details": [
+        {
+          "function": "debug_coverage_display",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/performance_measurement.py",
+      "success": true,
+      "functions_secured": 4,
+      "details": [
+        {
+          "function": "run_comprehensive_performance_analysis",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "measure_database_query_patterns",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "count_payment_mixin_complexity",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "measure_payment_history_performance",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/simple_measurement_test.py",
+      "success": true,
+      "functions_secured": 3,
+      "details": [
+        {
+          "function": "demo_phase1_capabilities",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "run_payment_operations_benchmark",
+          "decorator": "critical_api",
+          "operation_type": "OperationType.FINANCIAL"
+        },
+        {
+          "function": "test_basic_query_measurement",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/final_refresh_test.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "final_button_test",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "clean_and_test_refresh",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/validate_coverage_report.py",
+      "success": true,
+      "functions_secured": 4,
+      "details": [
+        {
+          "function": "check_database_fields",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_report_columns",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_gap_classification",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "validate_report",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/monitoring_test_corrected.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "cleanup_corrected_test_data",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "run_corrected_monitoring_tests",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/debug_integration_testing.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "get_integration_score_analysis",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "run_comprehensive_integration_test",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/performance_convenience.py",
+      "success": true,
+      "functions_secured": 4,
+      "details": [
+        {
+          "function": "performance_dashboard_data",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "batch_member_analysis",
+          "decorator": "high_security_api",
+          "operation_type": "OperationType.MEMBER_DATA"
+        },
+        {
+          "function": "comprehensive_member_analysis",
+          "decorator": "high_security_api",
+          "operation_type": "OperationType.MEMBER_DATA"
+        },
+        {
+          "function": "quick_health_check",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/simple_validation_test.py",
+      "success": true,
+      "functions_secured": 1,
+      "details": [
+        {
+          "function": "test_basic_validation",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/check_error_logs.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "get_mutation_type_logs",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "check_batch_debug_logs",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/check_past_imports.py",
+      "success": true,
+      "functions_secured": 3,
+      "details": [
+        {
+          "function": "check_mutation_import_history",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "get_journal_entry_details",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "check_existing_journal_entries",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/test_audit_routing.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "test_field_mapping",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_audit_routing",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "file": "verenigingen/api/test_coverage_fields.py",
+      "success": true,
+      "functions_secured": 2,
+      "details": [
+        {
+          "function": "populate_sample_coverage_data",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        },
+        {
+          "function": "test_coverage_fields",
+          "decorator": "standard_api",
+          "operation_type": "OperationType.UTILITY"
+        }
+      ],
+      "errors": []
+    }
+  ],
+  "failed": [
+    {
+      "file": "verenigingen/api/full_migration_summary.py",
+      "success": false,
+      "functions_secured": 0,
+      "details": [],
+      "errors": [
+        "No @frappe.whitelist functions found"
+      ]
+    },
+    {
+      "file": "verenigingen/api/generic_report_tester.py",
+      "success": false,
+      "functions_secured": 0,
+      "details": [],
+      "errors": [
+        "No @frappe.whitelist functions found"
+      ]
+    },
+    {
+      "file": "verenigingen/api/quick_stock_check.py",
+      "success": false,
+      "functions_secured": 0,
+      "details": [],
+      "errors": [
+        "No @frappe.whitelist functions found"
+      ]
+    }
+  ],
+  "total_functions": 94
+}

@@ -17,6 +17,24 @@ from frappe.utils import add_days, now, today
 
 from verenigingen.utils.error_handling import log_error
 
+# Export all public functions for proper module interface
+__all__ = [
+    "SEPAAuditLogger",
+    "AuditEventType",
+    "AuditSeverity",
+    "get_audit_logger",
+    "cleanup_old_audit_logs",
+    "log_sepa_event",
+    "log_security_event",
+    "log_data_access",
+    "log_sensitive_operation",  # Critical Security Fix: Export missing function
+    "audit_log",
+    "search_audit_logs",
+    "get_audit_statistics",
+    "weekly_security_health_check",
+    "setup_audit_logging",
+]
+
 
 class AuditEventType(Enum):
     """Audit event types for categorization"""
@@ -764,6 +782,52 @@ def log_data_access(resource: str, action: str, details: Dict[str, Any] = None):
         AuditEventType.SENSITIVE_DATA_ACCESS,
         AuditSeverity.INFO,
         details={"resource": resource, "action": action, **(details or {})},
+        sensitive_data=True,
+    )
+
+
+def log_sensitive_operation(
+    operation: str, resource: str, details: Dict[str, Any] = None, severity: str = "warning"
+):
+    """
+    Log sensitive operations for security compliance
+
+    Args:
+        operation: Type of sensitive operation (e.g., 'data_export', 'batch_creation', 'payment_processing')
+        resource: Resource being accessed (e.g., 'member_data', 'financial_data', 'sepa_batch')
+        details: Additional operation details
+        severity: Severity level (info, warning, error, critical)
+
+    Returns:
+        Event ID for tracking
+    """
+    logger = get_audit_logger()
+
+    # Determine if this is a SEPA operation
+    sepa_operations = {
+        "batch_creation",
+        "batch_processing",
+        "sepa_xml_generation",
+        "mandate_validation",
+        "payment_processing",
+        "bank_submission",
+    }
+
+    if operation in sepa_operations:
+        event_type = f"sepa_{operation}"
+    else:
+        event_type = AuditEventType.SENSITIVE_DATA_ACCESS
+
+    return logger.log_event(
+        event_type,
+        severity,
+        details={
+            "operation": operation,
+            "resource": resource,
+            "operation_timestamp": frappe.utils.now(),
+            "user_ip": getattr(frappe.local, "request_ip", "unknown"),
+            **(details or {}),
+        },
         sensitive_data=True,
     )
 

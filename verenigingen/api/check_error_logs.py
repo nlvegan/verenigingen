@@ -4,8 +4,16 @@ Check error log entries to find the specific log titles
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_batch_debug_logs():
     """Check for REST Enhanced Batch Debug entries in Error Log"""
     try:
@@ -41,6 +49,7 @@ def check_batch_debug_logs():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_mutation_type_logs():
     """Look for logs that contain mutation type processing"""
     try:

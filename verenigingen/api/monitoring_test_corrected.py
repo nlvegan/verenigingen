@@ -11,8 +11,16 @@ from datetime import datetime
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def run_corrected_monitoring_tests():
     """Run corrected comprehensive monitoring system tests"""
     frappe.set_user("Administrator")
@@ -60,17 +68,17 @@ def test_phase1_corrected():
         results["alert_manager"]["send_alert"] = (
             "PASS" if alert_doc or True else "FAIL"
         )  # May fail if email not configured
-        print(f"  ✓ Alert Manager: send_alert method works")
+        print("  ✓ Alert Manager: send_alert method works")
 
         # Test report generation
         report = am.generate_daily_report()
         results["alert_manager"]["daily_report"] = "PASS" if report else "FAIL"
-        print(f"  ✓ Alert Manager: Daily report generation")
+        print("  ✓ Alert Manager: Daily report generation")
 
         # Test statistics
         stats = am.get_alert_statistics()
         results["alert_manager"]["statistics"] = "PASS" if stats else "FAIL"
-        print(f"  ✓ Alert Manager: Statistics generation")
+        print("  ✓ Alert Manager: Statistics generation")
 
     except Exception as e:
         results["alert_manager"]["error"] = str(e)
@@ -80,10 +88,10 @@ def test_phase1_corrected():
     try:
         if not frappe.db.exists("DocType", "SEPA Audit Log"):
             results["sepa_audit"]["doctype"] = "FAIL"
-            print(f"  ✗ SEPA Audit Log: DocType not found")
+            print("  ✗ SEPA Audit Log: DocType not found")
         else:
             results["sepa_audit"]["doctype"] = "PASS"
-            print(f"  ✓ SEPA Audit Log: DocType exists")
+            print("  ✓ SEPA Audit Log: DocType exists")
 
             # Test with required fields
             audit = frappe.new_doc("SEPA Audit Log")
@@ -97,7 +105,7 @@ def test_phase1_corrected():
             frappe.db.commit()
 
             results["sepa_audit"]["create"] = "PASS"
-            print(f"  ✓ SEPA Audit Log: Entry created with required fields")
+            print("  ✓ SEPA Audit Log: Entry created with required fields")
 
     except Exception as e:
         results["sepa_audit"]["error"] = str(e)
@@ -129,10 +137,10 @@ def test_phase2_corrected():
     try:
         if not frappe.db.exists("DocType", "System Alert"):
             results["system_alert"]["doctype"] = "FAIL"
-            print(f"  ✗ System Alert: DocType not found (not installed)")
+            print("  ✗ System Alert: DocType not found (not installed)")
         else:
             results["system_alert"]["doctype"] = "PASS"
-            print(f"  ✓ System Alert: DocType exists")
+            print("  ✓ System Alert: DocType exists")
 
     except Exception as e:
         results["system_alert"]["error"] = str(e)
@@ -147,22 +155,22 @@ def test_phase2_corrected():
         # Test collect_system_metrics (not get_current_metrics)
         metrics = rm.collect_system_metrics()
         results["resource_monitor"]["collect_metrics"] = "PASS" if metrics else "FAIL"
-        print(f"  ✓ Resource Monitor: collect_system_metrics works")
+        print("  ✓ Resource Monitor: collect_system_metrics works")
 
         # Test system resource metrics
         sys_metrics = rm.get_system_resource_metrics()
         results["resource_monitor"]["system_metrics"] = "PASS" if sys_metrics else "FAIL"
-        print(f"  ✓ Resource Monitor: System resource metrics")
+        print("  ✓ Resource Monitor: System resource metrics")
 
         # Test database metrics
         db_metrics = rm.get_database_metrics()
         results["resource_monitor"]["database_metrics"] = "PASS" if db_metrics else "FAIL"
-        print(f"  ✓ Resource Monitor: Database metrics")
+        print("  ✓ Resource Monitor: Database metrics")
 
         # Test business metrics
         business_metrics = rm.get_business_metrics()
         results["resource_monitor"]["business_metrics"] = "PASS" if business_metrics else "FAIL"
-        print(f"  ✓ Resource Monitor: Business metrics")
+        print("  ✓ Resource Monitor: Business metrics")
 
     except Exception as e:
         results["resource_monitor"]["error"] = str(e)
@@ -179,17 +187,17 @@ def test_phase2_corrected():
         # Test system metrics API
         metrics = get_system_metrics()
         results["dashboard_apis"]["system_metrics"] = "PASS" if metrics else "FAIL"
-        print(f"  ✓ Dashboard API: System metrics")
+        print("  ✓ Dashboard API: System metrics")
 
         # Test recent errors API
-        errors = get_recent_errors()
+        get_recent_errors()
         results["dashboard_apis"]["recent_errors"] = "PASS"
-        print(f"  ✓ Dashboard API: Recent errors")
+        print("  ✓ Dashboard API: Recent errors")
 
         # Test audit summary API
         audit = get_audit_summary()
         results["dashboard_apis"]["audit_summary"] = "PASS" if audit else "FAIL"
-        print(f"  ✓ Dashboard API: Audit summary")
+        print("  ✓ Dashboard API: Audit summary")
 
     except Exception as e:
         results["dashboard_apis"]["error"] = str(e)
@@ -214,17 +222,17 @@ def test_phase3_corrected():
         # Test error pattern analysis
         patterns = ae.analyze_error_patterns(days=7)
         results["analytics_engine"]["error_patterns"] = "PASS" if patterns else "FAIL"
-        print(f"  ✓ Analytics Engine: Error pattern analysis")
+        print("  ✓ Analytics Engine: Error pattern analysis")
 
         # Test compliance score calculation
         compliance = ae.calculate_compliance_score()
         results["analytics_engine"]["compliance"] = "PASS" if isinstance(compliance, (int, float)) else "FAIL"
-        print(f"  ✓ Analytics Engine: Compliance score calculation")
+        print("  ✓ Analytics Engine: Compliance score calculation")
 
         # Test insights generation
         insights = ae.generate_insights_report()
         results["analytics_engine"]["insights"] = "PASS" if insights else "FAIL"
-        print(f"  ✓ Analytics Engine: Insights report generation")
+        print("  ✓ Analytics Engine: Insights report generation")
 
         # Check what methods are actually available
         available_methods = [method for method in dir(ae) if not method.startswith("_")]
@@ -250,10 +258,10 @@ def test_phase3_corrected():
         if hasattr(po, "get_optimization_recommendations"):
             recommendations = po.get_optimization_recommendations()
             results["performance_optimizer"]["recommendations"] = "PASS" if recommendations else "FAIL"
-            print(f"  ✓ Performance Optimizer: Recommendations available")
+            print("  ✓ Performance Optimizer: Recommendations available")
         else:
             results["performance_optimizer"]["recommendations"] = "FAIL"
-            print(f"  ⚠ Performance Optimizer: get_optimization_recommendations method not found")
+            print("  ⚠ Performance Optimizer: get_optimization_recommendations method not found")
 
     except Exception as e:
         results["performance_optimizer"]["error"] = str(e)
@@ -270,17 +278,17 @@ def test_phase3_corrected():
         # Test analytics summary
         analytics = get_analytics_summary()
         results["advanced_features"]["analytics_summary"] = "PASS" if analytics else "FAIL"
-        print(f"  ✓ Advanced Features: Analytics summary")
+        print("  ✓ Advanced Features: Analytics summary")
 
         # Test compliance metrics
         compliance = get_compliance_metrics()
         results["advanced_features"]["compliance_metrics"] = "PASS" if compliance else "FAIL"
-        print(f"  ✓ Advanced Features: Compliance metrics")
+        print("  ✓ Advanced Features: Compliance metrics")
 
         # Test executive summary
         executive = get_executive_summary()
         results["advanced_features"]["executive_summary"] = "PASS" if executive else "FAIL"
-        print(f"  ✓ Advanced Features: Executive summary")
+        print("  ✓ Advanced Features: Executive summary")
 
     except Exception as e:
         results["advanced_features"]["error"] = str(e)
@@ -313,12 +321,12 @@ def test_integration_corrected():
         )
 
         results["data_flow"]["alert_created"] = "PASS" if alert_doc is not None or True else "FAIL"
-        print(f"  ✓ Data Flow: Alert creation via send_alert")
+        print("  ✓ Data Flow: Alert creation via send_alert")
 
         # Test analytics processing
         patterns = ae.analyze_error_patterns(days=1)
         results["data_flow"]["analytics_processing"] = "PASS" if patterns else "FAIL"
-        print(f"  ✓ Data Flow: Analytics processing")
+        print("  ✓ Data Flow: Analytics processing")
 
         # Test dashboard API integration
         from verenigingen.www.monitoring_dashboard import refresh_advanced_dashboard_data
@@ -328,14 +336,14 @@ def test_integration_corrected():
         has_all = all(section in dashboard_data for section in required_sections)
 
         results["api_integration"]["dashboard_complete"] = "PASS" if has_all else "FAIL"
-        print(f"  ✓ API Integration: Dashboard data complete")
+        print("  ✓ API Integration: Dashboard data complete")
 
         # Test system health check
         from vereinigingen.utils.resource_monitor import get_system_health
 
         health = get_system_health()
         results["system_health"]["check"] = "PASS" if health else "FAIL"
-        print(f"  ✓ System Health: Health check function")
+        print("  ✓ System Health: Health check function")
 
     except Exception as e:
         results["error"] = str(e)
@@ -361,7 +369,7 @@ def test_performance_corrected():
 
         # Test API response times
         start = time.time()
-        for _ in range(3):
+        for i in range(3):
             get_system_metrics()
         api_time = time.time() - start
         avg_response = api_time / 3
@@ -372,7 +380,7 @@ def test_performance_corrected():
 
         # Test resource monitoring performance
         start = time.time()
-        metrics = rm.collect_system_metrics()
+        rm.collect_system_metrics()
         monitor_time = time.time() - start
 
         results["resource_monitoring"]["collection_time"] = f"{monitor_time:.3f}s"
@@ -503,7 +511,7 @@ def generate_corrected_summary(results):
     # Overall assessment
     overall_rate = (passed_tests / total_tests * 100) if total_tests > 0 else 0
 
-    print(f"\n" + "=" * 60)
+    print("\n" + "=" * 60)
     print("FINAL ASSESSMENT")
     print("=" * 60)
     print(f"Total Tests: {total_tests}")
@@ -528,38 +536,39 @@ def generate_corrected_summary(results):
     print(f"\n{icon} OVERALL STATUS: {status}")
 
     # Key findings
-    print(f"\nKEY FINDINGS:")
-    print(f"  ✓ Alert Manager exists with send_alert, daily_report, statistics")
-    print(f"  ✓ Resource Monitor exists with collect_system_metrics and business metrics")
-    print(f"  ✓ Analytics Engine exists with error_patterns, compliance, insights")
-    print(f"  ✓ Dashboard APIs work correctly")
-    print(f"  ✓ SEPA Audit Log DocType exists")
+    print("\nKEY FINDINGS:")
+    print("  ✓ Alert Manager exists with send_alert, daily_report, statistics")
+    print("  ✓ Resource Monitor exists with collect_system_metrics and business metrics")
+    print("  ✓ Analytics Engine exists with error_patterns, compliance, insights")
+    print("  ✓ Dashboard APIs work correctly")
+    print("  ✓ SEPA Audit Log DocType exists")
 
     if issues:
-        print(f"\nISSUES TO ADDRESS:")
+        print("\nISSUES TO ADDRESS:")
         for issue in issues[:10]:  # Show first 10 issues
             print(f"  - {issue}")
         if len(issues) > 10:
             print(f"  ... and {len(issues) - 10} more issues")
 
-    print(f"\nRECOMMENDations FOR PRODUCTION DEPLOYMENT:")
-    print(f"  1. ✓ Core monitoring infrastructure is functional")
-    print(f"  2. ⚠ Install System Alert DocType for enhanced alerting")
-    print(f"  3. ✓ Dashboard provides comprehensive monitoring view")
-    print(f"  4. ✓ Analytics engine provides insights and compliance tracking")
-    print(f"  5. ✓ Performance monitoring is operational")
-    print(f"  6. ⚠ Configure email notifications for alerts")
-    print(f"  7. ✓ Scheduler integration is configured")
+    print("\nRECOMMENDations FOR PRODUCTION DEPLOYMENT:")
+    print("  1. ✓ Core monitoring infrastructure is functional")
+    print("  2. ⚠ Install System Alert DocType for enhanced alerting")
+    print("  3. ✓ Dashboard provides comprehensive monitoring view")
+    print("  4. ✓ Analytics engine provides insights and compliance tracking")
+    print("  5. ✓ Performance monitoring is operational")
+    print("  6. ⚠ Configure email notifications for alerts")
+    print("  7. ✓ Scheduler integration is configured")
 
-    print(f"\nCONCLUSION:")
+    print("\nCONCLUSION:")
     print(f"The monitoring system is {status.lower()}. The core functionality")
-    print(f"is implemented and working. With minor configuration adjustments,")
-    print(f"this system is ready for production deployment.")
+    print("is implemented and working. With minor configuration adjustments,")
+    print("this system is ready for production deployment.")
 
     print(f"\nTest completed at: {datetime.now()}")
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def cleanup_corrected_test_data():
     """Clean up test data from corrected tests"""
     frappe.set_user("Administrator")

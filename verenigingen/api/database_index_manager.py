@@ -13,6 +13,13 @@ from typing import Any, Dict, List, Tuple
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 class DatabaseIndexManager:
     """Manager for safe database index operations"""
@@ -588,6 +595,7 @@ class DatabaseIndexManager:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def add_performance_indexes():
     """API endpoint to add performance indexes"""
     # Check admin permissions
@@ -598,6 +606,7 @@ def add_performance_indexes():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_index_impact():
     """API endpoint to validate index impact with EXPLAIN queries"""
     # Check admin permissions
@@ -624,6 +633,7 @@ def validate_index_impact():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def monitor_index_performance(duration_hours: int = 24):
     """API endpoint to monitor index performance impact"""
     # Check admin permissions
@@ -634,6 +644,7 @@ def monitor_index_performance(duration_hours: int = 24):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def remove_performance_indexes():
     """API endpoint to remove performance indexes (rollback)"""
     # Check admin permissions
@@ -644,6 +655,7 @@ def remove_performance_indexes():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_index_status():
     """API endpoint to get current status of all performance indexes"""
     # Check admin permissions

@@ -4,8 +4,11 @@ Cleanup utility for orphaned Chapter Member records
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_orphaned_chapter_members():
     """Clean up chapter member records pointing to non-existent members"""
 
@@ -61,6 +64,7 @@ def cleanup_orphaned_chapter_members():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_specific_chapter_cleanup(chapter_name):
     """Test cleanup for a specific chapter"""
 

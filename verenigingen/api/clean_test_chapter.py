@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def clean_billing_test_chapter():
     """Clean up the Billing Test Chapter to remove invalid member references"""
 
@@ -45,6 +48,7 @@ def clean_billing_test_chapter():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def delete_orphaned_test_members():
     """Delete test members that have no memberships or schedules"""
 

@@ -11,8 +11,11 @@ from datetime import datetime
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def run_monitoring_tests():
     """Run comprehensive monitoring system tests"""
     frappe.set_user("Administrator")
@@ -63,7 +66,7 @@ def test_phase1_alert_and_audit():
         recent = am.get_recent_alerts(hours=1)
         found = any(a.get("error_type") == "E2E_Test" for a in recent)
         results["alert_manager"]["retrieve"] = "PASS" if found else "FAIL"
-        print(f"  ✓ Alert retrieved: Found in recent alerts")
+        print("  ✓ Alert retrieved: Found in recent alerts")
 
     except Exception as e:
         results["alert_manager"]["error"] = str(e)
@@ -192,7 +195,7 @@ def test_phase3_analytics_and_performance():
         # Test performance metrics
         perf = ae.get_performance_metrics(hours=24)
         results["analytics_engine"]["performance_metrics"] = "PASS" if perf else "FAIL"
-        print(f"  ✓ Performance metrics: Analyzed")
+        print("  ✓ Performance metrics: Analyzed")
 
         # Test compliance score
         compliance = ae.calculate_compliance_score()
@@ -214,7 +217,7 @@ def test_phase3_analytics_and_performance():
         # Test analysis
         analysis = po.analyze_performance()
         results["performance_optimizer"]["analysis"] = "PASS" if analysis else "FAIL"
-        print(f"  ✓ Performance analysis: Complete")
+        print("  ✓ Performance analysis: Complete")
 
         # Test recommendations
         recommendations = po.get_optimization_recommendations()
@@ -246,7 +249,7 @@ def test_end_to_end_integration():
         ae = AnalyticsEngine()
 
         # Create integration test alert
-        alert_id = am.create_alert(
+        am.create_alert(
             error_type="IntegrationFlow",
             message="Testing data flow through system",
             severity="high",
@@ -266,10 +269,10 @@ def test_end_to_end_integration():
             ae.analyze_error_patterns(days="invalid")
         except Exception:
             results["error_handling"]["graceful"] = "PASS"
-            print(f"  ✓ Error handling: Graceful failure")
+            print("  ✓ Error handling: Graceful failure")
         else:
             results["error_handling"]["graceful"] = "FAIL"
-            print(f"  ✗ Error handling: No exception raised")
+            print("  ✗ Error handling: No exception raised")
 
     except Exception as e:
         results["error"] = str(e)
@@ -295,7 +298,7 @@ def test_system_performance():
 
         # Test API response times
         start = time.time()
-        for _ in range(5):
+        for i in range(5):
             get_system_metrics()
         api_time = time.time() - start
         avg_response = api_time / 5
@@ -379,6 +382,7 @@ def generate_test_summary(results):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_test_data():
     """Clean up test data created during monitoring tests"""
     frappe.set_user("Administrator")

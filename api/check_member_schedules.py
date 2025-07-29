@@ -1,7 +1,10 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_member_2910_schedules():
     """Check the dues schedules for member 2910"""
     member_name = "Assoc-Member-2025-07-2910"

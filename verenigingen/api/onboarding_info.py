@@ -4,11 +4,18 @@ Get onboarding information
 
 import frappe
 
-from verenigingen.utils.security.rate_limiting import standard_api, utility_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+from verenigingen.utils.security.rate_limiting import utility_api
 
 
 @utility_api()
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_onboarding_info():
     """Get detailed onboarding information"""
 
@@ -62,6 +69,7 @@ def get_onboarding_info():
 
 @utility_api()
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_direct_onboarding_link():
     """Get the direct link to access Verenigingen onboarding"""
 

@@ -257,6 +257,7 @@ function setup_member_id_display(frm) {
 		try {
 			frm.set_df_property('member_id', 'read_only', 1);
 		} catch (e) {
+			// Ignore styling errors for member ID field
 		}
 	}
 }

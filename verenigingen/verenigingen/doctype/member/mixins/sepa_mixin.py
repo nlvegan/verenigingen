@@ -450,7 +450,7 @@ def _create_discrepancy_log(results):
 
     if significant_issues > 0:
         # Check for company IBAN/account settings
-        _check_company_sepa_settings()
+        company_settings_warning = _check_company_sepa_settings()
 
         # Create an Error Log entry for manual review
         log_message = f"""SEPA Mandate Discrepancy Check Results:
@@ -498,8 +498,8 @@ def _check_company_sepa_settings():
         # BIC is optional as it can be derived from IBAN
 
         if missing_settings:
-            # settings_list = "\n".join(f"- {setting}" for setting in missing_settings)
-            return """
+            settings_list = "\n".join(f"- {setting}" for setting in missing_settings)
+            return f"""
 ⚠️ WARNING: Missing Company SEPA Settings!
 The following settings are required for SEPA processing but are not configured:
 {settings_list}

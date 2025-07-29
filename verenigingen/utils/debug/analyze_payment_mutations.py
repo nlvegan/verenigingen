@@ -39,7 +39,7 @@ def analyze_specific_mutations():
     }
 
     print(f"\n{'='*80}")
-    print(f"E-Boekhouden Payment Mutation Analysis")
+    print("E-Boekhouden Payment Mutation Analysis")
     print(f"Analyzing mutations: {', '.join(map(str, target_mutations))}")
     print(f"{'='*80}\n")
 
@@ -69,7 +69,7 @@ def analyze_specific_mutations():
                 print(f"  Row Count: {analysis['row_count']}")
 
                 if analysis["is_payment_type"]:
-                    print(f"\n  Payment Details:")
+                    print("\n  Payment Details:")
                     print(f"    Payment Direction: {analysis['payment_direction']}")
                     print(f"    Linked Invoices: {analysis['linked_invoices']}")
                     print(f"    Bank Account Info: {analysis['bank_account_info']}")
@@ -383,7 +383,7 @@ def print_summary(results):
 
     if results.get("api_structure_findings", {}).get("payment_structure"):
         payment_struct = results["api_structure_findings"]["payment_structure"]
-        print(f"\nPayment Structure Findings:")
+        print("\nPayment Structure Findings:")
         print(f"  Multiple Invoice Support: {payment_struct.get('supports_multiple_invoices', False)}")
         print(
             f"  Invoice Reference Locations: {', '.join(payment_struct.get('invoice_reference_locations', []))}"
@@ -393,7 +393,7 @@ def print_summary(results):
         )
 
     if results.get("recommendations"):
-        print(f"\nKey Recommendations:")
+        print("\nKey Recommendations:")
         for i, rec in enumerate(results["recommendations"], 1):
             print(f"  {i}. {rec['finding']}")
             print(f"     → {rec['recommendation']}")

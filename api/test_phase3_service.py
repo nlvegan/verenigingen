@@ -8,8 +8,11 @@ from typing import Any, Dict, List
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_sepa_service_import() -> Dict[str, Any]:
     """Test that the SEPA service can be imported and instantiated"""
     try:
@@ -33,6 +36,7 @@ def test_sepa_service_import() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_iban_validation() -> Dict[str, Any]:
     """Test IBAN validation functionality"""
     try:
@@ -86,6 +90,7 @@ def test_iban_validation() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_bic_derivation() -> Dict[str, Any]:
     """Test BIC derivation from IBAN"""
     try:
@@ -135,6 +140,7 @@ def test_bic_derivation() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_input_validation() -> Dict[str, Any]:
     """Test input validation for security"""
     try:
@@ -199,9 +205,9 @@ def test_input_validation() -> Dict[str, Any]:
             try:
                 result = SEPAService.validate_inputs(member, iban)
                 passed = result == expected
-            except Exception as e:
+            except Exception:
                 result = False
-                passed = False == expected  # If we expect False and got an exception, that's still a pass
+                passed = expected is False  # If we expect False and got an exception, that's still a pass
 
             results.append(
                 {
@@ -229,6 +235,7 @@ def test_input_validation() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_service_methods_availability() -> Dict[str, Any]:
     """Test that all expected service methods are available"""
     try:
@@ -270,6 +277,7 @@ def test_service_methods_availability() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_api_endpoints() -> Dict[str, Any]:
     """Test that API endpoints are properly exposed"""
     try:
@@ -307,6 +315,7 @@ def test_api_endpoints() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_mixin_integration() -> Dict[str, Any]:
     """Test that service layer integrates with existing Member mixins"""
     try:
@@ -332,6 +341,7 @@ def test_mixin_integration() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def run_comprehensive_service_test() -> Dict[str, Any]:
     """Run all service layer tests and provide comprehensive results"""
     tests = [
@@ -376,6 +386,7 @@ def run_comprehensive_service_test() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def analyze_security_improvements() -> Dict[str, Any]:
     """Analyze security improvements in the codebase"""
     try:

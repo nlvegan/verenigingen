@@ -1,0 +1,60 @@
+{
+  "generated_at": "2025-07-29T11:51:22.728074",
+  "security_overview": {
+    "total_api_files": 70,
+    "secured_files": 70,
+    "compliance_score": 99.3,
+    "security_grade": "A+",
+    "last_scan_date": "2025-07-29 11:51",
+    "critical_issues": 0,
+    "status": "Excellent"
+  },
+  "recent_scans": [],
+  "compliance_trends": {
+    "current_compliance": 99.3,
+    "trend_direction": "stable",
+    "last_30_days": [],
+    "improvement_areas": [
+      "Add security framework imports"
+    ]
+  },
+  "security_alerts": [
+    {
+      "level": "WARNING",
+      "message": "Security warnings for api_security_framework.py",
+      "details": [
+        "Missing security framework imports"
+      ],
+      "timestamp": "2025-07-29T11:51:22.728700"
+    },
+    {
+      "level": "WARNING",
+      "message": "Security warnings for onboarding_info.py",
+      "details": [
+        "Missing security framework imports"
+      ],
+      "timestamp": "2025-07-29T11:51:22.728717"
+    }
+  ],
+  "system_health": {
+    "security_framework_status": "Active",
+    "api_endpoints_secured": 70,
+    "recent_security_events": 0,
+    "system_uptime": "Unknown",
+    "last_security_update": "2025-07-29 07:37"
+  },
+  "recommendations": [
+    {
+      "priority": "MEDIUM",
+      "action": "Add security framework imports",
+      "file": "api_security_framework.py",
+      "category": "Security Implementation"
+    },
+    {
+      "priority": "MEDIUM",
+      "action": "Add security framework imports",
+      "file": "onboarding_info.py",
+      "category": "Security Implementation"
+    }
+  ]
+}

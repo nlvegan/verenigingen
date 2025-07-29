@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 
 import frappe
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_invoice_auto_submit():
     """Test the auto-submission logic for draft invoice ACC-SINV-2025-20223"""
     
@@ -32,6 +34,7 @@ def test_invoice_auto_submit():
         return {"success": False, "error": str(e)}
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_member_payment_history():
     """Test payment history loading for member Assoc-Member-2025-07-0020"""
     

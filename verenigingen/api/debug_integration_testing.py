@@ -21,6 +21,12 @@ from verenigingen.api.unified_security_monitoring import (
     get_unified_monitoring_overview,
     trigger_unified_security_test,
 )
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 # Import all monitoring components
 from verenigingen.utils.security.security_monitoring import get_security_monitor, get_security_tester
@@ -34,6 +40,7 @@ from verenigingen.www.monitoring_dashboard import (
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def run_comprehensive_integration_test():
     """Run comprehensive integration test to identify 66.7% FAIR score issues"""
     try:
@@ -168,9 +175,9 @@ def test_individual_systems():
         }
 
         if security_enabled:
-            print(f"    ✅ Alerting System: PASS (security integration enabled)")
+            print("    ✅ Alerting System: PASS (security integration enabled)")
         else:
-            print(f"    ❌ Alerting System: FAIL (security integration disabled)")
+            print("    ❌ Alerting System: FAIL (security integration disabled)")
     except Exception as e:
         results["alerting_system"] = {"status": "FAIL", "error": str(e)}
         print(f"    ❌ Alerting System: FAIL - {str(e)}")
@@ -692,6 +699,7 @@ def generate_improvement_recommendations(test_results):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_integration_score_analysis():
     """Get quick analysis of why integration score is 66.7% FAIR"""
     try:

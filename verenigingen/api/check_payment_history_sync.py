@@ -5,6 +5,7 @@ Check if payment history was updated for manually generated invoices
 import frappe
 from frappe.utils import today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
 from verenigingen.utils.security.audit_logging import log_sensitive_operation
 from verenigingen.utils.security.authorization import require_role
 from verenigingen.utils.security.csrf_protection import validate_csrf_token
@@ -12,6 +13,7 @@ from verenigingen.utils.security.rate_limiting import rate_limit
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @rate_limit(calls=15, period=60)  # 15 calls per minute
 @require_role(["Accounts Manager", "System Manager", "Verenigingen Administrator"])
 @validate_csrf_token
@@ -98,6 +100,7 @@ def check_invoice_payment_history_sync():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 @rate_limit(calls=5, period=300)  # 5 calls per 5 minutes
 @require_role(["Accounts Manager", "System Manager"])
 @validate_csrf_token

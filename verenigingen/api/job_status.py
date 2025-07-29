@@ -13,9 +13,16 @@ import frappe
 from frappe import _
 
 from verenigingen.utils.background_jobs import BackgroundJobManager
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_job_status(job_name: str) -> Dict[str, Any]:
     """
     Get status of a background job
@@ -52,6 +59,7 @@ def get_job_status(job_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_user_jobs(limit: int = 20) -> List[Dict[str, Any]]:
     """
     Get recent background jobs for current user
@@ -82,6 +90,7 @@ def get_user_jobs(limit: int = 20) -> List[Dict[str, Any]]:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def retry_failed_job(job_name: str) -> Dict[str, Any]:
     """
     Manually retry a failed job
@@ -122,6 +131,7 @@ def retry_failed_job(job_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_job_queue_status() -> Dict[str, Any]:
     """
     Get overall job queue status (for administrators)
@@ -164,6 +174,7 @@ def get_job_queue_status() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def get_recent_payment_history_jobs(member: str = None, limit: int = 10) -> List[Dict[str, Any]]:
     """
     Get recent payment history update jobs
@@ -209,6 +220,7 @@ def get_recent_payment_history_jobs(member: str = None, limit: int = 10) -> List
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def clear_completed_jobs(older_than_hours: int = 24) -> Dict[str, Any]:
     """
     Clear completed job records older than specified hours
@@ -245,6 +257,7 @@ def clear_completed_jobs(older_than_hours: int = 24) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def test_background_job_system() -> Dict[str, Any]:
     """
     Test the background job system by creating a test job
@@ -283,6 +296,7 @@ def test_background_job_system() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def get_system_performance_metrics() -> Dict[str, Any]:
     """
     Get system performance metrics related to background jobs

@@ -190,7 +190,7 @@ function viewFinancialReports() {
 	window.location.href = '/app/report/chapter-expense-report';
 }
 
-function approveExpense(expenseId, amount) {
+function _approveExpense(expenseId, amount) {
 	if (!userPermissions.can_approve_expenses) {
 		frappe.msgprint(__('You do not have permission to approve expenses.'));
 		return;
@@ -341,7 +341,7 @@ function hideLoading() {
 	$('#loading-overlay').hide();
 }
 
-function formatCurrency(amount) {
+function _formatCurrency(amount) {
 	return new Intl.NumberFormat('en-EU', {
 		style: 'currency',
 		currency: 'EUR'
@@ -357,7 +357,7 @@ function formatDate(dateString) {
 	});
 }
 
-function formatRelativeTime(dateString) {
+function _formatRelativeTime(dateString) {
 	const date = new Date(dateString);
 	const now = new Date();
 	const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));

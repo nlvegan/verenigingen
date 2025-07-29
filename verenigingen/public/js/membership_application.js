@@ -64,7 +64,7 @@ class BaseStep {
 	}
 }
 
-class MembershipApplication {
+class _MembershipApplication {
 	constructor(config = {}) {
 		this.config = {
 			maxSteps: 6,
@@ -423,7 +423,7 @@ class MembershipApplication {
 		$(`.form-step[data-step="${step}"] .invalid-feedback`).hide();
 
 		switch(step) {
-			case 1: // Personal info
+			case 1: { // Personal info
 				const requiredFields = ['#first_name', '#last_name', '#email', '#birth_date'];
 				requiredFields.forEach(field => {
 					const $field = $(field);
@@ -446,8 +446,8 @@ class MembershipApplication {
 					isValid = false;
 				}
 				break;
-
-			case 2: // Address
+			}
+			case 2: { // Address
 				const addressFields = ['#address_line1', '#city', '#postal_code', '#country'];
 				addressFields.forEach(field => {
 					const $field = $(field);
@@ -462,8 +462,8 @@ class MembershipApplication {
 					}
 				});
 				break;
-
-			case 3: // Membership type
+			}
+			case 3: { // Membership type
 				const selectedType = this.state.get('selected_membership_type');
 				const membership = this.state.get('membership');
 
@@ -495,12 +495,12 @@ class MembershipApplication {
 					}
 				}
 				break;
-
-			case 4: // Volunteer (optional)
+			}
+			case 4: { // Volunteer (optional)
 				// No required fields
 				break;
-
-			case 5: // Payment
+			}
+			case 5: { // Payment
 				console.log('Validating step 5 - Payment');
 
 				// Check payment method selection
@@ -558,8 +558,8 @@ class MembershipApplication {
 
 				console.log('Step 5 validation result:', isValid);
 				break;
-
-			case 6: // Confirmation
+			}
+			case 6: { // Confirmation
 				// Check terms and privacy checkboxes
 				if (!$('input[name="terms_accepted"]').is(':checked')) {
 					if (typeof frappe !== 'undefined' && frappe.msgprint) {
@@ -575,6 +575,7 @@ class MembershipApplication {
 					isValid = false;
 				}
 				break;
+			}
 		}
 
 		return isValid;
@@ -1349,162 +1350,7 @@ class MembershipApplication {
 		});
 	}
 
-	bindCustomValidationEvents() {
-		// Email validation on blur
-		$('#email').on('blur', async () => {
-			const email = $('#email').val();
-			if (email) {
-				try {
-					const result = await this.apiService.validateEmail(email);
-					if (!result.valid) {
-						if (this.errorHandler && typeof this.errorHandler.handleValidationError === 'function') {
-							this.errorHandler.handleValidationError('email', result);
-						} else {
-							console.warn('Email validation failed:', result);
-						}
-					}
-				} catch (error) {
-					console.warn('Email validation failed:', error);
-				}
-			}
-		});
 
-		// Postal code validation with chapter suggestion
-		$('#postal_code').on('blur', async () => {
-			const postalCode = $('#postal_code').val();
-			const country = $('#country').val() || 'Netherlands';
-
-			if (postalCode) {
-				try {
-					const result = await this.apiService.validatePostalCode(postalCode, country);
-					if (result.suggested_chapters && result.suggested_chapters.length > 0) {
-						this.showChapterSuggestion(result.suggested_chapters[0]);
-					}
-				} catch (error) {
-					console.warn('Postal code validation failed:', error);
-				}
-			}
-		});
-	}
-
-	bindAgeCalculation() {
-		// Direct binding for birth date age calculation
-		$(document).on('change blur', '#birth_date', () => {
-			console.log('Birth date changed, calculating age...');
-			this.validateAndShowAge();
-		});
-	}
-
-	validateAndShowAge() {
-		const birthDateField = $('#birth_date');
-		if (birthDateField.length === 0) {
-			console.warn('Birth date field not found');
-			return;
-		}
-
-		const birthDate = birthDateField.val();
-		if (!birthDate) {
-			// Clear any existing warning and collapse the space
-			const warningDiv = $('#age-warning');
-			if (warningDiv.length > 0) {
-				warningDiv.css({
-					'visibility': 'hidden',
-					'height': '0px',
-					'min-height': '0px',
-					'padding': '0px',
-					'margin': '0px'
-				}).removeClass('alert-info alert-warning alert-danger');
-			}
-			return;
-		}
-
-		const age = this.calculateAge(birthDate);
-		let warningDiv = $('#age-warning');
-
-		// Create warning div if it doesn't exist with reserved space to prevent layout shift
-		if (warningDiv.length === 0) {
-			birthDateField.after('<div id="age-warning" class="alert mt-2" style="min-height: 20px; visibility: hidden;"></div>');
-			warningDiv = $('#age-warning');
-		}
-
-		// Clear previous states
-		birthDateField.removeClass('is-invalid is-valid');
-		birthDateField.siblings('.invalid-feedback').remove();
-		warningDiv.css('visibility', 'hidden').removeClass('alert-info alert-warning alert-danger');
-
-		if (age < 0) {
-			birthDateField.addClass('is-invalid');
-			birthDateField.after('<div class="invalid-feedback">Birth date cannot be in the future</div>');
-			return;
-		}
-
-		birthDateField.addClass('is-valid');
-
-		// Show warnings for edge cases (only for ages under 12)
-		if (age < 12) {
-			warningDiv
-				.addClass('alert-info')
-				.html('<i class="fa fa-info-circle"></i> Applicants under 12 may require parental consent')
-				.css({
-					'visibility': 'visible',
-					'height': 'auto',
-					'min-height': '20px'
-				});
-		} else {
-			// For ages 12 and above, completely collapse the warning div
-			warningDiv.css({
-				'visibility': 'hidden',
-				'height': '0px',
-				'min-height': '0px',
-				'padding': '0px',
-				'margin': '0px'
-			});
-		}
-
-		console.log(`Age calculated: ${age} years`);
-	}
-
-	calculateAge(birthDate) {
-		if (!birthDate) return 0;
-
-		try {
-			const birth = new Date(birthDate);
-			const today = new Date();
-
-			// Check for invalid dates
-			if (isNaN(birth.getTime())) {
-				console.warn('Invalid birth date:', birthDate);
-				return -1;
-			}
-
-			if (birth > today) {
-				return -1; // Future date
-			}
-
-			let age = today.getFullYear() - birth.getFullYear();
-
-			// Adjust for birthday not yet reached this year
-			if (today.getMonth() < birth.getMonth() ||
-                (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) {
-				age--;
-			}
-
-			return Math.max(0, age); // Ensure non-negative age
-		} catch (error) {
-			console.error('Error calculating age:', error);
-			return 0;
-		}
-	}
-
-	showChapterSuggestion(chapter) {
-		$('#suggested-chapter-name').text(chapter.name);
-		$('#suggested-chapter').show();
-
-		$('#accept-suggestion').off('click').on('click', () => {
-			$('#selected_chapter').val(chapter.name);
-			$('#suggested-chapter').hide();
-		});
-	}
 
 	setupPersonalInfoStep() {
 		console.log('Setting up personal info step');
@@ -1561,7 +1407,7 @@ class MembershipApplication {
 	}
 
 	addSkillRow() {
-		const skillContainer = $('.skill-row').parent();
+		const _skillContainer = $('.skill-row').parent();
 		const newSkillRow = `
             <div class="skill-row" style="margin-bottom: 10px;">
                 <div class="row">
@@ -2606,7 +2452,7 @@ class MembershipApplication {
 	handlePaymentMethodChange(methodName) {
 		const is_direct_debit = methodName === 'SEPA Direct Debit';
 		const is_bank_transfer = methodName === 'Bank Transfer';
-		const show_bank_details = ['SEPA Direct Debit', 'Bank Transfer'].includes(methodName);
+		const _show_bank_details = ['SEPA Direct Debit', 'Bank Transfer'].includes(methodName);
 
 		console.log('Main app: Handling payment method change to:', methodName);
 		console.log('Main app: is_direct_debit:', is_direct_debit, 'is_bank_transfer:', is_bank_transfer);
@@ -3706,7 +3552,7 @@ class MembershipAPI {
 	}
 }
 
-class UIManager {
+class _UIManager {
 	hideAllSteps() {
 		$('.form-step').hide().removeClass('active');
 	}

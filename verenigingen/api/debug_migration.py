@@ -6,8 +6,16 @@ from datetime import datetime, timedelta
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_recent_migration_errors():
     """Get recent error logs related to E-Boekhouden migration"""
 
@@ -58,6 +66,7 @@ def get_recent_migration_errors():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_error_log_details(error_log_name):
     """Get full details of a specific error log"""
 
@@ -73,6 +82,7 @@ def get_error_log_details(error_log_name):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_migration_statistics():
     """Get statistics about recent migrations"""
 
@@ -98,6 +108,7 @@ def get_migration_statistics():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def test_payment_amount_edge_cases():
     """Test various payment amount calculation scenarios"""
 
@@ -201,6 +212,7 @@ def test_payment_amount_edge_cases():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def test_payment_amount_calculation():
     """Test the fixed payment amount calculation"""
 
@@ -262,6 +274,7 @@ def test_payment_amount_calculation():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def analyze_migration_error_types():
     """Analyze different types of errors in recent migration attempts"""
 
@@ -346,6 +359,7 @@ def analyze_migration_error_types():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def test_payment_creation_fix():
     """Test the payment creation fix with real problematic mutation data"""
 
@@ -444,6 +458,7 @@ def test_payment_creation_fix():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_supplier_related_errors():
     """Check for supplier-related errors in recent migrations"""
 
@@ -509,6 +524,7 @@ def check_supplier_related_errors():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_dues_invoicing_errors():
     """Get errors related to dues invoicing from 6-7 hours ago"""
 
@@ -597,6 +613,7 @@ def get_dues_invoicing_errors():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def debug_schedule_generation(schedule_name=None):
     """Debug why schedules aren't generating invoices"""
 
@@ -659,6 +676,7 @@ def debug_schedule_generation(schedule_name=None):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def analyze_schedule_member_integrity():
     """Check how many dues schedules reference non-existent members"""
 
@@ -724,6 +742,7 @@ def analyze_schedule_member_integrity():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def debug_dues_generation_detailed():
     """Debug the full dues generation process to understand date increment issues"""
     from frappe.utils import add_days, today
@@ -822,6 +841,7 @@ def debug_dues_generation_detailed():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def test_new_invoice_validations():
     """Test the newly implemented invoice validation safeguards"""
 
@@ -943,6 +963,7 @@ def test_new_invoice_validations():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def run_pre_implementation_tests():
     """Run comprehensive tests before implementing customer and batch safeguards"""
 

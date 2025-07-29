@@ -126,7 +126,7 @@ function handle_counter_reset(frm) {
 	);
 }
 
-function show_counter_statistics_dialog() {
+function _show_counter_statistics_dialog() {
 	// Show detailed counter statistics
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',

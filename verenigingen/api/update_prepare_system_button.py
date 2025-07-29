@@ -1,7 +1,15 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def should_remove_prepare_system_button():
     """
     Analysis of whether the 'Prepare System' button should be removed
@@ -39,6 +47,7 @@ def should_remove_prepare_system_button():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def analyze_eboekhouden_data():
     """
     Analyze E-Boekhouden data without making any system changes

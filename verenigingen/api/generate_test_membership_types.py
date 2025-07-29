@@ -5,8 +5,11 @@ Generate proper test membership types with linked dues schedule templates
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, high_security_api
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def generate_test_membership_types():
     """
     Generate comprehensive test membership types for testing
@@ -191,6 +194,7 @@ def create_dues_schedule_template_for_membership_type(membership_type):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.ADMIN)
 def cleanup_test_membership_types():
     """Remove all test membership types and their associated data"""
     test_types = frappe.get_all(
@@ -230,6 +234,7 @@ def cleanup_test_membership_types():
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.UTILITY)
 def get_test_membership_types_status():
     """Get status of test membership types"""
     test_types = frappe.get_all(

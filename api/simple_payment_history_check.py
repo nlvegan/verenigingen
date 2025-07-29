@@ -6,8 +6,11 @@ import frappe
 from frappe import _
 from frappe.utils import today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def check_missing_invoices():
     """Check for today's invoices that are missing from payment history"""
 
@@ -70,6 +73,7 @@ def check_missing_invoices():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def fix_missing_payment_history():
     """Add missing invoices to payment history"""
 
@@ -98,6 +102,7 @@ def fix_missing_payment_history():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def check_on_submit_hooks():
     """Check if on_submit hooks are configured for Sales Invoice"""
 

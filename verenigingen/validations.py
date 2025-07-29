@@ -65,7 +65,7 @@ def validate_membership_grace_period(doc, method):
 
     # Validate grace period expiry date
     if doc.grace_period_status == "Grace Period":
-        if not doc.grace_period_expiry_date:
+        if not getattr(doc, "grace_period_expiry_date", None):
             frappe.throw(_("Grace period expiry date is required when grace period status is set"))
 
         # Ensure grace period expiry is in the future (allow same day)
@@ -88,7 +88,7 @@ def validate_membership_grace_period(doc, method):
                 alert=True,
             )
 
-    elif doc.grace_period_expiry_date:
+    elif getattr(doc, "grace_period_expiry_date", None):
         # If grace period expiry date is set but status is not "Grace Period", clear it
         doc.grace_period_expiry_date = None
         doc.grace_period_reason = None

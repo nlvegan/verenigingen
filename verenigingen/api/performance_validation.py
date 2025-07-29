@@ -14,8 +14,16 @@ from typing import Any, Dict, List
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_performance_improvements() -> Dict[str, Any]:
     """
     Validate performance improvements against baseline metrics
@@ -453,6 +461,7 @@ def check_success_criteria(improvements: Dict[str, Any]) -> Dict[str, bool]:
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def generate_performance_report() -> Dict[str, Any]:
     """Generate comprehensive performance improvement report"""
 

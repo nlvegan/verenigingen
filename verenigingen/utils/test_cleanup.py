@@ -5,8 +5,11 @@ Provides functions to clean up test data that may be left behind after test runs
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_test_roles():
     """
     Clean up test roles that may be left behind after test runs.
@@ -64,6 +67,7 @@ def cleanup_test_roles():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_all_test_data():
     """
     Comprehensive cleanup of all test data including roles, members, chapters, etc.

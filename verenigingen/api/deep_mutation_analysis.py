@@ -4,8 +4,16 @@ Deep analysis of mutation processing to find where stock account is being used
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def trace_journal_entry_creation():
     """Trace exactly where the stock account gets involved in journal entry creation"""
     try:
@@ -85,6 +93,7 @@ def trace_journal_entry_creation():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_main_ledger_13201869():
     """Check what ledger 13201869 (main ledger for these mutations) maps to"""
     try:

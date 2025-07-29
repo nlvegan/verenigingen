@@ -683,3 +683,276 @@ def get_member_termination_history(member):
     except Exception as e:
         frappe.log_error(f"Error getting termination history for {member}: {str(e)}")
         return {"success": False, "error": str(e), "termination_requests": []}
+
+
+@frappe.whitelist()
+def get_termination_statistics():
+    """Get termination statistics for dashboard display"""
+    try:
+        # Get statistics for different termination types and statuses
+        stats = {}
+
+        # Total termination requests
+        stats["total_requests"] = frappe.db.count("Membership Termination Request")
+
+        # By status
+        status_counts = frappe.db.sql(
+            """
+            SELECT status, COUNT(*) as count
+            FROM `tabMembership Termination Request`
+            GROUP BY status
+        """,
+            as_dict=True,
+        )
+
+        stats["by_status"] = {item.status: item.count for item in status_counts}
+
+        # By termination type
+        type_counts = frappe.db.sql(
+            """
+            SELECT termination_type, COUNT(*) as count
+            FROM `tabMembership Termination Request`
+            GROUP BY termination_type
+        """,
+            as_dict=True,
+        )
+
+        stats["by_type"] = {item.termination_type: item.count for item in type_counts}
+
+        # Recent requests (last 30 days)
+        recent_count = frappe.db.sql(
+            """
+            SELECT COUNT(*) as count
+            FROM `tabMembership Termination Request`
+            WHERE request_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        """,
+            as_dict=True,
+        )
+
+        stats["recent_requests"] = recent_count[0].count if recent_count else 0
+
+        # Pending approvals
+        pending_count = frappe.db.count(
+            "Membership Termination Request", filters={"status": ["in", ["Pending Approval", "Under Review"]]}
+        )
+
+        stats["pending_approvals"] = pending_count
+
+        return {"success": True, "statistics": stats}
+
+    except Exception as e:
+        frappe.log_error(f"Error getting termination statistics: {str(e)}")
+        return {"success": False, "error": str(e), "statistics": {}}
+
+
+@frappe.whitelist()
+def get_eligible_approvers():
+    """Get list of users eligible to approve termination requests"""
+    try:
+        # Get users with termination approval roles
+        approval_roles = [
+            "System Manager",
+            "Verenigingen Administrator",
+            "Chapter Administrator",
+            "Board Member",
+        ]
+
+        eligible_users = []
+
+        for role in approval_roles:
+            users = frappe.get_all(
+                "Has Role", filters={"role": role, "parenttype": "User"}, fields=["parent as user"]
+            )
+
+            for user in users:
+                user_doc = frappe.get_doc("User", user.user)
+                if user_doc.enabled and user_doc.name not in [u["user"] for u in eligible_users]:
+                    eligible_users.append(
+                        {
+                            "user": user_doc.name,
+                            "full_name": user_doc.full_name,
+                            "email": user_doc.email,
+                            "role": role,
+                        }
+                    )
+
+        return {"success": True, "approvers": eligible_users}
+
+    except Exception as e:
+        frappe.log_error(f"Error getting eligible approvers: {str(e)}")
+        return {"success": False, "error": str(e), "approvers": []}
+
+
+@frappe.whitelist()
+def generate_expulsion_report(filters=None):
+    """Generate expulsion report based on filters"""
+    try:
+        if not filters:
+            filters = {}
+
+        # Build query conditions
+        conditions = ["1=1"]
+        values = []
+
+        if filters.get("from_date"):
+            conditions.append("ter.termination_date >= %s")
+            values.append(filters["from_date"])
+
+        if filters.get("to_date"):
+            conditions.append("ter.termination_date <= %s")
+            values.append(filters["to_date"])
+
+        if filters.get("termination_type"):
+            conditions.append("ter.termination_type = %s")
+            values.append(filters["termination_type"])
+
+        if filters.get("chapter"):
+            conditions.append("mem.current_chapter = %s")
+            values.append(filters["chapter"])
+
+        # Get expulsion data
+        query = f"""
+            SELECT
+                ter.name as termination_request,
+                ter.member,
+                mem.full_name as member_name,
+                mem.email as member_email,
+                mem.current_chapter,
+                ter.termination_type,
+                ter.termination_reason,
+                ter.termination_date,
+                ter.execution_date,
+                ter.executed_by,
+                ter.status
+            FROM `tabMembership Termination Request` ter
+            LEFT JOIN `tabMember` mem ON ter.member = mem.name
+            WHERE {' AND '.join(conditions)}
+            AND ter.termination_type IN ('Disciplinary', 'Expulsion', 'Exclusion')
+            ORDER BY ter.termination_date DESC
+        """
+
+        expulsions = frappe.db.sql(query, values, as_dict=True)
+
+        # Get summary statistics
+        summary = {
+            "total_expulsions": len(expulsions),
+            "by_type": {},
+            "by_chapter": {},
+            "date_range": {"from": filters.get("from_date"), "to": filters.get("to_date")},
+        }
+
+        for exp in expulsions:
+            # Count by type
+            exp_type = exp.termination_type
+            summary["by_type"][exp_type] = summary["by_type"].get(exp_type, 0) + 1
+
+            # Count by chapter
+            chapter = exp.current_chapter or "Unknown"
+            summary["by_chapter"][chapter] = summary["by_chapter"].get(chapter, 0) + 1
+
+        return {"success": True, "expulsions": expulsions, "summary": summary}
+
+    except Exception as e:
+        frappe.log_error(f"Error generating expulsion report: {str(e)}")
+        return {"success": False, "error": str(e), "expulsions": [], "summary": {}}
+
+
+@frappe.whitelist()
+def initiate_disciplinary_termination(member, reason, evidence=None, reporter=None):
+    """Initiate disciplinary termination procedure for a member"""
+    try:
+        # Validate input
+        if not member:
+            frappe.throw(_("Member is required"))
+
+        if not reason:
+            frappe.throw(_("Reason is required for disciplinary termination"))
+
+        # Check if member exists and is active
+        member_doc = frappe.get_doc("Member", member)
+        if member_doc.membership_status in ["Terminated", "Suspended"]:
+            frappe.throw(_("Member is already terminated or suspended"))
+
+        # Check if there's already a pending disciplinary request
+        existing_request = frappe.db.exists(
+            "Membership Termination Request",
+            {
+                "member": member,
+                "termination_type": "Disciplinary",
+                "status": ["in", ["Draft", "Pending Approval", "Under Review"]],
+            },
+        )
+
+        if existing_request:
+            frappe.throw(_("There is already a pending disciplinary termination request for this member"))
+
+        # Create disciplinary termination request
+        termination_request = frappe.new_doc("Membership Termination Request")
+        termination_request.member = member
+        termination_request.termination_type = "Disciplinary"
+        termination_request.termination_reason = reason
+        termination_request.requested_by = reporter or frappe.session.user
+        termination_request.request_date = today()
+        termination_request.status = "Draft"
+        termination_request.requires_board_approval = 1
+        termination_request.requires_governance_review = 1
+
+        # Add evidence if provided
+        if evidence:
+            termination_request.supporting_documentation = evidence
+
+        # Set disciplinary-specific fields
+        termination_request.disciplinary_procedure = 1
+        termination_request.investigation_required = 1
+
+        # Save the request
+        termination_request.insert()
+        termination_request.add_audit_entry(
+            "Disciplinary Procedure Initiated",
+            f"Disciplinary termination initiated by {frappe.session.user}. Reason: {reason}",
+        )
+
+        # Submit for approval workflow
+        termination_request.submit_for_approval()
+
+        # Send notifications to relevant parties
+        termination_request.send_approval_notification()
+
+        # Notify the member if required by policy
+        # TODO: Add notify_member_of_disciplinary_action field to Verenigingen Settings doctype
+        # Future enhancement: send_disciplinary_notification(member, termination_request.name)
+
+        return {
+            "success": True,
+            "termination_request": termination_request.name,
+            "message": _("Disciplinary termination procedure has been initiated for {0}").format(
+                member_doc.full_name
+            ),
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error initiating disciplinary termination for {member}: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+def send_disciplinary_notification(member, termination_request):
+    """Send notification to member about disciplinary action"""
+    try:
+        member_doc = frappe.get_doc("Member", member)
+
+        # Prepare email content
+        subject = _("Notice of Disciplinary Procedure")
+
+        message = _(
+            "Dear {0},\n\nThis is to inform you that a disciplinary procedure has been initiated regarding your membership. You will be contacted with further details as the process proceeds.\n\nReference: {1}\n\nRegards,\nMembership Administration"
+        ).format(member_doc.full_name, termination_request)
+
+        # Send email if member has email
+        if member_doc.email:
+            frappe.sendmail(recipients=[member_doc.email], subject=subject, message=message, delayed=False)
+
+        return True
+
+    except Exception as e:
+        frappe.log_error(f"Error sending disciplinary notification to {member}: {str(e)}")
+        return False

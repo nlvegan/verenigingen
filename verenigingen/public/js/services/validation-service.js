@@ -27,13 +27,13 @@ class ValidationService {
 				required: true,
 				minLength: 2,
 				maxLength: 50,
-				pattern: /^[a-zA-ZÀ-ÿ\s\-\'\.]+$/
+				pattern: /^[a-zA-ZÀ-ÿ\s-'.]+$/
 			},
 			lastName: {
 				required: true,
 				minLength: 2,
 				maxLength: 50,
-				pattern: /^[a-zA-ZÀ-ÿ\s\-\'\.]+$/
+				pattern: /^[a-zA-ZÀ-ÿ\s-'.]+$/
 			},
 			birthDate: {
 				required: true,
@@ -48,7 +48,7 @@ class ValidationService {
 			phone: {
 				required: false,
 				async: true,
-				pattern: /^[\+]?[0-9\s\-\(\)]{8,20}$/
+				pattern: /^[+]?[0-9\s-()]{8,20}$/
 			},
 			address: {
 				required: true,
@@ -59,7 +59,7 @@ class ValidationService {
 				required: true,
 				minLength: 2,
 				maxLength: 100,
-				pattern: /^[a-zA-ZÀ-ÿ\s\-\'\.]+$/
+				pattern: /^[a-zA-ZÀ-ÿ\s-'.]+$/
 			},
 			country: {
 				required: true,
@@ -295,7 +295,7 @@ class ValidationService {
      */
 	setupRealTimeValidation(element, fieldName, context = {}) {
 		const $element = $(element);
-		const $feedback = this._ensureFeedbackElement($element);
+		this._ensureFeedbackElement($element);
 
 		// Store validation state
 		$element.data('validation-state', 'pending');

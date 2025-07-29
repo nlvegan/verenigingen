@@ -98,16 +98,16 @@ repos:
         verbose: true
 
       - id: docfield-checker
-        name: Check docfield references
+        name: Legacy field reference checker (fallback)
         entry: python scripts/validation/field_validator.py
         language: system
         pass_filenames: false
         files: \.py$
-        stages: [pre-commit]
+        stages: [manual]
 
-      - id: comprehensive-field-validator
-        name: Comprehensive DocType field references (all apps)
-        entry: python scripts/validation/comprehensive_field_validator.py --pre-commit
+      - id: improved-field-validator
+        name: Improved DocType field validation (reduced false positives)
+        entry: python scripts/validation/improved_field_validator.py --pre-commit
         language: system
         pass_filenames: false
         files: \.py$
@@ -131,6 +131,19 @@ repos:
         files: '\.(html|js)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.(html|js)|debug_|.*_debug\.(html|js)|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
+
+      - id: eslint
+        name: ESLint JavaScript validation
+        entry: npx eslint
+        language: node
+        files: \.js$
+        stages: [pre-commit]
+        args: [--fix]
+        additional_dependencies:
+          - eslint@^8.57.0
+          - eslint-plugin-security@^1.7.1
+          - eslint-plugin-no-unsanitized@^4.0.2
+        exclude: '^(node_modules/|archived_unused/|scripts/analysis/|scripts/monitoring/|scripts/performance/|scripts/rollback/|scripts/security/|debug_utils/|dev_scripts/)|\.min\.js$|\.bundle\.js$'
 
       - id: fast-method-validator
         name: Fast method call validation

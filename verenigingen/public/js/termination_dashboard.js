@@ -1,325 +1,245 @@
-import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { AlertTriangle, Users, FileText, CheckCircle, XCircle, Clock, TrendingUp } from 'lucide-react';
+/**
+ * Termination Dashboard - Frappe-compatible implementation
+ * Provides overview of membership termination requests
+ */
 
-const TerminationDashboard = () => {
-  const [stats, setStats] = useState(null);
-  const [pendingRequests, setPendingRequests] = useState([]);
-  const [recentActivity, setRecentActivity] = useState([]);
-  const [loading, setLoading] = useState(true);
+frappe.provide('verenigingen.termination_dashboard');
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
+verenigingen.termination_dashboard = {
+	init: function() {
+		this.setup_dashboard();
+		this.load_data();
+	},
 
-  const fetchDashboardData = async () => {
-    try {
-      // Simulate API calls that would be made to Frappe
-      const statsResponse = await frappe.call({
-        method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_termination_statistics'
-      });
+	setup_dashboard: function() {
+		// Dashboard container setup
+		if (!$('.termination-dashboard').length) {
+			$('body').append(`
+				<div class="termination-dashboard" style="display: none;">
+					<div class="dashboard-container">
+						<div class="dashboard-header">
+							<h1>Membership Termination Dashboard</h1>
+							<div class="dashboard-actions">
+								<button class="btn btn-default" id="view-all-requests">View All Requests</button>
+								<button class="btn btn-primary" id="new-termination">New Termination</button>
+							</div>
+						</div>
+						<div class="stats-grid">
+							<div class="stat-card" id="pending-card">
+								<div class="stat-icon">⚠️</div>
+								<div class="stat-content">
+									<div class="stat-title">Pending Approvals</div>
+									<div class="stat-value" id="pending-count">0</div>
+									<div class="stat-description">Requiring immediate attention</div>
+								</div>
+							</div>
+							<div class="stat-card" id="total-card">
+								<div class="stat-icon">📄</div>
+								<div class="stat-content">
+									<div class="stat-title">Total Requests</div>
+									<div class="stat-value" id="total-count">0</div>
+									<div class="stat-description">All time</div>
+								</div>
+							</div>
+							<div class="stat-card" id="recent-card">
+								<div class="stat-icon">📈</div>
+								<div class="stat-content">
+									<div class="stat-title">Recent Activity</div>
+									<div class="stat-value" id="recent-count">0</div>
+									<div class="stat-description">Last 30 days</div>
+								</div>
+							</div>
+							<div class="stat-card" id="execution-card">
+								<div class="stat-icon">✅</div>
+								<div class="stat-content">
+									<div class="stat-title">Ready for Execution</div>
+									<div class="stat-value" id="execution-count">0</div>
+									<div class="stat-description">Approved requests</div>
+								</div>
+							</div>
+						</div>
+						<div class="dashboard-content">
+							<div class="pending-requests-section">
+								<h3>Pending Requests</h3>
+								<div id="pending-requests-list"></div>
+							</div>
+							<div class="recent-activity-section">
+								<h3>Recent Activity</h3>
+								<div id="recent-activity-list"></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			`);
+		}
+		this.bind_events();
+	},
 
-      const pendingResponse = await frappe.call({
-        method: 'frappe.client.get_list',
-        args: {
-          doctype: 'Membership Termination Request',
-          filters: { status: 'Pending Approval' },
-          fields: ['name', 'member_name', 'termination_type', 'request_date', 'requested_by'],
-          limit: 10,
-          order_by: 'request_date desc'
-        }
-      });
+	bind_events: function() {
+		$('#view-all-requests').on('click', function() {
+			frappe.set_route('List', 'Membership Termination Request');
+		});
 
-      const recentResponse = await frappe.call({
-        method: 'frappe.client.get_list',
-        args: {
-          doctype: 'Membership Termination Request',
-          filters: { status: 'Executed' },
-          fields: ['name', 'member_name', 'termination_type', 'execution_date', 'executed_by'],
-          limit: 5,
-          order_by: 'execution_date desc'
-        }
-      });
+		$('#new-termination').on('click', function() {
+			frappe.set_route('Form', 'Membership Termination Request', 'new');
+		});
+	},
 
-      setStats(statsResponse.message);
-      setPendingRequests(pendingResponse.message || []);
-      setRecentActivity(recentResponse.message || []);
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+	show: function() {
+		$('.termination-dashboard').show();
+		this.load_data();
+	},
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      </div>
-    );
-  }
+	hide: function() {
+		$('.termination-dashboard').hide();
+	},
 
-  const getStatusColor = (status) => {
-    const colors = {
-      'Draft': 'bg-blue-100 text-blue-800',
-      'Pending Approval': 'bg-yellow-100 text-yellow-800',
-      'Approved': 'bg-green-100 text-green-800',
-      'Rejected': 'bg-red-100 text-red-800',
-      'Executed': 'bg-gray-100 text-gray-800'
-    };
-    return colors[status] || 'bg-gray-100 text-gray-800';
-  };
+	load_data: function() {
+		const self = this;
 
-  const getTypeColor = (type) => {
-    const disciplinaryTypes = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
-    return disciplinaryTypes.includes(type)
-      ? 'bg-red-100 text-red-800'
-      : 'bg-blue-100 text-blue-800';
-  };
+		// Load dashboard statistics
+		frappe.call({
+			method: 'verenigingen.api.termination_api.get_dashboard_stats',
+			callback: function(r) {
+				if (r.message) {
+					self.update_stats(r.message);
+				}
+			},
+			error: function() {
+				frappe.msgprint(__('Failed to load dashboard statistics'));
+			}
+		});
 
-  return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Membership Termination Dashboard</h1>
-        <div className="flex space-x-2">
-          <button
-            onClick={() => frappe.set_route('List', 'Membership Termination Request')}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-          >
-            View All Requests
-          </button>
-          <button
-            onClick={() => frappe.set_route('Form', 'Membership Termination Request', 'new')}
-            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
-          >
-            New Termination
-          </button>
-        </div>
-      </div>
+		// Load pending requests
+		this.load_pending_requests();
+		// Load recent activity
+		this.load_recent_activity();
+	},
 
-      {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Approvals</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-yellow-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">
-              {stats?.pending_approvals || 0}
-            </div>
-            <p className="text-xs text-gray-600">
-              Requiring immediate attention
-            </p>
-          </CardContent>
-        </Card>
+	update_stats: function(stats) {
+		$('#pending-count').text(stats.pending_approvals || 0);
+		$('#total-count').text(stats.total_requests || 0);
+		$('#recent-count').text(stats.recent_activity?.requests || 0);
+		$('#execution-count').text(stats.ready_for_execution || 0);
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Requests</CardTitle>
-            <FileText className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              {stats?.total_requests || 0}
-            </div>
-            <p className="text-xs text-gray-600">
-              All time
-            </p>
-          </CardContent>
-        </Card>
+		// Update colors based on values
+		this.update_stat_colors(stats);
+	},
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Recent Activity</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              {stats?.recent_activity?.requests || 0}
-            </div>
-            <p className="text-xs text-gray-600">
-              Last 30 days
-            </p>
-          </CardContent>
-        </Card>
+	update_stat_colors: function(stats) {
+		// Update pending card color based on urgency
+		const pendingCard = $('#pending-card');
+		if (stats.pending_approvals > 10) {
+			pendingCard.addClass('urgent');
+		} else if (stats.pending_approvals > 5) {
+			pendingCard.addClass('warning');
+		} else {
+			pendingCard.addClass('normal');
+		}
+	},
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Executions</CardTitle>
-            <CheckCircle className="h-4 w-4 text-gray-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-gray-600">
-              {stats?.recent_activity?.executions || 0}
-            </div>
-            <p className="text-xs text-gray-600">
-              Last 30 days
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+	load_pending_requests: function() {
+		frappe.call({
+			method: 'verenigingen.api.termination_api.get_pending_requests',
+			args: { limit: 10 },
+			callback: function(r) {
+				if (r.message) {
+					verenigingen.termination_dashboard.render_pending_requests(r.message);
+				}
+			}
+		});
+	},
 
-      {/* Status Breakdown */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>Requests by Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {stats?.status_counts && Object.entries(stats.status_counts).map(([status, count]) => (
-                <div key={status} className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Badge className={getStatusColor(status)}>
-                      {status}
-                    </Badge>
-                  </div>
-                  <span className="font-semibold">{count}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+	load_recent_activity: function() {
+		frappe.call({
+			method: 'verenigingen.api.termination_api.get_recent_activity',
+			args: { limit: 10 },
+			callback: function(r) {
+				if (r.message) {
+					verenigingen.termination_dashboard.render_recent_activity(r.message);
+				}
+			}
+		});
+	},
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Requests by Type</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {stats?.type_counts && Object.entries(stats.type_counts)
-                .filter(([_, count]) => count > 0)
-                .map(([type, count]) => (
-                <div key={type} className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Badge className={getTypeColor(type)}>
-                      {type}
-                    </Badge>
-                  </div>
-                  <span className="font-semibold">{count}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+	render_pending_requests: function(requests) {
+		const container = $('#pending-requests-list');
+		container.empty();
 
-      {/* Pending Approvals */}
-      {pendingRequests.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <AlertTriangle className="h-5 w-5 text-yellow-600" />
-              <span>Pending Approvals ({pendingRequests.length})</span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {pendingRequests.map((request) => (
-                <div key={request.name} className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3">
-                      <h4 className="font-medium">{request.member_name}</h4>
-                      <Badge className={getTypeColor(request.termination_type)}>
-                        {request.termination_type}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Requested by {request.requested_by} on {new Date(request.request_date).toLocaleDateString()}
-                    </p>
-                  </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => frappe.set_route('Form', 'Membership Termination Request', request.name)}
-                      className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
-                    >
-                      Review
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+		if (!requests || requests.length === 0) {
+			container.html('<p class="text-muted">No pending requests</p>');
+			return;
+		}
 
-      {/* Recent Activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Executions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {recentActivity.length > 0 ? (
-            <div className="space-y-4">
-              {recentActivity.map((activity) => (
-                <div key={activity.name} className="flex items-center justify-between p-3 border-l-4 border-gray-300 bg-gray-50">
-                  <div>
-                    <h4 className="font-medium">{activity.member_name}</h4>
-                    <div className="flex items-center space-x-2 mt-1">
-                      <Badge className={getTypeColor(activity.termination_type)}>
-                        {activity.termination_type}
-                      </Badge>
-                      <span className="text-sm text-gray-600">
-                        Executed by {activity.executed_by} on {new Date(activity.execution_date).toLocaleDateString()}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => frappe.set_route('Form', 'Membership Termination Request', activity.name)}
-                    className="text-blue-600 hover:text-blue-800 text-sm"
-                  >
-                    View Details
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-gray-600 italic">No recent executions</p>
-          )}
-        </CardContent>
-      </Card>
+		requests.forEach(function(request) {
+			const statusColor = verenigingen.termination_dashboard.get_status_color(request.status);
+			const typeColor = verenigingen.termination_dashboard.get_type_color(request.termination_type);
 
-      {/* Quick Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Quick Actions</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <button
-              onClick={() => frappe.set_route('query-report', 'Termination Audit Report')}
-              className="p-4 border rounded-lg hover:bg-gray-50 text-left"
-            >
-              <FileText className="h-6 w-6 text-blue-600 mb-2" />
-              <h3 className="font-medium">Audit Report</h3>
-              <p className="text-sm text-gray-600">Generate comprehensive audit trail</p>
-            </button>
+			container.append(`
+				<div class="request-item" data-name="${request.name}">
+					<div class="request-header">
+						<span class="member-name">${request.member_name || 'Unknown Member'}</span>
+						<span class="badge ${statusColor}">${request.status}</span>
+					</div>
+					<div class="request-details">
+						<span class="termination-type ${typeColor}">${request.termination_type}</span>
+						<span class="request-date">${frappe.datetime.str_to_user(request.creation)}</span>
+					</div>
+					<div class="request-actions">
+						<button class="btn btn-xs btn-default" onclick="frappe.set_route('Form', 'Membership Termination Request', '${request.name}')">
+							View
+						</button>
+					</div>
+				</div>
+			`);
+		});
+	},
 
-            <button
-              onClick={() => frappe.set_route('query-report', 'Expulsion Governance Report')}
-              className="p-4 border rounded-lg hover:bg-gray-50 text-left"
-            >
-              <AlertTriangle className="h-6 w-6 text-red-600 mb-2" />
-              <h3 className="font-medium">Expulsion Report</h3>
-              <p className="text-sm text-gray-600">Review disciplinary actions</p>
-            </button>
+	render_recent_activity: function(activities) {
+		const container = $('#recent-activity-list');
+		container.empty();
 
-            <button
-              onClick={() => frappe.msgprint('Bulk processing functionality coming soon')}
-              className="p-4 border rounded-lg hover:bg-gray-50 text-left"
-            >
-              <Users className="h-6 w-6 text-green-600 mb-2" />
-              <h3 className="font-medium">Bulk Operations</h3>
-              <p className="text-sm text-gray-600">Process multiple requests</p>
-            </button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
+		if (!activities || activities.length === 0) {
+			container.html('<p class="text-muted">No recent activity</p>');
+			return;
+		}
+
+		activities.forEach(function(activity) {
+			container.append(`
+				<div class="activity-item">
+					<div class="activity-content">
+						<span class="activity-description">${activity.description}</span>
+						<span class="activity-time">${frappe.datetime.comment_when(activity.creation)}</span>
+					</div>
+				</div>
+			`);
+		});
+	},
+
+	get_status_color: function(status) {
+		const colors = {
+			'Draft': 'badge-info',
+			'Pending Approval': 'badge-warning',
+			'Approved': 'badge-success',
+			'Rejected': 'badge-danger',
+			'Executed': 'badge-secondary'
+		};
+		return colors[status] || 'badge-secondary';
+	},
+
+	get_type_color: function(type) {
+		const disciplinaryTypes = ['Policy Violation', 'Disciplinary Action', 'Expulsion'];
+		return disciplinaryTypes.includes(type) ? 'type-disciplinary' : 'type-voluntary';
+	}
 };
 
-export default TerminationDashboard;
+// Initialize when document is ready
+$(document).ready(function() {
+	if (frappe.get_route()[0] === 'termination-dashboard') {
+		verenigingen.termination_dashboard.init();
+		verenigingen.termination_dashboard.show();
+	}
+});
+
+// Export for other modules
+window.TerminationDashboard = verenigingen.termination_dashboard;

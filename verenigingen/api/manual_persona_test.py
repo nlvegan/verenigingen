@@ -1,9 +1,16 @@
 import frappe
 
 from verenigingen.tests.fixtures.billing_transition_personas import BillingTransitionPersonas
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def run_personas_in_reverse():
     """Run billing transition personas manually in reverse order"""
 

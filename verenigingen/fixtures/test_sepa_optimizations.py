@@ -295,7 +295,7 @@ def test_all_optimizations():
             if test_func():
                 passed += 1
             else:
-                print(f"   Test returned False")
+                print("   Test returned False")
         except Exception as e:
             print(f"   Test failed with exception: {e}")
 

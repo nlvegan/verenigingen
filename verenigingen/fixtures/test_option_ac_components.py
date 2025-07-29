@@ -15,7 +15,7 @@ def test_dutch_payroll_timing():
     current_date = getdate(today())
     day_of_month = current_date.day
 
-    print(f"🗓️ Dutch Payroll Timing Test:")
+    print("🗓️ Dutch Payroll Timing Test:")
     print(f"Today: {current_date} (day {day_of_month} of month)")
 
     if day_of_month in [19, 20]:
@@ -123,7 +123,7 @@ def test_invoice_coverage_verification():
         processor = SEPAProcessor()
         result = processor.verify_invoice_coverage(today())
 
-        print(f"✅ Invoice coverage verification working:")
+        print("✅ Invoice coverage verification working:")
         print(f"   Schedules checked: {result['total_checked']}")
         print(f"   Issues found: {result.get('issues_count', 0)}")
         print(f"   Complete: {result['complete']}")
@@ -190,7 +190,7 @@ def test_all_components():
             if test_func():
                 passed += 1
             else:
-                print(f"   Test returned False")
+                print("   Test returned False")
         except Exception as e:
             print(f"   Test failed with exception: {e}")
 

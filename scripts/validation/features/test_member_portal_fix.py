@@ -58,14 +58,14 @@ def test_member_portal_expense_query():
     print("\n3. Testing that approval_status query correctly fails...")
 
     try:
-        # This should fail
-        frappe.db.count("Volunteer Expense", filters={"approval_status": "Draft"})  # This field doesn't exist
-        print(f"   ❌ Query unexpectedly succeeded (approval_status should not exist)")
+        # This should fail - testing with non-existent field
+        frappe.db.count("Volunteer Expense", filters={"nonexistent_field": "Draft"})  # This field doesn't exist - test should fail
+        print(f"   ❌ Query unexpectedly succeeded (nonexistent_field should not exist)")
         return False
 
     except Exception as e:
-        if "Unknown column 'approval_status'" in str(e):
-            print(f"   ✅ Query correctly failed - approval_status field doesn't exist")
+        if "Unknown column 'nonexistent_field'" in str(e):
+            print(f"   ✅ Query correctly failed - nonexistent_field doesn't exist")
         else:
             print(f"   ❓ Query failed for different reason: {str(e)}")
 

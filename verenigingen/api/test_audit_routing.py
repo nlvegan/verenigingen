@@ -5,10 +5,17 @@ API endpoint to test audit logging routing between SEPA and API audit tables
 import frappe
 from frappe import _
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 from verenigingen.utils.security.audit_logging import get_audit_logger
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_audit_routing():
     """Test that events are routed to the correct audit tables"""
     if not frappe.has_permission("System Manager"):
@@ -144,7 +151,7 @@ def test_audit_routing():
         results["summary"] = {
             "total_tests": total_tests,
             "passed_tests": passed_tests,
-            "success_rate": f"{(passed_tests/total_tests)*100:.1f}%",
+            "success_rate": f"{(passed_tests / total_tests) * 100:.1f}%",
             "sepa_events_created": len(sepa_event_ids),
             "api_events_created": len(api_event_ids),
             "events_cleaned_up": cleanup_count,
@@ -163,6 +170,7 @@ def test_audit_routing():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_field_mapping():
     """Test that field mappings work correctly for both tables"""
     if not frappe.has_permission("System Manager"):

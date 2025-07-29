@@ -1275,3 +1275,139 @@ def validate_address_endpoint(data):
         return validate_address_util(parsed_data)
     except Exception as e:
         return {"valid": False, "errors": [str(e)]}
+
+
+@frappe.whitelist(allow_guest=True)
+@standard_api
+@handle_api_error
+@performance_monitor(threshold_ms=1000)
+def suggest_chapters_for_postal_code(postal_code):
+    """
+    Suggest chapters based on postal code.
+
+    Args:
+        postal_code (str): Postal code to search for
+
+    Returns:
+        dict: List of suggested chapters with relevance scores
+    """
+    # Validate input
+    if not postal_code:
+        return {"success": False, "error": "Postal code is required", "suggestions": []}
+
+    # Clean and normalize postal code
+    postal_code = str(postal_code).strip().upper()
+
+    # Basic Dutch postal code validation (NNNNAA format)
+    import re
+
+    if not re.match(r"^\d{4}[A-Z]{2}$", postal_code):
+        return {
+            "success": False,
+            "error": "Invalid postal code format. Expected format: 1234AB",
+            "suggestions": [],
+        }
+
+    try:
+        # Extract numeric part for range matching
+        postal_numeric = int(postal_code[:4])
+
+        # Get all active chapters with postal code ranges
+        chapters = frappe.get_all(
+            "Chapter",
+            filters={"published": 1},
+            fields=["name", "region", "postal_codes", "introduction"],
+        )
+
+        suggestions = []
+
+        for chapter in chapters:
+            relevance_score = 0
+            match_type = None
+
+            # Check if chapter has postal codes defined
+            if chapter.postal_codes:
+                # Parse postal code ranges (format: "1000-1099,2000-2099")
+                postal_ranges = chapter.postal_codes.replace(" ", "").split(",")
+
+                for range_str in postal_ranges:
+                    if "-" in range_str:
+                        # Range format: "1000-1099"
+                        try:
+                            start, end = range_str.split("-")
+                            start_num = int(start)
+                            end_num = int(end)
+
+                            if start_num <= postal_numeric <= end_num:
+                                relevance_score = 100  # Perfect match
+                                match_type = "postal_range"
+                                break
+                        except ValueError:
+                            continue
+                    else:
+                        # Single postal code or prefix
+                        try:
+                            if range_str == postal_code[:4]:
+                                relevance_score = 90  # Exact prefix match
+                                match_type = "postal_prefix"
+                            elif range_str == postal_code:
+                                relevance_score = 100  # Exact match
+                                match_type = "postal_exact"
+                        except ValueError:
+                            continue
+
+            # If no direct postal code match, check city/region similarity
+            if relevance_score == 0:
+                # This is a simplified approach - in practice you might want
+                # to use a proper geocoding service or postal code database
+                if postal_numeric < 2000:
+                    if (
+                        "amsterdam" in chapter.chapter_name.lower()
+                        or "noord-holland" in chapter.region.lower()
+                    ):
+                        relevance_score = 30
+                        match_type = "region_guess"
+                elif postal_numeric < 3000:
+                    if "den haag" in chapter.chapter_name.lower() or "zuid-holland" in chapter.region.lower():
+                        relevance_score = 30
+                        match_type = "region_guess"
+                elif postal_numeric < 4000:
+                    if (
+                        "rotterdam" in chapter.chapter_name.lower()
+                        or "zuid-holland" in chapter.region.lower()
+                    ):
+                        relevance_score = 30
+                        match_type = "region_guess"
+                # Add more regional logic as needed
+
+            # Add chapter to suggestions if there's any relevance
+            if relevance_score > 0:
+                suggestions.append(
+                    {
+                        "name": chapter.name,
+                        "chapter_name": chapter.chapter_name,
+                        "region": chapter.region,
+                        "city": chapter.city,
+                        "description": chapter.description,
+                        "relevance_score": relevance_score,
+                        "match_type": match_type,
+                        "postal_code_ranges": chapter.postal_codes,
+                    }
+                )
+
+        # Sort by relevance score (highest first)
+        suggestions.sort(key=lambda x: x["relevance_score"], reverse=True)
+
+        # Limit to top 5 suggestions
+        suggestions = suggestions[:5]
+
+        return {
+            "success": True,
+            "postal_code": postal_code,
+            "suggestions": suggestions,
+            "total_suggestions": len(suggestions),
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Error suggesting chapters for postal code {postal_code}: {str(e)}")
+        return {"success": False, "error": f"Error processing postal code: {str(e)}", "suggestions": []}

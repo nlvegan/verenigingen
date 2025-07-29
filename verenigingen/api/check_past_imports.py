@@ -4,8 +4,16 @@ Check if the failing mutations were imported successfully in the past
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_existing_journal_entries():
     """Check if these mutation IDs already exist in Journal Entry documents"""
     try:
@@ -72,6 +80,7 @@ def check_existing_journal_entries():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def get_journal_entry_details():
     """Get detailed information about existing journal entries for these mutations"""
     try:
@@ -137,6 +146,7 @@ def get_journal_entry_details():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_mutation_import_history():
     """Check when these mutations might have been imported and what changed"""
     try:

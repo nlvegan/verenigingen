@@ -56,6 +56,23 @@ class UnifiedFieldValidator:
             }
         }
         
+        # Python standard library modules and common patterns that should not be validated as field references
+        self.python_stdlib_patterns = {
+            'time', 'datetime', 'json', 'os', 'sys', 'math', 'random', 'collections',
+            'itertools', 'functools', 'pathlib', 'urllib', 'hashlib', 'uuid', 're',
+            'ast', 'inspect', 'traceback', 'logging', 'unittest', 'subprocess',
+            'threading', 'queue', 'socket', 'email', 'base64', 'csv', 'xml',
+            'html', 'http', 'copy', 'pickle', 'tempfile', 'shutil', 'glob'
+        }
+        
+        # Common test method names and variables that should not be validated
+        self.test_patterns = {
+            'assertEqual', 'assertTrue', 'assertFalse', 'assertIn', 'assertNotIn',
+            'assertIsNone', 'assertIsNotNone', 'assertRaises', 'assertWarns',
+            'test_member', 'test_volunteer', 'test_chapter', 'test_application',
+            'test_data', 'test_result', 'mock_member', 'mock_volunteer'
+        }
+        
     def load_doctypes(self) -> Dict[str, Set[str]]:
         """Load doctype field definitions"""
         doctypes = {}
@@ -94,6 +111,36 @@ class UnifiedFieldValidator:
         if doctype in self.known_field_mappings:
             return self.known_field_mappings[doctype].get(field)
         return None
+    
+    def should_skip_pattern(self, object_name: str, field_name: str, context: str = "") -> bool:
+        """Check if an object.field pattern should be skipped as a false positive"""
+        
+        # Skip Python standard library calls
+        if object_name.lower() in self.python_stdlib_patterns:
+            return True
+            
+        # Skip common test patterns
+        if object_name.lower() in self.test_patterns or field_name.lower() in self.test_patterns:
+            return True
+            
+        # Skip frappe framework methods
+        if object_name == 'frappe' and field_name in {'whitelist', 'api', 'client', 'utils', 'model', 'desk'}:
+            return True
+            
+        # Skip method calls (indicated by parentheses after field)
+        if '(' in context and ')' in context:
+            return True
+            
+        # Skip obvious method names (contain verbs or end in common method suffixes)
+        method_suffixes = ['_method', '_function', '_handler', '_callback', '_validator', '_manager']
+        if any(field_name.lower().endswith(suffix) for suffix in method_suffixes):
+            return True
+            
+        # Skip module imports and attribute access
+        if any(pattern in context.lower() for pattern in ['import ', 'from ', 'class ', 'def ']):
+            return True
+            
+        return False
     
     def find_similar_fields(self, field_name: str, doctype: str) -> List[str]:
         """Find similar field names using string matching"""

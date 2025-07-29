@@ -121,7 +121,7 @@ frappe.ui.form.on('Volunteer', {
 
 										// Clean up special characters but preserve name particles (van, de, etc.)
 										// Remove special characters except dots and letters, but keep the name particles
-										nameForEmail = nameForEmail.replace(/[^a-z\.]/g, '');
+										nameForEmail = nameForEmail.replace(/[^a-z.]/g, '');
 
 										// Clean up multiple consecutive dots and trim dots from ends
 										nameForEmail = nameForEmail.replace(/\.+/g, '.').replace(/^\.+|\.+$/g, '');
@@ -858,7 +858,7 @@ frappe.ui.form.on('Volunteer Skill', {
 				callback: function(r) {
 					if (r.message && r.message.length > 0) {
 						// Log suggestions for now - we can enhance this later with a proper autocomplete widget
-						console.log('Skill suggestions for "' + row.volunteer_skill + '":', r.message);
+						console.warn('Skill suggestions for "' + row.volunteer_skill + '":', r.message);
 
 						// Show suggestions in a frappe message
 						if (r.message.length > 1) {

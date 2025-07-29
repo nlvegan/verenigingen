@@ -99,7 +99,7 @@ def identify_fuzzy_logic_patterns():
                                     }
                                 )
 
-                except Exception as e:
+                except Exception:
                     continue
 
     # Remove duplicates and limit results
@@ -208,7 +208,7 @@ def identify_specific_fuzzy_cases():
                                 }
                             )
 
-                except Exception as e:
+                except Exception:
                     continue
 
     # Sort by risk level

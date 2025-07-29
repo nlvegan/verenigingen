@@ -49,7 +49,7 @@ describe('Member Lifecycle - Client Side', () => {
 
 			// Required fields
 			const requiredFields = ['first_name', 'last_name', 'email', 'birth_date',
-									'address_line1', 'city', 'postal_code', 'country'];
+				'address_line1', 'city', 'postal_code', 'country'];
 
 			requiredFields.forEach(field => {
 				if (!data[field] || data[field].trim() === '') {
@@ -523,7 +523,7 @@ describe('Member Lifecycle - Client Side', () => {
 					eligible: daysUntilExpiry <= 30 && daysUntilExpiry >= -30,
 					daysUntilExpiry,
 					message: daysUntilExpiry > 30 ? 'Too early to renew' :
-							daysUntilExpiry < -30 ? 'Membership expired' :
+						daysUntilExpiry < -30 ? 'Membership expired' :
 							'Eligible for renewal'
 				};
 			};

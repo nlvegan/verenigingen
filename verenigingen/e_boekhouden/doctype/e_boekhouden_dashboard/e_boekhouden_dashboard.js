@@ -57,7 +57,7 @@ frappe.ui.form.on('E-Boekhouden Dashboard', {
 });
 
 // Helper function to format numbers
-function format_number(num) {
+function _format_number(num) {
 	if (num >= 1000000) {
 		return (num / 1000000).toFixed(1) + 'M';
 	} else if (num >= 1000) {

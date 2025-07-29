@@ -1,0 +1,1101 @@
+{
+  "summary": {
+    "total_api_files": 106,
+    "secured_files": 95,
+    "unprotected_files": 0,
+    "security_coverage": "89.6%"
+  },
+  "risk_breakdown": {
+    "CRITICAL": 0,
+    "HIGH": 0,
+    "MEDIUM": 0,
+    "LOW": 0
+  },
+  "unprotected_files_detail": {
+    "CRITICAL": [],
+    "HIGH": [],
+    "MEDIUM": [],
+    "LOW": []
+  },
+  "all_files_analysis": {
+    "api/simple_payment_history_check.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "api/test_monitoring.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "api/check_member_schedules.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "api/debug_payment_history.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "api/test_phase3_service.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 9,
+      "security_decorators": 9,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/sepa_batch_ui_secure.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 8,
+      "security_decorators": 9,
+      "function_names": [
+        "load_unpaid_invoices_secure",
+        "get_invoice_mandate_info_secure",
+        "validate_invoice_mandate_secure",
+        "get_batch_analytics_secure",
+        "preview_sepa_xml_secure",
+        "create_sepa_batch_validated_secure",
+        "validate_batch_invoices_secure",
+        "get_sepa_validation_constraints_secure"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/get_user_chapters.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 0,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/check_roles.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 17,
+      "security_decorators": 9,
+      "function_names": [
+        "get_verenigingen_roles",
+        "validate_role_names_in_code",
+        "debug_member_payment_history",
+        "refresh_member_payment_history",
+        "test_invoice_submission_trigger",
+        "debug_dues_schedule_dates",
+        "investigate_duplicate_invoices",
+        "test_duplicate_prevention",
+        "check_coverage_period_fields",
+        "populate_missing_coverage_fields",
+        "test_coverage_fields_in_payment_history",
+        "audit_coverage_data_consistency",
+        "test_enhanced_coverage_architecture",
+        "test_new_invoice_generation",
+        "test_payment_history_popup_data",
+        "test_duplicate_prevention_in_action",
+        "test_complete_billing_fix"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/workspace_reorganizer.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [
+        "reorganize_workspace"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/workspace_validator.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [
+        "validate_workspace_comprehensive",
+        "validate_specific_workspace",
+        "run_workspace_pre_commit_check"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/fix_invalid_dates.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [
+        "fix_invalid_last_invoice_dates"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/performance_profiling_api.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/fix_membership_types_billing.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [
+        "fix_membership_types_billing_frequency",
+        "verify_membership_types_fixed"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/analyze_failing_mutations.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [
+        "analyze_failing_stock_mutations",
+        "check_stock_ledger_usage",
+        "suggest_stock_account_solution"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/dd_batch_optimizer.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [
+        "create_optimal_batches",
+        "validate_all_pending_invoices",
+        "get_batching_preview",
+        "update_batch_optimization_config"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/check_opening_balance_date.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [
+        "check_opening_balance_mutation_date",
+        "check_earliest_mutation_date",
+        "get_opening_balance_date_for_js"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/validate_sql_fixes.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [
+        "test_fixed_queries"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_refresh_issue.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/generate_invoice_for_schedule.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [
+        "generate_invoice_for_schedule"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/simple_mutation_test.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 5,
+      "security_decorators": 5,
+      "function_names": [
+        "test_mutation_1363_date",
+        "test_early_mutations_in_api",
+        "test_opening_balances_exist",
+        "test_iterator_all_mutations",
+        "check_api_mutation_order"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/validate_event_driven_fix.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [
+        "validate_architectural_fix",
+        "compare_architectures"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/termination_api.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/performance_validation.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/run_chapter_basic_test.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [
+        "run_test"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/smart_mapping_deployment_guide.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [
+        "smart_mapping_deployment_summary",
+        "test_migration_readiness"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/unified_security_monitoring.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [
+        "get_unified_monitoring_overview",
+        "get_integrated_security_metrics",
+        "get_monitoring_system_health",
+        "trigger_unified_security_test"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_migration.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 14,
+      "security_decorators": 14,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/schedule_maintenance.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/membership_application_review.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 18,
+      "security_decorators": 1,
+      "function_names": [
+        "reject_membership_application",
+        "get_pending_reviews_for_member",
+        "debug_and_fix_member_approval",
+        "test_member_approval",
+        "sync_member_statuses",
+        "fix_backend_member_statuses",
+        "migrate_active_application_status",
+        "check_member_iban_data",
+        "debug_custom_amount_flow",
+        "send_overdue_notifications",
+        "debug_membership_dues_schedule",
+        "debug_membership_type_settings",
+        "check_dues_schedule_invoice_relationship",
+        "create_default_email_templates"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/chapter_dashboard_api.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 48,
+      "security_decorators": 0,
+      "function_names": [
+        "test_mt940_naming_logic",
+        "debug_mt940_import",
+        "debug_mt940_transaction_creation",
+        "reprocess_mt940_import",
+        "test_eboekhouden_framework",
+        "test_eboekhouden_api_mock",
+        "test_eboekhouden_complete",
+        "debug_dashboard_access",
+        "test_url_access",
+        "create_chapter_dashboard",
+        "create_simple_dashboard",
+        "add_existing_cards_to_dashboard",
+        "finalize_chapter_dashboard",
+        "add_chapter_specific_chart",
+        "get_dashboard_completion_summary",
+        "fix_dashboard_chart_issue",
+        "fix_all_chart_issues",
+        "fix_chart_currency_display",
+        "fix_chart_timeseries_display",
+        "recreate_working_charts",
+        "use_existing_working_charts",
+        "create_cards_only_dashboard",
+        "create_proper_chapter_charts",
+        "create_minimal_working_charts",
+        "debug_number_cards",
+        "create_working_basic_charts",
+        "fix_dashboard_with_working_chart",
+        "test_number_card_format",
+        "create_chapter_member_charts",
+        "test_dashboard_access",
+        "clean_dashboard_completely",
+        "fix_dashboard_simple",
+        "restore_all_member_cards",
+        "add_working_chapter_charts",
+        "get_filed_expense_claims_count",
+        "get_approved_expense_claims_count",
+        "get_volunteer_expenses_count",
+        "test_enhanced_mt940_features"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/membership_application.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 7,
+      "security_decorators": 0,
+      "function_names": [
+        "debug_member_issue",
+        "fix_specific_member",
+        "test_chapter_membership_workflow",
+        "test_status_field_integration"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/test_refresh_reliability.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/chapter_join.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 0,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/manual_persona_test.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/create_root_accounts.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [
+        "create_root_accounts",
+        "create_standard_coa_groups"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/check_sepa_indexes.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/performance_measurement_api.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 12,
+      "security_decorators": 12,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/manual_invoice_generation.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 9,
+      "security_decorators": 9,
+      "function_names": [
+        "generate_manual_invoice",
+        "get_member_invoice_info",
+        "test_settings_creation_user",
+        "test_email_template_variables",
+        "scan_email_template_issues",
+        "test_sepa_mandate_pattern",
+        "check_dues_schedules",
+        "test_hybrid_payment_history_implementation",
+        "diagnose_auto_submit_setting"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/sepa_reconciliation.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 6,
+      "security_decorators": 6,
+      "function_names": [
+        "identify_sepa_transactions",
+        "process_sepa_transaction_conservative",
+        "process_sepa_return_file",
+        "correlate_return_transactions",
+        "get_sepa_reconciliation_dashboard",
+        "manual_sepa_reconciliation"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/monitoring_production_readiness.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 6,
+      "security_decorators": 6,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_coverage_display.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/create_onboarding_steps.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/performance_measurement.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 5,
+      "security_decorators": 4,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_member_membership.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 16,
+      "security_decorators": 16,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/enhanced_membership_application.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_security_monitor.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 0,
+      "function_names": [
+        "debug_security_monitor_initialization",
+        "test_security_monitor_basic_functionality",
+        "fix_security_monitor_initialization"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/simple_measurement_test.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/dd_batch_api.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 6,
+      "security_decorators": 6,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/workspace_debug.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 9,
+      "security_decorators": 5,
+      "function_names": [
+        "check_workspace_status",
+        "check_eboekhouden_workspace",
+        "check_dues_system_status",
+        "fix_eboekhouden_workspace_content",
+        "check_eboekhouden_doctypes",
+        "add_missing_eboekhouden_doctypes",
+        "force_reload_workspace",
+        "create_minimal_workspace",
+        "restore_full_workspace_structure"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/payment_dashboard.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 9,
+      "security_decorators": 0,
+      "function_names": [
+        "get_payment_history",
+        "get_mandate_history",
+        "get_payment_schedule",
+        "get_next_payment",
+        "retry_failed_payment",
+        "download_payment_receipt",
+        "export_payment_history_csv"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/sepa_batch_ui.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 8,
+      "security_decorators": 8,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/cleanup_chapter_members.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/donor_auto_creation_management.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 9,
+      "security_decorators": 8,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/member_management.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 17,
+      "security_decorators": 16,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/final_refresh_test.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/get_unreconciled_payments.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [
+        "get_unreconciled_payments",
+        "reconcile_payment_with_invoice"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/payment_plan_management.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 8,
+      "security_decorators": 8,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/validate_coverage_report.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_payment_history_issues.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/monitoring_test_corrected.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/volunteer_skills.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 5,
+      "security_decorators": 0,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/sepa_workflow_wrapper.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_integration_testing.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/performance_convenience.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/fix_custom_fields.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/update_prepare_system_button.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/anbi_operations.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 8,
+      "security_decorators": 0,
+      "function_names": [
+        "get_donor_anbi_data",
+        "generate_anbi_report",
+        "update_anbi_consent",
+        "validate_bsn",
+        "get_anbi_statistics",
+        "export_belastingdienst_report",
+        "send_consent_requests"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/fix_today_payment_history.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/dd_batch_workflow_controller.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 6,
+      "security_decorators": 6,
+      "function_names": [
+        "validate_batch_for_approval",
+        "approve_batch",
+        "reject_batch",
+        "get_batch_approval_history",
+        "trigger_sepa_generation",
+        "get_batches_pending_approval"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/simple_validation_test.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/generic_report_tester.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 0,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/email_template_manager.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [
+        "create_comprehensive_email_templates",
+        "test_email_template",
+        "list_all_email_templates"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/check_error_logs.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_csrf_test.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 5,
+      "security_decorators": 1,
+      "function_names": [
+        "test_basic_api",
+        "test_csrf_only",
+        "test_security_framework",
+        "test_csrf_token_check",
+        "debug_suspension_api_call"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/test_member_portal_coverage.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/security_migration_validation.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/sepa_mandate_management.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/fix_payment_history_today.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/check_past_imports.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/job_status.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 8,
+      "security_decorators": 8,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/check_payment_history_sync.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/debug_payment_history.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/quick_stock_check.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 0,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/test_audit_routing.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/sepa_period_duplicate_prevention.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/dd_batch_scheduler.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 6,
+      "security_decorators": 6,
+      "function_names": [
+        "get_batch_creation_schedule",
+        "toggle_auto_batch_creation",
+        "run_batch_creation_now",
+        "validate_batch_creation_days",
+        "get_batch_optimization_stats",
+        "test_batch_scheduler_config"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/generate_test_membership_types.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/customer_member_link.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 0,
+      "function_names": [
+        "create_customer_member_button"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/onboarding_info.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/suspension_api.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 8,
+      "security_decorators": 7,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/full_migration_summary.py": {
+      "secured": false,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 0,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/workspace_validator_enhanced.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/deep_mutation_analysis.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/payment_processing.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/generate_test_members.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/sepa_batch_notifications.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 1,
+      "security_decorators": 1,
+      "function_names": [
+        "test_notification_system"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/database_index_manager.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 5,
+      "security_decorators": 5,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/check_account_types.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/create_smart_item_mapping.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/clean_test_chapter.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/periodic_donation_operations.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 11,
+      "security_decorators": 10,
+      "function_names": [
+        "create_periodic_agreement",
+        "get_donor_agreements",
+        "link_donation_to_agreement",
+        "generate_periodic_donation_report",
+        "check_expiring_agreements",
+        "create_donation_from_agreement",
+        "get_agreement_statistics",
+        "send_renewal_reminders",
+        "generate_tax_receipts",
+        "export_agreements",
+        "test_periodic_donation_system"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/security_monitoring_dashboard.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/donor_customer_management.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 4,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/fix_stuck_dues_schedule.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 4,
+      "security_decorators": 3,
+      "function_names": [
+        "diagnose_stuck_schedule",
+        "fix_stuck_schedule",
+        "find_all_stuck_schedules",
+        "check_and_notify_stuck_schedules"
+      ],
+      "needs_security": false
+    },
+    "verenigingen/api/generate_test_applications.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 3,
+      "security_decorators": 3,
+      "function_names": [],
+      "needs_security": false
+    },
+    "verenigingen/api/test_coverage_fields.py": {
+      "secured": true,
+      "has_security_import": true,
+      "whitelist_functions": 2,
+      "security_decorators": 2,
+      "function_names": [],
+      "needs_security": false
+    }
+  }
+}

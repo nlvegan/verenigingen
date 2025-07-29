@@ -1598,3 +1598,78 @@ def create_bank_transaction_improved(transaction_data, bank_account, company):
         error_msg = str(e)
         frappe.logger().error(f"Error creating bank transaction: {error_msg}")
         return f"error: {error_msg}"
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.MEMBER_DATA)
+@handle_api_error
+@performance_monitor(threshold_ms=1000)
+def get_chapter_member_emails(chapter_name):
+    """
+    Get email addresses of all members in a specific chapter.
+
+    Args:
+        chapter_name (str): Name of the chapter
+
+    Returns:
+        dict: List of member emails and metadata
+    """
+    # Validate input
+    validate_required_fields({"chapter_name": chapter_name}, ["chapter_name"])
+
+    # Check permissions - user must be able to approve members or be admin
+    if not can_approve_members():
+        raise PermissionError("You do not have permission to access member email lists")
+
+    # Validate chapter exists
+    if not frappe.db.exists("Chapter", chapter_name):
+        raise ValidationError(f"Chapter '{chapter_name}' does not exist")
+
+    # Get chapter members with email addresses
+    members = frappe.get_all(
+        "Member",
+        filters={
+            "current_chapter": chapter_name,
+            "membership_status": ["in", ["Active", "Pending"]],
+            "email": ["is", "set"],  # Only members with email addresses
+        },
+        fields=["name", "full_name", "email", "membership_status", "member_since"],
+        order_by="full_name",
+    )
+
+    # Filter out invalid emails and prepare email list
+    valid_emails = []
+    member_details = []
+
+    for member in members:
+        if member.email and "@" in member.email:
+            valid_emails.append(member.email)
+            member_details.append(
+                {
+                    "name": member.name,
+                    "full_name": member.full_name,
+                    "email": member.email,
+                    "status": member.membership_status,
+                    "member_since": member.member_since,
+                }
+            )
+
+    # Get chapter information
+    chapter = frappe.get_doc("Chapter", chapter_name)
+
+    return {
+        "success": True,
+        "chapter": {"name": chapter_name, "chapter_name": chapter.chapter_name, "region": chapter.region},
+        "emails": valid_emails,
+        "members": member_details,
+        "total_members": len(member_details),
+        "email_list": ", ".join(valid_emails),  # Convenient for copy-paste
+    }
+
+
+def can_approve_members():
+    """Check if current user can approve members (has required roles)"""
+    user_roles = frappe.get_roles(frappe.session.user)
+    required_roles = ["System Manager", "Verenigingen Administrator", "Chapter Administrator", "Board Member"]
+
+    return any(role in user_roles for role in required_roles)

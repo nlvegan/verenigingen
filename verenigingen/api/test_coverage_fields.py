@@ -5,8 +5,16 @@ Test coverage field functionality for member portal
 import frappe
 from frappe.utils import formatdate
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_coverage_fields():
     """Test if coverage fields exist and have data"""
     frappe.only_for("System Manager")
@@ -102,6 +110,7 @@ def test_coverage_fields():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def populate_sample_coverage_data():
     """Populate some sample coverage data for testing"""
     frappe.only_for("System Manager")

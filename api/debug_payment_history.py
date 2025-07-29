@@ -6,8 +6,11 @@ import frappe
 from frappe import _
 from frappe.utils import getdate, today
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def check_member_payment_history(member_name):
     """Check payment history for a specific member"""
 
@@ -71,6 +74,7 @@ def check_member_payment_history(member_name):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def debug_bulk_update_function():
     """Check if the bulk update function is being called correctly"""
 
@@ -113,6 +117,7 @@ def debug_bulk_update_function():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def manually_update_payment_history(member_name):
     """Manually trigger payment history update for a member"""
 

@@ -17,8 +17,16 @@ from typing import Any, Dict, List
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def establish_performance_baselines():
     """Create baseline performance measurements for all critical operations"""
     frappe.only_for(["System Manager", "Verenigingen Administrator"])
@@ -95,6 +103,7 @@ def establish_performance_baselines():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def run_comprehensive_performance_profiling():
     """Run comprehensive performance profiling to identify bottlenecks"""
     frappe.only_for(["System Manager", "Verenigingen Administrator"])

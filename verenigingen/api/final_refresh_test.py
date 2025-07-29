@@ -2,8 +2,16 @@
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def clean_and_test_refresh(member_name="Assoc-Member-2025-07-0030"):
     """Clean up any test data and test the refresh with original data"""
 
@@ -56,6 +64,7 @@ def clean_and_test_refresh(member_name="Assoc-Member-2025-07-0030"):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def final_button_test(member_name="Assoc-Member-2025-07-0030"):
     """Final test simulating the exact button click workflow"""
 

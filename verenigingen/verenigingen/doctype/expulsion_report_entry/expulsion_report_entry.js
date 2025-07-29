@@ -37,13 +37,13 @@ frappe.ui.form.on('Expulsion Report Entry', {
 				args: {
 					doctype: 'Member',
 					filters: {name: frm.doc.member_id},
-					fieldname: ['full_name', 'primary_chapter', 'email']
+					fieldname: ['full_name', 'current_chapter_display', 'email']
 				},
 				callback: function(r) {
 					if (r.message) {
 						frm.set_value('member_name', r.message.full_name);
-						if (r.message.primary_chapter && !frm.doc.chapter_involved) {
-							frm.set_value('chapter_involved', r.message.primary_chapter);
+						if (r.message.current_chapter_display && !frm.doc.chapter_involved) {
+							frm.set_value('chapter_involved', r.message.current_chapter_display);
 						}
 					}
 				}

@@ -277,7 +277,7 @@ QUnit.test('test: Member - Error Handling', function (assert) {
 	frappe.run_serially([
 		// Test form without required fields
 		() => {
-			cur_frm = new frappe.ui.form.Form('Member', null, true);
+			window.cur_frm = new frappe.ui.form.Form('Member', null, true);
 		},
 		() => frappe.timeout(1),
 

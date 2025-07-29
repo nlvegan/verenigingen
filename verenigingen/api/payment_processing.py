@@ -49,6 +49,24 @@ def send_overdue_payment_reminders(
 ):
     """Send payment reminders to members with overdue payments"""
 
+    # Critical Security Fix: Add explicit permission validation
+    if not frappe.has_permission("Sales Invoice", "read"):
+        frappe.throw(_("You don't have permission to access overdue payment data"), frappe.PermissionError)
+
+    if not frappe.has_permission("Member", "read"):
+        frappe.throw(_("You don't have permission to access member data"), frappe.PermissionError)
+
+    # Additional financial operation permission check
+    user_roles = frappe.get_roles(frappe.session.user)
+    required_roles = ["Finance Manager", "Accounts Manager", "System Manager", "Verenigingen Administrator"]
+    if not any(role in required_roles for role in user_roles):
+        frappe.throw(
+            _("You don't have permission to send payment reminders. Required roles: {0}").format(
+                ", ".join(required_roles)
+            ),
+            frappe.PermissionError,
+        )
+
     # Validate inputs
     validate_required_fields({"reminder_type": reminder_type}, ["reminder_type"])
 

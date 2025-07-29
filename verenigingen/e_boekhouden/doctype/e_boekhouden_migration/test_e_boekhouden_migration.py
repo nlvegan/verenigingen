@@ -183,8 +183,6 @@ class TestEBoekhoudenMigration(FrappeTestCase):
                 "doctype": "E-Boekhouden Migration",
                 "migration_name": "Test Scope Validation",
                 "company": self.test_company.name,
-                "date_from": add_months(today(), -6),
-                "date_to": today(),
                 "migrate_transactions": 1,
                 # Missing date range - should cause validation error
                 "date_from": None,

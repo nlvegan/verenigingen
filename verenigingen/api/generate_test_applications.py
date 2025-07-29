@@ -6,8 +6,11 @@ import random
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import OperationType, critical_api
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def generate_test_members():
     """
     Generate test membership applications from sample data
@@ -278,6 +281,7 @@ def generate_test_members():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def cleanup_test_applications():
     """
     Remove test applications (those with @email.nl addresses)
@@ -308,6 +312,7 @@ def cleanup_test_applications():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def get_test_applications_status():
     """
     Get status of test applications

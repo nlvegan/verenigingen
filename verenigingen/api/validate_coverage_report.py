@@ -9,8 +9,16 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, today
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def validate_report():
     """Main validation function for the coverage report"""
 
@@ -107,6 +115,7 @@ def validate_report():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_gap_classification():
     """Test gap classification function"""
     try:
@@ -139,6 +148,7 @@ def test_gap_classification():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_report_columns():
     """Test report column generation"""
     try:
@@ -186,6 +196,7 @@ def test_report_columns():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def check_database_fields():
     """Check if required database fields exist"""
     try:

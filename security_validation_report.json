@@ -1,0 +1,30 @@
+{
+  "validation_summary": {
+    "total_files_validated": 98,
+    "files_passed": 97,
+    "files_with_warnings": 1,
+    "files_failed": 0,
+    "success_rate": "99.0%",
+    "total_functions_analyzed": 0,
+    "total_security_decorators": 0,
+    "decoration_coverage": "0%"
+  },
+  "decorator_usage_stats": {},
+  "files_needing_attention": [
+    {
+      "file": "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/utils/security/api_security_framework.py",
+      "status": "WARNING",
+      "issues": [
+        "Missing security framework imports"
+      ],
+      "suggestions": [
+        "Add security framework imports"
+      ]
+    }
+  ],
+  "security_compliance_score": {
+    "score": 99.7,
+    "grade": "A+",
+    "description": "Excellent security implementation"
+  }
+}

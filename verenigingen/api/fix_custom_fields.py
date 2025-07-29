@@ -5,8 +5,16 @@ Fix custom fields: Create missing coverage fields and fix Module assignments
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_field
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_sales_invoice_coverage_fields():
     """Create custom coverage fields for Sales Invoice"""
     frappe.only_for("System Manager")
@@ -74,6 +82,7 @@ def create_sales_invoice_coverage_fields():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def fix_custom_field_modules():
     """Fix Module field assignments for existing custom fields"""
     frappe.only_for("System Manager")
@@ -156,6 +165,7 @@ def fix_custom_field_modules():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def create_other_missing_custom_fields():
     """Create other missing custom fields mentioned in documentation"""
     frappe.only_for("System Manager")
@@ -237,6 +247,7 @@ def create_other_missing_custom_fields():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def fix_all_custom_fields():
     """Main function to execute all fixes"""
     frappe.only_for("System Manager")

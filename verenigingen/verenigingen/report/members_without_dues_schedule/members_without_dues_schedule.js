@@ -1,68 +1,68 @@
 // Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 // For license information, please see license.txt
 
-frappe.query_reports["Members Without Dues Schedule"] = {
-	"filters": [
+frappe.query_reports['Members Without Dues Schedule'] = {
+	'filters': [
 		{
-			"fieldname": "include_terminated",
-			"label": __("Include Terminated Members"),
-			"fieldtype": "Check",
-			"default": 0,
-			"description": "Include members with status 'Terminated'"
+			'fieldname': 'include_terminated',
+			'label': __('Include Terminated Members'),
+			'fieldtype': 'Check',
+			'default': 0,
+			'description': 'Include members with status \'Terminated\''
 		},
 		{
-			"fieldname": "include_suspended",
-			"label": __("Include Suspended Members"),
-			"fieldtype": "Check",
-			"default": 0,
-			"description": "Include members with status 'Suspended'"
+			'fieldname': 'include_suspended',
+			'label': __('Include Suspended Members'),
+			'fieldtype': 'Check',
+			'default': 0,
+			'description': 'Include members with status \'Suspended\''
 		},
 		{
-			"fieldname": "include_pending",
-			"label": __("Include Pending Members"),
-			"fieldtype": "Check",
-			"default": 0,
-			"description": "Include members with status 'Pending' (applicants who haven't been approved yet)"
+			'fieldname': 'include_pending',
+			'label': __('Include Pending Members'),
+			'fieldtype': 'Check',
+			'default': 0,
+			'description': 'Include members with status \'Pending\' (applicants who haven\'t been approved yet)'
 		},
 		{
-			"fieldname": "member_status",
-			"label": __("Member Status"),
-			"fieldtype": "Select",
-			"options": "\nActive\nPending\nSuspended\nTerminated",
-			"description": "Filter by specific member status (optional)"
+			'fieldname': 'member_status',
+			'label': __('Member Status'),
+			'fieldtype': 'Select',
+			'options': '\nActive\nPending\nSuspended\nTerminated',
+			'description': 'Filter by specific member status (optional)'
 		},
 		{
-			"fieldname": "problems_only",
-			"label": __("Problems Only"),
-			"fieldtype": "Check",
-			"default": 0,
-			"description": "Show only members with schedule issues or no schedules"
+			'fieldname': 'problems_only',
+			'label': __('Problems Only'),
+			'fieldtype': 'Check',
+			'default': 0,
+			'description': 'Show only members with schedule issues or no schedules'
 		},
 		{
-			"fieldname": "critical_only",
-			"label": __("Critical Issues Only"),
-			"fieldtype": "Check",
-			"default": 0,
-			"description": "Show only critical issues (>7 days overdue)"
+			'fieldname': 'critical_only',
+			'label': __('Critical Issues Only'),
+			'fieldtype': 'Check',
+			'default': 0,
+			'description': 'Show only critical issues (>7 days overdue)'
 		}
 	],
 
-	"formatter": function (value, row, column, data, default_formatter) {
+	'formatter': function (value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
 
 		// Color code member status
-		if (column.fieldname == "member_status") {
-			if (value == "Terminated") {
+		if (column.fieldname == 'member_status') {
+			if (value == 'Terminated') {
 				value = `<span style="color: red; font-weight: bold;">${value}</span>`;
-			} else if (value == "Suspended") {
+			} else if (value == 'Suspended') {
 				value = `<span style="color: orange; font-weight: bold;">${value}</span>`;
-			} else if (value == "Pending") {
+			} else if (value == 'Pending') {
 				value = `<span style="color: blue;">${value}</span>`;
 			}
 		}
 
 		// Highlight overdue days
-		if (column.fieldname == "days_overdue" && value && value > 0) {
+		if (column.fieldname == 'days_overdue' && value && value > 0) {
 			if (value > 14) {
 				value = `<span style="color: red; font-weight: bold; background-color: #ffebee; padding: 2px 6px; border-radius: 3px;">${value}</span>`;
 			} else if (value > 7) {
@@ -73,7 +73,7 @@ frappe.query_reports["Members Without Dues Schedule"] = {
 		}
 
 		// Format currency with better visibility
-		if (column.fieldname == "dues_rate" && value) {
+		if (column.fieldname == 'dues_rate' && value) {
 			value = `<span style="font-weight: bold;">€${parseFloat(value).toFixed(2)}</span>`;
 		}
 
@@ -83,30 +83,30 @@ frappe.query_reports["Members Without Dues Schedule"] = {
 	onload: function(report) {
 		// Add custom buttons for bulk actions
 
-		report.page.add_inner_button(__("Fix Selected Issues"), function() {
+		report.page.add_inner_button(__('Fix Selected Issues'), function() {
 			let data = report.data;
 			if (!data || data.length === 0) {
-				frappe.msgprint(__("No data available"));
+				frappe.msgprint(__('No data available'));
 				return;
 			}
 
 			// Get members with issues
 			let problematic_members = data.filter(function(row) {
-				return row.days_overdue > 0 || row.dues_schedule_status.includes("No Schedule");
+				return row.days_overdue > 0 || row.dues_schedule_status.includes('No Schedule');
 			});
 
 			if (problematic_members.length === 0) {
-				frappe.msgprint(__("No issues found to fix"));
+				frappe.msgprint(__('No issues found to fix'));
 				return;
 			}
 
 			frappe.confirm(
-				__("This will attempt to fix schedule issues for {0} members. Continue?", [problematic_members.length]),
+				__('This will attempt to fix schedule issues for {0} members. Continue?', [problematic_members.length]),
 				function() {
 					let member_list = problematic_members.map(row => row.member_id);
 
 					frappe.call({
-						method: "verenigingen.verenigingen.report.members_without_dues_schedule.members_without_dues_schedule.fix_member_schedule_issues",
+						method: 'verenigingen.verenigingen.report.members_without_dues_schedule.members_without_dues_schedule.fix_member_schedule_issues',
 						args: {
 							member_list: member_list
 						},
@@ -114,7 +114,7 @@ frappe.query_reports["Members Without Dues Schedule"] = {
 							if (r.message && r.message.success) {
 								let result = r.message;
 								frappe.msgprint({
-									title: __("Batch Fix Results"),
+									title: __('Batch Fix Results'),
 									message: `
 										<div>
 											<p><strong>Processed:</strong> ${result.total_processed} members</p>
@@ -129,8 +129,8 @@ frappe.query_reports["Members Without Dues Schedule"] = {
 								report.refresh();
 							} else {
 								frappe.msgprint({
-									title: __("Error"),
-									message: r.message ? r.message.error : "Failed to fix issues",
+									title: __('Error'),
+									message: r.message ? r.message.error : 'Failed to fix issues',
 									indicator: 'red'
 								});
 							}

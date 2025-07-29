@@ -499,18 +499,52 @@ def toggle_auto_batch_creation(enabled):
 def run_batch_creation_now():
     """Manually trigger batch creation (for testing/emergency use)"""
     try:
-        # Check permissions
+        # Critical Security Fix: Enhanced input validation and sanitization
+
+        # 1. Validate user session and context
+        if not frappe.session or not frappe.session.user:
+            return {"success": False, "error": "Invalid user session"}
+
+        if frappe.session.user == "Guest":
+            return {"success": False, "error": "Anonymous access not permitted for batch operations"}
+
+        # 2. Enhanced permission validation
         if not frappe.has_permission("SEPA Direct Debit Batch", "create"):
             return {"success": False, "error": "You don't have permission to create batches"}
 
-        # Input validation - ensure system is ready for batch creation
+        # 3. Validate user has required roles (not just permissions)
+        user_roles = frappe.get_roles(frappe.session.user)
+        required_roles = ["Finance Manager", "SEPA Administrator", "System Manager"]
+        if not any(role in required_roles for role in user_roles):
+            return {
+                "success": False,
+                "error": f"Insufficient role permissions. Required: {', '.join(required_roles)}",
+            }
+
+        # 4. Input validation - ensure system is ready for batch creation
         if should_skip_batch_creation():
             return {"success": False, "error": "Batch creation is currently disabled or conditions not met"}
 
-        # Validate we're not in a bank holiday
+        # 5. Validate system state and configuration
+        settings = frappe.get_single("Verenigingen Settings")
+        if not settings:
+            return {"success": False, "error": "System settings not found"}
+
+        # 6. Validate we're not in a bank holiday
         target_date = get_next_business_day()
         if is_bank_holiday(target_date):
             return {"success": False, "error": f"Target date {target_date} is a bank holiday"}
+
+        # 7. Rate limiting check - prevent abuse
+        recent_runs = frappe.db.count(
+            "SEPA Direct Debit Batch",
+            {"creation": [">", add_days(now_datetime(), hours=-1)], "owner": frappe.session.user},
+        )
+        if recent_runs > 5:  # Max 5 manual runs per hour per user
+            return {
+                "success": False,
+                "error": "Rate limit exceeded. Maximum 5 manual batch creations per hour.",
+            }
 
         # Get configuration
         config = get_scheduler_config()

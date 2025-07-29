@@ -4,195 +4,195 @@
  */
 
 class MobileDuesSchedule {
-    constructor() {
-        this.isMobile = window.innerWidth <= 768;
-        this.isTablet = window.innerWidth > 768 && window.innerWidth <= 1024;
-        this.isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+	constructor() {
+		this.isMobile = window.innerWidth <= 768;
+		this.isTablet = window.innerWidth > 768 && window.innerWidth <= 1024;
+		this.isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-        this.init();
-    }
+		this.init();
+	}
 
-    init() {
-        this.setupMobileDetection();
-        this.setupTouchEvents();
-        this.setupSwipeGestures();
-        this.setupVirtualKeyboard();
-        this.setupPullToRefresh();
-        this.setupMobileNavigation();
-        this.setupMobileModals();
-        this.setupMobileCalendar();
-        this.setupMobileAccessibility();
+	init() {
+		this.setupMobileDetection();
+		this.setupTouchEvents();
+		this.setupSwipeGestures();
+		this.setupVirtualKeyboard();
+		this.setupPullToRefresh();
+		this.setupMobileNavigation();
+		this.setupMobileModals();
+		this.setupMobileCalendar();
+		this.setupMobileAccessibility();
 
-        // Initialize on DOM ready
-        if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', () => this.initializeMobileFeatures());
-        } else {
-            this.initializeMobileFeatures();
-        }
-    }
+		// Initialize on DOM ready
+		if (document.readyState === 'loading') {
+			document.addEventListener('DOMContentLoaded', () => this.initializeMobileFeatures());
+		} else {
+			this.initializeMobileFeatures();
+		}
+	}
 
-    setupMobileDetection() {
-        // Update mobile detection on resize
-        window.addEventListener('resize', () => {
-            this.isMobile = window.innerWidth <= 768;
-            this.isTablet = window.innerWidth > 768 && window.innerWidth <= 1024;
-            this.updateMobileClasses();
-        });
+	setupMobileDetection() {
+		// Update mobile detection on resize
+		window.addEventListener('resize', () => {
+			this.isMobile = window.innerWidth <= 768;
+			this.isTablet = window.innerWidth > 768 && window.innerWidth <= 1024;
+			this.updateMobileClasses();
+		});
 
-        this.updateMobileClasses();
-    }
+		this.updateMobileClasses();
+	}
 
-    updateMobileClasses() {
-        const body = document.body;
-        body.classList.toggle('mobile', this.isMobile);
-        body.classList.toggle('tablet', this.isTablet);
-        body.classList.toggle('touch', this.isTouch);
-    }
+	updateMobileClasses() {
+		const body = document.body;
+		body.classList.toggle('mobile', this.isMobile);
+		body.classList.toggle('tablet', this.isTablet);
+		body.classList.toggle('touch', this.isTouch);
+	}
 
-    setupTouchEvents() {
-        // Improve touch responsiveness
-        if (this.isTouch) {
-            // Add touch-friendly classes
-            document.addEventListener('touchstart', (e) => {
-                if (e.target.closest('.touch-friendly')) {
-                    e.target.closest('.touch-friendly').classList.add('touched');
-                }
-            });
+	setupTouchEvents() {
+		// Improve touch responsiveness
+		if (this.isTouch) {
+			// Add touch-friendly classes
+			document.addEventListener('touchstart', (e) => {
+				if (e.target.closest('.touch-friendly')) {
+					e.target.closest('.touch-friendly').classList.add('touched');
+				}
+			});
 
-            document.addEventListener('touchend', (e) => {
-                if (e.target.closest('.touch-friendly')) {
-                    setTimeout(() => {
-                        e.target.closest('.touch-friendly').classList.remove('touched');
-                    }, 150);
-                }
-            });
-        }
-    }
+			document.addEventListener('touchend', (e) => {
+				if (e.target.closest('.touch-friendly')) {
+					setTimeout(() => {
+						e.target.closest('.touch-friendly').classList.remove('touched');
+					}, 150);
+				}
+			});
+		}
+	}
 
-    setupSwipeGestures() {
-        if (!this.isTouch) return;
+	setupSwipeGestures() {
+		if (!this.isTouch) return;
 
-        let startX = 0;
-        let startY = 0;
-        let currentX = 0;
-        let currentY = 0;
+		let startX = 0;
+		let startY = 0;
+		let currentX = 0;
+		let currentY = 0;
 
-        const swipeThreshold = 50;
-        const velocityThreshold = 0.3;
+		const swipeThreshold = 50;
+		const _velocityThreshold = 0.3;
 
-        // Tab swiping
-        const tabContainer = document.querySelector('.tab-nav');
-        if (tabContainer) {
-            tabContainer.addEventListener('touchstart', (e) => {
-                startX = e.touches[0].clientX;
-                startY = e.touches[0].clientY;
-            });
+		// Tab swiping
+		const tabContainer = document.querySelector('.tab-nav');
+		if (tabContainer) {
+			tabContainer.addEventListener('touchstart', (e) => {
+				startX = e.touches[0].clientX;
+				startY = e.touches[0].clientY;
+			});
 
-            tabContainer.addEventListener('touchmove', (e) => {
-                if (!startX || !startY) return;
+			tabContainer.addEventListener('touchmove', (e) => {
+				if (!startX || !startY) return;
 
-                currentX = e.touches[0].clientX;
-                currentY = e.touches[0].clientY;
+				currentX = e.touches[0].clientX;
+				currentY = e.touches[0].clientY;
 
-                const deltaX = currentX - startX;
-                const deltaY = currentY - startY;
+				const deltaX = currentX - startX;
+				const deltaY = currentY - startY;
 
-                // Prevent vertical scrolling if horizontal swipe
-                if (Math.abs(deltaX) > Math.abs(deltaY)) {
-                    e.preventDefault();
-                }
-            });
+				// Prevent vertical scrolling if horizontal swipe
+				if (Math.abs(deltaX) > Math.abs(deltaY)) {
+					e.preventDefault();
+				}
+			});
 
-            tabContainer.addEventListener('touchend', (e) => {
-                if (!startX || !startY) return;
+			tabContainer.addEventListener('touchend', (e) => {
+				if (!startX || !startY) return;
 
-                const deltaX = currentX - startX;
-                const deltaY = currentY - startY;
+				const deltaX = currentX - startX;
+				const deltaY = currentY - startY;
 
-                // Check if it's a horizontal swipe
-                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > swipeThreshold) {
-                    this.handleTabSwipe(deltaX > 0 ? 'right' : 'left');
-                }
+				// Check if it's a horizontal swipe
+				if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > swipeThreshold) {
+					this.handleTabSwipe(deltaX > 0 ? 'right' : 'left');
+				}
 
-                // Reset values
-                startX = 0;
-                startY = 0;
-                currentX = 0;
-                currentY = 0;
-            });
-        }
+				// Reset values
+				startX = 0;
+				startY = 0;
+				currentX = 0;
+				currentY = 0;
+			});
+		}
 
-        // Calendar month swiping
-        const calendarContainer = document.querySelector('.calendar-grid');
-        if (calendarContainer) {
-            this.setupCalendarSwipe(calendarContainer);
-        }
-    }
+		// Calendar month swiping
+		const calendarContainer = document.querySelector('.calendar-grid');
+		if (calendarContainer) {
+			this.setupCalendarSwipe(calendarContainer);
+		}
+	}
 
-    setupCalendarSwipe(container) {
-        let startX = 0;
-        let startTime = 0;
+	setupCalendarSwipe(container) {
+		let startX = 0;
+		let startTime = 0;
 
-        container.addEventListener('touchstart', (e) => {
-            startX = e.touches[0].clientX;
-            startTime = Date.now();
-        });
+		container.addEventListener('touchstart', (e) => {
+			startX = e.touches[0].clientX;
+			startTime = Date.now();
+		});
 
-        container.addEventListener('touchend', (e) => {
-            if (!startX || !startTime) return;
+		container.addEventListener('touchend', (e) => {
+			if (!startX || !startTime) return;
 
-            const endX = e.changedTouches[0].clientX;
-            const endTime = Date.now();
-            const deltaX = endX - startX;
-            const deltaTime = endTime - startTime;
+			const endX = e.changedTouches[0].clientX;
+			const endTime = Date.now();
+			const deltaX = endX - startX;
+			const deltaTime = endTime - startTime;
 
-            // Check for swipe
-            if (Math.abs(deltaX) > 50 && deltaTime < 500) {
-                if (deltaX > 0) {
-                    this.handleCalendarSwipe('prev');
-                } else {
-                    this.handleCalendarSwipe('next');
-                }
-            }
+			// Check for swipe
+			if (Math.abs(deltaX) > 50 && deltaTime < 500) {
+				if (deltaX > 0) {
+					this.handleCalendarSwipe('prev');
+				} else {
+					this.handleCalendarSwipe('next');
+				}
+			}
 
-            startX = 0;
-            startTime = 0;
-        });
-    }
+			startX = 0;
+			startTime = 0;
+		});
+	}
 
-    handleTabSwipe(direction) {
-        const activeTab = document.querySelector('.tab-button.active');
-        if (!activeTab) return;
+	handleTabSwipe(direction) {
+		const activeTab = document.querySelector('.tab-button.active');
+		if (!activeTab) return;
 
-        const tabs = Array.from(document.querySelectorAll('.tab-button'));
-        const currentIndex = tabs.indexOf(activeTab);
+		const tabs = Array.from(document.querySelectorAll('.tab-button'));
+		const currentIndex = tabs.indexOf(activeTab);
 
-        let newIndex;
-        if (direction === 'left' && currentIndex > 0) {
-            newIndex = currentIndex - 1;
-        } else if (direction === 'right' && currentIndex < tabs.length - 1) {
-            newIndex = currentIndex + 1;
-        }
+		let newIndex;
+		if (direction === 'left' && currentIndex > 0) {
+			newIndex = currentIndex - 1;
+		} else if (direction === 'right' && currentIndex < tabs.length - 1) {
+			newIndex = currentIndex + 1;
+		}
 
-        if (newIndex !== undefined) {
-            tabs[newIndex].click();
-            this.showSwipeIndicator(direction);
-        }
-    }
+		if (newIndex !== undefined) {
+			tabs[newIndex].click();
+			this.showSwipeIndicator(direction);
+		}
+	}
 
-    handleCalendarSwipe(direction) {
-        const button = document.querySelector(direction === 'prev' ? '#prev-month' : '#next-month');
-        if (button) {
-            button.click();
-            this.showSwipeIndicator(direction === 'prev' ? 'right' : 'left');
-        }
-    }
+	handleCalendarSwipe(direction) {
+		const button = document.querySelector(direction === 'prev' ? '#prev-month' : '#next-month');
+		if (button) {
+			button.click();
+			this.showSwipeIndicator(direction === 'prev' ? 'right' : 'left');
+		}
+	}
 
-    showSwipeIndicator(direction) {
-        const indicator = document.createElement('div');
-        indicator.className = 'swipe-indicator';
-        indicator.innerHTML = direction === 'left' ? '←' : '→';
-        indicator.style.cssText = `
+	showSwipeIndicator(direction) {
+		const indicator = document.createElement('div');
+		indicator.className = 'swipe-indicator';
+		indicator.innerHTML = direction === 'left' ? '←' : '→';
+		indicator.style.cssText = `
             position: fixed;
             top: 50%;
             ${direction === 'left' ? 'left: 20px' : 'right: 20px'};
@@ -206,108 +206,108 @@ class MobileDuesSchedule {
             animation: swipeIndicator 0.6s ease-out;
         `;
 
-        document.body.appendChild(indicator);
+		document.body.appendChild(indicator);
 
-        setTimeout(() => {
-            indicator.remove();
-        }, 600);
-    }
+		setTimeout(() => {
+			indicator.remove();
+		}, 600);
+	}
 
-    setupVirtualKeyboard() {
-        if (!this.isMobile) return;
+	setupVirtualKeyboard() {
+		if (!this.isMobile) return;
 
-        // Handle virtual keyboard appearance
-        const viewport = document.querySelector('meta[name="viewport"]');
-        let originalViewport = viewport ? viewport.content : '';
+		// Handle virtual keyboard appearance
+		const viewport = document.querySelector('meta[name="viewport"]');
+		let originalViewport = viewport ? viewport.content : '';
 
-        const inputs = document.querySelectorAll('input, textarea, select');
-        inputs.forEach(input => {
-            input.addEventListener('focus', () => {
-                // Prevent zoom on iOS
-                if (viewport) {
-                    viewport.content = originalViewport + ', user-scalable=no';
-                }
+		const inputs = document.querySelectorAll('input, textarea, select');
+		inputs.forEach(input => {
+			input.addEventListener('focus', () => {
+				// Prevent zoom on iOS
+				if (viewport) {
+					viewport.content = originalViewport + ', user-scalable=no';
+				}
 
-                // Scroll input into view
-                setTimeout(() => {
-                    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }, 300);
-            });
+				// Scroll input into view
+				setTimeout(() => {
+					input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+				}, 300);
+			});
 
-            input.addEventListener('blur', () => {
-                // Restore original viewport
-                if (viewport) {
-                    viewport.content = originalViewport;
-                }
-            });
-        });
+			input.addEventListener('blur', () => {
+				// Restore original viewport
+				if (viewport) {
+					viewport.content = originalViewport;
+				}
+			});
+		});
 
-        // Handle visual viewport changes
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', () => {
-                const focusedElement = document.activeElement;
-                if (focusedElement && (focusedElement.tagName === 'INPUT' || focusedElement.tagName === 'TEXTAREA')) {
-                    setTimeout(() => {
-                        focusedElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 100);
-                }
-            });
-        }
-    }
+		// Handle visual viewport changes
+		if (window.visualViewport) {
+			window.visualViewport.addEventListener('resize', () => {
+				const focusedElement = document.activeElement;
+				if (focusedElement && (focusedElement.tagName === 'INPUT' || focusedElement.tagName === 'TEXTAREA')) {
+					setTimeout(() => {
+						focusedElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+					}, 100);
+				}
+			});
+		}
+	}
 
-    setupPullToRefresh() {
-        if (!this.isMobile || !this.isTouch) return;
+	setupPullToRefresh() {
+		if (!this.isMobile || !this.isTouch) return;
 
-        let startY = 0;
-        let currentY = 0;
-        let isPulling = false;
-        let pullDistance = 0;
+		let startY = 0;
+		let currentY = 0;
+		let isPulling = false;
+		let pullDistance = 0;
 
-        const pullThreshold = 80;
-        const pullIndicator = this.createPullIndicator();
+		const pullThreshold = 80;
+		const pullIndicator = this.createPullIndicator();
 
-        document.addEventListener('touchstart', (e) => {
-            if (window.scrollY === 0) {
-                startY = e.touches[0].clientY;
-                isPulling = true;
-            }
-        });
+		document.addEventListener('touchstart', (e) => {
+			if (window.scrollY === 0) {
+				startY = e.touches[0].clientY;
+				isPulling = true;
+			}
+		});
 
-        document.addEventListener('touchmove', (e) => {
-            if (!isPulling || window.scrollY > 0) return;
+		document.addEventListener('touchmove', (e) => {
+			if (!isPulling || window.scrollY > 0) return;
 
-            currentY = e.touches[0].clientY;
-            pullDistance = currentY - startY;
+			currentY = e.touches[0].clientY;
+			pullDistance = currentY - startY;
 
-            if (pullDistance > 0) {
-                e.preventDefault();
-                this.updatePullIndicator(pullIndicator, pullDistance, pullThreshold);
-            }
-        });
+			if (pullDistance > 0) {
+				e.preventDefault();
+				this.updatePullIndicator(pullIndicator, pullDistance, pullThreshold);
+			}
+		});
 
-        document.addEventListener('touchend', (e) => {
-            if (!isPulling) return;
+		document.addEventListener('touchend', (e) => {
+			if (!isPulling) return;
 
-            if (pullDistance > pullThreshold) {
-                this.performRefresh();
-            }
+			if (pullDistance > pullThreshold) {
+				this.performRefresh();
+			}
 
-            this.resetPullIndicator(pullIndicator);
-            isPulling = false;
-            startY = 0;
-            currentY = 0;
-            pullDistance = 0;
-        });
-    }
+			this.resetPullIndicator(pullIndicator);
+			isPulling = false;
+			startY = 0;
+			currentY = 0;
+			pullDistance = 0;
+		});
+	}
 
-    createPullIndicator() {
-        const indicator = document.createElement('div');
-        indicator.className = 'pull-to-refresh-indicator';
-        indicator.innerHTML = `
+	createPullIndicator() {
+		const indicator = document.createElement('div');
+		indicator.className = 'pull-to-refresh-indicator';
+		indicator.innerHTML = `
             <div class="pull-spinner"></div>
             <div class="pull-text">Pull to refresh</div>
         `;
-        indicator.style.cssText = `
+		indicator.style.cssText = `
             position: fixed;
             top: -80px;
             left: 50%;
@@ -325,55 +325,55 @@ class MobileDuesSchedule {
             font-size: 0.875rem;
         `;
 
-        document.body.appendChild(indicator);
-        return indicator;
-    }
+		document.body.appendChild(indicator);
+		return indicator;
+	}
 
-    updatePullIndicator(indicator, distance, threshold) {
-        const progress = Math.min(distance / threshold, 1);
-        const translateY = Math.min(distance * 0.5, 40);
+	updatePullIndicator(indicator, distance, threshold) {
+		const progress = Math.min(distance / threshold, 1);
+		const translateY = Math.min(distance * 0.5, 40);
 
-        indicator.style.transform = `translateX(-50%) translateY(${translateY}px)`;
+		indicator.style.transform = `translateX(-50%) translateY(${translateY}px)`;
 
-        const spinner = indicator.querySelector('.pull-spinner');
-        if (spinner) {
-            spinner.style.transform = `rotate(${progress * 360}deg)`;
-        }
+		const spinner = indicator.querySelector('.pull-spinner');
+		if (spinner) {
+			spinner.style.transform = `rotate(${progress * 360}deg)`;
+		}
 
-        const text = indicator.querySelector('.pull-text');
-        if (text) {
-            text.textContent = progress >= 1 ? 'Release to refresh' : 'Pull to refresh';
-        }
-    }
+		const text = indicator.querySelector('.pull-text');
+		if (text) {
+			text.textContent = progress >= 1 ? 'Release to refresh' : 'Pull to refresh';
+		}
+	}
 
-    resetPullIndicator(indicator) {
-        indicator.style.transform = 'translateX(-50%) translateY(-80px)';
-        setTimeout(() => {
-            indicator.remove();
-        }, 300);
-    }
+	resetPullIndicator(indicator) {
+		indicator.style.transform = 'translateX(-50%) translateY(-80px)';
+		setTimeout(() => {
+			indicator.remove();
+		}, 300);
+	}
 
-    performRefresh() {
-        // Show loading state
-        this.showLoadingState();
+	performRefresh() {
+		// Show loading state
+		this.showLoadingState();
 
-        // Reload page data
-        if (window.location.reload) {
-            window.location.reload();
-        } else {
-            // Fallback: reload specific data
-            this.reloadDashboardData();
-        }
-    }
+		// Reload page data
+		if (window.location.reload) {
+			window.location.reload();
+		} else {
+			// Fallback: reload specific data
+			this.reloadDashboardData();
+		}
+	}
 
-    showLoadingState() {
-        const loadingIndicator = document.createElement('div');
-        loadingIndicator.className = 'loading-indicator';
-        loadingIndicator.innerHTML = `
+	showLoadingState() {
+		const loadingIndicator = document.createElement('div');
+		loadingIndicator.className = 'loading-indicator';
+		loadingIndicator.innerHTML = `
             <div class="loading-spinner"></div>
             <div class="loading-text">Refreshing...</div>
         `;
-        loadingIndicator.style.cssText = `
+		loadingIndicator.style.cssText = `
             position: fixed;
             top: 20px;
             left: 50%;
@@ -388,33 +388,33 @@ class MobileDuesSchedule {
             gap: 0.5rem;
         `;
 
-        document.body.appendChild(loadingIndicator);
+		document.body.appendChild(loadingIndicator);
 
-        setTimeout(() => {
-            loadingIndicator.remove();
-        }, 2000);
-    }
+		setTimeout(() => {
+			loadingIndicator.remove();
+		}, 2000);
+	}
 
-    setupMobileNavigation() {
-        // Add mobile navigation enhancements
-        const fab = this.createFloatingActionButton();
-        this.setupMobileMenu(fab);
-    }
+	setupMobileNavigation() {
+		// Add mobile navigation enhancements
+		const fab = this.createFloatingActionButton();
+		this.setupMobileMenu(fab);
+	}
 
-    createFloatingActionButton() {
-        const fab = document.createElement('button');
-        fab.className = 'fab';
-        fab.innerHTML = '<i class="fas fa-plus"></i>';
-        fab.setAttribute('aria-label', 'Quick actions');
+	createFloatingActionButton() {
+		const fab = document.createElement('button');
+		fab.className = 'fab';
+		fab.innerHTML = '<i class="fas fa-plus"></i>';
+		fab.setAttribute('aria-label', 'Quick actions');
 
-        document.body.appendChild(fab);
-        return fab;
-    }
+		document.body.appendChild(fab);
+		return fab;
+	}
 
-    setupMobileMenu(fab) {
-        const menu = document.createElement('div');
-        menu.className = 'fab-menu';
-        menu.innerHTML = `
+	setupMobileMenu(fab) {
+		const menu = document.createElement('div');
+		menu.className = 'fab-menu';
+		menu.innerHTML = `
             <div class="fab-menu-item" data-action="adjust-fee">
                 <i class="fas fa-sliders-h"></i>
                 <span>Adjust Fee</span>
@@ -433,7 +433,7 @@ class MobileDuesSchedule {
             </div>
         `;
 
-        menu.style.cssText = `
+		menu.style.cssText = `
             position: fixed;
             bottom: 5rem;
             right: 1rem;
@@ -446,421 +446,421 @@ class MobileDuesSchedule {
             min-width: 200px;
         `;
 
-        document.body.appendChild(menu);
+		document.body.appendChild(menu);
 
-        // Toggle menu
-        fab.addEventListener('click', () => {
-            const isVisible = menu.style.display === 'block';
-            menu.style.display = isVisible ? 'none' : 'block';
-            fab.style.transform = isVisible ? 'rotate(0deg)' : 'rotate(45deg)';
-        });
+		// Toggle menu
+		fab.addEventListener('click', () => {
+			const isVisible = menu.style.display === 'block';
+			menu.style.display = isVisible ? 'none' : 'block';
+			fab.style.transform = isVisible ? 'rotate(0deg)' : 'rotate(45deg)';
+		});
 
-        // Handle menu items
-        menu.addEventListener('click', (e) => {
-            const item = e.target.closest('.fab-menu-item');
-            if (item) {
-                const action = item.dataset.action;
-                this.handleFabAction(action);
-                menu.style.display = 'none';
-                fab.style.transform = 'rotate(0deg)';
-            }
-        });
+		// Handle menu items
+		menu.addEventListener('click', (e) => {
+			const item = e.target.closest('.fab-menu-item');
+			if (item) {
+				const action = item.dataset.action;
+				this.handleFabAction(action);
+				menu.style.display = 'none';
+				fab.style.transform = 'rotate(0deg)';
+			}
+		});
 
-        // Close menu when clicking outside
-        document.addEventListener('click', (e) => {
-            if (!fab.contains(e.target) && !menu.contains(e.target)) {
-                menu.style.display = 'none';
-                fab.style.transform = 'rotate(0deg)';
-            }
-        });
-    }
+		// Close menu when clicking outside
+		document.addEventListener('click', (e) => {
+			if (!fab.contains(e.target) && !menu.contains(e.target)) {
+				menu.style.display = 'none';
+				fab.style.transform = 'rotate(0deg)';
+			}
+		});
+	}
 
-    handleFabAction(action) {
-        switch (action) {
-            case 'adjust-fee':
-                window.location.href = '/membership_fee_adjustment';
-                break;
-            case 'payment-history':
-                window.location.href = '/payment_dashboard';
-                break;
-            case 'bank-details':
-                window.location.href = '/bank_details';
-                break;
-            case 'help':
-                window.location.href = '/help';
-                break;
-        }
-    }
+	handleFabAction(action) {
+		switch (action) {
+			case 'adjust-fee':
+				window.location.href = '/membership_fee_adjustment';
+				break;
+			case 'payment-history':
+				window.location.href = '/payment_dashboard';
+				break;
+			case 'bank-details':
+				window.location.href = '/bank_details';
+				break;
+			case 'help':
+				window.location.href = '/help';
+				break;
+		}
+	}
 
-    setupMobileModals() {
-        // Enhance modal behavior for mobile
-        const modals = document.querySelectorAll('.modal');
-        modals.forEach(modal => {
-            this.enhanceModalForMobile(modal);
-        });
-    }
+	setupMobileModals() {
+		// Enhance modal behavior for mobile
+		const modals = document.querySelectorAll('.modal');
+		modals.forEach(modal => {
+			this.enhanceModalForMobile(modal);
+		});
+	}
 
-    enhanceModalForMobile(modal) {
-        // Add swipe-to-close functionality
-        let startY = 0;
-        let currentY = 0;
+	enhanceModalForMobile(modal) {
+		// Add swipe-to-close functionality
+		let startY = 0;
+		let currentY = 0;
 
-        modal.addEventListener('touchstart', (e) => {
-            startY = e.touches[0].clientY;
-        });
+		modal.addEventListener('touchstart', (e) => {
+			startY = e.touches[0].clientY;
+		});
 
-        modal.addEventListener('touchmove', (e) => {
-            currentY = e.touches[0].clientY;
-            const deltaY = currentY - startY;
+		modal.addEventListener('touchmove', (e) => {
+			currentY = e.touches[0].clientY;
+			const deltaY = currentY - startY;
 
-            if (deltaY > 0) {
-                modal.style.transform = `translateY(${deltaY * 0.5}px)`;
-            }
-        });
+			if (deltaY > 0) {
+				modal.style.transform = `translateY(${deltaY * 0.5}px)`;
+			}
+		});
 
-        modal.addEventListener('touchend', (e) => {
-            const deltaY = currentY - startY;
+		modal.addEventListener('touchend', (e) => {
+			const deltaY = currentY - startY;
 
-            if (deltaY > 100) {
-                // Close modal if swiped down enough
-                modal.style.display = 'none';
-            } else {
-                // Reset position
-                modal.style.transform = 'translateY(0)';
-            }
+			if (deltaY > 100) {
+				// Close modal if swiped down enough
+				modal.style.display = 'none';
+			} else {
+				// Reset position
+				modal.style.transform = 'translateY(0)';
+			}
 
-            startY = 0;
-            currentY = 0;
-        });
-    }
+			startY = 0;
+			currentY = 0;
+		});
+	}
 
-    setupMobileCalendar() {
-        // Enhance calendar for mobile
-        const calendar = document.querySelector('.calendar-grid');
-        if (calendar) {
-            this.enhanceCalendarForMobile(calendar);
-        }
-    }
+	setupMobileCalendar() {
+		// Enhance calendar for mobile
+		const calendar = document.querySelector('.calendar-grid');
+		if (calendar) {
+			this.enhanceCalendarForMobile(calendar);
+		}
+	}
 
-    enhanceCalendarForMobile(calendar) {
-        // Add haptic feedback for touch
-        calendar.addEventListener('touchstart', (e) => {
-            const day = e.target.closest('.calendar-day');
-            if (day && navigator.vibrate) {
-                navigator.vibrate(10); // Short vibration
-            }
-        });
+	enhanceCalendarForMobile(calendar) {
+		// Add haptic feedback for touch
+		calendar.addEventListener('touchstart', (e) => {
+			const day = e.target.closest('.calendar-day');
+			if (day && navigator.vibrate) {
+				navigator.vibrate(10); // Short vibration
+			}
+		});
 
-        // Improve touch targets
-        const days = calendar.querySelectorAll('.calendar-day');
-        days.forEach(day => {
-            day.style.minHeight = '2.5rem';
-            day.style.display = 'flex';
-            day.style.alignItems = 'center';
-            day.style.justifyContent = 'center';
-        });
-    }
+		// Improve touch targets
+		const days = calendar.querySelectorAll('.calendar-day');
+		days.forEach(day => {
+			day.style.minHeight = '2.5rem';
+			day.style.display = 'flex';
+			day.style.alignItems = 'center';
+			day.style.justifyContent = 'center';
+		});
+	}
 
-    setupMobileAccessibility() {
-        // Enhance accessibility for mobile
+	setupMobileAccessibility() {
+		// Enhance accessibility for mobile
 
-        // Add skip links
-        const skipLink = document.createElement('a');
-        skipLink.href = '#main-content';
-        skipLink.textContent = 'Skip to main content';
-        skipLink.className = 'sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-primary focus:text-white focus:p-2';
-        document.body.insertBefore(skipLink, document.body.firstChild);
+		// Add skip links
+		const skipLink = document.createElement('a');
+		skipLink.href = '#main-content';
+		skipLink.textContent = 'Skip to main content';
+		skipLink.className = 'sr-only focus:not-sr-only focus:absolute focus:top-0 focus:left-0 focus:z-50 focus:bg-primary focus:text-white focus:p-2';
+		document.body.insertBefore(skipLink, document.body.firstChild);
 
-        // Announce page changes
-        this.announcePageChanges();
+		// Announce page changes
+		this.announcePageChanges();
 
-        // Improve focus management
-        this.improveFocusManagement();
+		// Improve focus management
+		this.improveFocusManagement();
 
-        // Add landmarks
-        this.addLandmarks();
-    }
+		// Add landmarks
+		this.addLandmarks();
+	}
 
-    announcePageChanges() {
-        const announcer = document.createElement('div');
-        announcer.setAttribute('aria-live', 'polite');
-        announcer.setAttribute('aria-atomic', 'true');
-        announcer.className = 'sr-only';
-        announcer.id = 'page-announcer';
-        document.body.appendChild(announcer);
+	announcePageChanges() {
+		const announcer = document.createElement('div');
+		announcer.setAttribute('aria-live', 'polite');
+		announcer.setAttribute('aria-atomic', 'true');
+		announcer.className = 'sr-only';
+		announcer.id = 'page-announcer';
+		document.body.appendChild(announcer);
 
-        // Announce tab changes
-        const tabButtons = document.querySelectorAll('.tab-button');
-        tabButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                const tabName = button.textContent.trim();
-                announcer.textContent = `Switched to ${tabName} tab`;
-            });
-        });
-    }
+		// Announce tab changes
+		const tabButtons = document.querySelectorAll('.tab-button');
+		tabButtons.forEach(button => {
+			button.addEventListener('click', () => {
+				const tabName = button.textContent.trim();
+				announcer.textContent = `Switched to ${tabName} tab`;
+			});
+		});
+	}
 
-    improveFocusManagement() {
-        // Trap focus in modals
-        const modals = document.querySelectorAll('.modal');
-        modals.forEach(modal => {
-            this.trapFocusInModal(modal);
-        });
+	improveFocusManagement() {
+		// Trap focus in modals
+		const modals = document.querySelectorAll('.modal');
+		modals.forEach(modal => {
+			this.trapFocusInModal(modal);
+		});
 
-        // Manage focus on page changes
-        const tabButtons = document.querySelectorAll('.tab-button');
-        tabButtons.forEach(button => {
-            button.addEventListener('click', () => {
-                // Focus first interactive element in new tab
-                setTimeout(() => {
-                    const activeTab = document.querySelector('.tab-content:not(.hidden)');
-                    if (activeTab) {
-                        const firstFocusable = activeTab.querySelector('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])');
-                        if (firstFocusable) {
-                            firstFocusable.focus();
-                        }
-                    }
-                }, 100);
-            });
-        });
-    }
+		// Manage focus on page changes
+		const tabButtons = document.querySelectorAll('.tab-button');
+		tabButtons.forEach(button => {
+			button.addEventListener('click', () => {
+				// Focus first interactive element in new tab
+				setTimeout(() => {
+					const activeTab = document.querySelector('.tab-content:not(.hidden)');
+					if (activeTab) {
+						const firstFocusable = activeTab.querySelector('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])');
+						if (firstFocusable) {
+							firstFocusable.focus();
+						}
+					}
+				}, 100);
+			});
+		});
+	}
 
-    trapFocusInModal(modal) {
-        const focusableElements = modal.querySelectorAll('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])');
-        const firstFocusable = focusableElements[0];
-        const lastFocusable = focusableElements[focusableElements.length - 1];
+	trapFocusInModal(modal) {
+		const focusableElements = modal.querySelectorAll('button, a, input, select, textarea, [tabindex]:not([tabindex="-1"])');
+		const firstFocusable = focusableElements[0];
+		const lastFocusable = focusableElements[focusableElements.length - 1];
 
-        modal.addEventListener('keydown', (e) => {
-            if (e.key === 'Tab') {
-                if (e.shiftKey) {
-                    if (document.activeElement === firstFocusable) {
-                        lastFocusable.focus();
-                        e.preventDefault();
-                    }
-                } else {
-                    if (document.activeElement === lastFocusable) {
-                        firstFocusable.focus();
-                        e.preventDefault();
-                    }
-                }
-            }
-        });
-    }
+		modal.addEventListener('keydown', (e) => {
+			if (e.key === 'Tab') {
+				if (e.shiftKey) {
+					if (document.activeElement === firstFocusable) {
+						lastFocusable.focus();
+						e.preventDefault();
+					}
+				} else {
+					if (document.activeElement === lastFocusable) {
+						firstFocusable.focus();
+						e.preventDefault();
+					}
+				}
+			}
+		});
+	}
 
-    addLandmarks() {
-        // Add ARIA landmarks for better navigation
-        const main = document.querySelector('main') || document.querySelector('.main-content');
-        if (main) {
-            main.setAttribute('role', 'main');
-            main.setAttribute('aria-label', 'Main content');
-        }
+	addLandmarks() {
+		// Add ARIA landmarks for better navigation
+		const main = document.querySelector('main') || document.querySelector('.main-content');
+		if (main) {
+			main.setAttribute('role', 'main');
+			main.setAttribute('aria-label', 'Main content');
+		}
 
-        const nav = document.querySelector('.tab-nav');
-        if (nav) {
-            nav.setAttribute('role', 'navigation');
-            nav.setAttribute('aria-label', 'Dashboard navigation');
-        }
+		const nav = document.querySelector('.tab-nav');
+		if (nav) {
+			nav.setAttribute('role', 'navigation');
+			nav.setAttribute('aria-label', 'Dashboard navigation');
+		}
 
-        const calendar = document.querySelector('.calendar-grid');
-        if (calendar) {
-            calendar.setAttribute('role', 'application');
-            calendar.setAttribute('aria-label', 'Payment calendar');
-        }
-    }
+		const calendar = document.querySelector('.calendar-grid');
+		if (calendar) {
+			calendar.setAttribute('role', 'application');
+			calendar.setAttribute('aria-label', 'Payment calendar');
+		}
+	}
 
-    initializeMobileFeatures() {
-        // Initialize mobile-specific features after DOM is ready
-        this.optimizeForMobile();
-        this.setupMobileAnimations();
-        this.setupMobilePerformance();
-    }
+	initializeMobileFeatures() {
+		// Initialize mobile-specific features after DOM is ready
+		this.optimizeForMobile();
+		this.setupMobileAnimations();
+		this.setupMobilePerformance();
+	}
 
-    optimizeForMobile() {
-        if (!this.isMobile) return;
+	optimizeForMobile() {
+		if (!this.isMobile) return;
 
-        // Optimize images
-        const images = document.querySelectorAll('img');
-        images.forEach(img => {
-            if (!img.loading) {
-                img.loading = 'lazy';
-            }
-        });
+		// Optimize images
+		const images = document.querySelectorAll('img');
+		images.forEach(img => {
+			if (!img.loading) {
+				img.loading = 'lazy';
+			}
+		});
 
-        // Optimize large datasets
-        this.virtualizeDataTables();
+		// Optimize large datasets
+		this.virtualizeDataTables();
 
-        // Optimize animations
-        this.optimizeAnimations();
-    }
+		// Optimize animations
+		this.optimizeAnimations();
+	}
 
-    virtualizeDataTables() {
-        const tables = document.querySelectorAll('table');
-        tables.forEach(table => {
-            const rows = table.querySelectorAll('tbody tr');
-            if (rows.length > 20) {
-                this.implementVirtualScrolling(table);
-            }
-        });
-    }
+	virtualizeDataTables() {
+		const tables = document.querySelectorAll('table');
+		tables.forEach(table => {
+			const rows = table.querySelectorAll('tbody tr');
+			if (rows.length > 20) {
+				this.implementVirtualScrolling(table);
+			}
+		});
+	}
 
-    implementVirtualScrolling(table) {
-        // Implement virtual scrolling for large tables
-        // This is a simplified implementation
-        const tbody = table.querySelector('tbody');
-        const rows = Array.from(tbody.querySelectorAll('tr'));
-        const visibleRows = 10;
-        let startIndex = 0;
+	implementVirtualScrolling(table) {
+		// Implement virtual scrolling for large tables
+		// This is a simplified implementation
+		const tbody = table.querySelector('tbody');
+		const rows = Array.from(tbody.querySelectorAll('tr'));
+		const visibleRows = 10;
+		let startIndex = 0;
 
-        const container = document.createElement('div');
-        container.style.maxHeight = '400px';
-        container.style.overflowY = 'auto';
+		const container = document.createElement('div');
+		container.style.maxHeight = '400px';
+		container.style.overflowY = 'auto';
 
-        table.parentNode.insertBefore(container, table);
-        container.appendChild(table);
+		table.parentNode.insertBefore(container, table);
+		container.appendChild(table);
 
-        const renderRows = () => {
-            tbody.innerHTML = '';
-            const endIndex = Math.min(startIndex + visibleRows, rows.length);
+		const renderRows = () => {
+			tbody.innerHTML = '';
+			const endIndex = Math.min(startIndex + visibleRows, rows.length);
 
-            for (let i = startIndex; i < endIndex; i++) {
-                tbody.appendChild(rows[i]);
-            }
-        };
+			for (let i = startIndex; i < endIndex; i++) {
+				tbody.appendChild(rows[i]);
+			}
+		};
 
-        container.addEventListener('scroll', () => {
-            const scrollTop = container.scrollTop;
-            const rowHeight = 50; // Approximate row height
-            const newStartIndex = Math.floor(scrollTop / rowHeight);
+		container.addEventListener('scroll', () => {
+			const scrollTop = container.scrollTop;
+			const rowHeight = 50; // Approximate row height
+			const newStartIndex = Math.floor(scrollTop / rowHeight);
 
-            if (newStartIndex !== startIndex) {
-                startIndex = newStartIndex;
-                renderRows();
-            }
-        });
+			if (newStartIndex !== startIndex) {
+				startIndex = newStartIndex;
+				renderRows();
+			}
+		});
 
-        renderRows();
-    }
+		renderRows();
+	}
 
-    optimizeAnimations() {
-        // Disable animations on slower devices
-        const isSlowDevice = navigator.hardwareConcurrency < 4 || navigator.deviceMemory < 4;
+	optimizeAnimations() {
+		// Disable animations on slower devices
+		const isSlowDevice = navigator.hardwareConcurrency < 4 || navigator.deviceMemory < 4;
 
-        if (isSlowDevice) {
-            const style = document.createElement('style');
-            style.textContent = `
+		if (isSlowDevice) {
+			const style = document.createElement('style');
+			style.textContent = `
                 *, *::before, *::after {
                     animation-duration: 0.01ms !important;
                     animation-iteration-count: 1 !important;
                     transition-duration: 0.01ms !important;
                 }
             `;
-            document.head.appendChild(style);
-        }
-    }
+			document.head.appendChild(style);
+		}
+	}
 
-    setupMobileAnimations() {
-        // Add mobile-specific animations
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('animate-in');
-                }
-            });
-        });
+	setupMobileAnimations() {
+		// Add mobile-specific animations
+		const observer = new IntersectionObserver((entries) => {
+			entries.forEach(entry => {
+				if (entry.isIntersecting) {
+					entry.target.classList.add('animate-in');
+				}
+			});
+		});
 
-        const animatedElements = document.querySelectorAll('.financial-card, .quick-action');
-        animatedElements.forEach(el => observer.observe(el));
-    }
+		const animatedElements = document.querySelectorAll('.financial-card, .quick-action');
+		animatedElements.forEach(el => observer.observe(el));
+	}
 
-    setupMobilePerformance() {
-        // Optimize performance for mobile
+	setupMobilePerformance() {
+		// Optimize performance for mobile
 
-        // Debounce resize events
-        let resizeTimer;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(() => {
-                this.handleResize();
-            }, 250);
-        });
+		// Debounce resize events
+		let resizeTimer;
+		window.addEventListener('resize', () => {
+			clearTimeout(resizeTimer);
+			resizeTimer = setTimeout(() => {
+				this.handleResize();
+			}, 250);
+		});
 
-        // Optimize scroll events
-        let scrollTimer;
-        window.addEventListener('scroll', () => {
-            clearTimeout(scrollTimer);
-            scrollTimer = setTimeout(() => {
-                this.handleScroll();
-            }, 16); // ~60fps
-        });
+		// Optimize scroll events
+		let scrollTimer;
+		window.addEventListener('scroll', () => {
+			clearTimeout(scrollTimer);
+			scrollTimer = setTimeout(() => {
+				this.handleScroll();
+			}, 16); // ~60fps
+		});
 
-        // Preload critical resources
-        this.preloadCriticalResources();
-    }
+		// Preload critical resources
+		this.preloadCriticalResources();
+	}
 
-    handleResize() {
-        // Handle resize events
-        this.updateMobileClasses();
-        this.adjustLayoutForViewport();
-    }
+	handleResize() {
+		// Handle resize events
+		this.updateMobileClasses();
+		this.adjustLayoutForViewport();
+	}
 
-    handleScroll() {
-        // Handle scroll events
-        this.updateScrollPosition();
-        this.manageScrollBasedElements();
-    }
+	handleScroll() {
+		// Handle scroll events
+		this.updateScrollPosition();
+		this.manageScrollBasedElements();
+	}
 
-    adjustLayoutForViewport() {
-        // Adjust layout based on viewport
-        const vh = window.innerHeight * 0.01;
-        document.documentElement.style.setProperty('--vh', `${vh}px`);
-    }
+	adjustLayoutForViewport() {
+		// Adjust layout based on viewport
+		const vh = window.innerHeight * 0.01;
+		document.documentElement.style.setProperty('--vh', `${vh}px`);
+	}
 
-    updateScrollPosition() {
-        // Update scroll position for various elements
-        const scrollTop = window.pageYOffset;
-        document.documentElement.style.setProperty('--scroll-top', `${scrollTop}px`);
-    }
+	updateScrollPosition() {
+		// Update scroll position for various elements
+		const scrollTop = window.pageYOffset;
+		document.documentElement.style.setProperty('--scroll-top', `${scrollTop}px`);
+	}
 
-    manageScrollBasedElements() {
-        // Show/hide elements based on scroll
-        const fab = document.querySelector('.fab');
-        if (fab) {
-            const scrollTop = window.pageYOffset;
-            fab.style.display = scrollTop > 200 ? 'flex' : 'none';
-        }
-    }
+	manageScrollBasedElements() {
+		// Show/hide elements based on scroll
+		const fab = document.querySelector('.fab');
+		if (fab) {
+			const scrollTop = window.pageYOffset;
+			fab.style.display = scrollTop > 200 ? 'flex' : 'none';
+		}
+	}
 
-    preloadCriticalResources() {
-        // Preload critical resources
-        const criticalUrls = [
-            '/assets/verenigingen/css/mobile_dues_schedule.css',
-            '/assets/verenigingen/js/dues_schedule_calendar.js'
-        ];
+	preloadCriticalResources() {
+		// Preload critical resources
+		const criticalUrls = [
+			'/assets/verenigingen/css/mobile_dues_schedule.css',
+			'/assets/verenigingen/js/dues_schedule_calendar.js'
+		];
 
-        criticalUrls.forEach(url => {
-            const link = document.createElement('link');
-            link.rel = 'preload';
-            link.href = url;
-            link.as = url.endsWith('.css') ? 'style' : 'script';
-            document.head.appendChild(link);
-        });
-    }
+		criticalUrls.forEach(url => {
+			const link = document.createElement('link');
+			link.rel = 'preload';
+			link.href = url;
+			link.as = url.endsWith('.css') ? 'style' : 'script';
+			document.head.appendChild(link);
+		});
+	}
 
-    reloadDashboardData() {
-        // Reload dashboard data without full page refresh
-        if (typeof loadFinancialData === 'function') {
-            loadFinancialData();
-        }
-    }
+	reloadDashboardData() {
+		// Reload dashboard data without full page refresh
+		if (typeof window.loadFinancialData === 'function') {
+			window.loadFinancialData();
+		}
+	}
 }
 
 // Initialize mobile enhancements
 if (typeof window !== 'undefined') {
-    window.mobileDuesSchedule = new MobileDuesSchedule();
+	window.mobileDuesSchedule = new MobileDuesSchedule();
 }
 
 // Export for module usage
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = MobileDuesSchedule;
+	module.exports = MobileDuesSchedule;
 }
 
 // Add CSS animation keyframes

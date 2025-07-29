@@ -116,7 +116,7 @@ def debug_payment_history_system():
         "total_recent_invoices": total_invoices,
         "in_payment_history": in_history,
         "missing_from_history": missing,
-        "percentage_missing": f"{(missing/total_invoices*100):.1f}%" if total_invoices > 0 else "N/A",
+        "percentage_missing": f"{(missing / total_invoices * 100):.1f}%" if total_invoices > 0 else "N/A",
     }
 
     return results

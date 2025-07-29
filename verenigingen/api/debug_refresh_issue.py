@@ -3,8 +3,16 @@
 import frappe
 from frappe.utils import getdate, now_datetime
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def debug_member_refresh_issue(member_name="Assoc-Member-2025-07-0030"):
     """Debug the refresh dues history issue for a specific member"""
 
@@ -104,6 +112,7 @@ def debug_member_refresh_issue(member_name="Assoc-Member-2025-07-0030"):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_atomic_vs_full_refresh(member_name="Assoc-Member-2025-07-0030"):
     """Test the difference between atomic and full refresh approaches"""
 
@@ -137,6 +146,7 @@ def test_atomic_vs_full_refresh(member_name="Assoc-Member-2025-07-0030"):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_legacy_full_refresh(member_name="Assoc-Member-2025-07-0030"):
     """Test the legacy full refresh method (for comparison)"""
 

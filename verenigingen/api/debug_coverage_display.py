@@ -4,8 +4,16 @@ Debug coverage period display issues
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def debug_coverage_display():
     """Debug why coverage periods aren't displaying correctly"""
 

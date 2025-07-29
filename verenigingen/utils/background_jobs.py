@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """
-Background Jobs Manager
-Phase 2.2 Implementation - Comprehensive Architectural Refactoring Plan v2.0
+Background Jobs Manager - Enhanced for Phase 2.2
+Phase 2.2 Implementation - Targeted Event Handler Optimization
 
-This module provides smart background job implementation with error handling,
-job status tracking, and user notifications for performance optimization.
+ENHANCED VERSION: This module provides smart background job implementation with
+comprehensive error handling, job status tracking, user notifications, and
+intelligent retry mechanisms for Phase 2.2 performance optimization.
+
+Performance Improvements Based on Phase 2.1 Baseline Analysis:
+- Payment entry submission: 0.156s (blocks UI - 3 heavy operations identified)
+- Target: 60-70% faster UI response times through background processing
+- Expected outcome: Payment operations 3x faster (67% improvement)
 """
 
 import time
@@ -138,7 +144,7 @@ class BackgroundJobManager:
 
             # Store in cache for quick access
             cache_key = f"job_status_{job_name}"
-            frappe.cache().set(cache_key, job_status, expires_in_sec=3600)
+            frappe.cache().set_value(cache_key, job_status, expires_in_sec=3600)
 
         except Exception as e:
             frappe.log_error(f"Failed to create job status record for {job_name}: {e}")
@@ -152,7 +158,7 @@ class BackgroundJobManager:
 
             job_status.update({"status": status, "updated_at": now(), "result": result, "error": error})
 
-            frappe.cache().set(cache_key, job_status, expires_in_sec=3600)
+            frappe.cache().set_value(cache_key, job_status, expires_in_sec=3600)
 
             # Notify user if job completed or failed
             if status in ["Completed", "Failed"] and job_status.get("user"):
@@ -199,6 +205,65 @@ class BackgroundJobManager:
             return {"status": "Error", "job_name": job_name, "error": str(e)}
 
     @staticmethod
+    def enqueue_with_tracking(
+        method: str, job_name: str, user: str, queue: str = "default", timeout: int = 300, **kwargs
+    ) -> str:
+        """
+        Enhanced job enqueuing with comprehensive tracking and user notifications
+
+        Args:
+            method: Function path to execute
+            job_name: Unique job identifier
+            user: User who initiated the job
+            queue: Queue name (default, short, long)
+            timeout: Job timeout in seconds
+            **kwargs: Arguments to pass to the job function
+
+        Returns:
+            Job ID for tracking
+        """
+        try:
+            # Generate unique job ID
+            job_id = f"{job_name}_{int(time.time())}"
+
+            # Queue the background job
+            frappe.enqueue(method, job_name=job_id, queue=queue, timeout=timeout, retry=3, **kwargs)
+
+            # Create comprehensive job status record
+            BackgroundJobManager.create_job_status_record(
+                job_name=job_id,
+                job_type=method.split(".")[-1],  # Extract function name
+                status="Queued",
+                user=user,
+                method=method,
+                queue=queue,
+                timeout=timeout,
+                **kwargs,
+            )
+
+            # Send immediate user notification
+            frappe.publish_realtime(
+                "show_alert",
+                {
+                    "message": f"Background job '{job_name}' has been queued. You'll be notified when complete.",
+                    "indicator": "blue",
+                },
+                user=user,
+            )
+
+            return job_id
+
+        except Exception as e:
+            frappe.log_error(f"Failed to enqueue job {job_name}: {e}")
+            # Send error notification to user
+            frappe.publish_realtime(
+                "show_alert",
+                {"message": f"Failed to queue background job '{job_name}': {str(e)}", "indicator": "red"},
+                user=user,
+            )
+            raise
+
+    @staticmethod
     def retry_failed_job(job_name: str, max_retries: int = 3) -> bool:
         """Retry failed job with exponential backoff"""
         try:
@@ -230,7 +295,7 @@ class BackgroundJobManager:
             )
 
             cache_key = f"job_status_{job_name}"
-            frappe.cache().set(cache_key, job_status, expires_in_sec=3600)
+            frappe.cache().set_value(cache_key, job_status, expires_in_sec=3600)
 
             return True
 
@@ -406,7 +471,7 @@ def refresh_member_financial_history_optimized(member_doc, payment_entry: str = 
             "execution_time": execution_time,
             "timestamp": now(),
         }
-        frappe.cache().set(cache_key, cache_result, expires_in_sec=1800)
+        frappe.cache().set_value(cache_key, cache_result, expires_in_sec=1800)
 
         return cache_result
 
@@ -604,12 +669,26 @@ def load_payment_history_batch_optimized(member_doc) -> Dict[str, Any]:
                     mandate_status = mandate.status
                     mandate_reference = mandate.mandate_id
 
-            if not has_mandate and default_mandate and default_mandate.name in mandates:
-                mandate = mandates[default_mandate.name]
-                has_mandate = 1
-                sepa_mandate = mandate.name
-                mandate_status = mandate.status
-                mandate_reference = mandate.mandate_id
+            # Check for default mandate on member
+            if not has_mandate:
+                # Get member's default mandate (if any)
+                try:
+                    member_doc = frappe.get_doc("Member", member_doc.name)
+                    default_mandate = (
+                        member_doc.get_default_sepa_mandate()
+                        if hasattr(member_doc, "get_default_sepa_mandate")
+                        else None
+                    )
+
+                    if default_mandate and default_mandate.name in mandates:
+                        mandate = mandates[default_mandate.name]
+                        has_mandate = 1
+                        sepa_mandate = mandate.name
+                        mandate_status = mandate.status
+                        mandate_reference = mandate.mandate_id
+                except Exception as e:
+                    # Log error but continue processing
+                    frappe.log_error(f"Error getting default mandate for member: {e}")
 
             # Get coverage dates from invoice data (already loaded)
             coverage_start_date = invoice.get("custom_coverage_start_date")

@@ -4,8 +4,16 @@ Simple validation test
 
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_basic_validation():
     """Simple test of the validation fixes"""
     try:

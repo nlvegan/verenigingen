@@ -1,7 +1,15 @@
 import frappe
 
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def create_smart_item_mapping_system():
     """Create a comprehensive item mapping system for E-Boekhouden accounts"""
     try:
@@ -170,6 +178,7 @@ def create_smart_item_mapping_system():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def create_items_from_mappings():
     """Create actual ERPNext items based on the smart mappings"""
     try:
@@ -270,6 +279,7 @@ def create_items_from_mappings():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def create_tegenrekening_mapping_helper():
     """Create a helper function for mapping tegenrekening codes to items during migration"""
 
