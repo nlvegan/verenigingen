@@ -1891,7 +1891,7 @@ function show_approval_dialog(frm) {
 		args: {
 			doctype: 'Membership Type',
 			filters: { is_active: 1 },
-			fields: ['name', 'amount', 'membership_type_name']
+			fields: ['name', 'membership_type_name']
 		},
 		callback: function(r) {
 			var membership_types = r.message || [];

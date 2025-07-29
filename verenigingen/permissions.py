@@ -343,7 +343,7 @@ def can_terminate_member(member_name, user=None):
     if member_chapters:
         try:
             chapter_doc = frappe.get_doc("Chapter", member_chapters[0].parent)
-            if chapter_doc.user_has_board_access(requesting_member):
+            if chapter_doc.is_board_member(member_name=requesting_member):
                 frappe.logger().debug(
                     f"User {user} has board access in member's chapter {member_chapters[0].parent}"
                 )
@@ -354,9 +354,9 @@ def can_terminate_member(member_name, user=None):
     # Check if user is a board member of the national chapter (if configured)
     try:
         settings = frappe.get_single("Verenigingen Settings")
-        if hasattr(settings, "national_chapter") and settings.national_chapter:
-            national_chapter_doc = frappe.get_doc("Chapter", settings.national_chapter)
-            if national_chapter_doc.user_has_board_access(requesting_member):
+        if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
+            national_chapter_doc = frappe.get_doc("Chapter", settings.national_board_chapter)
+            if national_chapter_doc.is_board_member(member_name=requesting_member):
                 frappe.logger().debug(f"User {user} has board access in national chapter")
                 return True
     except Exception as e:

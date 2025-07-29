@@ -7,7 +7,7 @@ import frappe
 from verenigingen.utils.security.rate_limiting import standard_api, utility_api
 
 
-@utility_api
+@utility_api()
 @frappe.whitelist()
 def get_onboarding_info():
     """Get detailed onboarding information"""
@@ -60,7 +60,7 @@ def get_onboarding_info():
         return {"success": False, "error": str(e)}
 
 
-@utility_api
+@utility_api()
 @frappe.whitelist()
 def get_direct_onboarding_link():
     """Get the direct link to access Verenigingen onboarding"""

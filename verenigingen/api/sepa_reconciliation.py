@@ -31,7 +31,7 @@ from verenigingen.utils.security.authorization import (
 
 
 @handle_api_error
-@standard_api
+@standard_api()
 @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def identify_sepa_transactions():
@@ -127,7 +127,7 @@ def find_matching_sepa_batches(bank_transaction):
     return matches
 
 
-@critical_api
+@critical_api()
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
 def process_sepa_transaction_conservative(bank_transaction_name, sepa_batch_name):
@@ -370,7 +370,7 @@ Action Required: Investigate source of excess payment
 # ========================
 
 
-@critical_api
+@critical_api()
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
 def process_sepa_return_file(file_content, file_type="csv"):
@@ -601,7 +601,7 @@ def notify_member_of_failed_payment(member_name, invoice_name, return_item):
     return task.name
 
 
-@high_security_api
+@high_security_api()
 @require_sepa_permission(SEPAPermissionLevel.VALIDATE, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def correlate_return_transactions():
@@ -686,7 +686,7 @@ def find_original_sepa_batch_for_return(return_transaction):
 
 @handle_api_error
 @performance_monitor()
-@standard_api
+@standard_api()
 @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_sepa_reconciliation_dashboard():
@@ -733,7 +733,7 @@ def get_sepa_reconciliation_dashboard():
         return {"success": False, "error": str(e)}
 
 
-@critical_api
+@critical_api()
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
 def manual_sepa_reconciliation(bank_transaction_name, batch_items_json):

@@ -7,7 +7,7 @@ import frappe
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 
 
-@high_security_api
+@high_security_api()
 @frappe.whitelist()
 def get_unreconciled_payments():
     """Get all unreconciled payment entries created during migration"""
@@ -97,7 +97,7 @@ def get_unreconciled_payments():
     }
 
 
-@critical_api
+@critical_api()
 @frappe.whitelist()
 def reconcile_payment_with_invoice(payment_entry, invoice_type, invoice_name):
     """Reconcile an unreconciled payment with an invoice"""

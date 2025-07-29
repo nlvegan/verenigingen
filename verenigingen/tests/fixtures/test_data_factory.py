@@ -269,12 +269,21 @@ class StreamlinedTestDataFactory:
             member = self.create_test_member()
         
         test_iban = self.generate_test_iban()
+        # Get member name for account holder
+        member_name = member.name if hasattr(member, 'name') else member
+        member_doc = frappe.get_doc("Member", member_name) if isinstance(member_name, str) else member
+        account_holder_name = f"{member_doc.first_name} {member_doc.last_name}"
+        
         defaults = {
-            "member": member.name if hasattr(member, 'name') else member,
+            "member": member_name,
             "iban": test_iban,
             "bic": self.derive_bic_from_test_iban(test_iban),
             "status": "Active",
-            "mandate_date": today()
+            "mandate_type": "Recurring",  # Required field
+            "scheme": "CORE",  # Required field
+            "account_holder_name": account_holder_name,  # Required field
+            "sign_date": today(),  # Required field (renamed from mandate_date)
+            "mandate_id": f"TEST-{random_string(8)}"  # Required field
         }
         defaults.update(kwargs)
         

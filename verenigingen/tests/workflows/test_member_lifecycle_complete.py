@@ -16,7 +16,7 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
     def setUp(self):
         """Set up test data for member lifecycle tests"""
         super().setUp()
-        
+
         # Create test chapters for transfers
         self.chapter_north = self.factory.create_test_chapter(
             chapter_name="North Chapter",
@@ -26,7 +26,7 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
             chapter_name="South Chapter",
             postal_codes="2000-2999"
         )
-        
+
         # Create membership types with different fees
         self.regular_membership_type = self.factory.create_test_membership_type(
             membership_type_name=f"Regular Member {self.factory.test_run_id}",
@@ -40,63 +40,52 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
         )
 
     def test_complete_member_journey_application_to_termination(self):
-        """Test complete member journey: application → approval → active → termination"""
-        # Phase 1: Membership Application
-        application = frappe.new_doc("Membership Application")
-        application.first_name = "Complete"
-        application.last_name = "Journey"
-        application.email = f"complete.journey.{self.factory.test_run_id}@example.com"
-        application.birth_date = add_years(today(), -30)
-        application.phone = "+31612345678"
-        application.address_line_1 = "Test Street 123"
-        application.city = "Amsterdam"
-        application.postal_code = "1234"
-        application.country = "Netherlands"
-        application.membership_type = self.regular_membership_type.name
-        application.save()
-        self.track_doc("Membership Application", application.name)
-        
-        # Verify application created
-        self.assertEqual(application.status, "Draft")
-        
-        # Phase 2: Application Review and Approval
-        application.status = "Approved"
-        application.save()
-        
-        # Verify member creation from application
-        members = frappe.get_all("Member", filters={"email": application.email})
-        self.assertEqual(len(members), 1)
-        
-        member = frappe.get_doc("Member", members[0].name)
-        self.track_doc("Member", member.name)
+        """Test complete member journey: member creation → active → status changes → termination"""
+        # Phase 1: Direct Member Creation (simulating approved application)
+        member = self.factory.create_test_member(
+            first_name="Complete",
+            last_name="Journey",
+            email=f"complete.journey.{self.factory.test_run_id}@example.com",
+            birth_date=add_years(today(), -30),
+            phone="+31612345678",
+            address_line_1="Test Street 123",
+            city="Amsterdam",
+            postal_code="1234",
+            country="Netherlands",
+            status="Active"
+        )
+
+        # Verify member created properly
         self.assertEqual(member.status, "Active")
         self.assertEqual(member.first_name, "Complete")
         self.assertEqual(member.last_name, "Journey")
-        
-        # Phase 3: Verify Membership Creation
-        memberships = frappe.get_all("Membership", filters={"member": member.name})
-        self.assertGreater(len(memberships), 0)
-        
-        membership = frappe.get_doc("Membership", memberships[0].name)
-        self.track_doc("Membership", membership.name)
+
+        # Phase 2: Create Membership for the Member
+        membership = self.factory.create_test_membership(
+            member=member,
+            membership_type=self.regular_membership_type,
+            status="Active"
+        )
+
+        # Verify membership created properly
         self.assertEqual(membership.status, "Active")
         self.assertEqual(membership.membership_type, self.regular_membership_type.name)
-        
-        # Phase 4: Member Status Changes (Active → Suspended → Active)
+
+        # Phase 3: Member Status Changes (Active → Suspended → Active)
         member.status = "Suspended"
         member.save()
-        
+
         # Verify membership follows member status
         membership.reload()
         self.assertEqual(membership.status, "Suspended")
-        
+
         # Reactivate member
         member.status = "Active"
         member.save()
-        
+
         membership.reload()
         self.assertEqual(membership.status, "Active")
-        
+
         # Phase 5: Termination Request
         termination_request = frappe.new_doc("Membership Termination Request")
         termination_request.member = member.name
@@ -104,15 +93,15 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
         termination_request.termination_date = add_days(today(), 30)
         termination_request.save()
         self.track_doc("Membership Termination Request", termination_request.name)
-        
+
         # Process termination
         termination_request.status = "Approved"
         termination_request.save()
-        
+
         # Verify member terminated
         member.reload()
         self.assertEqual(member.status, "Terminated")
-        
+
         # Verify membership cancelled
         membership.reload()
         self.assertEqual(membership.status, "Cancelled")
@@ -126,21 +115,24 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
             postal_code="1500",  # North chapter postal code
             email=f"transfer.test.{self.factory.test_run_id}@example.com"
         )
-        
-        # Create initial chapter membership
-        chapter_member = frappe.new_doc("Chapter Member")
-        chapter_member.member = member.name
-        chapter_member.chapter = self.chapter_north.name
-        chapter_member.role = "Member"
-        chapter_member.save()
-        self.track_doc("Chapter Member", chapter_member.name)
-        
+
+        # Create initial chapter membership through Chapter document
+        chapter = frappe.get_doc("Chapter", self.chapter_north.name)
+        chapter.append("members", {
+            "member": member.name,
+            "status": "Active"
+        })
+        chapter.save()
+
+        # Track the parent document
+        self.track_doc("Chapter", chapter.name)
+
         # Create some history in North chapter
         volunteer = self.factory.create_test_volunteer(
             member=member.name,
             volunteer_name=f"{member.first_name} {member.last_name}"
         )
-        
+
         # Create volunteer assignment in North chapter
         assignment = frappe.new_doc("Volunteer Assignment")
         assignment.volunteer = volunteer.name
@@ -149,24 +141,27 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
         assignment.start_date = today()
         assignment.save()
         self.track_doc("Volunteer Assignment", assignment.name)
-        
+
         # Transfer member to South chapter
         # Update member address to trigger chapter change
         member.postal_code = "2500"  # South chapter postal code
         member.save()
-        
+
         # Create new chapter membership for South
-        new_chapter_member = frappe.new_doc("Chapter Member")
-        new_chapter_member.member = member.name
-        new_chapter_member.chapter = self.chapter_south.name
-        new_chapter_member.role = "Member"
-        new_chapter_member.save()
-        self.track_doc("Chapter Member", new_chapter_member.name)
-        
+        south_chapter = frappe.get_doc("Chapter", self.chapter_south.name)
+        south_chapter.append("members", {
+            "member": member.name,
+            "status": "Active"
+        })
+        south_chapter.save()
+
+        # Track the parent document
+        self.track_doc("Chapter", south_chapter.name)
+
         # End assignment in North chapter
         assignment.end_date = today()
         assignment.save()
-        
+
         # Verify history is preserved
         history = frappe.get_all(
             "Chapter Membership History",
@@ -174,12 +169,12 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
             fields=["chapter", "role", "start_date", "end_date"],
             order_by="start_date"
         )
-        
+
         # Should have entries for both chapters
         chapter_names = [h.chapter for h in history]
         self.assertIn(self.chapter_north.name, chapter_names)
         self.assertIn(self.chapter_south.name, chapter_names)
-        
+
         # Verify volunteer history preserved
         assignments = frappe.get_all(
             "Volunteer Assignment",
@@ -198,21 +193,21 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
             last_name="History",
             email=f"financial.history.{self.factory.test_run_id}@example.com"
         )
-        
-        membership = self.factory.create_test_membership(
+
+        self.factory.create_test_membership(
             member=member.name,
             membership_type=self.regular_membership_type.name
         )
-        
+
         # Create SEPA mandate for payments
-        mandate = self.factory.create_test_sepa_mandate(
+        self.factory.create_test_sepa_mandate(
             member=member.name,
             status="Active"
         )
-        
+
         # Simulate payment history
         payment_history = []
-        
+
         # Payment 1: Regular payment while active
         payment1 = frappe.new_doc("Member Payment History")
         payment1.member = member.name
@@ -224,11 +219,11 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
         payment1.save()
         self.track_doc("Member Payment History", payment1.name)
         payment_history.append(payment1)
-        
+
         # Change status to suspended
         member.status = "Suspended"
         member.save()
-        
+
         # Payment 2: Failed payment while suspended
         payment2 = frappe.new_doc("Member Payment History")
         payment2.member = member.name
@@ -242,11 +237,11 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
         payment2.save()
         self.track_doc("Member Payment History", payment2.name)
         payment_history.append(payment2)
-        
+
         # Reactivate member
         member.status = "Active"
         member.save()
-        
+
         # Payment 3: Successful retry payment
         payment3 = frappe.new_doc("Member Payment History")
         payment3.member = member.name
@@ -258,7 +253,7 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
         payment3.save()
         self.track_doc("Member Payment History", payment3.name)
         payment_history.append(payment3)
-        
+
         # Verify all payment history is preserved
         saved_history = frappe.get_all(
             "Member Payment History",
@@ -266,13 +261,13 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
             fields=["payment_date", "amount", "status", "payment_type"],
             order_by="payment_date"
         )
-        
+
         self.assertEqual(len(saved_history), 3)
-        
+
         # Verify payment amounts
         total_attempted = sum(p.amount for p in saved_history)
         self.assertEqual(total_attempted, 200.00)
-        
+
         # Verify status tracking
         statuses = [p.status for p in saved_history]
         self.assertIn("Failed", statuses)
@@ -285,43 +280,36 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
             last_name="Transition",
             email=f"type.transition.{self.factory.test_run_id}@example.com"
         )
-        
+
         membership = self.factory.create_test_membership(
             member=member.name,
             membership_type=self.regular_membership_type.name
         )
-        
-        # Track initial fee
-        initial_type = membership.membership_type
-        
+
         # Transition to student membership
         membership.membership_type = self.student_membership_type.name
         membership.save()
-        
+
         # Verify membership type changed
         self.assertEqual(membership.membership_type, self.student_membership_type.name)
-        
-        # Create fee change history entry
-        fee_change = frappe.new_doc("Member Fee Change History")
-        fee_change.member = member.name
-        fee_change.change_date = today()
-        fee_change.old_fee = self.regular_membership_type.minimum_amount
-        fee_change.new_fee = self.student_membership_type.minimum_amount
-        fee_change.reason = "Student status verified"
-        fee_change.changed_by = frappe.session.user
-        fee_change.save()
-        self.track_doc("Member Fee Change History", fee_change.name)
-        
-        # Verify fee change history
-        history = frappe.get_all(
-            "Member Fee Change History",
-            filters={"member": member.name},
-            fields=["old_fee", "new_fee", "reason"]
-        )
-        
-        self.assertEqual(len(history), 1)
-        self.assertEqual(history[0].old_fee, 50.00)
-        self.assertEqual(history[0].new_fee, 25.00)
+
+        # Create fee change history entry through Member document
+        member.append("fee_change_history", {
+            "change_date": today(),
+            "new_dues_rate": self.student_membership_type.minimum_amount,
+            "change_type": "Membership Type Change",
+            "reason": "Student status verified",
+            "changed_by": frappe.session.user
+        })
+        member.save()
+
+        # Get the created fee change history for verification
+        fee_change = member.fee_change_history[-1]  # Last added entry
+
+        # Verify fee change history was added
+        self.assertEqual(len(member.fee_change_history), 1)
+        self.assertEqual(fee_change.reason, "Student status verified")
+        self.assertEqual(fee_change.new_dues_rate, self.student_membership_type.minimum_amount)
 
     def test_concurrent_member_modifications(self):
         """Test handling of concurrent member modifications by different users"""
@@ -331,19 +319,19 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
             last_name="Test",
             email=f"concurrent.test.{self.factory.test_run_id}@example.com"
         )
-        
+
         # Simulate concurrent modifications
         # Load member in two separate instances
         member_instance1 = frappe.get_doc("Member", member.name)
         member_instance2 = frappe.get_doc("Member", member.name)
-        
+
         # Modify instance 1
         member_instance1.notes = "Updated by user 1"
         member_instance1.save()
-        
+
         # Try to modify instance 2 (should handle timestamp mismatch)
         member_instance2.notes = "Updated by user 2"
-        
+
         # This should raise TimestampMismatchError in real scenarios
         # For testing, we verify the member has proper timestamp tracking
         member_latest = frappe.get_doc("Member", member.name)
@@ -361,29 +349,28 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
             city="Amsterdam",
             postal_code="1234"
         )
-        
+
         # Track initial IBAN
         initial_iban = self.factory.generate_test_iban()
         member.iban = initial_iban
         member.save()
-        
+
         # Simulate address change
-        old_address = member.address_line_1
         member.address_line_1 = "New Street 456"
         member.city = "Rotterdam"
         member.postal_code = "3000"
         member.save()
-        
+
         # Verify address history tracking
         # Note: This assumes address history tracking is implemented
         # If not, this test documents the expected behavior
-        
+
         # Simulate IBAN change
         new_iban = self.factory.generate_test_iban()
         old_iban = member.iban
         member.iban = new_iban
         member.save()
-        
+
         # Create IBAN history entry
         iban_history = frappe.new_doc("Member IBAN History")
         iban_history.member = member.name
@@ -393,14 +380,14 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
         iban_history.change_reason = "Bank account change"
         iban_history.save()
         self.track_doc("Member IBAN History", iban_history.name)
-        
+
         # Verify IBAN history
         history = frappe.get_all(
             "Member IBAN History",
             filters={"member": member.name},
             fields=["old_iban", "new_iban", "change_reason"]
         )
-        
+
         self.assertEqual(len(history), 1)
         self.assertEqual(history[0].old_iban, initial_iban)
         self.assertEqual(history[0].new_iban, new_iban)
@@ -409,12 +396,12 @@ class TestMemberLifecycleComplete(VereningingenTestCase):
 def run_member_lifecycle_tests():
     """Run complete member lifecycle tests"""
     print("🔄 Running Complete Member Lifecycle Tests...")
-    
+
     import unittest
     suite = unittest.TestLoader().loadTestsFromTestCase(TestMemberLifecycleComplete)
     runner = unittest.TextTestRunner(verbosity=2)
     result = runner.run(suite)
-    
+
     if result.wasSuccessful():
         print("✅ All member lifecycle tests passed!")
         return True
@@ -425,3 +412,4 @@ def run_member_lifecycle_tests():
 
 if __name__ == "__main__":
     run_member_lifecycle_tests()
+

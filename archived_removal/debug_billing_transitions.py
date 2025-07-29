@@ -104,7 +104,7 @@ def check_membership_type_settings():
             results.append(
                 {
                     "name": mt_name,
-                    "amount": mt.amount,
+                    "amount": mt.minimum_amount,
                     "billing_frequency": getattr(mt, "billing_frequency", "Not Set"),
                     "fields": [f.fieldname for f in mt.meta.fields if "billing" in f.fieldname.lower()],
                 }
@@ -150,7 +150,7 @@ def list_existing_test_members():
         schedules = frappe.get_all(
             "Membership Dues Schedule",
             filters={"member": member.name},
-            fields=["name", "status", "billing_frequency", "amount"],
+            fields=["name", "status", "billing_frequency", "dues_rate"],
         )
         member["schedules"] = schedules
 

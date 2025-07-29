@@ -291,7 +291,7 @@ def handle_automated_batch_validation(batch, critical_errors, warnings):
         return {"action": "error", "requires_intervention": True}
 
 
-@standard_api
+@standard_api()
 @require_sepa_permission(SEPAPermissionLevel.ADMIN, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def test_notification_system():

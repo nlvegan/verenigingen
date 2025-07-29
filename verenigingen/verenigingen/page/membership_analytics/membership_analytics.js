@@ -88,7 +88,7 @@ class MembershipAnalytics {
 			method: 'frappe.client.get_list',
 			args: {
 				doctype: 'Chapter',
-				fields: ['name', 'chapter_name'],
+				fields: ['name'],
 				filters: { is_active: 1 },
 				limit_page_length: 0
 			},

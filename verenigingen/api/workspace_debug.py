@@ -6,7 +6,7 @@ import frappe
 from verenigingen.utils.security.api_security_framework import high_security_api, standard_api, utility_api
 
 
-@utility_api
+@utility_api()
 @frappe.whitelist()
 def check_workspace_status():
     """Check Verenigingen workspace status and links"""
@@ -51,7 +51,7 @@ def check_workspace_status():
         return {"success": False, "error": str(e)}
 
 
-@utility_api
+@utility_api()
 @frappe.whitelist()
 def check_eboekhouden_workspace():
     """Check if E-Boekhouden workspace exists and is valid"""
@@ -165,7 +165,7 @@ def check_dues_system_status():
         return {"success": False, "error": str(e), "status": status}
 
 
-@high_security_api
+@high_security_api()
 @frappe.whitelist()
 def fix_eboekhouden_workspace_content():
     """Fix the E-Boekhouden workspace content structure"""
@@ -201,7 +201,7 @@ def fix_eboekhouden_workspace_content():
         return {"success": False, "error": str(e)}
 
 
-@utility_api
+@utility_api()
 @frappe.whitelist()
 def check_eboekhouden_doctypes():
     """Check which E-Boekhouden doctypes exist in the database"""
@@ -239,7 +239,7 @@ def check_eboekhouden_doctypes():
         return {"success": False, "error": str(e)}
 
 
-@high_security_api
+@high_security_api()
 @frappe.whitelist()
 def add_missing_eboekhouden_doctypes():
     """Add the missing E-Boekhouden doctypes to the workspace"""
@@ -322,7 +322,7 @@ def add_missing_eboekhouden_doctypes():
         return {"success": False, "error": str(e)}
 
 
-@high_security_api
+@high_security_api()
 @frappe.whitelist()
 def force_reload_workspace():
     """Force reload the workspace from JSON file"""
@@ -343,7 +343,7 @@ def force_reload_workspace():
         return {"success": False, "error": str(e)}
 
 
-@high_security_api
+@high_security_api()
 @frappe.whitelist()
 def create_minimal_workspace():
     """Create minimal workspace and add workflow demo link"""
@@ -401,7 +401,7 @@ def create_minimal_workspace():
         return {"success": False, "error": str(e)}
 
 
-@high_security_api
+@high_security_api()
 @frappe.whitelist()
 def restore_full_workspace_structure():
     """Restore full workspace structure with all sections and links"""

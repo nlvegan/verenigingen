@@ -199,7 +199,7 @@ def normalize_iban(iban):
     return iban.replace(" ", "").upper()
 
 
-@critical_api
+@critical_api()
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_PROCESS)
 @frappe.whitelist()
 def approve_batch(batch_name, approval_notes=None):
@@ -261,7 +261,7 @@ def approve_batch(batch_name, approval_notes=None):
         frappe.throw(_("Error approving batch: {0}").format(str(e)))
 
 
-@critical_api
+@critical_api()
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.BATCH_CANCEL)
 @frappe.whitelist()
 def reject_batch(batch_name, rejection_reason):
@@ -318,7 +318,7 @@ def can_user_approve_batch(batch):
     return False
 
 
-@standard_api
+@standard_api()
 @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_batch_approval_history(batch_name):
@@ -358,7 +358,7 @@ def get_batch_approval_history(batch_name):
         return {"success": False, "error": str(e)}
 
 
-@critical_api
+@critical_api()
 @require_sepa_permission(SEPAPermissionLevel.PROCESS, SEPAOperation.XML_GENERATE)
 @frappe.whitelist()
 def trigger_sepa_generation(batch_name):
@@ -407,7 +407,7 @@ def trigger_sepa_generation(batch_name):
         frappe.throw(_("Error generating SEPA file: {0}").format(str(e)))
 
 
-@standard_api
+@standard_api()
 @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def get_batches_pending_approval():

@@ -161,12 +161,12 @@ function auto_set_organization(frm) {
 							member: r.message.member,
 							status: 'Active'
 						},
-						fields: ['chapter']
+						fields: ['parent']
 					},
 					callback: function(chapters) {
 						if (chapters.message && chapters.message.length === 1) {
 							frm.set_value('organization_type', 'Chapter');
-							frm.set_value('chapter', chapters.message[0].chapter);
+							frm.set_value('chapter', chapters.message[0].parent);
 						} else {
 							// Check teams if no single chapter
 							frappe.call({

@@ -217,7 +217,7 @@ export class MemberManager {
 		// Get detailed member information
 		const members = await this.api.getList('Member', {
 			filters: [['name', 'in', memberIds]],
-			fields: ['name', 'full_name', 'email', 'mobile_no', 'status', 'member_since', 'image'],
+			fields: ['name', 'full_name', 'email', 'contact_number', 'status', 'member_since', 'image'],
 			limit: 500
 		});
 
@@ -271,7 +271,7 @@ export class MemberManager {
                             </div>
                             <div class="member-details">
                                 ${member.email ? `<p><i class="fa fa-envelope"></i> ${member.email}</p>` : ''}
-                                ${member.mobile_no ? `<p><i class="fa fa-phone"></i> ${member.mobile_no}</p>` : ''}
+                                ${member.contact_number ? `<p><i class="fa fa-phone"></i> ${member.contact_number}</p>` : ''}
                                 ${member.member_since ? `<p><i class="fa fa-calendar"></i> ${__('Member since')} ${member.member_since}</p>` : ''}
                                 ${member.introduction ? `<p class="text-muted">${member.introduction}</p>` : ''}
                                 ${member.website_url ? `<p><i class="fa fa-globe"></i> <a href="${member.website_url}" target="_blank">${member.website_url}</a></p>` : ''}
@@ -407,7 +407,7 @@ export class MemberManager {
 			const rows = members.map(member => [
 				member.full_name,
 				member.email || '',
-				member.mobile_no || '',
+				member.contact_number || '',
 				member.status,
 				member.member_since || '',
 				member.introduction || '',

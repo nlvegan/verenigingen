@@ -134,7 +134,7 @@ function link_donation_dialog(frm) {
 				periodic_donation_agreement: ['is', 'not set'],
 				docstatus: 1
 			},
-			fields: ['name', 'date', 'amount', 'payment_method'],
+			fields: ['name', 'donation_date', 'amount', 'payment_method'],
 			limit_page_length: 100
 		},
 		callback: function(r) {
@@ -146,7 +146,7 @@ function link_donation_dialog(frm) {
 						fieldtype: 'Select',
 						options: r.message.map(d => ({
 							value: d.name,
-							label: `${d.name} - ${frappe.datetime.str_to_user(d.date)} - €${d.amount}`
+							label: `${d.name} - ${frappe.datetime.str_to_user(d.donation_date)} - €${d.amount}`
 						})),
 						reqd: 1
 					}

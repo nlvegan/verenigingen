@@ -7,7 +7,7 @@ from frappe.utils import add_days, flt, getdate, today
 from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
 
 
-@critical_api
+@critical_api()
 @frappe.whitelist()
 def generate_manual_invoice(member_name):
     """
@@ -73,7 +73,7 @@ def generate_manual_invoice(member_name):
         return {"success": False, "error": f"Unexpected error: {str(e)}"}
 
 
-@standard_api
+@standard_api()
 @frappe.whitelist()
 def get_member_invoice_info(member_name):
     """
@@ -136,7 +136,7 @@ def get_member_invoice_info(member_name):
         return {"success": False, "error": f"Error retrieving information: {str(e)}"}
 
 
-@standard_api
+@standard_api()
 @frappe.whitelist()
 def test_settings_creation_user():
     """Test if the creation_user field from Verenigingen Settings is accessible"""
@@ -173,7 +173,7 @@ def test_settings_creation_user():
         return {"success": False, "error": str(e)}
 
 
-@standard_api
+@standard_api()
 @frappe.whitelist()
 def test_email_template_variables():
     """Test email template variable parsing for common issues"""
@@ -249,7 +249,7 @@ def test_email_template_variables():
         return {"success": False, "error": str(e), "message": "Error testing email template variables"}
 
 
-@standard_api
+@standard_api()
 @frappe.whitelist()
 def scan_email_template_issues():
     """Scan the codebase for potential email template variable parsing issues"""
@@ -328,7 +328,7 @@ def scan_email_template_issues():
         return {"success": False, "error": str(e), "message": "Error scanning for email template issues"}
 
 
-@standard_api
+@standard_api()
 @frappe.whitelist()
 def test_sepa_mandate_pattern():
     """Test the configurable SEPA mandate_id generation pattern"""
@@ -401,7 +401,7 @@ def test_sepa_mandate_pattern():
         return {"success": False, "error": str(e), "message": "\n".join(result)}
 
 
-@standard_api
+@standard_api()
 @frappe.whitelist()
 def check_dues_schedules():
     """Check status of dues schedules"""
@@ -451,7 +451,7 @@ def check_dues_schedules():
     return result
 
 
-@standard_api
+@standard_api()
 @frappe.whitelist()
 def test_hybrid_payment_history_implementation():
     """
@@ -574,7 +574,7 @@ def test_hybrid_payment_history_implementation():
             delattr(frappe.flags, "bulk_invoice_generation")
 
 
-@standard_api
+@standard_api()
 @frappe.whitelist()
 def diagnose_auto_submit_setting():
     """

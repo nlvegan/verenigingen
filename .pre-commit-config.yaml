@@ -105,14 +105,14 @@ repos:
         files: \.py$
         stages: [pre-commit]
 
-      - id: unified-field-validator
-        name: Validate DocType field references (unified AST + SQL)
-        entry: python scripts/validation/unified_field_validator.py --pre-commit
+      - id: comprehensive-field-validator
+        name: Comprehensive DocType field references (all apps)
+        entry: python scripts/validation/comprehensive_field_validator.py --pre-commit
         language: system
         pass_filenames: false
         files: \.py$
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py)'
 
       - id: enhanced-field-validator
         name: Enhanced deprecated field validation
@@ -122,6 +122,15 @@ repos:
         files: '\.(py|html|js)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py)'
+
+      - id: js-validation
+        name: JavaScript validation (templates + field references)
+        entry: python scripts/validation/javascript_validation.py
+        language: system
+        pass_filenames: false
+        files: '\.(html|js)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.(html|js)|debug_|.*_debug\.(html|js)|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
 
       - id: fast-method-validator
         name: Fast method call validation

@@ -23,6 +23,9 @@
    "step": "Verenigingen-Setup-Settings"
   },
   {
+   "step": "Verenigingen-Configure-Security"
+  },
+  {
    "step": "Verenigingen-Install-Email-Templates"
   },
   {
