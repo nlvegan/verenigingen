@@ -1,0 +1,9 @@
+📋 Loaded 851 doctypes with field definitions
+📋 Built child table mapping with 390 entries
+🔍 Running comprehensive validation...
+🔍 Scanning Python files in /home/frappe/frappe-bench/apps/verenigingen...
+📊 Checked 1340 Python files
+
+==================================================
+✅ No field reference issues found!
+✅ All field references validated successfully!

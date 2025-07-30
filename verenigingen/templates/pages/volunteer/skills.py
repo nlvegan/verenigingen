@@ -5,27 +5,27 @@ from frappe import _
 def get_context(context):
     """Get context for volunteer skills browse page"""
 
-    # Require login for this page (optional - you can remove this for public access)
-    if frappe.session.user == "Guest":
-        frappe.throw(_("Please login to access the skills directory"), frappe.PermissionError)
+    # Allow access for logged-in users or make it public by commenting out this check
+    # if frappe.session.user == "Guest":
+    #     frappe.throw(_("Please login to access the skills directory"), frappe.PermissionError)
 
-    context.no_cache = 1
-    context.show_sidebar = True
-    context.title = _("Skills Directory")
+    context["no_cache"] = 1
+    context["show_sidebar"] = True
+    context["title"] = _("Skills Directory")
 
     # Get all skills grouped by category
-    context.skills_by_category = get_skills_grouped_by_category()
+    context["skills_by_category"] = get_skills_grouped_by_category()
 
     # Get summary statistics
-    context.skills_stats = get_skills_statistics()
+    context["skills_stats"] = get_skills_statistics()
 
     # Handle search if requested
     search_skill = frappe.form_dict.get("skill", "")
     search_category = frappe.form_dict.get("category", "")
     min_level = frappe.form_dict.get("min_level", "")
 
-    context.search_results = None
-    context.search_params = {"skill": search_skill, "category": search_category, "min_level": min_level}
+    context["search_results"] = None
+    context["search_params"] = {"skill": search_skill, "category": search_category, "min_level": min_level}
 
     # Perform search if any parameters provided
     if search_skill or search_category or min_level:
@@ -33,14 +33,14 @@ def get_context(context):
             # Use the search function from volunteer.py
             from verenigingen.verenigingen.doctype.volunteer.volunteer import search_volunteers_by_skill
 
-            context.search_results = search_volunteers_by_skill(
+            context["search_results"] = search_volunteers_by_skill(
                 skill_name=search_skill or "",
                 category=search_category if search_category else None,
                 min_level=int(min_level) if min_level.isdigit() else None,
             )
         except Exception as e:
             frappe.log_error(f"Error in skills search: {str(e)}")
-            context.search_error = _("An error occurred while searching. Please try again.")
+            context["search_error"] = _("An error occurred while searching. Please try again.")
 
     return context
 
@@ -51,18 +51,19 @@ def get_skills_grouped_by_category():
         skills = frappe.db.sql(
             """
             SELECT
-                vs.skill_category,
+                COALESCE(vs.skill_category, 'Other') as skill_category,
                 vs.volunteer_skill,
                 COUNT(*) as volunteer_count,
-                AVG(CAST(LEFT(vs.proficiency_level, 1) AS UNSIGNED)) as avg_level,
+                AVG(CAST(LEFT(COALESCE(vs.proficiency_level, '1'), 1) AS UNSIGNED)) as avg_level,
                 GROUP_CONCAT(DISTINCT v.volunteer_name ORDER BY v.volunteer_name SEPARATOR ', ') as volunteer_names
             FROM `tabVolunteer Skill` vs
             INNER JOIN `tabVolunteer` v ON vs.parent = v.name
-            WHERE v.status = 'Active'
+            WHERE v.status IN ('Active', 'New')
                 AND vs.volunteer_skill IS NOT NULL
                 AND vs.volunteer_skill != ''
-            GROUP BY vs.skill_category, vs.volunteer_skill
-            ORDER BY vs.skill_category, volunteer_count DESC, vs.volunteer_skill
+                AND TRIM(vs.volunteer_skill) != ''
+            GROUP BY COALESCE(vs.skill_category, 'Other'), vs.volunteer_skill
+            ORDER BY skill_category, volunteer_count DESC, vs.volunteer_skill
         """,
             as_dict=True,
         )
@@ -105,12 +106,13 @@ def get_skills_statistics():
                 COUNT(DISTINCT vs.volunteer_skill) as total_unique_skills,
                 COUNT(DISTINCT vs.parent) as volunteers_with_skills,
                 COUNT(*) as total_skill_entries,
-                COUNT(DISTINCT vs.skill_category) as skill_categories
+                COUNT(DISTINCT COALESCE(vs.skill_category, 'Other')) as skill_categories
             FROM `tabVolunteer Skill` vs
             INNER JOIN `tabVolunteer` v ON vs.parent = v.name
-            WHERE v.status = 'Active'
+            WHERE v.status IN ('Active', 'New')
                 AND vs.volunteer_skill IS NOT NULL
                 AND vs.volunteer_skill != ''
+                AND TRIM(vs.volunteer_skill) != ''
         """,
             as_dict=True,
         )

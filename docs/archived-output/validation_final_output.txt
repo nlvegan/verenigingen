@@ -1,0 +1,273 @@
+Loading doctypes from frappe...
+Loading doctypes from erpnext...
+Loading doctypes from payments...
+Loading doctypes from verenigingen...
+📋 Loaded 851 doctypes from all apps
+📋 Loaded 851 doctypes with field definitions
+🔗 Built 215 child table mappings
+🚨 Running in pre-commit mode (production files only)...
+🔍 Scanning Python files in /home/frappe/frappe-bench/apps/verenigingen...
+  - Found 1 issues in validate_coverage_report.py
+  - Found 3 issues in verenigingen/api/sepa_batch_ui_secure.py
+  - Found 4 issues in verenigingen/api/check_roles.py
+  - Found 10 issues in verenigingen/api/membership_application_review.py
+  - Found 12 issues in verenigingen/api/chapter_dashboard_api.py
+  - Found 1 issues in verenigingen/api/chapter_join.py
+  - Found 2 issues in verenigingen/api/manual_invoice_generation.py
+  - Found 2 issues in verenigingen/api/enhanced_membership_application.py
+  - Found 1 issues in verenigingen/api/sepa_duplicate_prevention.py
+  - Found 1 issues in verenigingen/api/workspace_debug.py
+  - Found 3 issues in verenigingen/api/payment_dashboard.py
+  - Found 3 issues in verenigingen/api/sepa_batch_ui.py
+  - Found 10 issues in verenigingen/api/cleanup_chapter_members.py
+  - Found 1 issues in verenigingen/api/donor_auto_creation_management.py
+  - Found 1 issues in verenigingen/api/member_management.py
+  - Found 5 issues in verenigingen/api/payment_plan_management.py
+  - Found 1 issues in verenigingen/api/fix_custom_fields.py
+  - Found 1 issues in verenigingen/api/anbi_operations.py
+  - Found 3 issues in verenigingen/api/fix_today_payment_history.py
+  - Found 3 issues in verenigingen/api/dd_batch_workflow_controller.py
+  - Found 3 issues in verenigingen/api/fix_payment_history_today.py
+  - Found 7 issues in verenigingen/api/workspace_validator_enhanced.py
+  - Found 2 issues in verenigingen/api/payment_processing.py
+  - Found 1 issues in verenigingen/api/periodic_donation_operations.py
+  - Found 1 issues in verenigingen/api/fix_stuck_dues_schedule.py
+  - Found 38 issues in verenigingen/utils/address_formatter.py
+  - Found 6 issues in verenigingen/utils/dues_schedule_auto_creator.py
+  - Found 1 issues in verenigingen/utils/sepa_rollback_manager.py
+  - Found 11 issues in verenigingen/utils/sepa_xml_enhanced_generator.py
+  - Found 1 issues in verenigingen/utils/expense_notifications.py
+  - Found 12 issues in verenigingen/utils/donation_history_manager.py
+  - Found 4 issues in verenigingen/utils/sepa_mandate_service.py
+  - Found 1 issues in verenigingen/utils/expense_permissions.py
+  - Found 3 issues in verenigingen/utils/constants.py
+  - Found 2 issues in verenigingen/utils/link_ledger_to_accounts.py
+  - Found 10 issues in verenigingen/utils/department_hierarchy.py
+  - Found 2 issues in verenigingen/utils/background_jobs.py
+  - Found 3 issues in verenigingen/utils/chapter_membership_manager.py
+  - Found 4 issues in verenigingen/utils/employee_user_link.py
+  - Found 6 issues in verenigingen/utils/sepa_notifications.py
+  - Found 9 issues in verenigingen/utils/payment_retry.py
+  - Found 5 issues in verenigingen/utils/payment_notifications.py
+  - Found 5 issues in verenigingen/utils/sepa_reconciliation.py
+  - Found 4 issues in verenigingen/utils/donation_emails.py
+  - Found 1 issues in verenigingen/utils/payment_gateways.py
+  - Found 1 issues in verenigingen/utils/find_9999_account.py
+  - Found 1 issues in verenigingen/utils/application_notifications.py
+  - Found 6 issues in verenigingen/utils/donor_auto_creation.py
+  - Found 2 issues in verenigingen/utils/account_group_validation_hooks.py
+  - Found 7 issues in verenigingen/utils/donor_customer_sync.py
+  - Found 1 issues in verenigingen/utils/member_portal_utils.py
+  - Found 10 issues in verenigingen/utils/sepa_mandate_lifecycle_manager.py
+  - Found 12 issues in verenigingen/utils/application_helpers.py
+  - Found 4 issues in verenigingen/utils/termination_integration.py
+  - Found 7 issues in verenigingen/utils/__init__.py
+  - Found 3 issues in verenigingen/utils/native_expense_helpers.py
+  - Found 6 issues in verenigingen/utils/payment_utils.py
+  - Found 1 issues in verenigingen/utils/dues_invoice_tracking.py
+  - Found 8 issues in verenigingen/utils/application_payments.py
+  - Found 6 issues in verenigingen/utils/membership_dues_integration.py
+  - Found 2 issues in verenigingen/events/invoice_events.py
+  - Found 5 issues in verenigingen/events/expense_events.py
+  - Found 1 issues in verenigingen/setup/__init__.py
+  - Found 4 issues in verenigingen/setup/role_profile_setup.py
+  - Found 4 issues in verenigingen/verenigingen/web_form/membership_application.py
+  - Found 4 issues in verenigingen/verenigingen/page/membership_analytics/membership_analytics.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/donation_campaign/donation_campaign.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/mt940_import/mt940_import.py
+  - Found 10 issues in verenigingen/verenigingen/doctype/membership_type/membership_type.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/chapter_member/chapter_member.py
+  - Found 30 issues in verenigingen/verenigingen/doctype/donation/donation.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_analytics.py
+  - Found 6 issues in verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.py
+  - Found 9 issues in verenigingen/verenigingen/doctype/donor/donor.py
+  - Found 11 issues in verenigingen/verenigingen/doctype/volunteer_expense/volunteer_expense.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/sepa_mandate_usage/sepa_mandate_usage.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/membership_goal/membership_goal.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/analytics_alert_rule/analytics_alert_rule.py
+  - Found 9 issues in verenigingen/verenigingen/doctype/payment_plan/payment_plan.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/chapter_board_member/chapter_board_member.py
+  - Found 5 issues in verenigingen/verenigingen/doctype/volunteer_activity/volunteer_activity.py
+  - Found 8 issues in verenigingen/verenigingen/doctype/chapter/chapter.py
+  - Found 5 issues in verenigingen/verenigingen/doctype/expulsion_report_entry/expulsion_report_entry.py
+  - Found 35 issues in verenigingen/verenigingen/doctype/contribution_amendment_request/contribution_amendment_request.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/membership_analytics_snapshot/membership_analytics_snapshot.py
+  - Found 44 issues in verenigingen/verenigingen/doctype/membership_dues_schedule/membership_dues_schedule.py
+  - Found 6 issues in verenigingen/verenigingen/doctype/direct_debit_batch/direct_debit_batch.py
+  - Found 18 issues in verenigingen/verenigingen/doctype/direct_debit_batch/sepa_processor.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/member_sepa_mandate_link/member_sepa_mandate_link.py
+  - Found 12 issues in verenigingen/verenigingen/doctype/member_contact_request/member_contact_request.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/payment_history_update_queue/payment_history_update_queue.py
+  - Found 8 issues in verenigingen/verenigingen/doctype/account_group_project_mapping/account_group_project_mapping.py
+  - Found 18 issues in verenigingen/verenigingen/doctype/team/team.py
+  - Found 7 issues in verenigingen/verenigingen/doctype/region/region.py
+  - Found 29 issues in verenigingen/verenigingen/doctype/membership/membership.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/membership/scheduler.py
+  - Found 7 issues in verenigingen/verenigingen/doctype/membership/dues_schedule_manager.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/periodic_donation_agreement/periodic_donation_agreement.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/sepa_mandate/sepa_mandate.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/expense_category/expense_category.py
+  - Found 14 issues in verenigingen/verenigingen/doctype/member/member.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/member/member_utils.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/team_member/team_member.py
+  - Found 21 issues in verenigingen/verenigingen/doctype/volunteer/volunteer.py
+  - Found 23 issues in verenigingen/verenigingen/doctype/chapter/managers/member_manager.py
+  - Found 7 issues in verenigingen/verenigingen/doctype/chapter/managers/communication_manager.py
+  - Found 8 issues in verenigingen/verenigingen/doctype/chapter/managers/board_manager.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/chapter/managers/base_manager.py
+  - Found 5 issues in verenigingen/verenigingen/doctype/chapter/managers/volunteer_integration_manager.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/chapter/validators/chapter_validator.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/chapter/validators/chapter_info_validator.py
+  - Found 7 issues in verenigingen/verenigingen/doctype/member/mixins/sepa_mixin.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/member/mixins/financial_mixin.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/member/mixins/expense_mixin.py
+  - Found 8 issues in verenigingen/verenigingen/doctype/member/mixins/payment_mixin.py
+  - Found 2 issues in verenigingen/verenigingen/report/new_members/new_members.py
+  - Found 2 issues in verenigingen/verenigingen/report/pending_membership_applications/pending_membership_applications.py
+  - Found 2 issues in verenigingen/verenigingen/report/members_without_dues_schedule/members_without_dues_schedule.py
+  - Found 2 issues in verenigingen/verenigingen/report/members_without_chapter/members_without_chapter.py
+  - Found 2 issues in verenigingen/verenigingen/report/recent_chapter_changes/recent_chapter_changes.py
+  - Found 2 issues in verenigingen/verenigingen/report/overdue_member_payments/overdue_member_payments.py
+  - Found 7 issues in verenigingen/utils/migration/migration_dry_run.py
+  - Found 1 issues in verenigingen/utils/security/authorization.py
+  - Found 1 issues in verenigingen/utils/debug/fix_membership_type_templates.py
+  - Found 4 issues in verenigingen/utils/debug/check_memorial_import_logic.py
+  - Found 5 issues in verenigingen/utils/validation/application_validators.py
+  - Found 1 issues in verenigingen/web_form/donation_form/donation_form.py
+  - Found 1 issues in verenigingen/web_form/periodic_donation_agreement_form/periodic_donation_agreement_form.py
+  - Found 4 issues in verenigingen/doctype/billing_frequency_transition_audit/billing_frequency_transition_audit.py
+  - Found 2 issues in verenigingen/e_boekhouden/utils/migration_api.py
+  - Found 1 issues in verenigingen/e_boekhouden/utils/stock_account_handler.py
+  - Found 2 issues in verenigingen/e_boekhouden/utils/eboekhouden_migration_enhancements.py
+  - Found 2 issues in verenigingen/e_boekhouden/utils/cleanup_utils.py
+  - Found 2 issues in verenigingen/e_boekhouden/utils/eboekhouden_account_group_fix.py
+  - Found 5 issues in verenigingen/e_boekhouden/utils/eboekhouden_rest_full_migration.py
+  - Found 1 issues in verenigingen/e_boekhouden/utils/eboekhouden_coa_import.py
+  - Found 2 issues in verenigingen/e_boekhouden/utils/import_manager.py
+  - Found 3 issues in verenigingen/e_boekhouden/utils/processors/transaction_coordinator.py
+  - Found 4 issues in verenigingen/e_boekhouden/doctype/e_boekhouden_item_mapping/e_boekhouden_item_mapping.py
+  - Found 4 issues in verenigingen/e_boekhouden/doctype/e_boekhouden_account_map/e_boekhouden_account_map.py
+  - Found 1 issues in verenigingen/templates/pages/my_account.py
+  - Found 1 issues in verenigingen/templates/pages/donate.py
+  - Found 7 issues in verenigingen/templates/pages/team_members.py
+  - Found 3 issues in verenigingen/templates/pages/my_addresses.py
+  - Found 12 issues in verenigingen/templates/pages/address_change.py
+  - Found 3 issues in verenigingen/templates/pages/member_portal.py
+  - Found 4 issues in verenigingen/templates/pages/membership_application.py
+  - Found 2 issues in verenigingen/templates/pages/chapter_join.py
+  - Found 8 issues in verenigingen/templates/pages/chapter_dashboard.py
+  - Found 1 issues in verenigingen/templates/pages/payment_dashboard.py
+  - Found 1 issues in verenigingen/templates/pages/personal_details.py
+  - Found 8 issues in verenigingen/templates/pages/membership_fee_adjustment.py
+  - Found 2 issues in verenigingen/templates/pages/verenigingen/join_chapter.py
+  - Found 2 issues in verenigingen/templates/pages/volunteer/profile.py
+  - Found 2 issues in verenigingen/templates/pages/volunteer/dashboard.py
+  - Found 5 issues in scripts/migration/fix_team_assignment_history.py
+  - Found 2 issues in scripts/deployment/validate_production_schema.py
+  - Found 2 issues in scripts/validation/quick_db_field_validator.py
+  - Found 1 issues in scripts/validation/balanced_field_validator.py
+  - Found 1 issues in scripts/validation/enhanced_field_validator.py
+  - Found 2 issues in scripts/validation/enhanced_field_validator_v2.py
+  - Found 2 issues in scripts/validation/quick_validator_test.py
+  - Found 1 issues in scripts/validation/accurate_field_validator.py
+  - Found 1 issues in scripts/validation/improved_field_validator.py
+  - Found 1 issues in scripts/admin/verify_payment_method_updates.py
+  - Found 4 issues in scripts/api_maintenance/eboekhouden_mapping_setup.py
+  - Found 1 issues in scripts/api_maintenance/fix_eboekhouden_import_comprehensive.py
+  - Found 1 issues in scripts/setup/setup_department_hierarchy.py
+  - Found 1 issues in scripts/setup/deploy_role_profiles.py
+  - Found 2 issues in scripts/setup/auto_assign_profiles.py
+📊 Checked 871 Python files
+
+==================================================
+❌ Found 881 field reference issues:
+
+## High Confidence Issues (881)
+These are very likely to be actual field reference errors:
+
+❌ validate_coverage_report.py:163 - role not in Report
+   → Field 'role' does not exist in Report (similar: roles)
+   Context: actual_roles = {role.role for role in report_doc.roles}
+
+❌ verenigingen/api/sepa_batch_ui_secure.py:148 - membership not in Sales Invoice
+   → Field 'membership' does not exist in Sales Invoice
+   Context: if invoice.membership and invoice.membership in member_data_lookup:
+
+❌ verenigingen/api/sepa_batch_ui_secure.py:148 - membership not in Sales Invoice
+   → Field 'membership' does not exist in Sales Invoice
+   Context: if invoice.membership and invoice.membership in member_data_lookup:
+
+❌ verenigingen/api/sepa_batch_ui_secure.py:149 - membership not in Sales Invoice
+   → Field 'membership' does not exist in Sales Invoice
+   Context: data = member_data_lookup[invoice.membership]
+
+❌ verenigingen/api/check_roles.py:703 - member not in Member
+   → Field 'member' does not exist in Member (similar: contact_number, membership_status, other_members_at_address)
+   Context: member = frappe.get_doc("Member", schedule.member)
+
+❌ verenigingen/api/check_roles.py:617 - last_invoice_coverage_start not in Sales Invoice
+   → Field 'last_invoice_coverage_start' does not exist in Sales Invoice
+   Context: schedule_start = schedule_data.last_invoice_coverage_start
+
+❌ verenigingen/api/check_roles.py:614 - last_generated_invoice not in Sales Invoice
+   → Field 'last_generated_invoice' does not exist in Sales Invoice
+   Context: invoice = frappe.get_doc("Sales Invoice", schedule_data.last_generated_invoice)
+
+❌ verenigingen/api/check_roles.py:501 - posting_date not in Membership Dues Schedule
+   → Field 'posting_date' does not exist in Membership Dues Schedule (similar: last_invoice_date, next_billing_period_start_date, next_invoice_date)
+   Context: coverage_start, coverage_end = schedule.calculate_billing_period(invoice.posting_date)
+
+❌ verenigingen/api/membership_application_review.py:216 - dues_schedule_template not in Member
+   → Field 'dues_schedule_template' does not exist in child table Member (similar: dues_rate, dues_schedule)
+   Context: elif membership_type_doc.dues_schedule_template:
+
+❌ verenigingen/api/membership_application_review.py:1507 - dues_schedule_template not in Member
+   → Field 'dues_schedule_template' does not exist in child table Member (similar: dues_rate, dues_schedule)
+   Context: if not membership_type.dues_schedule_template:
+
+❌ verenigingen/api/membership_application_review.py:1509 - dues_schedule_template not in Member
+   → Field 'dues_schedule_template' does not exist in child table Member (similar: dues_rate, dues_schedule)
+   Context: template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
+
+❌ verenigingen/api/membership_application_review.py:1844 - is_active not in Member
+   → Field 'is_active' does not exist in child table Member
+   Context: if hasattr(membership_type_doc, "is_active") and not membership_type_doc.is_active:
+
+❌ verenigingen/api/membership_application_review.py:967 - member not in Member
+   → Field 'member' does not exist in child table Member (similar: contact_number, membership_status, other_members_at_address)
+   Context: if membership.member not in chapter_memberships:
+
+❌ verenigingen/api/membership_application_review.py:995 - dues_schedule_template not in Membership Dues Schedule
+   → Field 'dues_schedule_template' does not exist in Membership Dues Schedule (similar: is_template, payment_terms_template, dues_rate)
+   Context: if mt.dues_schedule_template and mt.dues_schedule_template in template_data:
+
+❌ verenigingen/api/membership_application_review.py:218 - dues_schedule_template not in Member
+   → Field 'dues_schedule_template' does not exist in child table Member (similar: dues_rate, dues_schedule)
+   Context: template = frappe.get_doc("Membership Dues Schedule", membership_type_doc.dues_schedule_template)
+
+❌ verenigingen/api/membership_application_review.py:603 - chapter_role not in Chapter Role
+   → Field 'chapter_role' does not exist in Chapter Role
+   Context: role_doc = frappe.get_doc("Chapter Role", position.chapter_role)
+
+❌ verenigingen/api/membership_application_review.py:968 - member not in Member
+   → Field 'member' does not exist in child table Member (similar: contact_number, membership_status, other_members_at_address)
+   Context: chapter_memberships[membership.member] = membership.chapter_name
+
+❌ verenigingen/api/membership_application_review.py:995 - dues_schedule_template not in Membership Dues Schedule
+   → Field 'dues_schedule_template' does not exist in Membership Dues Schedule (similar: is_template, payment_terms_template, dues_rate)
+   Context: if mt.dues_schedule_template and mt.dues_schedule_template in template_data:
+
+❌ verenigingen/api/chapter_dashboard_api.py:320 - mt940_file not in File
+   → Field 'mt940_file' does not exist in File
+   Context: if import_doc.mt940_file:
+
+❌ verenigingen/api/chapter_dashboard_api.py:1727 - card not in Dashboard
+   → Field 'card' does not exist in Dashboard (similar: cards)
+   Context: cards = [card.card for card in dashboard.cards]
+
+
+💡 Summary:
+   - High confidence issues: 881
+   - Medium confidence issues: 0
+   - Total issues: 881

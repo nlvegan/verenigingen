@@ -1,0 +1,150 @@
+📋 Loaded 851 doctypes with field definitions
+📋 Built child table mapping with 390 entries
+🚨 Running in pre-commit mode (production files only)...
+🔍 Scanning Python files in /home/frappe/frappe-bench/apps/verenigingen...
+  - Found 1 issues in verenigingen/validations.py
+  - Found 1 issues in scripts/membership_dues_poc.py
+  - Found 2 issues in verenigingen/api/sepa_batch_ui_secure.py
+  - Found 3 issues in verenigingen/api/chapter_dashboard_api.py
+  - Found 8 issues in verenigingen/api/membership_application.py
+  - Found 1 issues in verenigingen/api/chapter_join.py
+  - Found 1 issues in verenigingen/api/create_onboarding_steps.py
+  - Found 2 issues in verenigingen/api/sepa_batch_ui.py
+  - Found 1 issues in verenigingen/api/member_management.py
+  - Found 10 issues in verenigingen/api/dd_batch_workflow_controller.py
+  - Found 2 issues in verenigingen/api/check_past_imports.py
+  - Found 1 issues in verenigingen/api/generate_test_members.py
+  - Found 2 issues in verenigingen/utils/dues_schedule_auto_creator.py
+  - Found 12 issues in verenigingen/utils/sepa_xml_enhanced_generator.py
+  - Found 4 issues in verenigingen/utils/sepa_conflict_detector.py
+  - Found 4 issues in verenigingen/utils/sepa_mandate_service.py
+  - Found 2 issues in verenigingen/utils/department_hierarchy.py
+  - Found 2 issues in verenigingen/utils/background_jobs.py
+  - Found 3 issues in verenigingen/utils/chapter_membership_manager.py
+  - Found 7 issues in verenigingen/utils/donor_auto_creation.py
+  - Found 6 issues in verenigingen/utils/account_group_validation_hooks.py
+  - Found 3 issues in verenigingen/utils/application_helpers.py
+  - Found 5 issues in verenigingen/utils/termination_integration.py
+  - Found 1 issues in verenigingen/utils/native_expense_helpers.py
+  - Found 2 issues in verenigingen/utils/application_payments.py
+  - Found 4 issues in verenigingen/setup/__init__.py
+  - Found 1 issues in verenigingen/setup/role_profile_setup.py
+  - Found 4 issues in verenigingen/verenigingen/web_form/membership_application.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/chapter/chapter.py
+  - Found 5 issues in verenigingen/verenigingen/doctype/direct_debit_batch/sepa_processor.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/member_contact_request/member_contact_request.py
+  - Found 18 issues in verenigingen/verenigingen/doctype/team/team.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/membership/membership.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/membership/scheduler.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/membership/dues_schedule_manager.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/sepa_retry_batch/sepa_retry_batch.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/periodic_donation_agreement/periodic_donation_agreement.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/volunteer/volunteer.py
+  - Found 26 issues in verenigingen/verenigingen/doctype/chapter/managers/member_manager.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/chapter/managers/communication_manager.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/member/mixins/payment_mixin.py
+  - Found 3 issues in verenigingen/utils/migration/check_migration_progress.py
+  - Found 4 issues in verenigingen/utils/debug/check_memorial_import_logic.py
+  - Found 4 issues in verenigingen/e_boekhouden/utils/migration_api.py
+  - Found 1 issues in verenigingen/e_boekhouden/utils/setup_payment_test.py
+  - Found 1 issues in verenigingen/e_boekhouden/utils/eboekhouden_payment_import.py
+  - Found 1 issues in verenigingen/templates/pages/donate.py
+  - Found 2 issues in verenigingen/templates/pages/membership_application.py
+  - Found 1 issues in verenigingen/templates/pages/workflow_demo.py
+  - Found 2 issues in verenigingen/templates/pages/membership_fee_adjustment.py
+  - Found 1 issues in verenigingen/templates/pages/verenigingen/join_chapter.py
+  - Found 2 issues in verenigingen/templates/pages/volunteer/expenses.py
+  - Found 2 issues in scripts/migration/migrate_to_native_expense_system.py
+  - Found 5 issues in scripts/migration/fix_team_assignment_history.py
+  - Found 2 issues in scripts/setup/setup_department_hierarchy.py
+  - Found 1 issues in scripts/setup/auto_assign_profiles.py
+📊 Checked 871 Python files
+
+==================================================
+❌ Found 198 field reference issues:
+
+❌ verenigingen/validations.py:72 - grace_period_expiry_date not in Verenigingen Settings
+   → Field 'grace_period_expiry_date' does not exist in Verenigingen Settings (similar: grace_period_notification_days, grace_period_auto_apply)
+   Context: if getdate(doc.grace_period_expiry_date) < getdate(today()):
+
+❌ scripts/membership_dues_poc.py:76 - membership_type not in Member
+   → Field 'membership_type' does not exist in Member (similar: current_membership_type, member_since, membership_analytics_section)
+   Context: membership.membership_type = member.membership_type
+
+❌ verenigingen/api/sepa_batch_ui_secure.py:387 - amount not in Discounted Invoice
+   → Field 'amount' does not exist in Discounted Invoice (similar: outstanding_amount)
+   Context: status_amounts[status] = status_amounts.get(status, 0) + inv.amount
+
+❌ verenigingen/api/sepa_batch_ui_secure.py:390 - iban not in Discounted Invoice
+   → Field 'iban' does not exist in Discounted Invoice
+   Context: if not inv.iban:
+
+❌ verenigingen/api/chapter_dashboard_api.py:1728 - chart not in Workspace Chart
+   → Field 'chart' does not exist in Workspace Chart (similar: chart_name)
+   Context: charts = [chart.chart for chart in dashboard.charts]
+
+❌ verenigingen/api/chapter_dashboard_api.py:2550 - chart not in Workspace Chart
+   → Field 'chart' does not exist in Workspace Chart (similar: chart_name)
+   Context: "chart_names": [chart.chart for chart in dashboard.charts],
+
+❌ verenigingen/api/chapter_dashboard_api.py:2777 - chart not in Workspace Chart
+   → Field 'chart' does not exist in Workspace Chart (similar: chart_name)
+   Context: "chart_names": [chart.chart for chart in dashboard.charts],
+
+❌ verenigingen/api/membership_application.py:819 - suggested_chapter not in Member
+   → Field 'suggested_chapter' does not exist in Member (similar: previous_chapter)
+   Context: elif hasattr(member, "suggested_chapter") and member.suggested_chapter:
+
+❌ verenigingen/api/membership_application.py:820 - suggested_chapter not in Member
+   → Field 'suggested_chapter' does not exist in Member (similar: previous_chapter)
+   Context: chapter_name = member.suggested_chapter
+
+❌ verenigingen/api/membership_application.py:1388 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: chapter_members, chapter_head, name)
+   Context: "chapter_name": chapter.chapter_name,
+
+❌ verenigingen/api/membership_application.py:1390 - city not in Chapter
+   → Field 'city' does not exist in Chapter
+   Context: "city": chapter.city,
+
+❌ verenigingen/api/membership_application.py:1391 - description not in Chapter
+   → Field 'description' does not exist in Chapter (similar: creation, board_section, introduction)
+   Context: "description": chapter.description,
+
+❌ verenigingen/api/membership_application.py:1365 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: chapter_members, chapter_head, name)
+   Context: "amsterdam" in chapter.chapter_name.lower()
+
+❌ verenigingen/api/membership_application.py:1371 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: chapter_members, chapter_head, name)
+   Context: if "den haag" in chapter.chapter_name.lower() or "zuid-holland" in chapter.region.lower():
+
+❌ verenigingen/api/membership_application.py:1376 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: chapter_members, chapter_head, name)
+   Context: "rotterdam" in chapter.chapter_name.lower()
+
+❌ verenigingen/api/chapter_join.py:27 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: chapter_members, chapter_head, name)
+   Context: "title": chapter.chapter_name or chapter.name,
+
+❌ verenigingen/api/create_onboarding_steps.py:93 - cards not in Workspace
+   → Field 'cards' does not exist in Workspace (similar: number_cards_tab, number_cards)
+   Context: for card in workspace.cards:
+
+❌ verenigingen/api/sepa_batch_ui.py:284 - amount not in Discounted Invoice
+   → Field 'amount' does not exist in Discounted Invoice (similar: outstanding_amount)
+   Context: status_amounts[status] = status_amounts.get(status, 0) + inv.amount
+
+❌ verenigingen/api/sepa_batch_ui.py:287 - iban not in Discounted Invoice
+   → Field 'iban' does not exist in Discounted Invoice
+   Context: if not inv.iban:
+
+❌ verenigingen/api/member_management.py:1662 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: chapter_members, chapter_head, name)
+   Context: "chapter": {"name": chapter_name, "chapter_name": chapter.chapter_name, "region": chapter.region},
+
+
+💡 Summary:
+   - Total issues found: 198
+   - Progress: 4374 -> 321 -> 198 issues
+✅ Significant improvement achieved!

@@ -10,6 +10,188 @@ from verenigingen.utils.security.api_security_framework import OperationType, cr
 
 
 @frappe.whitelist()
+def fix_report_config():
+    """Fix the Membership Dues Coverage Analysis report configuration"""
+    try:
+        # First create the missing role if it doesn't exist
+        if not frappe.db.exists("Role", "Verenigingen Financial Manager"):
+            role = frappe.new_doc("Role")
+            role.role_name = "Verenigingen Financial Manager"
+            role.insert()
+            frappe.db.commit()
+
+        # Now fix the report
+        report = frappe.get_doc("Report", "Membership Dues Coverage Analysis")
+        current_type = report.report_type
+        current_query = report.query
+
+        report.report_type = "Script Report"
+        report.query = ""
+        report.save()
+        frappe.db.commit()
+
+        return {
+            "success": True,
+            "message": f"Report fixed: {current_type} -> Script Report",
+            "previous_query": current_query,
+        }
+    except Exception as e:
+        frappe.log_error(f"Error fixing report config: {str(e)}", "Report Fix")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_coverage_report_display():
+    """Debug the actual coverage report display issue"""
+    from verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis import (
+        calculate_coverage_timeline,
+        execute,
+        get_data,
+    )
+
+    try:
+        # Test with the specific date range mentioned: July 30, 2024 to today
+        filters = {"from_date": "2024-07-30", "to_date": frappe.utils.today()}
+
+        result = {
+            "debug_info": {
+                "from_date": filters["from_date"],
+                "to_date": filters["to_date"],
+                "today": frappe.utils.today(),
+            }
+        }
+
+        # Test the main execute function
+        columns, data = execute(filters)
+
+        result["report_execution"] = {
+            "total_columns": len(columns),
+            "total_rows": len(data),
+            "first_5_rows": [],
+        }
+
+        # Examine first 5 rows in detail
+        for i, row in enumerate(data[:5]):
+            detailed_row = {
+                "member": row.get("member"),
+                "member_name": row.get("member_name"),
+                "total_active_days": row.get("total_active_days"),
+                "covered_days": row.get("covered_days"),
+                "gap_days": row.get("gap_days"),
+                "coverage_percentage": row.get("coverage_percentage"),
+                "current_gaps": row.get("current_gaps"),
+            }
+            result["report_execution"]["first_5_rows"].append(detailed_row)
+
+        # Test coverage calculation for specific members
+        test_members = ["Assoc-Member-2025-07-0024", "Assoc-Member-2025-07-0025", "Assoc-Member-2025-07-0028"]
+        result["individual_tests"] = {}
+
+        for member in test_members:
+            if frappe.db.exists("Member", member):
+                try:
+                    coverage = calculate_coverage_timeline(member, filters["from_date"], filters["to_date"])
+                    result["individual_tests"][member] = {
+                        "stats": coverage["stats"],
+                        "gap_count": len(coverage["gaps"]),
+                        "timeline_count": len(coverage["timeline"]),
+                    }
+                except Exception as e:
+                    result["individual_tests"][member] = {"error": str(e)}
+            else:
+                result["individual_tests"][member] = {"error": "Member not found"}
+
+        # Test filters
+        gap_filter = {**filters, "show_only_gaps": True}
+        try:
+            _, gap_data = execute(gap_filter)
+            result["gap_filter_test"] = {
+                "total_with_gaps": len(gap_data),
+                "sample_gaps": [
+                    {"member": row.get("member"), "gap_days": row.get("gap_days")} for row in gap_data[:3]
+                ],
+            }
+        except Exception as e:
+            result["gap_filter_test"] = {"error": str(e)}
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Error debugging coverage report: {str(e)}", "Coverage Report Debug")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def debug_membership_periods():
+    """Debug why membership periods are returning 0 active days"""
+    from verenigingen.verenigingen.report.membership_dues_coverage_analysis.membership_dues_coverage_analysis import (
+        get_membership_periods,
+    )
+
+    try:
+        # Test with specific members
+        test_members = ["Assoc-Member-2025-07-0024", "Assoc-Member-2025-07-0025", "Assoc-Member-2025-07-0028"]
+        from_date = "2024-07-30"
+        to_date = "2025-07-30"
+
+        result = {"date_range": {"from": from_date, "to": to_date}, "membership_analysis": {}}
+
+        for member in test_members:
+            if frappe.db.exists("Member", member):
+                # Check raw membership data
+                memberships_raw = frappe.db.sql(
+                    """
+                    SELECT mb.name, mb.start_date, mb.cancellation_date as end_date, mb.status, mb.docstatus
+                    FROM `tabMembership` mb
+                    WHERE mb.member = %s
+                    ORDER BY mb.start_date
+                """,
+                    [member],
+                    as_dict=True,
+                )
+
+                # Test the get_membership_periods function
+                periods = get_membership_periods(member, from_date, to_date)
+
+                result["membership_analysis"][member] = {
+                    "raw_memberships": memberships_raw,
+                    "calculated_periods": periods,
+                    "period_count": len(periods),
+                }
+            else:
+                result["membership_analysis"][member] = {"error": "Member not found"}
+
+        # Also check the raw query from the main report
+        main_query_result = frappe.db.sql(
+            """
+            SELECT
+                m.name as member,
+                CONCAT(m.first_name, ' ', COALESCE(m.last_name, '')) as member_name,
+                m.status as membership_status,
+                m.customer,
+                mb.start_date as membership_start,
+                mb.cancellation_date as membership_end,
+                mb.status as membership_status_join,
+                mb.docstatus as membership_docstatus
+            FROM `tabMember` m
+            LEFT JOIN `tabMembership` mb ON mb.member = m.name AND mb.status = 'Active' AND mb.docstatus = 1
+            WHERE m.name IN %s AND m.status = 'Active'
+            ORDER BY m.name
+        """,
+            [tuple(test_members)],
+            as_dict=True,
+        )
+
+        result["main_query_result"] = main_query_result
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Error debugging membership periods: {str(e)}", "Membership Debug")
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
 @critical_api(operation_type=OperationType.ADMIN)
 def debug_payment_history_for_member(member_name):
     """Debug payment history updates for a specific member"""

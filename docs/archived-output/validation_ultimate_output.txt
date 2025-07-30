@@ -1,0 +1,181 @@
+📋 Loaded 851 doctypes with field definitions
+📋 Built child table mapping with 390 entries
+🚨 Running in pre-commit mode (production files only)...
+🔍 Scanning Python files in /home/frappe/frappe-bench/apps/verenigingen...
+  - Found 1 issues in scripts/membership_dues_poc.py
+  - Found 2 issues in verenigingen/api/membership_application_review.py
+  - Found 8 issues in verenigingen/api/membership_application.py
+  - Found 1 issues in verenigingen/api/chapter_join.py
+  - Found 1 issues in verenigingen/api/member_management.py
+  - Found 6 issues in verenigingen/api/dd_batch_workflow_controller.py
+  - Found 2 issues in verenigingen/api/generate_test_members.py
+  - Found 11 issues in verenigingen/utils/dues_schedule_auto_creator.py
+  - Found 12 issues in verenigingen/utils/sepa_xml_enhanced_generator.py
+  - Found 6 issues in verenigingen/utils/sepa_conflict_detector.py
+  - Found 4 issues in verenigingen/utils/sepa_mandate_service.py
+  - Found 2 issues in verenigingen/utils/chapter_membership_history_manager.py
+  - Found 2 issues in verenigingen/utils/department_hierarchy.py
+  - Found 2 issues in verenigingen/utils/background_jobs.py
+  - Found 3 issues in verenigingen/utils/chapter_membership_manager.py
+  - Found 2 issues in verenigingen/utils/application_helpers.py
+  - Found 2 issues in verenigingen/utils/termination_integration.py
+  - Found 1 issues in verenigingen/utils/native_expense_helpers.py
+  - Found 2 issues in verenigingen/utils/application_payments.py
+  - Found 2 issues in verenigingen/utils/sepa_monitoring_dashboard.py
+  - Found 3 issues in verenigingen/setup/role_profile_setup.py
+  - Found 4 issues in verenigingen/verenigingen/web_form/membership_application.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/membership_type/membership_type.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/chapter/chapter.py
+  - Found 5 issues in verenigingen/verenigingen/doctype/direct_debit_batch/sepa_processor.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/member_contact_request/member_contact_request.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py
+  - Found 26 issues in verenigingen/verenigingen/doctype/team/team.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/membership/membership.py
+  - Found 6 issues in verenigingen/verenigingen/doctype/membership/scheduler.py
+  - Found 1 issues in verenigingen/verenigingen/doctype/membership/dues_schedule_manager.py
+  - Found 4 issues in verenigingen/verenigingen/doctype/volunteer/volunteer.py
+  - Found 15 issues in verenigingen/verenigingen/doctype/chapter/managers/member_manager.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/chapter/managers/communication_manager.py
+  - Found 3 issues in verenigingen/verenigingen/doctype/chapter/managers/board_manager.py
+  - Found 2 issues in verenigingen/verenigingen/doctype/member/mixins/payment_mixin.py
+  - Found 4 issues in verenigingen/e_boekhouden/utils/migration_api.py
+  - Found 2 issues in verenigingen/templates/pages/donate.py
+  - Found 1 issues in verenigingen/templates/pages/team_members.py
+  - Found 2 issues in verenigingen/templates/pages/membership_application.py
+  - Found 1 issues in verenigingen/templates/pages/my_teams.py
+  - Found 1 issues in verenigingen/templates/pages/verenigingen/join_chapter.py
+  - Found 2 issues in verenigingen/templates/pages/volunteer/expenses.py
+  - Found 3 issues in scripts/migration/migrate_to_native_expense_system.py
+  - Found 8 issues in scripts/migration/fix_team_assignment_history.py
+  - Found 1 issues in scripts/setup/deploy_role_profiles.py
+  - Found 1 issues in scripts/setup/auto_assign_profiles.py
+📊 Checked 872 Python files
+
+==================================================
+❌ Found 183 field reference issues:
+
+❌ scripts/membership_dues_poc.py:76 - membership_type not in Member
+   → Field 'membership_type' does not exist in Member (similar: member_details_section, parenttype, member_since)
+   Context: membership.membership_type = member.membership_type
+
+❌ verenigingen/api/membership_application_review.py:1489 - start_date not in Membership Dues Schedule
+   → Field 'start_date' does not exist in Membership Dues Schedule (similar: last_invoice_date, next_billing_period_end_date, next_invoice_date)
+   Context: "start_date": schedule.start_date,
+
+❌ verenigingen/api/membership_application_review.py:1490 - end_date not in Membership Dues Schedule
+   → Field 'end_date' does not exist in Membership Dues Schedule (similar: last_invoice_date, next_billing_period_end_date, next_invoice_date)
+   Context: "end_date": schedule.end_date,
+
+❌ verenigingen/api/membership_application.py:819 - suggested_chapter not in Member
+   → Field 'suggested_chapter' does not exist in Member (similar: previous_chapter)
+   Context: elif hasattr(member, "suggested_chapter") and member.suggested_chapter:
+
+❌ verenigingen/api/membership_application.py:820 - suggested_chapter not in Member
+   → Field 'suggested_chapter' does not exist in Member (similar: previous_chapter)
+   Context: chapter_name = member.suggested_chapter
+
+❌ verenigingen/api/membership_application.py:1388 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: name, chapter_head, chapter_members)
+   Context: "chapter_name": chapter.chapter_name,
+
+❌ verenigingen/api/membership_application.py:1390 - city not in Chapter
+   → Field 'city' does not exist in Chapter
+   Context: "city": chapter.city,
+
+❌ verenigingen/api/membership_application.py:1391 - description not in Chapter
+   → Field 'description' does not exist in Chapter (similar: introduction, board_section, creation)
+   Context: "description": chapter.description,
+
+❌ verenigingen/api/membership_application.py:1365 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: name, chapter_head, chapter_members)
+   Context: "amsterdam" in chapter.chapter_name.lower()
+
+❌ verenigingen/api/membership_application.py:1371 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: name, chapter_head, chapter_members)
+   Context: if "den haag" in chapter.chapter_name.lower() or "zuid-holland" in chapter.region.lower():
+
+❌ verenigingen/api/membership_application.py:1376 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: name, chapter_head, chapter_members)
+   Context: "rotterdam" in chapter.chapter_name.lower()
+
+❌ verenigingen/api/chapter_join.py:27 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: name, chapter_head, chapter_members)
+   Context: "title": chapter.chapter_name or chapter.name,
+
+❌ verenigingen/api/member_management.py:1662 - chapter_name not in Chapter
+   → Field 'chapter_name' does not exist in Chapter (similar: name, chapter_head, chapter_members)
+   Context: "chapter": {"name": chapter_name, "chapter_name": chapter.chapter_name, "region": chapter.region},
+
+❌ verenigingen/api/dd_batch_workflow_controller.py:309 - risk_level not in Direct Debit Batch
+   → Field 'risk_level' does not exist in Direct Debit Batch
+   Context: risk_level = batch.risk_level
+
+❌ verenigingen/api/dd_batch_workflow_controller.py:244 - approval_status not in Direct Debit Batch
+   → Field 'approval_status' does not exist in Direct Debit Batch (similar: status, docstatus, validation_status)
+   Context: current_state = batch.approval_status
+
+❌ verenigingen/api/dd_batch_workflow_controller.py:350 - approval_status not in Direct Debit Batch
+   → Field 'approval_status' does not exist in Direct Debit Batch (similar: status, docstatus, validation_status)
+   Context: "current_state": batch.approval_status,
+
+❌ verenigingen/api/dd_batch_workflow_controller.py:351 - risk_level not in Direct Debit Batch
+   → Field 'risk_level' does not exist in Direct Debit Batch
+   Context: "risk_level": batch.risk_level,
+
+❌ verenigingen/api/dd_batch_workflow_controller.py:393 - approval_notes not in Direct Debit Batch
+   → Field 'approval_notes' does not exist in Direct Debit Batch
+   Context: current_notes = batch.approval_notes or ""
+
+❌ verenigingen/api/dd_batch_workflow_controller.py:232 - approval_notes not in Direct Debit Batch
+   → Field 'approval_notes' does not exist in Direct Debit Batch
+   Context: current_notes = batch.approval_notes or ""
+
+❌ verenigingen/api/generate_test_members.py:325 - primary_chapter not in Member
+   → Field 'primary_chapter' does not exist in Member (similar: previous_chapter, primary_address)
+   Context: chapter = member.primary_chapter or "No Chapter"
+
+❌ verenigingen/api/generate_test_members.py:231 - primary_chapter not in Member
+   → Field 'primary_chapter' does not exist in Member (similar: previous_chapter, primary_address)
+   Context: "chapter": member.primary_chapter,
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:227 - member_name not in Member
+   → Field 'member_name' does not exist in Member (similar: member_details_section, full_name, member_since)
+   Context: dues_schedule.member = member.member_name
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:229 - membership_name not in Member
+   → Field 'membership_name' does not exist in Member (similar: member_details_section, full_name, member_since)
+   Context: dues_schedule.membership = member.membership_name
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:230 - membership_type not in Member
+   → Field 'membership_type' does not exist in Member (similar: member_details_section, parenttype, member_since)
+   Context: dues_schedule.membership_type = member.membership_type
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:219 - membership_type not in Member
+   → Field 'membership_type' does not exist in Member (similar: member_details_section, parenttype, member_since)
+   Context: membership_type_doc = frappe.get_doc("Membership Type", member.membership_type)
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:225 - member_name not in Member
+   → Field 'member_name' does not exist in Member (similar: member_details_section, full_name, member_since)
+   Context: member.member_name, member.membership_type
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:225 - membership_type not in Member
+   → Field 'membership_type' does not exist in Member (similar: member_details_section, parenttype, member_since)
+   Context: member.member_name, member.membership_type
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:207 - member_name not in Member
+   → Field 'member_name' does not exist in Member (similar: member_details_section, full_name, member_since)
+   Context: "member": member.member_name,
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:209 - membership_type not in Member
+   → Field 'membership_type' does not exist in Member (similar: member_details_section, parenttype, member_since)
+   Context: "membership_type": member.membership_type,
+
+❌ verenigingen/utils/dues_schedule_auto_creator.py:269 - membership_type not in Member
+   → Field 'membership_type' does not exist in Member (similar: member_details_section, parenttype, member_since)
+   Context: dues_schedule.custom_amount_reason = f"Auto-created from membership type {member.membership_type}"
+
+
+💡 Summary:
+   - Total issues found: 183
+   - Ultimate progress: 4374 -> 321 -> 198 -> 881 -> 183 issues
+✅ Excellent progress toward target!

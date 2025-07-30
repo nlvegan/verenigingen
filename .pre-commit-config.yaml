@@ -179,3 +179,16 @@ repos:
         files: '\.py$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+
+      # Pytest Coverage Hook
+      - id: pytest-coverage-critical
+        name: 📊 Pytest Coverage Check (Critical Tests)
+        description: Run critical tests with coverage enforcement
+        entry: python scripts/testing/pytest_precommit_runner.py
+        language: system
+        pass_filenames: false
+        files: '\.py$'
+        exclude: '^(migrations/|fixtures/|scripts/testing/|scripts/debug/|.*_debug\.py|test_.*\.py)'
+        stages: [pre-commit]
+        verbose: true
+        require_serial: true

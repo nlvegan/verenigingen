@@ -327,7 +327,7 @@ def get_membership_periods(member_name, from_date=None, to_date=None):
     params = [member_name]
 
     if from_date:
-        conditions.append("(mb.end_date IS NULL OR mb.end_date >= %s)")
+        conditions.append("(mb.cancellation_date IS NULL OR mb.cancellation_date >= %s)")
         params.append(from_date)
 
     if to_date:
@@ -902,6 +902,103 @@ def export_gap_analysis(filters):
     xlsx_file = make_xlsx(detailed_data, "Gap Analysis", file_name=file_name)
 
     return {"file_url": xlsx_file, "message": f"Gap analysis exported to {file_name}"}
+
+
+@frappe.whitelist()
+def debug_coverage_fields():
+    """Debug function to check coverage field existence and data"""
+
+    results = []
+    results.append("=== COVERAGE ANALYSIS DEBUG ===")
+
+    # 1. Check if coverage fields exist in Sales Invoice
+    try:
+        has_start = frappe.db.has_column("tabSales Invoice", "custom_coverage_start_date")
+        has_end = frappe.db.has_column("tabSales Invoice", "custom_coverage_end_date")
+
+        results.append("Coverage fields exist:")
+        results.append(f"  - custom_coverage_start_date: {has_start}")
+        results.append(f"  - custom_coverage_end_date: {has_end}")
+
+        if not (has_start and has_end):
+            # Show what custom fields do exist
+            columns = frappe.db.sql("DESCRIBE `tabSales Invoice`", as_dict=True)
+            custom_cols = [col["Field"] for col in columns if col["Field"].startswith("custom_")]
+            results.append(f"\nFound {len(custom_cols)} custom fields in Sales Invoice:")
+            for col in custom_cols[:10]:  # Show first 10
+                results.append(f"  - {col}")
+
+    except Exception as e:
+        results.append(f"Error checking fields: {e}")
+
+    # 2. Test with sample data
+    try:
+        # Get sample member with customer
+        sample_member = frappe.db.sql(
+            """
+            SELECT m.name, m.full_name, m.customer
+            FROM `tabMember` m
+            WHERE m.status = 'Active' AND m.customer IS NOT NULL
+            LIMIT 1
+        """,
+            as_dict=True,
+        )
+
+        if sample_member:
+            member = sample_member[0]
+            results.append(f"\nTesting with member: {member.name} ({member.full_name})")
+            results.append(f"Customer: {member.customer}")
+
+            # Test membership periods
+            periods = get_membership_periods(member.name)
+            results.append(f"Membership periods: {len(periods)}")
+            for i, (start, end) in enumerate(periods):
+                results.append(f"  Period {i + 1}: {start} to {end}")
+
+            # Test invoice query (without coverage filter first)
+            all_invoices = frappe.db.sql(
+                """
+                SELECT name, posting_date, grand_total, status
+                FROM `tabSales Invoice`
+                WHERE customer = %s AND docstatus = 1
+                LIMIT 5
+            """,
+                [member.customer],
+                as_dict=True,
+            )
+
+            results.append(f"\nAll invoices for customer: {len(all_invoices)}")
+            for inv in all_invoices:
+                results.append(f"  - {inv.name}: €{inv.grand_total} ({inv.status})")
+
+            # Now test with coverage fields if they exist
+            if has_start and has_end:
+                coverage_invoices = get_member_invoices_with_coverage(member.customer)
+                results.append(f"\nInvoices with coverage: {len(coverage_invoices)}")
+                for inv in coverage_invoices:
+                    results.append(f"  - {inv.invoice}: {inv.coverage_start} to {inv.coverage_end}")
+            else:
+                results.append("\n❌ Cannot test coverage invoices - fields don't exist!")
+
+            # Test the main function
+            coverage_analysis = calculate_coverage_timeline(member.name)
+            stats = coverage_analysis["stats"]
+            results.append("\nCoverage Analysis Results:")
+            results.append(f"  - Total Active Days: {stats['total_active_days']}")
+            results.append(f"  - Covered Days: {stats['covered_days']}")
+            results.append(f"  - Gap Days: {stats['gap_days']}")
+            results.append(f"  - Coverage %: {stats['coverage_percentage']:.1f}%")
+
+        else:
+            results.append("\n❌ No active members with customers found!")
+
+    except Exception as e:
+        results.append(f"\nError in testing: {e}")
+        import traceback
+
+        results.append(traceback.format_exc())
+
+    return "\n".join(results)
 
 
 @frappe.whitelist()
