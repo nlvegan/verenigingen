@@ -8,7 +8,7 @@ import sys
 import time
 import argparse
 from pathlib import Path
-from enhanced_field_validator import EnhancedFieldValidator
+from deprecated_field_validator import EnhancedFieldValidator
 from template_variable_validator import TemplateVariableValidator
 
 

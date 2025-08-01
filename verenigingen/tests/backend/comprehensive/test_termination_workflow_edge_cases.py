@@ -165,7 +165,8 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Overdue",
-                # Note: fee is defined in membership_type, not directly on membership}
+                # Note: fee is defined in membership_type, not directly on membership
+            }
         )
         membership.insert()
 
@@ -320,7 +321,8 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Active",
-                # Note: fee is defined in membership_type, not directly on membership}
+                # Note: fee is defined in membership_type, not directly on membership
+            }
         )
         membership.insert()
 
@@ -369,7 +371,8 @@ class TestTerminationWorkflowEdgeCases(unittest.TestCase):
                 "member": self.member1.name,
                 "membership_type": self.membership_type.name,
                 "status": "Active",
-                # Note: fee is defined in membership_type, not directly on membership}
+                # Note: fee is defined in membership_type, not directly on membership
+            }
         )
         membership.insert()
 

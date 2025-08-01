@@ -184,10 +184,11 @@ class DatabaseQueryFieldValidator:
     
     def extract_string_value(self, node: ast.AST) -> Optional[str]:
         """Extract string value from an AST node"""
-        if isinstance(node, ast.Str):
-            return node.s
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
+        # Fallback for older Python versions
+        elif hasattr(node, 's') and isinstance(getattr(node, 's', None), str):
+            return node.s
         return None
     
     def extract_filter_fields(self, node: ast.AST) -> List[str]:
@@ -211,8 +212,13 @@ class DatabaseQueryFieldValidator:
                 field_name = self.extract_string_value(item)
                 if field_name:
                     fields.append(field_name)
-        elif isinstance(node, ast.Str) or (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             # Single field as string
+            field_name = self.extract_string_value(node)
+            if field_name:
+                fields.append(field_name)
+        # Fallback for older Python versions
+        elif hasattr(node, 's') and isinstance(getattr(node, 's', None), str):
             field_name = self.extract_string_value(node)
             if field_name:
                 fields.append(field_name)

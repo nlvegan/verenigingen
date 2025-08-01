@@ -1,53 +1,48 @@
-# Validation Scripts
+# Historical Field Validators Archive
 
-Scripts to validate features, migrations, and system integrity.
+This directory contains historical field validation implementations that have been superseded or consolidated.
 
-## Feature Validation (`features/`)
+## Archived Files
 
-- **`validate_bank_details.py`** - Validate bank details functionality
-- **`validate_configurable_email.py`** - Validate configurable email system
-- **`validate_contact_request_implementation.py`** - Validate contact request feature implementation
-- **`validate_member_portal.py`** - Validate member portal functionality
-- **`validate_personal_details.py`** - Validate personal details handling
-- **`test_expense_approval_fix.py`** - Validate expense claim approval workflow fix
-- **`test_member_portal_fix.py`** - Validate member portal expense query fix
-- **`test_chapter_membership_fix.py`** - Validate chapter membership validation fix
-- **`test_chapter_membership_final.py`** - Final validation test confirming the fix works
+### Duplicate DocType Field Validators
+These validators performed similar DocType field validation with minor variations:
+- `ultimate_field_validator.py` - Similar to doctype_field_validator.py
+- `final_field_validator.py` - Legacy implementation
+- `accurate_field_validator.py` - Early version
+- `precise_field_validator.py` - Performance variant
+- `balanced_field_validator.py` - Experimental approach
+- `refined_field_validator.py` - Incremental improvement
+- `production_field_validator.py` - Production testing variant
+- `fixed_field_validator.py` - Bug fix version
+- `enhanced_field_validator_v2.py` - Version 2 iteration
 
-## Migration Validation (`migrations/`)
+### Testing/Development Variants
+- `quick_db_field_validator.py` - Fast testing variant
+- `smart_field_validator.py` - Experimental approach
+- `optimized_field_validator.py` - Performance optimization
+- `unified_field_validator.py` - Unification attempt
+- `comprehensive_field_validator.py` - Duplicate of validation_suite_runner.py
 
-- **`validate_contribution_amendment_rename.py`** - Validate contribution amendment rename migration
+### SQL Validators (Consolidated)
+- `enhanced_sql_field_validator.py` - Enhanced SQL validation
+- `database_query_field_validator.py` - Database query validation
 
-## General Validation
+### JavaScript Validators (Consolidated)
+- `advanced_javascript_field_validator.py` - Advanced JS validation
+- `javascript_field_validator_integration.py` - JS integration testing
 
-- **`validation_check.py`** - General system validation check
+## Active Validators (Current)
 
-## Usage
+The following renamed validators are currently active:
 
-```bash
-# Validate specific features
-python scripts/validation/features/validate_bank_details.py
-python scripts/validation/features/validate_member_portal.py
+- `doctype_field_validator.py` (was: improved_field_validator.py) - Main DocType field validation
+- `legacy_field_validator.py` (was: field_validator.py) - Legacy/fallback validator
+- `deprecated_field_validator.py` (was: enhanced_field_validator.py) - Pre-push validation
+- `validation_suite_runner.py` (was: comprehensive_validator.py) - Unified validation suite
+- `method_call_validator.py` (was: fast_method_validator.py) - Method call validation
+- `template_field_validator.py` (was: javascript_validation.py) - Template/JS validation
+- `workspace_integrity_validator.py` (was: workspace_pre_commit.py) - Workspace validation
+- `sql_query_field_validator.py` (was: sql_field_validator.py) - SQL query validation
 
-# Validate migrations
-python scripts/validation/migrations/validate_contribution_amendment_rename.py
-
-# Run general validation
-python scripts/validation/validation_check.py
-```
-
-## Validation Categories
-
-- **Features** - Validate specific feature functionality
-- **Migrations** - Verify data migration integrity
-- **General** - Overall system validation
-
-## Adding Validation Scripts
-
-When adding validation scripts:
-
-1. Place feature validations in `features/`
-2. Place migration validations in `migrations/`
-3. Include clear pass/fail criteria
-4. Provide detailed error messages
-5. Document what is being validated
+## Migration Date
+Archived on: 2025-01-20

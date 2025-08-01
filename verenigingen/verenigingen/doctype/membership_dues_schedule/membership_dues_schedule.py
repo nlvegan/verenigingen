@@ -1396,6 +1396,34 @@ class MembershipDuesSchedule(Document):
         schedule.template_reference = template.name
         schedule.status = "Active"
 
+        # SOPHISTICATED DUES RATE LOGIC: Preserve user's selected amount when available
+        member_doc = frappe.get_doc("Member", member_name)
+        user_selected_rate = getattr(member_doc, "dues_rate", None)
+
+        if user_selected_rate and user_selected_rate > 0:
+            # User has selected a specific dues rate during application - preserve it
+            schedule.dues_rate = user_selected_rate
+            schedule.contribution_mode = "Custom"  # Mark as custom since user selected specific amount
+            schedule.uses_custom_amount = 1
+            schedule.custom_amount_reason = "Amount selected during membership application"
+
+            # Validate user's selection against template minimum
+            template_minimum = getattr(template, "minimum_amount", 0)
+            if template_minimum and user_selected_rate < template_minimum:
+                frappe.throw(
+                    f"Selected contribution amount (€{user_selected_rate:.2f}) is less than the minimum required "
+                    f"for {template.membership_type} membership (€{template_minimum:.2f}). "
+                    f"Please contact support to resolve this discrepancy."
+                )
+        else:
+            # No user selection - use template's dues_rate as fallback
+            template_dues_rate = getattr(template, "dues_rate", None)
+            if template_dues_rate and template_dues_rate > 0:
+                schedule.dues_rate = template_dues_rate
+            else:
+                # Final fallback to suggested_amount if template has no dues_rate
+                schedule.dues_rate = getattr(template, "suggested_amount", 0)
+
         # CRITICAL: Set the membership field if available
         if membership_id:
             schedule.membership = membership_id

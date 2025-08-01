@@ -1103,6 +1103,7 @@ class Member(
         customer = frappe.new_doc("Customer")
         customer.customer_name = self.full_name
         customer.customer_type = "Individual"
+        customer.member = self.name  # Link customer back to member
 
         if self.email:
             customer.email_id = self.email

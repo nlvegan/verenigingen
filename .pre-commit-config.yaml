@@ -99,38 +99,65 @@ repos:
 
       - id: docfield-checker
         name: Legacy field reference checker (fallback)
-        entry: python scripts/validation/field_validator.py
+        entry: python scripts/validation/legacy_field_validator.py
         language: system
         pass_filenames: false
         files: \.py$
         stages: [manual]
 
-      - id: improved-field-validator
-        name: Improved DocType field validation (reduced false positives)
-        entry: python scripts/validation/improved_field_validator.py --pre-commit
+      - id: doctype-field-validator
+        name: DocType attribute access validation
+        entry: python scripts/validation/doctype_field_validator.py --pre-commit --reduced-fp-mode
         language: system
         pass_filenames: false
         files: \.py$
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py)'
 
+      - id: sql-field-validator
+        name: SQL query field validation
+        entry: python scripts/validation/sql_field_validator_with_confidence.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+
+      - id: frappe-api-validator
+        name: Frappe database API field validation
+        entry: python scripts/validation/frappe_api_field_validator.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+
       - id: enhanced-field-validator
-        name: Enhanced deprecated field validation
-        entry: python scripts/validation/enhanced_field_validator.py
+        name: Deprecated field validation (pre-push)
+        entry: python scripts/validation/deprecated_field_validator.py
         language: system
         pass_filenames: false
         files: '\.(py|html|js)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py)'
 
-      - id: js-validation
-        name: JavaScript validation (templates + field references)
-        entry: python scripts/validation/javascript_validation.py
+      - id: template-field-validator
+        name: HTML/JavaScript template field validation
+        entry: python scripts/validation/template_field_validator.py
         language: system
         pass_filenames: false
         files: '\.(html|js)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.(html|js)|debug_|.*_debug\.(html|js)|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
+
+      - id: javascript-doctype-validator
+        name: JavaScript DocType field validation
+        entry: python scripts/validation/javascript_doctype_field_validator.py
+        language: system
+        pass_filenames: false
+        files: '\.js$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.js|debug_|.*_debug\.js|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
 
       - id: eslint
         name: ESLint JavaScript validation
@@ -146,8 +173,8 @@ repos:
         exclude: '^(node_modules/|archived_unused/|scripts/analysis/|scripts/monitoring/|scripts/performance/|scripts/rollback/|scripts/security/|debug_utils/|dev_scripts/)|\.min\.js$|\.bundle\.js$'
 
       - id: fast-method-validator
-        name: Fast method call validation
-        entry: python scripts/validation/fast_method_validator.py
+        name: Method call validation
+        entry: python scripts/validation/method_call_validator.py
         language: system
         pass_filenames: false
         files: '\.py$'
@@ -155,25 +182,49 @@ repos:
         exclude: '^(archived_unused/|archived_removal/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
 
       - id: workspace-validator
-        name: Validate workspace integrity
-        entry: python scripts/validation/workspace_pre_commit.py
+        name: Workspace integrity validation
+        entry: python scripts/validation/workspace_integrity_validator.py
         language: system
         pass_filenames: false
         files: '^(verenigingen/fixtures/workspace\.json|verenigingen/api/workspace_.*\.py)$'
         stages: [pre-commit]
 
       - id: comprehensive-validation
-        name: Comprehensive Code Validation (field + template)
-        entry: python scripts/validation/comprehensive_validator.py --quiet
+        name: Validation suite runner (field + template)
+        entry: python scripts/validation/validation_suite_runner.py --quiet
         language: system
         pass_filenames: false
         files: '\.(py|html)$'
         stages: [manual]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
 
+      - id: context-aware-validator
+        name: Context-aware field validation (high precision)
+        entry: python scripts/validation/context_aware_field_validator.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [manual]
+
+      - id: comprehensive-doctype-validator
+        name: Comprehensive DocType validation with SQL patterns
+        entry: python scripts/validation/comprehensive_doctype_validator.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [manual]
+
+      - id: performance-validator
+        name: Performance-optimized validation (large codebases)
+        entry: python scripts/validation/performance_optimized_validator.py
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [manual]
+
       - id: field-validation-only
-        name: Database Field Validation (fast check)
-        entry: python scripts/validation/comprehensive_validator.py --field-only --quiet
+        name: Database field validation (fast check)
+        entry: python scripts/validation/validation_suite_runner.py --field-only --quiet
         language: system
         pass_filenames: false
         files: '\.py$'

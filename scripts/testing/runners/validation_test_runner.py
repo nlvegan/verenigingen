@@ -24,7 +24,7 @@ class ValidationTestRunner:
         """Run the comprehensive validation suite"""
         print("🔍 Running Code Validation...")
         
-        validator_path = self.app_path / "scripts" / "validation" / "comprehensive_validator.py"
+        validator_path = self.app_path / "scripts" / "validation" / "validation_suite_runner.py"
         
         cmd = [sys.executable, str(validator_path)]
         if quiet:

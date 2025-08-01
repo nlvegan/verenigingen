@@ -27,6 +27,7 @@ class VereningingenTestCase(FrappeTestCase):
         super().setUpClass()
         cls._ensure_test_environment()
         cls._track_created_docs = []
+        cls.setup_payment_modes()  # Ensure payment modes exist for all tests
 
     @classmethod
     def tearDownClass(cls):
@@ -268,6 +269,37 @@ class VereningingenTestCase(FrappeTestCase):
         """Get the actual test region name from database"""
         return frappe.db.get_value("Region", {"region_code": "TR"}, "name") or "test-region"
     
+    @classmethod 
+    def setup_payment_modes(cls):
+        """Set up required payment modes for testing"""
+        payment_modes = [
+            {
+                "mode_of_payment": "Bank Transfer",
+                "type": "Bank",
+                "enabled": 1
+            },
+            {
+                "mode_of_payment": "SEPA Direct Debit", 
+                "type": "Bank",
+                "enabled": 1
+            },
+            {
+                "mode_of_payment": "Cash",
+                "type": "Cash",
+                "enabled": 1
+            }
+        ]
+        
+        for mode_data in payment_modes:
+            if not frappe.db.exists("Mode of Payment", mode_data["mode_of_payment"]):
+                try:
+                    mode_doc = frappe.new_doc("Mode of Payment")
+                    mode_doc.update(mode_data)
+                    mode_doc.save()
+                    print(f"Created payment mode: {mode_data['mode_of_payment']}")
+                except Exception as e:
+                    print(f"Warning: Could not create payment mode {mode_data['mode_of_payment']}: {e}")
+    
     @classmethod
     def get_test_chapter_name(cls):
         """Get the unique test chapter name for this test session"""
@@ -342,13 +374,19 @@ class VereningingenTestCase(FrappeTestCase):
         return member
 
     def create_test_membership_type(self, **kwargs):
-        """Create a test membership type with default values"""
+        """Create a test membership type with default values and unique naming"""
         # Get a dues schedule template first
         template = frappe.db.get_value("Membership Dues Schedule", 
             {"name": ["like", "%Monthly%"]}, "name") or "Monthly Membership Template"
-            
+        
+        # Generate unique name with timestamp to prevent duplicates
+        import time
+        timestamp = str(int(time.time() * 1000))  # millisecond precision
+        unique_suffix = frappe.generate_hash(length=4)
+        unique_name = f"Test Type {timestamp[-6:]}-{unique_suffix}"
+        
         defaults = {
-            "membership_type_name": f"Test Type {frappe.generate_hash(length=6)}",
+            "membership_type_name": unique_name,
             "amount": 25.0,
             "is_active": 1,
             "contribution_mode": "Calculator",
@@ -357,6 +395,11 @@ class VereningingenTestCase(FrappeTestCase):
             "dues_schedule_template": template
         }
         defaults.update(kwargs)
+        
+        # Check if name already exists and make it more unique if needed
+        if frappe.db.exists("Membership Type", unique_name):
+            unique_name = f"Test Type {timestamp}-{unique_suffix}-{frappe.generate_hash(length=3)}"
+            defaults["membership_type_name"] = unique_name
         
         membership_type = frappe.new_doc("Membership Type")
         for key, value in defaults.items():
@@ -480,9 +523,19 @@ class VereningingenTestCase(FrappeTestCase):
         return dues_schedule
 
     def create_test_chapter(self, **kwargs):
-        """Create a test chapter with default values including required region"""
-        # Generate unique chapter name if not provided
-        chapter_name = kwargs.pop("chapter_name", f"Test Chapter {frappe.generate_hash(length=6)}")
+        """Create a test chapter with default values including required region and unique naming"""
+        # Generate unique chapter name with timestamp to prevent duplicates
+        import time
+        timestamp = str(int(time.time() * 1000))  # millisecond precision
+        unique_suffix = frappe.generate_hash(length=4)
+        chapter_name = kwargs.pop("chapter_name", f"Test Chapter {timestamp[-6:]}-{unique_suffix}")
+        
+        # Ensure uniqueness by checking existence
+        base_name = chapter_name
+        counter = 1
+        while frappe.db.exists("Chapter", chapter_name):
+            chapter_name = f"{base_name}-{counter}"
+            counter += 1
         
         defaults = {
             "region": self.get_test_region_name(),  # Use existing test region
@@ -1086,6 +1139,52 @@ class VereningingenTestCase(FrappeTestCase):
                 kwargs["party"] = customer.name
                 kwargs["party_type"] = "Customer"
         
+        # Get company and default accounts
+        company = frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0]
+        
+        # Get default cash account for the company
+        cash_account = frappe.db.get_value("Account", {
+            "company": company,
+            "account_type": "Cash", 
+            "is_group": 0
+        }, "name")
+        
+        if not cash_account:
+            # Find or create parent cash account first
+            parent_cash = frappe.db.get_value("Account", {
+                "company": company, 
+                "account_type": "Cash",
+                "is_group": 1
+            }, "name")
+            
+            if not parent_cash:
+                # Use a generic receivable account as fallback
+                parent_cash = frappe.db.get_value("Account", {
+                    "company": company,
+                    "account_type": "Receivable",
+                    "is_group": 0
+                }, "name")
+            
+            if parent_cash:
+                # Create a test cash account if none exists
+                cash_account = frappe.get_doc({
+                    "doctype": "Account",
+                    "account_name": "Test Cash Account",
+                    "parent_account": parent_cash,
+                    "company": company,
+                    "account_type": "Cash",
+                    "is_group": 0
+                })
+                cash_account.insert(ignore_permissions=True)
+                cash_account = cash_account.name
+                self.track_doc("Account", cash_account)
+            else:
+                # Fallback to any existing account for this company
+                cash_account = frappe.db.get_value("Account", {
+                    "company": company,
+                    "is_group": 0
+                }, "name")
+        
         defaults = {
             "payment_type": "Receive",
             "posting_date": frappe.utils.today(),
@@ -1093,8 +1192,10 @@ class VereningingenTestCase(FrappeTestCase):
             "received_amount": 100.0,
             "source_exchange_rate": 1,
             "target_exchange_rate": 1,
-            "company": frappe.defaults.get_user_default("Company") or frappe.get_all("Company", limit=1, pluck="name")[0],
-            "mode_of_payment": "Bank Transfer"
+            "company": company,
+            "mode_of_payment": "Bank Transfer",
+            "paid_to": cash_account,
+            "paid_to_account_currency": "EUR"
         }
         defaults.update(kwargs)
         

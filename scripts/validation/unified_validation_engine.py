@@ -183,7 +183,7 @@ class UnifiedFieldValidator:
         # Low confidence for complex patterns or unclear context
         return 'low'
     
-    # SQL Validation Methods (from enhanced_sql_field_validator.py)
+    # SQL Validation Methods (from sql_field_validator_with_confidence.py)
     
     def extract_sql_queries(self, content: str) -> List[Tuple[str, int]]:
         """Extract SQL queries from string literals"""

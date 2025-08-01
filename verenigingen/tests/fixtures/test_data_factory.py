@@ -58,9 +58,18 @@ class StreamlinedTestDataFactory:
     def create_test_region(self, **kwargs):
         """Create a test region required for chapter creation"""
         region_name = f"Test Region {self.fake.state()} - {self.test_run_id}"
+        region_code = f"TR{''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=2))}"
+        
+        # Ensure region code is unique
+        counter = 1
+        base_code = region_code
+        while frappe.db.exists("Region", {"region_code": region_code}):
+            region_code = f"{base_code}{counter}"
+            counter += 1
+        
         defaults = {
             "region_name": region_name,
-            "region_code": f"TR{''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=2))}",
+            "region_code": region_code,
             "country": "Netherlands",
             "is_active": 1,
             "description": f"Test region created for automated testing - {self.test_run_id}",

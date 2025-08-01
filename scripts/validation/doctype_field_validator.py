@@ -38,6 +38,23 @@ class AccurateFieldValidator:
         
         # Build comprehensive exclusion patterns
         self.excluded_patterns = self._build_excluded_patterns()
+        self.reduced_fp_mode = False
+        
+    def enable_reduced_fp_mode(self):
+        """Enable reduced false positive mode with additional exclusions"""
+        self.reduced_fp_mode = True
+        
+        # Add query alias patterns to exclusions
+        self.excluded_patterns['query_aliases'] = {
+            'membership', 'invoice', 'member_name', 'member_id', 'amount', 
+            'status', 'customer_name', 'outstanding_amount', 'currency'
+        }
+        
+        # Add test-specific exclusions
+        self.excluded_patterns['test_patterns'] = {
+            'old_rate', 'new_rate', 'end_date', 'membership_name', 'cancellation_date',
+            'state', 'allow_edit', 'doc_status'
+        }
         
     def _build_excluded_patterns(self) -> Dict[str, Set[str]]:
         """Build comprehensive excluded patterns to avoid false positives"""
@@ -176,6 +193,13 @@ class AccurateFieldValidator:
         # Check if it's a common non-field attribute
         if field_name in self.excluded_patterns['common_attributes']:
             return True
+            
+        # Enhanced exclusions for reduced false positive mode
+        if self.reduced_fp_mode:
+            if field_name in self.excluded_patterns.get('query_aliases', set()):
+                return True
+            if field_name in self.excluded_patterns.get('test_patterns', set()):
+                return True
         
         # Check for method calls (has parentheses on same line)
         if f'{field_name}(' in context:
@@ -568,6 +592,7 @@ def main():
     # Check for options
     pre_commit = '--pre-commit' in sys.argv
     verbose = '--verbose' in sys.argv
+    reduced_fp_mode = '--reduced-fp-mode' in sys.argv
     single_file = None
     
     # Check for single file testing
@@ -577,6 +602,10 @@ def main():
             break
     
     validator = AccurateFieldValidator(app_path, verbose=verbose)
+    
+    # Apply reduced false positive mode if requested
+    if reduced_fp_mode:
+        validator.enable_reduced_fp_mode()
     
     if not verbose:
         print(f"📋 Loaded {len(validator.doctypes)} doctypes with field definitions")

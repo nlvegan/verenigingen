@@ -21,8 +21,8 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
         
         # Create test environment
         self.test_chapter = self.create_test_chapter()
+        # Use factory method for unique naming instead of hardcoded name
         self.test_membership_type = self.create_test_membership_type(
-            membership_type_name="Lifecycle Test Type",
             amount=25.00,
             billing_frequency="Monthly"
         )
