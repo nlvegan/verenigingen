@@ -3,6 +3,7 @@ from frappe.utils import add_days, now_datetime, today
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_member_incremental_update():
     """Test the incremental update functionality with the specific member"""
     try:
@@ -90,6 +91,7 @@ def test_member_incremental_update():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_expense_mixin_build_method():
     """Test the _build_expense_history_entry method"""
     try:
