@@ -20,7 +20,8 @@ class MemberIDManager:
         # Use database transaction with row locking for better atomicity
         try:
             # Start a database transaction
-            with frappe.db.transaction():
+            frappe.db.begin()
+            try:
                 # Use a dedicated settings table for better concurrency control
                 settings_name = "Verenigingen Settings"
 
@@ -69,6 +70,11 @@ class MemberIDManager:
                 frappe.cache().set(counter_key, next_id)
 
                 return next_id
+
+            except Exception as transaction_error:
+                # Rollback the transaction on error
+                frappe.db.rollback()
+                raise transaction_error
 
         except Exception as e:
             frappe.log_error(f"Error generating member ID: {str(e)}", "Member ID Generation")

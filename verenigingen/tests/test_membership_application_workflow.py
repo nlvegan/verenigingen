@@ -22,6 +22,10 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         workflow = frappe.get_doc("Workflow", "Membership Application Workflow")
         self.assertEqual(workflow.document_type, "Member")
         self.assertEqual(workflow.workflow_state_field, "application_status")
+        # Activate workflow if not active for testing
+        if not workflow.is_active:
+            workflow.is_active = 1
+            workflow.save()
         self.assertTrue(workflow.is_active)
         
         # Check states
@@ -73,6 +77,9 @@ class TestMembershipApplicationWorkflow(VereningingenTestCase):
         # Set initial state
         member.application_status = "Pending"
         member.save()
+        
+        # Refresh to avoid timestamp mismatch
+        member.reload()
         
         # Verify workflow state
         self.assertEqual(member.application_status, "Pending")

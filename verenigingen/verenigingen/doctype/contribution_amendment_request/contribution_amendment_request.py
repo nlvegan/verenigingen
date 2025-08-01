@@ -206,7 +206,7 @@ class ContributionAmendmentRequest(Document):
             self.requested_by = frappe.session.user
 
     def before_insert(self):
-        """Set auto-approval for certain cases with enhanced rules"""
+        """Set approval status for certain cases with enhanced rules"""
         # Enhanced auto-approval logic
         if self.amendment_type == "Fee Change" and self.requested_amount and self.current_amount:
             member = frappe.get_doc("Member", self.member)
@@ -305,16 +305,21 @@ class ContributionAmendmentRequest(Document):
             frappe.msgprint(_("Only approved amendments can be applied"), indicator="red")
             return {"status": "error", "message": "Amendment not approved"}
 
+        # For auto-approved amendments or those with effective date today/past, apply immediately
+        # For future-dated amendments, only apply if explicitly requested or past effective date
         if getdate(self.effective_date) > getdate(today()):
-            effective_date_formatted = frappe.utils.formatdate(self.effective_date)
-            frappe.msgprint(
-                _(
-                    "This amendment is scheduled to be applied automatically on {0}. You cannot apply it manually before the effective date."
-                ).format(effective_date_formatted),
-                title=_("Amendment Not Ready"),
-                indicator="orange",
-            )
-            return {"status": "warning", "message": "Amendment scheduled for future date"}
+            # Check if this is being called automatically (e.g., by submit_fee_adjustment_request)
+            # or manually by a user
+            if not getattr(self, "_force_apply", False):
+                effective_date_formatted = frappe.utils.formatdate(self.effective_date)
+                frappe.msgprint(
+                    _(
+                        "This amendment is scheduled to be applied automatically on {0}. You cannot apply it manually before the effective date."
+                    ).format(effective_date_formatted),
+                    title=_("Amendment Not Ready"),
+                    indicator="orange",
+                )
+                return {"status": "warning", "message": "Amendment scheduled for future date"}
 
         try:
             membership = frappe.get_doc("Membership", self.membership)
@@ -323,6 +328,8 @@ class ContributionAmendmentRequest(Document):
                 self.apply_fee_change(membership)
             elif self.amendment_type == "Billing Interval Change":
                 self.apply_billing_change(membership)
+            elif self.amendment_type == "Membership Type Change":
+                self.apply_membership_type_change(membership)
 
             self.status = "Applied"
             self.applied_date = now_datetime()
@@ -340,11 +347,58 @@ class ContributionAmendmentRequest(Document):
             return {"status": "error", "message": f"Error applying amendment: {error_msg}"}
 
     def apply_fee_change(self, membership):
-        """Apply fee change to membership using new dues schedule approach"""
+        """Apply fee change to membership"""
         try:
-            # Create new dues schedule with the requested amount
-            dues_schedule_name = self.create_dues_schedule_for_amendment()
-            self.new_dues_schedule = dues_schedule_name
+            # Check if this is a pure fee change (no membership type change)
+            is_pure_fee_change = self.amendment_type == "Fee Change" and (
+                not self.requested_membership_type
+                or self.requested_membership_type == self.current_membership_type
+            )
+
+            if is_pure_fee_change:
+                # For pure fee changes, just update the existing dues schedule
+                existing_schedule = frappe.db.get_value(
+                    "Membership Dues Schedule", {"member": self.member, "status": "Active"}, "name"
+                )
+
+                if existing_schedule:
+                    # Update the existing schedule
+                    schedule_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+                    schedule_doc.dues_rate = self.requested_amount
+                    schedule_doc.contribution_mode = "Custom"
+                    schedule_doc.uses_custom_amount = 1
+                    schedule_doc.custom_amount_approved = 1
+                    schedule_doc.custom_amount_reason = f"Amendment Request: {self.reason}"
+                    schedule_doc.custom_amount_approved_by = frappe.session.user
+                    schedule_doc.custom_amount_approved_date = today()
+
+                    # Add amendment note
+                    schedule_doc.notes = (
+                        schedule_doc.notes or ""
+                    ) + f"\nAmended via {self.name} on {today()}: €{self.requested_amount:.2f}"
+
+                    schedule_doc._ignore_permissions = True
+                    schedule_doc.save(ignore_permissions=True)
+
+                    # Add comment
+                    schedule_doc.add_comment(
+                        text=f"Fee adjusted via amendment {self.name}. New amount: €{self.requested_amount:.2f}"
+                    )
+
+                    self.new_dues_schedule = existing_schedule
+                    self.processing_notes = (
+                        f"Updated existing dues schedule {existing_schedule} with new fee amount."
+                    )
+                else:
+                    # No existing schedule, create a new one
+                    dues_schedule_name = self.create_dues_schedule_for_amendment()
+                    self.new_dues_schedule = dues_schedule_name
+                    self.processing_notes = f"Created new dues schedule {dues_schedule_name} for fee change."
+            else:
+                # For membership type changes or other complex changes, create new schedule
+                dues_schedule_name = self.create_dues_schedule_for_amendment()
+                self.new_dues_schedule = dues_schedule_name
+                self.processing_notes = f"Dues schedule {dues_schedule_name} created for amendment."
 
             # Update legacy override fields for backward compatibility
             member_doc = frappe.get_doc("Member", self.member)
@@ -356,9 +410,6 @@ class ContributionAmendmentRequest(Document):
             # Set flag to bypass permission check for system updates
             member_doc._system_update = True
             member_doc.save(ignore_permissions=True)
-
-            # Updated to use dues schedule system
-            self.processing_notes = f"Dues schedule {dues_schedule_name} created for fee change."
 
         except Exception as e:
             frappe.throw(_("Error applying fee change: {0}").format(str(e)))
@@ -396,7 +447,11 @@ class ContributionAmendmentRequest(Document):
             dues_schedule.schedule_name = f"Amendment {self.name} - {frappe.utils.random_string(6)}"
             dues_schedule.member = self.member
             dues_schedule.membership = membership.name
-            dues_schedule.membership_type = membership.membership_type
+            # Use requested membership type if this is a membership type change, otherwise use current
+            if self.amendment_type == "Membership Type Change" and self.requested_membership_type:
+                dues_schedule.membership_type = self.requested_membership_type
+            else:
+                dues_schedule.membership_type = membership.membership_type
             dues_schedule.contribution_mode = "Custom"
             dues_schedule.dues_rate = self.requested_amount
             dues_schedule.uses_custom_amount = 1
@@ -407,7 +462,42 @@ class ContributionAmendmentRequest(Document):
             if self.requested_amount == 0:
                 dues_schedule.custom_amount_reason = f"Free membership via amendment: {self.reason}"
 
-            dues_schedule.billing_frequency = "Monthly"  # Default
+            # Get billing frequency from membership type's template
+            # Use requested membership type if this is a membership type change
+            membership_type_to_use = (
+                self.requested_membership_type
+                if self.amendment_type == "Membership Type Change" and self.requested_membership_type
+                else membership.membership_type
+            )
+
+            if membership_type_to_use:
+                membership_type_doc = frappe.get_doc("Membership Type", membership_type_to_use)
+                if membership_type_doc.dues_schedule_template:
+                    template = frappe.get_doc(
+                        "Membership Dues Schedule", membership_type_doc.dues_schedule_template
+                    )
+                    dues_schedule.billing_frequency = template.billing_frequency
+                else:
+                    # Fallback to membership type's billing period
+                    billing_period_map = {
+                        "Daily": "Daily",
+                        "Monthly": "Monthly",
+                        "Quarterly": "Quarterly",
+                        "Biannual": "Semi-Annual",
+                        "Annual": "Annual",
+                        "Custom": "Custom",
+                    }
+                    dues_schedule.billing_frequency = billing_period_map.get(
+                        membership_type_doc.billing_period, "Annual"
+                    )
+                    # Handle custom frequency
+                    if membership_type_doc.billing_period == "Custom" and hasattr(
+                        membership_type_doc, "billing_period_in_months"
+                    ):
+                        dues_schedule.custom_frequency_number = membership_type_doc.billing_period_in_months
+                        dues_schedule.custom_frequency_unit = "Months"
+            else:
+                dues_schedule.billing_frequency = "Monthly"  # Default fallback
             # Payment method is determined dynamically based on member's payment setup
             dues_schedule.status = "Active"
             dues_schedule.auto_generate = 1
@@ -442,6 +532,47 @@ class ContributionAmendmentRequest(Document):
         # This would involve creating a new dues schedule with different billing interval
         # Implementation depends on specific requirements
         frappe.throw(_("Billing interval changes are not yet implemented"))
+
+    def apply_membership_type_change(self, membership):
+        """Apply membership type change with optional fee change"""
+        try:
+            # Update the membership type
+            membership.membership_type = self.requested_membership_type
+            membership.save()
+
+            # Cancel existing dues schedule and create new one with proper billing frequency
+            existing_schedule = frappe.db.get_value(
+                "Membership Dues Schedule", {"member": self.member, "status": "Active"}, "name"
+            )
+
+            if existing_schedule:
+                existing_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
+                existing_doc.status = "Cancelled"
+                existing_doc.add_comment(
+                    text=f"Cancelled due to membership type change via amendment {self.name}"
+                )
+                existing_doc._ignore_permissions = True
+                existing_doc.save(ignore_permissions=True)
+
+            # Create new dues schedule with new membership type settings
+            dues_schedule_name = self.create_dues_schedule_for_amendment()
+            self.new_dues_schedule = dues_schedule_name
+
+            # Update legacy override fields if there's also a fee change
+            if self.requested_amount:
+                member_doc = frappe.get_doc("Member", self.member)
+                member_doc.reload()
+                member_doc.dues_rate = self.requested_amount
+                member_doc.fee_override_reason = f"Amendment: {self.reason}"
+                member_doc.fee_override_date = today()
+                member_doc.fee_override_by = frappe.session.user
+                member_doc._system_update = True
+                member_doc.save(ignore_permissions=True)
+
+            self.processing_notes = f"Membership type changed to {self.requested_membership_type}. New dues schedule {dues_schedule_name} created."
+
+        except Exception as e:
+            frappe.throw(_("Error applying membership type change: {0}").format(str(e)))
 
     def cancel_conflicting_amendments(self):
         """Cancel any other pending or approved amendments for the same member"""
@@ -680,6 +811,68 @@ def process_pending_amendments():
         frappe.logger().info(f"Processed {processed_count} amendments, {error_count} errors")
 
     return {"processed": processed_count, "errors": error_count}
+
+
+@frappe.whitelist()
+def process_pending_amendments_daily():
+    """Daily scheduled task to process approved amendments that are ready to be applied"""
+    try:
+        # Get all approved amendments with effective date today or earlier
+        amendments_to_process = frappe.get_all(
+            "Contribution Amendment Request",
+            filters={"status": "Approved", "effective_date": ["<=", today()]},
+            fields=["name", "effective_date", "member", "requested_amount"],
+        )
+
+        processed_count = 0
+        error_count = 0
+
+        for amendment_data in amendments_to_process:
+            try:
+                amendment = frappe.get_doc("Contribution Amendment Request", amendment_data.name)
+                # Force apply even if effective date is future (since we filtered for ready ones)
+                amendment._force_apply = True
+                result = amendment.apply_amendment()
+
+                if result.get("status") == "success":
+                    processed_count += 1
+                    frappe.logger().info(f"Applied amendment {amendment.name} for member {amendment.member}")
+                else:
+                    error_count += 1
+                    # Truncate long error messages for logging
+                    error_msg = result.get("message", "Unknown error")
+                    if len(error_msg) > 100:
+                        error_msg = error_msg[:100] + "..."
+                    frappe.logger().error(f"Failed to apply amendment {amendment.name}: {error_msg}")
+
+            except Exception as e:
+                error_count += 1
+                # Truncate long error messages for logging
+                error_msg = str(e)
+                if len(error_msg) > 100:
+                    error_msg = error_msg[:100] + "..."
+                frappe.logger().error(f"Error processing amendment {amendment_data.name}: {error_msg}")
+
+        # Log summary
+        if processed_count > 0 or error_count > 0:
+            frappe.logger().info(
+                f"Amendment processing complete: {processed_count} applied, {error_count} errors"
+            )
+
+        return {
+            "success": True,
+            "processed": processed_count,
+            "errors": error_count,
+            "message": f"Processed {processed_count} amendments with {error_count} errors",
+        }
+
+    except Exception as e:
+        # Truncate long error messages for logging
+        error_msg = str(e)
+        if len(error_msg) > 100:
+            error_msg = error_msg[:100] + "..."
+        frappe.logger().error(f"Error in scheduled amendment processing: {error_msg}")
+        return {"success": False, "error": error_msg}
 
 
 @frappe.whitelist()
@@ -1957,6 +2150,401 @@ def investigate_effective_date_logic():
         }
 
     except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def test_transaction_issue_directly():
+    """Test the transaction issue directly without full workflow"""
+
+    try:
+        # Get member
+        member = frappe.get_doc("Member", "Assoc-Member-2025-07-0030")
+
+        # Test the problematic transaction code directly
+        frappe.logger().info("Testing transaction handling...")
+
+        # This should trigger the error if it exists
+        frappe.db.begin()
+
+        # Do some work
+        db_result = frappe.db.sql(
+            """
+            SELECT dues_rate
+            FROM `tabMember`
+            WHERE name = %s
+            FOR UPDATE
+        """,
+            (member.name,),
+            as_dict=True,
+        )
+
+        frappe.logger().info(f"Query result: {db_result}")
+
+        # Try the commit - this should fail with the transaction error
+        frappe.db.commit()
+
+        return {"success": True, "message": "No transaction error occurred"}
+
+    except Exception as e:
+        error_message = str(e)
+        frappe.logger().error(f"Transaction error: {error_message}")
+
+        # Try rollback
+        try:
+            frappe.db.rollback()
+        except Exception as rollback_error:
+            frappe.logger().error(f"Rollback error: {rollback_error}")
+
+        return {"success": False, "error": error_message, "error_type": type(e).__name__}
+
+
+@frappe.whitelist()
+def test_member_fee_override_save():
+    """Test saving member with fee override to trigger handle_fee_override_changes"""
+
+    try:
+        # Get member
+        member = frappe.get_doc("Member", "Assoc-Member-2025-07-0030")
+        original_dues_rate = member.dues_rate
+
+        frappe.logger().info(f"Testing fee override save for {member.full_name}")
+        frappe.logger().info(f"Original dues_rate: {original_dues_rate}")
+
+        # Change dues_rate to trigger handle_fee_override_changes
+        member.dues_rate = 25.0
+        member.fee_override_reason = "Testing transaction issue"
+        member.fee_override_date = frappe.utils.today()
+        member.fee_override_by = "Administrator"
+
+        frappe.logger().info(f"Changing dues_rate to: {member.dues_rate}")
+
+        # This should trigger handle_fee_override_changes() and the transaction error
+        member.save()
+
+        # Restore original value
+        member.dues_rate = original_dues_rate
+        member.save()
+
+        return {"success": True, "message": "Member save completed without transaction error"}
+
+    except Exception as e:
+        error_message = str(e)
+        frappe.logger().error(f"Member save error: {error_message}")
+
+        return {"success": False, "error": error_message, "error_type": type(e).__name__}
+
+
+@frappe.whitelist()
+def test_apply_amendment_for_foppe():
+    """Test apply_amendment method for Foppe de Haan"""
+
+    try:
+        # Get Foppe's member record
+        member_name = "Assoc-Member-2025-07-0030"
+        member = frappe.get_doc("Member", member_name)
+
+        frappe.logger().info(f"Testing apply_amendment for {member.full_name}")
+
+        # Get active membership
+        membership = frappe.db.get_value(
+            "Membership",
+            {"member": member_name, "status": "Active", "docstatus": 1},
+            ["name", "membership_type"],
+            as_dict=True,
+        )
+
+        if not membership:
+            return {"success": False, "error": "No active membership found"}
+
+        frappe.logger().info(f"Active membership: {membership.name}")
+
+        # Create contribution amendment request
+        amendment = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "member": member_name,
+                "membership": membership.name,
+                "amendment_type": "Fee Change",
+                "requested_amount": 25.0,
+                "reason": "Test apply_amendment for Foppe",
+                "requested_by_member": 1,
+                "status": "Draft",
+            }
+        )
+
+        amendment.insert(ignore_permissions=True)
+        frappe.logger().info(f"Amendment created: {amendment.name}")
+        frappe.logger().info(f"Amendment status: {amendment.status}")
+
+        # Force approve it if not auto-approved
+        if amendment.status != "Approved":
+            amendment.approve_amendment("Force approval for testing")
+            frappe.logger().info(f"Amendment status after approval: {amendment.status}")
+
+        # Now test apply_amendment - this should trigger the error
+        frappe.logger().info("Calling apply_amendment()...")
+        result = amendment.apply_amendment()
+
+        frappe.logger().info(f"Apply amendment result: {result}")
+
+        # Clean up
+        try:
+            amendment.delete()
+        except:
+            pass
+
+        return {
+            "success": True,
+            "message": "apply_amendment() completed",
+            "result": result,
+            "amendment_name": amendment.name,
+        }
+
+    except Exception as e:
+        error_message = str(e)
+        frappe.logger().error(f"Error in test_apply_amendment_for_foppe: {error_message}")
+
+        return {"success": False, "error": error_message, "error_type": type(e).__name__}
+
+
+@frappe.whitelist()
+def test_existing_amendment_for_foppe():
+    """Test applying the existing amendment for Foppe de Haan"""
+
+    try:
+        # Get the existing approved amendment for Foppe
+        amendment_name = "AMEND-2025-02890"
+        amendment = frappe.get_doc("Contribution Amendment Request", amendment_name)
+
+        frappe.logger().info(f"Testing existing amendment: {amendment.name}")
+        frappe.logger().info(f"Member: {amendment.member}")
+        frappe.logger().info(f"Status: {amendment.status}")
+        frappe.logger().info(f"Requested amount: {amendment.requested_amount}")
+        frappe.logger().info(f"Effective date: {amendment.effective_date}")
+
+        # Test apply_amendment - this should trigger the transaction error
+        frappe.logger().info("Calling apply_amendment() on existing amendment...")
+
+        # Force apply even if date is in past
+        amendment._force_apply = True
+        result = amendment.apply_amendment()
+
+        frappe.logger().info(f"Apply amendment result: {result}")
+
+        return {
+            "success": True,
+            "message": "apply_amendment() completed on existing amendment",
+            "result": result,
+            "amendment_name": amendment.name,
+            "member": amendment.member,
+            "requested_amount": amendment.requested_amount,
+        }
+
+    except Exception as e:
+        error_message = str(e)
+        frappe.logger().error(f"Error in test_existing_amendment_for_foppe: {error_message}")
+
+        return {
+            "success": False,
+            "error": error_message,
+            "error_type": type(e).__name__,
+            "amendment_name": "AMEND-2025-02890",
+        }
+
+
+@frappe.whitelist()
+def check_all_amendments_for_member(member_name="Assoc-Member-2025-07-0030"):
+    """Check all amendments for a specific member"""
+
+    try:
+        amendments = frappe.get_all(
+            "Contribution Amendment Request",
+            filters={"member": member_name},
+            fields=["name", "status", "requested_amount", "effective_date", "creation", "reason"],
+            order_by="creation desc",
+        )
+
+        return {"success": True, "member": member_name, "amendments": amendments, "count": len(amendments)}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def test_member_portal_fee_submission():
+    """Test submitting fee adjustment from member portal"""
+
+    try:
+        member_name = "Assoc-Member-2025-07-0030"
+        member = frappe.get_doc("Member", member_name)
+
+        # Set session to simulate Foppe logging in
+        original_user = frappe.session.user
+        frappe.set_user(member.email)
+
+        frappe.logger().info(f"Testing fee submission as {frappe.session.user}")
+
+        # Import and test the portal function
+        from verenigingen.templates.pages.membership_fee_adjustment import submit_fee_adjustment_request
+
+        # This should trigger the full workflow including the transaction error
+        result = submit_fee_adjustment_request("7.0", "Testing member portal fee submission")
+
+        frappe.logger().info(f"Portal submission result: {result}")
+
+        # Restore original user
+        frappe.set_user(original_user)
+
+        return {"success": True, "member": member_name, "portal_result": result}
+
+    except Exception as e:
+        error_message = str(e)
+        frappe.logger().error(f"Error in portal fee submission test: {error_message}")
+
+        # Restore original user
+        try:
+            frappe.set_user(original_user)
+        except:
+            pass
+
+        return {"success": False, "error": error_message, "error_type": type(e).__name__}
+
+
+@frappe.whitelist()
+def test_transaction_issue_different_members():
+    """Test if the transaction issue affects different members"""
+
+    try:
+        # Get a few different members to test
+        test_members = frappe.db.sql(
+            """
+            SELECT name, full_name, email
+            FROM tabMember
+            WHERE name != 'Assoc-Member-2025-07-0030'
+            AND status = 'Active'
+            LIMIT 3
+        """,
+            as_dict=True,
+        )
+
+        results = []
+
+        for member in test_members:
+            try:
+                member_doc = frappe.get_doc("Member", member.name)
+                original_dues_rate = member_doc.dues_rate
+
+                # Test changing dues_rate to trigger handle_fee_override_changes
+                member_doc.dues_rate = (original_dues_rate or 0) + 1.0
+                member_doc.fee_override_reason = "Test transaction issue"
+                member_doc.fee_override_date = frappe.utils.today()
+                member_doc.fee_override_by = "Administrator"
+
+                # This should trigger handle_fee_override_changes() and potential error
+                member_doc.save()
+
+                # Restore original value
+                member_doc.dues_rate = original_dues_rate
+                member_doc.save()
+
+                results.append(
+                    {"member": member.name, "full_name": member.full_name, "status": "success", "error": None}
+                )
+
+            except Exception as e:
+                results.append(
+                    {"member": member.name, "full_name": member.full_name, "status": "error", "error": str(e)}
+                )
+
+        return {"success": True, "tested_members": len(results), "results": results}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def test_fee_adjustment_transaction_fix():
+    """Test that the fee adjustment transaction fix is working"""
+    try:
+        print("=== Testing Fee Adjustment Transaction Fix ===")
+
+        # Test member foppe de haan
+        member_name = "Assoc-Member-2025-07-0030"
+
+        # Get member
+        member = frappe.get_doc("Member", member_name)
+        print(f"Testing with member: {member.full_name}")
+
+        # Get active membership
+        membership = frappe.db.get_value(
+            "Membership",
+            {"member": member_name, "docstatus": 1},
+            ["name", "membership_type", "status"],
+            as_dict=True,
+        )
+
+        if not membership:
+            return {"success": False, "message": "No active membership found"}
+
+        print(f"Found membership: {membership.name}")
+
+        # Create test amendment
+        amendment = frappe.get_doc(
+            {
+                "doctype": "Contribution Amendment Request",
+                "membership": membership.name,
+                "member": member_name,
+                "amendment_type": "Fee Change",
+                "requested_amount": 8.50,
+                "reason": "Testing transaction fix for foppe de haan",
+                "effective_date": frappe.utils.today(),
+            }
+        )
+
+        print("Creating amendment...")
+        amendment.insert()
+        print(f"Amendment created: {amendment.name} with status: {amendment.status}")
+
+        # Set status to approved for testing (bypass normal approval workflow)
+        if amendment.status != "Approved":
+            print("Setting amendment to approved status...")
+            amendment.status = "Approved"
+            amendment.approved_by = frappe.session.user
+            amendment.approved_date = frappe.utils.now_datetime()
+            amendment.save()
+            print(f"Amendment approved: {amendment.status}")
+
+        # Test apply amendment (this triggers Member.save() that was failing)
+        print("Testing apply amendment...")
+        result = amendment.apply_amendment()
+
+        if result and result.get("status") == "success":
+            print("✓ Amendment applied successfully!")
+            print("✓ Transaction error fixed!")
+
+            # Clean up test amendment
+            amendment.delete()
+
+            return {
+                "success": True,
+                "message": "Transaction fix working correctly",
+                "amendment_tested": amendment.name,
+                "member_tested": member.full_name,
+            }
+        else:
+            print(f"❌ Amendment failed: {result}")
+            # Clean up test amendment
+            amendment.delete()
+
+            return {
+                "success": False,
+                "message": f"Amendment application failed: {result}",
+                "amendment_tested": amendment.name,
+            }
+
+    except Exception as e:
+        print(f"❌ Error during test: {str(e)}")
         return {"success": False, "error": str(e)}
 
 

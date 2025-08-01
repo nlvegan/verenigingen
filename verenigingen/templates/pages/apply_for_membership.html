@@ -679,24 +679,22 @@
 
 {% block script %}
 <!-- Load service dependencies first -->
-<script src="/assets/verenigingen/js/services/api-service.js"></script>
-<script src="/assets/verenigingen/js/services/validation-service.js"></script>
-<script src="/assets/verenigingen/js/services/storage-service.js"></script>
-
-<!-- Load main application -->
-<script src="/assets/verenigingen/js/membership_application.js"></script>
 
 <script>
-// Initialize the membership application form when DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
+// Initialize the membership application form when Frappe is ready
+frappe.ready(function() {
     console.log('Initializing membership application form...');
 
-    try {
-        // Check if all required classes are available
-        if (typeof MembershipApplication === 'undefined') {
-            console.error('MembershipApplication class not found');
-            return;
-        }
+    // Load required JavaScript dependencies
+    frappe.require([
+        '/assets/verenigingen/js/membership_application.js'
+    ], function() {
+        try {
+            // Check if all required classes are available
+            if (typeof MembershipApplication === 'undefined') {
+                console.error('MembershipApplication class not found');
+                return;
+            }
 
         // Initialize the application with Tailwind-specific configuration
         const app = new MembershipApplication({
@@ -728,21 +726,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
 
-    } catch (error) {
-        console.error('Error initializing membership application:', error);
+            // Initialize skills functionality
+            initializeSkillsSection();
+        } catch (error) {
+            console.error('Error initializing membership application:', error);
 
-        // Fallback: Show a user-friendly error message
-        const form = document.getElementById('membership-application-form');
-        if (form) {
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'alert-danger mb-4';
-            errorDiv.innerHTML = 'There was an error loading the form. Please refresh the page or contact support.';
-            form.insertBefore(errorDiv, form.firstChild);
+            // Fallback: Show a user-friendly error message
+            const form = document.getElementById('membership-application-form');
+            if (form) {
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'alert-danger mb-4';
+                errorDiv.innerHTML = 'There was an error loading the form. Please refresh the page or contact support.';
+                form.insertBefore(errorDiv, form.firstChild);
+            }
         }
-    }
-
-    // Initialize skills functionality
-    initializeSkillsSection();
+    });
 });
 
 // Skills section functionality

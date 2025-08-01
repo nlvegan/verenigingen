@@ -270,6 +270,56 @@
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
+
+/* Validation States */
+.form-input.is-valid {
+    border-color: #16a34a;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%2316a34a' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m1 9 4 4 8-8'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem 1rem;
+    padding-right: 2.5rem;
+}
+
+.form-input.is-invalid {
+    border-color: #dc2626;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23dc2626' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m1 1 14 14M1 15 15 1'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem 1rem;
+    padding-right: 2.5rem;
+}
+
+.form-input.is-validating {
+    border-color: #0891b2;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='none' stroke='%230891b2' stroke-width='2'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    background-size: 1rem 1rem;
+    padding-right: 2.5rem;
+}
+
+.feedback {
+    margin-top: 0.25rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+}
+
+.feedback.valid-feedback {
+    color: #16a34a;
+}
+
+.feedback.invalid-feedback {
+    color: #dc2626;
+}
+
+.feedback.text-warning {
+    color: #ca8a04;
+}
+
+.feedback.text-muted {
+    color: #64748b;
+}
 </style>
 {% endblock %}
 
@@ -660,12 +710,28 @@
 {% block script %}
 <script>
 // Enhanced membership application with flexible contribution system
-document.addEventListener('DOMContentLoaded', function() {
+frappe.ready(function() {
     console.log('Initializing enhanced membership application...');
 
-    // Initialize the enhanced application
-    const app = new EnhancedMembershipApplication();
-    window.enhancedApp = app; // For debugging
+    // Load required JavaScript dependencies
+    frappe.require([
+        '/assets/verenigingen/js/services/api-service.js',
+        '/assets/verenigingen/js/services/validation-service.js'
+    ], function() {
+        // Initialize the enhanced application
+        try {
+            const app = new EnhancedMembershipApplication();
+            window.enhancedApp = app; // For debugging
+            console.log('Enhanced membership application initialized successfully');
+        } catch (error) {
+            console.error('Failed to initialize membership application:', error);
+            // Show user-friendly error message
+            const errorMessage = document.createElement('div');
+            errorMessage.className = 'alert alert-danger';
+            errorMessage.innerHTML = '<strong>Error:</strong> Failed to load the membership application. Please refresh the page and try again.';
+            document.querySelector('.max-w-4xl').prepend(errorMessage);
+        }
+    });
 });
 
 class EnhancedMembershipApplication {
@@ -677,6 +743,10 @@ class EnhancedMembershipApplication {
         this.selectedAmount = 15.00;
         this.selectedMode = 'calculator';
 
+        // Initialize validation services
+        this.apiService = new APIService();
+        this.validationService = new ValidationService(this.apiService);
+
         this.init();
     }
 
@@ -684,6 +754,7 @@ class EnhancedMembershipApplication {
         this.setupEventListeners();
         this.setupMembershipTypeSelection();
         this.setupContributionSystem();
+        this.setupFieldValidation();
         this.updateProgress();
     }
 
@@ -692,6 +763,88 @@ class EnhancedMembershipApplication {
         document.getElementById('btn-next').addEventListener('click', () => this.nextStep());
         document.getElementById('btn-prev').addEventListener('click', () => this.prevStep());
         document.getElementById('btn-submit').addEventListener('click', () => this.submitForm());
+    }
+
+    setupFieldValidation() {
+        // Setup real-time validation for form fields
+        const fieldMappings = {
+            'first_name': 'firstName',
+            'last_name': 'lastName',
+            'email': 'email',
+            'address_line1': 'address',
+            'city': 'city',
+            'postal_code': 'postalCode',
+            'country': 'country',
+            'mobile_no': 'phone'
+        };
+
+        Object.entries(fieldMappings).forEach(([elementId, validationField]) => {
+            const element = document.getElementById(elementId);
+            if (element) {
+                this.validationService.setupRealTimeValidation(element, validationField, this.getFormData.bind(this));
+            }
+        });
+    }
+
+    getFormData() {
+        const form = document.getElementById('enhanced-membership-form');
+        const formData = new FormData(form);
+        const data = {};
+
+        // Convert FormData to object
+        for (let [key, value] of formData.entries()) {
+            data[key] = value;
+        }
+
+        // Map form field names to validation field names
+        return {
+            firstName: data.first_name || '',
+            lastName: data.last_name || '',
+            email: data.email || '',
+            address: data.address_line1 || '',
+            city: data.city || '',
+            postalCode: data.postal_code || '',
+            country: data.country || '',
+            phone: data.mobile_no || ''
+        };
+    }
+
+    showValidationErrors(errors) {
+        // Clear previous error styling
+        document.querySelectorAll('.form-input').forEach(input => {
+            input.classList.remove('is-invalid');
+        });
+        document.querySelectorAll('.feedback.invalid-feedback').forEach(feedback => {
+            feedback.remove();
+        });
+
+        // Show new errors
+        errors.forEach(error => {
+            const fieldMapping = {
+                'firstName': 'first_name',
+                'lastName': 'last_name',
+                'email': 'email',
+                'address': 'address_line1',
+                'city': 'city',
+                'postalCode': 'postal_code',
+                'country': 'country',
+                'phone': 'mobile_no'
+            };
+
+            const elementId = fieldMapping[error.field];
+            if (elementId) {
+                const element = document.getElementById(elementId);
+                if (element) {
+                    element.classList.add('is-invalid');
+
+                    // Add error message
+                    const feedback = document.createElement('div');
+                    feedback.className = 'feedback invalid-feedback';
+                    feedback.textContent = error.message;
+                    element.parentNode.appendChild(feedback);
+                }
+            }
+        });
     }
 
     setupMembershipTypeSelection() {
@@ -952,8 +1105,8 @@ class EnhancedMembershipApplication {
         return summary;
     }
 
-    nextStep() {
-        if (this.validateCurrentStep()) {
+    async nextStep() {
+        if (await this.validateCurrentStep()) {
             if (this.currentStep < this.maxSteps) {
                 this.currentStep++;
                 this.updateStepDisplay();
@@ -1024,23 +1177,29 @@ class EnhancedMembershipApplication {
         }
     }
 
-    validateCurrentStep() {
-        // Basic validation for each step
-        if (this.currentStep === 1) {
-            const required = ['first_name', 'last_name', 'email'];
-            return required.every(field => document.getElementById(field).value.trim());
-        } else if (this.currentStep === 2) {
-            const required = ['address_line1', 'postal_code', 'city', 'country'];
-            return required.every(field => document.getElementById(field).value.trim());
-        } else if (this.currentStep === 3) {
+    async validateCurrentStep() {
+        // Get form data
+        const formData = this.getFormData();
+
+        // Validate using ValidationService
+        const result = await this.validationService.validateStep(this.currentStep, formData);
+
+        // Show validation errors if any
+        if (!result.valid) {
+            this.showValidationErrors(result.errors);
+            return false;
+        }
+
+        // Additional step-specific validation
+        if (this.currentStep === 3) {
             return this.selectedMembershipType && this.selectedAmount > 0;
         }
 
         return true;
     }
 
-    submitForm() {
-        if (this.validateCurrentStep()) {
+    async submitForm() {
+        if (await this.validateCurrentStep()) {
             // Collect form data
             const formData = this.collectFormData();
 

@@ -85,6 +85,11 @@ def update_personal_details():
     if middle_name and not validate_name_format(middle_name, allow_prefixes=True):
         frappe.throw(_("Middle name contains invalid characters"))
 
+    # Validate tussenvoegsel if provided
+    tussenvoegsel = form_data.get("tussenvoegsel", "").strip()
+    if tussenvoegsel and not validate_name_format(tussenvoegsel, allow_prefixes=True):
+        frappe.throw(_("Tussenvoegsel contains invalid characters"))
+
     # Validate contact number if provided
     contact_number = form_data.get("contact_number", "").strip()
     if contact_number and not validate_phone_number(contact_number):
@@ -123,6 +128,7 @@ def update_personal_details():
         {
             "first_name": first_name,
             "middle_name": middle_name,
+            "tussenvoegsel": tussenvoegsel,
             "last_name": last_name,
             "birth_date": birth_date,
             "contact_number": contact_number,
@@ -274,7 +280,7 @@ def apply_personal_details_changes(member, changes):
             member.image = image_change["new"]
 
     # Update full name if name fields changed
-    name_fields = ["first_name", "middle_name", "last_name"]
+    name_fields = ["first_name", "middle_name", "tussenvoegsel", "last_name"]
     if any(field in changes for field in name_fields):
         # Construct full name
         name_parts = []
@@ -282,6 +288,8 @@ def apply_personal_details_changes(member, changes):
             name_parts.append(member.first_name)
         if member.middle_name:
             name_parts.append(member.middle_name)
+        if member.tussenvoegsel:
+            name_parts.append(member.tussenvoegsel)
         if member.last_name:
             name_parts.append(member.last_name)
 
@@ -320,6 +328,7 @@ def get_field_label(field):
     labels = {
         "first_name": "First Name",
         "middle_name": "Middle Name",
+        "tussenvoegsel": "Tussenvoegsel",
         "last_name": "Last Name",
         "birth_date": "Birth Date",
         "contact_number": "Contact Number",
@@ -336,7 +345,9 @@ def prepare_success_message(changes):
     messages = []
 
     # Count types of changes
-    name_changes = sum(1 for field in changes.keys() if field in ["first_name", "middle_name", "last_name"])
+    name_changes = sum(
+        1 for field in changes.keys() if field in ["first_name", "middle_name", "tussenvoegsel", "last_name"]
+    )
     contact_changes = sum(1 for field in changes.keys() if field in ["contact_number"])
     preference_changes = sum(
         1 for field in changes.keys() if field in ["pronouns", "allow_directory_listing", "allow_photo_usage"]

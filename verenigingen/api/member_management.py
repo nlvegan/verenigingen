@@ -373,7 +373,7 @@ def test_simple_field_population(member_id):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.MEMBER_DATA)
+@utility_api(operation_type=OperationType.UTILITY)
 @handle_api_error
 def get_address_members_html_api(member_id):
     """Dedicated API method to get address members HTML - completely separate from document methods"""
@@ -452,38 +452,35 @@ def get_address_members_html_api(member_id):
                 "html": '<div class="text-muted"><i class="fa fa-info-circle"></i> No other members found at this address</div>',
             }
 
-        # Generate HTML
-        html_content = f'<div class="address-members-display"><h6>Other Members at This Address ({len(other_members)} found):</h6>'
+        # Generate HTML with cleaner styling to match backend
+        html_content = '<div class="other-members-container">'
+        html_content += f'<h6 class="text-muted"><i class="fa fa-users"></i> Other Members at Same Address ({len(other_members)})</h6>'
 
         for other in other_members:
-            # Calculate relationship, age group, and status color for display
-            relationship = guess_relationship_simple(member, other)
-            age_group = get_age_group_simple(other.get("birth_date"))
-            status_color = get_status_color_simple(other.get("status", "Unknown"))
+            member_name = other.get("name", "")
+            member_full_name = other.get("full_name", "Unknown")
+
+            # Calculate age in years
+            age_text = ""
+            if other.get("birth_date"):
+                from frappe.utils import date_diff, today
+
+                age_years = int(date_diff(today(), other["birth_date"]) / 365.25)
+                age_text = f"{age_years} years old"
+
+            status_badges = {"Active": "success", "Pending": "warning", "Suspended": "danger"}
+            status_color = status_badges.get(other.get("status", "Unknown"), "secondary")
 
             html_content += f"""
-            <div class="member-card" style="border: 1px solid #ddd; padding: 8px; margin: 4px 0; border-radius: 4px; background: #f8f9fa;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                    <div style="flex-grow: 1;">
-                        <strong>{other.get("full_name", "Unknown")}</strong>
-                        <span class="text-muted">({other.get("name", "Unknown ID")})</span>
-                        <br><small class="text-muted">
-                            <i class="fa fa-users"></i> {relationship} |
-                            <i class="fa fa-birthday-cake"></i> {age_group} |
-                            <i class="fa fa-circle text-{status_color}"></i> {other.get("status", "Unknown")}
-                        </small>
-                        <br><small class="text-muted">
-                            <i class="fa fa-envelope"></i> {other.get("email", "Unknown")}
-                        </small>
-                    </div>
-                    <div style="margin-left: 12px;">
-                        <button type="button" class="btn btn-xs btn-default view-member-btn"
-                                data-member="{other.get("name", "")}"
-                                style="font-size: 11px; padding: 4px 8px;">
-                            <i class="fa fa-external-link" style="margin-right: 4px;"></i>View
-                        </button>
-                    </div>
-                </div>
+            <div class="member-card" style="border-left: 3px solid #dee2e6; padding: 10px; margin: 8px 0; background: #f8f9fa;">
+                <a href="#Form/Member/{member_name}" onclick="frappe.set_route('Form', 'Member', '{member_name}'); return false;"
+                   style="font-weight: 600; color: #007bff; text-decoration: none; cursor: pointer;">
+                    {member_full_name}
+                </a>
+                <br>
+                <span class="badge badge-{status_color}">{other.get("status", "Unknown")}</span>
+                {f'<small class="text-muted">• Member since: {other.get("member_since")}</small>' if other.get("member_since") else ''}
+                {f'<small class="text-muted">• {age_text}</small>' if age_text else ''}
             </div>
             """
         html_content += "</div>"

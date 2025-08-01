@@ -650,25 +650,85 @@ def high_security_api(operation_type: OperationType = OperationType.MEMBER_DATA)
     )
 
 
-def standard_api(operation_type: OperationType = OperationType.REPORTING):
-    """Decorator for standard security APIs (reporting, read operations)"""
-    return api_security_framework(
-        security_level=SecurityLevel.MEDIUM, operation_type=operation_type, audit_level="standard"
-    )
+def standard_api(func_or_operation_type=None, *, operation_type: OperationType = OperationType.REPORTING):
+    """
+    Decorator for standard security APIs (reporting, read operations)
+
+    Can be used as:
+    - @standard_api
+    - @standard_api()
+    - @standard_api(operation_type=OperationType.PUBLIC)
+    """
+    # Handle both @standard_api and @standard_api() usage patterns
+    if func_or_operation_type is None:
+        # Called as @standard_api()
+        return api_security_framework(
+            security_level=SecurityLevel.MEDIUM, operation_type=operation_type, audit_level="standard"
+        )
+    elif callable(func_or_operation_type):
+        # Called as @standard_api (without parentheses)
+        return api_security_framework(
+            security_level=SecurityLevel.MEDIUM, operation_type=operation_type, audit_level="standard"
+        )(func_or_operation_type)
+    else:
+        # Called as @standard_api(operation_type=...) - func_or_operation_type is the operation_type
+        return api_security_framework(
+            security_level=SecurityLevel.MEDIUM, operation_type=func_or_operation_type, audit_level="standard"
+        )
 
 
-def utility_api(operation_type: OperationType = OperationType.UTILITY):
-    """Decorator for utility APIs (health checks, status)"""
-    return api_security_framework(
-        security_level=SecurityLevel.LOW, operation_type=operation_type, audit_level="minimal"
-    )
+def utility_api(func_or_operation_type=None, *, operation_type: OperationType = OperationType.UTILITY):
+    """
+    Decorator for utility APIs (health checks, status)
+
+    Can be used as:
+    - @utility_api
+    - @utility_api()
+    - @utility_api(operation_type=OperationType.UTILITY)
+    """
+    # Handle both @utility_api and @utility_api() usage patterns
+    if func_or_operation_type is None:
+        # Called as @utility_api()
+        return api_security_framework(
+            security_level=SecurityLevel.LOW, operation_type=operation_type, audit_level="minimal"
+        )
+    elif callable(func_or_operation_type):
+        # Called as @utility_api (without parentheses)
+        return api_security_framework(
+            security_level=SecurityLevel.LOW, operation_type=operation_type, audit_level="minimal"
+        )(func_or_operation_type)
+    else:
+        # Called as @utility_api(operation_type=...) - func_or_operation_type is the operation_type
+        return api_security_framework(
+            security_level=SecurityLevel.LOW, operation_type=func_or_operation_type, audit_level="minimal"
+        )
 
 
-def public_api(operation_type: OperationType = OperationType.PUBLIC):
-    """Decorator for public APIs (no authentication required)"""
-    return api_security_framework(
-        security_level=SecurityLevel.PUBLIC, operation_type=operation_type, audit_level="minimal"
-    )
+def public_api(func_or_operation_type=None, *, operation_type: OperationType = OperationType.PUBLIC):
+    """
+    Decorator for public APIs (no authentication required)
+
+    Can be used as:
+    - @public_api
+    - @public_api()
+    - @public_api(operation_type=OperationType.PUBLIC)
+    """
+    # Handle both @public_api and @public_api() usage patterns
+    if func_or_operation_type is None:
+        # Called as @public_api()
+        return api_security_framework(
+            security_level=SecurityLevel.PUBLIC, operation_type=operation_type, audit_level="minimal"
+        )
+    elif callable(func_or_operation_type):
+        # Called as @public_api (without parentheses)
+        return api_security_framework(
+            security_level=SecurityLevel.PUBLIC, operation_type=operation_type, audit_level="minimal"
+        )(func_or_operation_type)
+    else:
+        # Called as @public_api(operation_type=...) - func_or_operation_type is the operation_type
+        return api_security_framework(
+            security_level=SecurityLevel.PUBLIC, operation_type=func_or_operation_type, audit_level="minimal"
+        )
 
 
 # API endpoint classification and migration utilities

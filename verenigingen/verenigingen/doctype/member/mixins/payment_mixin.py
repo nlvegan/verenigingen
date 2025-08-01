@@ -1064,8 +1064,43 @@ class PaymentMixin:
                     existing_idx = idx
                     break
 
-            # Get invoice details
-            invoice = frappe.get_doc("Sales Invoice", invoice_name)
+            # Get invoice details with retry mechanism for race conditions
+            max_retries = 3
+            retry_count = 0
+            invoice = None
+
+            # Detect if we're in bulk processing mode for extended timeouts
+            is_bulk_processing = getattr(frappe.flags, "bulk_invoice_generation", False)
+
+            while retry_count < max_retries and not invoice:
+                try:
+                    invoice = frappe.get_doc("Sales Invoice", invoice_name)
+                except frappe.DoesNotExistError:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        # Extended timeout for bulk operations (120s) vs normal operations (1s)
+                        import time
+
+                        sleep_duration = 120 if is_bulk_processing else 1
+
+                        frappe.logger("payment_history").info(
+                            f"Invoice {invoice_name} not found (attempt {retry_count}/{max_retries}). "
+                            f"Waiting {sleep_duration}s before retry {'(bulk mode)' if is_bulk_processing else '(normal mode)'}"
+                        )
+
+                        time.sleep(sleep_duration)
+                        # Commit any pending transactions and try again
+                        frappe.db.commit()
+                    else:
+                        # Log and skip if invoice still not found after retries
+                        timeout_info = (
+                            "360s total (bulk mode)" if is_bulk_processing else "3s total (normal mode)"
+                        )
+                        frappe.log_error(
+                            f"Sales Invoice {invoice_name} not found after {max_retries} retries ({timeout_info}) - possible race condition",
+                            "Payment History Race Condition",
+                        )
+                        return
 
             # Skip if not for this customer
             if invoice.customer != self.customer:

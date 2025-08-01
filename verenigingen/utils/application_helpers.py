@@ -13,6 +13,12 @@ from verenigingen.utils.dutch_name_utils import format_dutch_full_name, is_dutch
 # Import moved inside function to avoid circular imports
 
 
+def get_creation_user():
+    """Get the configured creation user from Verenigingen Settings"""
+    settings = frappe.get_single("Verenigingen Settings")
+    return settings.creation_user or "Administrator"
+
+
 def map_payment_method(payment_method):
     """Map form payment method values to Member doctype values"""
     payment_method_map = {
@@ -288,6 +294,9 @@ def create_member_from_application(data, application_id, address=None):
             "iban": data.get("iban", ""),
             "bic": data.get("bic", ""),
             "bank_account_name": data.get("bank_account_name", ""),
+            # IMPORTANT: Set owner to the configured creation user
+            # This prevents the applicant from becoming the owner of the member record
+            "owner": get_creation_user(),
         }
     )
 
@@ -544,7 +553,7 @@ def get_membership_fee_info(membership_type):
             "success": True,
             "membership_type": membership_type,
             "standard_amount": standard_amount,
-            "currency": self._get_membership_type_currency(membership_type_doc),
+            "currency": _get_membership_type_currency(membership_type_doc),
             "description": membership_type_doc.description,
             "billing_period": getattr(
                 membership_type_doc,
@@ -603,7 +612,7 @@ def get_membership_type_details(membership_type):
             "membership_type_name": membership_type_doc.membership_type_name,
             "description": membership_type_doc.description,
             "amount": base_amount,  # Use template-based amount, not minimum_amount
-            "currency": self._get_membership_type_currency(membership_type_doc),
+            "currency": _get_membership_type_currency(membership_type_doc),
             "billing_period": getattr(
                 membership_type_doc,
                 "billing_period",
@@ -660,7 +669,7 @@ def suggest_membership_amounts(membership_type_name):
                     f"Dues Schedule Template '{template.name}' has zero suggested_amount but Membership Type '{membership_type.name}' minimum_amount is {membership_type_minimum}. For free memberships, both must be zero."
                 )
         base_amount = float(template.suggested_amount)
-        currency = self._get_membership_type_currency(membership_type)
+        currency = _get_membership_type_currency(membership_type)
 
         suggestions = [
             {

@@ -232,7 +232,7 @@ execute()
 
 1. **Data Quality Checks**:
    ```bash
-   bench --site dev.veganisme.net execute verenigingen.utils.debug_coverage_analysis.quick_coverage_test
+   bench --site dev.veganisme.net execute verenigingen.utils.debug.coverage_analysis_debugger.quick_coverage_test
    ```
 
 2. **Performance Monitoring**:
@@ -242,7 +242,7 @@ execute()
 
 3. **Coverage Field Population**:
    ```bash
-   bench --site dev.veganisme.net execute verenigingen.utils.debug_coverage_analysis.populate_coverage_dates
+   bench --site dev.veganisme.net execute verenigingen.utils.debug.coverage_analysis_debugger.populate_coverage_dates
    ```
 
 ### Common Issues and Solutions
@@ -263,16 +263,16 @@ execute()
 
 ```bash
 # Full system debug
-bench --site dev.veganisme.net execute verenigingen.utils.debug_coverage_analysis.run_full_debug
+bench --site dev.veganisme.net execute verenigingen.utils.debug.coverage_analysis_debugger.run_full_debug
 
 # Quick member test
-bench --site dev.veganisme.net execute verenigingen.utils.debug_coverage_analysis.quick_coverage_test --args "['MEM-001']"
+bench --site dev.veganisme.net execute verenigingen.utils.debug.coverage_analysis_debugger.quick_coverage_test --args "['MEM-001']"
 
 # Create missing coverage fields (if needed)
-bench --site dev.veganisme.net execute verenigingen.utils.debug_coverage_analysis.create_coverage_fields
+bench --site dev.veganisme.net execute verenigingen.utils.debug.coverage_analysis_debugger.create_coverage_fields
 
 # Populate coverage dates for existing invoices
-bench --site dev.veganisme.net execute verenigingen.utils.debug_coverage_analysis.populate_coverage_dates
+bench --site dev.veganisme.net execute verenigingen.utils.debug.coverage_analysis_debugger.populate_coverage_dates
 ```
 
 ## Future Enhancements

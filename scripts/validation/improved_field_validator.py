@@ -356,7 +356,8 @@ class AccurateFieldValidator:
         """Guess DocType from validation function context"""
         
         # Look for function definition pattern: def validate_xxx(doc, method):
-        for i in range(max(0, line_no - 50), line_no):
+        # Search backwards to find the closest preceding validation function
+        for i in range(line_no - 1, max(0, line_no - 50), -1):
             if i < len(lines):
                 line = lines[i].strip()
                 if line.startswith('def ') and '(doc, method)' in line:

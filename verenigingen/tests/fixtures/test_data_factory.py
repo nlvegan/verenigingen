@@ -60,7 +60,7 @@ class StreamlinedTestDataFactory:
         region_name = f"Test Region {self.fake.state()} - {self.test_run_id}"
         defaults = {
             "region_name": region_name,
-            "region_code": f"TR{random_string(2).upper()}",
+            "region_code": f"TR{''.join(random.choices('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', k=2))}",
             "country": "Netherlands",
             "is_active": 1,
             "description": f"Test region created for automated testing - {self.test_run_id}",

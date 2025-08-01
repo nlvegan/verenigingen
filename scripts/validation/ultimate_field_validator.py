@@ -461,7 +461,8 @@ class UltimateFieldValidator:
     def _guess_doctype_from_validation_context(self, content: str, lines: List[str], line_no: int) -> Optional[str]:
         """Guess DocType from validation function context"""
         
-        for i in range(max(0, line_no - 25), line_no):
+        # Search backwards to find the closest preceding validation function
+        for i in range(line_no - 1, max(0, line_no - 25), -1):
             if i < len(lines):
                 line = lines[i].strip()
                 if line.startswith('def ') and '(doc, method)' in line:

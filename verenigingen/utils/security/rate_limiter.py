@@ -37,7 +37,7 @@ def check_approval_rate_limit(user, max_approvals=10, window_minutes=60):
             WHERE ref_doctype = 'Member'
             AND owner = %s
             AND creation >= %s
-            AND data LIKE '%application_status%'
+            AND data LIKE '%%application_status%%'
         """,
             (user, window_start),
             as_dict=True,
@@ -72,7 +72,7 @@ def check_api_rate_limit(user, endpoint, max_requests=100, window_minutes=60):
         window_start = now_datetime() - timedelta(minutes=window_minutes)
 
         # Get or initialize request log
-        request_log = frappe.cache().get(cache_key) or []
+        request_log = frappe.cache().get_value(cache_key) or []
 
         # Filter to current window
         current_requests = [
@@ -86,8 +86,8 @@ def check_api_rate_limit(user, endpoint, max_requests=100, window_minutes=60):
         # Add current request
         current_requests.append(now_datetime().isoformat())
 
-        # Store back in cache (expire after window duration)
-        frappe.cache().set(cache_key, current_requests, expire=window_minutes * 60)
+        # Store back in cache (with expiry)
+        frappe.cache().set_value(cache_key, current_requests, expires_in_sec=window_minutes * 60)
 
         return True
 
@@ -217,13 +217,13 @@ def check_concurrent_operations(user, operation_type, max_concurrent=3):
     """
     try:
         cache_key = f"concurrent_ops:{user}:{operation_type}"
-        current_ops = frappe.cache().get(cache_key) or 0
+        current_ops = frappe.cache().get_value(cache_key) or 0
 
         if current_ops >= max_concurrent:
             return False
 
         # Increment counter (expire after 5 minutes)
-        frappe.cache().set(cache_key, current_ops + 1, expire=300)
+        frappe.cache().set_value(cache_key, current_ops + 1, expires_in_sec=300)
 
         return True
 

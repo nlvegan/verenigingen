@@ -300,7 +300,20 @@ def approve_membership_application(
         member.review_date = now_datetime()
         if notes:
             member.review_notes = notes
-        member.save()
+
+        try:
+            member.save()
+        except frappe.TimestampMismatchError:
+            # Reload member and retry save once
+            member.reload()
+            member.application_status = "Approved"
+            member.status = "Active"
+            member.member_since = today()
+            member.reviewed_by = frappe.session.user
+            member.review_date = now_datetime()
+            if notes:
+                member.review_notes = notes
+            member.save()
         # Note: Frappe automatically commits changes
 
         # Log status change for auditing

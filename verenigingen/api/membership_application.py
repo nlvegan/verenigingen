@@ -492,7 +492,7 @@ def submit_application(**kwargs):
 
 
 @frappe.whitelist()
-@high_security_api  # Member application approval
+@high_security_api()  # Member application approval
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 @require_roles(["System Manager", "Verenigingen Administrator", "Verenigingen Manager"])
@@ -557,7 +557,7 @@ def approve_membership_application(member_name, notes=None):
 
 
 @frappe.whitelist()
-@high_security_api  # Member application rejection
+@high_security_api()  # Member application rejection
 def reject_membership_application(member_name, reason):
     """Reject a membership application"""
     try:
@@ -583,7 +583,7 @@ def reject_membership_application(member_name, reason):
 
 
 @frappe.whitelist()
-@high_security_api  # Payment processing
+@high_security_api()  # Payment processing
 def process_application_payment_endpoint(member_name, payment_method, payment_reference=None):
     """Process payment for approved application"""
     try:
@@ -1278,7 +1278,6 @@ def validate_address_endpoint(data):
 
 
 @frappe.whitelist(allow_guest=True)
-@standard_api
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
 def suggest_chapters_for_postal_code(postal_code):

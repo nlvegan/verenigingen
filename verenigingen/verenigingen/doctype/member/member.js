@@ -61,17 +61,123 @@ frappe.ui.form.on('Member', {
 		// Add all view buttons in consolidated menu
 		add_consolidated_view_buttons(frm);
 
+
 		// Display termination status
 		display_termination_status(frm);
+
+		// Auto-populate other_members_at_address field on form load
+		// Check if data is already available from backend via onload
+		if (frm.doc.primary_address && !frm.doc.__islocal) {
+			setTimeout(() => {
+				// First check if we have the HTML content from onload
+				if (frm.doc.__onload && frm.doc.__onload.other_members_at_address) {
+					// Found address members data in onload, using Frappe field API
+
+					const html_content = frm.doc.__onload.other_members_at_address;
+
+					// Try using Frappe's field API first
+					if (frm.fields_dict && frm.fields_dict.other_members_at_address) {
+						const field = frm.fields_dict.other_members_at_address;
+						// console.log('Found field object:', field);
+
+						if (field.df && field.df.fieldtype === 'HTML') {
+							// For HTML fields, set content using the html method if available
+							if (typeof field.html === 'function') {
+								field.html(html_content);
+								// console.log('Set content using field.html() method');
+							} else if (field.$wrapper && field.$wrapper.length > 0) {
+								// Use the wrapper to set content
+								field.$wrapper.html(html_content);
+								// console.log('Set content using field.$wrapper');
+							} else if (field.$input && field.$input.length > 0) {
+								// Some HTML fields use $input
+								field.$input.html(html_content);
+								// console.log('Set content using field.$input');
+							}
+
+							// Ensure field is visible
+							if (typeof field.toggle === 'function') {
+								field.toggle(true);
+							}
+						} else {
+							// console.log('Field is not HTML type or missing df');
+						}
+					} else {
+						// console.log('Field not found in fields_dict, trying DOM injection');
+					}
+
+					// Fallback to direct DOM manipulation
+					const field_element = $('[data-fieldname="other_members_at_address"]');
+					if (field_element.length > 0) {
+						// console.log('Found field element in DOM');
+
+						// For Frappe HTML fields, the content typically goes in a child div
+						const frappe_control = field_element.find('.frappe-control').first();
+						if (frappe_control.length > 0) {
+							frappe_control.html(html_content);
+							// console.log('Injected into .frappe-control');
+						} else {
+							// Try other selectors
+							const containers = [
+								'.control-value',
+								'.control-html',
+								'.form-control',
+								'div[data-fieldtype="HTML"]',
+								'div'
+							];
+
+							let injected = false;
+							for (const selector of containers) {
+								const container = field_element.find(selector).first();
+								if (container.length > 0 && !container.hasClass('form-group')) {
+									container.html(html_content);
+									// console.log(`Injected into ${selector}`);
+									injected = true;
+									break;
+								}
+							}
+
+							if (!injected) {
+								console.error('Could not find suitable container');
+							}
+						}
+
+						// Make sure field is visible
+						field_element.show();
+						field_element.css('display', 'block');
+					}
+				} else {
+					// No onload data, check if field is empty and needs API call
+					const field_element = $('[data-fieldname="other_members_at_address"]');
+					const has_content = field_element.find('.control-value').html();
+
+					if (field_element.length > 0 && (!has_content || has_content.trim() === '')) {
+						// Call the update function to populate it
+						if (window.update_other_members_at_address) {
+							// console.log('No onload data, calling API to populate address members field');
+							update_other_members_at_address(frm);
+						}
+					}
+				}
+			}, 1000); // Longer delay to ensure form is fully loaded
+		}
 
 		// Display amendment status
 		display_amendment_status(frm);
 
-		// Display suspension status
-		display_suspension_status(frm);
+		// Check if user has admin roles before calling admin functions
+		const admin_roles = ['System Manager', 'Verenigingen Administrator', 'Verenigingen Manager', 'Verenigingen Staff'];
+		const has_admin_role = frappe.user_roles.some(role => admin_roles.includes(role));
 
-		// Add fee management functionality
-		add_fee_management_buttons(frm);
+		// Display suspension status (only for admins or own record)
+		if (has_admin_role || frm.doc.user === frappe.session.user) {
+			display_suspension_status(frm);
+		}
+
+		// Add fee management functionality (only for admins)
+		if (has_admin_role) {
+			add_fee_management_buttons(frm);
+		}
 
 		// Ensure fee management section visibility
 		ensure_fee_management_section_visibility(frm);
@@ -81,8 +187,10 @@ frappe.ui.form.on('Member', {
 			ensure_fee_management_section_visibility(frm);
 		}, 500);
 
-		// Add administrative buttons for authorized users
-		add_administrative_buttons(frm);
+		// Add administrative buttons for authorized users (only for admins)
+		if (has_admin_role) {
+			add_administrative_buttons(frm);
+		}
 
 		// Check SEPA mandate status (debounced to avoid multiple rapid calls)
 		check_sepa_mandate_status_debounced(frm);
@@ -104,9 +212,19 @@ frappe.ui.form.on('Member', {
 		// Load and display current dues schedule details
 		load_dues_schedule_summary(frm);
 
-		// Update address members display if address is present
+		// Always update the address display for HTML fields (they don't persist)
 		if (frm.doc.primary_address && window.update_other_members_at_address) {
-			update_other_members_at_address(frm);
+			// Delay to ensure form is fully loaded and DOM is ready
+			setTimeout(() => {
+				// Check if we already have data from onload first
+				if (frm.doc.__onload && frm.doc.__onload.other_members_at_address) {
+					// Using onload data for address display refresh
+					// Don't call API if we already have the data
+				} else {
+					// console.log('Refreshing address display on form refresh via API');
+					update_other_members_at_address(frm);
+				}
+			}, 500);
 		}
 
 		// Setup Sales Invoice link filtering (consolidated - only once per refresh)
@@ -210,8 +328,9 @@ frappe.ui.form.on('Member', {
 
 	primary_address: function(frm) {
 		// Update other members at address when primary address changes
+		// Force refresh since address changed
 		if (window.update_other_members_at_address) {
-			update_other_members_at_address(frm);
+			update_other_members_at_address(frm, true);
 		}
 	},
 
@@ -694,6 +813,14 @@ function add_chapter_assignment_button(frm) {
 }
 
 function add_member_status_actions(frm) {
+	// Only check permissions for admin users
+	const admin_roles = ['System Manager', 'Verenigingen Administrator', 'Verenigingen Manager', 'Verenigingen Staff'];
+	const has_admin_role = frappe.user_roles.some(role => admin_roles.includes(role));
+
+	if (!has_admin_role) {
+		return; // Skip for non-admin users
+	}
+
 	// Check permissions and add termination/suspension buttons
 	frappe.call({
 		method: 'verenigingen.permissions.can_terminate_member_api',
@@ -940,30 +1067,6 @@ function add_member_id_buttons(frm) {
 	}
 
 	// Member ID Statistics and Preview Next ID buttons removed as requested
-
-	frm.add_custom_button(__('Debug Member ID Assignment'), function() {
-		frappe.call({
-			method: 'verenigingen.verenigingen.doctype.member.member.debug_member_id_assignment',
-			args: {
-				member_name: frm.doc.name
-			},
-			callback: function(r) {
-				if (r.message) {
-					let message = '<h4>Member ID Assignment Debug Info</h4><table class="table table-bordered">';
-					for (let key in r.message) {
-						message += `<tr><td><strong>${key}:</strong></td><td>${r.message[key]}</td></tr>`;
-					}
-					message += '</table>';
-
-					frappe.msgprint({
-						title: __('Debug Information'),
-						message: message,
-						wide: true
-					});
-				}
-			}
-		});
-	}, __('Member ID'));
 
 	// Add force assign button for System Managers
 	if (user_roles.includes('System Manager')) {
@@ -2214,6 +2317,150 @@ function update_dutch_full_name(frm) {
 		});
 	}
 }
+
+// ==================== ADDRESS MEMBERS FUNCTIONALITY ====================
+
+window.update_other_members_at_address = function(frm, force_refresh = false) {
+	// Update the other_members_at_address field when address changes
+	// console.log('update_other_members_at_address called for:', frm.doc.name, 'Address:', frm.doc.primary_address, 'Force:', force_refresh);
+
+	if (!frm.doc.primary_address || frm.doc.__islocal) {
+		// console.log('No address or new document, clearing field');
+		// Clear field if no address or new document
+		const field_element = $('[data-fieldname="other_members_at_address"]');
+		if (field_element.length > 0) {
+			field_element.find('.control-value, .control-html, .form-control').html('');
+		}
+		return;
+	}
+
+	// Check if we have onload data first
+	if (frm.doc.__onload && frm.doc.__onload.other_members_at_address && !force_refresh) {
+		// console.log('Using cached onload data for address members');
+		const html_content = frm.doc.__onload.other_members_at_address;
+
+		// Inject the onload content
+		const field_element = $('[data-fieldname="other_members_at_address"]');
+		if (field_element.length > 0) {
+			field_element.show();
+			field_element.css('display', 'block');
+			field_element.css('visibility', 'visible');
+
+			const control_value = field_element.find('.control-value, .control-html').first();
+			if (control_value.length > 0) {
+				control_value.html(html_content);
+				// console.log('Injected cached onload content');
+			}
+		}
+		return;
+	}
+
+	// Call backend method to get other members at same address
+	frappe.call({
+		method: 'verenigingen.api.member_management.get_address_members_html_api',
+		args: {
+			member_id: frm.doc.name
+		},
+		callback: function(r) {
+			// console.log('Address detection response:', r);
+
+			if (r.message) {
+				// console.log('API response structure:', Object.keys(r.message));
+
+				// Handle both possible response formats
+				let html_content = null;
+				if (r.message.success && r.message.html) {
+					html_content = r.message.html;
+				} else if (r.message.html) {
+					html_content = r.message.html;
+				} else if (typeof r.message === 'string') {
+					html_content = r.message;
+				}
+
+				if (html_content) {
+					// console.log('Got HTML content from API:', html_content.substring(0, 100) + '...');
+
+					// Use direct DOM injection for HTML fields to avoid triggering dirty state
+					const inject_content = () => {
+						const field_element = $('[data-fieldname="other_members_at_address"]');
+						// console.log('Address members field found:', field_element.length > 0);
+
+						if (field_element.length > 0) {
+							// Ensure field is visible
+							field_element.show();
+							field_element.css('display', 'block');
+							field_element.css('visibility', 'visible');
+
+							// Find the control value div for HTML fields
+							const control_value = field_element.find('.control-value, .control-html').first();
+							if (control_value.length > 0) {
+								// Direct HTML injection without triggering form changes
+								control_value.html(html_content);
+								// console.log('Address members content injected successfully');
+
+								// Also try to update the field wrapper if it exists
+								const field_wrapper = field_element.find('.form-control.like-disabled-input');
+								if (field_wrapper.length > 0) {
+									field_wrapper.html(html_content);
+								}
+							} else {
+								// console.log('Control value element not found, trying alternative selectors');
+								// Try alternative selectors for HTML field content
+								const alt_container = field_element.find('.html-editor-container, .control-input, .form-control');
+								if (alt_container.length > 0) {
+									alt_container.html(html_content);
+									// console.log('Used alternative container for content injection');
+								}
+							}
+
+							// console.log('Address members field should now be visible with member content');
+						} else {
+							// console.log('Field element not found in DOM, will retry...');
+							return false; // Indicate retry needed
+						}
+						return true; // Success
+					};
+
+					// Try injection with retries to handle delayed DOM rendering
+					let retries = 0;
+					const max_retries = 5;
+					const retry_delay = 300;
+
+					const attempt_injection = () => {
+						if (inject_content()) {
+							// console.log('Content injection successful');
+						} else if (retries < max_retries) {
+							retries++;
+							// console.log(`Retrying content injection (${retries}/${max_retries})...`);
+							setTimeout(attempt_injection, retry_delay);
+						} else {
+							console.error('Failed to inject content after maximum retries');
+						}
+					};
+
+					// Start injection attempts
+					setTimeout(attempt_injection, 200);
+				} else {
+					// console.log('No HTML content in response');
+				}
+			} else {
+				// console.log('No response message from API');
+				// Clear field using DOM manipulation to avoid dirty state
+				setTimeout(() => {
+					const field_element = $('[data-fieldname="other_members_at_address"]');
+					if (field_element.length > 0) {
+						field_element.find('.control-value, .control-html, .form-control').html('');
+					}
+				}, 200);
+			}
+		},
+		error: function(r) {
+			console.error('Error loading other members at address:', r);
+			// Clear field on error
+			frm.set_value('other_members_at_address', '');
+		}
+	});
+};
 
 // ==================== USER LINK MANAGEMENT ====================
 

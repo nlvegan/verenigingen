@@ -294,79 +294,84 @@ class ValidationService {
      * Real-time validation for UI
      */
 	setupRealTimeValidation(element, fieldName, context = {}) {
-		const $element = $(element);
-		this._ensureFeedbackElement($element);
+		this._ensureFeedbackElement(element);
 
 		// Store validation state
-		$element.data('validation-state', 'pending');
+		element.dataset.validationState = 'pending';
 
 		// Validation on input/change
-		$element.on('input change blur', async (event) => {
-			const value = $element.val();
+		const handleValidation = async (event) => {
+			const value = element.value;
 
 			// Show loading state on blur
 			if (event.type === 'blur' && value) {
-				this._showValidationState($element, 'validating');
+				this._showValidationState(element, 'validating');
 			}
 
-			const result = await this.validateField(fieldName, value, context);
-			this._showValidationResult($element, result);
-		});
+			const result = await this.validateField(fieldName, value, typeof context === 'function' ? context() : context);
+			this._showValidationResult(element, result);
+		};
 
-		return $element;
+		element.addEventListener('input', handleValidation);
+		element.addEventListener('change', handleValidation);
+		element.addEventListener('blur', handleValidation);
+
+		return element;
 	}
 
 	/**
      * Show validation result in UI
      */
 	_showValidationResult(element, result) {
-		const $element = $(element);
-		const $feedback = this._ensureFeedbackElement($element);
+		const feedback = this._ensureFeedbackElement(element);
 
 		// Remove existing classes
-		$element.removeClass('is-valid is-invalid is-validating');
-		$feedback.removeClass('valid-feedback invalid-feedback text-warning');
+		element.classList.remove('is-valid', 'is-invalid', 'is-validating');
+		feedback.classList.remove('valid-feedback', 'invalid-feedback', 'text-warning');
 
 		if (result.valid) {
-			$element.addClass('is-valid');
-			$feedback.addClass('valid-feedback').text(result.message || 'Looks good!');
+			element.classList.add('is-valid');
+			feedback.classList.add('valid-feedback');
+			feedback.textContent = result.message || 'Looks good!';
 
 			// Show warnings if any
 			if (result.warning) {
-				$feedback.removeClass('valid-feedback').addClass('text-warning');
-				$feedback.text(result.warning);
+				feedback.classList.remove('valid-feedback');
+				feedback.classList.add('text-warning');
+				feedback.textContent = result.warning;
 			}
 		} else {
-			$element.addClass('is-invalid');
-			$feedback.addClass('invalid-feedback').text(result.message);
+			element.classList.add('is-invalid');
+			feedback.classList.add('invalid-feedback');
+			feedback.textContent = result.message;
 		}
 
-		$element.data('validation-state', result.valid ? 'valid' : 'invalid');
-		$element.data('validation-result', result);
+		element.dataset.validationState = result.valid ? 'valid' : 'invalid';
+		element.dataset.validationResult = JSON.stringify(result);
 	}
 
 	_showValidationState(element, state) {
-		const $element = $(element);
-
-		$element.removeClass('is-valid is-invalid is-validating');
+		element.classList.remove('is-valid', 'is-invalid', 'is-validating');
 
 		if (state === 'validating') {
-			$element.addClass('is-validating');
-			const $feedback = this._ensureFeedbackElement($element);
-			$feedback.removeClass('valid-feedback invalid-feedback text-warning');
-			$feedback.addClass('text-muted').text('Validating...');
+			element.classList.add('is-validating');
+			const feedback = this._ensureFeedbackElement(element);
+			feedback.classList.remove('valid-feedback', 'invalid-feedback', 'text-warning');
+			feedback.classList.add('text-muted');
+			feedback.textContent = 'Validating...';
 		}
 	}
 
-	_ensureFeedbackElement($element) {
-		let $feedback = $element.siblings('.feedback');
+	_ensureFeedbackElement(element) {
+		let feedback = element.parentNode.querySelector('.feedback');
 
-		if ($feedback.length === 0) {
-			$feedback = $('<div class="feedback"></div>');
-			$element.after($feedback);
+		if (!feedback) {
+			feedback = document.createElement('div');
+			feedback.className = 'feedback';
+			element.parentNode.insertBefore(feedback, element.nextSibling);
 		}
 
-		return $feedback;
+		return feedback;
 	}
 
 	/**

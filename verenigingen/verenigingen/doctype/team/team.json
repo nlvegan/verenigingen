@@ -18,6 +18,7 @@
   "start_date",
   "end_date",
   "team_lead",
+  "cost_center",
   "team_members_section",
   "team_members",
   "team_details_section",
@@ -90,6 +91,13 @@
    "label": "Team Lead",
    "options": "User",
    "read_only": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center",
+   "description": "Associated cost center for financial tracking"
   },
   {
    "fieldname": "team_members_section",

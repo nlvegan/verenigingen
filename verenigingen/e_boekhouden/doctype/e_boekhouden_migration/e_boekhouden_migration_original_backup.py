@@ -3569,7 +3569,7 @@ def debug_cleanup_all_imported_data(company=None):
     """Debug function to completely clean up all imported data for fresh migration"""
     try:
         # Use the simple robust cleanup function
-        from verenigingen.utils.simple_robust_cleanup import simple_robust_cleanup
+        from verenigingen.utils.debug.eboekhouden_data_cleanup_utility import simple_robust_cleanup
 
         return simple_robust_cleanup(company)
     except ImportError:

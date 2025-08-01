@@ -14,12 +14,15 @@
   "chapter_head",
   "column_break_3",
   "region",
+  "cost_center",
   "postal_codes",
   "board_section",
   "board_members",
   "introduction",
   "meetup_embed_html",
   "address",
+  "route",
+  "published",
   "chapter_members",
   "members"
  ],
@@ -42,6 +45,13 @@
    "label": "Region",
    "options": "Region",
    "reqd": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center",
+   "description": "Associated cost center for financial tracking"
   },
   {
    "description": "List of postal code patterns separated by commas (e.g. 1000-1099, 2500, 3*)",

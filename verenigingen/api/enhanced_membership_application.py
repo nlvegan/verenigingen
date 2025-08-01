@@ -223,6 +223,11 @@ def create_membership_application(data):
     # Generate description
     application.contribution_description = generate_contribution_description(data)
 
+    # IMPORTANT: Set owner to the configured creation user
+    # This prevents the applicant from becoming the owner of the member record
+    settings = frappe.get_single("Verenigingen Settings")
+    application.owner = settings.creation_user or "Administrator"
+
     application.save(ignore_permissions=True)
     frappe.db.commit()
 

@@ -50,6 +50,23 @@ class ChapterMembershipHistoryManager:
                     print(f"Membership already exists in history for member {member_id}")
                     return True  # This exact membership already exists
 
+            # ENHANCED: Check if we're trying to add an "Active" record when a "Pending" one exists
+            # This should not happen - use update_membership_status() instead
+            if status == "Active":
+                for membership in member.chapter_membership_history or []:
+                    if (
+                        membership.chapter_name == chapter_name
+                        and membership.assignment_type == assignment_type
+                        and membership.status == "Pending"
+                    ):
+                        print(
+                            f"WARNING: Attempted to add Active membership when Pending exists for member {member_id} in {chapter_name}"
+                        )
+                        print(
+                            "Use update_membership_status() instead of add_membership_history() to activate pending memberships"
+                        )
+                        return False  # Prevent duplicate creation
+
             # Add new membership with specified status
             member.append(
                 "chapter_membership_history",

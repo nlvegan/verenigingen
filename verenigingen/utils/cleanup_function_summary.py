@@ -18,7 +18,7 @@ def cleanup_function_summary():
         },
         "solution_implemented": {
             "approach": "Replace problematic function with robust, simple version",
-            "new_function": "simple_robust_cleanup in verenigingen.utils.simple_robust_cleanup",
+            "new_function": "simple_robust_cleanup in verenigingen.utils.debug.eboekhouden_data_cleanup_utility",
             "integration": "Original function now imports and calls the new implementation",
         },
         "key_improvements": {
@@ -45,7 +45,7 @@ def cleanup_function_summary():
         },
         "usage": {
             "original_call": "frappe.call('verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data')",
-            "direct_call": "bench --site dev.veganisme.net execute verenigingen.utils.simple_robust_cleanup.simple_robust_cleanup",
+            "direct_call": "bench --site dev.veganisme.net execute verenigingen.utils.debug.eboekhouden_data_cleanup_utility.simple_robust_cleanup",
             "parameters": "Optional company parameter (defaults to E-Boekhouden Settings default_company)",
         },
         "fix_status": "✅ COMPLETE - Function now works reliably and includes Payment Ledger Entry cleanup",

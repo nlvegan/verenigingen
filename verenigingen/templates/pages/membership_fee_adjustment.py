@@ -356,28 +356,17 @@ def submit_fee_adjustment_request(new_amount, reason=""):
 
     # Validate amount is different and reasonable
     if abs(new_amount - current_amount) < 0.01:
-        frappe.msgprint(
-            _("The requested amount ({0}) is the same as your current membership fee.").format(
+        # Return a proper API response instead of redirect
+        return {
+            "success": False,
+            "message": _("The requested amount ({0}) is the same as your current membership fee.").format(
                 frappe.utils.fmt_money(new_amount, currency="EUR")
             ),
-            title=_("No Change Needed"),
-            indicator="orange",
-        )
-        frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = "/membership_fee_adjustment"
-        return
+            "no_change": True,
+        }
 
-    # Determine if approval is needed
-    needs_approval = False
-
-    # Check if this is an increase or decrease
-    if new_amount > current_amount:
-        # For increases, check if it exceeds the maximum multiplier
-        if new_amount > maximum_fee:
-            needs_approval = True
-    else:
-        # For decreases, always require approval (as per original settings)
-        needs_approval = settings.get("require_approval_for_decreases", True)
+    # The amendment's before_insert method will determine if approval is needed
+    # based on the settings and business rules
 
     # Validate reason if required
     if settings.get("adjustment_reason_required") and not reason.strip():
@@ -401,7 +390,7 @@ def submit_fee_adjustment_request(new_amount, reason=""):
             "current_amount": current_amount,
             "requested_amount": new_amount,
             "reason": reason,
-            "status": "Pending Approval" if needs_approval else "Auto-Approved",
+            # Status will be set by the amendment's before_insert method
             "requested_by_member": 1,
             "effective_date": today(),
         }
@@ -413,117 +402,57 @@ def submit_fee_adjustment_request(new_amount, reason=""):
         # Handle validation errors more gracefully
         error_msg = str(e)
         if "same as current amount" in error_msg:
-            frappe.msgprint(
-                _("No changes were made as the requested amount is the same as your current fee."),
-                title=_("No Change Needed"),
-                indicator="orange",
-            )
+            return {
+                "success": False,
+                "message": _("No changes were made as the requested amount is the same as your current fee."),
+                "no_change": True,
+            }
         else:
-            frappe.msgprint(
-                _("Unable to process your request: {0}").format(error_msg),
-                title=_("Validation Error"),
-                indicator="red",
-            )
-        frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = "/membership_fee_adjustment"
-        return
+            return {
+                "success": False,
+                "message": _("Unable to process your request: {0}").format(error_msg),
+                "validation_error": True,
+            }
+    except Exception as e:
+        # Handle unexpected errors
+        frappe.log_error(f"Error creating fee adjustment amendment: {str(e)}", "Fee Adjustment Error")
+        frappe.throw(_("An unexpected error occurred. Please try again or contact support."))
 
-    # If no approval needed, apply immediately
-    if not needs_approval:
-        # Apply the fee change using new dues schedule approach
-        dues_schedule_name = create_new_dues_schedule(member_doc, new_amount, reason)
-
-        # Update amendment status
-        amendment.status = "Applied"
-        amendment.applied_date = today()
-        amendment.dues_schedule = dues_schedule_name  # Link to new schedule
-        amendment.save(ignore_permissions=True)
-
-        return {
-            "success": True,
-            "message": _("Your fee has been updated successfully"),
-            "amendment_id": amendment.name,
-            "needs_approval": False,
-        }
+    # Return response based on the amendment's actual status
+    if amendment.status == "Approved" or amendment.status == "Auto-Approved":
+        message = _("Your fee adjustment has been approved and will take effect on {0}").format(
+            frappe.utils.formatdate(amendment.effective_date)
+        )
+        needs_approval = False
+    elif amendment.status == "Pending Approval":
+        message = _("Your fee adjustment request has been submitted for approval")
+        needs_approval = True
     else:
-        return {
-            "success": True,
-            "message": _("Your fee adjustment request has been submitted for approval"),
-            "amendment_id": amendment.name,
-            "needs_approval": True,
-        }
+        # Unexpected status
+        message = _("Your fee adjustment request has been submitted")
+        needs_approval = True
+
+    return {
+        "success": True,
+        "message": message,
+        "amendment_id": amendment.name,
+        "needs_approval": needs_approval,
+        "status": amendment.status,
+    }
 
 
 def create_new_dues_schedule(member, new_amount, reason):
-    """Create a new dues schedule for fee adjustment"""
-    try:
-        # Get current active membership
-        membership = frappe.db.get_value(
-            "Membership",
-            {"member": member.name, "status": "Active", "docstatus": 1},
-            ["name", "membership_type"],
-            as_dict=True,
+    """DEPRECATED: Direct dues schedule creation is no longer allowed.
+
+    All fee adjustments must go through the Contribution Amendment Request workflow.
+    This function is kept for backward compatibility but should not be used.
+    """
+    frappe.throw(
+        _(
+            "Direct dues schedule creation is no longer allowed. "
+            "Please use the Contribution Amendment Request workflow instead."
         )
-
-        if not membership:
-            frappe.throw(_("No active membership found for creating dues schedule"))
-
-        # Deactivate existing active dues schedule
-        existing_schedule = frappe.db.get_value(
-            "Membership Dues Schedule", {"member": member.name, "status": "Active"}, "name"
-        )
-
-        if existing_schedule:
-            existing_doc = frappe.get_doc("Membership Dues Schedule", existing_schedule)
-            existing_doc.status = "Cancelled"
-            existing_doc.add_comment(text=f"Cancelled and replaced by new fee adjustment: €{new_amount:.2f}")
-            existing_doc.save(ignore_permissions=True)
-
-        # Create new dues schedule
-        dues_schedule = frappe.new_doc("Membership Dues Schedule")
-        dues_schedule.member = member.name
-        dues_schedule.membership = membership.name
-        dues_schedule.membership_type = membership.membership_type
-        dues_schedule.contribution_mode = "Custom"
-        dues_schedule.dues_rate = new_amount
-        dues_schedule.uses_custom_amount = 1
-        dues_schedule.custom_amount_approved = 1  # Auto-approve for self-adjustments
-        dues_schedule.custom_amount_reason = f"Member self-adjustment: {reason}"
-
-        # Handle zero amounts specially
-        if new_amount == 0:
-            dues_schedule.custom_amount_reason = f"Free membership: {reason}"
-        dues_schedule.billing_frequency = "Monthly"  # Default
-        # Payment method will be determined dynamically based on member's payment setup
-        dues_schedule.status = "Active"
-        dues_schedule.auto_generate = 1
-        dues_schedule.test_mode = 0
-        dues_schedule.effective_date = today()
-        # Coverage dates are calculated automatically
-
-        # Add portal adjustment metadata in notes
-        dues_schedule.notes = f"Created from member portal by {frappe.session.user} on {today()}"
-
-        dues_schedule.save(ignore_permissions=True)
-
-        # Add comment about the adjustment
-        dues_schedule.add_comment(
-            text=f"Created from member portal fee adjustment. Amount: €{new_amount:.2f}. Reason: {reason}"
-        )
-
-        # Also maintain legacy override fields temporarily for backward compatibility
-        member.reload()  # Refresh to avoid timestamp mismatch
-        member.dues_rate = new_amount
-        member.fee_override_reason = f"Member self-adjustment: {reason}"
-        member.fee_override_date = today()
-        member.fee_override_by = frappe.session.user
-        member.save(ignore_permissions=True)
-
-        return dues_schedule.name
-
-    except Exception as e:
-        frappe.log_error(f"Error creating dues schedule: {str(e)}", "Fee Adjustment Error")
-        frappe.throw(_("Error creating dues schedule: {0}").format(str(e)))
+    )
 
 
 @frappe.whitelist()
@@ -690,13 +619,37 @@ def get_available_membership_types():
     if not membership:
         frappe.throw(_("No active membership found"))
 
-    # Get all active membership types
-    membership_types = frappe.get_all(
+    # Get all active membership types with their suggested fees from templates
+    membership_types_raw = frappe.get_all(
         "Membership Type",
         filters={"is_active": 1},
-        fields=["name", "membership_type_name", "minimum_amount", "description"],
+        fields=["name", "membership_type_name", "minimum_amount", "description", "dues_schedule_template"],
         order_by="minimum_amount",
     )
+
+    # Enhance with template fee information
+    membership_types = []
+    for mt in membership_types_raw:
+        # Get the suggested amount from the dues schedule template
+        suggested_amount = mt.minimum_amount  # Fallback to minimum
+
+        if mt.dues_schedule_template:
+            template_amount = frappe.db.get_value(
+                "Membership Dues Schedule", mt.dues_schedule_template, "suggested_amount"
+            )
+            if template_amount:
+                suggested_amount = template_amount
+
+        membership_types.append(
+            {
+                "name": mt.name,
+                "membership_type_name": mt.membership_type_name,
+                "description": mt.description,
+                "minimum_amount": mt.minimum_amount,
+                "amount": suggested_amount,  # This is what the JavaScript expects
+                "suggested_amount": suggested_amount,
+            }
+        )
 
     return {"membership_types": membership_types, "current_type": membership.membership_type}
 

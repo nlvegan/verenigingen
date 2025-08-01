@@ -243,7 +243,7 @@ class RateLimiter:
             result = self._check_memory_rate_limit(key, limit, window)
 
         # Log rate limit check
-        frappe.log_info(
+        frappe.logger().info(
             {
                 "event": "rate_limit_check",
                 "operation": operation,

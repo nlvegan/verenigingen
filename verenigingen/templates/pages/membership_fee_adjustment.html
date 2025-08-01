@@ -504,6 +504,8 @@ $(document).ready(function() {
                 reason: reason || ''
             },
             callback: function(r) {
+                console.log('Fee adjustment API response:', r);
+
                 if (r.message && r.message.success) {
                     showMessage(r.message.message, 'success');
 
@@ -511,8 +513,21 @@ $(document).ready(function() {
                     setTimeout(function() {
                         window.location.reload();
                     }, 2000);
+                } else if (r.message && (r.message.no_change || r.message.validation_error)) {
+                    // Handle specific validation errors
+                    showMessage(r.message.message, 'warning');
+                    submitBtn.prop('disabled', false);
+                    submitBtn.text('{{ _("Submit Fee Adjustment") }}');
+                } else if (r.message === null || r.message === undefined) {
+                    // Handle null response (redirect cases)
+                    showMessage('{{ _("Your request was processed but we couldn\'t get the status. Please refresh the page to see the result.") }}', 'info');
+                    setTimeout(function() {
+                        window.location.reload();
+                    }, 3000);
                 } else {
-                    showMessage('{{ _("An error occurred. Please try again.") }}', 'danger');
+                    // Handle other error cases
+                    const errorMsg = (r.message && r.message.message) ? r.message.message : '{{ _("An error occurred. Please try again.") }}';
+                    showMessage(errorMsg, 'danger');
                     submitBtn.prop('disabled', false);
                     submitBtn.text('{{ _("Submit Fee Adjustment") }}');
                 }

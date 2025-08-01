@@ -69,9 +69,12 @@ class MembershipDuesSchedule(Document):
                     f"membership type minimum (€{membership_type_minimum:.2f})"
                 )
 
-            if template_suggested < membership_type_minimum:
+            # Use the same logic as application helpers: dues_rate takes precedence over suggested_amount
+            effective_amount = template.dues_rate if template.dues_rate else template_suggested
+            if effective_amount < membership_type_minimum:
+                amount_type = "dues rate" if template.dues_rate else "suggested amount"
                 frappe.throw(
-                    f"Template suggested amount (€{template_suggested:.2f}) cannot be less than "
+                    f"Template {amount_type} (€{effective_amount:.2f}) cannot be less than "
                     f"membership type minimum (€{membership_type_minimum:.2f})"
                 )
 

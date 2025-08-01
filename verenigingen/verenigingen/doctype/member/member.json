@@ -117,7 +117,12 @@
   "annual_income",
   "tax_residence",
   "student_status",
-  "donation_interest"
+  "donation_interest",
+  "address_optimization_section",
+  "address_fingerprint",
+  "normalized_address_line",
+  "normalized_city",
+  "address_last_updated"
  ],
  "fields": [
   {
@@ -491,8 +496,7 @@
   {
    "fieldname": "other_members_at_address",
    "fieldtype": "HTML",
-   "label": "Other Members at This Address",
-   "read_only": 1
+   "label": "Other Members at This Address"
   },
   {
    "fieldname": "erpnext_integration_section",
@@ -807,6 +811,53 @@
    "fieldname": "chapter_data_tab",
    "fieldtype": "Tab Break",
    "label": "Volunteer & Chapter Data"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "address_optimization_section",
+   "fieldtype": "Section Break",
+   "label": "Address Optimization (Internal)"
+  },
+  {
+   "description": "8-byte hash for O(1) address matching",
+   "fieldname": "address_fingerprint",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Address Fingerprint",
+   "length": 16,
+   "no_copy": 1,
+   "read_only": 1,
+   "report_hide": 1
+  },
+  {
+   "description": "Normalized address line for consistent matching",
+   "fieldname": "normalized_address_line",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Normalized Address Line",
+   "no_copy": 1,
+   "read_only": 1,
+   "report_hide": 1
+  },
+  {
+   "description": "Normalized city name for consistent matching",
+   "fieldname": "normalized_city",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Normalized City",
+   "no_copy": 1,
+   "read_only": 1,
+   "report_hide": 1
+  },
+  {
+   "description": "Last time address fingerprint was updated",
+   "fieldname": "address_last_updated",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Address Last Updated",
+   "no_copy": 1,
+   "read_only": 1,
+   "report_hide": 1
   }
  ],
  "links": [

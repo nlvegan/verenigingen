@@ -126,6 +126,7 @@ def _emit_invoice_event(event_name, event_data):
                         job_name=f"payment_history_update_{member.name}",
                         dedupe=True,  # This prevents multiple jobs for same member
                         timeout=300,  # 5 minutes timeout
+                        delay=2,  # Add 2-second delay to allow transaction commit
                         **{  # Separate method arguments from enqueue parameters
                             "event_name": event_name,
                             "event_data": event_data,

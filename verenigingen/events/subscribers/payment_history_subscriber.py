@@ -130,6 +130,13 @@ def handle_invoice_submitted(event_name=None, event_data=None, **kwargs):
     if not customer or not invoice:
         return
 
+    # First check if invoice exists to avoid race conditions
+    if not frappe.db.exists("Sales Invoice", invoice):
+        frappe.logger("payment_history").warning(
+            f"Invoice {invoice} does not exist yet - likely a race condition. Skipping payment history update."
+        )
+        return
+
     # Find members for this customer and update their payment history
     members = frappe.get_all("Member", filters={"customer": customer}, fields=["name"])
 

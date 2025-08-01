@@ -343,18 +343,30 @@
                                id="middle_name"
                                name="middle_name"
                                value="{{ member.middle_name or '' }}">
-                        <div class="help-text">{{ _("Including prefixes like 'van', 'de', 'von'") }}</div>
+                        <div class="help-text">{{ _("Additional middle names") }}</div>
                     </div>
                 </div>
 
-                <div class="form-group">
-                    <label for="last_name" class="form-label">{{ _("Last Name") }} <span class="required">*</span></label>
-                    <input type="text"
-                           class="form-control"
-                           id="last_name"
-                           name="last_name"
-                           value="{{ member.last_name or '' }}"
-                           required>
+                <div class="form-row">
+                    <div class="form-group half">
+                        <label for="tussenvoegsel" class="form-label">{{ _("Tussenvoegsel") }}</label>
+                        <input type="text"
+                               class="form-control"
+                               id="tussenvoegsel"
+                               name="tussenvoegsel"
+                               value="{{ member.tussenvoegsel or '' }}">
+                        <div class="help-text">{{ _("Dutch name particles/prefixes (van, de, van der, etc.)") }}</div>
+                    </div>
+
+                    <div class="form-group half">
+                        <label for="last_name" class="form-label">{{ _("Last Name") }} <span class="required">*</span></label>
+                        <input type="text"
+                               class="form-control"
+                               id="last_name"
+                               name="last_name"
+                               value="{{ member.last_name or '' }}"
+                               required>
+                    </div>
                 </div>
 
                 <div class="form-group">

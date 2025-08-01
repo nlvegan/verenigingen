@@ -198,18 +198,28 @@ scheduler_events = {
         "verenigingen.utils.security.audit_logging.cleanup_old_audit_logs",
         # Monitoring and alerting system
         "verenigingen.utils.alert_manager.run_daily_checks",
+        # Address optimization maintenance
+        "verenigingen.tasks.address_optimization.update_all_member_address_fingerprints",
     ],
     "hourly": [
         # Check analytics alert rules
         "verenigingen.verenigingen.doctype.analytics_alert_rule.analytics_alert_rule.check_all_active_alerts",
         # Monitoring and alerting system
         "verenigingen.utils.alert_manager.run_hourly_checks",
+        # Payment history validation and repair (reduced from every 4 hours)
+        "verenigingen.utils.payment_history_validator.validate_payment_history_integrity",
     ],
     "weekly": [
         # Termination reports and reviews
         "verenigingen.utils.termination_utils.generate_weekly_termination_report",
         # Security system health check
         "verenigingen.utils.security.audit_logging.weekly_security_health_check",
+        # Address display refresh
+        "verenigingen.tasks.address_optimization.refresh_member_address_displays",
+    ],
+    "monthly": [
+        # Address data cleanup
+        "verenigingen.tasks.address_optimization.cleanup_orphaned_address_data",
     ],
 }
 

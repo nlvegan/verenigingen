@@ -1,5 +1,6 @@
 .DS_Store
 bandit*.*
+one-off-test-utils
 *.pyc
 *.egg-info
 *.swp

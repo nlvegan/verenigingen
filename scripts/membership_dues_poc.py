@@ -66,14 +66,14 @@ def find_or_create_test_member():
     member.last_name = "Dues POC"
     member.email = "test-dues-poc@example.com"
     member.member_type = "Individual"
-    member.membership_type = frappe.db.get_value("Membership Type", 
+    member.current_membership_type = frappe.db.get_value("Membership Type", 
         {"name": ["like", "%"]}, "name") or "Standard"
     member.insert()
     
     # Create membership for the member
     membership = frappe.new_doc("Membership")
     membership.member = member.name
-    membership.membership_type = member.membership_type
+    membership.membership_type = member.current_membership_type
     membership.start_date = today()
     membership.insert()
     

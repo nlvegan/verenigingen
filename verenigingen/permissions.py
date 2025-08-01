@@ -80,10 +80,19 @@ def has_member_permission(doc, user=None, permission_type=None):
         frappe.logger().debug(f"User {user} has admin role, granting access")
         return True
 
-    # Other permission checks would go here
+    # For regular members, check if they own the record
+    if "Verenigingen Member" in frappe.get_roles(user):
+        # Only allow access to own records
+        if isinstance(doc, str):
+            # doc is just the name, need to get the owner
+            owner = frappe.db.get_value("Member", doc, "owner")
+            return owner == user
+        else:
+            # doc is the document object
+            return doc.owner == user
 
-    # Return None to fall back to standard permission system if no match
-    return None
+    # Return False for users without proper roles
+    return False
 
 
 def has_membership_permission(doc, user=None, permission_type=None):
@@ -210,10 +219,9 @@ def get_member_permission_query(user):
         frappe.logger().debug(f"User {user} has admin role, granting full access")
         return ""
 
-    # Other permission logic would go here
-
-    # For debugging purposes, grant access to all
-    return ""
+    # Members can only see their own records (where owner = user)
+    # This works with the if_owner permission in the Member DocType
+    return f"`tabMember`.owner = {frappe.db.escape(user)}"
 
 
 def get_membership_permission_query(user):

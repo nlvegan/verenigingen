@@ -657,6 +657,7 @@ class _MembershipApplication {
 			// Step 1: Personal Information
 			first_name: $('#first_name').val() || '',
 			middle_name: $('#middle_name').val() || '',
+			tussenvoegsel: $('#tussenvoegsel').val() || '',
 			last_name: $('#last_name').val() || '',
 			email: $('#email').val() || '',
 			contact_number: $('#contact_number').val() || '',
@@ -3799,3 +3800,6 @@ window.testBackendMethod = async function() {
 		return null;
 	}
 };
+
+// Export the MembershipApplication class for use in templates
+window.MembershipApplication = _MembershipApplication;

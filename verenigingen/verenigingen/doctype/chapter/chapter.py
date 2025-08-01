@@ -278,7 +278,8 @@ class Chapter(WebsiteGenerator):
         """Update chapter_head based on board members with chair roles using atomic operations"""
         try:
             # Use atomic transaction to prevent race conditions
-            with frappe.db.transaction():
+            frappe.db.begin()
+            try:
                 old_head = self.chapter_head
 
                 if not self.board_members:
@@ -302,6 +303,11 @@ class Chapter(WebsiteGenerator):
                     )
 
                 return chair_found
+
+            except Exception as transaction_error:
+                # Rollback the transaction on error
+                frappe.db.rollback()
+                raise transaction_error
 
         except Exception as e:
             frappe.log_error(f"Error updating chapter head for {self.name}: {str(e)}")
