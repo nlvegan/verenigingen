@@ -366,7 +366,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Tier Membership {unique_suffix}"
         membership_type.description = "Test membership type with tier-based contribution"
-        membership_type.amount = 25.0
+        membership_type.minimum_amount = 25.0
         membership_type.is_active = 1
         
         membership_type.save()
@@ -410,7 +410,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Calculator Membership {unique_suffix}"
         membership_type.description = "Test membership type with income calculator"
-        membership_type.amount = 15.0
+        membership_type.minimum_amount = 15.0
         membership_type.is_active = 1
         
         membership_type.save()
@@ -450,7 +450,7 @@ class TestMembershipDuesSystem(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Flexible Membership {unique_suffix}"
         membership_type.description = "Test membership type with flexible contribution"
-        membership_type.amount = 20.0
+        membership_type.minimum_amount = 20.0
         membership_type.is_active = 1
         
         membership_type.save()

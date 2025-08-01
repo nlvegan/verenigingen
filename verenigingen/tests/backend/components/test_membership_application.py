@@ -948,8 +948,8 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             # Should use the standard amount from membership type
             self.assertEqual(
                 float(dues_schedule.dues_rate),
-                float(membership_type.amount),
-                f"Dues schedule amount should match membership type amount €{membership_type.amount}, got €{dues_schedule.dues_rate}",
+                float(membership_type.minimum_amount),
+                f"Dues schedule amount should match membership type amount €{membership_type.minimum_amount}, got €{dues_schedule.dues_rate}",
             )
 
             print(f"✅ Standard membership uses membership type configuration")
@@ -1038,8 +1038,8 @@ class TestMembershipApplicationLoad(unittest.TestCase):
 
         self.assertEqual(
             float(billing_amount),
-            float(membership_type.amount),
-            f"Standard membership billing amount should match membership type €{membership_type.amount}, got €{billing_amount}",
+            float(membership_type.minimum_amount),
+            f"Standard membership billing amount should match membership type €{membership_type.minimum_amount}, got €{billing_amount}",
         )
 
         # Test that dues schedule uses membership type configuration
@@ -1053,7 +1053,7 @@ class TestMembershipApplicationLoad(unittest.TestCase):
             dues_schedule = frappe.get_doc("Membership Dues Schedule", dues_schedules[0].name)
             self.assertEqual(
                 float(dues_schedule.dues_rate),
-                float(membership_type.amount),
+                float(membership_type.minimum_amount),
                 "Standard membership should use membership type amount",
             )
             print(f"✅ Uses membership type amount: €{dues_schedule.dues_rate}")
@@ -1360,8 +1360,8 @@ class TestMembershipApplicationLoad(unittest.TestCase):
         # Should use standard amount, not zero
         self.assertEqual(
             float(billing_amount),
-            float(membership_type.amount),
-            f"Zero custom amount should fall back to standard amount €{membership_type.amount}",
+            float(membership_type.minimum_amount),
+            f"Zero custom amount should fall back to standard amount €{membership_type.minimum_amount}",
         )
 
         print(f"✅ Zero custom amount correctly handled: €{billing_amount}")

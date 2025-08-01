@@ -271,6 +271,90 @@ class StreamlinedTestDataFactory:
         self.track_doc("Volunteer", volunteer.name)
         return volunteer
 
+    # CORE METHOD: Team Creation with Team Role Support
+    def create_test_team(self, **kwargs):
+        """Create test team with intelligent defaults"""
+        team_name = f"Test Team {self.fake.company()} - {self.test_run_id}"
+        
+        defaults = {
+            "team_name": team_name,
+            "status": "Active", 
+            "team_type": "Project Team",
+            "start_date": today(),
+            "description": f"Test team created for automated testing - {self.test_run_id}"
+        }
+        defaults.update(kwargs)
+        
+        team = frappe.get_doc({"doctype": "Team", **defaults})
+        team.insert(ignore_permissions=True)
+        self.track_doc("Team", team.name)
+        return team
+
+    def get_or_create_team_role(self, role_name="Team Member"):
+        """Get existing team role or ensure fixture roles exist"""
+        # Check if role exists
+        if frappe.db.exists("Team Role", role_name):
+            return frappe.get_doc("Team Role", role_name)
+        
+        # If not exists, try installing fixtures
+        try:
+            from frappe.core.doctype.data_import.data_import import import_doc
+            # This will ensure fixtures are loaded
+            frappe.get_doc("Data Import", {}).import_doc()
+        except:
+            pass
+            
+        # Try again after fixture loading
+        if frappe.db.exists("Team Role", role_name):
+            return frappe.get_doc("Team Role", role_name)
+        
+        # Fallback: create the role if it still doesn't exist
+        role_data = {
+            "Team Leader": {"permissions_level": "Leader", "is_team_leader": 1, "is_unique": 1},
+            "Team Member": {"permissions_level": "Basic", "is_team_leader": 0, "is_unique": 0},
+            "Coordinator": {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 0},
+            "Secretary": {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1},
+            "Treasurer": {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1}
+        }.get(role_name, {"permissions_level": "Basic", "is_team_leader": 0, "is_unique": 0})
+        
+        team_role = frappe.get_doc({
+            "doctype": "Team Role",
+            "role_name": role_name,
+            "description": f"Test {role_name} role",
+            "is_active": 1,
+            **role_data
+        })
+        team_role.insert(ignore_permissions=True)
+        self.track_doc("Team Role", team_role.name)
+        return team_role
+
+    def create_test_team_member(self, team=None, volunteer=None, team_role_name="Team Member", **kwargs):
+        """Create team member with new team_role field structure"""
+        if team is None:
+            team = self.create_test_team()
+        if volunteer is None:
+            volunteer = self.create_test_volunteer()
+        
+        # Get or create the team role
+        team_role = self.get_or_create_team_role(team_role_name)
+        
+        # Add team member to team
+        team_doc = frappe.get_doc("Team", team.name if hasattr(team, 'name') else team)
+        
+        member_defaults = {
+            "volunteer": volunteer.name if hasattr(volunteer, 'name') else volunteer,
+            "team_role": team_role.name,  # Use new team_role field
+            "from_date": today(),
+            "is_active": 1,
+            "status": "Active"
+        }
+        member_defaults.update(kwargs)
+        
+        team_doc.append("team_members", member_defaults)
+        team_doc.save(ignore_permissions=True)
+        
+        return team_doc.team_members[-1]  # Return the added team member record
+
     # CORE METHOD 6: SEPA Mandate Creation
     def create_test_sepa_mandate(self, member=None, **kwargs):
         """Create SEPA mandate with test bank account"""
@@ -417,6 +501,40 @@ class StreamlinedTestDataFactory:
             self.cleanup()
 
     # SCENARIO BUILDERS (Restored from Phase 4 removal)
+    def create_team_with_multiple_roles(self, member_count=5):
+        """Create team with various roles for comprehensive testing"""
+        team = self.create_test_team()
+        volunteers = [self.create_test_volunteer() for _ in range(member_count)]
+        
+        role_assignments = [
+            "Team Leader",    # Unique role
+            "Secretary",      # Unique role  
+            "Treasurer",      # Unique role
+            "Coordinator",    # Non-unique role
+            "Team Member"     # Non-unique role
+        ]
+        
+        team_members = []
+        for i, volunteer in enumerate(volunteers):
+            role_name = role_assignments[i % len(role_assignments)]
+            # Avoid duplicate unique roles
+            if role_name in ["Team Leader", "Secretary", "Treasurer"] and i >= 3:
+                role_name = "Team Member"  # Fallback to non-unique role
+                
+            member = self.create_test_team_member(
+                team=team,
+                volunteer=volunteer, 
+                team_role_name=role_name
+            )
+            team_members.append(member)
+            
+        return {
+            "team": team,
+            "volunteers": volunteers,
+            "team_members": team_members,
+            "roles_used": list(set(role_assignments[:member_count]))
+        }
+
     def create_edge_case_data(self):
         """Create comprehensive edge case scenario data for testing"""
         print("🔧 Creating edge case test scenario...")
@@ -676,3 +794,13 @@ def create_test_data_set(data_type: str = "minimal", **kwargs):
 
 # BACKWARD COMPATIBILITY ALIAS
 TestDataFactory = StreamlinedTestDataFactory
+
+# Additional convenience methods for Team Role testing
+def create_test_team_scenario(member_count=5, cleanup_on_exit=True):
+    """Create complete team scenario with various roles"""
+    with StreamlinedTestDataFactory(cleanup_on_exit=cleanup_on_exit) as factory:
+        return factory.create_team_with_multiple_roles(member_count=member_count)
+
+def get_available_team_roles():
+    """Get list of available team roles for testing"""
+    return ["Team Leader", "Team Member", "Coordinator", "Secretary", "Treasurer"]

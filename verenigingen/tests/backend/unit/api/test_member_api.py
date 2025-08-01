@@ -151,27 +151,29 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         test_data = self.builder.with_member().build()
         member = test_data["member"]
 
-        # Create donor if not exists
-        if not member.donor:
+        # Create donor if not exists (check by email since member.donor field doesn't exist)
+        existing_donor = frappe.db.get_value("Donor", {"donor_email": member.email}, "name")
+        if not existing_donor:
             donor = frappe.get_doc(
                 {
                     "doctype": "Donor",
                     "donor_name": member.full_name,
-                    "email": member.email,
+                    "donor_email": member.email,  # Correct field name
+                    "donor_type": "Individual",   # Required field
                     "member": member.name}
             )
             donor.insert()
             self.track_doc("Donor", donor.name)
-            self.track_doc("Donor", donor.name)
-            member.donor = donor.name
-            member.save()
+            donor_name = donor.name
+        else:
+            donor_name = existing_donor
 
         # Create donations
         for i in range(2):
             donation = frappe.get_doc(
                 {
                     "doctype": "Donation",
-                    "donor": member.donor,
+                    "donor": donor_name,  # Use donor_name variable instead of non-existent member.donor
                     "amount": 50 * (i + 1),
                     "date": add_days(today(), -30 * i),
                     "payment_method": "Bank Transfer"}
@@ -449,26 +451,30 @@ class TestMemberWhitelistMethods(VereningingenTestCase):
         test_data = self.builder.with_member().build()
         member = test_data["member"]
 
-        # Ensure no donor exists
-        if member.donor:
-            frappe.db.set_value("Member", member.name, "donor", None)
-            member.reload()
+        # Ensure no donor exists (check by email instead of non-existent member.donor field)
+        existing_donor = frappe.db.get_value("Donor", {"donor_email": member.email}, "name")
+        if existing_donor:
+            frappe.delete_doc("Donor", existing_donor)
 
         # Create donor via API
-        donor_name = frappe.call(
+        result = frappe.call(
             "verenigingen.verenigingen.doctype.member.member.create_donor_from_member",
             member_name=member.name,
         )
 
-        # Verify donor created
+        # Verify donor created (the function returns a dict with success and donor_name)
+        self.assertTrue(result)
+        self.assertTrue(result.get("success"))
+        donor_name = result.get("donor_name")
         self.assertTrue(donor_name)
+        
         donor = frappe.get_doc("Donor", donor_name)
         self.assertEqual(donor.member, member.name)
         self.assertEqual(donor.donor_name, member.full_name)
+        self.assertEqual(donor.donor_email, member.email)
 
-        # Verify member updated
-        member.reload()
-        self.assertEqual(member.donor, donor_name)
+        # Track for cleanup
+        self.track_doc("Donor", donor_name)
 
     def test_sepa_mandate_management(self):
         """Test SEPA mandate creation and management"""

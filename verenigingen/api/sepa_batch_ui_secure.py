@@ -92,7 +92,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
         # Get memberships of this type
         memberships = frappe.get_all("Membership", filters={"membership_type": membership_type}, pluck="name")
         if memberships:
-            filters["membership"] = ["in", memberships]
+            filters["custom_membership_dues_schedule"] = ["in", memberships]
 
     # Get invoices with optimized query
     invoices = frappe.get_all(
@@ -104,7 +104,7 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
             "outstanding_amount as amount",
             "currency",
             "due_date",
-            "custom_membership_dues_schedule as membership",
+            "custom_membership_dues_schedule",
         ],
         order_by="due_date",
         limit=limit,
@@ -112,7 +112,9 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
 
     # Optimized: Get member and mandate information in single batch query
     if invoices:
-        membership_ids = [inv.membership for inv in invoices if inv.membership]
+        membership_ids = [
+            inv.custom_membership_dues_schedule for inv in invoices if inv.custom_membership_dues_schedule
+        ]
 
         if membership_ids:
             # Single query to get all member and mandate data
@@ -145,8 +147,11 @@ def load_unpaid_invoices_secure(date_range="overdue", membership_type=None, limi
 
             # Apply data to invoices in single loop
             for invoice in invoices:
-                if invoice.membership and invoice.membership in member_data_lookup:
-                    data = member_data_lookup[invoice.membership]
+                if (
+                    invoice.custom_membership_dues_schedule
+                    and invoice.custom_membership_dues_schedule in member_data_lookup
+                ):
+                    data = member_data_lookup[invoice.custom_membership_dues_schedule]
                     invoice.update(
                         {
                             "member": data.member,

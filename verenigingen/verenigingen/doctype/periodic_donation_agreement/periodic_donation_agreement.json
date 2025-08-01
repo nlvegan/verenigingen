@@ -27,6 +27,12 @@
   "payment_amount",
   "payment_method",
   "sepa_mandate",
+  "tax_deduction_section",
+  "tax_deduction_percentage",
+  "estimated_annual_tax_benefit",
+  "column_break_tax",
+  "donor_tax_bracket",
+  "tax_year_applicable",
   "agreement_document_section",
   "agreement_document",
   "column_break_document",
@@ -40,6 +46,12 @@
   "next_expected_donation",
   "donations_table",
   "donations",
+  "notifications_section",
+  "reminder_frequency",
+  "last_reminder_sent",
+  "column_break_notifications",
+  "renewal_notification_sent",
+  "expiry_warning_sent",
   "cancellation_section",
   "cancellation_date",
   "cancellation_reason",
@@ -133,7 +145,7 @@
    "fieldname": "agreement_duration_years",
    "fieldtype": "Select",
    "label": "Agreement Duration",
-   "options": "1 Year (Pledge - No ANBI benefits)\n2 Years (Pledge - No ANBI benefits)\n3 Years (Pledge - No ANBI benefits)\n4 Years (Pledge - No ANBI benefits)\n5 Years (ANBI Minimum)\n6 Years (ANBI)\n7 Years (ANBI)\n8 Years (ANBI)\n9 Years (ANBI)\n10 Years (ANBI)",
+   "options": "1 Year (Pledge - No ANBI benefits)\n2 Years (Pledge - No ANBI benefits)\n3 Years (Pledge - No ANBI benefits)\n4 Years (Pledge - No ANBI benefits)\n5 Years (ANBI Minimum)\n6 Years (ANBI)\n7 Years (ANBI)\n8 Years (ANBI)\n9 Years (ANBI)\n10 Years (ANBI)\n15 Years (ANBI)\n20 Years (ANBI)\nLifetime (ANBI)",
    "default": "5 Years (ANBI Minimum)",
    "description": "Duration of the commitment. Minimum 5 years required for ANBI periodic donation tax benefits. Shorter durations are pledges without special tax benefits."
   },
@@ -185,6 +197,47 @@
    "fieldtype": "Link",
    "label": "SEPA Mandate",
    "options": "SEPA Mandate"
+  },
+  {
+   "fieldname": "tax_deduction_section",
+   "fieldtype": "Section Break",
+   "label": "Tax Benefits",
+   "description": "Tax deduction information for ANBI-eligible agreements"
+  },
+  {
+   "fieldname": "tax_deduction_percentage",
+   "fieldtype": "Percent",
+   "label": "Tax Deduction Percentage",
+   "default": "100",
+   "description": "Percentage of donation deductible from taxes (100% for ANBI periodic agreements)",
+   "depends_on": "eval:doc.anbi_eligible==1"
+  },
+  {
+   "fieldname": "estimated_annual_tax_benefit",
+   "fieldtype": "Currency",
+   "label": "Estimated Annual Tax Benefit",
+   "read_only": 1,
+   "description": "Estimated tax savings based on donor's tax bracket",
+   "depends_on": "eval:doc.anbi_eligible==1"
+  },
+  {
+   "fieldname": "column_break_tax",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "donor_tax_bracket",
+   "fieldtype": "Select",
+   "label": "Donor Tax Bracket",
+   "options": "20% (Low income)\n37.07% (Middle income)\n49.5% (High income)",
+   "description": "Donor's income tax bracket for calculating benefits",
+   "depends_on": "eval:doc.anbi_eligible==1"
+  },
+  {
+   "fieldname": "tax_year_applicable",
+   "fieldtype": "Int",
+   "label": "Tax Year Benefits Start",
+   "description": "First tax year when benefits apply (leave blank for current year)",
+   "depends_on": "eval:doc.anbi_eligible==1"
   },
   {
    "fieldname": "agreement_document_section",
@@ -258,6 +311,42 @@
    "fieldtype": "Table",
    "label": "Donations",
    "options": "Periodic Donation Agreement Item"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "notifications_section",
+   "fieldtype": "Section Break",
+   "label": "Notifications & Reminders"
+  },
+  {
+   "fieldname": "reminder_frequency",
+   "fieldtype": "Select",
+   "label": "Payment Reminder Frequency",
+   "options": "None\nWeekly\nMonthly\nQuarterly",
+   "default": "Monthly",
+   "description": "How often to send payment reminders for overdue donations"
+  },
+  {
+   "fieldname": "last_reminder_sent",
+   "fieldtype": "Datetime",
+   "label": "Last Reminder Sent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_notifications",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "renewal_notification_sent",
+   "fieldtype": "Check",
+   "label": "Renewal Notification Sent",
+   "description": "Checked when donor has been notified about upcoming renewal"
+  },
+  {
+   "fieldname": "expiry_warning_sent",
+   "fieldtype": "Check",
+   "label": "Expiry Warning Sent",
+   "description": "Checked when donor has been warned about upcoming expiry"
   },
   {
    "collapsible": 1,

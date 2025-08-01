@@ -9,6 +9,7 @@
  "field_order": [
   "volunteer",
   "volunteer_name",
+  "team_role",
   "role_type",
   "role",
   "column_break_5",
@@ -36,19 +37,26 @@
    "read_only": 1
   },
   {
-   "default": "Team Member",
+   "fieldname": "team_role",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Team Role",
+   "options": "Team Role",
+   "reqd": 1
+  },
+  {
    "fieldname": "role_type",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
+   "fetch_from": "team_role.role_name",
    "in_list_view": 1,
    "label": "Role Type",
-   "options": "Team Leader\nTeam Member",
-   "reqd": 1
+   "read_only": 1
   },
   {
    "fieldname": "role",
    "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Role",
+   "in_list_view": 0,
+   "label": "Additional Role Notes",
    "reqd": 0
   },
   {

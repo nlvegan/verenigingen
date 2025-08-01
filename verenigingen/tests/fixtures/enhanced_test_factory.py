@@ -58,8 +58,9 @@ class EnhancedTestDataFactory:
         # Track sequence counters for deterministic IDs
         self.sequence_counters = {}
         
-        # Generate unique test run ID
-        self.test_run_id = f"TEST-{random_string(8)}-{int(datetime.now().timestamp())}"
+        # Generate unique test run ID with microseconds for better uniqueness
+        now = datetime.now()
+        self.test_run_id = f"TEST-{random_string(8)}-{int(now.timestamp())}-{now.microsecond:06d}"
         
     def get_next_sequence(self, prefix: str) -> int:
         """Get next sequence number for deterministic data"""
@@ -68,15 +69,19 @@ class EnhancedTestDataFactory:
         
     def generate_test_email(self, purpose: str = "member") -> str:
         """Generate clearly marked test email"""
-        seq = self.get_next_sequence('email')
+        seq = self.get_next_sequence(f'email_{purpose}')  # Purpose-specific sequence
+        timestamp = int(datetime.now().timestamp())
+        # Add microseconds for additional uniqueness within the same second
+        microseconds = datetime.now().microsecond
+        
         if self.use_faker:
             # Use Faker but clearly mark as test
             base_email = self.fake.email()
             username, domain = base_email.split('@')
-            # Add sequence number to ensure uniqueness
-            return f"TEST_{purpose}_{seq:04d}_{username}@test.invalid"
+            # Add sequence number, timestamp, microseconds, and test run ID to ensure uniqueness
+            return f"TEST_{purpose}_{seq:04d}_{timestamp}_{microseconds:06d}_{username}_{self.test_run_id}@test.invalid"
         else:
-            return f"TEST_{purpose}_{seq:04d}@test.invalid"
+            return f"TEST_{purpose}_{seq:04d}_{timestamp}_{microseconds:06d}_{self.test_run_id}@test.invalid"
             
     def generate_test_name(self, type_name: str = "Person") -> str:
         """Generate clearly marked test name"""
@@ -483,6 +488,101 @@ class EnhancedTestDataFactory:
         role = frappe.get_doc(role_data)
         role.insert()
         return role
+    
+    def ensure_team_role(self, role_name: str, attributes: dict = None) -> frappe._dict:
+        """Ensure a team role exists, create if not"""
+        if frappe.db.exists("Team Role", role_name):
+            return frappe.get_doc("Team Role", role_name)
+        
+        # Default team role configurations
+        role_configs = {
+            "Team Leader": {"permissions_level": "Leader", "is_team_leader": 1, "is_unique": 1},
+            "Team Member": {"permissions_level": "Basic", "is_team_leader": 0, "is_unique": 0},
+            "Coordinator": {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 0},
+            "Secretary": {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1},
+            "Treasurer": {"permissions_level": "Coordinator", "is_team_leader": 0, "is_unique": 1}
+        }
+        
+        config = role_configs.get(role_name, {"permissions_level": "Basic", "is_team_leader": 0, "is_unique": 0})
+        
+        role_data = {
+            "doctype": "Team Role",
+            "role_name": role_name,
+            "description": f"{role_name} role for team management",
+            "is_active": 1,
+            **config
+        }
+        
+        if attributes:
+            role_data.update(attributes)
+        
+        role = frappe.get_doc(role_data)
+        role.insert()
+        return role
+    
+    def create_team(self, **kwargs):
+        """Create team with validation"""
+        for field in kwargs.keys():
+            self.validate_field_exists("Team", field)
+            
+        defaults = {
+            "team_name": f"TEST-Team-{self.get_next_sequence('team')}-{self.test_run_id[:8]}",
+            "status": "Active",
+            "team_type": "Project Team",
+            "start_date": frappe.utils.today(),
+            "description": f"Test team created by EnhancedTestDataFactory - {self.test_run_id}"
+        }
+        
+        data = {**defaults, **kwargs}
+        
+        # Validate required fields using meta
+        try:
+            meta = frappe.get_meta("Team")
+            for field in meta.fields:
+                if field.reqd and field.fieldname not in data:
+                    if field.fieldtype == "Data":
+                        data[field.fieldname] = f"Test-{field.fieldname}"
+                    elif field.fieldtype == "Select" and field.options:
+                        data[field.fieldname] = field.options.split("\n")[0]
+        except (frappe.DoesNotExistError, AttributeError) as e:
+            frappe.log_error(f"Failed to get Team meta for field validation: {e}", "EnhancedTestFactory")
+        
+        try:
+            team = frappe.get_doc({
+                "doctype": "Team",
+                **data
+            })
+            
+            team.insert()
+            return team
+        except Exception as e:
+            raise Exception(f"Failed to create team: {e}")
+    
+    def create_team_member(self, team_name: str, volunteer_name: str, team_role_name: str = "Team Member", **kwargs):
+        """Create team member with new team_role field structure"""
+        # Ensure team role exists
+        team_role = self.ensure_team_role(team_role_name)
+        
+        # Validate fields
+        for field in kwargs.keys():
+            self.validate_field_exists("Team Member", field)
+            
+        defaults = {
+            "volunteer": volunteer_name,
+            "team_role": team_role.name,  # Use new team_role field
+            "from_date": frappe.utils.today(),
+            "is_active": 1,
+            "status": "Active"
+        }
+        
+        data = {**defaults, **kwargs}
+        
+        # Get team and add member
+        team = frappe.get_doc("Team", team_name)
+        team.append("team_members", data)
+        team.save()
+        
+        return team.team_members[-1]  # Return the added team member record
 
 
 class EnhancedTestCase(FrappeTestCase):
@@ -514,6 +614,18 @@ class EnhancedTestCase(FrappeTestCase):
     def create_test_application_data(self, with_skills=True):
         """Convenience method for creating application data"""
         return self.factory.create_application_data(with_volunteer_skills=with_skills)
+        
+    def create_test_team(self, **kwargs):
+        """Convenience method for creating test teams"""
+        return self.factory.create_team(**kwargs)
+        
+    def create_test_team_member(self, team_name, volunteer_name, team_role_name="Team Member", **kwargs):
+        """Convenience method for creating test team members"""
+        return self.factory.create_team_member(team_name, volunteer_name, team_role_name, **kwargs)
+        
+    def ensure_team_role(self, role_name, attributes=None):
+        """Convenience method for ensuring team roles exist"""
+        return self.factory.ensure_team_role(role_name, attributes)
         
     def assertBusinessRuleViolation(self, callable_obj, *args, **kwargs):
         """Assert that a business rule violation occurs"""

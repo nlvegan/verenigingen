@@ -88,6 +88,7 @@ class MemberManager(BaseManager):
                 {
                     "member": member_id,
                     "enabled": enabled,
+                    "status": "Active",  # Explicitly set to Active for direct adds
                 },
             )
 
@@ -142,6 +143,320 @@ class MemberManager(BaseManager):
         except Exception as e:
             self.log_action("Failed to add member", {"member": member_id, "error": str(e)}, "error")
             raise
+
+    def request_to_join(
+        self,
+        member_id: str,
+        introduction: str = None,
+        website_url: str = None,
+        notify: bool = True,
+    ) -> Dict:
+        """
+        Request to join this chapter (creates pending membership)
+
+        Args:
+            member_id: Member ID
+            introduction: Member introduction text
+            website_url: Member website URL
+            notify: Whether to send notification
+
+        Returns:
+            Dict with operation result
+        """
+        self.validate_chapter_doc()
+
+        if not member_id:
+            frappe.throw(_("Member ID is required"))
+
+        try:
+            # Check if member exists
+            if not frappe.db.exists("Member", member_id):
+                frappe.throw(_("Member {0} does not exist").format(member_id))
+
+            # Check if member already exists in chapter
+            existing_member = self._find_chapter_member(member_id)
+            if existing_member:
+                if existing_member.status == "Pending":
+                    return {
+                        "success": False,
+                        "message": _("Your membership request is already pending approval"),
+                        "action": "already_pending",
+                    }
+                elif existing_member.status == "Active":
+                    return {
+                        "success": False,
+                        "message": _("You are already a member of this chapter"),
+                        "action": "already_member",
+                    }
+                elif existing_member.status == "Inactive" and existing_member.enabled:
+                    # Reactivate request
+                    existing_member.status = "Pending"
+                    existing_member.chapter_join_date = None
+                    self.chapter_doc.save()
+
+                    self.create_comment(
+                        "Info",
+                        _("Member {0} requested to rejoin chapter").format(self._get_member_name(member_id)),
+                    )
+
+                    if notify:
+                        self._notify_board_of_join_request(member_id)
+
+                    return {
+                        "success": True,
+                        "message": _("Your request to rejoin has been submitted for approval"),
+                        "action": "rejoin_requested",
+                    }
+
+            # Get member details
+            member_doc = frappe.get_doc("Member", member_id)
+
+            # Add to members table with Pending status
+            self.chapter_doc.append(
+                "members",
+                {
+                    "member": member_id,
+                    "enabled": 1,
+                    "status": "Pending",
+                    "chapter_join_date": None,  # Will be set upon approval
+                },
+            )
+
+            # Save chapter
+            try:
+                self.chapter_doc.save()
+            except frappe.TimestampMismatchError:
+                # Reload chapter and retry save once
+                self.chapter_doc.reload()
+                # Re-add the member to the reloaded document if not exists
+                if not any(m.member == member_id for m in self.chapter_doc.members):
+                    self.chapter_doc.append(
+                        "members",
+                        {
+                            "member": member_id,
+                            "enabled": 1,
+                            "status": "Pending",
+                        },
+                    )
+                    self.chapter_doc.save()
+
+            # Add membership history tracking
+            ChapterMembershipHistoryManager.add_membership_history(
+                member_id=member_id,
+                chapter_name=self.chapter_name,
+                assignment_type="Member",
+                start_date=today(),
+                reason=f"Requested to join {self.chapter_name} chapter",
+                new_status="Pending",
+            )
+
+            # Create audit comment
+            self.create_comment(
+                "Info", _("Member {0} requested to join chapter").format(member_doc.full_name)
+            )
+
+            # Send notification to board members
+            if notify:
+                self._notify_board_of_join_request(member_id)
+
+            return {
+                "success": True,
+                "message": _("Your request to join has been submitted for approval"),
+                "action": "requested",
+            }
+
+        except Exception as e:
+            frappe.log_error(f"Error in request_to_join: {str(e)}")
+            return {"success": False, "message": str(e)}
+
+    def _notify_board_of_join_request(self, member_id: str):
+        """Notify chapter board members of a new join request"""
+        try:
+            member_doc = frappe.get_doc("Member", member_id)
+
+            # Get board members
+            board_members = []
+            for board_member in self.chapter_doc.board_members:
+                if board_member.member:
+                    member_email = frappe.db.get_value("Member", board_member.member, "email")
+                    if member_email:
+                        board_members.append(member_email)
+
+            if board_members:
+                frappe.sendmail(
+                    recipients=board_members,
+                    subject=_("New Chapter Join Request - {0}").format(self.chapter_name),
+                    message=_(
+                        """
+                        <p>A new member has requested to join your chapter:</p>
+                        <p><strong>Member:</strong> {0}</p>
+                        <p><strong>Chapter:</strong> {1}</p>
+                        <p>Please review and approve/reject this request in the chapter dashboard.</p>
+                    """
+                    ).format(member_doc.full_name, self.chapter_name),
+                    delayed=False,
+                )
+        except Exception as e:
+            frappe.log_error(f"Error sending join request notification: {str(e)}")
+
+    def approve_member_request(self, member_id: str, approved_by: str = None) -> Dict:
+        """
+        Approve a pending member request
+
+        Args:
+            member_id: Member ID to approve
+            approved_by: User who approved the request
+
+        Returns:
+            Dict with operation result
+        """
+        self.validate_chapter_doc()
+
+        try:
+            # Find pending member request
+            existing_member = self._find_chapter_member(member_id)
+            if not existing_member:
+                return {"success": False, "message": _("No membership request found")}
+
+            if existing_member.status != "Pending":
+                return {"success": False, "message": _("Member request is not pending approval")}
+
+            # Approve the member
+            existing_member.status = "Active"
+            existing_member.chapter_join_date = today()
+
+            self.chapter_doc.save()
+
+            # Update membership history
+            ChapterMembershipHistoryManager.add_membership_history(
+                member_id=member_id,
+                chapter_name=self.chapter_name,
+                assignment_type="Member",
+                start_date=today(),
+                reason=f"Membership approved by {approved_by or frappe.session.user}",
+                new_status="Active",
+            )
+
+            # Create audit comment
+            member_doc = frappe.get_doc("Member", member_id)
+            self.create_comment(
+                "Info",
+                _("Approved membership request for {0} by {1}").format(
+                    member_doc.full_name, approved_by or frappe.session.user
+                ),
+            )
+
+            # Notify member of approval
+            self._notify_member_approved(member_id)
+
+            return {"success": True, "message": _("Member request approved successfully")}
+
+        except Exception as e:
+            frappe.log_error(f"Error approving member request: {str(e)}")
+            return {"success": False, "message": str(e)}
+
+    def reject_member_request(self, member_id: str, reason: str = None, rejected_by: str = None) -> Dict:
+        """
+        Reject a pending member request
+
+        Args:
+            member_id: Member ID to reject
+            reason: Reason for rejection
+            rejected_by: User who rejected the request
+
+        Returns:
+            Dict with operation result
+        """
+        self.validate_chapter_doc()
+
+        try:
+            # Find pending member request
+            existing_member = self._find_chapter_member(member_id)
+            if not existing_member:
+                return {"success": False, "message": _("No membership request found")}
+
+            if existing_member.status != "Pending":
+                return {"success": False, "message": _("Member request is not pending approval")}
+
+            # Remove the pending request
+            for i, member in enumerate(self.chapter_doc.members):
+                if member.member == member_id:
+                    self.chapter_doc.members.pop(i)
+                    break
+
+            self.chapter_doc.save()
+
+            # Update membership history
+            ChapterMembershipHistoryManager.add_membership_history(
+                member_id=member_id,
+                chapter_name=self.chapter_name,
+                assignment_type="Member",
+                start_date=today(),
+                end_date=today(),
+                reason=f"Membership request rejected: {reason or 'No reason provided'}",
+                new_status="Rejected",
+            )
+
+            # Create audit comment
+            member_doc = frappe.get_doc("Member", member_id)
+            self.create_comment(
+                "Info",
+                _("Rejected membership request for {0} by {1}. Reason: {2}").format(
+                    member_doc.full_name, rejected_by or frappe.session.user, reason or "No reason provided"
+                ),
+            )
+
+            # Notify member of rejection
+            self._notify_member_rejected(member_id, reason)
+
+            return {"success": True, "message": _("Member request rejected successfully")}
+
+        except Exception as e:
+            frappe.log_error(f"Error rejecting member request: {str(e)}")
+            return {"success": False, "message": str(e)}
+
+    def _notify_member_approved(self, member_id: str):
+        """Notify member that their request was approved"""
+        try:
+            member_doc = frappe.get_doc("Member", member_id)
+            if member_doc.email:
+                frappe.sendmail(
+                    recipients=[member_doc.email],
+                    subject=_("Chapter Membership Approved - {0}").format(self.chapter_name),
+                    message=_(
+                        """
+                        <p>Great news! Your request to join {0} has been approved.</p>
+                        <p>You are now an active member of the chapter and can participate in all chapter activities.</p>
+                        <p>Welcome to {0}!</p>
+                    """
+                    ).format(self.chapter_name),
+                    delayed=False,
+                )
+        except Exception as e:
+            frappe.log_error(f"Error sending approval notification: {str(e)}")
+
+    def _notify_member_rejected(self, member_id: str, reason: str = None):
+        """Notify member that their request was rejected"""
+        try:
+            member_doc = frappe.get_doc("Member", member_id)
+            if member_doc.email:
+                frappe.sendmail(
+                    recipients=[member_doc.email],
+                    subject=_("Chapter Membership Request - {0}").format(self.chapter_name),
+                    message=_(
+                        """
+                        <p>Thank you for your interest in joining {0}.</p>
+                        <p>Unfortunately, your membership request could not be approved at this time.</p>
+                        {1}
+                        <p>You are welcome to contact the chapter directly if you have any questions.</p>
+                    """
+                    ).format(
+                        self.chapter_name, f"<p><strong>Reason:</strong> {reason}</p>" if reason else ""
+                    ),
+                    delayed=False,
+                )
+        except Exception as e:
+            frappe.log_error(f"Error sending rejection notification: {str(e)}")
 
     def remove_member(
         self, member_id: str, leave_reason: str = None, permanent: bool = False, notify: bool = True

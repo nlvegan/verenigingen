@@ -864,7 +864,8 @@
   {
    "group": "Memberships",
    "link_doctype": "Membership",
-   "link_fieldname": "member"
+   "link_fieldname": "member",
+   "show_count": true
   },
   {
    "group": "Memberships",
@@ -874,7 +875,8 @@
   {
    "group": "Memberships",
    "link_doctype": "Membership Dues Schedule",
-   "link_fieldname": "member"
+   "link_fieldname": "member",
+   "show_count": true
   },
   {
    "group": "Memberships",
@@ -885,17 +887,26 @@
    "group": "Transactions",
    "link_doctype": "Payment Entry",
    "link_fieldname": "party",
-   "table_fieldname": "references"
+   "table_fieldname": "references",
+   "show_count": true
+  },
+  {
+   "group": "Financial",
+   "link_doctype": "Customer",
+   "link_fieldname": "member",
+   "show_count": true
   },
   {
    "group": "Financial",
    "link_doctype": "Sales Invoice",
-   "link_fieldname": "customer"
+   "link_fieldname": "member",
+   "show_count": true
   },
   {
    "group": "Financial",
    "link_doctype": "SEPA Mandate",
-   "link_fieldname": "member"
+   "link_fieldname": "member",
+   "show_count": true
   },
   {
    "group": "Volunteer",

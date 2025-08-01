@@ -1946,7 +1946,7 @@ class Member(
         except Exception as e:
             frappe.log_error(
                 f"Error adding fee change to history for member {self.name}: {str(e)}",
-                "Atomic Fee Change History Update",
+                "Fee Change History Update",
             )
             # Ensure method closure
             return
@@ -1998,11 +1998,348 @@ class Member(
         except Exception as e:
             frappe.log_error(
                 f"Error updating fee change in history for member {self.name}: {str(e)}",
-                "Atomic Fee Change History Update",
+                "Fee Change History Update",
             )
+
+    @frappe.whitelist()
+    def incremental_update_history_tables(self):
+        """
+        Incremental update of both donation and volunteer expense history tables.
+        Only updates rows where data has actually changed.
+        """
+        try:
+            changes_made = False
+            donation_changes = 0
+            expense_changes = 0
+
+            # Update donation history if donor is linked
+            if hasattr(self, "donor") and self.donor:
+                from verenigingen.utils.donation_history_manager import update_donor_history_table
+
+                # This already does incremental updates - check if it made changes
+                original_donation_count = len(getattr(self, "donation_history", []))
+                update_donor_history_table(self.donor)
+                # Reload to get updated donation history
+                self.reload()
+                new_donation_count = len(getattr(self, "donation_history", []))
+                donation_changes = abs(new_donation_count - original_donation_count)
+                if donation_changes > 0:
+                    changes_made = True
+
+            # Update volunteer expense history if employee is linked
+            if hasattr(self, "employee") and self.employee:
+                removed_count = 0
+                updated_count = 0
+                added_count = 0
+
+                # Get the 20 most recent expense claims
+                current_claims = frappe.get_all(
+                    "Expense Claim",
+                    filters={"employee": self.employee},
+                    fields=[
+                        "name",
+                        "employee",
+                        "posting_date",
+                        "total_claimed_amount",
+                        "total_sanctioned_amount",
+                        "status",
+                        "approval_status",
+                        "docstatus",
+                    ],
+                    order_by="posting_date desc",
+                    limit=20,
+                )
+
+                # Build a lookup of existing expense entries
+                existing_expenses = {row.expense_claim: row for row in (self.volunteer_expenses or [])}
+                current_claim_names = {claim.name for claim in current_claims}
+
+                # Remove entries that are no longer in the top 20
+                rows_to_remove = []
+                for idx, row in enumerate(self.volunteer_expenses or []):
+                    if row.expense_claim not in current_claim_names:
+                        rows_to_remove.append(idx)
+
+                # Remove in reverse order to maintain indices
+                for idx in reversed(rows_to_remove):
+                    self.volunteer_expenses.pop(idx)
+                    removed_count += 1
+
+                # Process each current claim
+                for claim in current_claims:
+                    # Build what the row should look like using available data (avoid loading full doc)
+                    expected_row = self._build_lightweight_expense_entry(claim)
+
+                    if claim.name in existing_expenses:
+                        # Check if existing row needs updating
+                        existing_row = existing_expenses[claim.name]
+                        needs_update = False
+
+                        for field, expected_value in expected_row.items():
+                            if getattr(existing_row, field, None) != expected_value:
+                                setattr(existing_row, field, expected_value)
+                                needs_update = True
+
+                        if needs_update:
+                            updated_count += 1
+                    else:
+                        # Add new row using the mixin method (which handles proper insertion)
+                        self.add_expense_to_history(claim.name)
+                        added_count += 1
+
+                expense_changes = removed_count + updated_count + added_count
+                if expense_changes > 0:
+                    changes_made = True
+
+            # Only save if something actually changed
+            if changes_made:
+                self.save()
+
+            return {
+                "overall_success": True,
+                "volunteer_expenses": {"success": True, "count": expense_changes},
+                "donations": {"success": True, "count": donation_changes},
+                "message": f"Incremental update: {donation_changes} donation changes, {expense_changes} expense changes",
+            }
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error in incremental history update for member {self.name}: {str(e)}",
+                "Incremental History Update",
+            )
+            return {
+                "overall_success": False,
+                "volunteer_expenses": {"success": False, "error": str(e)},
+                "donations": {"success": False, "error": str(e)},
+                "message": f"Error updating history tables: {str(e)}",
+            }
+
+    def _build_lightweight_expense_entry(self, claim_data):
+        """
+        Build expense history entry from claim data without loading full document.
+        Uses data already available from frappe.get_all() call.
+        """
+        try:
+            # Get volunteer information
+            volunteer_name = None
+            if hasattr(claim_data, "employee") or "employee" in claim_data:
+                employee = getattr(claim_data, "employee", claim_data.get("employee"))
+                if employee:
+                    # First try to find volunteer by employee_id field and member link
+                    volunteer_name = frappe.db.get_value(
+                        "Volunteer", {"employee_id": employee, "member": self.name}, "name"
+                    )
+
+                    # Fallback: if not found, try without member filter
+                    if not volunteer_name:
+                        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": employee}, "name")
+
+            # Get basic expense information
+            expense_name = getattr(claim_data, "name", claim_data.get("name"))
+            expense_status = getattr(claim_data, "status", claim_data.get("status", "Draft"))
+            docstatus = getattr(claim_data, "docstatus", claim_data.get("docstatus", 0))
+            approval_status = getattr(claim_data, "approval_status", claim_data.get("approval_status"))
+
+            # Apply status logic based on docstatus and approval_status
+            if docstatus == 0:
+                expense_status = "Draft"
+            elif docstatus == 1:
+                if approval_status == "Rejected":
+                    expense_status = "Rejected"
+                # Otherwise use the status from the expense claim (Paid/Unpaid/Submitted/etc.)
+
+            # Check for existing payment to determine payment_status
+            payment_entry = None
+            payment_date = None
+            paid_amount = 0
+            payment_method = None
+            payment_status = "Pending"
+
+            # Look for payment entries referencing this expense claim
+            payment_refs = frappe.get_all(
+                "Payment Entry Reference",
+                filters={"reference_doctype": "Expense Claim", "reference_name": expense_name},
+                fields=["parent", "allocated_amount"],
+            )
+
+            if payment_refs:
+                # Get the most recent payment
+                payment_entries = frappe.get_all(
+                    "Payment Entry",
+                    filters={"name": ["in", [ref.parent for ref in payment_refs]], "docstatus": 1},
+                    fields=["name", "posting_date", "paid_amount", "mode_of_payment"],
+                    order_by="posting_date desc",
+                )
+
+                if payment_entries:
+                    payment_entry = payment_entries[0].name
+                    payment_date = payment_entries[0].posting_date
+                    paid_amount = payment_entries[0].paid_amount
+                    payment_method = payment_entries[0].mode_of_payment
+                    payment_status = "Paid"
+
+            return {
+                "expense_claim": expense_name,
+                "volunteer": volunteer_name,
+                "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
+                "total_claimed_amount": getattr(
+                    claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
+                ),
+                "total_sanctioned_amount": getattr(
+                    claim_data, "total_sanctioned_amount", claim_data.get("total_sanctioned_amount", 0)
+                ),
+                "status": expense_status,
+                "payment_entry": payment_entry,
+                "payment_date": payment_date,
+                "paid_amount": paid_amount,
+                "payment_method": payment_method,
+                "payment_status": payment_status,
+            }
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error building lightweight expense entry for {getattr(claim_data, 'name', 'unknown')}: {str(e)}",
+                "Lightweight Expense Entry Build Error",
+            )
+            # Return minimal entry on error
+            return {
+                "expense_claim": getattr(claim_data, "name", claim_data.get("name")),
+                "volunteer": None,
+                "posting_date": getattr(claim_data, "posting_date", claim_data.get("posting_date")),
+                "total_claimed_amount": getattr(
+                    claim_data, "total_claimed_amount", claim_data.get("total_claimed_amount", 0)
+                ),
+                "total_sanctioned_amount": getattr(
+                    claim_data, "total_sanctioned_amount", claim_data.get("total_sanctioned_amount", 0)
+                ),
+                "status": getattr(claim_data, "status", claim_data.get("status", "Draft")),
+                "payment_entry": None,
+                "payment_date": None,
+                "paid_amount": 0,
+                "payment_method": None,
+                "payment_status": "Unknown",
+            }
 
 
 # Module-level functions for static calls
+
+
+@frappe.whitelist()
+def test_incremental_update_method():
+    """Test function to validate incremental_update_history_tables method exists"""
+    try:
+        # Get a member with employee for testing
+        member = frappe.db.get_value("Member", {"employee": ["!=", ""]}, "name")
+        if member:
+            member_doc = frappe.get_doc("Member", member)
+            has_method = hasattr(member_doc, "incremental_update_history_tables")
+            return {
+                "success": True,
+                "member": member,
+                "has_method": has_method,
+                "message": f'Method {"found" if has_method else "NOT found"} on Member {member}',
+            }
+        else:
+            return {"success": False, "message": "No member with employee found for testing"}
+    except Exception as e:
+        return {"success": False, "message": f"Error: {str(e)}"}
+
+
+@frappe.whitelist()
+def test_payment_status_detection():
+    """Test function to verify payment status detection in lightweight expense entry builder"""
+    try:
+        # Get a member with employee and expense claims
+        member = frappe.db.get_value("Member", {"employee": ["!=", ""]}, "name")
+        if not member:
+            return {"success": False, "message": "No member with employee found"}
+
+        member_doc = frappe.get_doc("Member", member)
+        if not member_doc.employee:
+            return {"success": False, "message": "Member has no employee linked"}
+
+        # Get expense claims for this employee
+        expense_claims = frappe.get_all(
+            "Expense Claim",
+            filters={"employee": member_doc.employee},
+            fields=[
+                "name",
+                "employee",
+                "posting_date",
+                "total_claimed_amount",
+                "total_sanctioned_amount",
+                "status",
+                "approval_status",
+                "docstatus",
+            ],
+            order_by="posting_date desc",
+            limit=5,
+        )
+
+        if not expense_claims:
+            return {
+                "success": False,
+                "message": f"No expense claims found for employee {member_doc.employee}",
+            }
+
+        # Test the lightweight expense entry builder
+        results = []
+        for claim in expense_claims:
+            entry = member_doc._build_lightweight_expense_entry(claim)
+            results.append(
+                {
+                    "expense_claim": entry["expense_claim"],
+                    "status": entry["status"],
+                    "payment_status": entry["payment_status"],
+                    "docstatus": claim.docstatus,
+                    "original_status": claim.status,
+                }
+            )
+
+        return {
+            "success": True,
+            "member": member,
+            "employee": member_doc.employee,
+            "expense_claims_tested": len(results),
+            "results": results,
+            "message": f"Tested {len(results)} expense claims for payment status detection",
+        }
+
+    except Exception as e:
+        return {"success": False, "message": f"Error: {str(e)}"}
+
+
+@frappe.whitelist()
+def test_incremental_update_result():
+    """Test function to check incremental update results"""
+    try:
+        member_doc = frappe.get_doc("Member", "Assoc-Member-2025-07-0030")
+        result = member_doc.incremental_update_history_tables()
+
+        # Check what's in the volunteer_expenses child table
+        expense_info = []
+        if hasattr(member_doc, "volunteer_expenses") and member_doc.volunteer_expenses:
+            for i, row in enumerate(member_doc.volunteer_expenses[:5]):  # Show first 5
+                expense_info.append(
+                    {
+                        "expense_claim": row.expense_claim,
+                        "status": row.status,
+                        "payment_status": getattr(row, "payment_status", "N/A"),
+                    }
+                )
+
+        return {
+            "success": True,
+            "update_result": result,
+            "expense_count": len(member_doc.volunteer_expenses or []),
+            "expense_details": expense_info,
+            "message": f"Incremental update completed. Found {len(expense_info)} expenses in child table.",
+        }
+
+    except Exception as e:
+        return {"success": False, "message": f"Error: {str(e)}"}
+
+
 @frappe.whitelist()
 def is_chapter_management_enabled():
     """Check if chapter management is enabled in settings"""
@@ -2764,10 +3101,14 @@ def create_donor_from_member(member_name):
         donor.donor_name = member.full_name
         donor.donor_email = member.email
 
-        # Set mandatory fields
+        # Set mandatory fields (only donor_name, donor_type, and donor_email are required)
         donor.donor_type = "Individual"
-        donor.contact_person = member.full_name
-        # Set phone with proper fallback using international format
+
+        # Set optional fields only if they exist in the DocType and have values
+        if member.full_name:
+            donor.contact_person = member.full_name
+
+        # Set phone only if member has a phone number (phone is NOT required in Donor DocType)
         if member.contact_number and member.contact_number.strip():
             # If the number doesn't start with +, assume it's Dutch and add +31
             phone_number = member.contact_number
@@ -2778,33 +3119,33 @@ def create_donor_from_member(member_name):
                 else:
                     phone_number = "+31" + phone_number  # Add +31 prefix
             donor.phone = phone_number
-        else:
-            # Since phone is required, use a valid Dutch placeholder format
-            donor.phone = "+31000000000"  # Valid international format placeholder
-        donor.contact_person_address = "As per member record"
+        # No else clause - phone is optional, leave it empty if no phone number
+
+        # Set donor category if available
         donor.donor_category = "Regular Donor"
 
-        # Copy address information if available
+        # Copy address information if available (using the 'address' field that exists in DocType)
         if member.primary_address:
             try:
                 address_doc = frappe.get_doc("Address", member.primary_address)
-                donor.address_line_1 = address_doc.address_line1
-                donor.address_line_2 = address_doc.address_line2 or ""
-                donor.city = address_doc.city
-                donor.state = address_doc.state
-                donor.pincode = address_doc.pincode
-                donor.country = address_doc.country
+                # Use the single 'address' field that exists in the DocType
+                address_parts = []
+                if address_doc.address_line1:
+                    address_parts.append(address_doc.address_line1)
+                if address_doc.address_line2:
+                    address_parts.append(address_doc.address_line2)
+                if address_doc.city:
+                    address_parts.append(address_doc.city)
+                if address_doc.pincode:
+                    address_parts.append(address_doc.pincode)
+                if address_doc.country:
+                    address_parts.append(address_doc.country)
+                donor.address = ", ".join(address_parts)
             except Exception as addr_e:
                 frappe.logger().warning(f"Could not copy address from member {member_name}: {str(addr_e)}")
 
-        # Set other fields
-        donor.pan_number = ""  # Can be filled manually later
-
-        # Copy additional contact information if available
-        if hasattr(member, "contact_number") and member.contact_number:
-            # Phone is already set above, but we can copy to mobile_no field if it exists in Donor
-            if hasattr(donor, "mobile_no"):
-                donor.mobile_no = member.contact_number
+        # Link to the member record
+        donor.member = member.name
 
         # System operation: automated donor creation during member setup
         donor.insert(ignore_permissions=True)  # JUSTIFIED: System operation
@@ -3465,33 +3806,3 @@ def fix_existing_member_workflow_status():
     except Exception as e:
         frappe.log_error(f"Error fixing member workflow status: {str(e)}", "Member Workflow Fix")
         return {"success": False, "message": f"Error: {str(e)}"}
-
-    def _get_default_item_group(self):
-        """Get default item group for membership items with validation"""
-        # Check if membership item group is configured
-        settings_item_group = frappe.db.get_single_value("Verenigingen Settings", "default_item_group")
-        if settings_item_group and frappe.db.exists("Item Group", settings_item_group):
-            return settings_item_group
-
-        # Check company default item group
-        try:
-            company = frappe.defaults.get_user_default("Company")
-            if company:
-                company_item_group = frappe.db.get_single_value("Company", company, "default_item_group")
-                if company_item_group and frappe.db.exists("Item Group", company_item_group):
-                    return company_item_group
-        except Exception:
-            pass
-
-        # Check if "Services" exists, otherwise find first available
-        if frappe.db.exists("Item Group", "Services"):
-            return "Services"
-
-        # Find first available item group
-        first_group = frappe.db.get_value("Item Group", {}, "name")
-        if first_group:
-            return first_group
-
-        frappe.throw(
-            _("No Item Group found. Please create at least one Item Group before creating membership items.")
-        )

@@ -500,12 +500,12 @@ class TestMembershipController(VereningingenUnitTestCase):
 
         # Test normal amount
         amount = membership.calculate_effective_amount()
-        self.assertEqual(amount, membership_type.amount)
+        self.assertEqual(amount, membership_type.minimum_amount)
 
         # Test with discount
         membership.discount_percentage = 25
         amount = membership.calculate_effective_amount()
-        expected = membership_type.amount * 0.75
+        expected = membership_type.minimum_amount * 0.75
         self.assertEqual(amount, expected)
 
         # Test with fee override on member

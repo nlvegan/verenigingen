@@ -422,7 +422,7 @@ class TestPaymentProcessingEmailTemplates(unittest.TestCase):
         # Mock membership type
         with patch("frappe.get_doc") as mock_get_doc:
             mock_membership_type = MagicMock()
-            mock_membership_type.amount = 50.0
+            mock_membership_type.minimum_amount = 50.0
             mock_get_doc.return_value = mock_membership_type
 
             # Call function

@@ -431,12 +431,11 @@ class PerformanceDashboard:
                     """
                 SELECT COUNT(DISTINCT si.name)
                 FROM `tabSales Invoice` si
-                INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = (
-                    SELECT member FROM `tabMember` WHERE customer = si.customer LIMIT 1
-                )
+                INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = si.member
                 WHERE si.creation >= %s
                 AND si.docstatus = 1
                 AND mds.status = 'Active'
+                AND si.member IS NOT NULL
             """,
                     (today_start,),
                 )[0][0]
@@ -483,12 +482,11 @@ class PerformanceDashboard:
                     """
                 SELECT COUNT(DISTINCT si.name)
                 FROM `tabSales Invoice` si
-                INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = (
-                    SELECT member FROM `tabMember` WHERE customer = si.customer LIMIT 1
-                )
+                INNER JOIN `tabMembership Dues Schedule` mds ON mds.member = si.member
                 WHERE si.creation >= %s
                 AND si.docstatus = 1
                 AND mds.status = 'Active'
+                AND si.member IS NOT NULL
             """,
                     (today_start,),
                 )[0][0]

@@ -1,0 +1,52 @@
+[
+ {
+  "doctype": "Team Role",
+  "name": "Team Leader",
+  "role_name": "Team Leader",
+  "description": "Leads the team and coordinates activities. Responsible for team management and decision-making.",
+  "permissions_level": "Leader",
+  "is_team_leader": 1,
+  "is_unique": 1,
+  "is_active": 1
+ },
+ {
+  "doctype": "Team Role",
+  "name": "Team Member",
+  "role_name": "Team Member",
+  "description": "General team member participating in team activities and projects.",
+  "permissions_level": "Basic",
+  "is_team_leader": 0,
+  "is_unique": 0,
+  "is_active": 1
+ },
+ {
+  "doctype": "Team Role",
+  "name": "Coordinator",
+  "role_name": "Coordinator",
+  "description": "Coordinates specific aspects of team work and assists team leadership.",
+  "permissions_level": "Coordinator",
+  "is_team_leader": 0,
+  "is_unique": 0,
+  "is_active": 1
+ },
+ {
+  "doctype": "Team Role",
+  "name": "Secretary",
+  "role_name": "Secretary",
+  "description": "Maintains team records, minutes, and handles administrative tasks.",
+  "permissions_level": "Coordinator",
+  "is_team_leader": 0,
+  "is_unique": 1,
+  "is_active": 1
+ },
+ {
+  "doctype": "Team Role",
+  "name": "Treasurer",
+  "role_name": "Treasurer",
+  "description": "Manages team finances, budgets, and financial reporting.",
+  "permissions_level": "Coordinator",
+  "is_team_leader": 0,
+  "is_unique": 1,
+  "is_active": 1
+ }
+]

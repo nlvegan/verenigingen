@@ -491,7 +491,7 @@ class TestMembershipDuesStressTesting(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Performance Test {suffix} {self.stress_test_prefix}"
         membership_type.description = f"Performance testing membership type {suffix}"
-        membership_type.amount = 50.0
+        membership_type.minimum_amount = 50.0
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.enable_income_calculator = 1

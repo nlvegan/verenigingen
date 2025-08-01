@@ -9,6 +9,43 @@ import frappe
 from frappe import _
 
 
+def handle_expense_claim_updated(event_name=None, event_data=None):
+    """
+    Handle any expense claim status change - add/update in member expense history.
+
+    This handles all expense claim statuses: draft, submitted, approved, rejected.
+    """
+    if not event_data:
+        return
+
+    member = event_data.get("member")
+    volunteer = event_data.get("volunteer")
+    expense_claim = event_data.get("expense_claim")
+    action = event_data.get("action")
+
+    # Only process volunteer expenses with member links
+    if not member or not volunteer or not expense_claim:
+        return
+
+    try:
+        # Get member document
+        member_doc = frappe.get_doc("Member", member)
+
+        # Always add/update expense in history for all statuses
+        if hasattr(member_doc, "add_expense_to_history"):
+            member_doc.add_expense_to_history(expense_claim)
+
+        frappe.logger("expense_history").info(
+            f"Updated expense claim {expense_claim} in history for member {member} (volunteer {volunteer}, action: {action})"
+        )
+
+    except Exception as e:
+        frappe.log_error(
+            f"Failed to handle expense claim update {expense_claim} for member {member}: {str(e)}",
+            "Expense History Update Error",
+        )
+
+
 def handle_expense_claim_approved(event_name=None, event_data=None):
     """
     Handle expense claim approval - add to member expense history.

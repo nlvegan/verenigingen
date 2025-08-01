@@ -537,6 +537,20 @@ function add_consolidated_action_buttons(frm) {
 		}, __('Member Actions'));
 	}
 
+	// Payment history update
+	frm.add_custom_button(__('Update Payment History'), function() {
+		incremental_update_history_tables(frm);
+	}, __('Member Actions'));
+
+	// View complete expense history (if employee is linked)
+	if (frm.doc.employee) {
+		frm.add_custom_button(__('View Complete Expense History'), function() {
+			frappe.set_route('List', 'Expense Claim', {
+				'employee': frm.doc.employee
+			});
+		}, __('Member Actions'));
+	}
+
 	// Chapter assignment
 	add_chapter_assignment_button(frm);
 
@@ -873,12 +887,21 @@ function add_termination_action_button(frm) {
 
 function add_suspension_action_button(frm) {
 	frappe.call({
-		method: 'verenigingen.api.suspension_api.get_suspension_status',
+		method: 'verenigingen.api.suspension_api.get_suspension_status_safe',
 		args: {
 			member_name: frm.doc.name
 		},
 		callback: function(status_result) {
-			if (status_result.message) {
+			// Handle error responses gracefully
+			if (status_result.message && status_result.message.error) {
+				// If user doesn't have permission, just don't show suspension buttons
+				if (status_result.message.access_denied) {
+					return; // Silent fail for permission errors
+				}
+				console.warn('Suspension status check failed:', status_result.message.error);
+				return;
+			}
+			if (status_result.message && !status_result.message.error) {
 				const status = status_result.message;
 
 				if (status.is_suspended) {
@@ -1584,12 +1607,20 @@ function add_suspension_buttons(frm) {
 
 			// Get current suspension status
 			frappe.call({
-				method: 'verenigingen.api.suspension_api.get_suspension_status',
+				method: 'verenigingen.api.suspension_api.get_suspension_status_safe',
 				args: {
 					member_name: frm.doc.name
 				},
 				callback: function(status_result) {
-					if (status_result.message) {
+					// Handle error responses gracefully
+					if (status_result.message && status_result.message.error) {
+						if (status_result.message.access_denied) {
+							return; // Silent fail for permission errors
+						}
+						console.warn('Suspension status check failed:', status_result.message.error);
+						return;
+					}
+					if (status_result.message && !status_result.message.error) {
 						const status = status_result.message;
 
 						if (status.is_suspended) {
@@ -1778,12 +1809,20 @@ function display_suspension_status(frm) {
 	if (!frm.doc.name) return;
 
 	frappe.call({
-		method: 'verenigingen.api.suspension_api.get_suspension_status',
+		method: 'verenigingen.api.suspension_api.get_suspension_status_safe',
 		args: {
 			member_name: frm.doc.name
 		},
 		callback: function(r) {
-			if (r.message) {
+			// Handle error responses gracefully
+			if (r.message && r.message.error) {
+				if (r.message.access_denied) {
+					return; // Silent fail for permission errors
+				}
+				console.warn('Suspension status display failed:', r.message.error);
+				return;
+			}
+			if (r.message && !r.message.error) {
 				const status = r.message;
 
 				if (status.is_suspended) {
@@ -2712,4 +2751,68 @@ function generate_manual_invoice_for_member(frm, member_info) {
 			}
 		}
 	});
+}
+
+// ==================== ATOMIC HISTORY TABLE UPDATE ====================
+
+function incremental_update_history_tables(frm) {
+	if (!frm.doc.name || frm.doc.__islocal) {
+		frappe.msgprint(__('Please save the member record first.'));
+		return;
+	}
+
+	frappe.confirm(
+		__('This will update both volunteer expense and donation payment history with the most recent entries. Continue?'),
+		function() {
+			frappe.call({
+				method: 'incremental_update_history_tables',
+				doc: frm.doc,
+				freeze: true,
+				freeze_message: __('Updating payment history...'),
+				callback: function(r) {
+					if (r.message && r.message.overall_success) {
+						let message_parts = [];
+
+						// Add volunteer expenses results
+						if (r.message.volunteer_expenses.success) {
+							message_parts.push(__('Volunteer Expenses: Updated {0} entries', [r.message.volunteer_expenses.count]));
+						} else if (r.message.volunteer_expenses.error) {
+							message_parts.push(__('Volunteer Expenses: {0}', [r.message.volunteer_expenses.error]));
+						}
+
+						// Add donations results
+						if (r.message.donations.success) {
+							message_parts.push(__('Donations: Updated {0} entries', [r.message.donations.count]));
+						} else if (r.message.donations.error) {
+							message_parts.push(__('Donations: {0}', [r.message.donations.error]));
+						}
+
+						frappe.show_alert({
+							message: __('History tables updated successfully:<br>{0}', [message_parts.join('<br>')]),
+							indicator: 'green'
+						}, 7);
+
+						// Refresh the form to show updated tables
+						frm.reload_doc();
+					} else {
+						let error_message = r.message ? r.message.error : __('Unknown error occurred');
+						let error_parts = [];
+
+						if (r.message && r.message.volunteer_expenses.error) {
+							error_parts.push(__('Volunteer Expenses: {0}', [r.message.volunteer_expenses.error]));
+						}
+						if (r.message && r.message.donations.error) {
+							error_parts.push(__('Donations: {0}', [r.message.donations.error]));
+						}
+
+						frappe.msgprint({
+							title: __('Update Failed'),
+							message: error_parts.length > 0 ? error_parts.join('<br><br>') : error_message,
+							indicator: 'red'
+						});
+					}
+				}
+			});
+		}
+	);
 }

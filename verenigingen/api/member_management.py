@@ -1670,3 +1670,89 @@ def can_approve_members():
     required_roles = ["System Manager", "Verenigingen Administrator", "Chapter Administrator", "Board Member"]
 
     return any(role in user_roles for role in required_roles)
+
+
+@frappe.whitelist()
+def test_member_incremental_update_debug():
+    """Test the incremental update functionality with the specific member"""
+    try:
+        member_name = "Assoc-Member-2025-07-0030"
+        result = {"member_name": member_name, "status": "testing", "details": []}
+
+        # Get the member document
+        member_doc = frappe.get_doc("Member", member_name)
+        result["details"].append(f"Member found: {member_doc.name}")
+        result["details"].append(f"Member employee: {getattr(member_doc, 'employee', 'None')}")
+        result["details"].append(f"Member donor: {getattr(member_doc, 'donor', 'None')}")
+
+        # Check current volunteer expenses
+        current_expenses = getattr(member_doc, "volunteer_expenses", [])
+        result["details"].append(f"Current volunteer expense entries: {len(current_expenses)}")
+
+        for idx, expense in enumerate(current_expenses):
+            result["details"].append(
+                f"  {idx + 1}. {expense.expense_claim} - {expense.status} - {expense.total_sanctioned_amount}"
+            )
+
+        # Check if member has employee and what expense claims exist
+        if hasattr(member_doc, "employee") and member_doc.employee:
+            result["details"].append(f"Checking expense claims for employee: {member_doc.employee}")
+
+            # Get expense claims from database
+            expense_claims = frappe.get_all(
+                "Expense Claim",
+                filters={"employee": member_doc.employee},
+                fields=[
+                    "name",
+                    "posting_date",
+                    "total_claimed_amount",
+                    "total_sanctioned_amount",
+                    "status",
+                    "approval_status",
+                    "docstatus",
+                ],
+                order_by="posting_date desc",
+                limit=25,
+            )
+
+            result["details"].append(f"Found {len(expense_claims)} expense claims in database:")
+            for claim in expense_claims:
+                result["details"].append(
+                    f"  - {claim.name}: {claim.status} (docstatus: {claim.docstatus}) - {claim.total_sanctioned_amount}"
+                )
+
+        # Test the incremental update method
+        result["details"].append("Testing incremental_update_history_tables method...")
+
+        # Check if method exists
+        if hasattr(member_doc, "incremental_update_history_tables"):
+            result["details"].append("Method exists on member document")
+
+            # Call the method
+            method_result = member_doc.incremental_update_history_tables()
+            result["details"].append(f"Method result: {method_result}")
+            result["method_result"] = method_result
+
+            # Check the updated expenses after the call
+            member_doc.reload()
+            updated_expenses = getattr(member_doc, "volunteer_expenses", [])
+            result["details"].append(f"Volunteer expense entries after update: {len(updated_expenses)}")
+            for idx, expense in enumerate(updated_expenses):
+                result["details"].append(
+                    f"  {idx + 1}. {expense.expense_claim} - {expense.status} - {expense.total_sanctioned_amount}"
+                )
+
+        else:
+            result["details"].append(
+                "ERROR: incremental_update_history_tables method not found on member document"
+            )
+
+        result["status"] = "success"
+        return result
+
+    except Exception as e:
+        result = {"status": "error", "error": str(e)}
+        import traceback
+
+        result["traceback"] = traceback.format_exc()
+        return result

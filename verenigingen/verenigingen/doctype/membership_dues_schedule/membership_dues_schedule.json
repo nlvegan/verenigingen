@@ -23,6 +23,7 @@
         "section_schedule",
         "next_invoice_date",
         "last_invoice_date",
+        "end_date",
         "invoice_days_before",
         "billing_day",
         "section_coverage_tracking",
@@ -185,6 +186,13 @@
             "fieldtype": "Date",
             "label": "Last Invoice Date",
             "read_only": 1
+        },
+        {
+            "description": "Date when this dues schedule was terminated or cancelled",
+            "fieldname": "end_date",
+            "fieldtype": "Date",
+            "label": "End Date",
+            "depends_on": "eval:doc.status === 'Cancelled'"
         },
         {
             "default": "30",

@@ -182,51 +182,72 @@ function display_donation_summary(frm, summary) {
 
 // ANBI-specific functions
 function setup_anbi_features(frm) {
-	// Add ANBI buttons if user has appropriate permissions
+	// Add simplified ANBI operations for tax identifiers only
 	if (frm.perm[1] && frm.perm[1].read) {  // Check permlevel 1 permissions
-		frm.add_custom_button(__('ANBI Operations'), function() {
-			show_anbi_menu(frm);
-		}, __('Actions'));
+		frm.add_custom_button(__('Validate BSN'), function() {
+			validate_bsn_dialog(frm);
+		}, __('ANBI'));
+
+		frm.add_custom_button(__('Update Tax ID'), function() {
+			update_tax_id_dialog(frm);
+		}, __('ANBI'));
 
 		// Add visual indicators for ANBI compliance
 		add_anbi_indicators(frm);
 	}
 
+	// Add button for creating periodic donation agreement
+	frm.add_custom_button(__('Create Donation Agreement'), function() {
+		frappe.new_doc('Periodic Donation Agreement', {
+			donor: frm.doc.name,
+			donor_name: frm.doc.donor_name
+		});
+	}, __('Create'));
+
 	// Update field visibility based on donor type
 	update_tax_field_visibility(frm);
 }
 
-function show_anbi_menu(frm) {
+function validate_bsn_dialog(frm) {
 	let d = new frappe.ui.Dialog({
-		title: __('ANBI Operations'),
+		title: __('Validate BSN'),
 		fields: [
-			{
-				label: __('Select Operation'),
-				fieldname: 'operation',
-				fieldtype: 'Select',
-				options: [
-					'Update Tax Identifiers',
-					'Validate BSN',
-					'Generate ANBI Report',
-					'Update ANBI Consent'
-				],
-				reqd: 1,
-				change: function() {
-					update_anbi_dialog_fields(d);
-				}
-			},
 			{
 				label: __('BSN (Citizen Service Number)'),
 				fieldname: 'bsn',
 				fieldtype: 'Data',
-				depends_on: 'eval:doc.operation==\'Update Tax Identifiers\' || doc.operation==\'Validate BSN\'',
+				reqd: 1,
+				description: __('9-digit Dutch citizen service number'),
+				change: function() {
+					validate_bsn_format(d, this.get_value());
+				}
+			}
+		],
+		primary_action_label: __('Validate'),
+		primary_action: function(values) {
+			if (validate_bsn_format(d, values.bsn)) {
+				validate_bsn(values.bsn);
+				d.hide();
+			}
+		}
+	});
+	d.show();
+}
+
+function update_tax_id_dialog(frm) {
+	let d = new frappe.ui.Dialog({
+		title: __('Update Tax Identifiers'),
+		fields: [
+			{
+				label: __('BSN (Citizen Service Number)'),
+				fieldname: 'bsn',
+				fieldtype: 'Data',
 				description: __('9-digit Dutch citizen service number')
 			},
 			{
 				label: __('RSIN (Organization Tax Number)'),
 				fieldname: 'rsin',
 				fieldtype: 'Data',
-				depends_on: 'eval:doc.operation==\'Update Tax Identifiers\'',
 				description: __('8 or 9-digit organization tax number')
 			},
 			{
@@ -234,54 +255,47 @@ function show_anbi_menu(frm) {
 				fieldname: 'verification_method',
 				fieldtype: 'Select',
 				options: '\nDigiD\nManual\nBank Verification\nOther',
-				depends_on: 'eval:doc.operation==\'Update Tax Identifiers\''
-			},
-			{
-				label: __('ANBI Consent'),
-				fieldname: 'consent',
-				fieldtype: 'Check',
-				depends_on: 'eval:doc.operation==\'Update ANBI Consent\''
-			},
-			{
-				label: __('Reason (if withdrawing consent)'),
-				fieldname: 'reason',
-				fieldtype: 'Small Text',
-				depends_on: 'eval:doc.operation==\'Update ANBI Consent\' && !doc.consent'
+				reqd: 1
 			}
 		],
-		primary_action_label: __('Execute'),
+		primary_action_label: __('Update'),
 		primary_action: function(values) {
-			execute_anbi_operation(frm, values);
+			update_tax_identifiers(frm, values);
 			d.hide();
 		}
 	});
-
 	d.show();
 }
 
-function update_anbi_dialog_fields(dialog) {
-	// Reset fields based on selected operation
-	let operation = dialog.get_value('operation');
+// BSN format validation function
+function validate_bsn_format(dialog, bsn) {
+	if (!bsn) return false;
 
-	if (operation === 'Validate BSN') {
-		dialog.set_df_property('bsn', 'reqd', 1);
-	} else if (operation === 'Update Tax Identifiers') {
-		dialog.set_df_property('verification_method', 'reqd', 1);
+	// Clean BSN - remove spaces and non-digits
+	let clean_bsn = bsn.replace(/\D/g, '');
+
+	// Check length
+	if (clean_bsn.length !== 9) {
+		dialog.set_df_property('bsn', 'description',
+			__('Invalid: BSN must be exactly 9 digits (currently {0})', [clean_bsn.length]));
+		return false;
 	}
-}
 
-function execute_anbi_operation(frm, values) {
-	let operation = values.operation;
-
-	if (operation === 'Update Tax Identifiers') {
-		update_tax_identifiers(frm, values);
-	} else if (operation === 'Validate BSN') {
-		validate_bsn(values.bsn);
-	} else if (operation === 'Generate ANBI Report') {
-		generate_anbi_report(frm);
-	} else if (operation === 'Update ANBI Consent') {
-		update_anbi_consent(frm, values);
+	// Check for obvious invalid patterns
+	if (clean_bsn === '000000000' || clean_bsn === '111111111' ||
+		clean_bsn === '222222222' || clean_bsn === '333333333' ||
+		clean_bsn === '444444444' || clean_bsn === '555555555' ||
+		clean_bsn === '666666666' || clean_bsn === '777777777' ||
+		clean_bsn === '888888888' || clean_bsn === '999999999') {
+		dialog.set_df_property('bsn', 'description',
+			__('Invalid: BSN cannot be all the same digit'));
+		return false;
 	}
+
+	// Reset to normal description if valid format
+	dialog.set_df_property('bsn', 'description',
+		__('9-digit Dutch citizen service number'));
+	return true;
 }
 
 function update_tax_identifiers(frm, values) {
@@ -296,16 +310,24 @@ function update_tax_identifiers(frm, values) {
 		callback: function(r) {
 			if (r.message && r.message.success) {
 				frappe.show_alert({
-					message: r.message.message,
+					message: r.message.message || __('Tax identifiers updated successfully'),
 					indicator: 'green'
 				});
 				frm.reload_doc();
 			} else {
+				let error_msg = r.message && r.message.message ?
+					r.message.message : __('Failed to update tax identifiers. Please try again.');
 				frappe.show_alert({
-					message: r.message ? r.message.message : __('Error updating tax identifiers'),
+					message: error_msg,
 					indicator: 'red'
 				});
 			}
+		},
+		error: function(xhr, status, error) {
+			frappe.show_alert({
+				message: __('Network error while updating tax identifiers. Please check your connection.'),
+				indicator: 'red'
+			});
 		}
 	});
 }
@@ -320,10 +342,23 @@ function validate_bsn(bsn) {
 			if (r.message) {
 				frappe.msgprint({
 					title: __('BSN Validation Result'),
-					message: r.message.message,
+					message: r.message.message || (r.message.valid ? __('BSN is valid') : __('BSN is invalid')),
 					indicator: r.message.valid ? 'green' : 'red'
 				});
+			} else {
+				frappe.msgprint({
+					title: __('BSN Validation Result'),
+					message: __('Unable to validate BSN. Please try again.'),
+					indicator: 'orange'
+				});
 			}
+		},
+		error: function(xhr, status, error) {
+			frappe.msgprint({
+				title: __('BSN Validation Error'),
+				message: __('Network error during BSN validation. Please check your connection and try again.'),
+				indicator: 'red'
+			});
 		}
 	});
 }
@@ -444,25 +479,7 @@ window.download_anbi_report = function(report_data_encoded) {
 	link.click();
 };
 
-function update_anbi_consent(frm, values) {
-	frappe.call({
-		method: 'verenigingen.api.anbi_operations.update_anbi_consent',
-		args: {
-			donor: frm.doc.name,
-			consent: values.consent,
-			reason: values.reason || null
-		},
-		callback: function(r) {
-			if (r.message && r.message.success) {
-				frappe.show_alert({
-					message: r.message.message,
-					indicator: 'green'
-				});
-				frm.reload_doc();
-			}
-		}
-	});
-}
+// ANBI consent is now handled directly via form field - no special function needed
 
 function add_anbi_indicators(frm) {
 	// Add visual indicators for ANBI compliance status

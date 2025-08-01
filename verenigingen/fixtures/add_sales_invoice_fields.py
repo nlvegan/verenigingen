@@ -15,7 +15,7 @@ def setup_dues_fields():
     sales_invoice_meta = frappe.get_meta("Sales Invoice")
     existing_fields = [field.fieldname for field in sales_invoice_meta.fields]
 
-    if "custom_membership_dues_schedule" in existing_fields:
+    if "custom_membership_dues_schedule" in existing_fields and "is_membership_invoice" in existing_fields:
         print("✅ Custom fields already exist!")
         return verify_fields()
 
@@ -27,7 +27,33 @@ def setup_dues_fields():
                 "fieldtype": "Section Break",
                 "insert_after": "customer_section",
                 "collapsible": 1,
-                "depends_on": "eval:doc.member",
+                "depends_on": "eval:doc.is_membership_invoice",
+            },
+            {
+                "fieldname": "is_membership_invoice",
+                "label": "Is Membership Invoice",
+                "fieldtype": "Check",
+                "insert_after": "membership_dues_section",
+                "default": 0,
+                "module": "Verenigingen",
+            },
+            {
+                "fieldname": "membership",
+                "label": "Membership",
+                "fieldtype": "Link",
+                "options": "Membership",
+                "insert_after": "is_membership_invoice",
+                "depends_on": "eval:doc.is_membership_invoice",
+                "module": "Verenigingen",
+            },
+            {
+                "fieldname": "member",
+                "label": "Member",
+                "fieldtype": "Link",
+                "options": "Member",
+                "insert_after": "membership",
+                "depends_on": "eval:doc.is_membership_invoice",
+                "module": "Verenigingen",
             },
             {
                 "fieldname": "custom_membership_dues_schedule",
@@ -142,6 +168,9 @@ def verify_fields():
 
     expected_fields = [
         "membership_dues_section",
+        "is_membership_invoice",
+        "membership",
+        "member",
         "custom_membership_dues_schedule",
         "custom_contribution_mode",
         "coverage_period_section",
@@ -177,6 +206,9 @@ def get_custom_field_status():
     existing_fields = [field.fieldname for field in sales_invoice_meta.fields]
 
     required_fields = [
+        "is_membership_invoice",
+        "membership",
+        "member",
         "custom_membership_dues_schedule",
         "custom_coverage_start_date",
         "custom_coverage_end_date",

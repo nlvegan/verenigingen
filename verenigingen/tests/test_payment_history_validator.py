@@ -249,7 +249,7 @@ class TestPaymentHistoryValidator(VereningingenTestCase):
             recent_alerts = frappe.get_all("System Alert", 
                 filters={
                     "creation": (">=", self.test_start_time),
-                    "subject": ("like", "%Payment History Sync Issues%")
+                    "message": ("like", "%Payment History Sync Issues%")
                 },
                 limit=1
             )

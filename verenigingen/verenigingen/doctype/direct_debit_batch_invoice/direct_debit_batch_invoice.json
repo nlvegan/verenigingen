@@ -15,6 +15,7 @@
   "section_break_8",
   "bank_account",
   "iban",
+  "bic",
   "mandate_reference",
   "column_break_12",
   "status",
@@ -86,6 +87,11 @@
    "fieldtype": "Data",
    "label": "IBAN",
    "reqd": 1
+  },
+  {
+   "fieldname": "bic",
+   "fieldtype": "Data",
+   "label": "BIC"
   },
   {
    "fieldname": "mandate_reference",

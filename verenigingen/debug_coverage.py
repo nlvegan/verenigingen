@@ -108,8 +108,12 @@ def debug_coverage_analysis_original():
             for member in sample_members:
                 results.append(f"  - {member.name} ({member.full_name})")
                 results.append(f"    Customer: {member.customer}")
-                results.append(f"    Membership: {member.membership_name} ({member.membership_status})")
-                results.append(f"    Period: {member.start_date} to {member.cancellation_date or 'Active'}")
+                results.append(
+                    f"    Membership: {member.current_membership_type} ({member.membership_status})"
+                )
+                results.append(
+                    f"    Period: {member.current_membership_start} to {member.current_membership_end or 'Active'}"
+                )
                 results.append("")
         else:
             results.append("❌ No active members found!")

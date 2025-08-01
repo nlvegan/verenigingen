@@ -103,9 +103,12 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
         volunteer_info = volunteer_data.get(tm.volunteer, frappe._dict())
         member_info = member_data.get(volunteer_info.get("member"), frappe._dict())
 
+        # tm is a dictionary from frappe.get_all(), convert safely
+        tm_dict = tm.as_dict() if hasattr(tm, "as_dict") and callable(getattr(tm, "as_dict")) else dict(tm)
+
         combined = frappe._dict(
             {
-                **tm.as_dict(),
+                **tm_dict,
                 "email": volunteer_info.get("email"),
                 "first_name": member_info.get("first_name"),
                 "last_name": member_info.get("last_name"),

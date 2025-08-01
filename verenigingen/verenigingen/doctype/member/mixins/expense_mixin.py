@@ -35,17 +35,18 @@ class ExpenseMixin:
                 for key, value in entry_data.items():
                     setattr(self.volunteer_expenses[existing_idx], key, value)
             else:
-                # Add new entry at the beginning
-                self.volunteer_expenses.insert(0, entry_data)
+                # Add new entry using Frappe's append method to create proper child document
+                self.append("volunteer_expenses", entry_data)
 
-                # Keep only 10 most recent expense entries
-                if len(self.volunteer_expenses) > 10:
-                    self.volunteer_expenses = self.volunteer_expenses[:10]
+                # Keep only 20 most recent expense entries (remove from the end)
+                if len(self.volunteer_expenses) > 20:
+                    # Remove entries from the end
+                    self.volunteer_expenses = self.volunteer_expenses[:20]
 
             # Save with minimal logging
             self.flags.ignore_version = True
             self.flags.ignore_links = True
-            self.save(ignore_permissions=True)
+            self.save()
 
         except Exception as e:
             frappe.log_error(
@@ -75,7 +76,7 @@ class ExpenseMixin:
                 # Save with minimal logging
                 self.flags.ignore_version = True
                 self.flags.ignore_links = True
-                self.save(ignore_permissions=True)
+                self.save()
 
         except Exception as e:
             frappe.log_error(
@@ -106,7 +107,7 @@ class ExpenseMixin:
             # Save with minimal logging
             self.flags.ignore_version = True
             self.flags.ignore_links = True
-            self.save(ignore_permissions=True)
+            self.save()
 
         except Exception as e:
             frappe.log_error(
@@ -119,7 +120,16 @@ class ExpenseMixin:
             # Get volunteer information
             volunteer_name = None
             if expense_doc.employee:
-                volunteer_name = frappe.db.get_value("Volunteer", {"employee": expense_doc.employee}, "name")
+                # First try to find volunteer by employee_id field and member link
+                volunteer_name = frappe.db.get_value(
+                    "Volunteer", {"employee_id": expense_doc.employee, "member": self.name}, "name"
+                )
+
+                # Fallback: if not found, try without member filter (for backward compatibility)
+                if not volunteer_name:
+                    volunteer_name = frappe.db.get_value(
+                        "Volunteer", {"employee_id": expense_doc.employee}, "name"
+                    )
 
             # Check for existing payment
             payment_entry = None
@@ -151,13 +161,24 @@ class ExpenseMixin:
                     payment_method = payment_entries[0].mode_of_payment
                     payment_status = "Paid"
 
+            # Determine the appropriate status based on docstatus and approval_status
+            expense_status = expense_doc.status
+            if expense_doc.docstatus == 0:
+                expense_status = "Draft"
+            elif expense_doc.docstatus == 1:
+                if hasattr(expense_doc, "approval_status"):
+                    if expense_doc.approval_status == "Rejected":
+                        expense_status = "Rejected"
+                    elif expense_doc.approval_status == "Approved":
+                        expense_status = expense_doc.status  # Use original status (Paid/Unpaid)
+
             return {
                 "expense_claim": expense_doc.name,
                 "volunteer": volunteer_name,
                 "posting_date": expense_doc.posting_date,
                 "total_claimed_amount": expense_doc.total_claimed_amount,
                 "total_sanctioned_amount": expense_doc.total_sanctioned_amount,
-                "status": expense_doc.status,
+                "status": expense_status,
                 "payment_entry": payment_entry,
                 "payment_date": payment_date,
                 "paid_amount": paid_amount,

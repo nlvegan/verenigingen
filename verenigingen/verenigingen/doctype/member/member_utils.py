@@ -211,68 +211,58 @@ def check_donor_exists(member):
     return {"exists": False, "message": "No donor record found"}
 
 
+# Removed duplicate create_donor_from_member function
+# The correct implementation is in member.py with proper field validation
+# This prevents field reference errors and ensures consistent behavior
+
+
 @frappe.whitelist()
-def create_donor_from_member(member):
-    """Create a donor record from a member for tracking donations"""
-    if not member:
-        frappe.throw(_("No member specified"))
-
-    member_doc = frappe.get_doc("Member", member)
-
-    # Check if donor already exists using correct field name
-    if member_doc.email:
-        existing_donor = frappe.db.exists("Donor", {"donor_email": member_doc.email})
-        if existing_donor:
-            return existing_donor
-
-    # Create new donor - only donor_name is required now
-    donor = frappe.new_doc("Donor")
-    donor.donor_name = member_doc.full_name or member_doc.name
-    donor.donor_type = "Individual"
-
-    # Set required email field - link to member email
-    if member_doc.email:
-        donor.donor_email = member_doc.email
-    else:
-        # If no email, create a placeholder email
-        donor.donor_email = f"member.{member_doc.name}@placeholder.local"
-
-    # Optional fields (no longer required)
-    if member_doc.full_name:
-        donor.contact_person = member_doc.full_name
-
-    if member_doc.contact_number:
-        donor.phone = member_doc.contact_number
-
-    # Get address from primary_address if available
-    if hasattr(member_doc, "primary_address") and member_doc.primary_address:
-        try:
-            address_doc = frappe.get_doc("Address", member_doc.primary_address)
-            donor.contact_person_address = (
-                f"{address_doc.address_line1}, {address_doc.city}" if address_doc.address_line1 else None
-            )
-        except Exception:
-            pass  # Leave empty if address lookup fails
-
-    if member_doc.email:
-        donor.preferred_communication_method = "Email"
-    elif member_doc.contact_number:
-        donor.preferred_communication_method = "Phone"
-
-    # Set member connection
-    donor.member = member_doc.name
-
-    # Set customer connection if member has customer record
-    if hasattr(member_doc, "customer") and member_doc.customer:
-        donor.customer = member_doc.customer
-
+def test_phone_validation_fix():
+    """Test that members without phone numbers can create donor records"""
     try:
-        donor.insert(ignore_permissions=True)
-        frappe.msgprint(_("Donor record {0} created from member").format(donor.name))
-        return donor.name
+        # Test case: Member without phone number (the original failing case)
+        test_member_data = {
+            "doctype": "Member",
+            "first_name": "Test",
+            "last_name": "PhoneValidation",
+            "email": f"test.phonefix.{frappe.utils.random_string(6)}@test.local",
+            "membership_type": "Individual"
+            # No contact_number - this was causing the original issue
+        }
+
+        member = frappe.new_doc("Member")
+        for key, value in test_member_data.items():
+            if key != "doctype":
+                setattr(member, key, value)
+
+        member.insert(ignore_permissions=True)
+
+        # Try to create donor using the fixed function
+        from verenigingen.verenigingen.doctype.member.member import create_donor_from_member
+
+        result = create_donor_from_member(member.name)
+
+        success = result.get("success", False)
+        message = (
+            "Phone validation fix working"
+            if success
+            else f"Still failing: {result.get('message', 'Unknown error')}"
+        )
+
+        # Cleanup
+        if success and result.get("donor_name"):
+            frappe.delete_doc("Donor", result["donor_name"], force=True)
+        frappe.delete_doc("Member", member.name, force=True)
+
+        return {
+            "test": "member_without_phone_creates_donor",
+            "success": success,
+            "message": message,
+            "result": result,
+        }
+
     except Exception as e:
-        frappe.log_error(f"Error creating donor from member {member}: {str(e)[:50]}")
-        frappe.throw(_("Failed to create donor record: {0}").format(str(e)))
+        return {"test": "member_without_phone_creates_donor", "success": False, "error": str(e)}
 
 
 @frappe.whitelist()

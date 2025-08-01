@@ -20,31 +20,81 @@ class Team(Document):
 
     def validate_team_members(self):
         """Validate team members data"""
-        # Check if there's at least one team leader
+        # Check if there's at least one team leader using the new Team Role system
         has_leader = False
+
+        # Validate unique roles constraint
+        self.validate_unique_roles()
+
         for member in self.team_members:
-            if member.role_type == "Team Leader" and member.is_active:
-                has_leader = True
-                break
+            if member.is_active and member.team_role:
+                try:
+                    team_role_doc = frappe.get_cached_doc("Team Role", member.team_role)
+                    if team_role_doc and team_role_doc.is_team_leader:
+                        has_leader = True
+                        break
+                except frappe.DoesNotExistError:
+                    # Handle case where team_role doesn't exist
+                    continue
 
         if not has_leader and self.status == "Active" and self.team_members:
             frappe.msgprint(_("Warning: Active team should have at least one active team leader"))
 
+    def validate_unique_roles(self):
+        """Validate that unique roles are not assigned to multiple team members"""
+        role_assignments = {}
+
+        for member in self.team_members:
+            if not member.is_active or not member.team_role:
+                continue
+
+            try:
+                team_role_doc = frappe.get_cached_doc("Team Role", member.team_role)
+                if not team_role_doc or not team_role_doc.is_unique:
+                    continue
+            except frappe.DoesNotExistError:
+                continue
+
+            # Track assignments of unique roles
+            role_name = team_role_doc.role_name
+            if role_name not in role_assignments:
+                role_assignments[role_name] = []
+
+            role_assignments[role_name].append(
+                {"volunteer_name": member.volunteer_name or member.volunteer, "team_role": member.team_role}
+            )
+
+        # Check for violations
+        for role_name, assignments in role_assignments.items():
+            if len(assignments) > 1:
+                member_names = [a["volunteer_name"] for a in assignments]
+                frappe.throw(
+                    f"The role '{role_name}' is marked as unique and cannot be assigned to multiple team members. "
+                    f"Currently assigned to: {', '.join(member_names)}. "
+                    f"Please remove duplicate assignments before saving.",
+                    title="Unique Role Violation",
+                )
+
     def update_team_lead(self):
-        """Auto-populate team_lead field from active Team Leader"""
+        """Auto-populate team_lead field from active Team Leader using Team Role system"""
         current_leader = None
 
-        # Find the first active Team Leader
+        # Find the first active Team Leader using the new Team Role system
         for member in self.team_members or []:
-            if member.role_type == "Team Leader" and member.is_active:
-                # Get the user associated with this volunteer
-                if member.volunteer:
-                    volunteer_doc = frappe.get_doc("Volunteer", member.volunteer)
-                    if volunteer_doc.member:
-                        user = frappe.db.get_value("Member", volunteer_doc.member, "user")
-                        if user:
-                            current_leader = user
-                            break
+            if member.is_active and member.team_role and member.volunteer:
+                try:
+                    team_role_doc = frappe.get_cached_doc("Team Role", member.team_role)
+                    if team_role_doc and team_role_doc.is_team_leader:
+                        # Get the user associated with this volunteer
+                        volunteer_doc = frappe.get_doc("Volunteer", member.volunteer)
+                        if volunteer_doc.member:
+                            user = frappe.db.get_value("Member", volunteer_doc.member, "user")
+                            if user:
+                                current_leader = user
+                                break
+                except frappe.DoesNotExistError:
+                    # Handle case where team_role doesn't exist
+                    continue
 
         # Update the team_lead field
         self.team_lead = current_leader
@@ -95,32 +145,38 @@ class Team(Document):
             if key not in old_members_by_volunteer:
                 # New member assignment
                 if member.is_active:
-                    self.add_team_assignment_history(member.volunteer, member.role, member.from_date)
+                    self.add_team_assignment_history(member.volunteer, member.team_role, member.from_date)
             else:
                 old_member = old_members_by_volunteer[key]
 
-                # Check for role changes (same volunteer, same from_date, different role/role_type)
-                role_changed = old_member.role != member.role or old_member.role_type != member.role_type
+                # Check for role changes (same volunteer, same from_date, different team_role or role)
+                role_changed = (
+                    old_member.role != member.role
+                    or old_member.team_role != member.team_role
+                    or old_member.role_type != member.role_type
+                )
 
                 if role_changed and old_member.is_active and member.is_active:
                     # Role changed - complete old assignment and create new one
                     change_date = frappe.utils.today()
                     self.complete_team_assignment_history(
-                        old_member.volunteer, old_member.role, old_member.from_date, change_date
+                        old_member.volunteer, old_member.team_role, old_member.from_date, change_date
                     )
                     # Start new assignment with new role using today's date
                     self.add_team_assignment_history(
-                        member.volunteer, member.role, change_date  # Use change date, not original from_date
+                        member.volunteer,
+                        member.team_role,
+                        change_date,  # Use change date, not original from_date
                     )
 
                 # Check if member was reactivated
                 elif not old_member.is_active and member.is_active:
-                    self.add_team_assignment_history(member.volunteer, member.role, member.from_date)
+                    self.add_team_assignment_history(member.volunteer, member.team_role, member.from_date)
                 # Check if member was deactivated
                 elif old_member.is_active and not member.is_active:
                     end_date = member.to_date or frappe.utils.today()
                     self.complete_team_assignment_history(
-                        member.volunteer, member.role, member.from_date, end_date
+                        member.volunteer, member.team_role, member.from_date, end_date
                     )
 
         # Find removed assignments
@@ -129,14 +185,14 @@ class Team(Document):
                 # Member was removed entirely
                 end_date = frappe.utils.today()
                 self.complete_team_assignment_history(
-                    old_member.volunteer, old_member.role, old_member.from_date, end_date
+                    old_member.volunteer, old_member.team_role, old_member.from_date, end_date
                 )
 
-    def add_team_assignment_history(self, volunteer_id: str, role: str, start_date: str):
+    def add_team_assignment_history(self, volunteer_id: str, team_role: str, start_date: str):
         """Add active assignment to volunteer history when joining team"""
         from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
-        # Get the team member to access role_type
+        # Get the team member to access both team_role and role fields
         team_member = None
         for member in self.team_members:
             if member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
@@ -147,10 +203,8 @@ class Team(Document):
             print(f"Could not find team member for volunteer {volunteer_id}")
             return
 
-        # Use role_type as primary, append optional role name if provided
-        role_description = team_member.role_type
-        if role and role.strip():
-            role_description = f"{team_member.role_type} - {role}"
+        # Create role description using Team Role system
+        role_description = self.get_role_description_for_history(team_member)
 
         success = AssignmentHistoryManager.add_assignment_history(
             volunteer_id=volunteer_id,
@@ -166,11 +220,13 @@ class Team(Document):
         else:
             print(f"Error adding team assignment history for volunteer {volunteer_id}: {role_description}")
 
-    def complete_team_assignment_history(self, volunteer_id: str, role: str, start_date: str, end_date: str):
+    def complete_team_assignment_history(
+        self, volunteer_id: str, team_role: str, start_date: str, end_date: str
+    ):
         """Complete volunteer assignment history when leaving team"""
         from verenigingen.utils.assignment_history_manager import AssignmentHistoryManager
 
-        # Get the team member to access role_type
+        # Get the team member to access both team_role and role fields
         team_member = None
         for member in self.team_members:
             if member.volunteer == volunteer_id and str(member.from_date) == str(start_date):
@@ -186,13 +242,11 @@ class Team(Document):
 
         if not team_member:
             print(f"Could not find team member for volunteer {volunteer_id}")
-            # Use role as-is if we can't find the member
-            role_description = role
+            # Use team_role as-is if we can't find the member
+            role_description = team_role or "Team Member"
         else:
-            # Use role_type as primary, append optional role name if provided
-            role_description = team_member.role_type
-            if role and role.strip():
-                role_description = f"{team_member.role_type} - {role}"
+            # Create role description using Team Role system
+            role_description = self.get_role_description_for_history(team_member)
 
         success = AssignmentHistoryManager.complete_assignment_history(
             volunteer_id=volunteer_id,
@@ -211,6 +265,29 @@ class Team(Document):
                 f"Error completing team assignment history for volunteer {volunteer_id}: {role_description}"
             )
 
+    def get_role_description_for_history(self, team_member):
+        """Generate role description for assignment history using Team Role system"""
+        role_description = "Team Member"  # Default fallback
+
+        # Get the Team Role name as primary identifier
+        if team_member.team_role:
+            try:
+                team_role_doc = frappe.get_cached_doc("Team Role", team_member.team_role)
+                if team_role_doc:
+                    role_description = team_role_doc.role_name
+            except frappe.DoesNotExistError:
+                # Fallback to role_type if Team Role doesn't exist
+                role_description = team_member.role_type or "Team Member"
+        elif team_member.role_type:
+            # Fallback to old role_type system for backwards compatibility
+            role_description = team_member.role_type
+
+        # Append additional role description if provided
+        if team_member.role and team_member.role.strip():
+            role_description = f"{role_description} - {team_member.role}"
+
+        return role_description
+
 
 @frappe.whitelist()
 def get_team_members(team):
@@ -227,12 +304,18 @@ def get_team_members(team):
 
         try:
             vol_doc = frappe.get_doc("Volunteer", member.volunteer)
+            # Get role information using Team Role system
+            team_doc = frappe.get_doc("Team", team)
+            role_description = team_doc.get_role_description_for_history(member)
+
             members.append(
                 {
                     "volunteer": member.volunteer,
                     "name": vol_doc.volunteer_name,
                     "role": member.role,
                     "role_type": member.role_type,
+                    "team_role": member.team_role,
+                    "role_description": role_description,
                     "status": member.status,
                     "from_date": member.from_date,
                     "to_date": member.to_date,

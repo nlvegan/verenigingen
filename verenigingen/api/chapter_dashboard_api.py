@@ -113,14 +113,26 @@ def quick_approve_member(member_name, chapter_name=None):
         frappe.throw(_("You don't have permission to approve members"))
 
     try:
-        # Use existing approval function
-        from verenigingen.api.membership_application_review import approve_membership_application
-
-        result = approve_membership_application(
-            member_name=member_name,
-            chapter=chapter_name,
-            notes=f"Approved via chapter dashboard by {frappe.session.user}",
+        # Check if this is a chapter join request (pending Chapter Member) or membership application
+        pending_chapter_member = frappe.db.get_value(
+            "Chapter Member", {"member": member_name, "parent": chapter_name, "status": "Pending"}, "name"
         )
+
+        if pending_chapter_member:
+            # This is a chapter join request - use the new approval system
+            chapter_doc = frappe.get_doc("Chapter", chapter_name)
+            result = chapter_doc.member_manager.approve_member_request(
+                member_id=member_name, approved_by=frappe.session.user
+            )
+        else:
+            # This is a membership application - use existing approval function
+            from verenigingen.api.membership_application_review import approve_membership_application
+
+            result = approve_membership_application(
+                member_name=member_name,
+                chapter=chapter_name,
+                notes=f"Approved via chapter dashboard by {frappe.session.user}",
+            )
 
         if result.get("success"):
             # Log the dashboard approval
@@ -1021,7 +1033,37 @@ def reject_member_application(member_name, chapter_name, reason=None):
         frappe.throw(_("You don't have permission to reject members"))
 
     try:
-        # Find and update Chapter Member record
+        # Check if this is a chapter join request (pending Chapter Member) or membership application
+        pending_chapter_member = frappe.db.get_value(
+            "Chapter Member", {"member": member_name, "parent": chapter_name, "status": "Pending"}, "name"
+        )
+
+        if pending_chapter_member:
+            # This is a chapter join request - use the new rejection system
+            chapter_doc = frappe.get_doc("Chapter", chapter_name)
+            result = chapter_doc.member_manager.reject_member_request(
+                member_id=member_name,
+                reason=reason or "Rejected via chapter dashboard",
+                rejected_by=frappe.session.user,
+            )
+
+            if not result.get("success"):
+                return {"success": False, "error": result.get("message", "Unknown error occurred")}
+
+            # Log the dashboard rejection
+            frappe.get_doc(
+                {
+                    "doctype": "Comment",
+                    "comment_type": "Info",
+                    "reference_doctype": "Member",
+                    "reference_name": member_name,
+                    "content": f"Chapter join request rejected via dashboard by {frappe.get_user().full_name}. Reason: {reason or 'No reason provided'}",
+                }
+            ).insert(ignore_permissions=True)
+
+            return {"success": True, "message": _("Join request rejected successfully")}
+
+        # Original membership application rejection logic
         chapter_member = frappe.db.get_value(
             "Chapter Member", {"member": member_name, "parent": chapter_name, "status": "Pending"}, "name"
         )

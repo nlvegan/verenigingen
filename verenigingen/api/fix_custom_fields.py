@@ -226,6 +226,19 @@ def create_other_missing_custom_fields():
             "no_copy": 1,
             "allow_on_submit": 1,
         },
+        {
+            "dt": "Sales Invoice",
+            "fieldname": "membership",
+            "label": "Membership",
+            "fieldtype": "Link",
+            "options": "Membership",
+            "description": "Links invoice to specific membership record",
+            "insert_after": "member",
+            "module": "Verenigingen",
+            "read_only": 1,
+            "no_copy": 1,
+            "allow_on_submit": 1,
+        },
     ]
 
     for field_def in additional_fields:
@@ -244,6 +257,55 @@ def create_other_missing_custom_fields():
             results.append(f"❌ Error creating {field_def['fieldname']}: {e}")
 
     return results
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
+def check_sales_invoice_membership_field():
+    """Check if membership field exists in Sales Invoice"""
+    frappe.only_for("System Manager")
+
+    try:
+        meta = frappe.get_meta("Sales Invoice")
+        all_fields = [f.fieldname for f in meta.fields]
+        membership_fields = [f for f in all_fields if "member" in f.lower()]
+
+        # Also check if membership field specifically exists
+        has_membership = "membership" in all_fields
+
+        return {
+            "success": True,
+            "has_membership_field": has_membership,
+            "membership_related_fields": membership_fields,
+            "total_fields": len(all_fields),
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
+def get_sales_invoice_custom_fields():
+    """Get all custom fields for Sales Invoice to debug field validation errors"""
+    frappe.only_for("System Manager")
+
+    try:
+        fields = frappe.get_all(
+            "Custom Field",
+            filters={"dt": "Sales Invoice"},
+            fields=["fieldname", "label", "fieldtype", "options"],
+            order_by="fieldname",
+        )
+
+        results = [f"Found {len(fields)} custom fields for Sales Invoice:"]
+        for field in fields:
+            results.append(f"  - {field.fieldname}: {field.label} ({field.fieldtype})")
+            if field.options:
+                results.append(f"    Options: {field.options}")
+
+        return {"success": True, "fields": fields, "results": results}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 
 @frappe.whitelist()

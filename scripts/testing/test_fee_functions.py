@@ -27,7 +27,7 @@ def test_fee_calculation():
         # Create a test membership type
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Fee Type {frappe.generate_hash(length=6)}"
-        membership_type.amount = 20.0
+        membership_type.minimum_amount = 20.0
         membership_type.is_active = 1
         membership_type.save()
         
@@ -85,7 +85,7 @@ def test_dues_schedule_creation():
         
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Dues Type {frappe.generate_hash(length=6)}"
-        membership_type.amount = 20.0
+        membership_type.minimum_amount = 20.0
         membership_type.is_active = 1
         membership_type.save()
         

@@ -52,7 +52,7 @@ class TestMembership(FrappeTestCase):
         self.membership_type = frappe.new_doc("Membership Type")
         self.membership_type.membership_type_name = self.membership_type_name
         self.membership_type.billing_period = "Annual"
-        self.membership_type.amount = 120
+        self.membership_type.minimum_amount = 120
         self.membership_type.currency = "EUR"
         self.membership_type.is_active = 1
         self.membership_type.allow_auto_renewal = 1

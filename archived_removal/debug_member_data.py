@@ -60,8 +60,8 @@ def debug_member_07_0030():
             result["current_fee_history"] = [
                 {
                     "change_date": row.change_date,
-                    "old_rate": row.old_rate,
-                    "new_rate": row.new_rate,
+                    "old_rate": row.old_dues_rate,
+                    "new_rate": row.new_dues_rate,
                     "reason": row.reason,
                 }
                 for row in member.fee_change_history

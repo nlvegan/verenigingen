@@ -19,7 +19,7 @@
   "column_break_ag86z",
   "phone",
   "section_break_7uw0i",
-  "email",
+  "donor_email",
   "column_break_gnl5u",
   "address",
   "connections_section",
@@ -78,7 +78,7 @@
    "in_list_view": 1,
    "label": "Donor Name",
    "reqd": 1,
-   "unique": 1
+   "unique": 0
   },
   {
    "fieldname": "column_break_5",
@@ -472,6 +472,12 @@
    "role": "Verenigingen Administrator",
    "share": 1,
    "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Verenigingen Member"
   },
   {
    "permlevel": 1,

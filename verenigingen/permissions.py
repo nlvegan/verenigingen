@@ -117,6 +117,85 @@ def has_membership_permission(doc, user=None, permission_type=None):
     return None
 
 
+def has_donor_permission(doc, user=None, permission_type=None):
+    """Direct permission check for Donor doctype"""
+    if not user:
+        user = frappe.session.user
+
+    # Log for debugging
+    frappe.logger().debug(f"Checking Donor permissions for user {user} with roles {frappe.get_roles(user)}")
+
+    # Admin roles always have access
+    admin_roles = ["System Manager", "Verenigingen Manager", "Verenigingen Administrator"]
+    if any(role in frappe.get_roles(user) for role in admin_roles):
+        frappe.logger().debug(f"User {user} has admin role, granting access to donor")
+        return True
+
+    # For regular members, check if they are linked to this donor record
+    if "Verenigingen Member" in frappe.get_roles(user):
+        try:
+            # Get the user's member record
+            user_member = frappe.db.get_value("Member", {"user": user}, "name")
+            if not user_member:
+                frappe.logger().debug(f"User {user} has Verenigingen Member role but no member record found")
+                return False
+
+            # Check if this donor record is linked to the user's member record
+            if isinstance(doc, str):
+                # doc is just the name, need to get the member field
+                if not frappe.db.exists("Donor", doc):
+                    frappe.logger().debug(f"Donor record {doc} does not exist")
+                    return False
+                donor_member = frappe.db.get_value("Donor", doc, "member")
+            else:
+                # doc is the document object
+                donor_member = getattr(doc, "member", None)
+
+            if not donor_member:
+                frappe.logger().debug("Donor record has no linked member")
+                return False
+
+            # Verify the linked member still exists and is active
+            if not frappe.db.exists("Member", donor_member):
+                frappe.logger().debug(f"Linked member {donor_member} no longer exists")
+                return False
+
+            is_linked = donor_member == user_member
+            frappe.logger().debug(
+                f"User member: {user_member}, Donor member: {donor_member}, Access granted: {is_linked}"
+            )
+            return is_linked
+
+        except Exception as e:
+            frappe.logger().error(f"Error checking donor permission for user {user}, doc {doc}: {str(e)}")
+            return False
+
+    # Return False for users without proper roles
+    frappe.logger().debug(f"User {user} does not have appropriate roles for donor access")
+    return False
+
+
+def get_donor_permission_query(user):
+    """Permission query for Donor doctype - limits records to those the user can access"""
+    if not user:
+        user = frappe.session.user
+
+    # Admin roles get access to all records
+    admin_roles = ["System Manager", "Verenigingen Manager", "Verenigingen Administrator"]
+    if any(role in frappe.get_roles(user) for role in admin_roles):
+        return None  # No additional conditions needed
+
+    # For regular members, limit to donor records linked to their member record
+    if "Verenigingen Member" in frappe.get_roles(user):
+        user_member = frappe.db.get_value("Member", {"user": user}, "name")
+        if user_member:
+            # FIXED: Proper SQL escaping to prevent injection
+            return f"`tabDonor`.member = {frappe.db.escape(user_member)}"
+
+    # Users without proper roles see no records
+    return "1=0"
+
+
 def has_address_permission(doc, user=None, permission_type=None):
     """Permission check for Address doctype - allows members to access their own addresses"""
     if not user:
@@ -175,14 +254,15 @@ def get_address_permission_query(user):
 
     if member_name:
         # Add condition for addresses linked to this member
-        # escaped_member_name = member_name.replace("'", "''")  # Simple SQL escaping
+        # FIXED: Proper SQL escaping to prevent injection
+        escaped_member_name = frappe.db.escape(member_name)
         conditions.append(
-            """
+            f"""
             `tabAddress`.name in (
                 SELECT parent FROM `tabDynamic Link`
                 WHERE parenttype = 'Address'
                 AND link_doctype = 'Member'
-                AND link_name = '{escaped_member_name}'
+                AND link_name = {escaped_member_name}
             )
         """
         )
@@ -190,14 +270,15 @@ def get_address_permission_query(user):
     # Also check Contact-based addresses (original ERPNext behavior)
     contact_name = frappe.db.get_value("Contact", {"email_id": user}, "name")
     if contact_name:
-        # escaped_contact_name = contact_name.replace("'", "''")  # Simple SQL escaping
+        # FIXED: Proper SQL escaping to prevent injection
+        escaped_contact_name = frappe.db.escape(contact_name)
         conditions.append(
-            """
+            f"""
             `tabAddress`.name in (
                 SELECT parent FROM `tabDynamic Link`
                 WHERE parenttype = 'Address'
                 AND link_doctype = 'Contact'
-                AND link_name = '{escaped_contact_name}'
+                AND link_name = {escaped_contact_name}
             )
         """
         )

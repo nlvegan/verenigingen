@@ -19,6 +19,10 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     user = validate_user_logged_in()
     member = validate_member_for_user(user)
 
+    # Ensure context is a frappe._dict for attribute access
+    if not hasattr(context, "no_cache"):
+        context = frappe._dict(context)
+
     context.no_cache = 1
     context.title = _("My Teams")
 
@@ -66,7 +70,24 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     for membership in team_memberships:
         team_info = teams_data.get(membership.team_name)
         if team_info:  # Only include teams that are active
-            combined_data = {**team_info.as_dict(), **membership.as_dict(), "team_status": team_info.status}
+            # Both team_info and membership are already dictionaries from frappe.get_all()
+            # Convert membership to dict if it has as_dict method, otherwise use as-is
+            membership_dict = (
+                membership.as_dict()
+                if hasattr(membership, "as_dict") and callable(getattr(membership, "as_dict"))
+                else dict(membership)
+            )
+            team_info_dict = (
+                team_info.as_dict()
+                if hasattr(team_info, "as_dict") and callable(getattr(team_info, "as_dict"))
+                else dict(team_info)
+            )
+
+            combined_data = {
+                **team_info_dict,
+                **membership_dict,
+                "team_status": team_info.get("status", "Active"),
+            }
             teams.append(frappe._dict(combined_data))
 
     # Group teams and get additional info

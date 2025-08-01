@@ -195,7 +195,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Ñoël & André's Café Membership {frappe.generate_hash(length=6)}"
         membership_type.description = "Membership with spëcial chäractersß and émojis 🎉"
-        membership_type.amount = 25.0
+        membership_type.minimum_amount = 25.0
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.enable_income_calculator = 1
@@ -433,7 +433,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Edge Case Type {frappe.generate_hash(length=6)}"
         membership_type.description = "Membership type for edge case testing"
-        membership_type.amount = 25.0
+        membership_type.minimum_amount = 25.0
         membership_type.is_active = 1
         membership_type.contribution_mode = "Calculator"
         membership_type.enable_income_calculator = 1
@@ -463,7 +463,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
             # Only auto-approve valid amounts for tests
             if amount > 0:
                 dues_schedule.custom_amount_approved = 1  
-                if amount > (membership_type.amount * 10):  # If above maximum
+                if amount > (membership_type.minimum_amount * 10):  # If above maximum
                     dues_schedule.custom_amount_reason = "Test scenario requiring large amount"
         else:
             dues_schedule.contribution_mode = "Calculator"
@@ -498,7 +498,7 @@ class TestMembershipDuesEdgeCases(VereningingenTestCase):
             # Only auto-approve valid amounts for tests
             if amount > 0:
                 dues_schedule.custom_amount_approved = 1  
-                if amount > (membership_type.amount * 10):  # If above maximum
+                if amount > (membership_type.minimum_amount * 10):  # If above maximum
                     dues_schedule.custom_amount_reason = "Test scenario requiring large amount"
         else:
             dues_schedule.contribution_mode = "Calculator"

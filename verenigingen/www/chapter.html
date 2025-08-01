@@ -1,8 +1,9 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}Chapters{% endblock %}
 
-{% block page_content %}
+{% block style %}
+{{ super() }}
 <link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
 {% from "templates/macros/brand_css.html" import brand_css %}
 {{ brand_css() }}
@@ -40,6 +41,9 @@
     .border-primary-600 { border-color: var(--brand-primary) !important; }
     .hover\:bg-primary-700:hover { background-color: var(--brand-primary-dark) !important; }
 </style>
+{% endblock %}
+
+{% block page_content %}
 <div class="min-h-screen bg-gray-50 py-8">
     <div class="container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <!-- Header -->
@@ -85,13 +89,13 @@
 
             <!-- Filter Tabs -->
             <div class="flex flex-wrap gap-4 mb-8">
-                <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('all')">
+                <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('all', this)">
                     All Chapters (<span id="all-tab-count">0</span>)
                 </button>
-                <button class="tab-btn active px-6 py-3 border-2 rounded-lg font-medium text-white transition-all" style="background-color: var(--brand-primary); border-color: var(--brand-primary);" onclick="showTab('my')">
+                <button class="tab-btn active px-6 py-3 border-2 rounded-lg font-medium text-white transition-all" style="background-color: var(--brand-primary); border-color: var(--brand-primary);" onclick="showTab('my', this)">
                     My Chapters (<span id="my-tab-count">0</span>)
                 </button>
-                <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('available')">
+                <button class="tab-btn px-6 py-3 border-2 border-gray-300 rounded-lg font-medium text-gray-700 bg-white hover:border-gray-400 transition-all" onclick="showTab('available', this)">
                     Available (<span id="available-tab-count">0</span>)
                 </button>
             </div>
@@ -107,6 +111,11 @@
 </div>
 
     <script>
+        // Initialize frappe object if not already present
+        if (typeof frappe === 'undefined') {
+            window.frappe = {};
+        }
+
         let allChapters = [];
         let myChapters = [];
         let currentUser = '';
@@ -118,8 +127,29 @@
         });
 
         function loadChapters() {
-            fetch('/api/method/verenigingen.api.get_user_chapters.get_user_chapter_data')
-                .then(response => response.json())
+            // Get CSRF token from various possible sources
+            const csrfToken = frappe.csrf_token ||
+                             window.csrf_token ||
+                             document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                             '';
+
+            fetch('/api/method/verenigingen.api.get_user_chapters.get_user_chapter_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Frappe-CSRF-Token': csrfToken
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({})
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => {
+                            throw new Error(err.exc || err.message || 'Network response was not ok');
+                        });
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.message && data.message.success) {
                         allChapters = data.message.chapters;
@@ -137,11 +167,21 @@
                         document.getElementById('loading').classList.add('hidden');
                         document.getElementById('content').classList.remove('hidden');
                     } else {
-                        showError('Failed to load chapters');
+                        showError('Failed to load chapters: ' + (data.exc || data.message || 'Unknown error'));
                     }
                 })
                 .catch(error => {
-                    showError('Error loading chapters: ' + error.message);
+                    console.error('Error loading chapters:', error);
+                    // Sanitize error message for user display
+                    let userMessage = 'Unable to load chapters. ';
+                    if (error.message.includes('Network')) {
+                        userMessage += 'Please check your internet connection.';
+                    } else if (error.message.includes('vereiningen is not installed')) {
+                        userMessage += 'The application is not properly configured. Please contact support.';
+                    } else {
+                        userMessage += 'Please try again later or contact support if the problem persists.';
+                    }
+                    showError(userMessage);
                 });
         }
 
@@ -196,8 +236,32 @@
 
             chapters.forEach(chapter => {
                 const isMember = chapter.is_member || myChapters.includes(chapter.name);
+                const isPending = chapter.is_pending || false;
                 const card = document.createElement('div');
                 card.className = 'bg-white rounded-lg shadow-md p-6 mb-4 hover:shadow-lg transition-shadow';
+
+                // Check if user is logged in
+                const isLoggedIn = currentUser && currentUser !== 'Guest';
+
+                // Determine status badge
+                let statusBadge = '';
+                let actionButton = '';
+
+                if (isMember) {
+                    statusBadge = `<span class="px-3 py-1 rounded-full text-sm font-medium badge-member">Member</span>`;
+                } else if (isPending) {
+                    statusBadge = `<span class="px-3 py-1 rounded-full text-sm font-medium" style="background-color: var(--brand-warning-light); color: var(--brand-warning);">Pending Approval</span>`;
+                } else {
+                    statusBadge = `<span class="px-3 py-1 rounded-full text-sm font-medium badge-available">Available</span>`;
+                    if (isLoggedIn) {
+                        actionButton = `
+                            <button onclick="joinChapter('${chapter.name}')" class="px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors text-sm font-medium">
+                                Request to Join
+                            </button>
+                        `;
+                    }
+                }
+
                 card.innerHTML = `
                     <div class="flex justify-between items-start">
                         <div class="flex-1">
@@ -207,16 +271,17 @@
                             ${chapter.introduction ? `<p class="text-gray-600 mt-2">${chapter.introduction}</p>` : ''}
                             ${chapter.region ? `<p class="text-sm text-gray-500 mt-2"><span class="font-medium">Region:</span> ${chapter.region}</p>` : ''}
                         </div>
-                        <span class="ml-4 px-3 py-1 rounded-full text-sm font-medium ${isMember ? 'badge-member' : 'badge-available'}">
-                            ${isMember ? 'Member' : 'Available'}
-                        </span>
+                        <div class="flex flex-col items-end gap-2">
+                            ${statusBadge}
+                            ${actionButton}
+                        </div>
                     </div>
                 `;
                 container.appendChild(card);
             });
         }
 
-        function showTab(tab) {
+        function showTab(tab, button) {
             // Hide all tabs
             document.querySelectorAll('.tab-content').forEach(t => {
                 t.classList.add('hidden');
@@ -234,10 +299,10 @@
             document.getElementById(tab + '-chapters').classList.remove('hidden');
 
             // Style active button
-            event.target.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
-            event.target.classList.add('text-white');
-            event.target.style.backgroundColor = 'var(--brand-primary)';
-            event.target.style.borderColor = 'var(--brand-primary)';
+            button.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+            button.classList.add('text-white');
+            button.style.backgroundColor = 'var(--brand-primary)';
+            button.style.borderColor = 'var(--brand-primary)';
         }
 
         function showError(message) {
@@ -247,6 +312,62 @@
                 '<strong class="font-bold">Error: </strong>' +
                 '<span class="block sm:inline">' + message + '</span>' +
                 '</div>';
+        }
+
+        function joinChapter(chapterName) {
+            if (!confirm(`Would you like to request to join the ${chapterName} chapter? Your request will be reviewed by the chapter board.`)) {
+                return;
+            }
+
+            // Show loading state
+            const button = event.target;
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = 'Submitting...';
+
+            // Get CSRF token
+            const csrfToken = frappe.csrf_token ||
+                             window.csrf_token ||
+                             document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+                             '';
+
+            fetch('/api/method/verenigingen.api.chapter_join.join_chapter', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Frappe-CSRF-Token': csrfToken
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    chapter_name: chapterName,
+                    introduction: 'Joining via member portal'
+                })
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => {
+                        throw new Error(err.exc || err.message || 'Failed to submit request');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.message && data.message.success) {
+                    // Show success message
+                    alert('Your request to join ' + chapterName + ' has been submitted for approval. You will be notified once approved.');
+                    // Reload the page to refresh the chapter list
+                    loadChapters();
+                } else {
+                    throw new Error(data.message.error || 'Failed to submit request');
+                }
+            })
+            .catch(error => {
+                console.error('Error joining chapter:', error);
+                alert('Failed to submit join request: ' + error.message);
+                // Reset button
+                button.disabled = false;
+                button.textContent = originalText;
+            });
         }
     </script>
 {% endblock %}

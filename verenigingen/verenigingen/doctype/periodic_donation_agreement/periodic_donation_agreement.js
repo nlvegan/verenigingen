@@ -3,6 +3,11 @@
 
 frappe.ui.form.on('Periodic Donation Agreement', {
 	refresh: function(frm) {
+		// Show ANBI validation status
+		if (frm.doc.anbi_eligible) {
+			show_anbi_validation_status(frm);
+		}
+
 		// Add buttons based on status
 		if (!frm.doc.__islocal) {
 			if (frm.doc.status === 'Active') {
@@ -334,6 +339,75 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 		frm.dirty();
 	}
 });
+
+function show_anbi_validation_status(frm) {
+	// Get ANBI validation status from server
+	frappe.call({
+		method: 'get_anbi_validation_status',
+		doc: frm.doc,
+		callback: function(r) {
+			if (r.message) {
+				let status = r.message;
+				let indicator_class = status.valid ? 'green' : 'red';
+				let icon = status.valid ? '✓' : '⚠';
+
+				// Create status HTML
+				let status_html = `
+					<div class="anbi-validation-status" style="margin: 10px 0; padding: 10px; border-radius: 4px; border: 1px solid; ${status.valid ? 'background-color: #d4edda; border-color: #c3e6cb; color: #155724;' : 'background-color: #f8d7da; border-color: #f5c6cb; color: #721c24;'}">
+						<strong>${icon} ${__('ANBI Validation Status')}: ${status.message}</strong>
+				`;
+
+				// Add errors if any
+				if (status.errors && status.errors.length > 0) {
+					status_html += `
+						<div style="margin-top: 8px;">
+							<strong>${__('Issues to resolve')}:</strong>
+							<ul style="margin: 5px 0 0 20px;">
+					`;
+					status.errors.forEach(error => {
+						status_html += `<li>${__(error)}</li>`;
+					});
+					status_html += '</ul></div>';
+				}
+
+				// Add warnings if any
+				if (status.warnings && status.warnings.length > 0) {
+					status_html += `
+						<div style="margin-top: 8px;">
+							<strong>${__('Warnings')}:</strong>
+							<ul style="margin: 5px 0 0 20px;">
+					`;
+					status.warnings.forEach(warning => {
+						status_html += `<li>${__(warning)}</li>`;
+					});
+					status_html += '</ul></div>';
+				}
+
+				status_html += '</div>';
+
+				// Remove existing validation status
+				frm.dashboard.wrapper.find('.anbi-validation-status').remove();
+
+				// Add new validation status to dashboard
+				frm.dashboard.add_comment(status_html, indicator_class, true);
+
+				// If there are errors, also show an alert
+				if (!status.valid) {
+					frappe.show_alert({
+						message: __('ANBI validation failed. Please review the issues listed above.'),
+						indicator: 'red'
+					}, 8);
+				}
+			}
+		},
+		error: function(xhr, status, error) {
+			frappe.show_alert({
+				message: __('Failed to check ANBI validation status. Please try again.'),
+				indicator: 'orange'
+			}, 5);
+		}
+	});
+}
 
 function update_anbi_eligibility_message(frm) {
 	// Update ANBI eligibility message based on selected duration

@@ -14,21 +14,9 @@ from verenigingen.utils.security.api_security_framework import critical_api, hig
 
 
 def has_donor_permlevel_access(permission_type="read"):
-    """Check if user has permlevel 1 access to Donor doctype"""
-    # Check if user has basic permission first
-    if not frappe.has_permission("Donor", ptype=permission_type):
-        return False
-
-    # Check if user has permlevel 1 access by checking user permissions
-    user_roles = frappe.get_roles(frappe.session.user)
-
-    # System Manager and Administrator roles typically have all permissions
-    if "System Manager" in user_roles or "Administrator" in user_roles:
-        return True
-
-    # Check if user has specific roles that should have permlevel access
-    privileged_roles = ["Verenigingen Administrator", "Donor Administrator", "Finance Manager"]
-    return any(role in user_roles for role in privileged_roles)
+    """Check if user has permlevel 1 access to Donor doctype using Frappe's permission system"""
+    # Use Frappe's standard permission checking
+    return frappe.has_permission("Donor", ptype=permission_type, verbose=False)
 
 
 @frappe.whitelist()
@@ -65,8 +53,9 @@ def update_donor_tax_identifiers(donor, bsn=None, rsin=None, verification_method
             donor_doc.identification_verification_date = frappe.utils.today()
             donor_doc.identification_verification_method = verification_method
 
-        # Save with validation
-        donor_doc.save(ignore_permissions=True)
+        # Save with proper permission checking (no ignore_permissions)
+        donor_doc.save()
+        donor_doc.reload()  # Ensure we have fresh data
 
         frappe.db.commit()
 
@@ -97,20 +86,39 @@ def get_donor_anbi_data(donor):
         frappe.throw(_("Insufficient permissions to view ANBI data"))
 
     try:
-        donor_doc = frappe.get_doc("Donor", donor)
+        # Fetch only required fields for better performance
+        donor_data = frappe.db.get_value(
+            "Donor",
+            donor,
+            [
+                "donor_name",
+                "donor_type",
+                "bsn_citizen_service_number",
+                "rsin_organization_tax_number",
+                "identification_verified",
+                "identification_verification_date",
+                "identification_verification_method",
+                "anbi_consent",
+                "anbi_consent_date",
+            ],
+            as_dict=True,
+        )
 
-        # Get decrypted values (will be masked by the document class)
+        if not donor_data:
+            return {"success": False, "message": "Donor not found"}
+
+        # Get decrypted values (will be masked by security layer)
         return {
             "success": True,
-            "donor_name": donor_doc.donor_name,
-            "donor_type": donor_doc.donor_type,
-            "bsn": donor_doc.bsn_citizen_service_number,  # Will be masked
-            "rsin": donor_doc.rsin_organization_tax_number,  # Will be masked
-            "identification_verified": donor_doc.identification_verified,
-            "verification_date": donor_doc.identification_verification_date,
-            "verification_method": donor_doc.identification_verification_method,
-            "anbi_consent": donor_doc.anbi_consent,
-            "anbi_consent_date": donor_doc.anbi_consent_date,
+            "donor_name": donor_data.get("donor_name"),
+            "donor_type": donor_data.get("donor_type"),
+            "bsn": donor_data.get("bsn_citizen_service_number"),  # Will be masked by security layer
+            "rsin": donor_data.get("rsin_organization_tax_number"),  # Will be masked by security layer
+            "identification_verified": donor_data.get("identification_verified"),
+            "verification_date": donor_data.get("identification_verification_date"),
+            "verification_method": donor_data.get("identification_verification_method"),
+            "anbi_consent": donor_data.get("anbi_consent"),
+            "anbi_consent_date": donor_data.get("anbi_consent_date"),
         }
 
     except Exception as e:
@@ -242,7 +250,9 @@ def update_anbi_consent(donor, consent, reason=None):
                     doctype="Donor", name=donor, text=f"ANBI consent withdrawn. Reason: {reason}"
                 )
 
-        donor_doc.save(ignore_permissions=True)
+        # Save with proper permission checking (no ignore_permissions)
+        donor_doc.save()
+        donor_doc.reload()  # Ensure we have fresh data
         frappe.db.commit()
 
         return {

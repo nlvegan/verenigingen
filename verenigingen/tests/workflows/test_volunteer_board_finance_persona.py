@@ -223,7 +223,7 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Calculator Membership {unique_suffix}"
         membership_type.description = "Test membership type with calculator contribution"
-        membership_type.amount = 25.0
+        membership_type.minimum_amount = 25.0
         membership_type.is_active = 1
         membership_type.save()
         self.track_doc("Membership Type", membership_type.name)

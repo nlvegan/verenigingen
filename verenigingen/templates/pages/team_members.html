@@ -3,6 +3,9 @@
 {% block title %}{{ _("Team Members") }} - {{ team.team_name }}{% endblock %}
 
 {% block head_include %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 <style>
 .team-members-page {
     max-width: 1000px;
@@ -14,7 +17,7 @@
     text-align: center;
     margin-bottom: 3rem;
     padding: 2rem;
-    background: linear-gradient(135deg, #663399, #cf3131);
+    background: linear-gradient(135deg, var(--brand-primary, #663399), var(--brand-accent, #cf3131));
     color: white;
     border-radius: 12px;
 }
@@ -48,7 +51,7 @@
 
 .team-info .icon {
     margin-right: 0.75rem;
-    color: #cf3131;
+    color: var(--brand-accent, #cf3131);
 }
 
 .members-grid {
@@ -100,17 +103,17 @@
 }
 
 .role-badge.leader {
-    background: #cf3131;
+    background: var(--brand-accent, #cf3131);
     color: white;
 }
 
 .role-badge.member {
-    background: #01796f;
+    background: var(--brand-secondary, #01796f);
     color: white;
 }
 
 .role-badge.coordinator {
-    background: #663399;
+    background: var(--brand-primary, #663399);
     color: white;
 }
 
@@ -165,7 +168,7 @@
 
 .contact-item .icon {
     margin-right: 0.5rem;
-    color: #cf3131;
+    color: var(--brand-accent, #cf3131);
     width: 16px;
     text-align: center;
 }

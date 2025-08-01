@@ -39,6 +39,7 @@ doctype_js = {
     "Membership Type": "public/js/membership_type.js",
     "SEPA Direct Debit Batch": "public/js/direct_debit_batch.js",
     "Membership Termination Request": "public/js/membership_termination_request.js",
+    "Expense Claim": "public/js/expense_claim_custom.js",
     "Customer": "public/js/customer_member_link.js",
 }
 
@@ -75,7 +76,10 @@ doc_events = {
         "on_trash": "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
     },
     "Sales Invoice": {
-        "before_validate": ["verenigingen.utils.apply_tax_exemption_from_source"],
+        "before_validate": [
+            "verenigingen.utils.apply_tax_exemption_from_source",
+            "verenigingen.utils.sales_invoice_hooks.set_member_from_customer",
+        ],
         "validate": ["verenigingen.overrides.sales_invoice.custom_validate"],
         "after_validate": ["verenigingen.overrides.sales_invoice.after_validate"],
         # Event-driven approach for payment history updates
@@ -132,6 +136,7 @@ doc_events = {
     },
     "Expense Claim": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_expense_claim",
+        "after_save": "verenigingen.events.expense_events.emit_expense_claim_updated",
         "on_update_after_submit": "verenigingen.events.expense_events.emit_expense_claim_approved",
         "on_cancel": "verenigingen.events.expense_events.emit_expense_claim_cancelled",
     },
@@ -186,6 +191,8 @@ scheduler_events = {
         "verenigingen.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Native expense approver sync
         "verenigingen.utils.native_expense_helpers.refresh_all_expense_approvers",
+        # Expense history batch processing
+        "verenigingen.utils.expense_history_batch_processor.process_pending_expense_history_updates",
         # SEPA Direct Debit batch optimization
         "verenigingen.api.dd_batch_scheduler.daily_batch_optimization",
         # Create daily analytics snapshots
@@ -216,10 +223,14 @@ scheduler_events = {
         "verenigingen.utils.security.audit_logging.weekly_security_health_check",
         # Address display refresh
         "verenigingen.tasks.address_optimization.refresh_member_address_displays",
+        # Expense history integrity validation
+        "verenigingen.utils.expense_history_batch_processor.validate_expense_history_integrity",
     ],
     "monthly": [
         # Address data cleanup
         "verenigingen.tasks.address_optimization.cleanup_orphaned_address_data",
+        # Expense history cleanup
+        "verenigingen.utils.expense_history_batch_processor.cleanup_orphaned_expense_history",
     ],
 }
 
@@ -234,6 +245,10 @@ after_migrate = [
     "verenigingen.setup.membership_application_workflow_setup.setup_membership_application_workflow",
     "verenigingen.utils.security.setup_all_security",
 ]
+
+# Boot session hooks
+# ------------------
+boot_session = ["verenigingen.setup.document_links.setup_custom_document_links"]
 
 # Portal Configuration
 # --------------------
@@ -272,12 +287,14 @@ permission_query_conditions = {
     "Membership Termination Request": "verenigingen.permissions.get_termination_permission_query",
     "Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
     "Address": "verenigingen.permissions.get_address_permission_query",
+    "Donor": "verenigingen.permissions.get_donor_permission_query",
 }
 
 has_permission = {
     "Member": "verenigingen.permissions.has_member_permission",
     "Membership": "verenigingen.permissions.has_membership_permission",
     "Address": "verenigingen.permissions.has_address_permission",
+    "Donor": "verenigingen.permissions.has_donor_permission",
 }
 
 # Workflow Action Handlers
@@ -451,6 +468,11 @@ fixtures = [
         "filters": [["item_code", "=", "MEMBERSHIP"]],
     },
     # Updated to use dues schedule system instead of subscription plans
+    # Team Roles
+    {
+        "doctype": "Team Role",
+        "filters": [["name", "in", ["Team Leader", "Team Member", "Coordinator", "Secretary", "Treasurer"]]],
+    },
     # Workspaces
     {
         "doctype": "Workspace",

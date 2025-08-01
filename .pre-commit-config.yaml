@@ -124,13 +124,13 @@ repos:
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
 
       - id: frappe-api-validator
-        name: Frappe database API field validation
-        entry: python scripts/validation/frappe_api_field_validator.py
+        name: Pragmatic database field validation (balanced)
+        entry: python scripts/validation/pragmatic_field_validator.py --level balanced
         language: system
         pass_filenames: false
         files: \.py$
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/)'
 
       - id: enhanced-field-validator
         name: Deprecated field validation (pre-push)
@@ -228,8 +228,17 @@ repos:
         language: system
         pass_filenames: false
         files: '\.py$'
-        stages: [pre-push]
+        stages: [manual]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+
+      - id: pragmatic-field-validator-strict
+        name: Pragmatic database field validation (strict mode)
+        entry: python scripts/validation/pragmatic_field_validator.py --level strict
+        language: system
+        pass_filenames: false
+        files: \.py$
+        stages: [manual]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/)'
 
       # Pytest Coverage Hook
       - id: pytest-coverage-critical

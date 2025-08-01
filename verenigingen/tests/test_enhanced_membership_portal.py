@@ -15,7 +15,7 @@ def test_create_tier_based_membership():
     membership_type = frappe.new_doc("Membership Type")
     membership_type.membership_type_name = "Tier-Based Test Membership"
     membership_type.description = "Test membership type with predefined contribution tiers"
-    membership_type.amount = 25.0
+    membership_type.minimum_amount = 25.0
     membership_type.billing_period = "Annual"
     membership_type.is_active = 1
 
@@ -108,7 +108,7 @@ def test_create_calculator_based_membership():
     membership_type = frappe.new_doc("Membership Type")
     membership_type.membership_type_name = "Calculator-Based Test Membership"
     membership_type.description = "Test membership type with income-based calculator"
-    membership_type.amount = 15.0
+    membership_type.minimum_amount = 15.0
     membership_type.billing_period = "Monthly"
     membership_type.is_active = 1
 
@@ -166,7 +166,7 @@ def test_create_flexible_membership():
     membership_type = frappe.new_doc("Membership Type")
     membership_type.membership_type_name = "Flexible Test Membership"
     membership_type.description = "Test membership type with both tiers and calculator options"
-    membership_type.amount = 20.0
+    membership_type.minimum_amount = 20.0
     membership_type.billing_period = "Monthly"
     membership_type.is_active = 1
 

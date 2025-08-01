@@ -9,6 +9,74 @@ import frappe
 from frappe import _
 
 
+def emit_expense_claim_updated(doc, method=None):
+    """
+    Emit event when an expense claim is updated (any status change).
+
+    This captures all expense claim changes including draft, submitted, approved, rejected.
+    """
+    if doc.doctype != "Expense Claim":
+        return
+
+    # Process all expense claims (draft and submitted)
+    if doc.docstatus not in [0, 1]:
+        return
+
+    # Check if this is a volunteer expense by looking at employee link
+    volunteer = None
+    member = None
+
+    if doc.employee:
+        # Check if employee is linked to a volunteer
+        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": doc.employee}, "name")
+        if volunteer_name:
+            volunteer = volunteer_name
+            # Get member from volunteer
+            member = frappe.db.get_value("Volunteer", volunteer_name, "member")
+
+    if not member or not volunteer:
+        return  # Only process volunteer expenses
+
+    # Determine status/action
+    action = "updated"
+    if doc.docstatus == 0:
+        action = "draft"
+    elif doc.docstatus == 1:
+        if doc.approval_status == "Approved":
+            action = "approved"
+        elif doc.approval_status in ["Rejected", "Cancelled"]:
+            action = "rejected"
+        else:
+            action = "submitted"
+
+    event_data = {
+        "expense_claim": doc.name,
+        "employee": doc.employee,
+        "volunteer": volunteer,
+        "member": member,
+        "posting_date": str(doc.posting_date),
+        "total_claimed_amount": doc.total_claimed_amount,
+        "total_sanctioned_amount": doc.total_sanctioned_amount,
+        "approval_status": getattr(doc, "approval_status", "Draft"),
+        "status": doc.status,
+        "docstatus": doc.docstatus,
+        "action": action,
+        "expense_type": "Volunteer Expense",
+    }
+
+    # Log the event emission
+    frappe.logger("events").info(f"Emitting expense_claim_updated event for {doc.name} (action: {action})")
+
+    try:
+        _emit_expense_event("expense_claim_updated", event_data)
+    except Exception as e:
+        # Log but don't fail - event emission should never block expense claim updates
+        frappe.log_error(
+            f"Failed to emit expense_claim_updated event for {doc.name}: {str(e)}",
+            "Expense Event Emission Error",
+        )
+
+
 def emit_expense_claim_approved(doc, method=None):
     """
     Emit event when an expense claim approval status changes.
@@ -42,8 +110,8 @@ def _emit_expense_approval_event(doc, action):
     member = None
 
     if doc.employee:
-        # Check if employee is linked to a volunteer
-        volunteer_name = frappe.db.get_value("Volunteer", {"employee": doc.employee}, "name")
+        # Check if employee is linked to a volunteer (using correct field name)
+        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": doc.employee}, "name")
         if volunteer_name:
             volunteer = volunteer_name
             # Get member from volunteer
@@ -88,7 +156,7 @@ def emit_expense_claim_cancelled(doc, method=None):
     volunteer = None
     member = None
     if doc.employee:
-        volunteer_name = frappe.db.get_value("Volunteer", {"employee": doc.employee}, "name")
+        volunteer_name = frappe.db.get_value("Volunteer", {"employee_id": doc.employee}, "name")
         if volunteer_name:
             volunteer = volunteer_name
             member = frappe.db.get_value("Volunteer", volunteer_name, "member")
@@ -139,7 +207,9 @@ def emit_expense_payment_made(doc, method=None):
             volunteer = None
             member = None
             if expense_doc.employee:
-                volunteer_name = frappe.db.get_value("Volunteer", {"employee": expense_doc.employee}, "name")
+                volunteer_name = frappe.db.get_value(
+                    "Volunteer", {"employee_id": expense_doc.employee}, "name"
+                )
                 if volunteer_name:
                     volunteer = volunteer_name
                     member = frappe.db.get_value("Volunteer", volunteer_name, "member")
@@ -208,6 +278,9 @@ def _get_expense_event_subscribers(event_name):
     """
     # Mapping of events to their subscribers
     event_subscribers = {
+        "expense_claim_updated": [
+            "verenigingen.events.subscribers.expense_history_subscriber.handle_expense_claim_updated"
+        ],
         "expense_claim_approved": [
             "verenigingen.events.subscribers.expense_history_subscriber.handle_expense_claim_approved"
         ],

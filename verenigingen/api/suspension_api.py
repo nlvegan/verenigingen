@@ -145,33 +145,95 @@ def unsuspend_member(member_name, unsuspension_reason):
 
 
 @frappe.whitelist()
-@standard_api(operation_type=OperationType.MEMBER_DATA)
-def get_suspension_status(member_name):
+@utility_api(operation_type=OperationType.UTILITY)
+def get_my_suspension_status():
     """
-    Get suspension status for a member
+    Get suspension status for the current logged-in member
+    Members can only access their own suspension status
     """
-    from verenigingen.utils.termination_integration import get_member_suspension_status
+    try:
+        # Get current user
+        user_email = frappe.session.user
+        if user_email == "Guest":
+            return {"error": "Authentication required", "authenticated": False}
 
-    return get_member_suspension_status(member_name)
+        # Find member record for current user
+        member_name = frappe.db.get_value("Member", {"user": user_email}, "name")
+        if not member_name:
+            return {"error": "No member record found for current user", "has_member_record": False}
+
+        # Get suspension status
+        from verenigingen.utils.termination_integration import get_member_suspension_status
+
+        return get_member_suspension_status(member_name)
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting suspension status for user {frappe.session.user}: {str(e)}",
+            "Member Suspension Status Error",
+        )
+        return {"error": "Unable to retrieve suspension status", "success": False}
 
 
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.MEMBER_DATA)
-def can_suspend_member(member_name):
+def get_suspension_status(member_name):
+    """
+    Get suspension status for a member (admin/staff use only)
+    """
+    try:
+        from verenigingen.utils.termination_integration import get_member_suspension_status
+
+        return get_member_suspension_status(member_name)
+    except frappe.PermissionError:
+        # Return graceful error instead of throwing exception
+        return {
+            "error": "Access denied. This function requires administrative privileges.",
+            "success": False,
+            "required_action": "Please contact an administrator if you need to check suspension status.",
+        }
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting suspension status for member {member_name}: {str(e)}",
+            "Admin Suspension Status Error",
+        )
+        return {"error": "Unable to retrieve suspension status", "success": False}
+
+
+@frappe.whitelist()
+@utility_api(operation_type=OperationType.UTILITY)
+def can_suspend_member(member_name=None):
     """
     Check if current user can suspend/unsuspend a member
+    If no member_name provided, checks general suspension permissions
     """
-    # Import the function using frappe's import system to handle any import issues
     try:
-        # Use frappe.get_attr to import the function
-        can_terminate_member = frappe.get_attr("verenigingen.permissions.can_terminate_member")
-        # For suspension, we use the same permission logic as termination
-        # since suspension is essentially a temporary termination
-        return can_terminate_member(member_name)
+        # If no member specified, just check if user has any suspension permissions
+        if not member_name:
+            user_roles = frappe.get_roles(frappe.session.user)
+            admin_roles = [
+                "System Manager",
+                "Verenigingen Administrator",
+                "Verenigingen Manager",
+                "Verenigingen Staff",
+            ]
+            return any(role in user_roles for role in admin_roles)
+
+        # Import the function using frappe's import system to handle any import issues
+        try:
+            # Use frappe.get_attr to import the function
+            can_terminate_member = frappe.get_attr("verenigingen.permissions.can_terminate_member")
+            # For suspension, we use the same permission logic as termination
+            # since suspension is essentially a temporary termination
+            return can_terminate_member(member_name)
+        except Exception as e:
+            frappe.log_error(f"Import error in can_suspend_member: {e}", "Suspension API Import Error")
+            # Fallback to basic permission check
+            return _can_suspend_member_fallback(member_name)
+
     except Exception as e:
-        frappe.log_error(f"Import error in can_suspend_member: {e}", "Suspension API Import Error")
-        # Fallback to basic permission check
-        return _can_suspend_member_fallback(member_name)
+        frappe.log_error(f"Error checking suspension permissions: {str(e)}", "Suspension Permission Error")
+        return False
 
 
 def _can_suspend_member_fallback(member_name):
@@ -424,6 +486,67 @@ def get_suspension_list(limit=100, offset=0, status=None, chapter=None):
         "offset": offset,
         "has_more": (offset + limit) < total_count,
     }
+
+
+@frappe.whitelist(allow_guest=True)
+def get_suspension_status_safe(member_name=None):
+    """
+    Safe wrapper for getting suspension status that handles permission errors gracefully
+    If member_name is not provided, gets status for current user's member record
+    """
+    try:
+        # If no member_name provided, try to get current user's member record
+        if not member_name:
+            user_email = frappe.session.user
+            if user_email == "Guest":
+                return {"error": "Please log in to view suspension status", "authenticated": False}
+
+            member_name = frappe.db.get_value("Member", {"user": user_email}, "name")
+            if not member_name:
+                return {"error": "No member record found for your account", "has_member_record": False}
+
+        # First check if the user has permission to access this member's data
+        current_user = frappe.session.user
+
+        # Allow users to access their own data
+        member_user = frappe.db.get_value("Member", member_name, "user")
+        if member_user == current_user:
+            from verenigingen.utils.termination_integration import get_member_suspension_status
+
+            result = get_member_suspension_status(member_name)
+            result["access_type"] = "own_record"
+            return result
+
+        # For other members, check if user has admin permissions
+        user_roles = frappe.get_roles(current_user)
+        admin_roles = [
+            "System Manager",
+            "Verenigingen Administrator",
+            "Verenigingen Manager",
+            "Verenigingen Staff",
+        ]
+
+        if any(role in user_roles for role in admin_roles):
+            from verenigingen.utils.termination_integration import get_member_suspension_status
+
+            result = get_member_suspension_status(member_name)
+            result["access_type"] = "admin_access"
+            return result
+        else:
+            return {
+                "error": "You can only view your own suspension status",
+                "success": False,
+                "access_denied": True,
+                "help": "To view another member's status, you need administrative privileges",
+            }
+
+    except Exception as e:
+        frappe.log_error(f"Error in safe suspension status check: {str(e)}", "Safe Suspension Status Error")
+        return {
+            "error": "Unable to retrieve suspension status at this time",
+            "success": False,
+            "help": "Please try again later or contact support if the problem persists",
+        }
 
 
 @frappe.whitelist()

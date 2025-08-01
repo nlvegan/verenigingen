@@ -13,11 +13,18 @@ class PeriodicDonationAgreement(Document):
     def validate(self):
         self.calculate_end_date()
         self.calculate_payment_amount()
-        self.update_anbi_eligibility()  # Update ANBI eligibility before date validation
         self.validate_dates()
         self.validate_annual_amount()
+        # Store original ANBI eligibility claim before any auto-updates
+        original_anbi_claim = self.anbi_eligible
+        self.validate_anbi_eligibility()  # Validate ANBI business rules first
+        self.update_anbi_eligibility()  # Then update eligibility based on system rules
+        # If user claimed ANBI but system determined not eligible, validate the claim
+        if original_anbi_claim and not self.anbi_eligible:
+            self._validate_anbi_claim_against_system_rules()
         self.update_donation_tracking()
         self.set_commitment_type()
+        self.set_default_tax_year()
 
     def before_insert(self):
         # Generate agreement number if not set
@@ -41,9 +48,16 @@ class PeriodicDonationAgreement(Document):
     def calculate_end_date(self):
         """Calculate end date based on agreement duration"""
         if self.start_date and not self.end_date:
-            # Default to 5 years for ANBI compliance
             duration_years = self.get_agreement_duration()
-            self.end_date = add_years(getdate(self.start_date), duration_years)
+            if duration_years > 0:  # Only set end_date for non-lifetime agreements
+                calculated_end_date = add_years(getdate(self.start_date), duration_years)
+                # Ensure date is stored as string in YYYY-MM-DD format
+                self.end_date = (
+                    calculated_end_date.strftime("%Y-%m-%d")
+                    if hasattr(calculated_end_date, "strftime")
+                    else str(calculated_end_date)
+                )
+            # For lifetime agreements, end_date remains None/empty
 
     def calculate_payment_amount(self):
         """Calculate payment amount based on annual amount and frequency"""
@@ -57,11 +71,25 @@ class PeriodicDonationAgreement(Document):
 
     def validate_dates(self):
         """Validate agreement dates"""
+        duration_years = self.get_agreement_duration()
+
+        # Handle lifetime agreements (duration = -1)
+        if duration_years == -1:
+            # Lifetime agreements automatically qualify for ANBI if organization has ANBI status
+            org_anbi_status = frappe.db.get_single_value(
+                "Verenigingen Settings", "organization_has_anbi_status"
+            )
+            if org_anbi_status:
+                self.anbi_eligible = 1
+            # Lifetime agreements don't need further date validation
+            return
+
+        # For fixed-term agreements, validate dates
         if self.start_date and self.end_date:
             if getdate(self.end_date) <= getdate(self.start_date):
                 frappe.throw(_("End date must be after start date"))
 
-            # Calculate duration in years
+            # Calculate actual duration in years
             duration_years = self.calculate_duration_years()
 
             # Check minimum duration based on agreement type
@@ -324,8 +352,13 @@ class PeriodicDonationAgreement(Document):
         """Get agreement duration in years"""
         # Parse duration from the select field
         if hasattr(self, "agreement_duration_years") and self.agreement_duration_years:
-            # Extract number from options like "5 Years (ANBI)"
             duration_str = str(self.agreement_duration_years)
+
+            # Handle special case for Lifetime
+            if duration_str.startswith("Lifetime"):
+                return -1  # Special value indicating lifetime agreement
+
+            # Extract number from options like "5 Years (ANBI)"
             try:
                 return int(duration_str.split()[0])
             except:
@@ -349,24 +382,227 @@ class PeriodicDonationAgreement(Document):
         delta = relativedelta(getdate(self.end_date), getdate(self.start_date))
         return delta.years + (delta.months / 12.0) + (delta.days / 365.25)
 
-    @property
     def is_anbi_eligible(self):
-        """Check if agreement is ANBI eligible based on duration and settings"""
-        # Check if ANBI eligibility is explicitly set
-        if hasattr(self, "anbi_eligible"):
-            return self.anbi_eligible
-
-        # Default to True for backward compatibility
-        return True
+        """Check if agreement is ANBI eligible based on current field value"""
+        # Return the actual field value, don't default to True
+        return bool(getattr(self, "anbi_eligible", 0))
 
     def set_commitment_type(self):
         """Set commitment type based on duration"""
         duration = self.get_agreement_duration()
 
-        if duration >= 5 and self.is_anbi_eligible:
+        if (duration >= 5 or duration == -1) and self.is_anbi_eligible():  # Include lifetime agreements
             self.commitment_type = "ANBI Periodic Donation Agreement"
         else:
             self.commitment_type = "Donation Pledge (No ANBI Tax Benefits)"
+
+    def set_default_tax_year(self):
+        """Set default tax year if not provided"""
+        if self.anbi_eligible and not self.tax_year_applicable:
+            from datetime import datetime
+
+            current_year = datetime.now().year
+            # Tax benefits typically start from the year after agreement or current year
+            if self.start_date:
+                start_year = getdate(self.start_date).year
+                self.tax_year_applicable = max(current_year, start_year)
+            else:
+                self.tax_year_applicable = current_year
+
+    def validate_anbi_eligibility(self):
+        """Validate ANBI eligibility based on comprehensive business rules"""
+        # Always validate basic business rules regardless of ANBI flag
+        # This prevents data integrity issues
+
+        # First validate basic agreement requirements
+        if not self.donor:
+            frappe.throw(_("Donor is required for all agreements"))
+
+        if not self.annual_amount or self.annual_amount <= 0:
+            frappe.throw(_("Valid annual amount is required"))
+
+        # If not claiming ANBI benefits, skip ANBI-specific validation
+        if not self.anbi_eligible:
+            return
+
+        # 1. Check if ANBI functionality is enabled in system (fail-closed)
+        anbi_enabled = frappe.db.get_single_value("Verenigingen Settings", "enable_anbi_functionality")
+        if anbi_enabled is None:
+            frappe.throw(
+                _(
+                    "ANBI functionality is not configured in system settings. Please contact administrator to configure ANBI settings."
+                )
+            )
+        if not anbi_enabled:
+            frappe.throw(
+                _("ANBI functionality is disabled in system settings. Please contact administrator.")
+            )
+
+        # 2. Check organization has valid ANBI registration (fail-closed)
+        org_anbi_status = frappe.db.get_single_value("Verenigingen Settings", "organization_has_anbi_status")
+        if org_anbi_status is None:
+            frappe.throw(
+                _(
+                    "Organization ANBI status is not configured in system settings. Please contact administrator to configure ANBI registration status."
+                )
+            )
+        if org_anbi_status is False:
+            frappe.throw(
+                _("Organization does not have valid ANBI registration. ANBI tax benefits cannot be offered.")
+            )
+
+        # 3. Validate donor has provided ANBI consent
+        if not self.donor:
+            frappe.throw(_("Donor is required for ANBI agreements"))
+
+        # Use get_doc with proper error handling
+        try:
+            donor_doc = frappe.get_doc("Donor", self.donor)
+        except frappe.DoesNotExistError:
+            frappe.throw(
+                _(
+                    "Donor record '{0}' not found. Please ensure donor exists before creating agreement."
+                ).format(self.donor)
+            )
+
+        if not getattr(donor_doc, "anbi_consent", False):
+            frappe.throw(
+                _(
+                    "Donor must provide ANBI consent before creating ANBI-eligible agreement. Please update donor record first."
+                )
+            )
+
+        # Check if donor has required tax identifier
+        donor_type = getattr(donor_doc, "donor_type", None)
+        if donor_type == "Individual":
+            if not getattr(donor_doc, "bsn_citizen_service_number", None):
+                frappe.throw(
+                    _("Individual donors require valid BSN (Citizen Service Number) for ANBI agreements")
+                )
+        elif donor_type == "Organization":
+            if not getattr(donor_doc, "rsin_organization_tax_number", None):
+                frappe.throw(
+                    _("Organization donors require valid RSIN (Organization Tax Number) for ANBI agreements")
+                )
+        else:
+            frappe.throw(_("Donor type must be 'Individual' or 'Organization' for ANBI agreements"))
+
+        # 4. Validate duration meets ANBI requirements
+        duration = self.get_agreement_duration()
+        if duration != -1 and duration < 5:  # Not lifetime and less than 5 years
+            frappe.throw(
+                _("ANBI periodic donation agreements require minimum 5-year commitment or lifetime agreement")
+            )
+
+        # 5. Validate minimum annual amount (if any restrictions exist)
+        if self.annual_amount and self.annual_amount <= 0:
+            frappe.throw(_("ANBI agreements must have positive annual amount"))
+
+        # 6. Validate agreement type supports ANBI
+        if getattr(self, "agreement_type", None) and self.agreement_type not in [
+            "Notarial",
+            "Private Written",
+        ]:
+            frappe.throw(_("ANBI agreements require formal documentation (Notarial or Private Written)"))
+
+        # 7. Check for duplicate active ANBI agreements (business rule)
+        if self.status in ["Active", "Draft"]:
+            existing_agreements = frappe.get_all(
+                "Periodic Donation Agreement",
+                filters={
+                    "donor": self.donor,
+                    "anbi_eligible": 1,
+                    "status": ["in", ["Active", "Draft"]],
+                    "name": ["!=", self.name],
+                },
+                fields=["name", "status"],
+            )
+
+            if existing_agreements:
+                active_agreements = [ag.name for ag in existing_agreements if ag.status == "Active"]
+                if active_agreements:
+                    frappe.throw(
+                        _(
+                            "Donor already has active ANBI agreement: {0}. Only one active ANBI agreement per donor is allowed."
+                        ).format(", ".join(active_agreements))
+                    )
+
+    def get_anbi_validation_status(self):
+        """Get comprehensive ANBI validation status for UI feedback"""
+        if not self.anbi_eligible:
+            return {"valid": True, "message": "Agreement does not claim ANBI benefits", "warnings": []}
+
+        warnings = []
+        errors = []
+
+        # Check each validation rule and collect issues
+        try:
+            # Bulk fetch system settings to avoid multiple queries
+            settings_values = frappe.db.get_singles_dict(
+                "Verenigingen Settings", ["enable_anbi_functionality", "organization_has_anbi_status"]
+            )
+
+            anbi_enabled = settings_values.get("enable_anbi_functionality")
+            org_anbi_status = settings_values.get("organization_has_anbi_status")
+
+            if anbi_enabled is None:
+                errors.append("ANBI functionality not configured in system")
+            elif not anbi_enabled:
+                errors.append("ANBI functionality disabled in system")
+
+            if org_anbi_status is None:
+                warnings.append("Organization ANBI status not configured")
+            elif org_anbi_status is False:
+                errors.append("Organization does not have ANBI registration")
+
+            # Donor validation - use get_value for specific fields only
+            if self.donor:
+                donor_fields = frappe.db.get_value(
+                    "Donor",
+                    self.donor,
+                    [
+                        "anbi_consent",
+                        "donor_type",
+                        "bsn_citizen_service_number",
+                        "rsin_organization_tax_number",
+                    ],
+                    as_dict=True,
+                )
+
+                if not donor_fields:
+                    errors.append("Donor record not found")
+                else:
+                    if not donor_fields.get("anbi_consent"):
+                        errors.append("Donor has not provided ANBI consent")
+
+                    donor_type = donor_fields.get("donor_type")
+                    if donor_type == "Individual" and not donor_fields.get("bsn_citizen_service_number"):
+                        errors.append("Individual donor missing BSN")
+                    elif donor_type == "Organization" and not donor_fields.get(
+                        "rsin_organization_tax_number"
+                    ):
+                        errors.append("Organization donor missing RSIN")
+
+            # Duration validation
+            duration = self.get_agreement_duration()
+            if duration != -1 and duration < 5:
+                errors.append(f"Duration ({duration} years) below ANBI minimum (5 years)")
+
+            # Amount validation
+            if not self.annual_amount or self.annual_amount <= 0:
+                errors.append("Invalid annual amount")
+
+        except Exception as e:
+            errors.append(f"Validation error: {str(e)}")
+
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+            "message": "ANBI validation passed"
+            if len(errors) == 0
+            else f"{len(errors)} validation errors found",
+        }
 
     def update_anbi_eligibility(self):
         """Update ANBI eligibility based on duration and organization status"""
@@ -383,8 +619,8 @@ class PeriodicDonationAgreement(Document):
         if has_anbi_status is None:
             has_anbi_status = True  # Default to True if not set
 
-        # Only eligible if 5+ years AND organization has ANBI status
-        if duration >= 5 and has_anbi_status:
+        # Only eligible if 5+ years OR lifetime (-1) AND organization has ANBI status
+        if (duration >= 5 or duration == -1) and has_anbi_status:
             # Only show message if status is changing
             if hasattr(self, "anbi_eligible") and self.anbi_eligible == 0:
                 frappe.msgprint(_("This agreement is now eligible for ANBI tax benefits (5+ year duration)."))
@@ -405,3 +641,25 @@ class PeriodicDonationAgreement(Document):
                         )
                     )
             self.anbi_eligible = 0
+
+    def _validate_anbi_claim_against_system_rules(self):
+        """Validate when user claims ANBI but system rules prevent it"""
+        # Check why the system determined ANBI is not eligible
+        anbi_enabled = frappe.db.get_single_value("Verenigingen Settings", "enable_anbi_functionality")
+        org_anbi_status = frappe.db.get_single_value("Verenigingen Settings", "organization_has_anbi_status")
+        duration = self.get_agreement_duration()
+
+        if not anbi_enabled:
+            frappe.throw(
+                _("Cannot claim ANBI tax benefits: ANBI functionality is disabled in system settings")
+            )
+        elif org_anbi_status is False:
+            frappe.throw(
+                _("Cannot claim ANBI tax benefits: Organization does not have valid ANBI registration")
+            )
+        elif duration != -1 and duration < 5:
+            frappe.throw(
+                _(
+                    "Cannot claim ANBI tax benefits: Agreement duration ({0} years) is below minimum requirement of 5 years"
+                ).format(duration)
+            )

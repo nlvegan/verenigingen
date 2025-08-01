@@ -57,7 +57,7 @@ class TestMembershipType(FrappeTestCase):
 
         self.assertEqual(membership_type.membership_type_name, "Test Membership Type")
         self.assertEqual(membership_type.billing_period, "Annual")
-        self.assertEqual(membership_type.amount, 120)
+        self.assertEqual(membership_type.minimum_amount, 120)
 
     def test_custom_billing_period(self):
         """Test validation for custom billing period"""
@@ -85,7 +85,7 @@ class TestMembershipType(FrappeTestCase):
         membership_type.update(self.membership_type_data)
 
         # Set negative amount
-        membership_type.amount = -100
+        membership_type.minimum_amount = -100
 
         # Should raise an error
         with self.assertRaises(frappe.exceptions.ValidationError):

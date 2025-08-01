@@ -389,9 +389,8 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
                 audit_entries = frappe.get_all(
                     "Communication History",
                     filters={
-                        "reference_doctype": "Member",
-                        "reference_name": member.name,
-                        "communication_type": "Status Change"},
+                        "comm_type": "Email",
+                        "comm_description": ["like", f"%{member.name}%"]},
                 )
                 if audit_entries:
                     # Verify audit entry contains status change info
@@ -469,9 +468,9 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
             chapter_memberships = frappe.get_all(
                 "Chapter Member",
                 filters={"member": member.name, "status": "Active"},
-                fields=["chapter"]
+                fields=["parent"]
             )
-            chapter_names = [cm.chapter for cm in chapter_memberships]
+            chapter_names = [cm.parent for cm in chapter_memberships]
             self.assertTrue(len(chapter_names) > 0, "Member should be assigned to at least one chapter")
             
         except frappe.ValidationError:

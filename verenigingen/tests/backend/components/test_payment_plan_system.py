@@ -433,7 +433,7 @@ class TestPaymentPlanSystem(VereningingenTestCase):
         """Create a simple test membership type"""
         membership_type = frappe.new_doc("Membership Type")
         membership_type.membership_type_name = f"Test Membership {frappe.generate_hash(length=6)}"
-        membership_type.amount = 30.0
+        membership_type.minimum_amount = 30.0
         membership_type.is_active = 1
         
         membership_type.save()
@@ -456,7 +456,7 @@ class TestPaymentPlanSystem(VereningingenTestCase):
         dues_schedule.member = self.test_member.name
         dues_schedule.membership = membership.name
         dues_schedule.membership_type = membership_type.name
-        dues_schedule.dues_rate = membership_type.amount
+        dues_schedule.dues_rate = membership_type.minimum_amount
         dues_schedule.billing_frequency = "Monthly"
         dues_schedule.status = "Active"
         dues_schedule.auto_generate = 0
