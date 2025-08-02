@@ -1,3 +1,61 @@
+/**
+ * @fileoverview ANBI Donation Summary Report for Verenigingen Association Management
+ *
+ * This report provides comprehensive ANBI (Algemeen Nut Beogende Instelling) compliance
+ * reporting for Dutch charitable organizations, enabling proper tax reporting and
+ * regulatory compliance for donation activities.
+ *
+ * @description Business Context:
+ * ANBI Donation Summary supports Dutch tax compliance requirements for charitable
+ * organizations by providing:
+ * - Comprehensive donation tracking with ANBI compliance indicators
+ * - Tax ID (BSN/RSIN) management with privacy protection through masking
+ * - Consent management for donor privacy and GDPR compliance
+ * - Periodic donation agreement tracking for sustained giving programs
+ * - Export capabilities for Belastingdienst (Dutch Tax Authority) reporting
+ * - Automated consent request workflows for donor engagement
+ *
+ * @description Key Features:
+ * - Date range filtering for specific reporting periods
+ * - Donor type classification (Individual vs Organization)
+ * - Reportable donation identification for tax purposes
+ * - Periodic agreement tracking for sustained giving analysis
+ * - ANBI consent status monitoring for privacy compliance
+ * - Privacy-protected tax ID display with intelligent masking
+ * - Color-coded indicators for quick status assessment
+ * - Export functionality for regulatory reporting
+ *
+ * @description Integration Points:
+ * - Donor management system for comprehensive donor information
+ * - Donation tracking for financial compliance reporting
+ * - Periodic donation agreement system for sustained giving
+ * - ANBI operations API for compliance workflow automation
+ * - Belastingdienst export functionality for regulatory filing
+ * - Email system for automated consent request communications
+ *
+ * @description Compliance Features:
+ * - GDPR-compliant privacy protection with tax ID masking
+ * - ANBI regulatory compliance with proper categorization
+ * - Audit trail maintenance for regulatory oversight
+ * - Consent management for donor privacy protection
+ * - Automated reporting workflows for tax authority submissions
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires frappe.query_reports
+ * @requires frappe.call
+ * @requires frappe.datetime
+ *
+ * @example
+ * // Report automatically provides:
+ * // - ANBI-compliant donation summaries with privacy protection
+ * // - Regulatory export capabilities for tax authority submission
+ * // - Consent management workflows for donor engagement
+ * // - Comprehensive filtering for specific compliance requirements
+ */
+
 // Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 // For license information, please see license.txt
 

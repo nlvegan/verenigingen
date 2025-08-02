@@ -1,8 +1,82 @@
 """
-Fraud Detection System for Verenigingen
+Comprehensive Fraud Detection and Prevention System
 
-Detects and prevents various types of fraudulent activities in the
-association management system.
+This module provides advanced fraud detection capabilities for the Verenigingen
+association management system. It implements multi-layered fraud prevention
+strategies to protect against financial fraud, membership abuse, expense fraud,
+and voting manipulation while maintaining system usability and member experience.
+
+Key Features:
+- Multi-domain fraud detection (payments, memberships, expenses, voting)
+- Real-time risk assessment with configurable scoring algorithms
+- Machine learning-ready pattern analysis and anomaly detection
+- Automated fraud prevention with configurable response actions
+- Comprehensive audit trails and fraud reporting capabilities
+- Integration with external fraud databases and blacklists
+
+Business Context:
+Fraud prevention is critical for protecting the association's financial integrity
+and maintaining member trust. The system addresses multiple fraud vectors:
+- Payment fraud including stolen cards and account takeovers
+- Membership fraud with duplicate registrations and bot attacks
+- Expense reimbursement fraud from volunteers and staff
+- Voting manipulation and proxy abuse in democratic processes
+- Identity theft and impersonation attempts
+
+Architecture:
+This system integrates with:
+- Payment processing systems for real-time transaction monitoring
+- Member management for identity verification and history analysis
+- SEPA banking systems for account validation and blacklist checking
+- Expense management for reimbursement fraud detection
+- Voting systems for election integrity monitoring
+- External fraud databases for enhanced intelligence
+
+Fraud Detection Domains:
+1. Payment Fraud:
+   - Multiple failed payment attempts indicating stolen credentials
+   - Unusual payment amounts suggesting account compromise
+   - New payment methods requiring verification
+   - Rapid successive payments indicating automated attacks
+   - Blacklisted IBANs from known fraud databases
+
+2. Membership Fraud:
+   - Duplicate email/phone registrations for multi-account abuse
+   - Suspicious email patterns from temporary services
+   - Bot activity with rapid applications from single IP addresses
+   - Fake identity patterns and geographic inconsistencies
+   - Name pattern analysis for synthetic identities
+
+3. Expense Fraud:
+   - Duplicate expense submissions for double reimbursement
+   - Amounts just under approval limits to avoid scrutiny
+   - Unusual expense patterns indicating fraud
+   - High-frequency claims suggesting abuse
+   - Round number amounts indicating fabricated receipts
+
+4. Voting Fraud:
+   - Multiple votes from same IP address
+   - Voting outside assigned chapters
+   - Proxy voting abuse and authorization violations
+   - Election manipulation and coordinated attacks
+
+Risk Assessment Framework:
+- Configurable risk scoring with weighted fraud indicators
+- Three-tier risk levels: Low, Medium, High
+- Automated responses based on risk assessment
+- Manual review queues for medium-risk activities
+- Automatic blocking for high-risk transactions
+
+Performance and Privacy:
+- Real-time processing with minimal latency impact
+- Privacy-preserving design with data minimization
+- GDPR-compliant fraud monitoring and storage
+- Efficient algorithms for high-volume transaction processing
+- Integration with existing audit and compliance frameworks
+
+Author: Development Team
+Date: 2025-08-02
+Version: 1.0
 """
 
 import re

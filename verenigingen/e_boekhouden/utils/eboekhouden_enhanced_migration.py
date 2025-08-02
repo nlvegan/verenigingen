@@ -1,16 +1,42 @@
 """
-Enhanced E-Boekhouden migration with all improvements integrated
+Enhanced eBoekhouden Migration Framework with Enterprise-Grade Capabilities
 
-This module integrates all the migration improvements:
-- Configurable payment account mapping
-- Error recovery and retry mechanism
-- Performance improvements and batch processing
-- Advanced duplicate detection
-- Transaction safety and rollback
-- Dry-run mode
-- Date range chunking for API limits
-- Comprehensive audit trail
-- Pre-import validation
+This module provides a comprehensive, production-ready migration framework for importing
+eBoekhouden accounting data into ERPNext. It incorporates advanced enterprise features
+including transaction safety, performance optimization, comprehensive audit trails,
+and intelligent error recovery mechanisms.
+
+Enterprise Features:
+    * Configurable payment account mapping with fallback mechanisms
+    * Intelligent error recovery with automatic retry logic
+    * Performance optimization through batch processing and parallel execution
+    * Advanced duplicate detection with sophisticated matching algorithms
+    * Transaction safety with atomic operations and rollback capabilities
+    * Comprehensive dry-run simulation for migration planning
+    * Date range chunking to handle API limitations gracefully
+    * Complete audit trail with detailed logging and reporting
+    * Pre-import validation to prevent data quality issues
+    * Progress tracking with real-time updates
+
+Architecture Highlights:
+    The framework follows a modular architecture where each enhancement component
+    is independently testable and configurable. It supports both REST and SOAP
+    API integration (with REST preferred for large datasets) and provides
+    intelligent fallback mechanisms for various failure scenarios.
+
+Migration Safety:
+    All operations are wrapped in atomic transactions with automatic rollback
+    on failure. The system maintains comprehensive audit trails for compliance
+    and troubleshooting. Dry-run mode allows complete migration simulation
+    without data modification.
+
+Usage:
+    migration = EnhancedEBoekhoudenMigration(migration_doc, settings)
+    result = migration.execute_migration()
+
+Performance:
+    Designed to handle large datasets (>10,000 transactions) efficiently
+    through intelligent batching, parallel processing, and memory optimization.
 """
 
 from collections import defaultdict
@@ -38,7 +64,30 @@ from .party_extractor import EBoekhoudenPartyExtractor
 
 
 class EnhancedEBoekhoudenMigration:
-    """Enhanced migration with all improvements integrated"""
+    """
+    Enterprise-grade eBoekhouden migration orchestrator with comprehensive safety features.
+
+    This class coordinates all aspects of the migration process, from initial validation
+    through final audit reporting. It implements sophisticated error handling, performance
+    optimization, and data integrity validation while maintaining complete audit trails
+    for compliance and troubleshooting.
+
+    Key Components:
+        - Error recovery with exponential backoff
+        - Performance optimization through intelligent batching
+        - Duplicate detection using multiple matching strategies
+        - Transaction safety with atomic operations and rollback
+        - Comprehensive audit trail with severity levels
+        - Pre-import validation to prevent data quality issues
+        - Dry-run simulation for migration planning
+
+    Migration Phases:
+        1. Pre-migration validation and backup creation
+        2. Account structure validation and setup
+        3. Data import with batch processing and error recovery
+        4. Data integrity verification and audit trail generation
+        5. Progress reporting and completion notification
+    """
 
     def __init__(self, migration_doc, settings):
         self.migration_doc = migration_doc
@@ -73,7 +122,24 @@ class EnhancedEBoekhoudenMigration:
         self.cost_center = self._get_cost_center()
 
     def _get_cost_center(self):
-        """Get appropriate cost center for the company"""
+        """
+        Intelligently determine the appropriate cost center for migration transactions.
+
+        Uses multiple fallback strategies to ensure a valid cost center is found:
+        1. Look for "Main" cost center for the company
+        2. Use company abbreviation-based cost center
+        3. Fall back to any available cost center for the company
+
+        Returns:
+            str: Valid cost center name for the company
+
+        Raises:
+            frappe.ValidationError: If no cost center can be found
+
+        Note:
+            Cost centers are required for all ERPNext transactions.
+            This method ensures migration can proceed even with incomplete setup.
+        """
         # Try multiple approaches to find cost center
         cost_center = frappe.db.get_value(
             "Cost Center", {"company": self.company, "cost_center_name": "Main", "is_group": 0}, "name"
@@ -109,7 +175,38 @@ class EnhancedEBoekhoudenMigration:
             frappe.log_error(f"Failed to update progress: {str(e)}", "Migration Progress")
 
     def execute_migration(self):
-        """Execute the enhanced migration"""
+        """
+        Execute comprehensive migration with enterprise-grade safety and monitoring.
+
+        This method orchestrates the complete migration process through multiple phases,
+        each with its own error handling and rollback capabilities. It provides real-time
+        progress updates and maintains detailed audit trails throughout the operation.
+
+        Migration Phases:
+            1. Pre-migration validation and system readiness check
+            2. Backup creation for rollback capabilities
+            3. Account structure validation and setup
+            4. Data import using REST API with batch processing
+            5. Data integrity verification and validation
+            6. Audit trail generation and reporting
+            7. Dry-run simulation and reporting (if applicable)
+
+        Returns:
+            dict: Comprehensive migration result containing:
+                - success (bool): Overall operation success
+                - validation_report (dict): Pre-migration validation results
+                - integrity_report (dict): Post-migration data integrity check
+                - audit_summary (dict): Complete audit trail summary
+                - dry_run_report (dict, optional): Simulation results
+                - error (str, optional): Error message if failed
+
+        Raises:
+            Exception: For critical failures that cannot be recovered
+
+        Note:
+            All operations are atomic with automatic rollback on failure.
+            Progress updates are published in real-time for UI feedback.
+        """
         self.audit_trail.log_event(
             "migration_started",
             {
@@ -326,7 +423,31 @@ class EnhancedEBoekhoudenMigration:
         return stats
 
     def _process_mutation_batch(self, mutations, checkpoint):
-        """Process a batch of mutations"""
+        """
+        Process a batch of eBoekhouden mutations with intelligent type classification.
+
+        Groups mutations by normalized type and processes each group using specialized
+        handlers. Maintains detailed statistics and error tracking for audit purposes.
+
+        Args:
+            mutations (list): List of eBoekhouden mutation records
+            checkpoint (dict): Transaction checkpoint for rollback capability
+
+        Returns:
+            dict: Batch processing statistics containing:
+                - processed (int): Total mutations processed
+                - created (int): New records created
+                - updated (int): Existing records updated
+                - skipped (int): Records skipped (duplicates, validation failures)
+                - errors (list): Detailed error information
+
+        Processing Logic:
+            1. Normalize mutation types using intelligent classification
+            2. Group mutations by type for specialized processing
+            3. Process each group with appropriate handler
+            4. Aggregate statistics and error information
+            5. Log detailed audit information for each batch
+        """
         batch_stats = {"processed": 0, "created": 0, "updated": 0, "skipped": 0, "errors": []}
 
         from .normalize_mutation_types import normalize_mutation_type
@@ -545,7 +666,28 @@ class EnhancedEBoekhoudenMigration:
 
 @frappe.whitelist()
 def execute_enhanced_migration(migration_name):
-    """Execute the enhanced migration"""
+    """
+    Execute enhanced migration with enterprise features or fall back to REST API.
+
+    This function serves as the primary entry point for eBoekhouden migration operations.
+    It automatically determines whether to use the enhanced migration framework or
+    fall back to the simpler REST API migration based on configuration.
+
+    Args:
+        migration_name (str): Name of the E-Boekhouden Migration document
+
+    Returns:
+        dict: Migration result from the selected migration method
+
+    Migration Selection Logic:
+        - Enhanced migration: Full enterprise features with audit trails
+        - REST API migration: Simpler approach for basic migrations
+        - SOAP API is not used due to 500-record limitation
+
+    Note:
+        This function is exposed via Frappe's whitelist for API access.
+        Enhanced migration is preferred for production environments.
+    """
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     settings = frappe.get_single("E-Boekhouden Settings")
 
@@ -563,7 +705,31 @@ def execute_enhanced_migration(migration_name):
 
 @frappe.whitelist()
 def run_migration_dry_run(migration_name):
-    """Run migration in dry-run mode"""
+    """
+    Execute complete migration simulation without data modification.
+
+    Performs a comprehensive dry-run simulation of the migration process,
+    validating all data and processes without creating any actual records.
+    Essential for migration planning and risk assessment.
+
+    Args:
+        migration_name (str): Name of the E-Boekhouden Migration document
+
+    Returns:
+        dict: Dry-run simulation results containing:
+            - would_create (int): Records that would be created
+            - would_update (int): Records that would be updated
+            - would_skip (int): Records that would be skipped
+            - validation_errors (list): Data validation issues
+            - simulation_summary (dict): Detailed simulation statistics
+
+    Simulation Coverage:
+        - Data validation and transformation
+        - Duplicate detection and handling
+        - Account mapping and validation
+        - Customer/supplier creation requirements
+        - Performance estimation and optimization opportunities
+    """
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     migration_doc.dry_run = True
 
@@ -575,7 +741,31 @@ def run_migration_dry_run(migration_name):
 
 @frappe.whitelist()
 def validate_migration_data(migration_name):
-    """Validate migration data before import"""
+    """
+    Perform comprehensive pre-migration data validation and readiness assessment.
+
+    Conducts thorough validation of the migration environment and data quality
+    before actual migration execution. This prevents common migration failures
+    and provides detailed guidance for addressing any issues.
+
+    Args:
+        migration_name (str): Name of the E-Boekhouden Migration document
+
+    Returns:
+        dict: Comprehensive validation report containing:
+            - can_proceed (bool): Whether migration can proceed safely
+            - validation_summary (dict): Statistical overview of validation results
+            - issues (list): Critical problems that must be resolved
+            - warnings (list): Non-critical issues that may affect migration
+            - recommendations (list): Suggested optimizations and improvements
+
+    Validation Areas:
+        - System configuration and settings
+        - Account structure and mapping completeness
+        - Data quality and consistency checks
+        - Performance and capacity assessment
+        - Integration readiness verification
+    """
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     settings = frappe.get_single("E-Boekhouden Settings")
 

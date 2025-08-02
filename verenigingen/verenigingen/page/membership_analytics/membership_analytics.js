@@ -1,3 +1,74 @@
+/**
+ * @fileoverview Membership Analytics Dashboard - Advanced Business Intelligence and Predictive Analytics
+ *
+ * This module provides comprehensive analytics and business intelligence capabilities for association
+ * membership management, featuring real-time dashboards, predictive modeling, cohort analysis,
+ * churn prediction, revenue forecasting, and executive reporting. The system supports strategic
+ * decision-making through data-driven insights and automated alert systems.
+ *
+ * Key Features:
+ * - Real-time membership growth tracking and trend analysis
+ * - Predictive analytics with 12-month forecasting models
+ * - Advanced cohort retention analysis and churn prediction
+ * - Revenue projection and membership value optimization
+ * - Regional and demographic segmentation analytics
+ * - Goal setting and progress tracking with automated alerts
+ * - Executive dashboards with export capabilities
+ * - Risk assessment and member engagement analytics
+ *
+ * Business Value:
+ * - Strategic planning through data-driven member growth insights
+ * - Proactive churn prevention with risk identification
+ * - Revenue optimization through membership value analysis
+ * - Performance monitoring against organizational goals
+ * - Operational efficiency through automated reporting
+ * - Compliance support with detailed analytics audit trails
+ *
+ * Technical Architecture:
+ * - Frappe framework integration with custom page controllers
+ * - Chart.js integration for interactive data visualizations
+ * - Real-time data processing with 5-minute auto-refresh
+ * - Advanced filtering with multi-dimensional analytics
+ * - Export capabilities (Excel, PDF, CSV) for reporting
+ * - Mobile-responsive dashboard design
+ *
+ * Security Features:
+ * - Role-based access control for analytics data
+ * - Audit logging for all dashboard interactions
+ * - Data anonymization for sensitive member information
+ * - GDPR-compliant member data handling
+ *
+ * Performance Optimizations:
+ * - Cached analytics data with intelligent refresh
+ * - Optimized database queries for large datasets
+ * - Progressive data loading for enhanced user experience
+ * - Memory-efficient chart rendering and updates
+ *
+ * @author Verenigingen Development Team
+ * @version 2.1.0
+ * @since 1.0.0
+ *
+ * @requires frappe
+ * @requires frappe.Chart
+ * @requires verenigingen.verenigingen.page.membership_analytics.membership_analytics (Python backend)
+ * @requires verenigingen.verenigingen.page.membership_analytics.predictive_analytics (ML backend)
+ *
+ * @example
+ * // Dashboard is automatically initialized when accessing the Membership Analytics page
+ * // Access via: Workspace > Analytics > Membership Analytics Dashboard
+ *
+ * @see {@link /app/membership-analytics} Dashboard URL
+ * @see {@link verenigingen.verenigingen.doctype.membership_analytics_snapshot} Snapshot Management
+ * @see {@link verenigingen.verenigingen.report} Related Analytics Reports
+ */
+
+/**
+ * Frappe page loader for Membership Analytics Dashboard
+ * Initializes the analytics dashboard with proper page structure and controls
+ *
+ * @param {Object} wrapper - Frappe page wrapper element
+ * @throws {Error} If page initialization fails or user lacks permissions
+ */
 frappe.pages['membership-analytics'].on_page_load = function(wrapper) {
 	var page = frappe.ui.make_app_page({
 		parent: wrapper,
@@ -10,7 +81,66 @@ frappe.pages['membership-analytics'].on_page_load = function(wrapper) {
 	membership_analytics.make();
 };
 
+/**
+ * @class MembershipAnalytics
+ * @classdesc Advanced Membership Analytics Dashboard with Predictive Intelligence
+ *
+ * Provides comprehensive business intelligence for association membership management,
+ * featuring real-time analytics, predictive modeling, cohort analysis, and strategic
+ * planning tools. Supports executive decision-making through interactive dashboards
+ * and automated insights.
+ *
+ * Core Capabilities:
+ * - Membership growth tracking and trend analysis
+ * - Revenue forecasting and optimization analytics
+ * - Churn prediction and retention modeling
+ * - Demographic and geographic segmentation
+ * - Goal setting and performance monitoring
+ * - Risk assessment and early warning systems
+ *
+ * Analytics Features:
+ * - Real-time dashboard with auto-refresh (5-minute intervals)
+ * - Interactive filtering by time, region, demographics
+ * - Comparative analysis (year-over-year, period comparisons)
+ * - Cohort retention analysis with heatmap visualization
+ * - Predictive scenarios (conservative, optimistic, aggressive growth)
+ * - Export capabilities for executive reporting
+ *
+ * Data Sources:
+ * - Member registration and lifecycle events
+ * - Payment transactions and revenue data
+ * - Engagement metrics and activity tracking
+ * - Chapter performance and regional analytics
+ * - External economic and demographic indicators
+ *
+ * @since 1.0.0
+ * @version 2.1.0
+ */
 class MembershipAnalytics {
+	/**
+	 * @constructor
+	 * @description Initializes the Membership Analytics Dashboard with default configuration
+	 *
+	 * Sets up the analytics environment with comprehensive filtering options,
+	 * chart management, and real-time data refresh capabilities. Establishes
+	 * baseline analytics parameters for member growth tracking and business intelligence.
+	 *
+	 * @param {Object} page - Frappe page object for dashboard rendering
+	 *
+	 * @property {Object} page - Main page container for dashboard UI
+	 * @property {Object} charts - Chart instances management for memory optimization
+	 * @property {Object} filters - Multi-dimensional filtering configuration
+	 * @property {number} filters.year - Current analysis year (default: current year)
+	 * @property {string} filters.period - Analysis period (year/quarter/month)
+	 * @property {boolean} filters.compare_previous - Enable period comparison
+	 * @property {string|null} filters.chapter - Chapter-specific filtering
+	 * @property {string|null} filters.region - Geographic region filtering
+	 * @property {string|null} filters.membership_type - Membership type segmentation
+	 * @property {string|null} filters.age_group - Demographic age grouping
+	 * @property {string|null} filters.payment_method - Payment method analysis
+	 *
+	 * @since 1.0.0
+	 */
 	constructor(page) {
 		this.page = page;
 		this.charts = {};
@@ -26,6 +156,25 @@ class MembershipAnalytics {
 		};
 	}
 
+	/**
+	 * @method make
+	 * @description Initializes and renders the complete analytics dashboard
+	 *
+	 * Orchestrates the dashboard creation process including HTML template rendering,
+	 * filter setup, button configuration, and initial data loading. Establishes
+	 * auto-refresh mechanism for real-time analytics updates.
+	 *
+	 * Dashboard Components:
+	 * - Summary cards with key performance indicators
+	 * - Interactive charts for growth trends and revenue analysis
+	 * - Advanced filtering interface with multi-dimensional options
+	 * - Goal tracking and progress monitoring
+	 * - Export and snapshot capabilities
+	 * - Predictive analytics and risk assessment tools
+	 *
+	 * @throws {Error} If template rendering fails or backend connectivity issues
+	 * @since 1.0.0
+	 */
 	make() {
 		// Add HTML content
 		$(this.page.main).html(frappe.render_template('membership_analytics', {}));
@@ -201,6 +350,44 @@ class MembershipAnalytics {
 		});
 	}
 
+	/**
+	 * @method refresh_dashboard
+	 * @description Refreshes all dashboard data and visualizations with current filter settings
+	 *
+	 * Orchestrates a complete dashboard refresh by fetching updated analytics data
+	 * from the backend and re-rendering all charts, summaries, and insights.
+	 * Implements proper loading states and error handling for enhanced user experience.
+	 *
+	 * Data Refresh Process:
+	 * 1. Display loading state with progress indicator
+	 * 2. Fetch comprehensive analytics data with current filters
+	 * 3. Update summary cards with key performance metrics
+	 * 4. Re-render all interactive charts and visualizations
+	 * 5. Refresh goals, insights, and recommendations
+	 * 6. Update timestamp for data freshness indication
+	 *
+	 * Backend Integration:
+	 * - Calls Python analytics engine for data processing
+	 * - Applies multi-dimensional filtering (time, geography, demographics)
+	 * - Retrieves predictive analytics and trend analysis
+	 * - Includes comparative metrics for period-over-period analysis
+	 *
+	 * Error Handling:
+	 * - Network connectivity issues
+	 * - Backend processing errors
+	 * - Data validation failures
+	 * - User permission restrictions
+	 *
+	 * @throws {Error} If backend communication fails or data processing errors occur
+	 * @since 1.0.0
+	 *
+	 * @example
+	 * // Triggered automatically every 5 minutes
+	 * setInterval(() => this.refresh_dashboard(), 5 * 60 * 1000);
+	 *
+	 * // Manual refresh via button click
+	 * $('#btn-refresh').on('click', () => this.refresh_dashboard());
+	 */
 	refresh_dashboard() {
 		// Show loading state
 		frappe.dom.freeze('Loading dashboard data...');
@@ -668,6 +855,44 @@ class MembershipAnalytics {
 		container.html(tableHtml);
 	}
 
+	/**
+	 * @method export_data
+	 * @description Exports comprehensive analytics data in multiple formats for reporting
+	 *
+	 * Generates executive-ready reports containing all dashboard analytics data,
+	 * charts, and insights in professional formats suitable for board presentations,
+	 * regulatory compliance, and strategic planning documentation.
+	 *
+	 * Export Formats:
+	 * - Excel: Comprehensive workbook with multiple sheets, charts, and pivot tables
+	 * - PDF: Executive summary with visualizations and key insights
+	 * - CSV: Raw data for further analysis and integration
+	 *
+	 * Report Contents:
+	 * - Membership growth trends and projections
+	 * - Revenue analysis and forecasting
+	 * - Regional and demographic breakdowns
+	 * - Goal progress and achievement metrics
+	 * - Comparative period analysis
+	 * - Key performance indicators summary
+	 *
+	 * Compliance Features:
+	 * - Audit trail with export timestamps
+	 * - Data validation and integrity checks
+	 * - GDPR-compliant member data handling
+	 * - Secure file generation and transfer
+	 *
+	 * @param {string} format - Export format ('excel', 'pdf', 'csv')
+	 * @throws {Error} If export generation fails or format unsupported
+	 * @since 1.5.0
+	 *
+	 * @example
+	 * // Export Excel report
+	 * this.export_data('excel');
+	 *
+	 * // Export PDF summary
+	 * this.export_data('pdf');
+	 */
 	export_data(format) {
 		frappe.dom.freeze('Preparing export...');
 
@@ -725,6 +950,44 @@ class MembershipAnalytics {
 		);
 	}
 
+	/**
+	 * @method show_predictive_analytics
+	 * @description Displays advanced predictive analytics dialog with machine learning insights
+	 *
+	 * Launches a comprehensive predictive analytics interface featuring 12-month
+	 * membership growth forecasts, revenue projections, scenario modeling, and
+	 * churn risk analysis. Integrates machine learning algorithms for strategic planning.
+	 *
+	 * Predictive Analytics Features:
+	 * - Member growth forecasting with confidence intervals
+	 * - Revenue projection based on membership trends
+	 * - Multiple growth scenarios (conservative, optimistic, aggressive)
+	 * - Churn risk identification and member retention analytics
+	 * - Cohort behavior prediction and lifecycle modeling
+	 * - Actionable recommendations for membership optimization
+	 *
+	 * Machine Learning Integration:
+	 * - Time series analysis for trend extrapolation
+	 * - Regression models for revenue forecasting
+	 * - Classification algorithms for churn prediction
+	 * - Clustering analysis for member segmentation
+	 * - Anomaly detection for unusual membership patterns
+	 *
+	 * Strategic Planning Support:
+	 * - Goal setting with data-driven targets
+	 * - Resource allocation recommendations
+	 * - Risk mitigation strategies
+	 * - Market opportunity identification
+	 * - Performance benchmarking and optimization
+	 *
+	 * @param {number} [months_ahead=12] - Forecast horizon in months
+	 * @throws {Error} If ML backend is unavailable or data insufficient for predictions
+	 * @since 2.0.0
+	 *
+	 * @example
+	 * // Triggered by Predictive Analytics button
+	 * $('#btn-predictive').on('click', () => this.show_predictive_analytics());
+	 */
 	show_predictive_analytics() {
 		frappe.dom.freeze('Loading predictive analytics...');
 

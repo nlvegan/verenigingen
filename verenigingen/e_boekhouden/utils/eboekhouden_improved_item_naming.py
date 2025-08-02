@@ -3,17 +3,107 @@ Improved item naming for E-boekhouden imports
 """
 
 import frappe
+from frappe.utils import flt
 
 
-def get_or_create_item_improved(account_code, company, transaction_type="Both", description=None):
+def map_unit_of_measure(unit):
+    """Map Dutch units to ERPNext UOMs"""
+    uom_mapping = {
+        # Dutch to English UOM mapping
+        "Nos": "Unit",
+        "Unit": "Unit",
+        "Eenheid": "Unit",
+        "Stuks": "Unit",
+        "Per stuk": "Unit",
+        "Uur": "Hour",
+        "Hour": "Hour",
+        "Dag": "Day",
+        "Maand": "Month",
+        "Jaar": "Year",
+        "Kg": "Kg",
+        "Liter": "Litre",
+        "Meter": "Meter",
+        "Service": "Unit",
+        "Trip": "Unit",
+        "License": "Unit",
+    }
+
+    return uom_mapping.get(unit, "Unit")
+
+
+def determine_smart_item_group(description, btw_code=None, account_code=None, price=None, account_info=None):
+    """Enhanced item group determination using multiple signals"""
+
+    # Use existing item groups only (avoid non-existent groups)
+    SAFE_ITEM_GROUPS = {
+        "default": "Services",
+        "service": "Services",
+        "product": "Products",
+        "travel": "Expense Items",  # Travel and Expenses -> Expense Items
+        "marketing": "Services",  # Marketing and Advertising -> Services
+        "utility": "Services",  # Utilities -> Services
+        "office": "Consumable",  # Office Supplies -> Consumable
+        "subscription": "Services",  # Software and Subscriptions -> Services
+        "finance": "Services",  # Financial Services -> Services
+        "catering": "Services",  # Catering and Events -> Services
+        "sales": "Services",  # Backward compatibility
+        "purchase": "Products",  # Backward compatibility
+    }
+
+    # Keywords for enhanced categorization
+    ITEM_GROUP_KEYWORDS = {
+        "travel": ["reis", "travel", "transport", "hotel", "accommodation", "trein", "vliegtuig"],
+        "marketing": ["marketing", "advertis", "promotional", "poster", "flyer", "banner", "reclame"],
+        "office": ["kantoor", "office", "supplies", "stationary", "pen", "paper", "papier"],
+        "finance": ["bank", "transaction", "fee", "kosten", "sisow", "payment", "betaal"],
+        "catering": ["catering", "restaurant", "diner", "lunch", "food", "eten", "meal"],
+        "utility": ["electric", "gas", "water", "internet", "phone", "telefoon"],
+        "subscription": ["subscription", "license", "software", "saas", "service"],
+    }
+
+    if description:
+        description_lower = description.lower()
+
+        # Priority 1: Check description keywords (most specific)
+        for group, keywords in ITEM_GROUP_KEYWORDS.items():
+            if any(keyword in description_lower for keyword in keywords):
+                return SAFE_ITEM_GROUPS.get(group, "Services")
+
+    # Priority 2: Use account information if available
+    if account_info:
+        if account_info.root_type == "Income":
+            return "Services"  # Income typically services
+        elif account_info.root_type == "Expense":
+            return "Expense Items"
+        elif account_info.root_type == "Asset":
+            return "Products"
+
+    # Priority 3: Use price range hints if available
+    if price:
+        price_float = flt(price)
+        if 0 < price_float <= 50:  # Small amounts
+            return "Consumable"
+        elif price_float > 500:  # Large amounts
+            return "Products"
+
+    # Default fallback to Services
+    return "Services"
+
+
+def get_or_create_item_improved(
+    account_code, company, transaction_type="Both", description=None, btw_code=None, price=None, unit="Unit"
+):
     """
-    Get or create item with improved naming based on account information
+    Enhanced item creation with smart categorization and mapping integration
 
     Args:
         account_code: E-boekhouden account code (grootboekrekening)
         company: Company name
         transaction_type: "Sales", "Purchase", or "Both"
-        description: Optional transaction description for context
+        description: Transaction description for enhanced categorization
+        btw_code: VAT code for smart categorization
+        price: Price for category determination
+        unit: Unit of measure for mapping
 
     Returns:
         Item code (name) to use in invoice
@@ -26,7 +116,16 @@ def get_or_create_item_improved(account_code, company, transaction_type="Both", 
         )
         account_code = "MISC"
 
-    # First, check if there's a mapping
+    # Step 1: Check for existing item by description (enhanced approach)
+    if description:
+        existing_by_desc = frappe.db.get_value("Item", {"description": description}, "name")
+        if existing_by_desc:
+            frappe.logger().info(
+                f"E-Boekhouden Item Creation: Found existing item by description: {existing_by_desc}"
+            )
+            return existing_by_desc
+
+    # Step 2: Check if there's a mapping in the DocType
     from verenigingen.e_boekhouden.doctype.e_boekhouden_item_mapping.e_boekhouden_item_mapping import (
         get_item_for_account,
     )
@@ -40,10 +139,8 @@ def get_or_create_item_improved(account_code, company, transaction_type="Both", 
             )
             return mapped_item
     except Exception as e:
-        frappe.log_error(
-            title="E-Boekhouden Item Creation: Mapping Check Failed",
-            message=f"Failed to check item mapping for account {account_code}: {str(e)}",
-        )
+        # Don't log this as an error since most accounts won't have mappings
+        frappe.logger().debug(f"No item mapping found for account {account_code}: {str(e)}")
 
     # If no mapping, create item based on account information
     try:
@@ -91,56 +188,63 @@ def get_or_create_item_improved(account_code, company, transaction_type="Both", 
             f"E-Boekhouden Item Creation: Using fallback item name '{item_name}' for account {account_code}"
         )
 
-    # Check if item already exists
+    # Step 3: Generate item code and apply smart categorization
+    if description:
+        # Use description for more meaningful item code
+        clean_desc = "".join(c for c in description if c.isalnum() or c in " -_").strip()
+        clean_desc = clean_desc.replace(" ", "-").upper()[:30]
+        item_code = f"EBH-{clean_desc}"
+    else:
+        item_code = item_name
+
+    # Check if item already exists by code
+    if frappe.db.exists("Item", item_code):
+        frappe.logger().info(f"E-Boekhouden Item Creation: Item '{item_code}' already exists, reusing")
+        return item_code
+
+    # Also check by name for backward compatibility
     if frappe.db.exists("Item", item_name):
         frappe.logger().info(f"E-Boekhouden Item Creation: Item '{item_name}' already exists, reusing")
         return item_name
 
-    # Create new item
+    # Step 4: Smart item group determination
+    item_group = determine_smart_item_group(description, btw_code, account_code, price, account_info)
+
+    # Create new item with enhanced categorization
     try:
         item = frappe.new_doc("Item")
-        item.item_code = item_name
-        item.item_name = item_name
+        item.item_code = item_code  # Use the clean generated code
+        item.item_name = description[:140] if description else item_name  # Use description for name
+        item.description = description if description else item_name
+        item.item_group = item_group  # Use smart categorization
 
-        # Set item group based on account type
-        if account_info:
-            if account_info.root_type == "Income":
-                item.item_group = get_or_create_item_group("Income Services")
-                frappe.logger().info(
-                    f"E-Boekhouden Item Creation: Assigned item '{item_name}' to Income Services group"
-                )
-            elif account_info.root_type == "Expense":
-                item.item_group = get_or_create_item_group("Expense Services")
-                frappe.logger().info(
-                    f"E-Boekhouden Item Creation: Assigned item '{item_name}' to Expense Services group"
-                )
-            else:
-                item.item_group = get_or_create_item_group("General Services")
-                frappe.logger().info(
-                    f"E-Boekhouden Item Creation: Assigned item '{item_name}' to General Services group (root_type: {account_info.root_type})"
-                )
+        # Enhanced UOM assignment
+        item.stock_uom = map_unit_of_measure(unit) if unit else "Unit"
+
+        # Smart stock item determination based on group
+        if item_group in ["Products", "Consumable"]:
+            item.is_stock_item = 1
+            item.maintain_stock = 1
+            item.valuation_method = "FIFO"
         else:
-            item.item_group = get_or_create_item_group("Services")
-            frappe.logger().warning(
-                f"E-Boekhouden Item Creation: No account info available, assigned item '{item_name}' to default Services group"
-            )
+            item.is_stock_item = 0
+            item.maintain_stock = 0
 
-        item.stock_uom = "Nos"
-        item.is_stock_item = 0
+        # Set sales/purchase flags based on transaction type
+        if transaction_type in ["Sales", "Both"]:
+            item.is_sales_item = 1
+        if transaction_type in ["Purchase", "Both"]:
+            item.is_purchase_item = 1
 
-        # Add description if available
-        if description:
-            item.description = f"Auto-created from E-boekhouden account {account_code}"
-            if account_info and account_info.account_name:
-                item.description += f" ({account_info.account_name})"
-        else:
-            item.description = f"Auto-created from E-boekhouden account {account_code}"
+        # Add metadata for E-Boekhouden items
+        if hasattr(item, "custom_eboekhouden_account_code"):
+            item.custom_eboekhouden_account_code = str(account_code)
 
-        item.insert(ignore_permissions=True)
+        item.insert()
         frappe.logger().info(
-            f"E-Boekhouden Item Creation: Successfully created item '{item_name}' for account {account_code}"
+            f"E-Boekhouden Item Creation: Successfully created item '{item_code}' with group '{item_group}' for account {account_code}"
         )
-        return item_name
+        return item_code
 
     except Exception as e:
         frappe.log_error(

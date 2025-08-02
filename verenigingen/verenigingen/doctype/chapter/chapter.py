@@ -1,6 +1,58 @@
 # Copyright (c) 2017, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
+"""
+Chapter DocType Implementation
+
+This module implements the Chapter DocType for the Verenigingen association
+management system. It represents local chapters/branches of the organization
+with comprehensive management capabilities including board management, member
+coordination, and communication systems.
+
+Key Features:
+    - Board member management with role-based permissions
+    - Member registration and coordination
+    - Communication and announcement systems
+    - Volunteer integration and coordination
+    - Website integration with public chapter pages
+    - Financial tracking and reporting
+
+Architecture:
+    - Manager Pattern: Delegates specific responsibilities to specialized managers
+    - Validator Pattern: Centralized validation logic with comprehensive error handling
+    - Website Generator: Automatic public website page generation
+    - Event-driven: Hooks into document lifecycle for automated processing
+
+Manager Components:
+    - BoardManager: Handles board member appointments and permissions
+    - MemberManager: Manages chapter membership and registration
+    - CommunicationManager: Handles announcements and member communication
+    - VolunteerIntegrationManager: Coordinates with volunteer management system
+    - ChapterValidator: Comprehensive validation and business rule enforcement
+
+Business Logic:
+    - Chapter autonomy with central coordination
+    - Board member role and permission management
+    - Member application approval workflows
+    - Financial dues and payment coordination
+    - Event and activity management
+
+Security Model:
+    - Role-based access control for board positions
+    - Chapter-specific permission scoping
+    - Audit logging for sensitive operations
+    - Validation of board member authorities
+
+Integration Points:
+    - Member DocType for membership management
+    - Volunteer system for activity coordination
+    - Financial systems for dues and payments
+    - Communication systems for announcements
+    - Website generator for public presence
+
+Author: Verenigingen Development Team
+License: MIT
+"""
 
 import frappe
 from frappe import _

@@ -1,5 +1,54 @@
 """
-API endpoints for managing donor auto-creation functionality
+Donor Auto-Creation Management API
+
+This module provides comprehensive API endpoints for managing the automatic
+creation of donor records in the Verenigingen association management system.
+It handles donor registration automation, threshold management, and reporting
+on donor creation activities.
+
+Key Features:
+    - Automated donor record creation based on donation thresholds
+    - Comprehensive dashboard for donor auto-creation monitoring
+    - Settings management for auto-creation parameters
+    - Statistical reporting and analytics
+    - Recent activity tracking and management
+    - Integration with donation processing systems
+
+Business Logic:
+    - Automatic donor creation when donation amounts exceed thresholds
+    - Configurable creation triggers and parameters
+    - Duplicate prevention and validation mechanisms
+    - Integration with existing donor and member systems
+    - Comprehensive audit trail for auto-created records
+
+Architecture:
+    - Dashboard-driven management interface
+    - Real-time statistics and reporting
+    - Integration with Verenigingen Settings system
+    - Performance-optimized queries for large datasets
+    - Caching for frequently accessed data
+
+Security Model:
+    - Standard API security for reporting operations
+    - Settings access controls for configuration management
+    - Audit logging for all auto-creation activities
+    - Input validation and sanitization
+
+Integration Points:
+    - Donor DocType for record creation
+    - Donation processing for trigger detection
+    - Verenigingen Settings for configuration
+    - Member system for relationship management
+    - Financial reporting and analytics systems
+
+Performance Considerations:
+    - Optimized queries for statistical aggregation
+    - Efficient filtering for large donor datasets
+    - Background processing for bulk operations
+    - Caching for dashboard data
+
+Author: Verenigingen Development Team
+License: MIT
 """
 
 import frappe

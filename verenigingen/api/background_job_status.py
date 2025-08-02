@@ -1,12 +1,63 @@
 #!/usr/bin/env python3
 """
 Background Job Status API
-Phase 2.2 - User-facing API for background job management
 
-Provides user-friendly API endpoints for monitoring background job status,
-viewing job history, and managing background operations with proper security.
+This module provides comprehensive API endpoints for monitoring and managing
+background jobs in the Verenigingen association management system. It offers
+user-friendly interfaces for job status tracking, history viewing, and
+background operation management with robust security controls.
 
-Integration with Phase 1 security framework and monitoring infrastructure.
+Key Features:
+    - Real-time background job monitoring
+    - User-specific job tracking and history
+    - Job status filtering and management
+    - Progress tracking and reporting
+    - Error handling and recovery mechanisms
+    - Administrative job management capabilities
+
+Architecture:
+    - Phase 2.2 implementation of background job management
+    - Integration with Frappe's background job system
+    - Security-aware API endpoints with proper authorization
+    - Type-safe implementation with comprehensive error handling
+    - Performance optimized with proper indexing and caching
+
+Security Model:
+    - User-scoped job access controls
+    - Administrative permissions for cross-user job management
+    - Standard API security framework integration
+    - Audit logging for job operations
+    - Input validation and sanitization
+
+Business Process:
+    1. Job Creation: Background jobs initiated by user actions
+    2. Status Tracking: Real-time monitoring of job progress
+    3. History Management: Comprehensive job history and analytics
+    4. Error Handling: Failure detection and recovery mechanisms
+    5. Administrative Oversight: Cross-user job management for administrators
+
+Integration Points:
+    - Frappe Background Job system for job execution
+    - Background Job Tracker DocType for persistence
+    - User permission system for access control
+    - Notification systems for job completion alerts
+    - Performance monitoring and analytics systems
+
+Performance Considerations:
+    - Efficient querying with proper indexes
+    - Result pagination for large job sets
+    - Caching for frequently accessed job data
+    - Background cleanup of old job records
+
+Common Use Cases:
+    - Data import/export operations
+    - Bulk member processing
+    - Financial report generation
+    - SEPA batch processing
+    - System maintenance tasks
+
+Author: Verenigingen Development Team
+License: MIT
 """
 
 import json

@@ -2,8 +2,63 @@
 """
 Performance Monitoring Integration API
 
-Provides API endpoints for the unified performance monitoring system
-that integrates all Phase 5A components.
+This module provides comprehensive API endpoints for the unified performance
+monitoring system in the Verenigingen association management system. It
+integrates all Phase 5A monitoring components to provide holistic system
+performance insights and management capabilities.
+
+Key Features:
+    - Unified performance metrics collection from all system components
+    - Real-time monitoring and alerting capabilities
+    - Performance trend analysis and reporting
+    - System health dashboard integration
+    - Automated performance optimization recommendations
+    - Integration with external monitoring systems
+
+Architecture:
+    - Phase 5A monitoring system integration
+    - Centralized performance data aggregation
+    - Real-time metrics collection and processing
+    - Type-safe implementation with comprehensive error handling
+    - Scalable monitoring infrastructure
+
+Performance Metrics Covered:
+    - API response times and throughput
+    - Database query performance and optimization
+    - System resource utilization (CPU, memory, disk)
+    - Background job processing performance
+    - User interface responsiveness
+    - Third-party integration performance
+
+Security Model:
+    - Standard API security for performance reporting
+    - Access controls for sensitive performance data
+    - Audit logging for monitoring activities
+    - Input validation and sanitization
+
+Integration Points:
+    - PerformanceMonitoringIntegrator for data collection
+    - Database performance monitoring systems
+    - API endpoint performance tracking
+    - Background job monitoring
+    - External monitoring tool integration
+    - Alert and notification systems
+
+Business Value:
+    - Proactive performance issue identification
+    - System optimization recommendations
+    - Performance trend analysis for capacity planning
+    - User experience monitoring and improvement
+    - Cost optimization through efficient resource usage
+
+Technical Implementation:
+    - Asynchronous metrics collection for minimal overhead
+    - Efficient data aggregation and storage
+    - Real-time alerting with configurable thresholds
+    - Historical trend analysis and reporting
+
+Author: Verenigingen Development Team
+License: MIT
 """
 
 from typing import Any, Dict, List, Optional

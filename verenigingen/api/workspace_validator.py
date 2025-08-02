@@ -1,9 +1,64 @@
 #!/usr/bin/env python3
 """
-Workspace Validation API for Pre-commit Hooks
+Workspace Validation API
 
-Validates workspace integrity and catches common issues before they reach production.
-Can be run as API endpoint or integrated into pre-commit hooks.
+This module provides comprehensive workspace validation capabilities for the
+Verenigingen association management system. It validates workspace integrity,
+catches common configuration issues, and ensures proper system setup before
+deployment or production use.
+
+Key Features:
+    - Comprehensive workspace integrity validation
+    - Pre-commit hook integration for development workflows
+    - Configuration validation and error detection
+    - Permission and security validation
+    - Database schema validation
+    - Integration point verification
+
+Architecture:
+    - High-security API for administrative operations
+    - Comprehensive validation framework
+    - Integration with pre-commit development workflows
+    - Type-safe implementation with detailed error reporting
+    - Security-aware validation with audit logging
+
+Validation Categories:
+    - Workspace Configuration: Validates workspace setup and configuration
+    - DocType Integrity: Ensures DocType definitions are consistent
+    - Permission Structure: Validates role and permission configurations
+    - Database Schema: Checks database structure and indexes
+    - Security Settings: Validates security configurations
+    - Integration Points: Verifies external system connections
+
+Security Model:
+    - High-security API for administrative operations
+    - Administrative role requirements for sensitive validations
+    - Comprehensive audit logging for validation activities
+    - Rate limiting to prevent abuse
+    - Input validation and sanitization
+
+Integration Points:
+    - Pre-commit hook system for development workflow
+    - Workspace DocType for configuration management
+    - Permission system for access control validation
+    - Database system for schema validation
+    - Security framework for security validation
+
+Business Value:
+    - Prevents configuration errors from reaching production
+    - Ensures consistent workspace setup across environments
+    - Reduces deployment issues and downtime
+    - Improves development workflow efficiency
+    - Maintains system security and integrity
+
+Development Workflow:
+    - Integrated into pre-commit hooks for automatic validation
+    - Can be run manually for troubleshooting
+    - Provides detailed error reports for quick issue resolution
+    - Supports continuous integration and deployment pipelines
+
+Author: Verenigingen Development Team
+License: MIT
 """
 
 from typing import Dict, List

@@ -97,7 +97,20 @@ class EBoekhoudenPartyResolver:
                 debug_info.append(f"Successfully fetched relation details for {relation_id}")
 
                 # Log what fields we actually received
-                important_fields = ["bedrijfsnaam", "voornaam", "achternaam", "email", "telefoon"]
+                # Check REST API fields and legacy Dutch (SOAP) field names
+                important_fields = [
+                    "name",
+                    "type",
+                    "email",
+                    "bedrijfsnaam",
+                    "companyName",
+                    "voornaam",
+                    "firstName",
+                    "achternaam",
+                    "lastName",
+                    "telefoon",
+                    "phone",
+                ]
                 received_fields = {
                     field: relation_data.get(field) for field in important_fields if relation_data.get(field)
                 }
@@ -129,15 +142,26 @@ class EBoekhoudenPartyResolver:
 
         customer = frappe.new_doc("Customer")
 
-        # Determine customer name
-        if relation_details.get("bedrijfsnaam"):
-            customer_name = relation_details["bedrijfsnaam"]
-            customer_type = "Company"
+        # Determine customer name from E-Boekhouden REST API
+        # According to swagger spec, relations have a "name" field and "type" field (B=Business, P=Personal)
+        relation_name = relation_details.get("name")
+        relation_type = relation_details.get("type", "P")  # Default to Personal if not specified
+
+        if relation_name:
+            customer_name = relation_name
+            customer_type = "Company" if relation_type == "B" else "Individual"
         else:
-            customer_name = (
-                f"{relation_details.get('voornaam', '')} {relation_details.get('achternaam', '')}".strip()
-            )
-            customer_type = "Individual"
+            # Fallback to legacy Dutch field names for backwards compatibility
+            company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
+            first_name = relation_details.get("voornaam") or relation_details.get("firstName")
+            last_name = relation_details.get("achternaam") or relation_details.get("lastName")
+
+            if company_name:
+                customer_name = company_name
+                customer_type = "Company"
+            else:
+                customer_name = f"{first_name or ''} {last_name or ''}".strip()
+                customer_type = "Individual"
 
         if not customer_name or customer_name.isspace():
             # Try to extract name from description if available
@@ -216,15 +240,26 @@ class EBoekhoudenPartyResolver:
 
         supplier = frappe.new_doc("Supplier")
 
-        # Determine supplier name
-        if relation_details.get("bedrijfsnaam"):
-            supplier_name = relation_details["bedrijfsnaam"]
-            supplier_type = "Company"
+        # Determine supplier name from E-Boekhouden REST API
+        # According to swagger spec, relations have a "name" field and "type" field (B=Business, P=Personal)
+        relation_name = relation_details.get("name")
+        relation_type = relation_details.get("type", "P")  # Default to Personal if not specified
+
+        if relation_name:
+            supplier_name = relation_name
+            supplier_type = "Company" if relation_type == "B" else "Individual"
         else:
-            supplier_name = (
-                f"{relation_details.get('voornaam', '')} {relation_details.get('achternaam', '')}".strip()
-            )
-            supplier_type = "Individual"
+            # Fallback to legacy Dutch field names for backwards compatibility
+            company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
+            first_name = relation_details.get("voornaam") or relation_details.get("firstName")
+            last_name = relation_details.get("achternaam") or relation_details.get("lastName")
+
+            if company_name:
+                supplier_name = company_name
+                supplier_type = "Company"
+            else:
+                supplier_name = f"{first_name or ''} {last_name or ''}".strip()
+                supplier_type = "Individual"
 
         if not supplier_name or supplier_name.isspace():
             # Try to extract name from description if available
@@ -422,25 +457,38 @@ class EBoekhoudenPartyResolver:
             debug_info.append("Address data available for supplier (not implemented yet)")
 
     def get_default_customer(self):
-        """Get or create default customer"""
-        customer_name = "E-Boekhouden Import Customer"
-        if not frappe.db.exists("Customer", customer_name):
-            customer = frappe.new_doc("Customer")
-            customer.customer_name = customer_name
-            customer.customer_group = "All Customer Groups"
-            customer.territory = "All Territories"
-            customer.insert()
-        return customer_name
+        """
+        REMOVED: Generic customer creation disabled to prevent data corruption.
+
+        All customers must be properly resolved from E-Boekhouden API.
+        If this function is called, it indicates an API failure or missing relation data.
+        """
+        error_msg = (
+            "CUSTOMER RESOLUTION FAILED: No customer could be resolved from E-Boekhouden API. "
+            "This indicates either an API connectivity issue or missing relation data. "
+            "Generic customer creation has been disabled to prevent data corruption. "
+            "Please check API connectivity and ensure all relation IDs exist in E-Boekhouden."
+        )
+
+        frappe.logger().error(f"PARTY RESOLUTION FAILURE: {error_msg}")
+        frappe.throw(error_msg, title="Customer Resolution Required", exc=frappe.ValidationError)
 
     def get_default_supplier(self):
-        """Get or create default supplier"""
-        supplier_name = "E-Boekhouden Import Supplier"
-        if not frappe.db.exists("Supplier", supplier_name):
-            supplier = frappe.new_doc("Supplier")
-            supplier.supplier_name = supplier_name
-            supplier.supplier_group = "All Supplier Groups"
-            supplier.insert()
-        return supplier_name
+        """
+        REMOVED: Generic supplier creation disabled to prevent data corruption.
+
+        All suppliers must be properly resolved from E-Boekhouden API.
+        If this function is called, it indicates an API failure or missing relation data.
+        """
+        error_msg = (
+            "SUPPLIER RESOLUTION FAILED: No supplier could be resolved from E-Boekhouden API. "
+            "This indicates either an API connectivity issue or missing relation data. "
+            "Generic supplier creation has been disabled to prevent data corruption. "
+            "Please check API connectivity and ensure all relation IDs exist in E-Boekhouden."
+        )
+
+        frappe.logger().error(f"PARTY RESOLUTION FAILURE: {error_msg}")
+        frappe.throw(error_msg, title="Supplier Resolution Required", exc=frappe.ValidationError)
 
     def enrich_provisional_parties(self, limit=50):
         """Process enrichment queue to enhance provisional parties"""

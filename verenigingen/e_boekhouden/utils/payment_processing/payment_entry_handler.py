@@ -12,6 +12,8 @@ import frappe
 from frappe import _
 from frappe.utils import flt, getdate, nowdate
 
+from verenigingen.e_boekhouden.utils.security_helper import atomic_migration_operation, validate_and_insert
+
 
 class PaymentEntryHandler:
     """
@@ -41,9 +43,47 @@ class PaymentEntryHandler:
         Returns:
             Payment Entry name if successful, None otherwise
         """
+        mutation_id = mutation.get("id")
+        self._log(f"Processing payment mutation {mutation_id}")
+
+        # Check for duplicates before starting atomic operation
+        existing_payment = frappe.db.get_value(
+            "Payment Entry",
+            {"eboekhouden_mutation_nr": str(mutation_id)},
+            ["name", "payment_type", "party", "paid_amount"],
+        )
+
+        if existing_payment:
+            self._log(f"Payment Entry already exists for mutation {mutation_id}: {existing_payment[0]}")
+            self._log(
+                f"Existing details: {existing_payment[1]} to {existing_payment[2]} for {existing_payment[3]}"
+            )
+            return existing_payment[0]  # Return early without entering atomic operation
+
+        # Use atomic operation only for new payment entries
+        try:
+            with atomic_migration_operation("payment_processing"):
+                return self._process_payment_mutation_internal(mutation)
+        except Exception as e:
+            self._log(f"ERROR processing mutation {mutation_id}: {str(e)}")
+            frappe.log_error(
+                f"Payment mutation processing failed: {str(e)}\\nMutation: {json.dumps(mutation, indent=2)}",
+                "E-Boekhouden Payment Import",
+            )
+            return None
+
+    def _process_payment_mutation_internal(self, mutation: Dict) -> Optional[str]:
+        """
+        Internal payment processing method that runs within atomic transaction.
+
+        Args:
+            mutation: E-Boekhouden mutation data
+
+        Returns:
+            Payment Entry name if successful, None otherwise
+        """
         try:
             mutation_id = mutation.get("id")
-            self._log(f"Processing payment mutation {mutation_id}")
 
             # Validate mutation type
             mutation_type = mutation.get("type")
@@ -95,8 +135,8 @@ class PaymentEntryHandler:
                     # Single invoice or no rows - simple allocation
                     self._simple_invoice_allocation(pe, invoice_numbers, party_type)
 
-            # Save and submit
-            pe.insert(ignore_permissions=True)
+            # Save and submit with proper permissions
+            validate_and_insert(pe)
             self._log(f"Created Payment Entry {pe.name}")
 
             pe.submit()
@@ -104,13 +144,9 @@ class PaymentEntryHandler:
 
             return pe.name
 
-        except Exception as e:
-            self._log(f"ERROR processing mutation {mutation.get('id')}: {str(e)}")
-            frappe.log_error(
-                f"Payment mutation processing failed: {str(e)}\nMutation: {json.dumps(mutation, indent=2)}",
-                "E-Boekhouden Payment Import",
-            )
-            return None
+        except Exception:
+            # Re-raise to let atomic_migration_operation handle rollback
+            raise
 
     def _parse_invoice_numbers(self, invoice_str: str) -> List[str]:
         """Parse comma-separated invoice numbers."""
@@ -312,14 +348,15 @@ class PaymentEntryHandler:
             pe.party = party
 
         # Set accounts based on payment type
+        # PRIORITY 1: Use API row ledger data for party accounts (most accurate)
+        party_account = self._get_party_account_from_api_rows(mutation, party_type, party)
+
         if payment_type == "Receive":
-            pe.paid_to = bank_account
-            if party:
-                pe.paid_from = self._get_party_account(party, "Customer")
+            pe.paid_to = bank_account  # Money goes to our bank
+            pe.paid_from = party_account  # Money comes from receivable account
         else:
-            pe.paid_from = bank_account
-            if party:
-                pe.paid_to = self._get_party_account(party, "Supplier")
+            pe.paid_from = bank_account  # Money comes from our bank
+            pe.paid_to = party_account  # Money goes to payable account
 
         # Set reference details
         invoice_number = mutation.get("invoiceNumber")
@@ -545,7 +582,50 @@ class PaymentEntryHandler:
 
         return "\n".join(remarks)
 
-    def _get_party_account(self, party: str, party_type: str) -> str:
+    def _get_party_account_from_api_rows(self, mutation: Dict, party_type: str, party: str) -> str:
+        """
+        Get party account using API row ledger data (PRIORITY 1) with intelligent fallbacks.
+
+        Priority order:
+        1. API row ledger data (most accurate)
+        2. Invoice-specific accounts (if available)
+        3. Party default accounts (last resort)
+        """
+        # PRIORITY 1: Get receivable/payable account from API row ledger data
+        rows = mutation.get("rows", [])
+
+        if rows and len(rows) > 0:
+            row_ledger_id = rows[0].get("ledgerId")
+            if row_ledger_id:
+                mapping_result = frappe.db.get_value(
+                    "E-Boekhouden Ledger Mapping", {"ledger_id": row_ledger_id}, "erpnext_account"
+                )
+                if mapping_result:
+                    self._log(f"Using API row ledger {row_ledger_id} -> {mapping_result}")
+                    return mapping_result
+                else:
+                    self._log(f"WARNING: No mapping found for API row ledger {row_ledger_id}")
+
+        # PRIORITY 2: Fall back to existing invoice/party logic only if API data unavailable
+        self._log("FALLBACK: API row ledger data not available, using invoice/party lookup")
+        fallback_account = self._get_party_account_fallback(party, party_type)
+
+        if not fallback_account:
+            # PRIORITY 3: Use company defaults as last resort
+            if party_type == "Customer":
+                fallback_account = frappe.db.get_value("Company", self.company, "default_receivable_account")
+                self._log(f"Using company default receivable account: {fallback_account}")
+            else:
+                fallback_account = frappe.db.get_value("Company", self.company, "default_payable_account")
+                self._log(f"Using company default payable account: {fallback_account}")
+
+        if not fallback_account:
+            # Should never happen in a properly configured system
+            raise frappe.ValidationError(f"No {party_type.lower()} account found for party {party}")
+
+        return fallback_account
+
+    def _get_party_account_fallback(self, party: str, party_type: str) -> str:
         """Get the correct party account, checking invoices first for specific accounts."""
         # First check if there are invoices that specify a particular account
         invoice_numbers = self._current_invoice_numbers if hasattr(self, "_current_invoice_numbers") else []

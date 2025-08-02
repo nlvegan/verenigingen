@@ -61,9 +61,10 @@ def get_default_cost_center(company):
 
 def get_party_account(party, party_type, company):
     """
-    Get the correct party account, preferring party-specific accounts over defaults.
+    Get the correct party account, preferring party-specific accounts over company defaults.
+    NEVER uses random accounts like Vraagposten as fallback.
     """
-    # Try to get party's default account
+    # Try to get party's default account first
     if party_type == "Customer":
         party_account = frappe.db.sql(
             """
@@ -91,9 +92,71 @@ def get_party_account(party, party_type, company):
         if party_account:
             return party_account[0][0]
 
-    # Fallback to default receivable/payable account
+    # PRIORITY 2: Get company's default receivable/payable account from Company settings
     account_type = "Receivable" if party_type == "Customer" else "Payable"
-    return frappe.db.get_value("Account", {"account_type": account_type, "company": company}, "name")
+
+    # Try to get default from Company doctype first
+    if party_type == "Customer":
+        company_default = frappe.db.get_value("Company", company, "default_receivable_account")
+        if company_default:
+            return company_default
+    else:
+        company_default = frappe.db.get_value("Company", company, "default_payable_account")
+        if company_default:
+            return company_default
+
+    # PRIORITY 3: Look for DEFAULT account of the correct type
+    # Use account that has 'default' in name or is most generic
+    default_account = frappe.db.sql(
+        """
+        SELECT name FROM `tabAccount`
+        WHERE account_type = %s
+        AND company = %s
+        AND is_group = 0
+        ORDER BY
+            CASE
+                WHEN account_name LIKE '%%Default%%' OR account_name LIKE '%%General%%' THEN 1
+                WHEN account_name LIKE '%%Algemeen%%' THEN 2
+                WHEN account_name NOT LIKE '%%Vraagposten%%' AND account_name NOT LIKE '%%Specific%%' THEN 3
+                ELSE 4
+            END,
+            account_name
+        LIMIT 1
+    """,
+        (account_type, company),
+        as_dict=True,
+    )
+
+    if default_account:
+        return default_account[0].name
+
+    # PRIORITY 4: If still no account found, get ANY account but avoid known specific accounts
+    any_account = frappe.db.sql(
+        """
+        SELECT name FROM `tabAccount`
+        WHERE account_type = %s
+        AND company = %s
+        AND is_group = 0
+        AND account_name NOT LIKE '%%Vraagposten%%'
+        AND account_name NOT LIKE '%%Specific%%'
+        ORDER BY account_name
+        LIMIT 1
+    """,
+        (account_type, company),
+        as_dict=True,
+    )
+
+    if any_account:
+        return any_account[0].name
+
+    # ABSOLUTE LAST RESORT: Return any account of the correct type (this should never happen)
+    fallback = frappe.db.get_value("Account", {"account_type": account_type, "company": company}, "name")
+    if fallback:
+        frappe.logger().warning(
+            f"Using fallback account {fallback} for {party_type} {party} - consider setting up proper defaults"
+        )
+
+    return fallback
 
 
 # Removed unused get_appropriate_cash_account() and create_basic_cash_account() functions
@@ -1681,12 +1744,80 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
 
 def _get_or_create_temporary_diff_account(company, debug_info):
     """Get or create a temporary difference account for balancing opening balances"""
-    account_name = f"Temporary Differences - {company}"
 
+    # PRIORITY 1: Look for existing temporary accounts instead of creating new ones
+    # First check if there's already a "Temporary Differences" account for this company
+    existing_temp_accounts = frappe.db.sql(
+        """
+        SELECT name, account_name
+        FROM `tabAccount`
+        WHERE company = %s
+        AND account_type = 'Temporary'
+        AND root_type = 'Equity'
+        AND (account_name = 'Temporary Differences'
+             OR account_name LIKE '%%Temporary%%Difference%%'
+             OR account_name LIKE '%%Difference%%')
+        ORDER BY
+            CASE WHEN account_name = 'Temporary Differences' THEN 1 ELSE 2 END,
+            name
+        LIMIT 1
+    """,
+        company,
+        as_dict=True,
+    )
+
+    if existing_temp_accounts:
+        account_name = existing_temp_accounts[0].name
+        debug_info.append(f"Using existing temporary account: {account_name}")
+        return account_name
+
+    # PRIORITY 2: Look for any temporary account under Equity
+    any_equity_temp = frappe.db.sql(
+        """
+        SELECT name, account_name
+        FROM `tabAccount`
+        WHERE company = %s
+        AND account_type = 'Temporary'
+        AND root_type = 'Equity'
+        ORDER BY name
+        LIMIT 1
+    """,
+        company,
+        as_dict=True,
+    )
+
+    if any_equity_temp:
+        account_name = any_equity_temp[0].name
+        debug_info.append(f"Using existing equity temporary account: {account_name}")
+        return account_name
+
+    # PRIORITY 3: Look for any temporary account (regardless of root type)
+    any_temp = frappe.db.sql(
+        """
+        SELECT name, account_name, root_type
+        FROM `tabAccount`
+        WHERE company = %s
+        AND account_type = 'Temporary'
+        ORDER BY
+            CASE WHEN root_type = 'Equity' THEN 1 ELSE 2 END,
+            name
+        LIMIT 1
+    """,
+        company,
+        as_dict=True,
+    )
+
+    if any_temp:
+        account_name = any_temp[0].name
+        debug_info.append(f"Using existing temporary account (root: {any_temp[0].root_type}): {account_name}")
+        return account_name
+
+    # PRIORITY 4: Only try to create if no temporary accounts exist at all
+    account_name = f"Temporary Differences - {company}"
     if frappe.db.exists("Account", account_name):
         return account_name
 
-    # Create the account under Equity
+    # Create the account under Equity as last resort
     try:
         # Find equity parent account
         equity_accounts = frappe.db.sql(
@@ -1717,8 +1848,35 @@ def _get_or_create_temporary_diff_account(company, debug_info):
 
     except Exception as e:
         debug_info.append(f"Failed to create temporary difference account: {str(e)}")
-        # Fallback to a default account
-        return f"Retained Earnings - {company}"
+
+        # FINAL FALLBACK: Find any account that can be used for balancing
+        # Look for any Equity account that's not a group
+        fallback_equity = frappe.db.sql(
+            """
+            SELECT name FROM `tabAccount`
+            WHERE company = %s
+            AND root_type = 'Equity'
+            AND is_group = 0
+            ORDER BY
+                CASE WHEN account_type = 'Temporary' THEN 1
+                     WHEN account_name LIKE '%%Capital%%' THEN 2
+                     WHEN account_name LIKE '%%Reserve%%' THEN 3
+                     ELSE 4 END,
+                name
+            LIMIT 1
+        """,
+            company,
+            as_dict=True,
+        )
+
+        if fallback_equity:
+            fallback_account = fallback_equity[0].name
+            debug_info.append(f"FALLBACK: Using equity account for balancing: {fallback_account}")
+            return fallback_account
+
+        # Absolute last resort - this should never happen in a properly configured system
+        debug_info.append("ERROR: No suitable account found for opening balance balancing")
+        raise Exception("No temporary or equity accounts available for opening balance balancing")
 
 
 def _get_or_create_stock_temporary_account(company, debug_info):
@@ -1847,8 +2005,12 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
             debug_info.append(f"Could not fetch detailed data for mutation {mutation_id}, using summary data")
             mutation_detail = mutation  # Fallback to summary data
         else:
+            # Count line items from both possible fields
+            regels_count = len(mutation_detail.get("Regels", []))
+            rows_count = len(mutation_detail.get("rows", []))
+            total_items = regels_count or rows_count
             debug_info.append(
-                f"Fetched detailed data for mutation {mutation_id} with {len(mutation_detail.get('Regels', []))} line items"
+                f"Fetched detailed data for mutation {mutation_id} with {total_items} line items (Regels: {regels_count}, rows: {rows_count})"
             )
 
         # Check for duplicate invoice numbers for invoices
@@ -1878,11 +2040,12 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
             return _create_sales_invoice(mutation_detail, company, cost_center, debug_info)
         elif mutation_type == 2:  # Purchase Invoice
             return _create_purchase_invoice(mutation_detail, company, cost_center, debug_info)
-        elif mutation_type in [3, 4]:  # Payment types
+        elif mutation_type in [3, 4]:  # Customer/Supplier Payment types
             return _create_payment_entry(mutation_detail, company, cost_center, debug_info)
+        elif mutation_type in [5, 6]:  # Money Received/Money Paid - better as Payment Entries
+            return _create_money_transfer_payment_entry(mutation_detail, company, cost_center, debug_info)
         else:
-            # Create Journal Entry for other types (5, 6, 7, 8, 9, 10, etc.)
-            # Types 5 & 6 are Money Received/Money Paid - handled as journal entries
+            # Create Journal Entry for other types (0, 7, 8, 9, 10, etc.)
             return _create_journal_entry(mutation_detail, company, cost_center, debug_info)
 
     except Exception as e:
@@ -1956,8 +2119,8 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     if invoice_number:
         si.eboekhouden_invoice_number = invoice_number
 
-    # CRITICAL: Process line items from Regels
-    regels = mutation_detail.get("Regels", [])
+    # CRITICAL: Process line items from Regels or rows
+    regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
     if regels:
         success = process_line_items(si, regels, "sales", cost_center, debug_info)
         if success:
@@ -2044,8 +2207,8 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     if invoice_number:
         pi.eboekhouden_invoice_number = invoice_number
 
-    # CRITICAL: Process line items from Regels
-    regels = mutation_detail.get("Regels", [])
+    # CRITICAL: Process line items from Regels or rows
+    regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
     if regels:
         success = process_line_items(pi, regels, "purchase", cost_center, debug_info)
         if success:
@@ -2073,129 +2236,17 @@ def _create_payment_entry(mutation, company, cost_center, debug_info):
     - Multi-invoice payment support
     - Automatic payment reconciliation
     """
-    # Use enhanced payment handler
+    # Use enhanced payment handler (single code path)
     from verenigingen.e_boekhouden.utils.eboekhouden_payment_import import create_payment_entry
 
     payment_name = create_payment_entry(mutation, company, cost_center, debug_info)
     if payment_name:
         return frappe.get_doc("Payment Entry", payment_name)
     else:
-        # Fall back to basic implementation if enhanced fails
-        debug_info.append("WARNING: Enhanced payment creation failed, using basic implementation")
-
-    # Basic implementation (legacy fallback)
-    mutation_id = mutation.get("id")
-    top_level_amount = frappe.utils.flt(mutation.get("amount", 0), 2)
-    debug_info.append(f"Top-level amount from mutation: {top_level_amount}")
-
-    # Always calculate amount from rows (rows are source of truth)
-    if mutation.get("rows"):
-        row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in mutation.get("rows", [])]
-        amount = sum(row_amounts)
-        debug_info.append(
-            f"Calculated amount {amount} from {len(mutation.get('rows', []))} rows (basic implementation)"
-        )
-
-        # Validate top-level amount matches rows (if non-zero)
-        if top_level_amount > 0 and abs(top_level_amount - amount) > 0.01:
-            debug_info.append(
-                f"WARNING: Top-level amount ({top_level_amount}) doesn't match row total ({amount})"
-            )
-    else:
-        # Fallback to top-level amount only if no rows exist
-        amount = top_level_amount
-        debug_info.append(f"No rows found, using top-level amount: {amount}")
-
-    relation_id = mutation.get("relationId")
-    invoice_number = mutation.get("invoiceNumber")
-    mutation_type = mutation.get("type", 3)
-
-    payment_type = "Receive" if mutation_type == 3 else "Pay"
-
-    pe = frappe.new_doc("Payment Entry")
-    pe.company = company
-    pe.posting_date = mutation.get("date")
-    pe.payment_type = payment_type
-    pe.eboekhouden_mutation_nr = str(mutation_id)
-
-    # Set improved title using existing naming function
-    try:
-        from .eboekhouden_payment_naming import get_payment_entry_title
-
-        # Get party name after it's been determined
-        party_name = None
-        if relation_id:
-            if payment_type == "Receive":
-                party_name = _get_or_create_customer(relation_id, debug_info)
-            else:
-                party_name = _get_or_create_supplier(relation_id, "", debug_info)
-
-        pe.title = get_payment_entry_title(mutation, party_name, payment_type)
-    except Exception as e:
-        debug_info.append(f"Could not set improved payment title: {str(e)}")
-        pe.title = f"eBoekhouden {payment_type} {mutation_id}"
-
-    # Use dynamic cash account lookup with payment mapping support
-    try:
-        # Try payment mappings first
-        from .eboekhouden_payment_mapping import get_payment_account_mappings
-
-        payment_mappings = get_payment_account_mappings(company)
-
-        if "cash_account" in payment_mappings:
-            cash_account = payment_mappings["cash_account"]
-            debug_info.append("Using company default cash account")
-        elif "bank_account" in payment_mappings:
-            cash_account = payment_mappings["bank_account"]
-            debug_info.append("Using bank account as cash fallback")
-        else:
-            # Fallback to ERPNext defaults
-            cash_account = frappe.db.get_value(
-                "Account", {"account_type": "Cash", "company": company}, "name"
-            )
-            if not cash_account:
-                cash_account = frappe.db.get_value(
-                    "Account", {"account_type": "Bank", "company": company}, "name"
-                )
-            debug_info.append(f"Using default account: {cash_account}")
-    except Exception as e:
-        debug_info.append(f"Error getting cash account: {str(e)}")
-        cash_account = frappe.db.get_value("Account", {"account_type": "Cash", "company": company}, "name")
-        if not cash_account:
-            cash_account = frappe.db.get_value(
-                "Account", {"account_type": "Bank", "company": company}, "name"
-            )
-
-    # Log if zero amount
-    if amount == 0:
-        debug_info.append("WARNING: Zero amount payment detected")
-
-    if payment_type == "Receive":
-        pe.paid_to = cash_account
-        pe.received_amount = amount
-        pe.paid_amount = amount  # ERPNext requires both fields to be set
-        if relation_id:
-            pe.party_type = "Customer"
-            pe.party = _get_or_create_customer(relation_id, debug_info)
-            # Get party account - use party's default if available
-            pe.paid_from = get_party_account(pe.party, "Customer", company)
-    else:
-        pe.paid_from = cash_account
-        pe.paid_amount = amount
-        pe.received_amount = amount  # ERPNext requires both fields to be set
-        if relation_id:
-            pe.party_type = "Supplier"
-            pe.party = _get_or_create_supplier(relation_id, "", debug_info)
-            # Get party account - use party's default if available
-            pe.paid_to = get_party_account(pe.party, "Supplier", company)
-
-    pe.reference_no = invoice_number if invoice_number else f"EB-{mutation_id}"
-    pe.reference_date = mutation.get("date")
-
-    pe.save()
-    pe.submit()
-    debug_info.append(f"Created Payment Entry {pe.name} (Basic Implementation)")
-    return pe
+        # Enhanced handler failed - this is a critical error that should be investigated
+        error_msg = f"Enhanced payment handler failed for mutation {mutation.get('id')}. Check debug logs for details."
+        debug_info.append(f"ERROR: {error_msg}")
+        raise frappe.ValidationError(error_msg)
 
 
 def _create_zero_amount_payment_entry(mutation, company, cost_center, debug_info):
@@ -2352,6 +2403,167 @@ Row Details:"""
             return None
 
 
+def _create_money_transfer_payment_entry(mutation, company, cost_center, debug_info):
+    """Create Payment Entry for Money Received (type 5) or Money Paid (type 6)"""
+    mutation_id = mutation.get("id")
+    mutation_type = mutation.get("type", 0)
+    description = mutation.get("description", f"eBoekhouden Import {mutation_id}")
+    amount = frappe.utils.flt(mutation.get("amount", 0), 2)
+    ledger_id = mutation.get("ledgerId")
+
+    # Handle both detailed data format ("Regels") and summary data format ("rows")
+    rows = mutation.get("Regels", []) or mutation.get("rows", [])
+
+    # If main amount is zero, try to get amount from rows
+    if amount == 0 and rows:
+        row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in rows]
+        amount = sum(row_amounts)
+        debug_info.append(f"Main amount was 0, calculated {amount} from {len(rows)} rows")
+
+    debug_info.append(
+        f"Creating money transfer Payment Entry: ID={mutation_id}, Type={mutation_type}, Amount={amount}"
+    )
+
+    # Get bank account from main ledgerId
+    bank_account = None
+    if ledger_id:
+        mapping_result = frappe.db.sql(
+            """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
+            ledger_id,
+        )
+        if mapping_result:
+            bank_account = mapping_result[0][0]
+            debug_info.append(f"Mapped main ledger {ledger_id} to bank account: {bank_account}")
+
+    if not bank_account:
+        # Fallback to default payment account
+        bank_account = _get_appropriate_payment_account(company, debug_info)["erpnext_account"]
+        debug_info.append(f"Using fallback bank account: {bank_account}")
+
+    # Get income/expense account from rows
+    target_account = None
+    if rows and len(rows) > 0:
+        row_ledger_id = rows[0].get("ledgerId")
+        if row_ledger_id:
+            mapping_result = frappe.db.sql(
+                """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping` WHERE ledger_id = %s LIMIT 1""",
+                row_ledger_id,
+            )
+            if mapping_result:
+                target_account = mapping_result[0][0]
+                debug_info.append(f"Mapped row ledger {row_ledger_id} to target account: {target_account}")
+
+    if not target_account:
+        # Create appropriate account based on mutation type
+        if mutation_type == 5:  # Money Received - need income account
+            line_dict = create_invoice_line_for_tegenrekening(
+                tegenrekening_code=str(rows[0].get("ledgerId")) if rows else None,
+                amount=abs(amount),
+                description=description,
+                transaction_type="sales",
+            )
+            target_account = line_dict.get("income_account")
+        else:  # Money Paid - need expense account
+            line_dict = create_invoice_line_for_tegenrekening(
+                tegenrekening_code=str(rows[0].get("ledgerId")) if rows else None,
+                amount=abs(amount),
+                description=description,
+                transaction_type="purchase",
+            )
+            target_account = line_dict.get("expense_account")
+
+        debug_info.append(f"Created/mapped target account: {target_account}")
+
+    # Check account types to determine if we need parties
+    bank_account_type = frappe.db.get_value("Account", bank_account, "account_type")
+    target_account_type = frappe.db.get_value("Account", target_account, "account_type")
+
+    # If either account requires a party (Receivable/Payable), create Payment Entry with party
+    # Otherwise, fall back to Journal Entry as Payment Entry requires party for bank transfers
+    if bank_account_type in ["Receivable", "Payable"] or target_account_type in ["Receivable", "Payable"]:
+        debug_info.append(
+            "Account requires party - this should use existing Payment Entry logic for types 3/4"
+        )
+        # This case should be handled by the existing payment entry logic, not this function
+        raise ValueError(f"Party required for account types {bank_account_type}/{target_account_type}")
+
+    # For direct bank-to-P&L transfers, Payment Entry without party doesn't work well in ERPNext
+    # Fall back to Journal Entry but with proper account mapping
+    debug_info.append("Creating Journal Entry instead of Payment Entry (no party required)")
+
+    je = frappe.new_doc("Journal Entry")
+    je.company = company
+    je.posting_date = mutation.get("date")
+    je.voucher_type = "Journal Entry"  # Use standard voucher type
+    je.eboekhouden_mutation_nr = str(mutation_id)
+    je.user_remark = description
+    # Set both reference fields if using Bank Entry type
+    je.cheque_no = f"EB-{mutation_id}"
+    je.cheque_date = mutation.get("date")
+
+    if mutation_type == 5:  # Money Received
+        # Bank account debited (money comes in)
+        je.append(
+            "accounts",
+            {
+                "account": bank_account,
+                "debit_in_account_currency": abs(amount),
+                "credit_in_account_currency": 0,
+                "cost_center": cost_center,
+                "user_remark": f"Money received - {description}",
+            },
+        )
+        # Income account credited
+        je.append(
+            "accounts",
+            {
+                "account": target_account,
+                "debit_in_account_currency": 0,
+                "credit_in_account_currency": abs(amount),
+                "cost_center": cost_center,
+                "user_remark": f"Income - {description}",
+            },
+        )
+        debug_info.append(
+            f"Money Received: Bank {bank_account} debited, Income {target_account} credited: {abs(amount)}"
+        )
+    else:  # Money Paid (type 6)
+        # Bank account credited (money goes out)
+        je.append(
+            "accounts",
+            {
+                "account": bank_account,
+                "debit_in_account_currency": 0,
+                "credit_in_account_currency": abs(amount),
+                "cost_center": cost_center,
+                "user_remark": f"Money paid - {description}",
+            },
+        )
+        # Expense account debited
+        je.append(
+            "accounts",
+            {
+                "account": target_account,
+                "debit_in_account_currency": abs(amount),
+                "credit_in_account_currency": 0,
+                "cost_center": cost_center,
+                "user_remark": f"Expense - {description}",
+            },
+        )
+        debug_info.append(
+            f"Money Paid: Bank {bank_account} credited, Expense {target_account} debited: {abs(amount)}"
+        )
+
+    try:
+        je.insert()
+        je.submit()
+        debug_info.append(f"Created and submitted Journal Entry {je.name}")
+        return je
+    except Exception as e:
+        debug_info.append(f"Failed to create Journal Entry: {str(e)}")
+        raise
+
+
 def _create_journal_entry(mutation, company, cost_center, debug_info):
     """Create Journal Entry from mutation"""
     mutation_id = mutation.get("id")
@@ -2361,7 +2573,8 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
     relation_id = mutation.get("relationId")
     invoice_number = mutation.get("invoiceNumber")
     ledger_id = mutation.get("ledgerId")
-    rows = mutation.get("rows", [])
+    # Handle both detailed data format ("Regels") and summary data format ("rows")
+    rows = mutation.get("Regels", []) or mutation.get("rows", [])
 
     # Check if this is a zero-amount transaction
     row_amounts = [abs(frappe.utils.flt(row.get("amount", 0), 2)) for row in rows]
@@ -2566,6 +2779,9 @@ def _create_journal_entry(mutation, company, cost_center, debug_info):
         )
 
         # No automatic balancing - let journal entry validation handle unbalanced entries
+
+    # Note: Types 5 & 6 (Money Received/Paid) should probably be Payment Entries, not Journal Entries
+    # Journal Entries require manual balancing, but Payment Entries handle bank transfers automatically
 
     # Check for stock accounts before saving
     stock_accounts_found = []

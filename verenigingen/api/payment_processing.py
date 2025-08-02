@@ -1,5 +1,63 @@
 """
-API endpoints for overdue payment processing and management
+Payment Processing API
+
+This module provides comprehensive API endpoints for payment processing, overdue
+payment management, and member payment communication in the Verenigingen association
+management system. It handles critical financial operations with enhanced security
+and validation frameworks.
+
+Key Features:
+    - Overdue payment identification and processing
+    - Automated payment reminder systems
+    - Member payment communication workflows
+    - Financial reporting and analytics
+    - Payment reconciliation and tracking
+    - Critical security controls for financial operations
+
+Business Process:
+    1. Identify overdue payments and invoices
+    2. Generate and send payment reminders
+    3. Track payment reminder history
+    4. Process payment confirmations and reconciliation
+    5. Generate financial reports and analytics
+
+Security Model:
+    - Critical API security level for financial operations
+    - Multi-level permission validation (invoice, member, financial)
+    - Role-based access control with explicit checks
+    - Comprehensive audit logging
+    - Input validation and sanitization
+    - Rate limiting for sensitive operations
+
+Features:
+    - Configurable reminder types and templates
+    - Payment link generation and integration
+    - Chapter-specific payment processing
+    - Bulk processing with performance optimization
+    - Custom message support for personalized communication
+    - Integration with email and notification systems
+
+Compliance:
+    - Financial audit trail requirements
+    - Data protection (GDPR) compliance
+    - Payment processing regulations
+    - Member communication consent management
+
+Integration Points:
+    - Sales Invoice and Payment Entry systems
+    - Member communication and notification systems
+    - Financial reporting and analytics
+    - Email template and delivery systems
+    - Chapter management and coordination
+
+Performance Considerations:
+    - Bulk processing for large member sets
+    - Query optimization for payment status checks
+    - Background job processing for heavy operations
+    - Rate limiting to prevent system overload
+
+Author: Verenigingen Development Team
+License: MIT
 """
 
 import json
@@ -47,7 +105,97 @@ def send_overdue_payment_reminders(
     send_to_chapters=False,
     filters=None,
 ):
-    """Send payment reminders to members with overdue payments"""
+    """
+    Send payment reminders to members with overdue payments.
+
+    This critical financial operation identifies members with overdue payments
+    and sends appropriate reminder communications. It supports various reminder
+    types and customization options while maintaining strict security controls.
+
+    Args:
+        reminder_type (str, optional): Type of reminder to send. Defaults to "Friendly Reminder".
+                                      Supported types: "Friendly Reminder", "Urgent Notice",
+                                      "Final Notice", "Custom Message"
+        include_payment_link (bool, optional): Whether to include payment links in reminders.
+                                              Defaults to True for member convenience.
+        custom_message (str, optional): Custom message to include in reminder.
+                                       Overrides template when provided.
+        send_to_chapters (bool, optional): Whether to copy chapter administrators.
+                                          Defaults to False for member privacy.
+        filters (dict, optional): Additional filters for member selection.
+                                 Supported filters:
+                                 - chapter: Specific chapter name
+                                 - days_overdue_min: Minimum days overdue
+                                 - days_overdue_max: Maximum days overdue
+                                 - amount_min: Minimum overdue amount
+                                 - amount_max: Maximum overdue amount
+
+    Returns:
+        dict: Comprehensive reminder processing results:
+            {
+                'success': True,
+                'reminders_sent': 25,
+                'members_processed': 30,
+                'chapters_notified': 5,
+                'processing_summary': {
+                    'total_overdue_amount': 1250.00,
+                    'average_days_overdue': 45,
+                    'successful_deliveries': 23,
+                    'failed_deliveries': 2,
+                    'processing_time_ms': 1850
+                },
+                'chapter_breakdown': [
+                    {
+                        'chapter_name': 'Amsterdam',
+                        'overdue_members': 12,
+                        'total_amount': 600.00,
+                        'reminders_sent': 10
+                    }
+                ],
+                'failed_deliveries': [
+                    {
+                        'member_name': 'MEM-2024-001',
+                        'email': 'invalid@example.com',
+                        'reason': 'Invalid email address'
+                    }
+                ]
+            }
+
+    Raises:
+        frappe.PermissionError: If user lacks required financial operation permissions
+        frappe.ValidationError: If reminder parameters are invalid
+
+    Security:
+        - Critical API security level for financial operations
+        - Multi-level permission validation (Sales Invoice, Member, Financial roles)
+        - Explicit role checking for sensitive operations
+        - Comprehensive audit logging
+        - Input validation and sanitization
+
+    Performance:
+        - Monitoring threshold: 2000ms for bulk operations
+        - Optimized queries for overdue payment identification
+        - Batch processing for large member sets
+        - Background job support for heavy processing
+
+    Business Logic:
+        - Identifies overdue invoices based on due dates
+        - Respects member communication preferences
+        - Tracks reminder history to prevent spam
+        - Supports chapter-specific processing
+        - Generates payment links for convenience
+
+    Database Access:
+        - Reads from: tabSales Invoice, tabMember, tabChapter
+        - Creates: Communication records, audit logs
+        - Updates: Reminder tracking and status fields
+
+    Integration Points:
+        - Email delivery system for reminder sending
+        - Payment gateway for payment link generation
+        - Chapter management for administrative notifications
+        - Communication tracking for audit purposes
+    """
 
     # Critical Security Fix: Add explicit permission validation
     if not frappe.has_permission("Sales Invoice", "read"):

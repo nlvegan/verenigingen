@@ -284,15 +284,14 @@ class UOMManager:
     def get_uom_for_category(item_group):
         """Suggest appropriate UOM based on item group"""
         uom_suggestions = {
+            # Updated to use existing item groups only
             "Services": "Hour",
             "Products": "Unit",
-            "Office Supplies": "Unit",
-            "Software and Subscriptions": "License",
-            "Travel and Expenses": "Trip",
-            "Marketing and Advertising": "Service",
-            "Utilities and Infrastructure": "Month",
-            "Financial Services": "Service",
-            "Catering and Events": "Service",
+            "Expense Items": "Unit",
+            "Consumable": "Unit",
+            "Other": "Unit",
+            "Revenue Items": "Unit",
+            "Cost of Goods Sold Items": "Unit",
         }
 
         return uom_suggestions.get(item_group, "Unit")

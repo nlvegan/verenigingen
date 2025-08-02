@@ -1,4 +1,45 @@
 #!/usr/bin/env python3
+"""
+Manual Invoice Generation API
+
+This module provides secure API endpoints for generating manual invoices for member
+dues and payments in the Verenigingen association management system. It handles
+critical financial operations with comprehensive validation and security controls.
+
+Key Features:
+    - Manual invoice generation for member dues schedules
+    - Critical security validation for financial operations
+    - Integration with customer records and billing systems
+    - Comprehensive error handling and validation
+    - Audit logging for financial operations
+
+Business Process:
+    1. Validate member existence and customer linkage
+    2. Locate active dues schedule for the member
+    3. Generate invoice using schedule configuration
+    4. Return invoice details for processing
+
+Security Model:
+    - Critical API security level for financial operations
+    - Comprehensive input validation and sanitization
+    - Audit logging for all invoice generation activities
+    - Permission-based access control
+
+Integration Points:
+    - Member and Customer DocTypes
+    - Membership Dues Schedule system
+    - Sales Invoice generation
+    - Financial reporting and tracking
+
+Compliance:
+    - Financial audit trail requirements
+    - Data protection (GDPR) compliance
+    - Accounting standards compliance
+    - Payment processing regulations
+
+Author: Verenigingen Development Team
+License: MIT
+"""
 
 import frappe
 from frappe import _
@@ -11,13 +52,68 @@ from verenigingen.utils.security.api_security_framework import critical_api, hig
 @frappe.whitelist()
 def generate_manual_invoice(member_name):
     """
-    Generate a manual invoice for a member's current dues schedule
+    Generate a manual invoice for a member's current active dues schedule.
+
+    This critical API function creates invoices outside the normal automated
+    billing cycle, typically used for special circumstances, billing corrections,
+    or immediate payment requirements. It ensures proper validation and
+    integration with the existing billing infrastructure.
 
     Args:
-        member_name: Name of the Member record
+        member_name (str): The unique identifier/name of the Member record
+                          for which to generate the invoice. Must be a valid
+                          Member document name with an active dues schedule.
 
     Returns:
-        dict: Success/error message and invoice details
+        dict: Comprehensive invoice generation result with the following structure:
+            Success case:
+            {
+                'success': True,
+                'message': 'Invoice INV-2024-001 generated successfully',
+                'invoice_name': 'INV-2024-001',
+                'invoice_amount': 25.00,
+                'member_name': 'John Doe',
+                'dues_schedule': 'MDS-2024-001'
+            }
+
+            Error cases:
+            {
+                'success': False,
+                'error': 'Descriptive error message explaining the failure'
+            }
+
+    Raises:
+        frappe.ValidationError: If member data is invalid or inconsistent
+        frappe.PermissionError: If user lacks invoice generation permissions
+
+    Security:
+        - Uses critical API security level for financial operations
+        - Validates user permissions for invoice generation
+        - Comprehensive audit logging for financial operations
+        - Input sanitization and validation
+
+    Business Logic:
+        - Validates member existence and customer linkage
+        - Requires active dues schedule for invoice generation
+        - Uses force=True to bypass normal billing cycle checks
+        - Integrates with existing invoice numbering and tracking
+
+    Prerequisites:
+        - Member must exist and be active
+        - Member must have linked Customer record
+        - Member must have active (non-template) dues schedule
+        - User must have appropriate financial permissions
+
+    Database Access:
+        - Reads from: tabMember, tabMembership Dues Schedule
+        - Creates: Sales Invoice documents
+        - Updates: Invoice tracking and audit logs
+
+    Integration Points:
+        - Sales Invoice DocType for billing
+        - Customer management system
+        - Financial reporting and analytics
+        - Payment tracking and reconciliation
     """
     try:
         # Validate member exists

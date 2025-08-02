@@ -1,6 +1,35 @@
 """
-Centralized SEPA Configuration Management
-Consolidates all SEPA-related settings and provides unified configuration access
+Enterprise SEPA Configuration Management System for Payment Processing
+
+This module provides comprehensive configuration management for SEPA (Single Euro
+Payments Area) payment processing within the Verenigingen platform. It centralizes
+all SEPA-related settings, validation rules, and configuration parameters to ensure
+consistent and compliant payment processing across the entire system.
+
+Key Features:
+    * Centralized SEPA configuration with intelligent caching
+    * Multi-source configuration aggregation and validation
+    * Company-specific SEPA parameters and credentials
+    * Batch processing configuration and scheduling
+    * Notification and alerting system configuration
+    * Validation rules for IBAN, BIC, and creditor identifiers
+    * Environment-specific configuration support
+
+Configuration Sources:
+    1. Verenigingen Settings DocType (primary configuration)
+    2. Company DocType (company-specific information)
+    3. System defaults and fallback values
+    4. Environment-specific overrides
+
+SEPA Compliance:
+    Ensures all configuration parameters comply with SEPA regulations including
+    creditor identifier formats, IBAN validation, BIC requirements, and batch
+    processing timelines as mandated by European banking standards.
+
+Usage Context:
+    This configuration manager is used throughout the SEPA payment processing
+    pipeline including mandate management, batch creation, XML generation, and
+    reconciliation processes to ensure consistent configuration access.
 """
 
 from typing import Any, Dict, List, Optional

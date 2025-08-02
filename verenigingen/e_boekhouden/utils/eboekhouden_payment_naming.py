@@ -92,8 +92,6 @@ def get_enhanced_party_name(party_name, mutation, relation_data=None):
     description = mutation.get("Omschrijving") or mutation.get("description", "")
     if description:
         # Look for patterns like "Payment from ABC Company" or "Betaling van XYZ"
-        import re
-
         patterns = [
             r"(?:van|from|to|naar)\s+([A-Za-z][A-Za-z\s&\.\-]{2,30})",
             r"([A-Za-z][A-Za-z\s&\.\-]{3,30})\s+(?:payment|betaling|invoice|factuur)",

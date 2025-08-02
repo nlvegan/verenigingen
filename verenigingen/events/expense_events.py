@@ -272,6 +272,113 @@ def _emit_expense_event(event_name, event_data):
             )
 
 
+def emit_expense_payment_made_background(expense_doc_name):
+    """
+    Background job wrapper for expense payment event processing.
+
+    This function is called by the background job system to process
+    expense payment events asynchronously.
+
+    Args:
+        expense_doc_name (str): The name of the expense claim document
+
+    Returns:
+        dict: Processing result with status and details
+    """
+    try:
+        # Find payment entries that reference this expense claim
+        payment_entries = frappe.db.sql(
+            """
+            SELECT DISTINCT pe.name
+            FROM `tabPayment Entry` pe
+            JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
+            WHERE per.reference_doctype = 'Expense Claim'
+            AND per.reference_name = %s
+            AND pe.docstatus = 1
+        """,
+            expense_doc_name,
+            as_dict=True,
+        )
+
+        if not payment_entries:
+            return {
+                "status": "no_payments",
+                "message": f"No payment entries found for expense claim {expense_doc_name}",
+            }
+
+        # Process each payment entry
+        results = []
+        for payment_entry in payment_entries:
+            try:
+                payment_doc = frappe.get_doc("Payment Entry", payment_entry.name)
+                emit_expense_payment_made(payment_doc)
+                results.append({"payment_entry": payment_entry.name, "status": "success"})
+            except Exception as e:
+                results.append({"payment_entry": payment_entry.name, "status": "error", "error": str(e)})
+
+        return {
+            "status": "completed",
+            "expense_claim": expense_doc_name,
+            "processed_payments": len(results),
+            "results": results,
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Background expense payment processing failed for {expense_doc_name}: {str(e)}",
+            "Expense Payment Background Job Error",
+        )
+        return {"status": "error", "expense_claim": expense_doc_name, "error": str(e)}
+
+
+def emit_expense_claim_approved_background(expense_doc_name):
+    """
+    Background job wrapper for expense claim approval event processing.
+
+    Args:
+        expense_doc_name (str): The name of the expense claim document
+
+    Returns:
+        dict: Processing result with status and details
+    """
+    try:
+        expense_doc = frappe.get_doc("Expense Claim", expense_doc_name)
+        emit_expense_claim_approved(expense_doc)
+        return {
+            "status": "completed",
+            "expense_claim": expense_doc_name,
+            "approval_status": expense_doc.approval_status,
+        }
+    except Exception as e:
+        frappe.log_error(
+            f"Background expense approval processing failed for {expense_doc_name}: {str(e)}",
+            "Expense Approval Background Job Error",
+        )
+        return {"status": "error", "expense_claim": expense_doc_name, "error": str(e)}
+
+
+def emit_expense_claim_cancelled_background(expense_doc_name):
+    """
+    Background job wrapper for expense claim cancellation event processing.
+
+    Args:
+        expense_doc_name (str): The name of the expense claim document
+
+    Returns:
+        dict: Processing result with status and details
+    """
+    try:
+        expense_doc = frappe.get_doc("Expense Claim", expense_doc_name)
+        emit_expense_claim_cancelled(expense_doc)
+        return {"status": "completed", "expense_claim": expense_doc_name}
+    except Exception as e:
+        frappe.log_error(
+            f"Background expense cancellation processing failed for {expense_doc_name}: {str(e)}",
+            "Expense Cancellation Background Job Error",
+        )
+        return {"status": "error", "expense_claim": expense_doc_name, "error": str(e)}
+
+
 def _get_expense_event_subscribers(event_name):
     """
     Get all registered subscribers for a specific expense event.

@@ -1,3 +1,36 @@
+"""
+Member DocType - Core business entity for association membership management.
+
+This module implements the Member DocType, which serves as the central entity
+for managing association members throughout their lifecycle.
+
+Key Features:
+    - Member identification and lifecycle management
+    - Chapter membership integration
+    - Payment processing and SEPA mandate handling
+    - Expense claim management
+    - Termination workflow processing
+    - Dutch address normalization and matching
+    - Audit trail and history tracking
+
+Architecture:
+    - Uses mixin pattern for feature separation
+    - Optimized address matching with fingerprinting
+    - Dutch naming convention support
+    - Performance-optimized field updates
+
+Mixins:
+    - PaymentMixin: Payment processing and billing
+    - ExpenseMixin: Expense claim handling
+    - SEPAMandateMixin: SEPA direct debit management
+    - ChapterMixin: Chapter membership operations
+    - TerminationMixin: Membership termination workflow
+    - FinancialMixin: Financial data management
+
+Author: Verenigingen Development Team
+Last Updated: 2025-08-02
+"""
+
 import random
 
 import frappe
@@ -27,12 +60,61 @@ class Member(
     Document, PaymentMixin, ExpenseMixin, SEPAMandateMixin, ChapterMixin, TerminationMixin, FinancialMixin
 ):
     """
-    Member doctype with refactored structure using mixins for better organization
+    Core Member DocType with refactored structure using mixins for better organization.
+
+    This class represents a member of the association and manages all aspects
+    of membership including personal information, chapter affiliations, payments,
+    expenses, and termination processes.
+
+    Key Responsibilities:
+        - Member identification and ID generation
+        - Address normalization and matching
+        - Chapter display updates
+        - Application status management
+        - Performance-optimized field updates
+
+    Inherited Capabilities (via Mixins):
+        - Payment processing and billing (PaymentMixin)
+        - Expense claim management (ExpenseMixin)
+        - SEPA mandate handling (SEPAMandateMixin)
+        - Chapter operations (ChapterMixin)
+        - Termination workflows (TerminationMixin)
+        - Financial data management (FinancialMixin)
+
+    Performance Optimizations:
+        - Conditional field updates based on change detection
+        - Cached address fingerprinting for matching
+        - Efficient chapter display computation
+        - Minimal database queries during save operations
+
+    Business Rules:
+        - Member IDs generated only for approved members
+        - Application IDs for pending applications
+        - Address fingerprinting for duplicate detection
+        - Dutch naming convention support
     """
 
     def before_save(self):
-        """Execute before saving the document with optimized performance"""
-        # Only generate member ID for approved members or non-application members
+        """Execute before saving the document with optimized performance.
+
+        Performs necessary field updates and validations before saving,
+        with performance optimizations to avoid unnecessary processing.
+
+        Operations:
+            1. Member/Application ID generation (conditional)
+            2. Chapter display updates (when needed)
+            3. Address normalization (when address changes)
+            4. Application status defaults
+            5. Counter reset handling
+
+        Performance Features:
+            - Change detection to avoid unnecessary updates
+            - Conditional processing based on field changes
+            - Efficient address fingerprinting
+            - Minimal database queries
+        """
+        # Generate appropriate IDs based on member status
+        # Member IDs are only assigned to approved members to prevent premature ID allocation
         if not self.member_id:
             if self.should_have_member_id():
                 frappe.logger().info(
@@ -41,63 +123,95 @@ class Member(
                 self.member_id = self.generate_member_id()
                 frappe.logger().info(f"Generated member ID: {self.member_id} for {self.name}")
             elif self.is_application_member() and not self.application_id:
+                # Assign application ID for tracking pending applications
                 self.application_id = self.generate_application_id()
         else:
             frappe.logger().debug(f"Member {self.name} already has member_id: {self.member_id}")
 
-        # Only update chapter display if chapter-related fields have changed
+        # Update chapter display only when necessary to optimize performance
+        # This prevents unnecessary geographic lookups and database queries
         if self._should_update_chapter_display():
             self.update_current_chapter_display()
 
-        # Update computed address fields for optimized matching
+        # Update computed address fields for efficient member matching
+        # This creates normalized fingerprints for duplicate detection
         self._update_computed_address_fields()
 
+        # Clear counter reset flag after processing to prevent repeated resets
         if hasattr(self, "reset_counter_to") and self.reset_counter_to:
             self.reset_counter_to = None
 
-        # Set appropriate defaults for application_status
+        # Ensure application status is properly set based on member state
         self.set_application_status_defaults()
 
     def _should_update_chapter_display(self):
-        """Check if chapter display needs updating to avoid unnecessary processing"""
-        if self.is_new():
-            return True  # Always update for new records
+        """Check if chapter display needs updating to avoid unnecessary processing.
 
-        # Check if chapter-related fields have changed
+        Implements smart change detection to avoid expensive geographic lookups
+        and database queries when chapter assignment hasn't changed.
+
+        Returns:
+            bool: True if chapter display should be updated
+
+        Triggers:
+            - New records (always update)
+            - Address field changes (pincode, city, state)
+            - Explicit chapter assignment operations
+        """
+        if self.is_new():
+            return True  # Always update for new records to establish initial chapter
+
+        # Check if geographic fields have changed that affect chapter assignment
         chapter_related_fields = ["pincode", "city", "state"]
         for field in chapter_related_fields:
             if hasattr(self, "has_value_changed") and self.has_value_changed(field):
                 return True
 
-        # Check if this is being called from chapter assignment process
+        # Allow explicit updates during chapter assignment workflows
         if hasattr(self, "_chapter_assignment_in_progress"):
             return True
 
         return False
 
     def _update_computed_address_fields(self):
-        """Update computed address fields for optimized matching when address changes"""
+        """Update computed address fields for optimized matching when address changes.
 
-        # Only update if primary address exists and has changed
+        Creates normalized address representations and fingerprints for efficient
+        duplicate member detection and address matching operations.
+
+        Features:
+            - Dutch address normalization
+            - Address fingerprinting for fast comparison
+            - Change detection to avoid unnecessary processing
+            - Collision handling for duplicate addresses
+
+        Side Effects:
+            - Updates address_fingerprint field
+            - Updates normalized_address_line field
+            - Updates normalized_city field
+            - Sets address_last_updated timestamp
+        """
+
+        # Handle case where member has no primary address
         if not self.primary_address:
-            # Clear computed fields if no address
+            # Clear all computed address fields to maintain data consistency
             self.address_fingerprint = None
             self.normalized_address_line = None
             self.normalized_city = None
             self.address_last_updated = None
             return
 
-        # Check if address has changed (new record or address field changed)
+        # Determine if address normalization is needed based on changes
         address_changed = self.is_new() or (
             hasattr(self, "has_value_changed") and self.has_value_changed("primary_address")
         )
 
         if not address_changed and self.address_fingerprint:
-            # Address hasn't changed and we already have computed fields
+            # Skip processing if address is unchanged and fingerprint exists
             return
 
         try:
-            # Get address details
+            # Perform address normalization and fingerprint generation
             address = frappe.get_doc("Address", self.primary_address)
 
             # Generate normalized forms and fingerprint

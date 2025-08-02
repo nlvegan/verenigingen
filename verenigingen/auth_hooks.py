@@ -1,6 +1,71 @@
 """
-Authentication hooks for Verenigingen app
-Handles login redirects and home page settings for members
+Authentication and Session Management Hooks
+
+This module provides comprehensive authentication and session management capabilities
+for the Verenigingen association management system. It handles user-specific routing,
+role-based access control, member portal redirections, and security enforcement
+to ensure proper user experience and system security.
+
+Key Features:
+- Intelligent session routing based on user roles and member status
+- Member portal integration with automatic redirection
+- Role-based access control with security enforcement
+- Volunteer and chapter management integration
+- System security with restricted area protection
+- API endpoints for programmatic authentication management
+
+Business Context:
+The association operates a multi-tier user system with distinct access patterns:
+- Members: Access to member portal with dues, donations, and personal information
+- Volunteers: Access to volunteer tools and chapter management features
+- Administrators: Full system access for operational management
+- System Users: Backend access for technical operations
+
+Architecture:
+This module integrates with:
+- Frappe's authentication and session management framework
+- Member DocType for member identification and validation
+- Volunteer DocType for volunteer access management
+- Role management system for permission enforcement
+- Portal systems for user experience customization
+- Security monitoring for access control enforcement
+
+Authentication Flow:
+1. Session Creation:
+   - Identify user type (member, volunteer, administrator)
+   - Determine appropriate home page and portal access
+   - Set session-specific configurations and permissions
+   - Log authentication events for audit purposes
+
+2. Access Control:
+   - Validate role-based permissions for system areas
+   - Enforce member portal restrictions for non-system users
+   - Redirect unauthorized access attempts appropriately
+   - Maintain security audit trails
+
+3. User Experience:
+   - Customize home page based on user role and context
+   - Provide seamless navigation between system areas
+   - Support programmatic redirection and routing
+   - Ensure consistent user interface experience
+
+Security Features:
+- Prevents unauthorized access to administrative areas
+- Enforces member portal boundaries for security
+- Logs authentication events for audit compliance
+- Validates user permissions before system access
+- Protects sensitive administrative functions
+
+Integration Points:
+- Member management for portal access validation
+- Volunteer systems for specialized tool access
+- Chapter management for regional administration
+- Role management for permission enforcement
+- Portal systems for customized user experience
+
+Author: Development Team
+Date: 2025-08-02
+Version: 1.0
 """
 
 import frappe

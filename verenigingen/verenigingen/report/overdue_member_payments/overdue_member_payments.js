@@ -1,4 +1,78 @@
+/**
+ * @fileoverview Overdue Member Payments Report - Advanced Collections Management and Automation
+ *
+ * This module provides comprehensive overdue payment tracking and collections management with
+ * automated reminder systems, bulk processing capabilities, and integrated workflow tools.
+ * Designed for financial administrators to efficiently manage member payment collections,
+ * minimize bad debt, and maintain member relationships through structured reminder processes.
+ *
+ * Key Features:
+ * - Multi-tier urgency classification with visual indicators
+ * - Automated payment reminder campaigns with customizable messaging
+ * - Bulk payment processing and recording capabilities
+ * - Integration with external collection agency workflows
+ * - Chapter-specific access control and filtering
+ * - Advanced analytics and trend reporting
+ * - Payment plan creation and management
+ * - SEPA mandate integration for automated collections
+ *
+ * Collections Management:
+ * - Tiered reminder system (Friendly → Urgent → Final Notice)
+ * - Escalation workflows based on days overdue
+ * - Bulk suspension and membership actions
+ * - Late fee application and calculation
+ * - Collection agency integration and export
+ * - Payment link generation for easy processing
+ *
+ * Business Value:
+ * - Reduces bad debt through proactive collections management
+ * - Automates routine payment reminder processes
+ * - Maintains member relationships through structured communication
+ * - Provides comprehensive payment tracking and analytics
+ * - Supports regulatory compliance for collections practices
+ * - Enhances cash flow through faster payment resolution
+ *
+ * Technical Architecture:
+ * - Advanced Frappe Query Report with custom actions
+ * - Integration with payment processing systems
+ * - Automated email campaign management
+ * - Role-based access control and chapter filtering
+ * - Real-time payment status synchronization
+ * - Export capabilities for external systems
+ *
+ * Compliance Features:
+ * - GDPR-compliant member communication
+ * - Audit trail for all collections activities
+ * - Regulatory reporting for financial oversight
+ * - Member consent management for communications
+ * - Data retention policies for payment records
+ *
+ * @author Verenigingen Development Team
+ * @version 2.4.0
+ * @since 1.0.0
+ *
+ * @requires frappe.query_reports
+ * @requires verenigingen.api.payment_processing (Collections backend)
+ * @requires verenigingen.api.membership_application_review (Chapter access)
+ * @requires verenigingen.verenigingen.doctype.member (Member data)
+ * @requires verenigingen.verenigingen.doctype.sepa_mandate (Payment methods)
+ *
+ * @example
+ * // Access via: Reports > Financial > Overdue Member Payments
+ * // Use preset filters: ?preset=critical for >60 days overdue
+ * // Bulk reminder: Select criteria and send automated reminders
+ * // Payment recording: Process multiple payments efficiently
+ *
+ * @see {@link verenigingen.api.payment_processing} Collections Backend
+ * @see {@link verenigingen.verenigingen.doctype.membership_dues_schedule} Payment Schedules
+ * @see {@link verenigingen.verenigingen.doctype.sepa_mandate} Automated Collections
+ */
+
 // Report configuration for Overdue Member Payments
+/**
+ * @namespace OverdueMemberPaymentsReport
+ * @description Comprehensive collections management and payment tracking report
+ */
 frappe.query_reports['Overdue Member Payments'] = {
 	'filters': [
 		{

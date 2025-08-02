@@ -308,7 +308,9 @@ class BackgroundJobManager:
 # These functions are called by the queued jobs
 
 
-def execute_member_payment_history_update(member_name: str, payment_entry: str = None, job_name: str = None):
+def execute_member_payment_history_update(
+    member_name: str, payment_entry: str = None, job_name: str = None, **kwargs
+):
     """Execute member payment history update in background"""
     try:
         if job_name:
@@ -335,7 +337,7 @@ def execute_member_payment_history_update(member_name: str, payment_entry: str =
         raise
 
 
-def execute_expense_event_processing(expense_doc_name: str, event_type: str, job_name: str = None):
+def execute_expense_event_processing(expense_doc_name: str, event_type: str, job_name: str = None, **kwargs):
     """Execute expense event processing in background"""
     try:
         if job_name:
@@ -368,11 +370,18 @@ def execute_expense_event_processing(expense_doc_name: str, event_type: str, job
         raise
 
 
-def execute_donor_auto_creation(payment_doc_name: str, job_name: str = None):
+def execute_donor_auto_creation(payment_doc_name: str, job_name: str = None, **kwargs):
     """Execute donor auto creation in background"""
     try:
         if job_name:
             BackgroundJobManager.update_job_status(job_name, "Running")
+
+        # Check if payment entry still exists before processing
+        if not frappe.db.exists("Payment Entry", payment_doc_name):
+            result = {"status": "skipped", "reason": f"Payment Entry {payment_doc_name} no longer exists"}
+            if job_name:
+                BackgroundJobManager.update_job_status(job_name, "Completed", result)
+            return result
 
         # Import the donor auto creation module
         from verenigingen.utils import donor_auto_creation
@@ -544,12 +553,15 @@ def load_payment_history_batch_optimized(member_doc) -> Dict[str, Any]:
         payment_refs_by_invoice[ref.reference_name].append(ref)
         payment_entry_names.add(ref.parent)
 
-    # 3. BATCH QUERY: Get all payment entries in one query
+    # 3. BATCH QUERY: Get all payment entries in one query (exclude cancelled)
     payment_entries = {}
     if payment_entry_names:
         payment_entry_list = frappe.get_all(
             "Payment Entry",
-            filters={"name": ["in", list(payment_entry_names)]},
+            filters={
+                "name": ["in", list(payment_entry_names)],
+                "docstatus": ["!=", 2],  # Exclude cancelled payment entries
+            },
             fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
         )
         payment_entries = {pe.name: pe for pe in payment_entry_list}
@@ -574,14 +586,14 @@ def load_payment_history_batch_optimized(member_doc) -> Dict[str, Any]:
         )
         mandates = {m.member: m for m in mandate_list}
 
-    # 6. BATCH QUERY: Get unreconciled payments
+    # 6. BATCH QUERY: Get unreconciled payments (only submitted, not cancelled)
     reconciled_payment_names = list(payment_entry_names)
     unreconciled_payments = frappe.get_all(
         "Payment Entry",
         filters={
             "party_type": "Customer",
             "party": customer,
-            "docstatus": 1,
+            "docstatus": 1,  # Only submitted (not cancelled)
             "name": ["not in", reconciled_payment_names or [""]],
         },
         fields=[

@@ -1,8 +1,55 @@
 """
-Configuration management for Verenigingen app
+Enterprise Configuration Management System for Verenigingen Platform
 
-This module provides centralized configuration management to eliminate magic numbers
-and hardcoded values throughout the codebase.
+This module provides a comprehensive, centralized configuration management system
+designed to eliminate magic numbers, hardcoded values, and configuration drift
+across the Verenigingen association management platform. It implements a layered
+configuration approach with intelligent defaults, runtime overrides, and
+validation capabilities.
+
+Architecture Overview:
+    The configuration system uses a hierarchical approach where settings can be
+    defined at multiple levels with clear precedence rules:
+    1. Runtime overrides via Verenigingen Settings DocType (highest priority)
+    2. System defaults with sensible fallback values (baseline configuration)
+    3. Emergency defaults for critical system operations (last resort)
+
+Key Features:
+    * Centralized configuration management eliminating scattered constants
+    * Type-safe configuration access with intelligent validation
+    * Runtime configuration updates without system restarts
+    * Configuration validation and consistency checking
+    * Import/export capabilities for configuration management
+    * Performance optimization through intelligent caching
+    * Security-focused default values and validation rules
+
+Configuration Categories:
+    - Pagination and API limits for scalable user interfaces
+    - Billing and payment processing parameters
+    - Security settings including authentication and session management
+    - Performance tuning parameters for optimal system operation
+    - Business rules for membership, volunteer, and chapter management
+    - File upload restrictions and validation rules
+    - Notification and communication settings
+    - System maintenance and operational parameters
+
+Benefits:
+    * Eliminates configuration drift and inconsistencies
+    * Enables environment-specific configuration management
+    * Provides clear audit trails for configuration changes
+    * Supports configuration validation and error prevention
+    * Facilitates system administration and maintenance
+    * Enables rapid deployment across different environments
+
+Usage Examples:
+    # Get pagination settings with fallback
+    page_size = ConfigManager.get("default_page_size", 20)
+
+    # Validate business rules
+    is_annual = is_annual_billing(membership.billing_interval)
+
+    # Get performance configuration
+    perf_config = get_performance_config()
 """
 
 from typing import Any, Dict, Optional

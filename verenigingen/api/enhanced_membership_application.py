@@ -1,5 +1,27 @@
 """
-Enhanced membership application API with flexible contribution system
+Enhanced membership application API with flexible contribution system.
+
+This module provides a comprehensive API for processing membership applications
+with support for flexible contribution amounts, multiple payment methods,
+and integrated billing setup.
+
+Key Features:
+    - Flexible contribution calculation (tiers, calculator, custom amounts)
+    - SEPA direct debit mandate creation
+    - Automatic dues schedule generation
+    - Integrated invoice generation for first payment
+    - Email confirmation workflow
+    - Comprehensive validation and error handling
+
+Security:
+    - Uses api_security_framework for endpoint protection
+    - Public API endpoints for guest access
+    - Standard API endpoints for authenticated operations
+    - Input validation and sanitization
+    - Permission-based chapter access control
+
+Author: Verenigingen Development Team
+Last Updated: 2025-08-02
 """
 
 import json
@@ -15,17 +37,74 @@ from verenigingen.utils.security.api_security_framework import OperationType, pu
 @frappe.whitelist(allow_guest=True)
 @public_api(operation_type=OperationType.PUBLIC)
 def submit_enhanced_application():
-    """Submit enhanced membership application with flexible contribution"""
+    """Submit enhanced membership application with flexible contribution.
+
+    This endpoint handles the complete membership application workflow including:
+    - Data validation and sanitization
+    - Application record creation
+    - Dues schedule setup
+    - Payment method configuration
+    - First payment invoice generation
+    - Confirmation email delivery
+
+    Args:
+        Form data (via frappe.form_dict):
+            first_name (str): Applicant's first name
+            last_name (str): Applicant's last name
+            email (str): Valid email address (must be unique)
+            address_line1 (str): Primary address
+            postal_code (str): Postal/ZIP code
+            city (str): City name
+            country (str): Country name
+            membership_type (str): Valid membership type name
+            contribution_amount (float): Monthly contribution amount
+            payment_method (str): 'SEPA Direct Debit' or 'Bank Transfer'
+            iban (str, optional): IBAN for SEPA payments
+            account_holder_name (str, optional): Bank account holder name
+            interested_in_volunteering (bool, optional): Volunteer interest flag
+
+    Returns:
+        dict: Success/error response with following structure:
+            - success (bool): Operation status
+            - application_id (str): Created application ID (on success)
+            - message (str): Localized success message
+            - next_steps (list): Array of next action descriptions
+            - error (str): Error message (on failure)
+
+    Raises:
+        ValidationError: For invalid or missing required data
+        DatabaseError: For database operation failures
+        EmailError: For email delivery failures (logged, not raised)
+
+    Examples:
+        >>> # Successful application
+        {
+            "success": True,
+            "application_id": "MEM-APP-2025-001",
+            "message": "Application submitted successfully",
+            "next_steps": [
+                "Check your email for confirmation and payment instructions",
+                "Complete your first payment to activate membership",
+                "You will receive a welcome package once payment is confirmed"
+            ]
+        }
+
+        >>> # Validation error
+        {
+            "success": False,
+            "error": "A member with this email already exists"
+        }
+    """
     try:
-        # Get form data
+        # Get form data from the request
         data = frappe.form_dict
 
-        # Validate required fields
+        # Validate all required fields and business rules
         validation_result = validate_application_data(data)
         if not validation_result["valid"]:
             return {"success": False, "error": validation_result["error"]}
 
-        # Process the application
+        # Process the complete application workflow
         application_result = process_enhanced_application(data)
 
         if application_result["success"]:
@@ -39,6 +118,7 @@ def submit_enhanced_application():
             return {"success": False, "error": application_result.get("error", "Unknown error occurred")}
 
     except Exception as e:
+        # Log the full error for debugging while returning user-friendly message
         frappe.log_error(
             f"Enhanced membership application error: {str(e)}", "Enhanced Membership Application"
         )
@@ -49,7 +129,28 @@ def submit_enhanced_application():
 
 
 def validate_application_data(data):
-    """Validate the enhanced application data"""
+    """Validate the enhanced application data.
+
+    Performs comprehensive validation of membership application data including:
+    - Required field presence check
+    - Email format and uniqueness validation
+    - Membership type existence verification
+    - Contribution amount constraints validation
+
+    Args:
+        data (dict): Application data dictionary containing form fields
+
+    Returns:
+        dict: Validation result with structure:
+            - valid (bool): True if all validations pass
+            - error (str): Description of first validation failure (if any)
+
+    Validation Rules:
+        - All required fields must be present and non-empty
+        - Email must be valid format and unique in system
+        - Membership type must exist in database
+        - Contribution amount must meet membership type constraints
+    """
     required_fields = [
         "first_name",
         "last_name",
@@ -100,12 +201,37 @@ def validate_application_data(data):
 def validate_contribution_amount(
     membership_type_name, amount, contribution_mode=None, selected_tier=None, base_multiplier=None
 ):
-    """Validate contribution amount against membership type constraints"""
+    """Validate contribution amount against membership type constraints.
+
+    Validates the proposed contribution amount against the membership type's
+    minimum and maximum constraints, considering the contribution calculation mode.
+
+    Args:
+        membership_type_name (str): Name of the membership type
+        amount (float): Proposed contribution amount
+        contribution_mode (str, optional): Contribution calculation mode
+            ('Calculator', 'Tier', 'Custom')
+        selected_tier (str, optional): Selected tier name for tier-based contributions
+        base_multiplier (float, optional): Multiplier for calculator-based contributions
+
+    Returns:
+        dict: Validation result with structure:
+            - valid (bool): True if amount meets constraints
+            - amount (float): Validated amount (if valid)
+            - error (str): Constraint violation description (if invalid)
+
+    Business Rules:
+        - Amount must be >= minimum_contribution (from template or 30% of membership type minimum)
+        - Amount must be <= maximum_contribution (from template or 10x suggested amount)
+        - Uses dues schedule template values when available
+        - Falls back to membership type values with reasonable defaults
+    """
     try:
         amount = flt(amount)
         mt_doc = frappe.get_doc("Membership Type", membership_type_name)
 
-        # Get minimum and maximum constraints from template
+        # Get contribution constraints from dues schedule template if available
+        # Templates provide organization-wide defaults for contribution ranges
         template_values = {}
         if mt_doc.dues_schedule_template:
             try:
@@ -113,10 +239,11 @@ def validate_contribution_amount(
                 template_values = {
                     "minimum_contribution": template.minimum_amount or 0,
                     "suggested_contribution": template.dues_rate or template.suggested_amount or 0,
-                    "fee_slider_max_multiplier": 10.0,
+                    "fee_slider_max_multiplier": 10.0,  # Standard 10x multiplier for max
                     "maximum_contribution": 0,
                 }
             except Exception:
+                # Continue with fallback values if template access fails
                 pass
 
         min_amount = template_values.get("minimum_contribution", 0) or (
@@ -142,7 +269,39 @@ def validate_contribution_amount(
 
 
 def process_enhanced_application(data):
-    """Process the enhanced membership application"""
+    """Process the enhanced membership application.
+
+    Orchestrates the complete application processing workflow including:
+    1. Member record creation with pending status
+    2. Initial dues schedule setup
+    3. Payment method configuration (SEPA mandate if applicable)
+    4. First payment invoice generation
+    5. Confirmation email delivery
+
+    Args:
+        data (dict): Validated application data
+
+    Returns:
+        dict: Processing result with structure:
+            - success (bool): Overall processing status
+            - application_id (str): Created member record ID
+            - invoice_id (str): Created invoice ID (if successful)
+            - next_steps (list): User action descriptions
+            - error (str): Error description (on failure)
+
+    Side Effects:
+        - Creates Member record with status='Pending'
+        - Creates Membership Dues Schedule record
+        - Creates SEPA Mandate record (for direct debit)
+        - Creates Sales Invoice for first payment
+        - Sends confirmation email to applicant
+        - Commits database transaction
+
+    Error Handling:
+        - Logs all errors for debugging
+        - Returns user-friendly error messages
+        - Does not expose internal system details
+    """
     try:
         # Create membership application
         application = create_membership_application(data)
@@ -176,7 +335,29 @@ def process_enhanced_application(data):
 
 
 def create_membership_application(data):
-    """Create the membership application record (Member with pending status)"""
+    """Create the membership application record (Member with pending status).
+
+    Creates a new Member document with all provided application data and sets
+    appropriate status fields for tracking through the approval workflow.
+
+    Args:
+        data (dict): Validated application data containing personal info,
+                    address, membership preferences, and payment details
+
+    Returns:
+        Member: Created Member document with pending status
+
+    Business Logic:
+        - Sets status='Pending' for approval workflow
+        - Sets application_status='Pending' for application tracking
+        - Uses configured creation user as owner (not applicant)
+        - Generates contribution description for audit trail
+        - Commits transaction to ensure data persistence
+
+    Security:
+        - Uses ignore_permissions=True for system creation
+        - Sets owner to configured system user to prevent applicant ownership
+    """
     application = frappe.new_doc("Member")
 
     # Personal information
@@ -220,11 +401,12 @@ def create_membership_application(data):
     application.application_date = today()
     application.selected_membership_type = cstr(data.get("membership_type"))
 
-    # Generate description
+    # Generate human-readable description for audit trail and member communications
     application.contribution_description = generate_contribution_description(data)
 
     # IMPORTANT: Set owner to the configured creation user
     # This prevents the applicant from becoming the owner of the member record
+    # which would give them inappropriate access to modify member data
     settings = frappe.get_single("Verenigingen Settings")
     application.owner = settings.creation_user or "Administrator"
 
@@ -235,7 +417,22 @@ def create_membership_application(data):
 
 
 def generate_contribution_description(data):
-    """Generate a human-readable description of the contribution choice"""
+    """Generate a human-readable description of the contribution choice.
+
+    Creates a descriptive string explaining how the contribution amount was
+    calculated or selected, useful for audit trails and member communications.
+
+    Args:
+        data (dict): Application data containing contribution details
+
+    Returns:
+        str: Human-readable description of contribution selection
+
+    Examples:
+        - "€25.00 (Standard tier)"
+        - "€18.50 (75% of suggested amount)"
+        - "€30.00 (custom amount) - Student discount"
+    """
     mode = data.get("contribution_mode", "Calculator")
     amount = flt(data.get("contribution_amount"))
 
@@ -256,9 +453,33 @@ def generate_contribution_description(data):
 
 
 def create_initial_dues_schedule(application, data):
-    """Create initial membership dues schedule"""
+    """Create initial membership dues schedule.
+
+    Sets up the billing configuration for the new member based on their
+    contribution choices and membership type settings.
+
+    Args:
+        application (Member): Created member application record
+        data (dict): Original application data
+
+    Returns:
+        MembershipDuesSchedule or None: Created dues schedule or None on error
+
+    Configuration:
+        - Uses membership type template values when available
+        - Sets defaults for minimum/suggested amounts
+        - Configures billing frequency (default: Monthly)
+        - Sets status='Draft' until membership is active
+        - Disables auto-generation until payment confirmed
+
+    Note:
+        Member and membership fields are left None until approval workflow
+        completes and actual Member/Membership records are created.
+    """
     try:
         dues_schedule = frappe.new_doc("Membership Dues Schedule")
+        # Leave member/membership fields empty until approval workflow completes
+        # These will be linked when the application is approved and formal records created
         dues_schedule.member = None  # Will be set when member is created
         dues_schedule.membership = None  # Will be set when membership is created
         dues_schedule.membership_type = application.membership_type
@@ -302,7 +523,8 @@ def create_initial_dues_schedule(application, data):
         dues_schedule.billing_frequency = "Monthly"  # Default, can be changed later
         dues_schedule.billing_day = 1  # Will be updated when member is created
 
-        # Status
+        # Set initial status and disable auto-billing until membership is active
+        # This prevents premature invoice generation before approval
         dues_schedule.status = "Draft"
         dues_schedule.auto_generate = 0  # Don't auto-generate until membership is active
 
@@ -318,7 +540,27 @@ def create_initial_dues_schedule(application, data):
 
 
 def setup_payment_method(application, data):
-    """Setup payment method for the application"""
+    """Setup payment method for the application.
+
+    Configures the payment method based on applicant's choice, creating
+    necessary supporting records (e.g., SEPA mandates for direct debit).
+
+    Args:
+        application (Member): Member application record
+        data (dict): Application data containing payment preferences
+
+    Returns:
+        dict: Setup result with structure:
+            - success (bool): Operation status
+            - mandate (str, optional): SEPA mandate ID (for direct debit)
+            - method (str, optional): Payment method identifier
+            - error (str, optional): Error description
+
+    Supported Methods:
+        - SEPA Direct Debit: Creates SEPA mandate with IBAN validation
+        - Bank Transfer: No additional setup required
+        - Other: Generic payment method handling
+    """
     try:
         if application.payment_method == "SEPA Direct Debit" and application.iban:
             # Create SEPA mandate for direct debit
@@ -336,7 +578,27 @@ def setup_payment_method(application, data):
 
 
 def create_sepa_mandate(application):
-    """Create SEPA mandate for direct debit"""
+    """Create SEPA mandate for direct debit.
+
+    Creates a SEPA mandate record for recurring direct debit payments,
+    including IBAN validation and BIC derivation.
+
+    Args:
+        application (Member): Member application with IBAN details
+
+    Returns:
+        SEPAMandate or None: Created mandate record or None on validation failure
+
+    Validation:
+        - IBAN format and checksum validation
+        - BIC derivation from IBAN country/bank codes
+        - Account holder name verification
+
+    Configuration:
+        - mandate_type='RCUR' (recurring payments)
+        - sequence_type='FRST' (first payment)
+        - status='Draft' until first successful collection
+    """
     try:
         from verenigingen.utils.iban_validator import derive_bic_from_iban, validate_iban
 
@@ -366,7 +628,30 @@ def create_sepa_mandate(application):
 
 
 def create_first_payment_invoice(application, dues_schedule, data):
-    """Create invoice for first payment"""
+    """Create invoice for first payment.
+
+    Generates the initial membership payment invoice to kickstart the
+    billing cycle for the new member.
+
+    Args:
+        application (Member): Member application record
+        dues_schedule (MembershipDuesSchedule): Billing configuration
+        data (dict): Application data
+
+    Returns:
+        SalesInvoice or None: Created invoice or None on error
+
+    Invoice Configuration:
+        - 14-day payment terms
+        - Membership item auto-creation if needed
+        - Coverage period documentation in remarks
+        - Links to application for tracking
+
+    Item Management:
+        - Auto-creates membership items as needed
+        - Uses standardized naming: "MEMBERSHIP-{TYPE}"
+        - Configures as service item (non-stock)
+    """
     try:
         # Create invoice
         invoice = frappe.new_doc("Sales Invoice")
@@ -404,7 +689,23 @@ def create_first_payment_invoice(application, dues_schedule, data):
 
 
 def get_or_create_membership_item(membership_type_name):
-    """Get or create item for membership billing"""
+    """Get or create item for membership billing.
+
+    Ensures a billing item exists for the membership type, creating one
+    if needed with appropriate configuration for service billing.
+
+    Args:
+        membership_type_name (str): Name of the membership type
+
+    Returns:
+        str: Item code for billing purposes
+
+    Item Configuration:
+        - Code format: "MEMBERSHIP-{TYPE}" (uppercase, spaces to hyphens)
+        - Name: "Membership - {type}"
+        - Group: "Services"
+        - Non-stock service item suitable for recurring billing
+    """
     item_code = f"MEMBERSHIP-{membership_type_name}".replace(" ", "-").upper()
 
     if frappe.db.exists("Item", item_code):
@@ -424,7 +725,30 @@ def get_or_create_membership_item(membership_type_name):
 
 
 def send_application_confirmation(application, invoice):
-    """Send confirmation email to applicant"""
+    """Send confirmation email to applicant.
+
+    Sends a confirmation email to the applicant with application details
+    and next steps for completing their membership.
+
+    Args:
+        application (Member): Member application record
+        invoice (SalesInvoice): First payment invoice
+
+    Side Effects:
+        - Sends email to application.email
+        - Logs email reference for tracking
+        - Errors are logged but do not fail the application process
+
+    Email Content:
+        - Application acknowledgment
+        - Membership type and contribution details
+        - Payment instructions and amount
+        - Next steps in the approval process
+
+    Error Handling:
+        - Email failures are logged but not re-raised
+        - Application processing continues even if email fails
+    """
     try:
         # Get email template or create basic email
         subject = _("Membership Application Received")
@@ -464,7 +788,33 @@ def send_application_confirmation(application, invoice):
 @frappe.whitelist()
 @standard_api(operation_type=OperationType.PUBLIC)
 def get_membership_types_for_application():
-    """Get membership types with contribution options for application form"""
+    """Get membership types with contribution options for application form.
+
+    Retrieves available membership types with their contribution configuration
+    for use in the membership application form.
+
+    Returns:
+        list: Array of membership type dictionaries with structure:
+            - name (str): Membership type ID
+            - membership_type_name (str): Display name
+            - description (str): Type description
+            - amount (float): Base amount
+            - billing_frequency (str): Default billing frequency
+            - contribution_options (dict): Contribution calculation options
+
+    Contribution Options Structure:
+        - mode (str): Default contribution mode
+        - minimum (float): Minimum allowed contribution
+        - suggested (float): Suggested contribution amount
+        - maximum (float): Maximum allowed contribution
+        - calculator (dict): Calculator mode configuration
+        - quick_amounts (list): Predefined quick-select amounts
+
+    Error Handling:
+        - Returns empty array on database errors
+        - Gracefully handles missing contribution options
+        - Falls back to legacy configuration for older types
+    """
     try:
         membership_types = frappe.get_all(
             "Membership Type",

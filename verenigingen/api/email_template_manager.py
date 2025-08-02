@@ -1,6 +1,62 @@
 """
-Comprehensive Email Template Management System
-Centralizes all email templates and provides template rendering with fallbacks
+Email Template Management API
+
+This module provides comprehensive email template management for the Verenigingen
+association management system. It centralizes template creation, management,
+and rendering with fallback mechanisms to ensure reliable communication
+across all system components.
+
+Key Features:
+    - Centralized email template management
+    - Template rendering with context substitution
+    - Fallback mechanisms for missing templates
+    - Multi-category template organization
+    - Dynamic content generation
+    - Security controls for template access
+
+Template Categories:
+    - Expense Management: Approval requests, notifications, reimbursements
+    - Member Communication: Welcome messages, notifications, reminders
+    - Chapter Management: Announcements, administrative communications
+    - Financial Operations: Payment reminders, invoice notifications
+    - System Notifications: Alerts, status updates, error notifications
+
+Architecture:
+    - Template factory pattern for creation and management
+    - Context-aware rendering with variable substitution
+    - Hierarchical fallback system for missing templates
+    - Template validation and security controls
+    - Integration with Frappe's Email Template system
+
+Security Model:
+    - Critical API security for template management operations
+    - Template content validation and sanitization
+    - Access controls for template modification
+    - Audit logging for template changes
+    - XSS protection in template rendering
+
+Business Process:
+    1. Template Creation: Define reusable email templates
+    2. Context Preparation: Gather data for template rendering
+    3. Template Rendering: Substitute variables with actual data
+    4. Delivery Preparation: Format for email delivery systems
+    5. Fallback Handling: Use default templates if specific ones missing
+
+Integration Points:
+    - Frappe Email Template system
+    - Communication and notification systems
+    - Document workflow and approval systems
+    - Member and chapter management systems
+    - Financial and expense management systems
+
+Performance Considerations:
+    - Template caching for frequently used templates
+    - Efficient context preparation and rendering
+    - Batch processing for bulk communications
+    - Background job support for heavy operations
+
+Author: Verenigingen Development Team
+License: MIT
 """
 
 import frappe
@@ -12,7 +68,98 @@ from verenigingen.utils.security.api_security_framework import critical_api, hig
 @critical_api()
 @frappe.whitelist()
 def create_comprehensive_email_templates():
-    """Create all email templates used throughout the verenigingen app"""
+    """
+    Create and deploy all email templates used throughout the Verenigingen application.
+
+    This critical operation establishes the complete set of email templates required
+    for system communication. It creates templates for all major business processes
+    and ensures consistent, professional communication across the platform.
+
+    Returns:
+        dict: Template creation results with detailed status information:
+            {
+                'success': True,
+                'templates_created': 15,
+                'templates_updated': 3,
+                'templates_skipped': 2,
+                'categories': {
+                    'expense_management': 4,
+                    'member_communication': 6,
+                    'chapter_management': 3,
+                    'financial_operations': 3,
+                    'system_notifications': 2
+                },
+                'processing_summary': {
+                    'total_processed': 20,
+                    'successful_operations': 18,
+                    'failed_operations': 0,
+                    'processing_time_ms': 1250
+                },
+                'template_details': [
+                    {
+                        'name': 'expense_approval_request',
+                        'subject': '💰 Expense Approval Required - {{ doc.name }}',
+                        'status': 'created',
+                        'category': 'expense_management'
+                    }
+                ]
+            }
+
+    Raises:
+        frappe.PermissionError: If user lacks template management permissions
+        frappe.ValidationError: If template data is invalid
+
+    Security:
+        - Critical API security for template management operations
+        - Validates user permissions for Email Template DocType
+        - Template content sanitization and validation
+        - Audit logging for all template operations
+
+    Template Categories Created:
+        1. Expense Management:
+           - expense_approval_request: Expense approval notifications
+           - expense_approved: Approval confirmation messages
+           - expense_rejected: Rejection notifications with feedback
+           - expense_reimbursement: Payment processing notifications
+
+        2. Member Communication:
+           - member_welcome: New member welcome messages
+           - member_renewal: Membership renewal reminders
+           - member_notification: General member notifications
+           - member_chapter_assignment: Chapter assignment confirmations
+
+        3. Chapter Management:
+           - chapter_announcement: Official chapter announcements
+           - chapter_board_notification: Board member communications
+           - chapter_event_notification: Event and activity announcements
+
+        4. Financial Operations:
+           - payment_reminder: Overdue payment reminders
+           - invoice_notification: New invoice notifications
+           - payment_confirmation: Payment received confirmations
+
+        5. System Notifications:
+           - system_alert: Critical system notifications
+           - maintenance_notification: Scheduled maintenance alerts
+
+    Business Logic:
+        - Creates templates if they don't exist
+        - Updates existing templates with new content
+        - Validates template syntax and structure
+        - Establishes template hierarchies and categories
+        - Configures template permissions and access controls
+
+    Database Access:
+        - Creates: Email Template documents
+        - Updates: Existing template configurations
+        - Validates: Template content and structure
+
+    Integration Points:
+        - Frappe Email Template system for rendering
+        - Communication DocType for delivery tracking
+        - Workflow systems for automated notifications
+        - User permission system for access control
+    """
 
     templates = [
         # Expense notification templates

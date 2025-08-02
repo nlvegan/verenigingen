@@ -1,4 +1,92 @@
+/**
+ * @fileoverview Direct Debit Batch DocType Frontend Controller for Verenigingen Association Management
+ *
+ * This controller manages the Direct Debit Batch DocType interface, handling SEPA direct debit
+ * batch processing for automated payment collection from association members. It orchestrates
+ * the complete workflow from invoice aggregation to bank submission and payment reconciliation.
+ *
+ * @description Business Context:
+ * Direct Debit Batches are used to collect membership fees, donations, and other payments
+ * automatically from members who have provided SEPA mandates. The system ensures compliance
+ * with European banking regulations and Dutch financial requirements while providing
+ * efficient payment processing for the association.
+ *
+ * @description Key Features:
+ * - SEPA direct debit batch creation and management
+ * - Mandate validation and compliance checking
+ * - SEPA XML file generation for bank submission
+ * - Payment processing status tracking
+ * - Return processing and error handling
+ * - Integration with ERPNext invoicing system
+ * - Compliance with Dutch banking standards
+ *
+ * @description Workflow Stages:
+ * 1. Draft: Batch creation and invoice loading
+ * 2. Generated: SEPA file generation and validation
+ * 3. Submitted: Bank submission and processing
+ * 4. Processed: Payment completion and reconciliation
+ * 5. Failed/Returned: Error handling and retry logic
+ *
+ * @description Integration Points:
+ * - Links to Sales Invoice for payment collection
+ * - Connects to SEPA Mandate for authorization validation
+ * - Integrates with Payment Entry for accounting
+ * - Coordinates with Member DocType for payment methods
+ * - Links to banking systems for file submission
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires frappe - Frappe Framework client-side API
+ * @requires sepa-utils.js - SEPA processing utilities
+ * @requires payment-utils.js - Payment processing utilities
+ *
+ * @example
+ * // Controller is loaded automatically for Direct Debit Batch forms
+ * frappe.ui.form.on('Direct Debit Batch', {
+ *   refresh: function(frm) {
+ *     // Batch form initialization and status-based UI
+ *   }
+ * });
+ */
+
+/**
+ * Main Direct Debit Batch DocType Form Controller
+ *
+ * Handles the complete SEPA direct debit batch lifecycle including creation,
+ * validation, file generation, bank submission, and payment reconciliation.
+ */
 frappe.ui.form.on('Direct Debit Batch', {
+	/**
+	 * Form Refresh Event Handler
+	 *
+	 * Configures the batch processing interface based on current status and workflow stage.
+	 * Manages status indicators, action buttons, and validation controls for SEPA processing.
+	 *
+	 * @description Status-Based UI Configuration:
+	 * - Draft: Shows invoice loading and mandate validation controls
+	 * - Generated: Enables SEPA file generation and download
+	 * - Submitted: Provides bank submission and processing controls
+	 * - Processed: Shows completion status and reconciliation options
+	 *
+	 * @description SEPA Compliance Features:
+	 * - Validates mandate authorization and validity
+	 * - Ensures proper SEPA XML format generation
+	 * - Manages payment processing deadlines and constraints
+	 * - Handles return processing and error recovery
+	 *
+	 * @param {Object} frm - Frappe Form object containing batch document
+	 * @param {string} frm.doc.status - Current batch processing status
+	 * @param {boolean} frm.doc.sepa_file_generated - SEPA file generation flag
+	 * @param {Array} frm.doc.invoices - Collection of invoices in the batch
+	 *
+	 * @example
+	 * // Status-based button configuration:
+	 * // Draft: "Load Unpaid Invoices", "Validate Mandates"
+	 * // Generated: "Generate SEPA File", "Download SEPA File"
+	 * // Submitted: "Submit to Bank", "Process Returns"
+	 */
 	refresh: function(frm) {
 		// Add status indicator with color
 		if (frm.doc.status) {

@@ -1,11 +1,67 @@
 #!/usr/bin/env python3
+"""
+Dashboard Access Diagnostic Tool for Troubleshooting Permission Issues
+
+This debugging utility provides comprehensive diagnostics for dashboard access problems
+in the Verenigingen system. It performs systematic checks of user authentication,
+role assignments, board access permissions, and context generation to identify
+and resolve common dashboard access issues.
+
+Diagnostic Capabilities:
+    * User authentication status verification
+    * Role and permission analysis
+    * Board chapter access validation
+    * Context generation error detection
+    * Session state examination
+    * Permission hierarchy troubleshooting
+
+Common Issues Diagnosed:
+    - Guest user attempting dashboard access
+    - Missing board member assignments
+    - Insufficient role permissions
+    - Context generation failures
+    - Session timeout or corruption
+    - Chapter membership configuration errors
+
+Usage:
+    Can be executed both as a standalone script and via web API calls
+    for comprehensive dashboard access troubleshooting in development
+    and production environments.
+"""
 
 import frappe
 
 
 @frappe.whitelist()
 def debug_dashboard_access():
-    """Debug dashboard access issues"""
+    """
+    Perform comprehensive dashboard access diagnostics and troubleshooting.
+    
+    This function executes a series of diagnostic checks to identify the root
+    cause of dashboard access issues, providing detailed information about
+    user state, permissions, and system configuration that affects dashboard
+    access capabilities.
+    
+    Returns:
+        dict: Comprehensive diagnostic report containing:
+            - status (str): Overall diagnostic status
+            - user (str): Current user identifier
+            - roles (list): User's assigned roles
+            - is_guest (bool): Whether user is authenticated
+            - user_chapters (list): Board chapters user has access to
+            - has_board_access (bool): Whether user has board member access
+            - context_keys (list): Available context variables
+            - has_context_error (bool): Whether context generation failed
+            - error messages for any failed diagnostic checks
+            
+    Diagnostic Process:
+        1. Verify user authentication status
+        2. Check role assignments and permissions
+        3. Validate board chapter access rights
+        4. Test context generation for dashboard
+        5. Identify specific configuration issues
+        6. Provide actionable troubleshooting information
+    """
 
     try:
         # Import the dashboard module

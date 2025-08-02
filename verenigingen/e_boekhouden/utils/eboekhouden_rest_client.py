@@ -1,6 +1,33 @@
 """
-E-Boekhouden REST API Client for Mutations
-Handles only mutation-related endpoints to overcome SOAP's 500-record limitation
+eBoekhouden REST API Client for Financial Data Integration
+
+This module provides a comprehensive REST API client for integrating with eBoekhouden
+(e-boekhouden.nl), a Dutch cloud-based accounting platform. It specifically addresses
+the limitations of SOAP API endpoints by implementing efficient REST-based data retrieval
+with pagination and caching capabilities.
+
+Key Features:
+    * Session-based authentication with automatic token management
+    * Paginated mutation retrieval overcoming SOAP's 500-record limitation
+    * Cached ledger and relation data for performance optimization
+    * Real-time progress updates during large data imports
+    * Comprehensive error handling and logging
+
+Integration Context:
+    This client is used as part of the comprehensive eBoekhouden migration system
+    for importing historical accounting data into ERPNext. It handles the complex
+    mapping between eBoekhouden's transaction structure and ERPNext's accounting
+    framework while maintaining data integrity and audit trails.
+
+Usage:
+    client = EBoekhoudenRESTClient()
+    mutations = client.get_all_mutations(date_from="2023-01-01")
+
+Configuration:
+    Requires "E-Boekhouden Settings" DocType with:
+    - api_url: REST API endpoint (default: https://api.e-boekhouden.nl)
+    - api_token: Authentication token (stored encrypted)
+    - source_application: Application identifier for API requests
 """
 
 from typing import Any, Dict, Optional
@@ -10,6 +37,23 @@ import requests
 
 
 class EBoekhoudenRESTClient:
+    """
+    REST API client for eBoekhouden integration with advanced session management.
+
+    This client provides a robust interface for accessing eBoekhouden's REST API
+    endpoints, specifically designed to handle large-scale data migrations and
+    real-time integrations. It implements session-based authentication, intelligent
+    caching, and pagination to efficiently process thousands of financial records.
+
+    Attributes:
+        settings: eBoekhouden configuration settings
+        base_url: API endpoint URL
+        api_token: Encrypted authentication token
+        _session_token: Cached session token for API requests
+        _ledger_cache: Cached chart of accounts data
+        _relation_cache: Cached customer/supplier data
+    """
+
     def __init__(self, settings=None):
         if not settings:
             settings = frappe.get_single("E-Boekhouden Settings")
@@ -24,12 +68,25 @@ class EBoekhoudenRESTClient:
         # Session token will be obtained on first use
         self._session_token = None
 
-        # Cache for lookup data
+        # Cache for lookup data to improve performance during bulk operations
         self._ledger_cache = None
         self._relation_cache = None
 
     def _get_session_token(self):
-        """Get session token using API token"""
+        """
+        Obtain and cache session token for API authentication.
+
+        Session tokens are required for all REST API calls and have a limited
+        lifetime. This method handles token acquisition and caching to minimize
+        authentication overhead during bulk operations.
+
+        Returns:
+            str: Valid session token for API requests
+            None: If authentication fails
+
+        Raises:
+            ValueError: If API token is not configured
+        """
         if self._session_token:
             return self._session_token
 
@@ -58,7 +115,15 @@ class EBoekhoudenRESTClient:
             return None
 
     def _get_headers(self):
-        """Get headers with valid session token"""
+        """
+        Build HTTP headers for authenticated API requests.
+
+        Returns:
+            dict: Headers including authorization token and content type
+
+        Raises:
+            ValueError: If session token cannot be obtained
+        """
         token = self._get_session_token()
         if not token:
             raise ValueError("Failed to obtain session token")
@@ -67,16 +132,33 @@ class EBoekhoudenRESTClient:
 
     def get_mutations(self, limit=2000, offset=0, date_from=None, date_to=None) -> Dict[str, Any]:
         """
-        Get mutations with pagination support
+        Retrieve financial mutations with intelligent pagination.
+
+        This method fetches accounting transactions (mutations) from eBoekhouden
+        using the REST API's pagination capabilities. It automatically handles
+        the API's 2000-record limit and provides detailed metadata for
+        pagination management.
 
         Args:
-            limit: Number of records per page (max 2000)
-            offset: Starting position for pagination
-            date_from: Optional start date filter
-            date_to: Optional end date filter
+            limit (int): Records per page, max 2000 (API limitation)
+            offset (int): Starting position for pagination (0-based)
+            date_from (str, optional): Start date filter (YYYY-MM-DD format)
+            date_to (str, optional): End date filter (YYYY-MM-DD format)
 
         Returns:
-            Dict with success status, mutations list, and pagination info
+            Dict[str, Any]: Response containing:
+                - success (bool): Operation success status
+                - mutations (list): List of financial transaction records
+                - count (int): Number of records in current page
+                - has_more (bool): Whether additional pages exist
+                - offset (int): Current pagination offset
+                - limit (int): Current page size
+                - error (str, optional): Error message if failed
+
+        Note:
+            The eBoekhouden API may return mutations with id=0 for certain
+            record types. These are handled as-is since detailed fetch
+            operations may not be available for all mutation types.
         """
         try:
             url = f"{self.base_url}/v1/mutation"
@@ -125,13 +207,22 @@ class EBoekhoudenRESTClient:
 
     def get_mutation_detail(self, mutation_id: int) -> Optional[Dict[str, Any]]:
         """
-        Get detailed information for a specific mutation
+        Fetch comprehensive details for a specific financial mutation.
+
+        Retrieves the complete record for a single mutation, including all
+        line items, account mappings, and metadata. Used for detailed
+        processing and validation during migration operations.
 
         Args:
-            mutation_id: The mutation ID to fetch
+            mutation_id (int): Unique identifier of the mutation to fetch
 
         Returns:
-            Detailed mutation data or None if failed
+            Optional[Dict[str, Any]]: Complete mutation record with all
+                associated data, or None if the mutation cannot be retrieved
+
+        Note:
+            Some mutations may not support detailed retrieval due to
+            eBoekhouden API limitations. Always check for None return.
         """
         try:
             url = f"{self.base_url}/v1/mutation/{mutation_id}"
@@ -152,14 +243,27 @@ class EBoekhoudenRESTClient:
 
     def get_all_mutations(self, date_from=None, date_to=None) -> Dict[str, Any]:
         """
-        Get all mutations using pagination
+        Retrieve complete mutation dataset using automatic pagination.
+
+        This method orchestrates the retrieval of all available mutations
+        by automatically handling pagination across multiple API calls.
+        It provides real-time progress updates for long-running operations
+        and combines all pages into a single comprehensive dataset.
 
         Args:
-            date_from: Optional start date filter
-            date_to: Optional end date filter
+            date_from (str, optional): Start date filter (YYYY-MM-DD)
+            date_to (str, optional): End date filter (YYYY-MM-DD)
 
         Returns:
-            Dict with all mutations combined
+            Dict[str, Any]: Complete result set containing:
+                - success (bool): Overall operation success
+                - mutations (list): All mutations from all pages
+                - count (int): Total number of mutations retrieved
+                - error (str, optional): Error message if failed
+
+        Note:
+            Large datasets may take significant time to retrieve. Progress
+            updates are published via Frappe's realtime system for UI feedback.
         """
         all_mutations = []
         offset = 0
@@ -189,10 +293,22 @@ class EBoekhoudenRESTClient:
 
     def get_ledgers(self) -> Dict[str, Any]:
         """
-        Get all ledger accounts for mapping
+        Retrieve complete chart of accounts with intelligent caching.
+
+        Fetches all ledger accounts from eBoekhouden for account mapping
+        operations. Results are cached to improve performance during
+        bulk processing operations that require frequent account lookups.
 
         Returns:
-            Dict with ledger accounts
+            Dict[str, Any]: Ledger data containing:
+                - success (bool): Operation success status
+                - ledgers (list): Complete chart of accounts
+                - count (int): Total number of ledger accounts
+                - error (str, optional): Error message if failed
+
+        Note:
+            Ledger data is cached after first retrieval to optimize
+            performance during migration operations.
         """
         if self._ledger_cache is not None:
             return {"success": True, "ledgers": self._ledger_cache}
@@ -231,10 +347,22 @@ class EBoekhoudenRESTClient:
 
     def get_relations(self) -> Dict[str, Any]:
         """
-        Get all relations for mapping
+        Retrieve complete customer/supplier database with caching.
+
+        Fetches all relation records (customers, suppliers, employees) from
+        eBoekhouden for entity mapping during transaction import. Results
+        are cached to improve performance during bulk operations.
 
         Returns:
-            Dict with relations
+            Dict[str, Any]: Relations data containing:
+                - success (bool): Operation success status
+                - relations (list): Complete customer/supplier records
+                - count (int): Total number of relations
+                - error (str, optional): Error message if failed
+
+        Note:
+            Relation data is cached after first retrieval. This is essential
+            for efficient customer/supplier matching during large migrations.
         """
         if self._relation_cache is not None:
             return {"success": True, "relations": self._relation_cache}
@@ -274,7 +402,26 @@ class EBoekhoudenRESTClient:
 
 @frappe.whitelist()
 def count_all_mutations():
-    """Count total mutations available via REST API"""
+    """
+    Generate comprehensive mutation statistics for migration planning.
+
+    This function provides detailed analytics about the mutation dataset
+    available through the eBoekhouden REST API. It categorizes mutations
+    by type and provides counts essential for migration planning and
+    progress estimation.
+
+    Returns:
+        Dict[str, Any]: Statistics containing:
+            - success (bool): Operation success status
+            - total_count (int): Total mutations available
+            - by_type (dict): Breakdown of mutations by transaction type
+            - message (str): Human-readable summary
+            - error (str, optional): Error message if failed
+
+    Note:
+        This function is exposed via Frappe's whitelist for use in
+        administrative interfaces and migration planning tools.
+    """
     try:
         client = EBoekhoudenRESTClient()
 

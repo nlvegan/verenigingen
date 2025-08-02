@@ -1,6 +1,71 @@
 """
-Payment Utilities
-Utilities for handling payment entries and financial operations.
+Payment Processing and Financial Transaction Utilities
+
+This module provides comprehensive payment processing utilities for the Verenigingen
+association management system. It handles donation payment entries, member payment
+processing, financial history management, and integration with ERPNext's financial
+accounting framework.
+
+Key Features:
+- Automated payment entry creation for donations and membership transactions
+- Member payment processing with status tracking and history management
+- Financial account integration with company-specific configurations
+- Payment validation and amount handling with business rule enforcement
+- Legacy compatibility for existing payment workflows
+- Integration with ERPNext's Payment Entry and accounting systems
+
+Business Context:
+Payment processing is central to the association's financial operations, handling:
+- Donation payments from supporters and members
+- Membership dues collection and tracking
+- Expense reimbursements for volunteers and staff
+- Financial reporting and audit trail maintenance
+- Integration with banking and payment gateway systems
+
+Architecture:
+This utility integrates with:
+- ERPNext Payment Entry system for financial transaction recording
+- Donation DocType for donation payment processing
+- Member DocType for membership payment tracking
+- Company settings for account defaults and configurations
+- Mode of Payment system for payment method handling
+- Financial reporting systems for audit and compliance
+
+Payment Processing Workflow:
+1. Payment Entry Creation:
+   - Validate source documents (donations, membership fees)
+   - Configure appropriate accounts based on company settings
+   - Set party details and payment references
+   - Apply business rules and validation
+
+2. Financial Integration:
+   - Link to ERPNext's accounting framework
+   - Ensure proper account classification and reporting
+   - Maintain audit trails for compliance
+   - Support multi-company operations
+
+3. Status Management:
+   - Track payment status throughout lifecycle
+   - Update related documents automatically
+   - Provide financial history and reporting
+   - Support reconciliation processes
+
+Financial Accounts Integration:
+- Default receivable accounts for customer payments
+- Cash and bank accounts for payment receipt
+- Income accounts for donation and dues classification
+- Proper account mapping for financial reporting
+
+Data Model:
+- Payment Entry creation with proper account classification
+- Reference linking between payments and source documents
+- Party management for customers and donors
+- Amount validation and currency handling
+- Payment method mapping and processing
+
+Author: Development Team
+Date: 2025-08-02
+Version: 1.0
 """
 
 import frappe

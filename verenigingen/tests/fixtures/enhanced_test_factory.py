@@ -2,7 +2,127 @@
 # -*- coding: utf-8 -*-
 """
 Enhanced Test Data Factory
-Builds on Frappe's FrappeTestCase to provide business rule validation and field safety
+==========================
+
+Enterprise-grade test data factory that extends Frappe's FrappeTestCase with comprehensive
+business rule validation, field safety checks, and deterministic data generation.
+
+This module addresses critical testing challenges in the Verenigingen association management
+system by providing a robust foundation for creating realistic, valid test data while
+maintaining strict validation and ensuring test reproducibility.
+
+Core Features
+------------
+- **Business Rule Validation**: Prevents creation of invalid test scenarios (e.g., volunteers under 16)
+- **Field Safety**: Validates all field references against DocType schemas before document creation
+- **Deterministic Generation**: Uses configurable seeds for reproducible test scenarios
+- **Faker Integration**: Generates realistic but clearly marked test data using the Faker library
+- **No Security Bypass**: Uses proper Frappe permissions instead of ignore_permissions=True
+- **Auto-cleanup**: Inherits FrappeTestCase's automatic database rollback capabilities
+
+Architecture
+-----------
+The factory consists of two main components:
+
+1. **EnhancedTestDataFactory**: Core factory class with business logic and validation
+2. **EnhancedTestCase**: Test case base class that combines FrappeTestCase benefits with enhancements
+
+Design Principles
+----------------
+- **Fail Fast**: Validation errors are caught early during test data creation
+- **Realistic Data**: Generated data resembles production data but is clearly marked as test data
+- **Deterministic**: Same seed produces identical test data for reproducible test scenarios
+- **Schema-Aware**: All field references are validated against actual DocType definitions
+- **Permission-Compliant**: Respects Frappe's permission system without bypasses
+
+Integration with Testing Infrastructure
+-------------------------------------
+This factory integrates seamlessly with the broader testing infrastructure:
+
+- Extends FrappeTestCase for automatic database rollback
+- Works with the existing test data cleanup mechanisms
+- Supports query count monitoring for performance testing
+- Provides permission testing capabilities
+- Maintains global state isolation between tests
+
+Business Logic Validation
+-------------------------
+The factory enforces critical business rules during test data creation:
+
+- Member age validation (minimum 16 years, maximum 120 years)
+- Volunteer start date validation (must be 16+ at start date)
+- Membership temporal validation (start date after birth date)
+- Email format validation for all created records
+- Phone number format validation using reserved test ranges
+
+Usage Examples
+-------------
+```python
+# Basic usage with EnhancedTestCase
+class TestMyFeature(EnhancedTestCase):
+    def test_member_creation(self):
+        member = self.create_test_member(
+            first_name="John",
+            last_name="Doe",
+            birth_date="1990-01-01"
+        )
+        self.assertEqual(member.first_name, "John")
+
+# Direct factory usage
+factory = EnhancedTestDataFactory(seed=12345, use_faker=True)
+member = factory.create_member(birth_date="1990-01-01")
+
+# Application data for complex workflows
+app_data = factory.create_application_data(with_volunteer_skills=True)
+```
+
+Error Handling and Debugging
+----------------------------
+The factory provides detailed error messages for common issues:
+
+- BusinessRuleError: When business logic validation fails
+- FieldValidationError: When field references are invalid
+- Schema validation errors with specific field information
+- Faker data generation errors with fallback mechanisms
+
+Performance Considerations
+-------------------------
+- Field validation is cached per DocType to minimize database queries
+- Sequence counters prevent unnecessary database lookups for unique values
+- Faker instances are seeded once per factory instance for consistency
+- Meta information is cached with error handling for missing DocTypes
+
+Migration and Compatibility
+--------------------------
+This factory is designed to gradually replace the legacy TestDataFactory:
+
+- Provides compatibility methods for existing test patterns
+- Includes migration helpers for converting existing tests
+- Maintains backward compatibility where possible
+- Offers enhanced error reporting for migration assistance
+
+Security and Data Protection
+---------------------------
+- All generated data is clearly marked as test data with prefixes
+- Uses reserved number ranges for phone numbers and postal codes
+- Email addresses use .invalid TLD to prevent accidental delivery
+- Test run IDs include timestamps and random components for uniqueness
+
+Quality Assurance
+----------------
+The factory includes self-validation capabilities:
+
+- Validates its own field references against live schemas
+- Includes comprehensive error handling with fallback mechanisms
+- Provides detailed logging for debugging test data creation issues
+- Supports dry-run modes for validating test scenarios
+
+Version History
+--------------
+- Initial implementation with business rule validation
+- Added field safety checks and schema validation
+- Enhanced with Faker integration and deterministic generation
+- Improved error handling and compatibility with existing tests
 """
 
 import random

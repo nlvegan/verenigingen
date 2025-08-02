@@ -7,6 +7,12 @@ import frappe
 from frappe.model.document import Document
 from frappe.utils import getdate
 
+from verenigingen.e_boekhouden.utils.security_helper import (
+    migration_context,
+    validate_and_insert,
+    validate_and_save,
+)
+
 
 class EBoekhoudenMigration(Document):
     def validate(self):
@@ -623,15 +629,19 @@ class EBoekhoudenMigration(Document):
                     account.flags.ignore_validate = True
                     account.flags.ignore_mandatory = True
 
-                    # Try multiple creation methods
+                    # Try multiple creation methods with proper permissions
                     try:
-                        account.save(ignore_permissions=True)
+                        validate_and_save(
+                            account, skip_validation=True
+                        )  # Root accounts need special handling
                         created.append(f"{acc['account_name']} ({acc['root_type']})")
                         frappe.logger().info(f"Created root account: {account.name}")
                     except Exception:
                         # If save fails, try insert
                         try:
-                            account.insert(ignore_permissions=True)
+                            validate_and_insert(
+                                account, skip_validation=True
+                            )  # Root accounts need special handling
                             created.append(f"{acc['account_name']} ({acc['root_type']})")
                             frappe.logger().info(f"Created root account via insert: {account.name}")
                         except Exception as e2:
@@ -1465,7 +1475,7 @@ class EBoekhoudenMigration(Document):
                 f"Attempting to create account: {account_code} - {account_name}, is_group={is_group}, parent={parent_account}, root_type={root_type}"
             )
 
-            account.insert(ignore_permissions=True)
+            validate_and_insert(account)
             frappe.logger().info(f"Successfully created account: {account_code} - {account_name}")
 
             # If this is a bank account, try to create corresponding Bank Account record
@@ -1777,7 +1787,7 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
-            group_account.insert(ignore_permissions=True)
+            validate_and_insert(group_account)
             frappe.logger().info(f"Created group account: {group_code} - {group_name} under {root_parent}")
 
             return group_account.name
@@ -1904,7 +1914,7 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
-            cost_center.insert(ignore_permissions=True)
+            validate_and_insert(cost_center)
             frappe.logger().info(f"Created cost center: {description}")
             return True
 
@@ -2005,7 +2015,7 @@ class EBoekhoudenMigration(Document):
                 except Exception as rel_e:
                     frappe.logger().warning(f"Could not save relation ID {customer_id}: {str(rel_e)}")
 
-            customer.insert(ignore_permissions=True)
+            validate_and_insert(customer)
 
             # Create contact if contact details are available
             if contact_name or email:
@@ -2076,7 +2086,7 @@ class EBoekhoudenMigration(Document):
                 except Exception as rel_e:
                     frappe.logger().warning(f"Could not save relation ID {customer_id}: {str(rel_e)}")
 
-            customer.insert(ignore_permissions=True)
+            validate_and_insert(customer)
 
             # Create contact if contact details are available
             if contact_name or email:
@@ -2193,7 +2203,7 @@ class EBoekhoudenMigration(Document):
             if vat_number:
                 supplier.tax_id = vat_number
 
-            supplier.insert(ignore_permissions=True)
+            validate_and_insert(supplier)
 
             # Create contact if contact details are available
             if contact_name or email:
@@ -2265,7 +2275,7 @@ class EBoekhoudenMigration(Document):
             if vat_number:
                 supplier.tax_id = vat_number
 
-            supplier.insert(ignore_permissions=True)
+            validate_and_insert(supplier)
 
             # Create contact if contact details are available
             if contact_name or email:
@@ -2429,7 +2439,7 @@ class EBoekhoudenMigration(Document):
                 self.log_error(f"Could not create balanced journal entry for transaction: {description}")
                 return False
 
-            journal_entry.insert(ignore_permissions=True)
+            validate_and_insert(journal_entry)
             frappe.logger().info(f"Created journal entry: {description}")
             return True
 
@@ -2457,7 +2467,7 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
-            contact.insert(ignore_permissions=True)
+            validate_and_insert(contact)
             frappe.logger().info(f"Created contact for customer: {customer_name}")
 
         except Exception as e:
@@ -2483,7 +2493,7 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
-            contact.insert(ignore_permissions=True)
+            validate_and_insert(contact)
             frappe.logger().info(f"Created contact for supplier: {supplier_name}")
 
         except Exception as e:
@@ -2512,7 +2522,7 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
-            address.insert(ignore_permissions=True)
+            validate_and_insert(address)
             frappe.logger().info(f"Created address for customer: {customer_name}")
 
         except Exception as e:
@@ -2541,7 +2551,7 @@ class EBoekhoudenMigration(Document):
                 }
             )
 
-            address.insert(ignore_permissions=True)
+            validate_and_insert(address)
             frappe.logger().info(f"Created address for supplier: {supplier_name}")
 
         except Exception as e:
@@ -3359,12 +3369,16 @@ def import_opening_balances_only(migration_name):
         # Update migration record with results
         if result.get("success"):
             imported_count = 1 if result.get("journal_entry") else 0
+            # Use the actual number of opening balance mutations processed
+            accounts_processed = result.get("accounts_processed", 0)
+            total_mutations = accounts_processed if accounts_processed > 0 else imported_count
+
             migration.db_set(
                 {
                     "migration_status": "Completed",
                     "imported_records": imported_count,
-                    "total_records": imported_count,  # For opening balances, total = imported
-                    "migration_summary": f"Opening balances imported. Journal Entry: {result.get('journal_entry', 'None')}",
+                    "total_records": total_mutations,  # Show actual number of mutations processed
+                    "migration_summary": f"Opening balances imported. Journal Entry: {result.get('journal_entry', 'None')}. Processed {accounts_processed} opening balance accounts.",
                 }
             )
         else:
@@ -3428,7 +3442,7 @@ def update_account_type_mapping(account_name, new_account_type, company):
 
         # Update account type
         account.account_type = new_account_type
-        account.save(ignore_permissions=True)
+        validate_and_save(account)
 
         frappe.db.commit()
 

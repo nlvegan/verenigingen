@@ -1,5 +1,40 @@
 """
-API endpoints for Chapter Dashboard functionality
+Chapter Dashboard API
+
+This module provides comprehensive API endpoints for the Chapter Dashboard functionality
+in the Verenigingen association management system. It enables chapter board members
+to manage their local chapters, approve member applications, view statistics, and
+perform administrative tasks.
+
+Key Features:
+    - Member management (approval, rejection, communication)
+    - Dashboard statistics and metrics
+    - Chapter-specific announcements and notifications
+    - Quick access to member information and counts
+    - Integration with eBoekhouden financial data
+    - MT940 banking file processing and debugging
+
+Security Model:
+    - High-security APIs for member data access
+    - Permission validation based on chapter board roles
+    - Input sanitization and validation
+    - Performance monitoring with thresholds
+    - Caching for frequently accessed data
+
+Architecture:
+    - Built on Frappe framework with custom security decorators
+    - Uses QueryOptimizer for database performance
+    - Implements comprehensive error handling
+    - Follows RESTful API design principles
+
+Dependencies:
+    - Frappe framework for ORM and web framework
+    - Custom security framework for API protection
+    - Performance monitoring utilities
+    - Validation and error handling utilities
+
+Author: Verenigingen Development Team
+License: MIT
 """
 import frappe
 from frappe import _
@@ -34,7 +69,48 @@ from verenigingen.utils.validation.api_validators import (
 @performance_monitor(threshold_ms=500)
 @cached(ttl=300)  # Cache for 5 minutes
 def get_chapter_member_emails(chapter_name):
-    """Get email addresses of all active chapter members"""
+    """
+    Retrieve email addresses of all active chapter members.
+
+    This function provides chapter board members with a list of email addresses
+    for all active members in their chapter, enabling bulk communication and
+    member outreach activities.
+
+    Args:
+        chapter_name (str): The name/ID of the chapter to get member emails for.
+                           Must be a valid chapter that the requesting user has
+                           board access to.
+
+    Returns:
+        list[str]: List of unique email addresses of active chapter members,
+                  sorted alphabetically. Empty strings and None values are filtered out.
+
+    Example:
+        >>> emails = get_chapter_member_emails("Amsterdam")
+        >>> print(emails)
+        ['alice@example.com', 'bob@example.com', 'charlie@example.com']
+
+    Raises:
+        PermissionError: If the user doesn't have board access to the specified chapter
+        ValidationError: If chapter_name is empty or invalid
+
+    Security:
+        - Validates user has board access to the requested chapter
+        - Sanitizes input to prevent injection attacks
+        - Uses high-security API decorators
+        - Caches results for performance (5-minute TTL)
+
+    Performance:
+        - Optimized SQL query with proper joins
+        - Monitoring threshold: 500ms
+        - Result caching to reduce database load
+        - Returns only distinct email addresses
+
+    Database Access:
+        - Reads from: tabChapter Member, tabMember
+        - Filters: Active members only, non-empty emails
+        - Join: Chapter Member -> Member on member field
+    """
 
     # Validate inputs
     validate_required_fields({"chapter_name": chapter_name}, ["chapter_name"])
@@ -73,7 +149,61 @@ def get_chapter_member_emails(chapter_name):
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 def quick_approve_member(member_name, chapter_name=None):
-    """Quick approve a member application from dashboard"""
+    """
+    Quickly approve a pending member application from the chapter dashboard.
+
+    This function allows chapter board members to approve pending membership
+    applications with a single API call. It handles the complete approval
+    workflow including status updates and notification triggers.
+
+    Args:
+        member_name (str): The unique identifier/name of the member to approve.
+                          Must be a valid Member document name.
+        chapter_name (str, optional): The chapter name for the approval.
+                                     If not provided, will be determined from
+                                     the member's current chapter or pending
+                                     chapter membership records.
+
+    Returns:
+        dict: Approval result with success status and updated member information.
+
+    Example:
+        >>> result = quick_approve_member("MEM-2024-001", "Amsterdam")
+        >>> print(result)
+        {
+            'success': True,
+            'member_name': 'MEM-2024-001',
+            'chapter': 'Amsterdam',
+            'status': 'Approved',
+            'approval_date': '2024-08-02 14:30:00'
+        }
+
+    Raises:
+        PermissionError: If user is not a board member or lacks access to the chapter
+        ValidationError: If member_name is invalid or member is not in pending status
+
+    Security:
+        - Validates user has board member role for the target chapter
+        - Sanitizes all input parameters
+        - Uses high-security API decorators
+        - Logs all approval actions for audit trail
+
+    Performance:
+        - Monitoring threshold: 2000ms (approval can involve multiple operations)
+        - Optimized database queries for member lookup
+        - Batch processing for related updates
+
+    Business Logic:
+        - Only pending applications can be approved
+        - Triggers post-approval workflows (welcome emails, etc.)
+        - Updates member status and chapter membership records
+        - Creates audit trail for the approval action
+
+    Database Access:
+        - Reads from: tabMember, tabChapter Member
+        - Updates: Member status, Chapter Member status
+        - Creates: Audit log entries
+    """
 
     # Validate inputs
     validate_required_fields({"member_name": member_name}, ["member_name"])

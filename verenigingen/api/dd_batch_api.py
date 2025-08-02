@@ -1,6 +1,53 @@
 """
 Direct Debit Batch API
-Provides API endpoints for managing direct debit batches with security and validation.
+
+This module provides secure API endpoints for managing SEPA direct debit batches
+in the Verenigingen association management system. It handles the complete lifecycle
+of direct debit processing including batch creation, validation, SEPA file generation,
+and status tracking.
+
+Key Features:
+    - Secure batch management with role-based access control
+    - SEPA-compliant direct debit processing
+    - Batch validation and error handling
+    - Performance monitoring and optimization
+    - Comprehensive audit logging
+    - Real-time status tracking and notifications
+
+Business Process:
+    1. Batch Creation: Create batches from membership dues schedules
+    2. Validation: Validate member mandates and payment details
+    3. SEPA Generation: Generate SEPA XML files for bank submission
+    4. Processing: Track bank processing status and handle returns
+    5. Reconciliation: Match bank confirmations with batch entries
+
+Security Model:
+    - High-security API endpoints for financial operations
+    - SEPA-specific operation type validation
+    - Permission-based access control
+    - Input sanitization and validation
+    - Comprehensive audit logging
+
+Compliance:
+    - SEPA Direct Debit Core Scheme compliance
+    - Dutch banking standards (IBAN, BIC validation)
+    - Data protection (GDPR) compliance
+    - Financial audit trail requirements
+
+Integration Points:
+    - Bank file upload/download systems
+    - eBoekhouden accounting software
+    - Member mandate management
+    - Notification and communication systems
+
+Performance Considerations:
+    - Batch processing for large member sets
+    - Database optimization for frequent queries
+    - Caching for mandate validation
+    - Background job processing for heavy operations
+
+Author: Verenigingen Development Team
+License: MIT
 """
 
 import frappe
@@ -31,13 +78,68 @@ from verenigingen.utils.security.api_security_framework import (
 @performance_monitor(threshold_ms=1000)
 def get_batch_list_with_security(filters=None):
     """
-    Get list of direct debit batches with security filtering.
+    Retrieve a secured list of direct debit batches with comprehensive metadata.
+
+    This function provides authorized users with access to direct debit batch information,
+    applying security filters and performance optimizations. It's the primary endpoint
+    for batch management interfaces and reporting systems.
 
     Args:
-        filters (dict): Optional filters for batch selection
+        filters (dict, optional): Optional filtering criteria for batch selection.
+                                 Supported filters:
+                                 - status (str): Batch status (Draft, Submitted, Processed, etc.)
+                                 - from_date (str): Start date for batch_date range (YYYY-MM-DD)
+                                 - to_date (str): End date for batch_date range (YYYY-MM-DD)
 
     Returns:
-        dict: List of batches with metadata
+        dict: Comprehensive batch information with the following structure:
+            {
+                'success': True,
+                'batches': [
+                    {
+                        'name': 'DD-BATCH-2024-001',
+                        'batch_date': '2024-08-02',
+                        'status': 'Processed',
+                        'total_amount': 2500.00,
+                        'entry_count': 25,
+                        'owner': 'admin@example.com',
+                        'creation': '2024-08-01 10:30:00',
+                        'modified': '2024-08-02 14:15:00',
+                        'sepa_file_generated': 1,
+                        'pending_count': 0,
+                        'processed_count': 23,
+                        'failed_count': 2
+                    }
+                ],
+                'total_batches': 1
+            }
+
+    Raises:
+        PermissionError: If user lacks direct debit batch management permissions
+        ValidationError: If filter parameters are invalid or malformed
+
+    Security:
+        - Validates user permissions for direct debit batch operations
+        - Uses SEPA-specific security operation type
+        - Excludes cancelled batches from results
+        - Limits results to prevent performance issues
+
+    Performance:
+        - Monitoring threshold: 1000ms
+        - Result limit: 100 batches maximum
+        - Optimized queries with proper indexing
+        - Efficient status count aggregation
+
+    Business Logic:
+        - Filters out cancelled batches (docstatus = 2)
+        - Orders by batch date (descending) then creation time
+        - Enhances results with entry status counts
+        - Provides comprehensive batch metadata
+
+    Database Access:
+        - Reads from: tabDirect Debit Batch, tabDirect Debit Batch Entry
+        - Indexes used: batch_date, status, docstatus
+        - Query optimization: Selective field retrieval, count aggregation
     """
     # Check permissions
     if not can_manage_dd_batches():

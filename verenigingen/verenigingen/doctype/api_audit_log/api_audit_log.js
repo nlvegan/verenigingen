@@ -1,3 +1,60 @@
+/**
+ * @fileoverview API Audit Log DocType Controller for Verenigingen Association Management
+ *
+ * This controller manages the display and interaction with API audit log records,
+ * providing comprehensive audit trail visualization, reference document navigation,
+ * and detailed event information for security and compliance monitoring.
+ *
+ * @description Business Context:
+ * API Audit Log maintains a comprehensive audit trail of all API interactions
+ * within the association management system, ensuring compliance and security:
+ * - Complete API call tracking with timestamps and user attribution
+ * - Reference document linking for context and traceability
+ * - Severity-based categorization for priority assessment
+ * - Detailed event information capture for debugging and analysis
+ * - User activity monitoring for security compliance
+ * - System event tracking for operational monitoring
+ *
+ * @description Key Features:
+ * - Read-only interface to prevent audit trail tampering
+ * - Severity-based visual indicators for quick assessment
+ * - Reference document navigation for contextual analysis
+ * - Formatted detail viewing with JSON syntax highlighting
+ * - User profile integration for identity tracking
+ * - Timestamp formatting for human-readable display
+ * - Comprehensive event detail preservation
+ *
+ * @description Integration Points:
+ * - Reference DocType linking for context navigation
+ * - User management system for identity verification
+ * - Security monitoring systems for compliance reporting
+ * - System administration tools for operational analysis
+ * - JSON detail parsing for structured data display
+ * - Moment.js integration for timestamp formatting
+ *
+ * @description Security Features:
+ * - Immutable audit records with read-only enforcement
+ * - Complete event detail capture for forensic analysis
+ * - User attribution for accountability tracking
+ * - Severity classification for security incident response
+ * - Reference linking for impact assessment
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires frappe.ui.form
+ * @requires frappe.ui.Dialog
+ * @requires moment
+ *
+ * @example
+ * // The controller automatically handles:
+ * // - Read-only audit record display with tamper prevention
+ * // - Severity-based visual indicators and navigation
+ * // - Reference document linking and user profile access
+ * // - Formatted detail viewing with JSON syntax highlighting
+ */
+
 // Copyright (c) 2025, Verenigingen and contributors
 // For license information, please see license.txt
 

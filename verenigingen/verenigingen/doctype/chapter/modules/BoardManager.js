@@ -1,9 +1,68 @@
+/**
+ * @fileoverview Chapter Board Member Management Module for Verenigingen Association Management
+ *
+ * This module provides comprehensive board member management functionality for chapters,
+ * including role assignments, term management, transitions, and bulk operations.
+ * Board members are volunteers who hold leadership positions within chapter structures.
+ *
+ * @description Business Context:
+ * Chapter boards consist of volunteers who manage local chapter activities, coordinate
+ * with the central organization, and represent member interests. The system manages
+ * board composition, role transitions, term limits, and succession planning while
+ * maintaining compliance with organizational governance requirements.
+ *
+ * @description Key Features:
+ * - Board member addition, removal, and role management
+ * - Term tracking and automatic transition handling
+ * - Bulk operations for efficient board management
+ * - Integration with volunteer management system
+ * - Role-based permission and validation enforcement
+ * - Board history and audit trail maintenance
+ *
+ * @description Governance Integration:
+ * - Enforces organizational governance rules
+ * - Manages role uniqueness constraints (e.g., single chapter head)
+ * - Validates volunteer eligibility for board positions
+ * - Tracks term limits and succession requirements
+ * - Maintains democratic representation standards
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires ChapterAPI - Chapter-specific API operations
+ * @requires ChapterValidation - Board validation utilities
+ * @requires frappe - Frappe Framework client-side API
+ *
+ * @example
+ * // Usage within chapter form controller:
+ * const boardManager = new BoardManager(frm, state, ui);
+ * boardManager.addButtons();
+ * boardManager.setupGrid();
+ */
+
 // verenigingen/verenigingen/doctype/chapter/modules/BoardManager.js
 
 import { ChapterAPI } from '../utils/ChapterAPI.js';
 import { ChapterValidation } from '../utils/ChapterValidation.js';
 
+/**
+ * Chapter Board Management Class
+ *
+ * Provides comprehensive functionality for managing chapter board members,
+ * including role assignments, term tracking, and governance compliance.
+ */
 export class BoardManager {
+	/**
+	 * BoardManager Constructor
+	 *
+	 * Initializes the board management system with required dependencies
+	 * and sets up state tracking for board member operations.
+	 *
+	 * @param {Object} frm - Frappe Form object for chapter document
+	 * @param {Object} state - Chapter state management object
+	 * @param {Object} ui - Chapter UI management object
+	 */
 	constructor(frm, state, ui) {
 		this.frm = frm;
 		this.state = state;
@@ -12,6 +71,23 @@ export class BoardManager {
 		this.selectedMembers = new Set();
 	}
 
+	/**
+	 * Add Board Management Action Buttons
+	 *
+	 * Creates action buttons for board member management operations
+	 * including role transitions, bulk operations, and system integration.
+	 *
+	 * @description Available Actions:
+	 * - Manage Board Members: Add/remove board members with validation
+	 * - Transition Board Role: Handle role changes and succession planning
+	 * - View Board History: Display historical board composition and changes
+	 * - Sync with Volunteer System: Integrate with volunteer management
+	 * - Bulk Remove Board Members: Efficient bulk operations for board changes
+	 *
+	 * @example
+	 * // Called during chapter form initialization:
+	 * boardManager.addButtons();
+	 */
 	addButtons() {
 		// Add board management buttons
 		this.ui.addButton(__('Manage Board Members'), () => this.showManageDialog(), __('Board'));
@@ -21,6 +97,22 @@ export class BoardManager {
 		this.ui.addButton(__('Bulk Remove Board Members'), () => this.showBulkRemoveDialog(), __('Board'));
 	}
 
+	/**
+	 * Setup Board Member Grid Interface
+	 *
+	 * Configures the board member child table grid with enhanced functionality
+	 * including custom buttons, selection handling, and bulk operations.
+	 *
+	 * @description Grid Enhancements:
+	 * - Custom action buttons for board operations
+	 * - Multi-selection support for bulk operations
+	 * - Real-time validation and business rule enforcement
+	 * - Enhanced user interface for board management
+	 *
+	 * @example
+	 * // Called during form refresh:
+	 * boardManager.setupGrid();
+	 */
 	setupGrid() {
 		const grid = this.frm.fields_dict.board_members?.grid;
 		if (!grid) return;

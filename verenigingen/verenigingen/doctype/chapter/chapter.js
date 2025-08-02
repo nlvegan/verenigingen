@@ -1,7 +1,69 @@
-// Copyright (c) 2025, Your Organization and contributors
+/**
+ * @fileoverview Chapter DocType Frontend Controller for Verenigingen Association Management
+ *
+ * This controller manages the Chapter DocType interface, handling geographical organization
+ * of association members, board management, and regional coordination. Chapters represent
+ * local branches of the association organized by postal code regions.
+ *
+ * @description Business Context:
+ * Chapters are geographical organizational units that group members by location,
+ * facilitating local events, representation, and community building. Each chapter
+ * has a board of volunteers who manage local activities and serve as liaisons
+ * between members and the central organization.
+ *
+ * @description Key Features:
+ * - Geographical organization by postal code ranges
+ * - Board member management with roles and terms
+ * - Member assignment and chapter membership tracking
+ * - Regional coordination and hierarchy management
+ * - Publication and visibility control
+ * - Integration with member management system
+ *
+ * @description Integration Points:
+ * - Links to Member DocType for geographical assignment
+ * - Connects to Volunteer DocType for board positions
+ * - Integrates with Chapter Role DocType for position definitions
+ * - Coordinates with regional management systems
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires frappe - Frappe Framework client-side API
+ * @requires BoardManager.js - Board member management utilities
+ * @requires ChapterController.js - Chapter business logic controller
+ * @requires ChapterValidation.js - Validation utilities
+ * @requires MemberManager.js - Member assignment utilities
+ *
+ * @example
+ * // Controller is loaded automatically for Chapter DocType forms
+ * // Access through Frappe's form system:
+ * frappe.ui.form.on('Chapter', {
+ *   refresh: function(frm) {
+ *     // Chapter form initialization
+ *   }
+ * });
+ */
+
+// Copyright (c) 2025, Verenigingen Development Team and contributors
 // For license information, please see license.txt
 
+/**
+ * Main Chapter DocType Form Controller
+ *
+ * Handles form lifecycle events and user interactions for Chapter management.
+ * Orchestrates board management, member assignments, and geographical organization.
+ */
 frappe.ui.form.on('Chapter', {
+	/**
+	 * Form Onload Event Handler
+	 *
+	 * Initializes the chapter form with required functionality and prevents
+	 * duplicate initialization. Sets up form behavior, validation rules,
+	 * and UI components for chapter management.
+	 *
+	 * @param {Object} frm - Frappe Form object for chapter document
+	 */
 	onload: function(frm) {
 		// Initialize chapter form functionality
 		if (!frm._chapter_initialized) {
@@ -10,87 +72,282 @@ frappe.ui.form.on('Chapter', {
 		}
 	},
 
+	/**
+	 * Form Refresh Event Handler
+	 *
+	 * Called when the chapter form is displayed or refreshed. Sets up
+	 * action buttons, updates UI components, and configures board member
+	 * management grid based on current chapter state and user permissions.
+	 *
+	 * @description Key Operations:
+	 * - Configures chapter-specific action buttons
+	 * - Updates chapter status and member count displays
+	 * - Sets up board member management grid
+	 * - Applies role-based access controls
+	 *
+	 * @param {Object} frm - Form object containing chapter data
+	 */
 	refresh: function(frm) {
 		setup_chapter_buttons(frm);
 		update_chapter_ui(frm);
 		setup_board_grid(frm);
 	},
 
+	/**
+	 * Form Validation Event Handler
+	 *
+	 * Validates chapter form data before saving. Checks postal code ranges,
+	 * board member assignments, and business rule compliance.
+	 *
+	 * @param {Object} frm - Form object to validate
+	 * @returns {boolean} True if validation passes, false otherwise
+	 */
 	validate: function(frm) {
 		return validate_chapter_form(frm);
 	},
 
+	/**
+	 * Before Save Event Handler
+	 *
+	 * Prepares chapter data for saving, including data normalization,
+	 * relationship validation, and audit trail preparation.
+	 *
+	 * @param {Object} frm - Form object being saved
+	 * @returns {boolean} True to continue save, false to abort
+	 */
 	before_save: function(frm) {
 		return prepare_chapter_save(frm);
 	},
 
+	/**
+	 * After Save Event Handler
+	 *
+	 * Handles post-save operations including member reassignment,
+	 * notification sending, and system updates.
+	 *
+	 * @param {Object} frm - Saved form object
+	 */
 	after_save: function(frm) {
 		handle_chapter_after_save(frm);
 	},
 
-	// Field-specific handlers
+	// ==================== FIELD EVENT HANDLERS ====================
+
+	/**
+	 * Postal Codes Field Change Handler
+	 *
+	 * Validates postal code ranges and checks for conflicts with other chapters.
+	 * Ensures proper geographical coverage without overlaps.
+	 *
+	 * @param {Object} frm - Form object with postal code data
+	 */
 	postal_codes: function(frm) {
 		validate_postal_codes(frm);
 	},
 
+	/**
+	 * Chapter Head Field Change Handler
+	 *
+	 * Validates chapter head assignment and ensures the selected volunteer
+	 * is eligible for the leadership role.
+	 *
+	 * @param {Object} frm - Form object with chapter head assignment
+	 */
 	chapter_head: function(frm) {
 		validate_chapter_head(frm);
 	},
 
+	/**
+	 * Region Field Change Handler
+	 *
+	 * Handles region assignment changes and updates related geographical
+	 * configurations and member assignments.
+	 *
+	 * @param {Object} frm - Form object with region data
+	 */
 	region: function(frm) {
 		handle_region_change(frm);
 	},
 
+	/**
+	 * Published Field Change Handler
+	 *
+	 * Manages chapter publication status changes, affecting visibility
+	 * in member portal and public interfaces.
+	 *
+	 * @param {Object} frm - Form object with publication status
+	 */
 	published: function(frm) {
 		handle_published_change(frm);
 	}
 });
 
-// Child table events - Chapter Board Member
+/**
+ * Chapter Board Member Child Table Event Handlers
+ *
+ * Manages the board member child table interactions including volunteer
+ * assignments, role management, and term tracking. Board members are
+ * volunteers who hold leadership positions within the chapter structure.
+ */
 frappe.ui.form.on('Chapter Board Member', {
+	/**
+	 * Board Member Add Event Handler
+	 *
+	 * Triggered when a new board member row is added to the chapter.
+	 * Initializes default values and validation rules for the new row.
+	 *
+	 * @param {Object} frm - Parent chapter form object
+	 * @param {string} cdt - Child DocType name ('Chapter Board Member')
+	 * @param {string} cdn - Child document name/ID
+	 */
 	board_members_add: function(frm, cdt, cdn) {
 		handle_board_member_add(frm, cdt, cdn);
 	},
 
+	/**
+	 * Board Member Remove Event Handler
+	 *
+	 * Handles cleanup when a board member is removed from the chapter.
+	 * Manages role transitions and notification requirements.
+	 *
+	 * @param {Object} frm - Parent chapter form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	board_members_remove: function(frm, cdt, cdn) {
 		handle_board_member_remove(frm, cdt, cdn);
 	},
 
+	/**
+	 * Volunteer Field Change Handler
+	 *
+	 * Validates volunteer assignment and checks for eligibility,
+	 * conflicts, and capacity constraints.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	volunteer: function(frm, cdt, cdn) {
 		handle_volunteer_change(frm, cdt, cdn);
 	},
 
+	/**
+	 * Chapter Role Field Change Handler
+	 *
+	 * Manages role assignment validation and ensures role uniqueness
+	 * where required (e.g., only one chapter head).
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	chapter_role: function(frm, cdt, cdn) {
 		handle_role_change(frm, cdt, cdn);
 	},
 
+	/**
+	 * From Date Field Change Handler
+	 *
+	 * Validates board member term start dates and checks for
+	 * chronological consistency with other date fields.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	from_date: function(frm, cdt, cdn) {
 		handle_date_change(frm, cdt, cdn, 'from_date');
 	},
 
+	/**
+	 * To Date Field Change Handler
+	 *
+	 * Validates board member term end dates and manages
+	 * automatic status transitions for expired terms.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	to_date: function(frm, cdt, cdn) {
 		handle_date_change(frm, cdt, cdn, 'to_date');
 	},
 
+	/**
+	 * Is Active Field Change Handler
+	 *
+	 * Manages board member active status changes and validates
+	 * business rules for active/inactive transitions.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	is_active: function(frm, cdt, cdn) {
 		handle_active_change(frm, cdt, cdn);
 	}
 });
 
-// Child table events - Chapter Member
+/**
+ * Chapter Member Child Table Event Handlers
+ *
+ * Manages the member assignment child table for direct chapter membership
+ * tracking and member-to-chapter relationship management.
+ */
 frappe.ui.form.on('Chapter Member', {
+	/**
+	 * Member Add Event Handler
+	 *
+	 * Triggered when a new member is added to the chapter.
+	 * Validates member eligibility and geographic alignment.
+	 *
+	 * @param {Object} frm - Parent chapter form object
+	 * @param {string} cdt - Child DocType name ('Chapter Member')
+	 * @param {string} cdn - Child document name/ID
+	 */
 	members_add: function(frm, cdt, cdn) {
 		handle_member_add(frm, cdt, cdn);
 	},
 
+	/**
+	 * Member Remove Event Handler
+	 *
+	 * Handles member removal from chapter and updates
+	 * related member records and statistics.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	members_remove: function(frm, cdt, cdn) {
 		handle_member_remove(frm, cdt, cdn);
 	},
 
+	/**
+	 * Member Field Change Handler
+	 *
+	 * Validates member assignment and checks for conflicts
+	 * with other chapter memberships and eligibility criteria.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	member: function(frm, cdt, cdn) {
 		handle_member_change(frm, cdt, cdn);
 	},
 
+	/**
+	 * Enabled Field Change Handler
+	 *
+	 * Manages member active status within the chapter context,
+	 * affecting participation and communication eligibility.
+	 *
+	 * @param {Object} frm - Parent form object
+	 * @param {string} cdt - Child DocType name
+	 * @param {string} cdn - Child document name/ID
+	 */
 	enabled: function(frm, cdt, cdn) {
 		handle_enabled_change(frm, cdt, cdn);
 	}

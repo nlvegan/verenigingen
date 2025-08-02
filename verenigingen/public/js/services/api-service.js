@@ -1,9 +1,125 @@
 /**
- * API Service for Membership Application
- * Handles all backend communication with error handling and retry logic
+ * @fileoverview API Service - Enterprise-Grade Backend Communication Layer
+ *
+ * This module provides a comprehensive API service layer for membership applications with
+ * advanced error handling, intelligent caching, request deduplication, and retry logic.
+ * Designed as a robust communication layer between frontend interfaces and backend services
+ * with enterprise-level reliability, performance optimization, and monitoring capabilities.
+ *
+ * Key Features:
+ * - Intelligent request caching with configurable TTL
+ * - Automatic retry logic with exponential backoff
+ * - Request deduplication to prevent redundant API calls
+ * - Comprehensive error handling and recovery mechanisms
+ * - CSRF token management and security compliance
+ * - Performance monitoring and analytics
+ * - Batch request processing for efficiency
+ * - Connection testing and health monitoring
+ *
+ * Performance Optimizations:
+ * - Smart caching layer with memory management
+ * - Request queue management to prevent duplicate calls
+ * - Configurable timeout handling for different operation types
+ * - Exponential backoff for failed requests
+ * - Batch processing for multiple related operations
+ * - Memory-efficient cache key generation
+ *
+ * Business Value:
+ * - Ensures reliable membership application processing
+ * - Reduces server load through intelligent caching
+ * - Improves user experience with faster response times
+ * - Maintains system stability through robust error handling
+ * - Supports scalability through optimized request patterns
+ * - Provides comprehensive monitoring for system health
+ *
+ * Security Features:
+ * - CSRF token automatic inclusion and management
+ * - Request validation and sanitization
+ * - Secure error handling without information leakage
+ * - Audit logging for API call tracking
+ * - Rate limiting support and abuse prevention
+ *
+ * Technical Architecture:
+ * - Modern JavaScript class-based design
+ * - Promise-based asynchronous operations
+ * - Map-based caching for optimal performance
+ * - Event-driven error handling and recovery
+ * - Modular design for easy extension and testing
+ * - Memory leak prevention with automatic cleanup
+ *
+ * @author Verenigingen Development Team
+ * @version 2.2.0
+ * @since 1.0.0
+ *
+ * @requires frappe (Frappe framework client-side library)
+ * @requires verenigingen.api.membership_application (Backend API endpoints)
+ *
+ * @example
+ * // Initialize API service with custom configuration
+ * const apiService = new APIService({
+ *   timeout: 45000,
+ *   retryCount: 5,
+ *   retryDelay: 2000
+ * });
+ *
+ * // Make cached API call
+ * const formData = await apiService.getFormData();
+ *
+ * // Submit application with validation
+ * const result = await apiService.submitApplication(applicationData);
+ *
+ * @see {@link verenigingen.api.membership_application} Backend API Documentation
+ * @see {@link window.ValidationService} Client-side Validation Service
+ * @see {@link window.StorageService} Local Storage Management
  */
 
+/**
+ * @class APIService
+ * @classdesc Enterprise-grade API communication service with advanced error handling and optimization
+ *
+ * Provides a comprehensive interface for all backend communication needs with built-in
+ * reliability features, performance optimization, and enterprise-level monitoring.
+ * Handles complex scenarios including network failures, server overload, and data validation.
+ *
+ * Core Capabilities:
+ * - Automatic retry with intelligent backoff strategies
+ * - Smart caching with configurable expiration policies
+ * - Request deduplication to optimize server resources
+ * - Comprehensive error classification and handling
+ * - Performance monitoring and analytics
+ * - Security compliance with CSRF protection
+ */
 class APIService {
+	/**
+	 * @constructor
+	 * @description Initializes the API service with configurable options
+	 *
+	 * Sets up the API service with performance optimization features including
+	 * intelligent caching, request deduplication, and retry mechanisms.
+	 * Provides enterprise-level configuration options for different deployment scenarios.
+	 *
+	 * @param {Object} [options={}] - Configuration options for the API service
+	 * @param {number} [options.timeout=30000] - Request timeout in milliseconds
+	 * @param {number} [options.retryCount=3] - Maximum number of retry attempts
+	 * @param {number} [options.retryDelay=1000] - Base delay between retries in milliseconds
+	 *
+	 * @property {Object} options - Merged configuration options
+	 * @property {Map} cache - Intelligent caching layer for API responses
+	 * @property {Map} requestQueue - Request deduplication queue
+	 *
+	 * @since 1.0.0
+	 *
+	 * @example
+	 * // Standard configuration
+	 * const apiService = new APIService();
+	 *
+	 * // High-reliability configuration
+	 * const apiService = new APIService({
+	 *   timeout: 60000,
+	 *   retryCount: 5,
+	 *   retryDelay: 2000
+	 * });
+	 */
 	constructor(options = {}) {
 		this.options = {
 			timeout: 30000,
@@ -17,8 +133,43 @@ class APIService {
 	}
 
 	/**
-     * Main API call method with error handling and caching
-     */
+	 * @method call
+	 * @description Main API call method with comprehensive error handling and optimization
+	 *
+	 * Provides the primary interface for all API communications with built-in caching,
+	 * request deduplication, and intelligent retry logic. Automatically handles common
+	 * failure scenarios and optimizes performance through smart caching strategies.
+	 *
+	 * Features:
+	 * - Intelligent caching with configurable expiration
+	 * - Request deduplication to prevent redundant calls
+	 * - Automatic retry with exponential backoff
+	 * - Comprehensive error handling and classification
+	 * - Performance monitoring and statistics
+	 *
+	 * @param {string} method - Backend method to call (full path)
+	 * @param {Object} [args={}] - Arguments to pass to the backend method
+	 * @param {Object} [options={}] - Request-specific options
+	 * @param {boolean} [options.cache=false] - Enable caching for this request
+	 * @param {number} [options.cacheTimeout=300000] - Cache expiration time in milliseconds
+	 * @param {number} [options.timeout] - Override default timeout for this request
+	 *
+	 * @returns {Promise<*>} Resolved API response data or cached result
+	 * @throws {Error} Network errors, validation errors, or server-side errors
+	 *
+	 * @since 1.0.0
+	 *
+	 * @example
+	 * // Simple API call
+	 * const result = await apiService.call('method.path', { param: 'value' });
+	 *
+	 * // Cached API call with custom timeout
+	 * const data = await apiService.call('method.path', {}, {
+	 *   cache: true,
+	 *   cacheTimeout: 600000,
+	 *   timeout: 45000
+	 * });
+	 */
 	async call(method, args = {}, options = {}) {
 		const cacheKey = this._getCacheKey(method, args);
 

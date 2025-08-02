@@ -1,3 +1,62 @@
+/**
+ * @fileoverview System Health Dashboard Page for Verenigingen Association Management
+ *
+ * This page provides a comprehensive system health monitoring dashboard that displays
+ * real-time metrics, performance data, optimization suggestions, and business analytics
+ * for the association management system.
+ *
+ * @description Business Context:
+ * The System Health Dashboard serves as a central monitoring hub for system administrators
+ * and technical stakeholders, providing visibility into:
+ * - System health status with component-level monitoring
+ * - Performance metrics and API response time analysis
+ * - Database statistics and optimization opportunities
+ * - Business metrics including membership dues schedule processing
+ * - Real-time alerts and optimization suggestions
+ * - Historical trend analysis for capacity planning
+ *
+ * @description Key Features:
+ * - Real-time system health monitoring with color-coded status indicators
+ * - API performance tracking with response time analytics
+ * - Database table statistics and index coverage analysis
+ * - Business metrics integration with dues schedule monitoring
+ * - Optimization suggestions based on system analysis
+ * - Interactive charts and visualizations using Frappe Charts
+ * - Error handling with graceful degradation for failed components
+ *
+ * @description Integration Points:
+ * - Performance monitoring utilities for system metrics collection
+ * - Database query analyzer for table statistics and optimization
+ * - Zabbix integration for business metrics and monitoring
+ * - API audit logging for performance tracking
+ * - Membership dues schedule system for business analytics
+ * - Frappe Charts for data visualization and trending
+ *
+ * @description Technical Architecture:
+ * - Modular dashboard sections with independent loading
+ * - Promise-based asynchronous data loading with timeout protection
+ * - Responsive Bootstrap grid layout for multi-device support
+ * - Real-time data refresh capabilities with user-triggered updates
+ * - Error boundary protection for individual dashboard components
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires frappe.ui
+ * @requires frappe.call
+ * @requires moment
+ * @requires jQuery
+ * @requires frappe.Chart
+ *
+ * @example
+ * // Dashboard automatically loads when page is accessed:
+ * // - System health checks with component status
+ * // - Performance metrics with trend analysis
+ * // - Database statistics with optimization recommendations
+ * // - Business metrics with real-time dues schedule tracking
+ */
+
 // Updated to use the Membership Dues Schedule system.
 
 frappe.pages['system-health-dashboard'].on_page_load = function(wrapper) {
@@ -17,7 +76,37 @@ frappe.pages['system-health-dashboard'].on_page_load = function(wrapper) {
 	frappe.system_health.load_dashboard();
 };
 
+/**
+ * SystemHealthDashboard Class
+ *
+ * Manages the system health monitoring dashboard with comprehensive metrics display,
+ * real-time data loading, and interactive visualization components for system
+ * administration and operational monitoring.
+ *
+ * @description Dashboard Architecture:
+ * The dashboard is organized into six main sections:
+ * - Health Status: Component-level system health monitoring
+ * - Performance Metrics: API response time and throughput analysis
+ * - Optimization Suggestions: Automated recommendations for system improvements
+ * - Database Statistics: Table size, row counts, and index coverage analysis
+ * - Business Metrics: Membership dues schedule and invoice processing metrics
+ * - API Performance: Real-time API endpoint performance visualization
+ *
+ * @description Data Loading Strategy:
+ * - Asynchronous loading with individual error handling per section
+ * - Timeout protection to prevent hanging load states
+ * - Graceful degradation when individual components fail
+ * - Progress indication with forced cleanup to prevent UI blocking
+ * - Promise-based coordination for concurrent data loading
+ *
+ * @class
+ */
 class SystemHealthDashboard {
+	/**
+	 * Creates SystemHealthDashboard instance
+	 *
+	 * @param {Object} page - Frappe page instance for dashboard container
+	 */
 	constructor(page) {
 		this.page = page;
 		this.setup_page();
@@ -56,6 +145,25 @@ class SystemHealthDashboard {
 		`).appendTo(this.page.main);
 	}
 
+	/**
+	 * Forces Progress Dialog Cleanup
+	 *
+	 * Aggressively removes progress dialogs and modal backdrops that may persist
+	 * after dashboard loading, ensuring clean UI state restoration.
+	 *
+	 * @description Cleanup Strategy:
+	 * - Multiple fallback methods for different UI state scenarios
+	 * - DOM manipulation for stuck modal elements
+	 * - Frappe dialog state cleanup and reset
+	 * - CSS state restoration for modal-open class conflicts
+	 * - Progress element hiding with comprehensive selectors
+	 *
+	 * @description Implementation Notes:
+	 * - Uses multiple timeout-delayed cleanup phases
+	 * - Comprehensive element selection for thorough cleanup
+	 * - Console logging for debugging persistent UI issues
+	 * - CSS overflow restoration for body scroll functionality
+	 */
 	force_hide_progress() {
 		console.log('Attempting to force hide progress dialog...');
 

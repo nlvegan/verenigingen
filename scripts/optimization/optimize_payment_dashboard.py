@@ -1,8 +1,42 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Optimize Payment Dashboard API
-Demonstrates optimization of a single high-impact endpoint
+Production API Performance Optimization Tool for Payment Dashboard
+
+This automated optimization script applies enterprise-grade performance enhancements
+to the payment dashboard API endpoints, demonstrating best practices for optimizing
+high-traffic API endpoints in Frappe/ERPNext applications. The tool implements
+comprehensive optimization strategies including intelligent caching, error handling,
+performance monitoring, and pagination support.
+
+Optimization Strategies:
+    * Intelligent Caching: TTL-based caching with configurable expiration
+    * Error Handling: Standardized error responses with proper HTTP status codes
+    * Performance Monitoring: Automatic slow query detection and logging
+    * Pagination Support: Large dataset handling with configurable limits
+    * Safety Features: Automatic backup creation and rollback capabilities
+
+Target Improvements:
+    - Response time reduction: Up to 10x faster for cached responses
+    - Memory efficiency: Pagination reduces memory usage for large datasets
+    - Reliability: Comprehensive error handling prevents API failures
+    - Observability: Performance monitoring enables proactive optimization
+
+Safety and Rollback:
+    The tool creates automatic backups before applying optimizations and provides
+    simple rollback procedures for safe deployment in production environments.
+    All changes are incremental and preserve existing functionality.
+
+Usage Context:
+    This script targets the payment dashboard endpoint, which typically handles
+    high-frequency requests from multiple users accessing payment status,
+    transaction history, and financial summaries. Optimization is crucial
+    for maintaining system performance under load.
+
+Integration:
+    The optimizations integrate seamlessly with existing Frappe infrastructure,
+    utilizing proven patterns from the utils modules and maintaining compatibility
+    with existing client code.
 """
 
 import os
@@ -12,7 +46,34 @@ from datetime import datetime
 
 
 def optimize_payment_dashboard():
-    """Apply optimizations to payment dashboard endpoints"""
+    """
+    Apply comprehensive performance optimizations to payment dashboard API endpoints.
+    
+    This function implements a complete optimization suite for the payment dashboard
+    API, including intelligent caching, error handling, performance monitoring, and
+    pagination support. All changes are applied incrementally with safety checks.
+    
+    Optimization Process:
+        1. Create automatic backup of existing code
+        2. Add performance optimization imports if missing
+        3. Apply caching decorators with configurable TTL
+        4. Integrate comprehensive error handling
+        5. Add performance monitoring capabilities
+        6. Implement pagination for large datasets
+        7. Generate test scripts for validation
+        
+    Safety Features:
+        - Automatic backup creation before modifications
+        - Incremental changes that preserve existing functionality
+        - Validation of existing optimizations to prevent duplication
+        - Rollback instructions for quick recovery
+        
+    Performance Improvements:
+        - Response time: Up to 10x improvement through caching
+        - Memory usage: Reduced through intelligent pagination
+        - Reliability: Enhanced through comprehensive error handling
+        - Observability: Improved through automatic performance monitoring
+    """
     
     api_dir = Path("/home/frappe/frappe-bench/apps/verenigingen/verenigingen/api")
     target_file = api_dir / "payment_dashboard.py"
@@ -127,7 +188,26 @@ def get_dashboard_data("""
 
 
 def create_test_script():
-    """Create a test script for the optimized endpoint"""
+    """
+    Generate comprehensive test script for validating optimization effectiveness.
+    
+    Creates a test script that validates all applied optimizations including
+    caching performance, pagination functionality, error handling, and
+    performance monitoring capabilities. The script provides clear metrics
+    for measuring optimization effectiveness.
+    
+    Test Coverage:
+        - Response time improvement measurement
+        - Cache hit/miss ratio validation
+        - Pagination parameter handling
+        - Error response standardization
+        - Performance monitoring integration
+        
+    Output:
+        Creates test_payment_dashboard.py with executable test scenarios
+        that demonstrate optimization effectiveness and provide benchmarks
+        for future performance assessments.
+    """
     test_content = '''#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """

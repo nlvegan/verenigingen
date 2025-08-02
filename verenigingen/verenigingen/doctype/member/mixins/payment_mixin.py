@@ -311,7 +311,10 @@ class PaymentMixin:
 
                     most_recent_payment = frappe.get_all(
                         "Payment Entry",
-                        filters={"name": ["in", [pe.parent for pe in payment_entries]]},
+                        filters={
+                            "name": ["in", [pe.parent for pe in payment_entries]],
+                            "docstatus": ["!=", 2],  # Exclude cancelled payment entries
+                        },
                         fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
                         order_by="posting_date desc",
                     )
@@ -435,13 +438,13 @@ class PaymentMixin:
                 )
                 continue  # Skip this invoice and continue with others
 
-        # 3. Find payments that aren't reconciled with any invoice
+        # 3. Find payments that aren't reconciled with any invoice (only submitted, not cancelled)
         unreconciled_payments = frappe.get_all(
             "Payment Entry",
             filters={
                 "party_type": "Customer",
                 "party": self.customer,
-                "docstatus": 1,
+                "docstatus": 1,  # Only submitted (not cancelled)
                 "name": ["not in", reconciled_payments or [""]],
             },
             fields=[
@@ -1286,7 +1289,10 @@ class PaymentMixin:
 
                 most_recent_payment = frappe.get_all(
                     "Payment Entry",
-                    filters={"name": ["in", [pe.parent for pe in payment_entries]]},
+                    filters={
+                        "name": ["in", [pe.parent for pe in payment_entries]],
+                        "docstatus": ["!=", 2],  # Exclude cancelled payment entries
+                    },
                     fields=["name", "posting_date", "mode_of_payment", "paid_amount"],
                     order_by="posting_date desc",
                 )

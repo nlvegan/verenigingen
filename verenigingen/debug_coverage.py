@@ -1,4 +1,44 @@
 #!/usr/bin/env python3
+"""
+Membership Coverage Analysis Debug Module
+=========================================
+
+Comprehensive debugging utilities for the membership dues coverage analysis system.
+This module provides detailed diagnostic tools to troubleshoot and validate the
+coverage analysis functionality, including database structure verification,
+data integrity checks, and system integration testing.
+
+Primary Purpose:
+    Debug and validate the membership dues coverage analysis system by examining:
+    - Database schema and custom field configurations
+    - Sample data quality and relationships
+    - Coverage calculation accuracy and performance
+
+Key Features:
+    * Database structure validation for coverage-related fields
+    * Sample data analysis for members, memberships, and invoices
+    * Coverage calculation function testing with real data
+    * Integration workflow validation and error diagnosis
+    * Detailed diagnostic reporting for troubleshooting
+
+Coverage Analysis Components:
+    * Sales Invoice custom coverage date fields verification
+    * Member and membership relationship validation
+    * Dues schedule configuration and status checking
+    * Invoice-to-membership period mapping accuracy
+    * Coverage gap identification and analysis
+
+Usage Context:
+    Used during development, testing, and production troubleshooting to:
+    - Validate coverage analysis report functionality
+    - Diagnose data quality issues affecting coverage calculations
+    - Test performance of coverage analysis with real member data
+    - Verify proper integration between membership and billing systems
+
+Technical Implementation:
+    Provides both simplified and comprehensive debugging functions that can be
+    called via Frappe's whitelist API for real-time system diagnosis.
+"""
 
 import frappe
 from frappe.utils import getdate, today
@@ -6,7 +46,34 @@ from frappe.utils import getdate, today
 
 @frappe.whitelist()
 def debug_coverage_analysis():
-    """Debug the coverage analysis by checking data structures and sample data"""
+    """
+    Perform simplified coverage analysis debugging with database structure validation.
+
+    This streamlined debugging function focuses on core database structure verification
+    for the membership coverage analysis system. It validates the presence and
+    configuration of coverage-related database columns and custom fields.
+
+    Diagnostic Areas:
+        * Sales Invoice table structure examination
+        * Coverage-related column detection and validation
+        * Custom field configuration verification
+        * Database schema compliance checking
+
+    Returns:
+        str: Formatted diagnostic report containing:
+            - Database structure analysis results
+            - Coverage column configuration details
+            - Custom field presence verification
+            - Schema compliance status
+
+    Usage:
+        Called via Frappe API for quick database structure validation:
+        /api/method/verenigingen.debug_coverage.debug_coverage_analysis
+
+    Note:
+        This is the simplified version focusing on database structure.
+        Use debug_coverage_analysis_original() for comprehensive data analysis.
+    """
 
     results = []
     results.append("=== MEMBERSHIP DUES COVERAGE ANALYSIS DEBUGGING ===\n")
@@ -52,7 +119,47 @@ def debug_coverage_analysis():
 
 @frappe.whitelist()
 def debug_coverage_analysis_original():
-    """Debug the coverage analysis by checking data structures and sample data"""
+    """
+    Comprehensive coverage analysis debugging with full data integrity validation.
+
+    This comprehensive debugging function performs extensive validation of the entire
+    membership dues coverage analysis system, including database structure, sample
+    data quality, relationship integrity, and function testing with real data.
+
+    Diagnostic Phases:
+        1. Sales Invoice custom field validation and metadata analysis
+        2. Member and membership relationship data quality checking
+        3. Membership dues schedule configuration and status validation
+        4. Sales invoice coverage data examination and integrity testing
+        5. Core coverage calculation function testing with real member data
+
+    Analysis Components:
+        * Complete database schema and custom field verification
+        * Sample member data examination with relationship validation
+        * Active dues schedule configuration and billing frequency analysis
+        * Invoice coverage date mapping and data quality assessment
+        * End-to-end coverage calculation testing with real member scenarios
+
+    Returns:
+        str: Comprehensive diagnostic report containing:
+            - Detailed database structure analysis
+            - Sample data quality assessment with statistics
+            - Relationship integrity validation results
+            - Coverage calculation function test results
+            - Detailed error diagnostics and troubleshooting guidance
+
+    Usage:
+        Called via Frappe API for comprehensive system diagnosis:
+        /api/method/verenigingen.debug_coverage.debug_coverage_analysis_original
+
+    Performance Note:
+        This function performs extensive data analysis and may take longer
+        to execute than the simplified debug_coverage_analysis() function.
+
+    Error Handling:
+        Includes comprehensive exception handling with detailed traceback
+        information for troubleshooting integration issues.
+    """
 
     results = []
     results.append("=== MEMBERSHIP DUES COVERAGE ANALYSIS DEBUGGING ===\n")

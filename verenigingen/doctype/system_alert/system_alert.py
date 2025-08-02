@@ -2,7 +2,59 @@
 # -*- coding: utf-8 -*-
 """
 System Alert DocType
-Handles system alerts with acknowledgment and resolution tracking
+
+This module provides comprehensive system alerting functionality for the Verenigingen
+association management system. It handles the creation, management, and lifecycle
+tracking of system alerts for operational monitoring and incident management.
+
+Key Features:
+- Automated alert lifecycle management with status tracking
+- Severity-based alert categorization and prioritization
+- User acknowledgment and resolution tracking with timestamps
+- Comprehensive alert querying and dashboard integration
+- API endpoints for frontend alert management interfaces
+
+Business Context:
+System alerts are critical for maintaining operational awareness in the association
+management system. They provide real-time notification capabilities for:
+- System performance issues and resource constraints
+- SEPA payment processing failures and compliance exceptions
+- Member data integrity issues and validation failures
+- Integration failures with external systems (eBoekhouden, banking)
+- Security incidents and audit compliance violations
+
+Architecture:
+This DocType integrates with:
+- System monitoring and performance tracking components
+- SEPA processing systems for payment-related alerts
+- Member management for data integrity alerts
+- API integration systems for external service monitoring
+- Dashboard and notification systems for user interfaces
+
+Data Model:
+- Alert identification with timestamp and categorization
+- Severity levels (INFO, WARNING, ERROR, CRITICAL) for prioritization
+- Status lifecycle (Active, Acknowledged, Resolved) with user attribution
+- Message content with structured details for context
+- Audit trail with acknowledgment and resolution tracking
+
+Operational Workflow:
+1. Alert Creation: System components create alerts for significant events
+2. Active Monitoring: Dashboard displays active alerts by severity
+3. Acknowledgment: Operations team acknowledges awareness of issues
+4. Resolution: Team resolves underlying issues and closes alerts
+5. Audit Trail: Complete history maintained for operational review
+
+Integration Points:
+- Performance monitoring systems for resource alerts
+- SEPA processing for payment-related notifications
+- Member data validation for integrity alerts
+- External API monitoring for service availability
+- Security systems for compliance and audit alerts
+
+Author: Development Team
+Date: 2025-07-25
+Version: 1.0
 """
 
 import frappe
@@ -11,7 +63,60 @@ from frappe.utils import now
 
 
 class SystemAlert(Document):
-    """System Alert document with lifecycle management"""
+    """
+    System alert management with comprehensive lifecycle tracking and operational workflow.
+
+    This DocType provides centralized alert management for system monitoring, operational
+    awareness, and incident response within the Verenigingen association management system.
+
+    Key Responsibilities:
+    - Manage alert lifecycle from creation to resolution
+    - Track user acknowledgment and resolution activities
+    - Provide severity-based categorization and prioritization
+    - Support dashboard integration and operational reporting
+    - Maintain complete audit trail for operational review
+
+    Business Process Integration:
+    - Integrates with system monitoring for automated alert creation
+    - Supports operational dashboards for real-time awareness
+    - Provides API endpoints for frontend alert management
+    - Coordinates with notification systems for user alerts
+    - Supports incident response and resolution workflows
+
+    Alert Lifecycle:
+    1. Active: Alert created by system or user, requires attention
+    2. Acknowledged: Operations team aware of issue, investigating
+    3. Resolved: Underlying issue resolved, alert closed
+
+    Usage Example:
+        ```python
+        # Create system alert
+        alert = SystemAlert.create_alert(
+            alert_type="Performance",
+            severity="WARNING",
+            message="High database query volume detected",
+            details={"query_count": 1500, "threshold": 1000}
+        )
+
+        # Acknowledge alert
+        alert.acknowledge_alert(user="operations@example.com")
+
+        # Resolve alert
+        alert.resolve_alert(user="operations@example.com")
+        ```
+
+    Security Model:
+    - Role-based access control for alert management
+    - Audit trail for all status changes and user actions
+    - API endpoints with permission validation
+    - Secure handling of sensitive alert details
+
+    Performance Considerations:
+    - Indexed on status and timestamp for efficient querying
+    - Optimized alert summary calculations for dashboards
+    - Efficient bulk operations for alert management
+    - Minimal overhead for high-volume alert creation
+    """
 
     def validate(self):
         """Validate alert before saving"""

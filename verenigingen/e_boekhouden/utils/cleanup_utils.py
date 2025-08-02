@@ -9,72 +9,79 @@ import json
 
 import frappe
 
+from verenigingen.e_boekhouden.utils.security_helper import migration_context
+
 
 @frappe.whitelist()
 def cleanup_chart_of_accounts(company, delete_all_accounts=0):
     """Clean up chart of accounts imported from E-Boekhouden"""
     try:
+        # Check permissions upfront
         if not frappe.has_permission("Account", "delete"):
             frappe.throw("Insufficient permissions to delete accounts")
 
-        delete_all = int(delete_all_accounts)
+        # Use migration context for cleanup operations
+        with migration_context("account_creation"):
+            delete_all = int(delete_all_accounts)
 
-        cleanup_results = {"accounts_deleted": 0, "accounts_skipped": 0, "errors": []}
+            cleanup_results = {"accounts_deleted": 0, "accounts_skipped": 0, "errors": []}
 
-        if delete_all:
-            # Get all accounts for the company
-            accounts = frappe.get_all(
-                "Account",
-                filters={"company": company},
-                fields=["name", "account_name", "is_group", "lft", "rgt"],
-                order_by="lft desc",  # Delete leaf accounts first
-            )
-        else:
-            # Only get accounts that were imported from E-Boekhouden
-            accounts = frappe.get_all(
-                "Account",
-                filters={"company": company, "custom_eboekhouden_code": ["!=", ""]},
-                fields=["name", "account_name", "is_group", "lft", "rgt"],
-                order_by="lft desc",  # Delete leaf accounts first
-            )
+            if delete_all:
+                # Get all accounts for the company
+                accounts = frappe.get_all(
+                    "Account",
+                    filters={"company": company},
+                    fields=["name", "account_name", "is_group", "lft", "rgt"],
+                    order_by="lft desc",  # Delete leaf accounts first
+                )
+            else:
+                # Only get accounts that were imported from E-Boekhouden
+                accounts = frappe.get_all(
+                    "Account",
+                    filters={"company": company, "custom_eboekhouden_code": ["!=", ""]},
+                    fields=["name", "account_name", "is_group", "lft", "rgt"],
+                    order_by="lft desc",  # Delete leaf accounts first
+                )
 
-        frappe.logger().info(f"Found {len(accounts)} accounts to clean up")
+            frappe.logger().info(f"Found {len(accounts)} accounts to clean up")
 
-        for account in accounts:
-            try:
-                # Check if account has any transactions
-                has_gl_entries = frappe.db.exists("GL Entry", {"account": account.name})
+            for account in accounts:
+                try:
+                    # Check if account has any transactions
+                    has_gl_entries = frappe.db.exists("GL Entry", {"account": account.name})
 
-                if has_gl_entries:
+                    if has_gl_entries:
+                        cleanup_results["accounts_skipped"] += 1
+                        cleanup_results["errors"].append(
+                            f"Account {account.account_name} has GL entries, skipped"
+                        )
+                        continue
+
+                    # Check if it's a system account (Asset, Liability, Income, Expense root accounts)
+                    if account.account_name in ["Asset", "Liability", "Income", "Expense", "Equity"]:
+                        cleanup_results["accounts_skipped"] += 1
+                        cleanup_results["errors"].append(f"System account {account.account_name} skipped")
+                        continue
+
+                    # Try to delete the account with proper permissions
+                    # Note: frappe.delete_doc requires ignore_permissions for system cleanup
+                    # This is a special case where we need to keep it
+                    frappe.delete_doc("Account", account.name, ignore_permissions=True)
+                    cleanup_results["accounts_deleted"] += 1
+                    frappe.logger().info(f"Deleted account: {account.account_name}")
+
+                except Exception as e:
                     cleanup_results["accounts_skipped"] += 1
-                    cleanup_results["errors"].append(
-                        f"Account {account.account_name} has GL entries, skipped"
-                    )
-                    continue
+                    cleanup_results["errors"].append(f"Failed to delete {account.account_name}: {str(e)}")
+                    frappe.logger().error(f"Failed to delete account {account.account_name}: {str(e)}")
 
-                # Check if it's a system account (Asset, Liability, Income, Expense root accounts)
-                if account.account_name in ["Asset", "Liability", "Income", "Expense", "Equity"]:
-                    cleanup_results["accounts_skipped"] += 1
-                    cleanup_results["errors"].append(f"System account {account.account_name} skipped")
-                    continue
+            frappe.db.commit()
 
-                # Try to delete the account
-                frappe.delete_doc("Account", account.name, ignore_permissions=True)
-                cleanup_results["accounts_deleted"] += 1
-                frappe.logger().info(f"Deleted account: {account.account_name}")
-
-            except Exception as e:
-                cleanup_results["accounts_skipped"] += 1
-                cleanup_results["errors"].append(f"Failed to delete {account.account_name}: {str(e)}")
-                frappe.logger().error(f"Failed to delete account {account.account_name}: {str(e)}")
-
-        frappe.db.commit()
-
-        return {
-            "success": True,
-            "message": f"Cleanup completed. Deleted: {cleanup_results['accounts_deleted']}, Skipped: {cleanup_results['accounts_skipped']}",
-            "results": cleanup_results,
-        }
+            return {
+                "success": True,
+                "message": f"Cleanup completed. Deleted: {cleanup_results['accounts_deleted']}, Skipped: {cleanup_results['accounts_skipped']}",
+                "results": cleanup_results,
+            }
 
     except Exception as e:
         frappe.db.rollback()
@@ -253,39 +260,41 @@ def cleanup_orphaned_gl_entries():
             "deleted_gl_entries": 0,
             "deleted_payment_references": 0,
             "deleted_payment_ledger_entries": 0,
-            "errors": []
+            "errors": [],
         }
 
         # Find GL Entries that reference non-existent vouchers
         orphaned_gl_sql = """
-            SELECT 
+            SELECT
                 ge.name,
                 ge.voucher_type,
                 ge.voucher_no
             FROM `tabGL Entry` ge
             LEFT JOIN `tabSales Invoice` si ON ge.voucher_type = 'Sales Invoice' AND ge.voucher_no = si.name
-            LEFT JOIN `tabPurchase Invoice` pi ON ge.voucher_type = 'Purchase Invoice' AND ge.voucher_no = pi.name  
+            LEFT JOIN `tabPurchase Invoice` pi ON ge.voucher_type = 'Purchase Invoice' AND ge.voucher_no = pi.name
             LEFT JOIN `tabPayment Entry` pe ON ge.voucher_type = 'Payment Entry' AND ge.voucher_no = pe.name
             LEFT JOIN `tabJournal Entry` je ON ge.voucher_type = 'Journal Entry' AND ge.voucher_no = je.name
             WHERE (
                 (ge.voucher_type = 'Sales Invoice' AND si.name IS NULL) OR
-                (ge.voucher_type = 'Purchase Invoice' AND pi.name IS NULL) OR  
+                (ge.voucher_type = 'Purchase Invoice' AND pi.name IS NULL) OR
                 (ge.voucher_type = 'Payment Entry' AND pe.name IS NULL) OR
                 (ge.voucher_type = 'Journal Entry' AND je.name IS NULL)
             )
             AND ge.voucher_type IN ('Sales Invoice', 'Purchase Invoice', 'Payment Entry', 'Journal Entry')
             ORDER BY ge.voucher_type, ge.voucher_no
         """
-        
+
         orphaned_entries = frappe.db.sql(orphaned_gl_sql, as_dict=True)
-        
+
         frappe.logger().info(f"Found {len(orphaned_entries)} orphaned GL Entries")
-        
+
         for entry in orphaned_entries:
             try:
                 frappe.delete_doc("GL Entry", entry.name, ignore_permissions=True)
                 results["deleted_gl_entries"] += 1
-                frappe.logger().info(f"Deleted orphaned GL Entry {entry.name} (voucher: {entry.voucher_type} {entry.voucher_no})")
+                frappe.logger().info(
+                    f"Deleted orphaned GL Entry {entry.name} (voucher: {entry.voucher_type} {entry.voucher_no})"
+                )
             except Exception as e:
                 error_msg = f"Failed to delete GL Entry {entry.name}: {str(e)}"
                 results["errors"].append(error_msg)
@@ -293,9 +302,9 @@ def cleanup_orphaned_gl_entries():
 
         # Clean up orphaned Payment Entry References
         frappe.logger().info("Cleaning up orphaned Payment Entry References...")
-        
+
         orphaned_per_sql = """
-            SELECT 
+            SELECT
                 per.name,
                 per.parent as payment_entry,
                 per.reference_doctype,
@@ -309,36 +318,40 @@ def cleanup_orphaned_gl_entries():
             )
             ORDER BY per.parent
         """
-        
+
         orphaned_per_entries = frappe.db.sql(orphaned_per_sql, as_dict=True)
-        
+
         frappe.logger().info(f"Found {len(orphaned_per_entries)} orphaned Payment Entry References")
-        
+
         # Process in batches to avoid timeout
         batch_size = 100
         for i in range(0, len(orphaned_per_entries), batch_size):
-            batch = orphaned_per_entries[i:i + batch_size]
-            frappe.logger().info(f"Processing Payment Entry Reference batch {i//batch_size + 1}/{(len(orphaned_per_entries) + batch_size - 1)//batch_size}")
-            
+            batch = orphaned_per_entries[i : i + batch_size]
+            frappe.logger().info(
+                f"Processing Payment Entry Reference batch {i // batch_size + 1}/{(len(orphaned_per_entries) + batch_size - 1) // batch_size}"
+            )
+
             for per_entry in batch:
                 try:
                     frappe.delete_doc("Payment Entry Reference", per_entry.name, ignore_permissions=True)
                     results["deleted_payment_references"] += 1
                     if results["deleted_payment_references"] % 100 == 0:  # Log every 100 deletions
-                        frappe.logger().info(f"Deleted {results['deleted_payment_references']} Payment Entry References so far...")
+                        frappe.logger().info(
+                            f"Deleted {results['deleted_payment_references']} Payment Entry References so far..."
+                        )
                 except Exception as e:
                     error_msg = f"Failed to delete Payment Entry Reference {per_entry.name}: {str(e)}"
                     results["errors"].append(error_msg)
                     frappe.logger().error(error_msg)
-            
+
             # Commit after each batch to prevent timeout
             frappe.db.commit()
 
         # Clean up orphaned Payment Ledger Entries
         frappe.logger().info("Cleaning up orphaned Payment Ledger Entries...")
-        
+
         orphaned_ple_sql = """
-            SELECT 
+            SELECT
                 ple.name,
                 ple.voucher_type,
                 ple.voucher_no
@@ -356,36 +369,46 @@ def cleanup_orphaned_gl_entries():
             AND ple.voucher_type IN ('Sales Invoice', 'Purchase Invoice', 'Payment Entry', 'Journal Entry')
             ORDER BY ple.voucher_type, ple.voucher_no
         """
-        
+
         orphaned_ple_entries = frappe.db.sql(orphaned_ple_sql, as_dict=True)
-        
+
         frappe.logger().info(f"Found {len(orphaned_ple_entries)} orphaned Payment Ledger Entries")
-        
+
         # Process in batches to avoid timeout
         batch_size = 100
         for i in range(0, len(orphaned_ple_entries), batch_size):
-            batch = orphaned_ple_entries[i:i + batch_size]
-            frappe.logger().info(f"Processing Payment Ledger Entry batch {i//batch_size + 1}/{(len(orphaned_ple_entries) + batch_size - 1)//batch_size}")
-            
+            batch = orphaned_ple_entries[i : i + batch_size]
+            frappe.logger().info(
+                f"Processing Payment Ledger Entry batch {i // batch_size + 1}/{(len(orphaned_ple_entries) + batch_size - 1) // batch_size}"
+            )
+
             for ple_entry in batch:
                 try:
                     frappe.delete_doc("Payment Ledger Entry", ple_entry.name, ignore_permissions=True)
                     results["deleted_payment_ledger_entries"] += 1
                     if results["deleted_payment_ledger_entries"] % 100 == 0:  # Log every 100 deletions
-                        frappe.logger().info(f"Deleted {results['deleted_payment_ledger_entries']} Payment Ledger Entries so far...")
+                        frappe.logger().info(
+                            f"Deleted {results['deleted_payment_ledger_entries']} Payment Ledger Entries so far..."
+                        )
                 except Exception as e:
                     error_msg = f"Failed to delete Payment Ledger Entry {ple_entry.name}: {str(e)}"
                     results["errors"].append(error_msg)
                     frappe.logger().error(error_msg)
-            
+
             # Commit after each batch to prevent timeout
             frappe.db.commit()
 
-        frappe.logger().info(f"Completed cleanup: {results['deleted_gl_entries']} GL Entries, {results['deleted_payment_references']} Payment Entry References, {results['deleted_payment_ledger_entries']} Payment Ledger Entries")
-        
+        frappe.logger().info(
+            f"Completed cleanup: {results['deleted_gl_entries']} GL Entries, {results['deleted_payment_references']} Payment Entry References, {results['deleted_payment_ledger_entries']} Payment Ledger Entries"
+        )
+
         # Update results for backward compatibility
-        results["deleted_entries"] = results["deleted_gl_entries"] + results["deleted_payment_references"] + results["deleted_payment_ledger_entries"]
-        
+        results["deleted_entries"] = (
+            results["deleted_gl_entries"]
+            + results["deleted_payment_references"]
+            + results["deleted_payment_ledger_entries"]
+        )
+
         return results
 
     except Exception as e:

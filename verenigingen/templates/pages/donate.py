@@ -1,5 +1,29 @@
 """
-Context and API for donation page
+Donation Portal Web Interface and Processing System
+
+This module provides the web interface and backend processing for the public
+donation portal, enabling supporters to make both one-time and recurring
+donations to the organization. It integrates with Dutch tax compliance
+(ANBI) requirements and provides comprehensive donation management capabilities.
+
+Key Features:
+    * Public donation form with real-time validation
+    * Integration with Dutch ANBI tax reporting requirements
+    * Support for one-time and recurring donation workflows
+    * Chapter-specific donation routing capabilities
+    * Secure payment processing integration
+    * Donor information management and privacy compliance
+    * Automated receipt generation and distribution
+
+ANBI Compliance:
+    Implements Dutch ANBI (Algemeen Nut Beogende Instelling) compliance
+    features including minimum reportable amounts, donor information
+    collection, and automated reporting capabilities for tax purposes.
+
+User Experience:
+    Provides a streamlined donation experience with clear information
+    about the organization's mission, transparent fee information,
+    and immediate confirmation of donation processing.
 """
 
 

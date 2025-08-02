@@ -594,7 +594,12 @@ function handle_start_migration(frm) {
 								message: __('Migration started successfully!'),
 								indicator: 'green'
 							});
-							setTimeout(() => frm.reload_doc(), 1000);
+							// Reload and immediately start progress tracking
+							frm.reload_doc().then(() => {
+								if (frm.doc.migration_status === 'In Progress') {
+									show_migration_progress(frm);
+								}
+							});
 						} else {
 							frappe.msgprint({
 								title: __('Error'),
@@ -710,17 +715,39 @@ function show_migration_statistics() {
 }
 
 function show_migration_progress(frm) {
-	// Add progress bar
+	// Clean up any existing progress tracking first
+	clear_migration_progress(frm);
+
+	// Add progress bar - clear any existing ones first
+	frm.dashboard.clear_headline();
 	frm.dashboard.add_progress('Migration Progress',
 		frm.doc.progress_percentage || 0,
 		frm.doc.current_operation || 'Processing...'
 	);
 
-	// Auto-refresh
-	if (!frm.auto_refresh_interval) {
+	// Auto-refresh only if migration is actually in progress
+	if (frm.doc.migration_status === 'In Progress' && !frm.auto_refresh_interval) {
 		frm.auto_refresh_interval = setInterval(() => {
-			frm.reload_doc();
-		}, 5000);
+			// Only reload if the form is still visible and migration is in progress
+			if (frm.doc && frm.doc.migration_status === 'In Progress') {
+				frm.reload_doc().catch((error) => {
+					console.warn('Failed to reload migration progress:', error);
+					// Clear interval on error to prevent endless failed requests
+					clear_migration_progress(frm);
+				});
+			} else {
+				// Stop refreshing if migration is no longer in progress
+				clear_migration_progress(frm);
+			}
+		}, 3000); // Reduced to 3 seconds for better responsiveness
+	}
+}
+
+function clear_migration_progress(frm) {
+	// Clear auto-refresh interval
+	if (frm.auto_refresh_interval) {
+		clearInterval(frm.auto_refresh_interval);
+		frm.auto_refresh_interval = null;
 	}
 }
 
@@ -885,10 +912,22 @@ function fix_account_type_issues(issues) {
 	});
 }
 
-// Clean up on form unload
+// Clean up on form unload and status changes
 frappe.ui.form.on('E-Boekhouden Migration', 'before_unload', function(frm) {
-	if (frm.auto_refresh_interval) {
-		clearInterval(frm.auto_refresh_interval);
+	clear_migration_progress(frm);
+});
+
+frappe.ui.form.on('E-Boekhouden Migration', 'migration_status', function(frm) {
+	// Clear progress tracking when status changes from 'In Progress'
+	if (frm.doc.migration_status !== 'In Progress') {
+		clear_migration_progress(frm);
+	}
+});
+
+frappe.ui.form.on('E-Boekhouden Migration', 'refresh', function(frm) {
+	// Ensure cleanup when form refreshes but migration is not in progress
+	if (frm.doc.migration_status !== 'In Progress') {
+		clear_migration_progress(frm);
 	}
 });
 
@@ -1321,7 +1360,12 @@ function import_transactions_soap(frm, options) {
 						message: __('Transaction import started successfully!'),
 						indicator: 'green'
 					});
-					setTimeout(() => frm.reload_doc(), 1000);
+					// Reload and start progress tracking if migration is in progress
+					frm.reload_doc().then(() => {
+						if (frm.doc.migration_status === 'In Progress') {
+							show_migration_progress(frm);
+						}
+					});
 				} else {
 					frappe.msgprint({
 						title: __('Error'),
@@ -1428,10 +1472,12 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 										message: __('REST API transaction import started! This may take several minutes.'),
 										indicator: 'green'
 									});
-									frm.reload_doc();
-
-									// Start progress monitoring
-									show_migration_progress(frm);
+									// Reload and start progress tracking if migration is in progress
+									frm.reload_doc().then(() => {
+										if (frm.doc.migration_status === 'In Progress') {
+											show_migration_progress(frm);
+										}
+									});
 								} else {
 									frappe.msgprint({
 										title: __('Import Failed'),
@@ -1491,7 +1537,10 @@ function show_account_mapping_dialog(frm, mappings) {
 				message: __('Chart of Accounts setup completed successfully!'),
 				indicator: 'green'
 			});
-			setTimeout(() => frm.reload_doc(), 1000);
+			// Reload and clear any existing progress tracking (CoA setup is complete)
+			frm.reload_doc().then(() => {
+				clear_migration_progress(frm);
+			});
 		},
 		secondary_action_label: 'Edit Mappings',
 		secondary_action: function() {
@@ -1627,7 +1676,12 @@ function start_opening_balance_import(frm, options) {
 					});
 
 					if (!options.dry_run) {
-						setTimeout(() => frm.reload_doc(), 1000);
+						// Reload and check if progress tracking is needed
+						frm.reload_doc().then(() => {
+							if (frm.doc.migration_status === 'In Progress') {
+								show_migration_progress(frm);
+							}
+						});
 					}
 				} else {
 					frappe.msgprint({

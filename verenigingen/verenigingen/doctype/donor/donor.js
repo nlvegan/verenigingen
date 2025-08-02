@@ -1,7 +1,101 @@
+/**
+ * @fileoverview Donor DocType Controller - Comprehensive Donor Management with ANBI Compliance
+ *
+ * This module provides advanced donor management capabilities for Dutch association compliance,
+ * featuring ANBI (Algemeen Nut Beogende Instelling) tax regulations, donation tracking,
+ * BSN/RSIN validation, and comprehensive donor relationship management. Integrates with
+ * contact management, donation history, and regulatory reporting for full compliance support.
+ *
+ * Key Features:
+ * - ANBI compliance management with automated BSN/RSIN validation
+ * - Comprehensive donation history tracking and analytics
+ * - Advanced tax identifier validation and secure storage
+ * - Contact and address management integration
+ * - Periodic donation agreement creation and management
+ * - Real-time donation synchronization and reporting
+ * - Privacy-compliant data handling with encryption support
+ *
+ * ANBI Compliance Features:
+ * - BSN (Burgerservicenummer) format validation and verification
+ * - RSIN (Rechtspersonen en Samenwerkingsverbanden Identificatienummer) management
+ * - ANBI consent tracking with audit trails
+ * - Tax deduction eligibility verification
+ * - Regulatory reporting with export capabilities
+ * - Identity verification workflow management
+ *
+ * Business Value:
+ * - Ensures compliance with Dutch tax regulations for charitable organizations
+ * - Streamlines donor onboarding and relationship management
+ * - Provides comprehensive donation analytics for strategic planning
+ * - Automates regulatory reporting reducing administrative burden
+ * - Enhances donor engagement through integrated communication tools
+ * - Supports data privacy requirements with secure identifier handling
+ *
+ * Technical Architecture:
+ * - Frappe DocType form controller with comprehensive event handling
+ * - Integration with Dutch government validation services
+ * - Secure tax identifier storage with encryption capabilities
+ * - Real-time donation synchronization and aggregation
+ * - Advanced contact and address management integration
+ * - Export capabilities for regulatory compliance reporting
+ *
+ * Security Features:
+ * - Role-based access control for sensitive tax information
+ * - Encrypted storage of BSN/RSIN identifiers
+ * - audit logging for all ANBI-related operations
+ * - GDPR-compliant data handling and privacy protection
+ * - Secure validation through external government services
+ *
+ * @author Verenigingen Development Team
+ * @version 2.3.0
+ * @since 1.0.0
+ *
+ * @requires frappe
+ * @requires frappe.contacts (Address and Contact management)
+ * @requires verenigingen.utils.donation_history_manager (Donation analytics)
+ * @requires verenigingen.api.anbi_operations (ANBI compliance backend)
+ *
+ * @example
+ * // ANBI-compliant donor setup
+ * // 1. Set donor_type: 'Individual' or 'Organization'
+ * // 2. Enable anbi_consent: true
+ * // 3. Set identification_verified: true
+ * // 4. Add BSN (for individuals) or RSIN (for organizations)
+ * // 5. System automatically tracks compliance status
+ *
+ * @see {@link verenigingen.api.anbi_operations} ANBI Compliance Backend
+ * @see {@link verenigingen.utils.donation_history_manager} Donation Analytics
+ * @see {@link verenigingen.verenigingen.doctype.donation} Donation Management
+ * @see {@link verenigingen.verenigingen.doctype.periodic_donation_agreement} Recurring Donations
+ */
+
 // Copyright (c) 2017, Frappe Technologies Pvt. Ltd. and contributors
 // For license information, please see license.txt
 
+/**
+ * @namespace DonorController
+ * @description Comprehensive donor management form controller with ANBI compliance support
+ */
 frappe.ui.form.on('Donor', {
+	/**
+	 * @method refresh
+	 * @description Initializes comprehensive donor management interface with ANBI compliance tools
+	 *
+	 * Sets up the donor form with integrated contact management, donation history tracking,
+	 * and ANBI compliance features. Provides context-sensitive interface elements based
+	 * on donor type and compliance status for streamlined donor relationship management.
+	 *
+	 * Interface Components:
+	 * - Dynamic contact and address management integration
+	 * - Donation history dashboard with analytics
+	 * - ANBI compliance tools and validation interfaces
+	 * - Tax identifier management for Dutch regulations
+	 * - Periodic donation agreement creation
+	 * - Regulatory reporting and export capabilities
+	 *
+	 * @param {Object} frm - Frappe form object with donor data and methods
+	 * @since 1.0.0
+	 */
 	refresh: function(frm) {
 		frappe.dynamic_link = {doc: frm.doc, fieldname: 'name', doctype: 'Donor'};
 
@@ -47,6 +141,24 @@ frappe.ui.form.on('Donor', {
 	}
 });
 
+/**
+ * @function setup_donation_history
+ * @description Configures comprehensive donation history management interface
+ *
+ * Sets up donation tracking capabilities including history synchronization,
+ * new donation creation, and analytics dashboard. Provides integrated
+ * donation management tools for enhanced donor relationship tracking.
+ *
+ * Features:
+ * - Real-time donation history synchronization
+ * - Quick new donation creation with donor pre-population
+ * - Comprehensive donation analytics and summary dashboard
+ * - Payment method tracking and analysis
+ * - Donation status monitoring and reporting
+ *
+ * @param {Object} frm - Frappe form object for donor
+ * @since 1.5.0
+ */
 function setup_donation_history(frm) {
 	// Add sync button for donation history
 	frm.add_custom_button(__('Sync Donation History'), function() {

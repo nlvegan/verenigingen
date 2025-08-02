@@ -1,8 +1,65 @@
 """
-Standardized error handling utilities for Verenigingen app
+Standardized Error Handling and Exception Management
 
-This module provides consistent error handling patterns, logging utilities,
-and custom exception types for the Verenigingen association management system.
+This module provides comprehensive error handling capabilities for the Verenigingen
+association management system. It establishes consistent error handling patterns,
+structured logging, custom exception hierarchies, and defensive programming utilities
+to ensure system reliability and operational excellence.
+
+Key Features:
+- Comprehensive custom exception hierarchy for domain-specific errors
+- Standardized error logging with structured context and audit trails
+- API error handling decorators for consistent error responses
+- Defensive programming utilities for safe data access and validation
+- Performance-optimized caching with TTL support
+- Batch processing with robust error handling and recovery
+- Permission validation and access control utilities
+
+Business Context:
+Error handling is critical for maintaining system reliability and user experience
+in the association management system. This module addresses:
+- SEPA payment processing failures requiring compliance audit trails
+- Member data validation errors needing user-friendly messaging
+- Permission violations requiring security audit logging
+- Integration failures with external systems (eBoekhouden, banking)
+- Batch processing errors needing partial recovery capabilities
+
+Architecture:
+This utility integrates with:
+- Frappe's exception and validation framework
+- System monitoring and alerting infrastructure
+- Audit logging and compliance tracking systems
+- API response standardization for frontend integration
+- Development debugging and operational troubleshooting tools
+
+Exception Hierarchy:
+- VerenigingenException: Base exception for all application errors
+- MembershipError: Member management and lifecycle errors
+- PaymentError: Payment processing and financial errors
+- SEPAError: SEPA direct debit compliance and processing errors
+- VolunteerError: Volunteer management and coordination errors
+- ChapterError: Chapter operations and regional management errors
+- PermissionError: Access control and authorization failures
+- ValidationError: Data validation and business rule violations
+- ConfigurationError: System configuration and setup issues
+
+Error Handling Patterns:
+- API decorators for consistent error responses and logging
+- Safe database access with fallback values and error recovery
+- Batch processing with partial failure recovery and retry logic
+- Permission validation with user-friendly error messages
+- Validation utilities for common data formats and business rules
+
+Development Utilities:
+- Caching decorators for performance optimization
+- Validation helpers for common patterns (email, postal codes)
+- Permission checking utilities for access control
+- Entity existence validation for defensive programming
+- Structured logging for debugging and operational awareness
+
+Author: Development Team
+Date: 2025-08-02
+Version: 1.0
 """
 
 import time

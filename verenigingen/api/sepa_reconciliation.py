@@ -1,6 +1,64 @@
 """
-SEPA Batch Integration with Bank Reconciliation
-Phase 1: Conservative Approach + Phase 2: Enhanced Processing
+SEPA Reconciliation API
+
+This module provides comprehensive API endpoints for reconciling SEPA direct debit
+batches with bank transaction data in the Verenigingen association management system.
+It implements a phased approach to ensure accuracy and reliability in financial
+reconciliation processes.
+
+Key Features:
+    - Bank transaction identification and matching
+    - SEPA batch reconciliation with conservative and enhanced modes
+    - Duplicate prevention and processing locks
+    - Comprehensive validation and error handling
+    - Performance monitoring and optimization
+    - Audit logging for financial reconciliation
+
+Architecture:
+    Phase 1: Conservative Approach
+        - Safe identification of SEPA transactions
+        - Manual verification and approval workflow
+        - Comprehensive validation before processing
+
+    Phase 2: Enhanced Processing
+        - Automated matching with configurable confidence levels
+        - Bulk processing with rollback capabilities
+        - Advanced reconciliation algorithms
+
+Security Model:
+    - SEPA-specific permission levels (READ, WRITE, ADMIN)
+    - Operation-based authorization validation
+    - Critical API security for financial operations
+    - Comprehensive audit logging
+    - Processing locks to prevent concurrent operations
+
+Business Process:
+    1. Identify potential SEPA transactions from bank data
+    2. Match transactions with existing direct debit batches
+    3. Validate mandate and amount compliance
+    4. Create reconciliation entries with audit trail
+    5. Handle exceptions and manual review cases
+
+Compliance:
+    - SEPA Direct Debit Core Scheme compliance
+    - Financial audit trail requirements
+    - Data protection (GDPR) compliance
+    - Dutch banking reconciliation standards
+
+Integration Points:
+    - Bank Transaction import systems
+    - Direct Debit Batch processing
+    - Payment Entry creation and tracking
+    - Financial reporting and analytics
+
+Performance Considerations:
+    - Batch processing for large transaction volumes
+    - Database optimization with proper indexing
+    - Processing locks to prevent resource conflicts
+    - Background job processing for heavy operations
+
+Author: Verenigingen Development Team
+License: MIT
 """
 
 import json
@@ -35,7 +93,80 @@ from verenigingen.utils.security.authorization import (
 @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 @frappe.whitelist()
 def identify_sepa_transactions():
-    """Find bank transactions that might be from SEPA batches"""
+    """
+    Identify bank transactions that are potentially from SEPA direct debit batches.
+
+    This function implements the conservative approach (Phase 1) for SEPA transaction
+    identification, focusing on safe detection with minimal false positives. It
+    searches through recent bank transactions for SEPA-related indicators and
+    attempts to match them with existing direct debit batches.
+
+    Returns:
+        dict: Identification results with the following structure:
+            {
+                'success': True,
+                'potential_matches': [
+                    {
+                        'transaction_name': 'BT-2024-001',
+                        'date': '2024-08-02',
+                        'amount': 125.50,
+                        'description': 'SEPA DD BATCH 2024-001',
+                        'reference_number': 'REF123456',
+                        'bank_account': 'NL91ABNA0417164300',
+                        'matched_batches': [
+                            {
+                                'batch_name': 'DD-BATCH-2024-001',
+                                'batch_date': '2024-08-02',
+                                'total_amount': 125.50,
+                                'confidence': 'High'
+                            }
+                        ],
+                        'confidence_level': 'High',
+                        'sepa_indicators': ['sepa', 'dd', 'batch']
+                    }
+                ],
+                'unmatched_transactions': [...],
+                'processing_summary': {
+                    'total_reviewed': 45,
+                    'potential_sepa': 12,
+                    'high_confidence': 8,
+                    'medium_confidence': 3,
+                    'low_confidence': 1
+                }
+            }
+
+    Raises:
+        frappe.PermissionError: If user lacks SEPA batch validation permissions
+        frappe.ValidationError: If transaction data is inconsistent
+
+    Security:
+        - Requires SEPA READ permission level
+        - Validates BATCH_VALIDATE operation authorization
+        - Uses standard API security framework
+        - Comprehensive audit logging
+
+    Business Logic:
+        - Searches transactions from last 30 days
+        - Filters for deposit (incoming) transactions only
+        - Excludes already processed SEPA transactions
+        - Uses keyword matching for SEPA identification
+        - Attempts amount and date matching with batches
+
+    Performance:
+        - Optimized database queries with appropriate filters
+        - Limited time range to prevent excessive processing
+        - Efficient keyword matching algorithms
+        - Result caching for repeated analysis
+
+    Database Access:
+        - Reads from: tabBank Transaction, tabDirect Debit Batch
+        - Filters: Date range, transaction status, SEPA processing status
+        - Indexes used: date, docstatus, custom_sepa_batch
+
+    Keywords Detected:
+        - sepa, dd, direct debit, incasso, lastschrift, batch
+        - Additional localized terms for international compatibility
+    """
     try:
         # Get unprocessed bank transactions from last 30 days
         unprocessed_transactions = frappe.get_all(

@@ -1,3 +1,84 @@
+/**
+ * @fileoverview Membership Termination Request Controller - Advanced Membership Lifecycle Management
+ *
+ * This module provides comprehensive membership termination management with multi-level approval
+ * workflows, disciplinary action support, automated system updates, and regulatory compliance
+ * features. Designed to handle both voluntary and involuntary membership terminations while
+ * maintaining audit trails and ensuring proper procedural compliance.
+ *
+ * Key Features:
+ * - Multi-tier approval workflows with role-based authorization
+ * - Disciplinary action support with required documentation
+ * - Automated system cleanup (SEPA mandates, newsletters, positions)
+ * - Comprehensive audit trail and compliance reporting
+ * - Integration with expulsion reporting requirements
+ * - Grace period management for different termination types
+ * - Real-time status tracking and notification system
+ *
+ * Termination Types Supported:
+ * - Voluntary: Member-initiated termination with standard processing
+ * - Non-payment: Financial default with automated collection integration
+ * - Deceased: Administrative closure with family notification support
+ * - Policy Violation: Disciplinary action requiring documentation
+ * - Disciplinary Action: Formal disciplinary process with approvals
+ * - Expulsion: Final disciplinary measure with board-level approval
+ *
+ * Business Value:
+ * - Ensures compliant membership termination procedures
+ * - Automates complex administrative tasks reducing manual errors
+ * - Maintains regulatory compliance with documentation requirements
+ * - Provides clear audit trail for disciplinary actions
+ * - Streamlines member lifecycle management processes
+ * - Supports legal and procedural compliance requirements
+ *
+ * Technical Architecture:
+ * - Advanced workflow management with conditional approval paths
+ * - Integration with SEPA mandate management systems
+ * - Automated email notification and communication workflows
+ * - Document management integration for compliance documentation
+ * - Role-based permission system with delegated authority
+ * - Real-time status tracking and progress monitoring
+ *
+ * Compliance Features:
+ * - Disciplinary action documentation requirements
+ * - Multi-level approval for serious violations
+ * - Audit trail preservation for legal compliance
+ * - Integration with expulsion reporting systems
+ * - Data retention and privacy compliance (GDPR)
+ * - Procedural fairness and due process support
+ *
+ * @author Verenigingen Development Team
+ * @version 2.5.0
+ * @since 1.0.0
+ *
+ * @requires frappe
+ * @requires verenigingen.verenigingen.doctype.member (Member management)
+ * @requires verenigingen.verenigingen.doctype.sepa_mandate (SEPA integration)
+ * @requires verenigingen.verenigingen.doctype.membership (Membership lifecycle)
+ *
+ * @example
+ * // Standard voluntary termination
+ * // 1. Set termination_type: 'Voluntary'
+ * // 2. Provide termination_reason
+ * // 3. Submit for approval (single-tier)
+ * // 4. Execute termination with automated cleanup
+ *
+ * // Disciplinary termination workflow
+ * // 1. Set termination_type: 'Expulsion'
+ * // 2. Provide detailed disciplinary_documentation
+ * // 3. Assign secondary_approver
+ * // 4. Multi-tier approval process
+ * // 5. Execute with full audit trail
+ *
+ * @see {@link verenigingen.verenigingen.doctype.member} Member Management
+ * @see {@link verenigingen.verenigingen.doctype.expulsion_report_entry} Expulsion Reporting
+ * @see {@link verenigingen.verenigingen.doctype.sepa_mandate} SEPA Integration
+ */
+
+/**
+ * @namespace MembershipTerminationController
+ * @description Advanced membership termination form controller with workflow management
+ */
 frappe.ui.form.on('Membership Termination Request', {
 	refresh: function(frm) {
 		// Set indicators based on status

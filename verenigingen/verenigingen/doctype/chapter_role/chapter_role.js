@@ -1,6 +1,78 @@
+/**
+ * @fileoverview Chapter Role DocType Controller - Advanced Role Management with Leadership Hierarchy
+ * 
+ * This module provides comprehensive management for chapter-level organizational roles with
+ * intelligent chair designation, automatic chapter head assignment, and conflict detection.
+ * Designed to support complex organizational hierarchies while maintaining clear leadership
+ * accountability and preventing administrative conflicts.
+ * 
+ * Key Features:
+ * - Intelligent chair role detection and assignment
+ * - Automatic chapter head designation for chair roles
+ * - Duplicate chair role conflict detection and resolution
+ * - Smart role suggestion based on naming patterns
+ * - Bulk chapter updates for role changes
+ * - Permission level integration and validation
+ * - Real-time organizational impact assessment
+ * 
+ * Leadership Management:
+ * - Automatic identification of leadership roles
+ * - Chair role validation and conflict prevention
+ * - Cross-chapter consistency enforcement
+ * - Leadership transition workflow support
+ * - Administrative delegation and permission assignment
+ * 
+ * Business Value:
+ * - Ensures clear organizational hierarchy and accountability
+ * - Prevents leadership conflicts and administrative confusion
+ * - Automates routine role assignment and management tasks
+ * - Maintains consistency across all chapter operations
+ * - Supports organizational growth and restructuring
+ * - Provides audit trail for role changes and assignments
+ * 
+ * Technical Architecture:
+ * - Frappe DocType form controller with advanced workflow logic
+ * - Real-time validation and conflict detection
+ * - Bulk update operations for organizational changes
+ * - Integration with chapter board member management
+ * - Permission level mapping and enforcement
+ * - Automated suggestion engine for role categorization
+ * 
+ * Organizational Features:
+ * - Role hierarchy definition and enforcement
+ * - Leadership succession planning support
+ * - Multi-chapter coordination and consistency
+ * - Administrative permission delegation
+ * - Conflict resolution and duplicate detection
+ * - Performance impact assessment for changes
+ * 
+ * @author Verenigingen Development Team
+ * @version 1.7.0
+ * @since 1.0.0
+ * 
+ * @requires frappe
+ * @requires verenigingen.verenigingen.doctype.chapter_role.chapter_role (Python backend)
+ * @requires verenigingen.verenigingen.doctype.chapter_board_member (Board management)
+ * @requires verenigingen.verenigingen.doctype.chapter (Chapter operations)
+ * 
+ * @example
+ * // Creating a chair role with automatic conflict detection
+ * // 1. Set role_name: 'Chairman'
+ * // 2. System suggests is_chair: true
+ * // 3. Automatic duplicate detection and warning
+ * // 4. Bulk update all affected chapters
+ * 
+ * @see {@link verenigingen.verenigingen.doctype.chapter_board_member} Board Member Management
+ * @see {@link verenigingen.verenigingen.doctype.chapter} Chapter Operations
+ */
+
 // Copyright (c) 2025, Your Company and contributors
 // For license information, please see license.txt
 
+/**
+ * @namespace ChapterRoleController
+ * @description Advanced role management form controller with leadership hierarchy support
+ */
 frappe.ui.form.on('Chapter Role', {
 	refresh: function(frm) {
 		// Add visual indication for chair role

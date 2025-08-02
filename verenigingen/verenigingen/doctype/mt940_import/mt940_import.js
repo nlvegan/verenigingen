@@ -1,3 +1,61 @@
+/**
+ * @fileoverview MT940 Import DocType Controller for Verenigingen Association Management
+ *
+ * This controller manages the import and processing of MT940 bank statement files,
+ * providing comprehensive bank transaction import capabilities with extensive
+ * debugging and validation tools for financial data integration.
+ *
+ * @description Business Context:
+ * MT940 Import enables automated processing of standardized bank statement files
+ * in the MT940 format, commonly used by European banks for statement data exchange:
+ * - Automated bank transaction import from MT940 files
+ * - Duplicate detection and prevention mechanisms
+ * - Bank account reconciliation and validation
+ * - Company assignment based on bank account configuration
+ * - Comprehensive debugging and troubleshooting tools
+ * - Integration with ERPNext financial modules
+ *
+ * @description Key Features:
+ * - MT940 file format parsing and validation
+ * - Bank transaction creation with proper account mapping
+ * - Duplicate transaction detection with sophisticated algorithms
+ * - Debug modes for troubleshooting import issues
+ * - Statement date range extraction and validation
+ * - Status tracking throughout import lifecycle
+ * - Integration with Bank Transaction management
+ *
+ * @description Integration Points:
+ * - Bank Account management for account validation
+ * - Bank Transaction creation for financial records
+ * - Company assignment for proper financial allocation
+ * - File attachment system for statement storage
+ * - Duplicate detection algorithms for data integrity
+ * - Financial reporting integration for statement analysis
+ *
+ * @description Technical Features:
+ * - MT940 format compliance and parsing
+ * - Error handling with detailed diagnostic information
+ * - Progress tracking and status reporting
+ * - Comprehensive debug utilities for troubleshooting
+ * - Statement validation and integrity checks
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires frappe.ui.form
+ * @requires frappe.call
+ * @requires frappe.ui.Dialog
+ * @requires frappe.db
+ *
+ * @example
+ * // The controller automatically handles:
+ * // - MT940 file upload and processing workflow
+ * // - Bank account validation and company assignment
+ * // - Debug utilities for troubleshooting import issues
+ * // - Transaction viewing and reconciliation tools
+ */
+
 // Copyright (c) 2025, R.S.P. and contributors
 // For license information, please see license.txt
 

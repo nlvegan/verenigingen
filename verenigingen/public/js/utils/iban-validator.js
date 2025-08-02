@@ -1,8 +1,56 @@
 /**
- * IBAN Validation Utility
- * Provides comprehensive IBAN validation with mod-97 checksum
+ * @fileoverview IBAN Validation Utility for Verenigingen Association Management
+ *
+ * This utility provides comprehensive International Bank Account Number (IBAN) validation
+ * with mod-97 checksum verification, country-specific length validation, and formatting
+ * support. It ensures banking information compliance with European SEPA standards.
+ *
+ * @description Business Context:
+ * IBAN validation is critical for SEPA direct debit processing and payment collection
+ * from association members. The utility ensures that banking information is valid
+ * before creating SEPA mandates or processing payments, preventing failed transactions
+ * and maintaining compliance with European banking regulations.
+ *
+ * @description Validation Features:
+ * - ISO 13616 IBAN standard compliance
+ * - Mod-97 checksum verification algorithm
+ * - Country-specific length validation
+ * - Character format validation (alphanumeric only)
+ * - Comprehensive error reporting with localized messages
+ * - IBAN formatting and cleanup utilities
+ *
+ * @description Supported Countries:
+ * Validates IBANs for all major European countries including Netherlands (NL),
+ * Germany (DE), Belgium (BE), France (FR), and other SEPA member states.
+ *
+ * @description Integration Points:
+ * - Used by member registration forms for banking information
+ * - Integrated with SEPA mandate creation workflows
+ * - Supports payment method validation in donation forms
+ * - Coordinates with BIC/SWIFT validation utilities
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires None - Standalone utility
+ *
+ * @example
+ * // Validate an IBAN:
+ * const result = IBANValidator.validate('NL91 ABNA 0417 1643 00');
+ * if (result.valid) {
+ *   console.log('Formatted IBAN:', result.formatted);
+ * } else {
+ *   console.error('Validation error:', result.error);
+ * }
  */
 
+/**
+ * IBAN Validation Utility Object
+ *
+ * Provides comprehensive IBAN validation, formatting, and error reporting
+ * with support for European SEPA banking standards.
+ */
 const IBANValidator = {
 	// IBAN length specifications by country
 	ibanLengths: {

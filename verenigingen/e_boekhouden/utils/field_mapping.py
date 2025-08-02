@@ -379,17 +379,18 @@ ITEM_GROUP_KEYWORDS = {
 }
 
 # Enhanced Default item groups for fallback with proper ERPNext mapping
+# FIXED: Use only existing item groups from the system
 DEFAULT_ITEM_GROUPS = {
     "default": "Services",
     "service": "Services",
     "product": "Products",
-    "travel": "Travel and Expenses",
-    "marketing": "Marketing and Advertising",
-    "utility": "Utilities and Infrastructure",
-    "office": "Office Supplies",
-    "subscription": "Software and Subscriptions",
-    "finance": "Financial Services",
-    "catering": "Catering and Events",
+    "travel": "Expense Items",  # Travel and Expenses -> Expense Items
+    "marketing": "Services",  # Marketing and Advertising -> Services
+    "utility": "Services",  # Utilities and Infrastructure -> Services
+    "office": "Consumable",  # Office Supplies -> Consumable
+    "subscription": "Services",  # Software and Subscriptions -> Services
+    "finance": "Services",  # Financial Services -> Services
+    "catering": "Services",  # Catering and Events -> Services
     "sales": "Services",  # Backward compatibility
     "purchase": "Products",  # Backward compatibility
 }

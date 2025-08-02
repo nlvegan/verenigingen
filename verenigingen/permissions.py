@@ -1,3 +1,60 @@
+"""
+Verenigingen Permissions and Access Control System
+==================================================
+
+Comprehensive permission management system for the Verenigingen association
+management platform. This module implements role-based access control,
+hierarchical permissions, and member-specific access restrictions to ensure
+data security and proper authorization throughout the system.
+
+Primary Purpose:
+    Provides granular access control for member data, financial information,
+    administrative functions, and organizational hierarchy management. Implements
+    security policies that respect member privacy while enabling necessary
+    operational access for board members, administrators, and staff.
+
+Key Features:
+    * Member-based permission hierarchies with chapter and team-level access
+    * Financial information access control with configurable privacy levels
+    * Board member and administrative override capabilities
+    * Dynamic permission queries for efficient database-level filtering
+    * Team and volunteer management access control
+    * Address and contact information privacy protection
+
+Permission Hierarchies:
+    1. **System Level**: System Managers and Verenigingen Administrators
+    2. **Organization Level**: Verenigingen Managers and operational staff
+    3. **Chapter Level**: Chapter Board Members and local administrators
+    4. **Team Level**: Team Leaders and volunteer coordinators
+    5. **Member Level**: Individual member self-access and privacy controls
+
+Business Rules:
+    * Members can access their own data with full visibility
+    * Board members can access members within their chapters with restrictions
+    * Financial information access is governed by member privacy preferences
+    * Administrative functions require appropriate role-based permissions
+    * Termination and sensitive operations require elevated access levels
+
+Security Framework:
+    * SQL injection prevention through proper parameter escaping
+    * Permission caching for performance optimization
+    * Audit trail integration for sensitive operations
+    * Multi-level validation for critical functions
+    * Graceful fallback to standard Frappe permissions when appropriate
+
+Integration Points:
+    * Frappe Framework permission system for baseline security
+    * Member DocType for personal data and privacy preferences
+    * Chapter and Team DocTypes for organizational hierarchy
+    * Volunteer management system for role-based access
+    * Financial data access control for billing and payment information
+
+Technical Implementation:
+    Implements both document-level permissions (has_*_permission functions)
+    and query-level filtering (get_*_permission_query functions) to ensure
+    comprehensive access control at both application and database levels.
+"""
+
 import frappe
 
 

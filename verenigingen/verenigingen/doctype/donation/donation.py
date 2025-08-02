@@ -1,6 +1,62 @@
 # Copyright (c) 2021, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
+"""
+Donation DocType Implementation
+
+This module implements the Donation DocType for the Verenigingen association
+management system. It handles donation processing, validation, and integration
+with donor management, financial systems, and ANBI tax-exempt status requirements.
+
+Key Features:
+    - Comprehensive donation processing and validation
+    - Integration with donor management system
+    - ANBI (Dutch tax-exempt) compliance and validation
+    - Periodic donation agreement management
+    - Payment method validation and processing
+    - Automatic donor creation for website users
+    - Donation purpose and category management
+
+Business Logic:
+    - Automatic donor creation for anonymous website donations
+    - ANBI agreement validation for tax-exempt donations
+    - Periodic donation agreement enforcement
+    - Payment method dependency validation
+    - Donation purpose categorization and validation
+    - Integration with financial reporting systems
+
+Compliance Features:
+    - ANBI (Algemeen Nut Beogende Instelling) compliance
+    - Dutch tax regulation compliance for charitable donations
+    - Privacy protection for anonymous donations
+    - Financial audit trail requirements
+    - Data protection (GDPR) compliance
+
+Architecture:
+    - Document-based with comprehensive validation hooks
+    - Integration with Donor DocType for relationship management
+    - Website form integration for public donations
+    - Payment system integration for processing
+    - Financial system integration for accounting
+
+Validation Rules:
+    - Donor existence validation with automatic creation fallback
+    - Payment method compatibility validation
+    - ANBI agreement requirement validation
+    - Periodic donation agreement validation
+    - Donation purpose validation and categorization
+
+Integration Points:
+    - Donor DocType for donor relationship management
+    - Verenigingen Settings for configuration management
+    - Payment systems for donation processing
+    - Financial reporting and accounting systems
+    - Website forms for public donation collection
+    - ANBI reporting systems for tax compliance
+
+Author: Verenigingen Development Team
+License: MIT
+"""
 
 import frappe
 from frappe import _

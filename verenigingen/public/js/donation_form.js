@@ -1,12 +1,78 @@
 /**
- * Donation Form JavaScript
- * Handles multi-step form functionality and payment method integration
+ * @fileoverview Public Donation Form Frontend Controller for Verenigingen Association Management
+ *
+ * This script manages the public-facing donation form interface, providing a multi-step
+ * donation process with payment method integration, validation, and user experience
+ * optimization. The form enables external supporters and members to contribute financially
+ * to association activities and campaigns.
+ *
+ * @description Business Context:
+ * The donation form is a critical component for fundraising activities, enabling the
+ * association to collect financial contributions from supporters, members, and the
+ * general public. It supports various donation types, payment methods, and provides
+ * proper receipting for tax deduction purposes (ANBI compliance).
+ *
+ * @description Key Features:
+ * - Multi-step donation workflow with progress tracking
+ * - Payment method integration (SEPA, credit cards, online banking)
+ * - Real-time form validation and error handling
+ * - Donor information collection and management
+ * - ANBI compliance for Dutch tax benefits
+ * - Responsive design for mobile and desktop
+ * - Integration with backend donation processing
+ *
+ * @description Form Workflow:
+ * 1. Donation Type Selection: Choose donation purpose and amount
+ * 2. Donor Information: Collect contact and personal details
+ * 3. Payment Method: Select and configure payment preferences
+ * 4. Additional Options: Tax receipt preferences and communication settings
+ * 5. Confirmation: Review and submit donation request
+ *
+ * @description Integration Points:
+ * - Connects to Donation DocType for record creation
+ * - Integrates with payment processing systems
+ * - Links to Donor management for supporter tracking
+ * - Coordinates with ANBI reporting requirements
+ * - Interfaces with email notification systems
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires frappe - Frappe Framework client-side API (if available)
+ * @requires payment-processors - External payment integration libraries
+ *
+ * @example
+ * // Script is automatically loaded on donation form pages
+ * // Initialization happens on DOMContentLoaded:
+ * document.addEventListener('DOMContentLoaded', function() {
+ *   // Form initialization and event binding
+ * });
  */
 
+// Global state management for donation form
 let currentStep = 1;
 const totalSteps = 5;
 let formData = {};
 
+/**
+ * Document Ready Event Handler
+ *
+ * Initializes the donation form when the DOM is fully loaded.
+ * Sets up form validation, payment method handlers, and progress tracking.
+ *
+ * @description Initialization Process:
+ * - Sets up progress indicator for multi-step workflow
+ * - Configures form validation rules and error handling
+ * - Initializes payment method selection and integration
+ * - Binds event handlers for form interaction
+ *
+ * @example
+ * // Automatically executed when page loads:
+ * // - Form validation setup
+ * // - Payment method configuration
+ * // - Progress tracking initialization
+ */
 document.addEventListener('DOMContentLoaded', function() {
 	// Initialize form
 	updateProgress();
@@ -18,6 +84,27 @@ document.addEventListener('DOMContentLoaded', function() {
 	initializePaymentMethods();
 });
 
+/**
+ * Advance to Next Form Step
+ *
+ * Validates the current step and advances to the next step in the
+ * multi-step donation process. Handles data collection and special
+ * step-specific logic including confirmation step population.
+ *
+ * @description Step Progression Logic:
+ * - Validates current step data before advancing
+ * - Collects and stores step data in global form state
+ * - Updates progress indicator and UI state
+ * - Handles special logic for confirmation step
+ * - Prevents advancement if validation fails
+ *
+ * @throws {ValidationError} If current step validation fails
+ *
+ * @example
+ * // Called when user clicks "Next" button:
+ * // Validates step 1 data, advances to step 2
+ * nextStep();
+ */
 function nextStep() {
 	if (validateCurrentStep()) {
 		collectStepData();
@@ -35,6 +122,23 @@ function nextStep() {
 	}
 }
 
+/**
+ * Return to Previous Form Step
+ *
+ * Navigates back to the previous step in the multi-step donation process.
+ * Maintains form state and allows users to modify previously entered data.
+ *
+ * @description Navigation Logic:
+ * - Moves back one step if not on first step
+ * - Preserves existing form data
+ * - Updates progress indicator
+ * - Re-displays previous step with saved data
+ *
+ * @example
+ * // Called when user clicks "Back" button:
+ * // Returns from step 3 to step 2
+ * prevStep();
+ */
 function prevStep() {
 	if (currentStep > 1) {
 		currentStep--;

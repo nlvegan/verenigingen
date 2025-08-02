@@ -1,4 +1,38 @@
-# E-Boekhouden Import Manager - Clean import with update capabilities
+"""
+eBoekhouden Import Management System with Advanced Data Synchronization
+
+This module provides enterprise-grade import management capabilities for eBoekhouden
+accounting data integration. It implements sophisticated data synchronization strategies
+including clean slate imports, incremental updates, and intelligent change detection
+to maintain data consistency between eBoekhouden and ERPNext systems.
+
+Key Features:
+    * Clean slate import with comprehensive data cleanup
+    * Incremental update capabilities with change detection
+    * Import status monitoring and reporting
+    * Comprehensive error handling and rollback capabilities
+    * Type-specific mutation import with filtering support
+    * Intelligent duplicate detection and resolution
+
+Import Strategies:
+    1. Clean Import: Complete removal of existing data followed by fresh import
+    2. Update Import: Intelligent detection and update of changed records
+    3. Selective Import: Type-specific and date-range filtered imports
+    4. Status Monitoring: Real-time tracking of import progress and statistics
+
+Data Integrity Features:
+    * Atomic operations with transaction safety
+    * Comprehensive validation before data modification
+    * Detailed audit trails and logging for all operations
+    * Rollback capabilities for failed operations
+    * Change detection to prevent unnecessary updates
+
+Business Context:
+    This import manager handles the complex business logic of synchronizing
+    accounting data between Dutch accounting system eBoekhouden and ERPNext,
+    ensuring compliance with Dutch accounting standards while maintaining
+    data integrity and providing comprehensive audit capabilities.
+"""
 import json
 from datetime import datetime
 

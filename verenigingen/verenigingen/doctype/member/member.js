@@ -1,11 +1,61 @@
-// Copyright (c) 2025, Your Name and contributors
+/**
+ * @fileoverview Member DocType Frontend Controller for Verenigingen Association Management
+ *
+ * This is the comprehensive frontend controller for the Member DocType in the Verenigingen
+ * association management system. It provides the complete administrative interface for
+ * member management in the ERPNext backend, handling member lifecycle, payments,
+ * SEPA mandates, chapter assignments, and volunteer coordination.
+ *
+ * @description Business Context:
+ * Members are the core entity in the association management system. This controller handles:
+ * - Member registration and profile management
+ * - Payment method configuration and SEPA mandate integration
+ * - Chapter assignment and geographical organization
+ * - Volunteer profile creation and management
+ * - Membership fee calculation and invoicing
+ * - Suspension, termination, and status management
+ * - Integration with Dutch banking (IBAN/BIC) and SEPA systems
+ *
+ * @description Architecture Integration:
+ * - Integrates with modular JavaScript utilities for specific functionality
+ * - Connects to Python backend for business logic and data validation
+ * - Manages complex UI state for administrative workflows
+ * - Handles real-time updates and form validation
+ *
+ * @description Key Features:
+ * - Comprehensive member lifecycle management
+ * - SEPA direct debit integration with mandate validation
+ * - Chapter-based geographical organization
+ * - Volunteer profile creation and management
+ * - Fee management with override capabilities
+ * - Dutch naming conventions support
+ * - Administrative approval workflows
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13-001
+ * @since 1.0.0
+ *
+ * @requires frappe - Frappe Framework client-side API
+ * @requires payment-utils.js - Payment processing utilities
+ * @requires chapter-utils.js - Chapter management utilities
+ * @requires sepa-utils.js - SEPA banking integration utilities
+ * @requires volunteer-utils.js - Volunteer management utilities
+ * @requires termination-utils.js - Membership termination utilities
+ * @requires ui-utils.js - User interface utilities
+ *
+ * @example
+ * // This controller is automatically loaded when viewing Member DocType forms
+ * // Access through Frappe's form events system:
+ * frappe.ui.form.on('Member', {
+ *   refresh: function(frm) {
+ *     // Controller initialization and UI setup
+ *   }
+ * });
+ */
+
+// Copyright (c) 2025, Verenigingen Development Team and contributors
 // For license information, please see license.txt
 // Cache buster: v2025-01-13-001
-
-// Member Doctype JavaScript - Backend ERPNext interface
-// This file provides the full administrative interface for Member records
-// in the ERPNext backend. It includes comprehensive functionality for
-// staff and administrators to manage member records.
 
 // Import utility modules
 frappe.require([
@@ -18,10 +68,61 @@ frappe.require([
 	'/assets/verenigingen/js/member/js_modules/ui-utils.js'
 ]);
 
+/**
+ * Main Member DocType Form Controller
+ *
+ * Handles all form events and user interactions for the Member DocType.
+ * This includes form lifecycle events, field change handlers, and
+ * integration with backend services for comprehensive member management.
+ */
 frappe.ui.form.on('Member', {
 
 	// ==================== FORM LIFECYCLE EVENTS ====================
 
+	/**
+	 * Form Refresh Event Handler
+	 *
+	 * Primary initialization function called when the Member form is displayed
+	 * or refreshed. Orchestrates the setup of the entire user interface including
+	 * action buttons, status displays, and integration with external services.
+	 *
+	 * @description Business Logic:
+	 * - Initializes UI components and custom styling
+	 * - Sets up administrative action buttons based on user permissions
+	 * - Displays member status indicators (termination, suspension, amendments)
+	 * - Configures SEPA mandate integration and banking information
+	 * - Loads chapter assignment and volunteer information
+	 * - Sets up payment history and dues schedule displays
+	 *
+	 * @description Performance Considerations:
+	 * - Uses debounced API calls to prevent excessive server requests
+	 * - Implements conditional loading based on user roles and permissions
+	 * - Optimizes DOM manipulation with delayed execution for heavy operations
+	 *
+	 * @description Security Features:
+	 * - Role-based access control for administrative functions
+	 * - Validation of user permissions before displaying sensitive actions
+	 * - Protection against unauthorized member data access
+	 *
+	 * @param {Object} frm - Frappe Form object containing member document and UI controls
+	 * @param {Object} frm.doc - Current member document with all field values
+	 * @param {boolean} frm.doc.__islocal - Flag indicating if document is unsaved/new
+	 * @param {string} frm.doc.name - Unique identifier for the member record
+	 * @param {Object} frm.doc.__onload - Server-side data preloaded for performance
+	 *
+	 * @example
+	 * // Automatically called by Frappe when form loads:
+	 * // refresh: function(frm) {
+	 * //   // Form initialization logic
+	 * // }
+	 *
+	 * @throws {Error} If required utility modules are not loaded
+	 * @throws {ValidationError} If member document contains invalid data
+	 *
+	 * @see {@link setup_dutch_naming_fields} For Dutch naming convention setup
+	 * @see {@link add_consolidated_action_buttons} For action button configuration
+	 * @see {@link check_sepa_mandate_status_debounced} For SEPA integration
+	 */
 	refresh: function(frm) {
 
 		// Skip API calls for new/unsaved documents
@@ -248,23 +349,70 @@ frappe.ui.form.on('Member', {
 
 	// ==================== FIELD EVENT HANDLERS ====================
 
+	/**
+	 * Full Name Field Change Handler
+	 *
+	 * Triggers automatic name synchronization when the full name is manually edited.
+	 * Updates component fields (first, middle, last) when full name changes.
+	 *
+	 * @param {Object} frm - Form object containing member data
+	 */
 	full_name: function(frm) {
 		// Auto-generate full name from component fields when individual fields change
 		update_full_name_from_components(frm);
 	},
 
+	/**
+	 * First Name Field Change Handler
+	 *
+	 * Updates the full name when first name component changes.
+	 * Part of the automatic name composition system for member records.
+	 *
+	 * @param {Object} frm - Form object
+	 */
 	first_name: function(frm) {
 		update_full_name_from_components(frm);
 	},
 
+	/**
+	 * Middle Name Field Change Handler
+	 *
+	 * Updates the full name when middle name component changes.
+	 * Supports Dutch naming conventions with multiple middle names.
+	 *
+	 * @param {Object} frm - Form object
+	 */
 	middle_name: function(frm) {
 		update_full_name_from_components(frm);
 	},
 
+	/**
+	 * Last Name Field Change Handler
+	 *
+	 * Updates the full name when last name component changes.
+	 * Handles Dutch prefixes and compound surnames properly.
+	 *
+	 * @param {Object} frm - Form object
+	 */
 	last_name: function(frm) {
 		update_full_name_from_components(frm);
 	},
 
+	/**
+	 * Payment Method Field Change Handler
+	 *
+	 * Handles payment method changes and configures UI based on selected method.
+	 * Triggers SEPA mandate validation for direct debit payments and manages
+	 * banking field visibility and requirements.
+	 *
+	 * @description Business Logic:
+	 * - Shows/hides banking fields based on payment method
+	 * - Validates SEPA mandate requirements for direct debit
+	 * - Updates payment-related UI components and indicators
+	 * - Manages field requirements and validation rules
+	 *
+	 * @param {Object} frm - Form object with payment method configuration
+	 */
 	payment_method: function(frm) {
 		if (window.UIUtils) {
 			UIUtils.handle_payment_method_change(frm);
@@ -273,6 +421,45 @@ frappe.ui.form.on('Member', {
 		check_sepa_mandate_status_debounced(frm);
 	},
 
+	/**
+	 * IBAN Field Change Handler
+	 *
+	 * Handles International Bank Account Number (IBAN) input and validation.
+	 * Automatically derives BIC/SWIFT codes for supported banks and manages
+	 * SEPA direct debit mandate validation for European banking integration.
+	 *
+	 * @description Banking Integration Features:
+	 * - Automatic IBAN formatting and validation
+	 * - BIC/SWIFT code derivation from IBAN bank codes
+	 * - SEPA mandate status validation and updates
+	 * - Real-time banking information validation
+	 *
+	 * @description Supported Banking Systems:
+	 * - Dutch banks (ABN AMRO, ING, Rabobank, etc.)
+	 * - European SEPA-compatible banks
+	 * - International SWIFT network participants
+	 *
+	 * @description Business Logic:
+	 * - Cleans and formats IBAN input to standard format
+	 * - Validates IBAN structure and check digits
+	 * - Automatically populates BIC when possible
+	 * - Updates SEPA mandate status indicators
+	 * - Triggers payment method validation
+	 *
+	 * @param {Object} frm - Form object with banking information
+	 * @param {string} frm.doc.iban - IBAN string being validated
+	 * @param {string} frm.doc.bic - BIC/SWIFT code (may be auto-populated)
+	 *
+	 * @example
+	 * // User enters: "NL91 ABNA 0417 1643 00"
+	 * // Result: iban = "NL91ABNA0417164300", bic = "ABNANL2A"
+	 *
+	 * @throws {ValidationError} If IBAN format is invalid
+	 * @throws {APIError} If BIC derivation service is unavailable
+	 *
+	 * @see {@link derive_bic_from_iban} Backend method for BIC derivation
+	 * @see {@link check_sepa_mandate_status_debounced} SEPA mandate validation
+	 */
 	iban: function(frm) {
 		// Auto-derive BIC from IBAN if BIC is empty
 		if (frm.doc.iban && !frm.doc.bic) {
@@ -348,6 +535,44 @@ frappe.ui.form.on('Member', {
 
 // ==================== CUSTOM LINK FILTERING ====================
 
+/**
+ * Setup Sales Invoice Link Filtering
+ *
+ * Configures custom filtering for Sales Invoice links in the member form dashboard.
+ * Ensures that when users click on Sales Invoice links from the member form,
+ * they only see invoices related to this specific member's customer record.
+ *
+ * @description Business Context:
+ * Members are linked to Customer records for invoicing purposes. This function
+ * ensures that the Sales Invoice list view is automatically filtered to show
+ * only invoices for the current member's associated customer, improving
+ * user experience and data clarity.
+ *
+ * @description Implementation Details:
+ * - Waits for dashboard to be fully loaded before applying filters
+ * - Overrides default Sales Invoice link behavior
+ * - Uses Frappe's route_options to apply customer filtering
+ * - Handles both badge links and individual document links
+ *
+ * @description Performance Optimization:
+ * - Implements retry logic for dashboard readiness
+ * - Uses event delegation to avoid memory leaks
+ * - Removes existing event handlers before adding new ones
+ *
+ * @param {Object} frm - Frappe Form object for member record
+ * @param {string} frm.doc.customer - Customer ID linked to this member
+ *
+ * @example
+ * // Called automatically from refresh event:
+ * if (frm.doc.customer && !frm.doc.__islocal) {
+ *   setup_sales_invoice_link_filter(frm);
+ * }
+ *
+ * @throws {Error} If customer field is not populated
+ *
+ * @see {@link frappe.route_options} Frappe routing system
+ * @see {@link frappe.set_route} Navigation control
+ */
 function setup_sales_invoice_link_filter(frm) {
 	if (!frm.doc.customer) {
 		return;

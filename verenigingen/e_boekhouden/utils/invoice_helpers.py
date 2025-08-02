@@ -32,63 +32,63 @@ def resolve_supplier(relation_id, debug_info=None):
 
 
 def get_default_customer():
-    """Get or create default customer"""
-    customer_name = "E-Boekhouden Import Customer"
-    if not frappe.db.exists("Customer", customer_name):
-        customer = frappe.new_doc("Customer")
-        customer.customer_name = customer_name
-        customer.customer_group = "All Customer Groups"
-        customer.territory = "All Territories"
-        customer.insert()
-    return customer_name
+    """
+    REMOVED: Generic customer creation disabled to prevent data corruption.
+
+    All customers must be properly resolved from E-Boekhouden API using the party resolver.
+    """
+    frappe.throw(
+        "Generic customer creation has been disabled. All customers must be resolved from E-Boekhouden API.",
+        title="Customer Resolution Required",
+        exc=frappe.ValidationError,
+    )
 
 
 def get_default_supplier():
-    """Get or create default supplier"""
-    supplier_name = "E-Boekhouden Import Supplier"
-    if not frappe.db.exists("Supplier", supplier_name):
-        supplier = frappe.new_doc("Supplier")
-        supplier.supplier_name = supplier_name
-        supplier.supplier_group = "All Supplier Groups"
-        supplier.insert()
-    return supplier_name
+    """
+    REMOVED: Generic supplier creation disabled to prevent data corruption.
+
+    All suppliers must be properly resolved from E-Boekhouden API using the party resolver.
+    """
+    frappe.throw(
+        "Generic supplier creation has been disabled. All suppliers must be resolved from E-Boekhouden API.",
+        title="Supplier Resolution Required",
+        exc=frappe.ValidationError,
+    )
 
 
 def create_provisional_customer(relation_id, debug_info):
-    """Create provisional customer for later enrichment"""
-    customer_name = f"E-Boekhouden Customer {relation_id}"
+    """
+    DEPRECATED: Use party_resolver.resolve_customer() instead.
 
-    # Check if already exists
-    if frappe.db.exists("Customer", {"customer_name": customer_name}):
-        return customer_name
+    This function redirects to the proper party resolver which handles API calls correctly.
+    """
+    if debug_info is None:
+        debug_info = []
 
-    customer = frappe.new_doc("Customer")
-    customer.customer_name = customer_name
-    customer.customer_group = "All Customer Groups"
-    customer.territory = "All Territories"
-    customer.eboekhouden_relation_code = str(relation_id)
-    customer.insert()
+    debug_info.append(f"Redirecting to party resolver for relation {relation_id}")
 
-    debug_info.append(f"Created provisional customer: {customer.name}")
-    return customer.name
+    # Use the proper party resolver instead of creating provisional customers
+    from .party_resolver import resolve_customer
+
+    return resolve_customer(relation_id, debug_info)
 
 
 def create_provisional_supplier(relation_id, debug_info):
-    """Create provisional supplier for later enrichment"""
-    supplier_name = f"E-Boekhouden Supplier {relation_id}"
+    """
+    DEPRECATED: Use party_resolver.resolve_supplier() instead.
 
-    # Check if already exists
-    if frappe.db.exists("Supplier", {"supplier_name": supplier_name}):
-        return supplier_name
+    This function redirects to the proper party resolver which handles API calls correctly.
+    """
+    if debug_info is None:
+        debug_info = []
 
-    supplier = frappe.new_doc("Supplier")
-    supplier.supplier_name = supplier_name
-    supplier.supplier_group = "All Supplier Groups"
-    supplier.eboekhouden_relation_code = str(relation_id)
-    supplier.insert()
+    debug_info.append(f"Redirecting to party resolver for relation {relation_id}")
 
-    debug_info.append(f"Created provisional supplier: {supplier.name}")
-    return supplier.name
+    # Use the proper party resolver instead of creating provisional suppliers
+    from .party_resolver import resolve_supplier
+
+    return resolve_supplier(relation_id, debug_info)
 
 
 def get_or_create_payment_terms(days):
@@ -154,26 +154,46 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
     debug_info.append(f"Processing {len(regels)} line items")
 
     for regel in regels:
-        # Get or create item with enhanced categorization
-        item_code = get_or_create_item_from_description(
-            regel.get("Omschrijving", "Service"),
-            regel.get("Eenheid", "Nos"),
-            debug_info,
-            btw_code=regel.get("BTWCode"),
-            account_code=regel.get("GrootboekNummer"),
-            price=flt(regel.get("Prijs", 0)),
+        # Handle both Dutch (SOAP) and English (REST) field names
+        description = regel.get("description") or regel.get("Omschrijving", "Service")
+        unit = regel.get("unit") or regel.get("Eenheid", "Nos")
+        btw_code = regel.get("vatCode") or regel.get("BTWCode")
+        account_code = regel.get("ledgerId") or regel.get("GrootboekNummer")
+        quantity = flt(regel.get("quantity") or regel.get("Aantal", 1))
+        price = flt(regel.get("amount") or regel.get("Prijs", 0))
+
+        # Get or create item using proper Item Mapping DocType integration
+        from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import (
+            get_or_create_item_improved,
         )
 
-        # Map GL account
-        gl_account = map_grootboek_to_erpnext_account(regel.get("GrootboekNummer"), invoice_type, debug_info)
+        company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
+            "Global Defaults", "default_company"
+        )
+
+        item_code = get_or_create_item_improved(
+            account_code=account_code,
+            company=company,
+            transaction_type="Sales" if invoice_type == "sales" else "Purchase",
+            description=description,
+            btw_code=btw_code,
+            price=price,
+            unit=unit,
+        )
+
+        # Map GL account (try both English and Dutch field names)
+        # CRITICAL: NEVER allow fallbacks - they cause data corruption with fake account codes
+        gl_account = map_grootboek_to_erpnext_account(
+            account_code, invoice_type, debug_info, allow_fallback=False
+        )
 
         line_item = {
             "item_code": item_code,
-            "item_name": regel.get("Omschrijving", "Service"),
-            "description": regel.get("Omschrijving", ""),
-            "qty": flt(regel.get("Aantal", 1)),
-            "uom": map_unit_of_measure(regel.get("Eenheid", "Nos")),
-            "rate": flt(regel.get("Prijs", 0)),
+            "item_name": description,
+            "description": description,
+            "qty": quantity,
+            "uom": map_unit_of_measure(unit),
+            "rate": price,
             "cost_center": cost_center,
         }
 
@@ -206,16 +226,16 @@ def add_tax_lines(invoice, regels, invoice_type, debug_info):
     total_net_amount = 0
 
     for regel in regels:
-        btw_code = regel.get("BTWCode", "").upper()
-
-        # Calculate line total (net amount)
-        line_qty = flt(regel.get("Aantal", 1))
-        line_price = flt(regel.get("Prijs", 0))
+        # Handle both Dutch (SOAP) and English (REST) field names
+        btw_code = (regel.get("vatCode") or regel.get("BTWCode", "")).upper()
+        description = regel.get("description") or regel.get("Omschrijving", "Unknown")
+        line_qty = flt(regel.get("quantity") or regel.get("Aantal", 1))
+        line_price = flt(regel.get("amount") or regel.get("Prijs", 0))
         line_total = line_qty * line_price
         total_net_amount += line_total
 
         debug_info.append(
-            f"Line item: {regel.get('Omschrijving', 'Unknown')} - {line_qty} x {line_price} = {line_total} (BTW: {btw_code})"
+            f"Line item: {description} - {line_qty} x {line_price} = {line_total} (BTW: {btw_code})"
         )
 
         if btw_code and btw_code not in ["GEEN", "VRIJ", ""]:
@@ -421,12 +441,26 @@ def map_unit_of_measure(unit):
     return uom_map(unit)
 
 
-def map_grootboek_to_erpnext_account(grootboek_nummer, transaction_type, debug_info=None):
-    """Map eBoekhouden GL account to ERPNext account using modern mapping system"""
+def map_grootboek_to_erpnext_account(
+    grootboek_nummer, transaction_type, debug_info=None, allow_fallback=False
+):
+    """
+    Map eBoekhouden GL account to ERPNext account using modern mapping system
+
+    Args:
+        grootboek_nummer: E-Boekhouden account number
+        transaction_type: 'sales' or 'purchase'
+        debug_info: List to append debug messages to
+        allow_fallback: If False, raises error instead of using fallback accounts
+    """
     if debug_info is None:
         debug_info = []
 
     if not grootboek_nummer:
+        if not allow_fallback:
+            error_msg = f"Missing grootboek_nummer for {transaction_type} transaction. Proper account mapping required."
+            debug_info.append(f"ERROR: {error_msg}")
+            frappe.throw(error_msg, title="Account Mapping Required")
         return get_default_account(transaction_type)
 
     # Check if ERPNext account already exists with this grootboek code
@@ -477,17 +511,45 @@ def map_grootboek_to_erpnext_account(grootboek_nummer, transaction_type, debug_i
     except Exception as e:
         debug_info.append(f"Account mapping error: {str(e)}")
 
-    # No mapping found - raise error to fail during configuration phase
-    error_msg = f"No account mapping found for E-Boekhouden account {grootboek_nummer}. Please configure the account mapping before importing transactions."
-    debug_info.append(f"ERROR: {error_msg}")
-    frappe.throw(error_msg, title="Account Mapping Missing")
+    # No mapping found - use fallback account only if allowed
+    if not allow_fallback:
+        error_msg = f"No account mapping found for E-Boekhouden account {grootboek_nummer}. Configure proper account mapping in E-Boekhouden Account Map."
+        debug_info.append(f"ERROR: {error_msg}")
+        frappe.throw(error_msg, title="Account Mapping Required")
+
+    debug_info.append(
+        f"WARNING: No account mapping found for E-Boekhouden account {grootboek_nummer}, using fallback"
+    )
+    fallback_account = get_default_account(transaction_type)
+    debug_info.append(f"Using fallback account: {fallback_account}")
+    return fallback_account
 
 
 def get_default_account(transaction_type):
-    """Get default account based on transaction type - DEPRECATED: Should not be used as fallback"""
-    raise ValueError(
-        f"get_default_account() called for transaction_type '{transaction_type}'. This function should not be used as a fallback - proper account mapping is required."
+    """
+    CRITICAL: This function should NEVER be used in production.
+    Account mapping must be properly configured for all E-Boekhouden GL codes.
+
+    This function now REJECTS imports instead of creating fake accounts.
+    """
+    # Get the company for error reporting
+    company = (
+        frappe.defaults.get_user_default("Company")
+        or frappe.db.get_single_value("Global Defaults", "default_company")
+        or frappe.db.get_value("Company", {}, "name")
     )
+
+    # Log critical error and reject the import
+    error_msg = (
+        f"ACCOUNT MAPPING REQUIRED: No account mapping found for {transaction_type} transaction. "
+        f"Configure proper account mapping in E-Boekhouden Account Map before importing. "
+        f"Automatic fallback account creation has been disabled to prevent data corruption."
+    )
+
+    frappe.logger().error(f"DATA INTEGRITY PROTECTION: {error_msg}")
+
+    # Throw error to stop the import - no more fake accounts
+    frappe.throw(error_msg, title="Account Mapping Required", exc=frappe.ValidationError)
 
 
 def get_tax_account(btw_code, invoice_type, company, debug_info=None):

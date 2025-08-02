@@ -1,8 +1,82 @@
 """
-Standardized API response utilities for consistent JSON responses
+Standardized API Response Framework and Utilities
 
-This module provides utilities for creating consistent API responses across
-all endpoints in the Verenigingen application.
+This module provides a comprehensive framework for creating consistent, structured
+API responses across all endpoints in the Verenigingen association management system.
+It ensures standardized error handling, response formatting, and status management
+to provide excellent developer experience and reliable API integration.
+
+Key Features:
+- Standardized response structure with consistent formatting
+- Comprehensive error handling with detailed error codes and messages
+- Support for paginated responses with metadata
+- Batch operation results with success/failure tracking
+- Automatic exception handling through decorators
+- Internationalization support for user-facing messages
+- HTTP status code management and response headers
+
+Business Context:
+Consistent API responses are critical for frontend integration and external
+system integration within the association management ecosystem. This framework
+ensures:
+- Reliable integration with member portal and administrative interfaces
+- Consistent error handling for payment processing and SEPA operations
+- Standardized data formats for mobile applications and third-party systems
+- Proper status reporting for batch operations and automated processes
+
+Architecture:
+This framework integrates with:
+- All API endpoints in the Verenigingen application
+- Frontend applications requiring structured response data
+- External systems integrating with association services
+- Error logging and monitoring systems for operational awareness
+- Internationalization framework for multi-language support
+
+Response Structure:
+All API responses follow a consistent structure:
+```json
+{
+    "success": boolean,
+    "status": "success|error|warning|info",
+    "timestamp": "ISO timestamp",
+    "data": any,                    // Response payload
+    "message": "User message",      // Optional user-facing message
+    "meta": {},                     // Metadata (pagination, etc.)
+    "error": {                      // Error details (if applicable)
+        "message": "Error description",
+        "code": "ERROR_CODE",
+        "details": any,             // Additional error context
+        "field_errors": {}          // Field-specific validation errors
+    }
+}
+```
+
+Response Types:
+1. Success Responses:
+   - Simple success with optional data and message
+   - Paginated responses with navigation metadata
+   - Batch operation results with success/failure statistics
+
+2. Error Responses:
+   - Validation errors with field-specific details
+   - Authentication and authorization errors
+   - Resource not found errors
+   - System errors with appropriate HTTP status codes
+
+3. Special Responses:
+   - Batch operation summaries with partial success handling
+   - Paginated data with navigation and count metadata
+   - Warning responses for non-critical issues
+
+Integration Features:
+- Automatic HTTP status code setting for web responses
+- Exception handling decorators for seamless error management
+- Internationalization support through Frappe's translation framework
+- Logging integration for error tracking and monitoring
+
+Author: Development Team
+Date: 2025-08-02
+Version: 1.0
 """
 
 from enum import Enum

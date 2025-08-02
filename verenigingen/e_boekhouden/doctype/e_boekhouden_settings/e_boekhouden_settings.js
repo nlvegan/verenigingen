@@ -1,3 +1,50 @@
+/**
+ * @fileoverview E-Boekhouden Settings DocType Controller for Verenigingen Association Management
+ *
+ * This controller manages the configuration and testing of E-Boekhouden integration
+ * settings, providing API connection management, migration testing capabilities,
+ * and comprehensive validation of accounting system integration.
+ *
+ * @description Business Context:
+ * E-Boekhouden Settings configures the integration between the association management
+ * system and the E-Boekhouden accounting platform, enabling:
+ * - Automated financial data synchronization
+ * - Chart of accounts mapping and validation
+ * - Member and donation data migration from E-Boekhouden
+ * - Real-time connection testing and status monitoring
+ * - Company and cost center configuration for proper accounting allocation
+ *
+ * @description Key Features:
+ * - REST API connection testing with real-time validation
+ * - Chart of Accounts preview and verification
+ * - Migration test capabilities with detailed reporting
+ * - Automatic cost center assignment based on company selection
+ * - Comprehensive error handling and user feedback
+ * - Secure API token management and validation
+ *
+ * @description Integration Points:
+ * - E-Boekhouden REST API for data retrieval and synchronization
+ * - ERPNext Company and Cost Center for accounting allocation
+ * - Migration utilities for data import and transformation
+ * - Chart of Accounts mapping for financial integration
+ * - Error logging and audit trail systems
+ *
+ * @author Verenigingen Development Team
+ * @version 2025-01-13
+ * @since 1.0.0
+ *
+ * @requires frappe.ui.form
+ * @requires frappe.call
+ * @requires frappe.ui.Dialog
+ *
+ * @example
+ * // The controller automatically handles:
+ * // - API connection testing with status feedback
+ * // - Chart of accounts preview and validation
+ * // - Company-based cost center auto-assignment
+ * // - Migration testing with detailed result reporting
+ */
+
 // Copyright (c) 2025, R.S.P. and contributors
 // For license information, please see license.txt
 
