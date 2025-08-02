@@ -83,6 +83,54 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0):
 
 
 @frappe.whitelist()
+def test_cleanup_small_batch():
+    """Test cleanup on a small batch of documents to verify fix"""
+    try:
+        if not frappe.has_permission("System Manager"):
+            frappe.throw("Only System Managers can perform cleanup testing")
+
+        results = {"sales_invoices": 0, "errors": [], "test_completed": True}
+
+        # Test with just a few Sales Invoices
+        records = frappe.get_all(
+            "Sales Invoice",
+            filters={"eboekhouden_invoice_number": ["!=", ""]},
+            fields=["name", "docstatus"],
+            limit=3,
+        )
+
+        frappe.logger().info(f"Testing cleanup with {len(records)} Sales Invoice records")
+
+        for record in records:
+            try:
+                doc = frappe.get_doc("Sales Invoice", record.name)
+
+                if doc.docstatus == 1:
+                    frappe.logger().info(f"Cancelling submitted Sales Invoice {record.name}")
+                    doc.cancel()
+
+                frappe.delete_doc("Sales Invoice", record.name, force=True, ignore_permissions=True)
+                results["sales_invoices"] += 1
+                frappe.logger().info(f"Successfully deleted Sales Invoice {record.name}")
+
+            except Exception as e:
+                error_msg = f"Failed to delete Sales Invoice {record.name}: {str(e)}"
+                results["errors"].append(error_msg)
+                frappe.logger().error(error_msg)
+
+        frappe.db.commit()
+        return {
+            "success": True,
+            "message": f"Test completed: {results['sales_invoices']} invoices deleted",
+            "results": results,
+        }
+
+    except Exception as e:
+        frappe.db.rollback()
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
 def nuclear_cleanup_all_imported_data():
     """WARNING: Nuclear option - deletes ALL imported data from E-Boekhouden"""
     try:
@@ -116,16 +164,45 @@ def nuclear_cleanup_all_imported_data():
 
         for doctype, field in doctypes_to_clean:
             try:
-                records = frappe.get_all(doctype, filters={field: ["!=", ""]}, fields=["name"])
-                for record in records:
-                    try:
-                        frappe.delete_doc(doctype, record.name, force=True, ignore_permissions=True)
-                        results[doctype.lower().replace(" ", "_") + "s"] += 1
-                    except Exception as e:
-                        results["errors"].append(f"Failed to delete {doctype} {record.name}: {str(e)}")
+                # Get records with docstatus information
+                records = frappe.get_all(doctype, filters={field: ["!=", ""]}, fields=["name", "docstatus"])
+                total_records = len(records)
+                frappe.logger().info(f"Found {total_records} {doctype} records to clean")
+
+                # Process in batches for better performance and progress tracking
+                batch_size = 50
+                for i in range(0, total_records, batch_size):
+                    batch = records[i : i + batch_size]
+                    frappe.logger().info(
+                        f"Processing {doctype} batch {i //batch_size + 1}/{(total_records + batch_size - 1) //batch_size}"
+                    )
+
+                    for record in batch:
+                        try:
+                            # Load the document to check its state
+                            doc = frappe.get_doc(doctype, record.name)
+
+                            # Cancel the document if it's submitted (docstatus = 1)
+                            if doc.docstatus == 1:
+                                doc.cancel()
+
+                            # Now delete the document (whether it was draft, cancelled, or just cancelled above)
+                            frappe.delete_doc(doctype, record.name, force=True, ignore_permissions=True)
+                            results[doctype.lower().replace(" ", "_") + "s"] += 1
+
+                        except Exception as e:
+                            error_msg = f"Failed to delete {doctype} {record.name}: {str(e)}"
+                            results["errors"].append(error_msg)
+                            frappe.logger().error(error_msg)
+
+                    # Commit after each batch to prevent timeout issues
+                    if i % (batch_size * 4) == 0:  # Commit every 200 records
+                        frappe.db.commit()
 
             except Exception as e:
-                results["errors"].append(f"Failed to clean {doctype}: {str(e)}")
+                error_msg = f"Failed to clean {doctype}: {str(e)}"
+                results["errors"].append(error_msg)
+                frappe.logger().error(error_msg)
 
         # Delete provisional parties
         provisional_customers = frappe.get_all(

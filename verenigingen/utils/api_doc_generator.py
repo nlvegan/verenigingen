@@ -72,18 +72,22 @@ class APIDocGenerator:
         """Scan API directory for endpoints"""
 
         api_files = list(self.api_directory.glob("*.py"))
+        processed_functions = set()  # Track processed functions to avoid duplicates
 
         for api_file in api_files:
             if api_file.name == "__init__.py":
                 continue
 
             try:
-                self._extract_endpoints_from_file(api_file)
+                self._extract_endpoints_from_file(api_file, processed_functions)
             except Exception as e:
                 self.logger.error(f"Failed to extract endpoints from {api_file.name}: {str(e)}")
 
-    def _extract_endpoints_from_file(self, file_path: Path) -> None:
+    def _extract_endpoints_from_file(self, file_path: Path, processed_functions: set = None) -> None:
         """Extract API endpoints from a Python file"""
+
+        if processed_functions is None:
+            processed_functions = set()
 
         with open(file_path, "r", encoding="utf-8") as f:
             f.read()
@@ -99,13 +103,46 @@ class APIDocGenerator:
 
         # Find all whitelisted functions
         for name, obj in inspect.getmembers(module):
-            if inspect.isfunction(obj) and hasattr(obj, "__dict__") and obj.__dict__.get("whitelisted"):
-                endpoint_info = self._extract_endpoint_info(
-                    function=obj, module_name=module_name, file_name=file_path.stem
-                )
+            if inspect.isfunction(obj):
+                # Create unique identifier for this function
+                func_id = f"{module_name}.{name}"
 
-                if endpoint_info:
-                    self.endpoints.append(endpoint_info)
+                # Skip if already processed
+                if func_id in processed_functions:
+                    continue
+
+                # Debug: Check various ways to detect whitelisted functions
+                is_whitelisted = False
+
+                # Method 1: Check __dict__.whitelisted
+                if hasattr(obj, "__dict__") and obj.__dict__.get("whitelisted"):
+                    is_whitelisted = True
+
+                # Method 2: Check direct whitelisted attribute
+                elif hasattr(obj, "whitelisted") and getattr(obj, "whitelisted", False):
+                    is_whitelisted = True
+
+                # Method 3: Check for allow_guest attribute (indicates whitelist)
+                elif hasattr(obj, "allow_guest"):
+                    is_whitelisted = True
+
+                # Method 4: Check if function name starts with @frappe.whitelist in source
+                # This is a fallback method by checking the source code
+                try:
+                    source = inspect.getsource(obj)
+                    if "@frappe.whitelist" in source:
+                        is_whitelisted = True
+                except:
+                    pass
+
+                if is_whitelisted:
+                    endpoint_info = self._extract_endpoint_info(
+                        function=obj, module_name=module_name, file_name=file_path.stem
+                    )
+
+                    if endpoint_info:
+                        self.endpoints.append(endpoint_info)
+                        processed_functions.add(func_id)
 
     def _extract_endpoint_info(
         self, function: Callable, module_name: str, file_name: str

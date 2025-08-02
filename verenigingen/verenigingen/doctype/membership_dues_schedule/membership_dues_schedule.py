@@ -789,8 +789,8 @@ class MembershipDuesSchedule(Document):
             # Check member status
             if member.status in ["Terminated", "Expelled", "Deceased", "Suspended", "Quit"]:
                 frappe.log_error(
-                    f"Attempted to generate invoice for terminated member: {self.member} (status: {member.status})",
-                    "Member Status Validation - Invoice Generation",
+                    f"Invoice blocked: member {self.member} status {member.status}",
+                    "Member Status Validation",
                 )
                 return False
 
@@ -800,8 +800,8 @@ class MembershipDuesSchedule(Document):
             )
             if not active_membership:
                 frappe.log_error(
-                    f"Member {self.member} does not have active membership",
-                    "Membership Status Validation - Invoice Generation",
+                    f"Invoice blocked: member {self.member} no active membership",
+                    "Membership Status Validation",
                 )
                 return False
 
@@ -811,12 +811,54 @@ class MembershipDuesSchedule(Document):
 
             return True
 
+        except frappe.DoesNotExistError:
+            # Handle the specific case where member doesn't exist
+            frappe.log_error(
+                f"Orphaned schedule '{self.name}' refs deleted member '{self.member}'",
+                "Orphaned Dues Schedule",
+            )
+            # Mark this schedule as orphaned for admin attention
+            try:
+                self.add_comment("Comment", f"⚠️ ORPHANED: Member '{self.member}' not found.")
+            except Exception as e:
+                frappe.log_error(f"Failed to add orphaned comment: {e}", "Comment Addition Failed")
+            return False
         except Exception as e:
             frappe.log_error(
-                f"Error validating member eligibility for invoice generation {self.member}: {str(e)}",
-                "Member Eligibility Validation Error",
+                f"Member validation error {self.member}: {str(e)[:50]}",
+                "Member Eligibility Error",
             )
             return False
+
+    def is_orphaned(self):
+        """
+        Check if this dues schedule references a non-existent member
+        Returns True if the member doesn't exist, False otherwise
+        """
+        if not self.member:
+            return False  # Templates and schedules without members are not orphaned
+        return not frappe.db.exists("Member", self.member)
+
+    @staticmethod
+    def find_orphaned_schedules(limit=50):
+        """
+        Find dues schedules that reference non-existent members
+        Returns list of schedule names and member IDs that need cleanup
+        """
+        orphaned = frappe.db.sql(
+            """
+            SELECT mds.name, mds.member, mds.status, mds.is_template
+            FROM `tabMembership Dues Schedule` mds
+            LEFT JOIN `tabMember` m ON m.name = mds.member
+            WHERE m.name IS NULL
+            AND mds.member IS NOT NULL
+            AND mds.is_template = 0
+            LIMIT %s
+        """,
+            (limit,),
+            as_dict=True,
+        )
+        return orphaned
 
     def validate_dues_rate(self):
         """

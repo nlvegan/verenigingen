@@ -84,7 +84,7 @@ class BrandSettings(Document):
     def get_contrasting_text_color(self, background_color):
         """Get white or black text color based on background brightness"""
         brightness = self.get_color_brightness(background_color)
-        return "#fffff" if brightness < 128 else "#000000"
+        return "#ffffff" if brightness < 128 else "#000000"
 
     def on_update(self):
         """Clear cache when settings are updated"""
@@ -234,11 +234,11 @@ def generate_brand_css():
     def get_contrasting_text_color(background_color):
         """Get white or black text color based on background brightness"""
         brightness = get_color_brightness(background_color)
-        return "#fffff" if brightness < 128 else "#000000"
+        return "#ffffff" if brightness < 128 else "#000000"
 
-    get_contrasting_text_color(settings["primary_color"])
-    get_contrasting_text_color(settings["secondary_color"])
-    get_contrasting_text_color(settings["accent_color"])
+    primary_text = get_contrasting_text_color(settings["primary_color"])
+    secondary_text = get_contrasting_text_color(settings["secondary_color"])
+    accent_text = get_contrasting_text_color(settings["accent_color"])
 
     css = f"""
 /* Brand Settings CSS - Auto-generated */

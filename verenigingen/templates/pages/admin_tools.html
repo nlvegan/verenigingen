@@ -2,13 +2,31 @@
 
 {% block title %}{{ title }}{% endblock %}
 
+{% block head_include %}
+<script>
+// Load brand CSS dynamically
+frappe.ready(function() {
+    frappe.call({
+        method: 'verenigingen.verenigingen.doctype.brand_settings.brand_settings.get_brand_css_inline',
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                var style = document.createElement('style');
+                style.innerHTML = r.message.css;
+                document.head.appendChild(style);
+            }
+        }
+    });
+});
+</script>
+{% endblock %}
+
 {% block page_content %}
 <div class="admin-tools-page">
     <!-- System Health Overview -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header bg-primary text-white">
+                <div class="card-header bg-brand-primary text-white">
                     <h4 class="mb-0">
                         <i class="fa fa-dashboard"></i> System Health Overview
                     </h4>
@@ -69,7 +87,7 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header bg-info text-white">
+                <div class="card-header bg-brand-secondary text-white">
                     <h4 class="mb-0">
                         <i class="fa fa-database"></i> Database Statistics
                     </h4>
@@ -77,15 +95,15 @@
                 <div class="card-body">
                     <div class="row text-center">
                         <div class="col-md-4">
-                            <h3 class="text-primary">{{ db_stats.total_tables }}</h3>
+                            <h3 class="text-brand-primary">{{ db_stats.total_tables }}</h3>
                             <p class="text-muted">Total Tables</p>
                         </div>
                         <div class="col-md-4">
-                            <h3 class="text-primary">{{ "{:,}".format(db_stats.total_rows) }}</h3>
+                            <h3 class="text-brand-primary">{{ "{:,}".format(db_stats.total_rows) }}</h3>
                             <p class="text-muted">Total Rows</p>
                         </div>
                         <div class="col-md-4">
-                            <h3 class="text-primary">{{ "%.2f"|format(db_stats.total_size_mb) }} MB</h3>
+                            <h3 class="text-brand-primary">{{ "%.2f"|format(db_stats.total_size_mb) }} MB</h3>
                             <p class="text-muted">Total Size</p>
                         </div>
                     </div>
@@ -95,18 +113,19 @@
     </div>
     {% endif %}
 
-    <!-- Available Tools -->
+    <!-- Invoice Management Tools -->
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header bg-secondary text-white">
+                <div class="card-header bg-brand-primary text-white">
                     <h4 class="mb-0">
-                        <i class="fa fa-wrench"></i> Available Admin Tools
+                        <i class="fa fa-file-text-o"></i> Invoice Management
                     </h4>
                 </div>
                 <div class="card-body">
+                    <p class="text-muted mb-3">Tools for managing dues schedules, invoice generation, and billing workflows.</p>
                     <div class="row">
-                        {% for tool in available_tools %}
+                        {% for tool in invoice_tools %}
                         <div class="col-md-6 mb-3">
                             <div class="card tool-card h-100" data-method="{{ tool.method }}">
                                 <div class="card-body">
@@ -123,6 +142,50 @@
                                     <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
                                             data-method="{{ tool.method }}"
                                             data-title="{{ tool.title }}"
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
+                                            {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
+                                        <i class="fa fa-play"></i> Execute
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- System Administration Tools -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-brand-secondary text-white">
+                    <h4 class="mb-0">
+                        <i class="fa fa-wrench"></i> System Administration
+                    </h4>
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3">System monitoring, performance analysis, and maintenance tools.</p>
+                    <div class="row">
+                        {% for tool in system_tools %}
+                        <div class="col-md-6 mb-3">
+                            <div class="card tool-card h-100" data-method="{{ tool.method }}">
+                                <div class="card-body">
+                                    <h5 class="card-title">
+                                        <i class="fa {{ tool.icon }} text-{{ tool.color }}"></i>
+                                        {{ tool.title }}
+                                    </h5>
+                                    <p class="card-text">{{ tool.description }}</p>
+                                    {% if tool.warning %}
+                                        <div class="alert alert-warning alert-sm mb-2">
+                                            <i class="fa fa-warning"></i> {{ tool.warning }}
+                                        </div>
+                                    {% endif %}
+                                    <button class="btn btn-sm btn-{{ tool.color }} execute-tool"
+                                            data-method="{{ tool.method }}"
+                                            data-title="{{ tool.title }}"
+                                            {% if tool.args %}data-args='{{ tool.args|tojson|safe }}'{% endif %}
                                             {% if tool.warning %}data-warning="{{ tool.warning }}"{% endif %}>
                                         <i class="fa fa-play"></i> Execute
                                     </button>
@@ -140,7 +203,7 @@
     <div class="row mb-4">
         <div class="col-12">
             <div class="card">
-                <div class="card-header bg-dark text-white">
+                <div class="card-header bg-brand-primary text-white">
                     <h4 class="mb-0">
                         <i class="fa fa-terminal"></i> Command Line Examples
                     </h4>
@@ -174,7 +237,7 @@
                     <div id="tool-results"></div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal" onclick="closeResultsModal()">Close</button>
                 </div>
             </div>
         </div>
@@ -182,105 +245,567 @@
 </div>
 
 <style>
+/* Brand-compatible styling for admin tools */
+.admin-tools-page {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: var(--brand-bg-primary, #ffffff);
+    min-height: 100vh;
+    padding: 2rem 0;
+}
+
+.admin-tools-page .card {
+    border: none;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+    background: var(--brand-bg-primary, #ffffff);
+}
+
+.admin-tools-page .card:hover {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+.admin-tools-page .card-header {
+    border-radius: 12px 12px 0 0 !important;
+    border: none;
+    padding: 1.5rem;
+    font-weight: 600;
+}
+
+.admin-tools-page .card-body {
+    padding: 1.5rem;
+}
+
 .tool-card {
-    transition: transform 0.2s;
+    transition: all 0.3s ease;
     cursor: pointer;
+    height: 100%;
+    border: 2px solid var(--brand-bg-secondary, #f8f9fa);
 }
 
 .tool-card:hover {
     transform: translateY(-5px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    border-color: var(--brand-primary, #F99F20);
 }
 
-.admin-tools-page .card-header {
-    border-radius: 0;
+.tool-card .card-title {
+    color: var(--brand-text-primary, #333333);
+    margin-bottom: 1rem;
+    font-weight: 600;
 }
 
-.admin-tools-page .card {
-    border-radius: 0;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+.tool-card .card-text {
+    color: var(--brand-text-secondary, #666666);
+    font-size: 0.9rem;
+    line-height: 1.5;
 }
 
+/* Brand button styling */
+.btn-brand-primary {
+    background-color: var(--brand-primary, #F99F20);
+    border-color: var(--brand-primary, #F99F20);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-brand-primary:hover {
+    background-color: var(--brand-primary-hover, #E6900B);
+    border-color: var(--brand-primary-hover, #E6900B);
+    color: white;
+}
+
+.btn-brand-secondary {
+    background-color: var(--brand-secondary, #1A555F);
+    border-color: var(--brand-secondary, #1A555F);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-brand-secondary:hover {
+    background-color: var(--brand-secondary-hover, #154449);
+    border-color: var(--brand-secondary-hover, #154449);
+    color: white;
+}
+
+.btn-brand-accent {
+    background-color: var(--brand-accent, #2D9EB3);
+    border-color: var(--brand-accent, #2D9EB3);
+    color: white;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn-brand-accent:hover {
+    background-color: var(--brand-accent-hover, #268FA2);
+    border-color: var(--brand-accent-hover, #268FA2);
+    color: white;
+}
+
+/* Header styling */
+.bg-brand-primary {
+    background-color: var(--brand-primary, #F99F20) !important;
+    color: white !important;
+}
+
+.bg-brand-secondary {
+    background-color: var(--brand-secondary, #1A555F) !important;
+    color: white !important;
+}
+
+.bg-brand-accent {
+    background-color: var(--brand-accent, #2D9EB3) !important;
+    color: white !important;
+}
+
+/* Text colors */
+.text-brand-primary {
+    color: var(--brand-primary, #F99F20) !important;
+}
+
+.text-brand-secondary {
+    color: var(--brand-secondary, #1A555F) !important;
+}
+
+.text-brand-accent {
+    color: var(--brand-accent, #2D9EB3) !important;
+}
+
+/* Status icons with brand colors */
+.text-success {
+    color: var(--brand-secondary, #1A555F) !important;
+}
+
+.text-warning {
+    color: var(--brand-accent, #2D9EB3) !important;
+}
+
+.text-danger {
+    color: var(--brand-primary, #F99F20) !important;
+}
+
+/* Code styling */
 .bg-light code {
-    color: #333;
-    background-color: transparent;
+    color: var(--brand-text-primary, #333);
+    background-color: var(--brand-bg-secondary, #f8f9fa);
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+}
+
+.bg-light {
+    background-color: var(--brand-bg-secondary, #f8f9fa) !important;
+    border: 1px solid var(--brand-bg-secondary, #f8f9fa);
+    border-radius: 8px;
+}
+
+/* Alert styling */
+.alert-warning {
+    background-color: rgba(var(--brand-accent-rgb, 102, 51, 153), 0.1);
+    border-color: var(--brand-accent, #663399);
+    color: var(--brand-accent, #663399);
+}
+
+/* Modal styling */
+.modal-content {
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+}
+
+.modal-header {
+    background-color: var(--brand-primary, #F99F20);
+    color: white;
+    border-radius: 12px 12px 0 0;
+    border: none;
+}
+
+.modal-title {
+    font-weight: 600;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+    .admin-tools-page {
+        padding: 1rem 0;
+    }
+
+    .admin-tools-page .card-header,
+    .admin-tools-page .card-body {
+        padding: 1rem;
+    }
+
+    .tool-card .card-title {
+        font-size: 1.1rem;
+    }
+}
+
+/* Loading states */
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Professional styling for statistics */
+.statistics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin: 1rem 0;
+}
+
+.stat-card {
+    text-align: center;
+    padding: 1.5rem;
+    background: var(--brand-bg-secondary, #f8f9fa);
+    border-radius: 8px;
+    border-left: 4px solid var(--brand-primary, #F99F20);
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--brand-primary, #F99F20);
+    margin-bottom: 0.5rem;
+}
+
+.stat-label {
+    color: var(--brand-text-secondary, #666666);
+    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 </style>
 
 <script>
-$(document).ready(function() {
-    // Execute tool button click handler
-    $('.execute-tool').on('click', function(e) {
-        e.preventDefault();
+console.log('Admin tools script loading...');
+console.log('jQuery available:', typeof $ !== 'undefined');
+console.log('Document ready state:', document.readyState);
 
-        var method = $(this).data('method');
-        var title = $(this).data('title');
-        var warning = $(this).data('warning');
-        var $button = $(this);
+// Function to format tool results into user-friendly HTML
+function formatToolResult(result, toolTitle) {
+    var html = '<div class="result-content" style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif;">';
+    html += '<div class="alert" style="background-color: rgba(var(--brand-secondary-rgb, 26, 85, 95), 0.1); border-color: var(--brand-secondary, #1A555F); color: var(--brand-secondary, #1A555F); border-radius: 8px; margin-bottom: 1.5rem;">';
+    html += '<i class="fa fa-check-circle"></i> <strong>Execution Successful</strong>';
+    html += '</div>';
 
-        // Check if this is a dangerous operation that requires confirmation
-        if (warning) {
-            if (!confirm('⚠️ WARNING: ' + warning + '\n\nAre you sure you want to proceed?')) {
-                return;
-            }
+    if (result.timestamp) {
+        html += '<small style="color: var(--brand-text-secondary, #666666); display: block; margin-bottom: 1.5rem;">Executed: ' + result.timestamp + '</small>';
+    }
+
+    // Handle different types of results based on the tool
+    if (toolTitle.includes('Invoice') || toolTitle.includes('Dues')) {
+        html += formatInvoiceResult(result);
+    } else if (toolTitle.includes('System Health')) {
+        html += formatHealthResult(result);
+    } else if (toolTitle.includes('Performance')) {
+        html += formatPerformanceResult(result);
+    } else {
+        html += formatGenericResult(result);
+    }
+
+    html += '</div>';
+    return html;
+}
+
+function formatInvoiceResult(result) {
+    var html = '<h5 class="text-brand-primary mb-3">Invoice System Status</h5>';
+
+    if (result.total_active_schedules !== undefined) {
+        html += '<div class="statistics-grid mb-4">';
+        html += '<div class="stat-card">';
+        html += '<div class="stat-value">' + result.total_active_schedules + '</div>';
+        html += '<div class="stat-label">Total Active Schedules</div>';
+        html += '</div>';
+
+        html += '<div class="stat-card" style="border-left-color: var(--brand-secondary, #1A555F);">';
+        html += '<div class="stat-value" style="color: var(--brand-secondary, #1A555F);">' + (result.due_now || 0) + '</div>';
+        html += '<div class="stat-label">Due Now</div>';
+        html += '</div>';
+        html += '</div>';
+    }
+
+    if (result.orphaned_schedules > 0) {
+        html += '<div class="alert alert-warning">';
+        html += '<strong>⚠️ Issues Found:</strong> ' + result.orphaned_schedules + ' orphaned schedules need cleanup';
+        html += '</div>';
+
+        if (result.orphaned_details && result.orphaned_details.length > 0) {
+            html += '<h6>Orphaned Schedules:</h6>';
+            html += '<ul>';
+            result.orphaned_details.forEach(function(item) {
+                html += '<li>' + item.name + ' (Member: ' + item.member + ', Status: ' + item.status + ')</li>';
+            });
+            html += '</ul>';
         }
+    }
 
-        // Show loading state
-        $button.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Executing...');
-
-        // Execute the tool
-        frappe.call({
-            method: 'verenigingen.templates.pages.admin_tools.execute_admin_tool',
-            args: {
-                method: method
-            },
-            callback: function(r) {
-                $button.prop('disabled', false).html('<i class="fa fa-play"></i> Execute');
-
-                if (r.message && r.message.success) {
-                    // Show results in modal
-                    $('#resultsModal .modal-title').text(title + ' - Results');
-
-                    var resultHtml = '<div class="result-content">';
-                    resultHtml += '<p class="text-success"><i class="fa fa-check-circle"></i> Execution successful</p>';
-                    resultHtml += '<small class="text-muted">Timestamp: ' + r.message.timestamp + '</small>';
-                    resultHtml += '<hr>';
-
-                    if (typeof r.message.result === 'object') {
-                        resultHtml += '<pre class="bg-light p-3">' + JSON.stringify(r.message.result, null, 2) + '</pre>';
-                    } else {
-                        resultHtml += '<div>' + r.message.result + '</div>';
-                    }
-
-                    resultHtml += '</div>';
-
-                    $('#tool-results').html(resultHtml);
-                    $('#resultsModal').modal('show');
-                } else {
-                    frappe.msgprint({
-                        title: 'Error',
-                        indicator: 'red',
-                        message: r.message ? r.message.error : 'Failed to execute tool'
-                    });
-                }
-            },
-            error: function(r) {
-                $button.prop('disabled', false).html('<i class="fa fa-play"></i> Execute');
-                frappe.msgprint({
-                    title: 'Error',
-                    indicator: 'red',
-                    message: 'Failed to execute tool: ' + (r.message || 'Unknown error')
-                });
-            }
+    // Show generated invoices for live runs
+    if (result.generated_invoices && result.generated_invoices.length > 0) {
+        html += '<h6 class="text-brand-primary mt-4 mb-3">Generated Invoices:</h6>';
+        html += '<div class="table-responsive">';
+        html += '<table class="table table-sm table-hover" style="border-radius: 8px; overflow: hidden;">';
+        html += '<thead style="background-color: var(--brand-bg-secondary, #f8f9fa);"><tr><th style="color: var(--brand-text-primary, #333);">Invoice</th><th style="color: var(--brand-text-primary, #333);">Member</th><th style="color: var(--brand-text-primary, #333);">Amount</th></tr></thead><tbody>';
+        result.generated_invoices.slice(0, 10).forEach(function(invoice) {
+            html += '<tr>';
+            html += '<td style="color: var(--brand-text-primary, #333);"><strong>' + (invoice.invoice || 'Unknown') + '</strong></td>';
+            html += '<td style="color: var(--brand-text-primary, #333);">' + (invoice.member_name || 'Unknown') + '</td>';
+            html += '<td style="color: var(--brand-primary, #F99F20); font-weight: 600;">€' + (invoice.amount || 0) + '</td>';
+            html += '</tr>';
         });
+        html += '</tbody></table>';
+        if (result.generated_invoices.length > 10) {
+            html += '<small class="text-muted">... and ' + (result.generated_invoices.length - 10) + ' more</small>';
+        }
+        html += '</div>';
+    }
+    // Show upcoming invoices for dry runs
+    else if (result.upcoming_schedules_sample && result.upcoming_schedules_sample.length > 0) {
+        html += '<h6 class="text-brand-primary mt-4 mb-3">Upcoming Invoices (Sample):</h6>';
+        html += '<div class="table-responsive">';
+        html += '<table class="table table-sm table-hover" style="border-radius: 8px; overflow: hidden;">';
+        html += '<thead style="background-color: var(--brand-bg-secondary, #f8f9fa);"><tr><th style="color: var(--brand-text-primary, #333);">Member</th><th style="color: var(--brand-text-primary, #333);">Due Date</th><th style="color: var(--brand-text-primary, #333);">Amount</th></tr></thead><tbody>';
+        result.upcoming_schedules_sample.slice(0, 5).forEach(function(schedule) {
+            html += '<tr>';
+            html += '<td style="color: var(--brand-text-primary, #333);">' + (schedule.member_name || 'Unknown') + '</td>';
+            html += '<td style="color: var(--brand-text-secondary, #666);">' + (schedule.next_invoice_date || 'Not set') + '</td>';
+            html += '<td style="color: var(--brand-primary, #F99F20); font-weight: 600;">€' + (schedule.dues_rate || 0) + '</td>';
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+        if (result.upcoming_schedules_sample.length > 5) {
+            html += '<small class="text-muted">... and ' + (result.upcoming_schedules_sample.length - 5) + ' more</small>';
+        }
+        html += '</div>';
+    }
+
+    return html;
+}
+
+function formatHealthResult(result) {
+    var html = '<h5>System Health Status</h5>';
+    // Add health-specific formatting here
+    return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
+}
+
+function formatPerformanceResult(result) {
+    var html = '<h5>Performance Metrics</h5>';
+    // Add performance-specific formatting here
+    return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
+}
+
+function formatGenericResult(result) {
+    var html = '<h5 class="text-brand-primary mb-3">Results</h5>';
+    if (typeof result === 'object') {
+        html += '<div class="bg-light p-3" style="max-height: 400px; overflow-y: auto; border-left: 4px solid var(--brand-primary, #F99F20); background-color: var(--brand-bg-secondary, #f8f9fa);">';
+        html += '<pre style="margin: 0; font-family: \'Monaco\', \'Menlo\', \'Ubuntu Mono\', monospace; font-size: 0.875rem; color: var(--brand-text-primary, #333);">' + JSON.stringify(result, null, 2) + '</pre>';
+        html += '</div>';
+    } else {
+        html += '<div class="alert" style="background-color: rgba(var(--brand-secondary-rgb, 26, 85, 95), 0.1); border-color: var(--brand-secondary, #1A555F); color: var(--brand-secondary, #1A555F);">' + result + '</div>';
+    }
+    return html;
+}
+
+function closeResultsModal() {
+    var modal = document.getElementById('resultsModal');
+    if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('show');
+        document.body.classList.remove('modal-open');
+
+        // Remove custom backdrop if it exists
+        var backdrop = document.getElementById('custom-backdrop');
+        if (backdrop) {
+            backdrop.remove();
+        }
+    }
+}
+
+function initializeAdminTools() {
+    console.log('Initializing admin tools...');
+    console.log('Found execute-tool buttons via vanilla JS:', document.querySelectorAll('.execute-tool').length);
+
+    // Try to list all buttons
+    var allButtons = document.querySelectorAll('button');
+    console.log('Total buttons found:', allButtons.length);
+    allButtons.forEach(function(btn, index) {
+        console.log('Button ' + index + ':', btn.className, btn.textContent.trim());
     });
 
-    // Auto-refresh health status every 30 seconds
-    setInterval(function() {
-        if ($('.admin-tools-page').length) {
-            location.reload();
+    // Add event listeners to all execute-tool buttons using vanilla JS
+    var executeButtons = document.querySelectorAll('.execute-tool');
+    console.log('Adding event listeners to', executeButtons.length, 'buttons');
+
+    executeButtons.forEach(function(button) {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+
+            var method = this.getAttribute('data-method');
+            var title = this.getAttribute('data-title');
+            var warning = this.getAttribute('data-warning');
+            var args = this.getAttribute('data-args');
+            var button = this;
+
+            console.log('Executing tool:', method, 'with args:', args);
+            console.log('Frappe available:', typeof frappe !== 'undefined');
+
+            // Check if this is a dangerous operation that requires confirmation
+            if (warning) {
+                if (!confirm('⚠️ WARNING: ' + warning + '\n\nAre you sure you want to proceed?')) {
+                    return;
+                }
+            }
+
+            // Show loading state
+            button.disabled = true;
+            button.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Executing...';
+
+        // Execute the tool
+        console.log('About to execute via frappe.call...');
+        if (typeof frappe !== 'undefined' && frappe.call) {
+            // Use frappe.call if available
+            console.log('Using frappe.call method');
+            var callArgs = {
+                method: 'verenigingen.templates.pages.admin_tools.execute_admin_tool',
+                args: {
+                    method: method
+                },
+                callback: function(r) {
+                    console.log('frappe.call callback received:', r);
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fa fa-play"></i> Execute';
+
+                    if (r.message && r.message.success) {
+                        // Show results in modal
+                        var modalTitle = document.querySelector('#resultsModal .modal-title');
+                        if (modalTitle) modalTitle.textContent = title + ' - Results';
+
+                        var resultHtml = formatToolResult(r.message.result, title);
+
+                        var toolResults = document.getElementById('tool-results');
+                        if (toolResults) toolResults.innerHTML = resultHtml;
+
+                        // Show modal - try multiple methods
+                        var modal = document.getElementById('resultsModal');
+                        if (modal) {
+                            // Try Bootstrap 5
+                            if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+                                var bootstrapModal = new bootstrap.Modal(modal);
+                                bootstrapModal.show();
+                            }
+                            // Try Bootstrap 4
+                            else if (typeof $ !== 'undefined' && $.fn.modal) {
+                                $(modal).modal('show');
+                            }
+                            // Fallback - show/hide manually
+                            else {
+                                modal.style.display = 'block';
+                                modal.classList.add('show');
+                                document.body.classList.add('modal-open');
+
+                                // Add backdrop
+                                var backdrop = document.createElement('div');
+                                backdrop.className = 'modal-backdrop fade show';
+                                backdrop.id = 'custom-backdrop';
+                                document.body.appendChild(backdrop);
+                            }
+                        } else {
+                            // Fallback - just show an alert with results
+                            alert('Tool executed successfully!\n\nResult: ' + JSON.stringify(r.message.result, null, 2));
+                        }
+                    } else {
+                        alert('Error: ' + (r.message ? r.message.error : 'Failed to execute tool'));
+                    }
+                },
+                error: function(r) {
+                    console.log('frappe.call error received:', r);
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fa fa-play"></i> Execute';
+                    alert('Failed to execute tool: ' + (r.message || 'Unknown error'));
+                }
+            };
+
+            if (args) {
+                try {
+                    // args is already a JSON string from data-args attribute
+                    // Parse it first to get the actual object, then pass it
+                    var parsedArgs = JSON.parse(args);
+                    callArgs.args.args = parsedArgs;
+                } catch (e) {
+                    console.log('Failed to parse args:', args, e);
+                    callArgs.args.args = args;
+                }
+            }
+
+            console.log('Calling frappe.call with args:', callArgs);
+            frappe.call(callArgs);
+        } else {
+            // Fallback to jQuery AJAX
+            var requestData = {
+                method: method
+            };
+
+            if (args) {
+                try {
+                    // args is already a JSON string from data-args attribute
+                    // Parse it first to get the actual object, then stringify it for the request
+                    var parsedArgs = JSON.parse(args);
+                    requestData.args = JSON.stringify(parsedArgs);
+                } catch (e) {
+                    console.log('Failed to parse args:', args, e);
+                    requestData.args = args;
+                }
+            }
+
+            $.ajax({
+                url: '/api/method/verenigingen.templates.pages.admin_tools.execute_admin_tool',
+                method: 'POST',
+                headers: {
+                    'X-Frappe-CSRF-Token': window.csrf_token || ''
+                },
+                data: requestData,
+                success: function(response) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fa fa-play"></i> Execute';
+
+                    if (response.message && response.message.success) {
+                        // Show results in alert for now (modal requires bootstrap)
+                        alert('Tool executed successfully!\n\nResult: ' + JSON.stringify(response.message.result, null, 2));
+                    } else {
+                        alert('Error: ' + (response.message ? response.message.error : 'Failed to execute tool'));
+                    }
+                },
+                error: function(xhr, status, error) {
+                    button.disabled = false;
+                    button.innerHTML = '<i class="fa fa-play"></i> Execute';
+                    console.log('Ajax error:', xhr, status, error);
+                    var errorMsg = 'Failed to execute tool: ' + error;
+                    if (xhr.responseJSON && xhr.responseJSON.exc_type) {
+                        errorMsg = 'Error: ' + xhr.responseJSON.exc_type;
+                        if (xhr.responseJSON.exception) {
+                            errorMsg += ' - ' + xhr.responseJSON.exception;
+                        }
+                    }
+                    alert(errorMsg);
+                }
+            });
         }
-    }, 30000);
-});
+        });
+    });
+}
+
+// Initialize when DOM is ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeAdminTools);
+} else {
+    initializeAdminTools();
+}
+
+// Also try with jQuery if available
+if (typeof $ !== 'undefined') {
+    $(document).ready(initializeAdminTools);
+}
 </script>
 {% endblock %}

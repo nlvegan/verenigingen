@@ -2,11 +2,20 @@
 Admin Tools Page - System Health and Performance Monitoring
 """
 
+import json
+
 import frappe
 from frappe import _
 from frappe.utils import now_datetime
 
 no_cache = 1
+
+
+def json_encode_args(args_dict):
+    """Safely encode arguments dict to JSON string"""
+    if not args_dict:
+        return ""
+    return json.dumps(args_dict)
 
 
 def get_context(context):
@@ -43,70 +52,129 @@ def get_context(context):
     except Exception as e:
         context.db_stats = {"error": str(e)}
 
-    # Available tools
-    context.available_tools = [
+    # Invoice management tools
+    context.invoice_tools = [
+        {
+            "title": "Invoice Generation Dashboard",
+            "description": "View dues schedules summary and invoice generation status",
+            "method": "verenigingen.utils.invoice_management.get_dues_schedules_summary",
+            "icon": "fa fa-file-text-o",
+            "color": "brand-primary",
+        },
+        {
+            "title": "Validate Invoice System",
+            "description": "Check system readiness for invoice generation and identify issues",
+            "method": "verenigingen.utils.invoice_management.validate_invoice_generation_readiness",
+            "icon": "fa fa-check-circle",
+            "color": "brand-secondary",
+        },
+        {
+            "title": "Bulk Generate Invoices (Dry Run)",
+            "description": "Preview which invoices would be generated without creating them",
+            "method": "verenigingen.utils.invoice_management.bulk_generate_dues_invoices",
+            "icon": "fa fa-eye",
+            "color": "brand-accent",
+            "args": {"dry_run": True, "max_invoices": 20},
+        },
+        {
+            "title": "Bulk Generate Invoices (Live)",
+            "description": "Generate invoices for all eligible dues schedules",
+            "method": "verenigingen.utils.invoice_management.bulk_generate_dues_invoices",
+            "icon": "fa fa-bolt",
+            "color": "brand-primary",
+            "warning": "This will create actual invoices. Use after reviewing dry run results!",
+            "args": {"dry_run": False, "max_invoices": 50},
+        },
+        {
+            "title": "Cleanup Orphaned Schedules (Dry Run)",
+            "description": "Preview orphaned dues schedules that would be cleaned up",
+            "method": "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
+            "icon": "fa fa-search",
+            "color": "brand-accent",
+            "args": {"dry_run": True, "max_cleanup": 10},
+        },
+        {
+            "title": "Cleanup Orphaned Schedules (Live)",
+            "description": "Remove orphaned dues schedules that reference deleted members",
+            "method": "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
+            "icon": "fa fa-trash",
+            "color": "brand-primary",
+            "warning": "This will permanently delete orphaned dues schedules!",
+            "args": {"dry_run": False, "max_cleanup": 20},
+        },
+    ]
+
+    # System administration tools
+    context.system_tools = [
         {
             "title": "System Health Check",
             "description": "Check database, cache, and API performance status",
             "method": "verenigingen.utils.performance_dashboard.get_system_health",
             "icon": "fa fa-heartbeat",
-            "color": "green",
+            "color": "brand-secondary",
         },
         {
             "title": "Performance Dashboard",
             "description": "24-hour performance metrics and analysis",
             "method": "verenigingen.utils.performance_dashboard.get_performance_dashboard",
             "icon": "fa fa-dashboard",
-            "color": "blue",
+            "color": "brand-accent",
         },
         {
             "title": "Database Analysis",
             "description": "Analyze slow queries and get index recommendations",
             "method": "verenigingen.utils.database_query_analyzer.analyze_database_performance",
             "icon": "fa fa-database",
-            "color": "purple",
+            "color": "brand-primary",
         },
         {
             "title": "Index Recommendations",
             "description": "Get and apply database index recommendations",
             "method": "verenigingen.utils.database_query_analyzer.get_index_recommendations",
             "icon": "fa fa-search",
-            "color": "orange",
+            "color": "brand-accent",
         },
         {
             "title": "API Documentation",
             "description": "Generate API documentation in multiple formats",
             "method": "verenigingen.utils.api_doc_generator.generate_api_documentation",
             "icon": "fa fa-book",
-            "color": "teal",
+            "color": "brand-secondary",
         },
         {
             "title": "Optimization Suggestions",
             "description": "Get specific optimization recommendations",
             "method": "verenigingen.utils.performance_dashboard.get_optimization_suggestions",
             "icon": "fa fa-lightbulb-o",
-            "color": "yellow",
+            "color": "brand-accent",
         },
         {
             "title": "API Endpoint Summary",
             "description": "View all available API endpoints",
             "method": "verenigingen.utils.api_doc_generator.get_api_endpoints_summary",
             "icon": "fa fa-plug",
-            "color": "indigo",
+            "color": "brand-primary",
         },
         {
             "title": "Fraud Detection Stats",
             "description": "View fraud detection statistics",
             "method": "verenigingen.utils.fraud_detection.get_fraud_statistics",
             "icon": "fa fa-shield",
-            "color": "red",
+            "color": "brand-secondary",
+        },
+        {
+            "title": "Test Cleanup (Small Batch)",
+            "description": "Test cleanup process on a small batch of documents to verify functionality",
+            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.test_cleanup_small_batch",
+            "icon": "fa fa-flask",
+            "color": "brand-accent",
         },
         {
             "title": "Cleanup Imported Data",
             "description": "Clean up all e-Boekhouden imported data for fresh migration",
-            "method": "verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data",
+            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
             "icon": "fa fa-trash-o",
-            "color": "danger",
+            "color": "brand-primary",
             "warning": "This will permanently delete all imported e-Boekhouden data. Use with caution!",
         },
     ]
@@ -127,7 +195,27 @@ def get_context(context):
         },
         {
             "description": "Clean up all e-Boekhouden imported data",
-            "command": "bench --site dev.veganisme.net execute verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.debug_cleanup_all_imported_data",
+            "command": "bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
+        },
+        {
+            "description": "View dues schedules summary",
+            "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.get_dues_schedules_summary",
+        },
+        {
+            "description": "Validate invoice generation readiness",
+            "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.validate_invoice_generation_readiness",
+        },
+        {
+            "description": "Bulk generate invoices (dry run)",
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.bulk_generate_dues_invoices --kwargs=\'{"dry_run": true, "max_invoices": 20}\'',
+        },
+        {
+            "description": "Generate invoices for real (max 50)",
+            "command": 'bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.bulk_generate_dues_invoices --kwargs=\'{"dry_run": false, "max_invoices": 50}\'',
+        },
+        {
+            "description": "Cleanup orphaned schedules (dry run)",
+            "command": "bench --site dev.veganisme.net execute verenigingen.utils.invoice_management.cleanup_orphaned_schedules --kwargs='{\"dry_run\": true}'",
         },
     ]
 
