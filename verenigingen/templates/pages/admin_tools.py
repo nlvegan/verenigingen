@@ -170,6 +170,13 @@ def get_context(context):
             "color": "brand-accent",
         },
         {
+            "title": "Cleanup Orphaned GL Entries",
+            "description": "Clean up GL entries, Payment Entry References, and Payment Ledger Entries that reference deleted documents",
+            "method": "verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_orphaned_gl_entries",
+            "icon": "fa fa-eraser",
+            "color": "brand-secondary",
+        },
+        {
             "title": "Cleanup Imported Data",
             "description": "Clean up all e-Boekhouden imported data for fresh migration",
             "method": "verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",

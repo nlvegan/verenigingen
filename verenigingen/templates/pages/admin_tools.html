@@ -480,9 +480,6 @@ frappe.ready(function() {
 </style>
 
 <script>
-console.log('Admin tools script loading...');
-console.log('jQuery available:', typeof $ !== 'undefined');
-console.log('Document ready state:', document.readyState);
 
 // Function to format tool results into user-friendly HTML
 function formatToolResult(result, toolTitle) {
@@ -624,19 +621,8 @@ function closeResultsModal() {
 }
 
 function initializeAdminTools() {
-    console.log('Initializing admin tools...');
-    console.log('Found execute-tool buttons via vanilla JS:', document.querySelectorAll('.execute-tool').length);
-
-    // Try to list all buttons
-    var allButtons = document.querySelectorAll('button');
-    console.log('Total buttons found:', allButtons.length);
-    allButtons.forEach(function(btn, index) {
-        console.log('Button ' + index + ':', btn.className, btn.textContent.trim());
-    });
-
     // Add event listeners to all execute-tool buttons using vanilla JS
     var executeButtons = document.querySelectorAll('.execute-tool');
-    console.log('Adding event listeners to', executeButtons.length, 'buttons');
 
     executeButtons.forEach(function(button) {
         button.addEventListener('click', function(e) {
@@ -648,8 +634,6 @@ function initializeAdminTools() {
             var args = this.getAttribute('data-args');
             var button = this;
 
-            console.log('Executing tool:', method, 'with args:', args);
-            console.log('Frappe available:', typeof frappe !== 'undefined');
 
             // Check if this is a dangerous operation that requires confirmation
             if (warning) {
@@ -663,17 +647,14 @@ function initializeAdminTools() {
             button.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Executing...';
 
         // Execute the tool
-        console.log('About to execute via frappe.call...');
         if (typeof frappe !== 'undefined' && frappe.call) {
             // Use frappe.call if available
-            console.log('Using frappe.call method');
             var callArgs = {
                 method: 'verenigingen.templates.pages.admin_tools.execute_admin_tool',
                 args: {
                     method: method
                 },
                 callback: function(r) {
-                    console.log('frappe.call callback received:', r);
                     button.disabled = false;
                     button.innerHTML = '<i class="fa fa-play"></i> Execute';
 
@@ -720,7 +701,6 @@ function initializeAdminTools() {
                     }
                 },
                 error: function(r) {
-                    console.log('frappe.call error received:', r);
                     button.disabled = false;
                     button.innerHTML = '<i class="fa fa-play"></i> Execute';
                     alert('Failed to execute tool: ' + (r.message || 'Unknown error'));
@@ -734,12 +714,10 @@ function initializeAdminTools() {
                     var parsedArgs = JSON.parse(args);
                     callArgs.args.args = parsedArgs;
                 } catch (e) {
-                    console.log('Failed to parse args:', args, e);
                     callArgs.args.args = args;
                 }
             }
 
-            console.log('Calling frappe.call with args:', callArgs);
             frappe.call(callArgs);
         } else {
             // Fallback to jQuery AJAX
@@ -754,7 +732,6 @@ function initializeAdminTools() {
                     var parsedArgs = JSON.parse(args);
                     requestData.args = JSON.stringify(parsedArgs);
                 } catch (e) {
-                    console.log('Failed to parse args:', args, e);
                     requestData.args = args;
                 }
             }
@@ -780,7 +757,6 @@ function initializeAdminTools() {
                 error: function(xhr, status, error) {
                     button.disabled = false;
                     button.innerHTML = '<i class="fa fa-play"></i> Execute';
-                    console.log('Ajax error:', xhr, status, error);
                     var errorMsg = 'Failed to execute tool: ' + error;
                     if (xhr.responseJSON && xhr.responseJSON.exc_type) {
                         errorMsg = 'Error: ' + xhr.responseJSON.exc_type;
