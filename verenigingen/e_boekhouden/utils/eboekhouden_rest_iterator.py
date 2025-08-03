@@ -172,7 +172,7 @@ class EBoekhoudenRESTIterator:
         Fetch all mutations of a specific type using pagination
 
         Args:
-            mutation_type: The mutation type (0=opening, 1=PINV, 2=SINV, 3=customer payment, etc.)
+            mutation_type: The mutation type (0=opening, 1=PINV/received, 2=SINV/sent, 3=customer payment, etc.)
             limit: Number of mutations per request (max 500)
             progress_callback: Optional callback for progress updates
 

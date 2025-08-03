@@ -1,5 +1,50 @@
+/**
+ * @fileoverview Expulsion Report Entry Form Controller
+ * @description Manages member expulsion documentation and governance workflows
+ *
+ * Business Context:
+ * Handles the formal documentation and management of member expulsions,
+ * ensuring proper governance procedures, appeal processes, and compliance
+ * with organizational bylaws and legal requirements.
+ *
+ * Key Features:
+ * - Comprehensive expulsion documentation workflow
+ * - Built-in appeal filing and tracking mechanisms
+ * - Compliance verification and board review processes
+ * - Automatic status management with visual indicators
+ * - Cross-reference integration with termination requests
+ *
+ * Governance Framework:
+ * - Multi-step approval and review processes
+ * - Audit trail maintenance for legal compliance
+ * - Appeal rights protection with time-sensitive workflows
+ * - Board oversight integration for governance compliance
+ *
+ * Workflow States:
+ * - Active: Expulsion is in effect and enforceable
+ * - Under Appeal: Member has filed formal appeal process
+ * - Reversed: Expulsion has been overturned by appeal or review
+ *
+ * Legal Compliance:
+ * - Proper documentation for legal protection
+ * - Due process compliance monitoring
+ * - Appeal rights preservation and tracking
+ * - Reversal mechanism for error correction
+ *
+ * Integration Points:
+ * - Membership Termination Request for execution tracking
+ * - Member records for personal information synchronization
+ * - Chapter management for jurisdictional oversight
+ * - Appeal process systems for procedural compliance
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module ExpulsionReportEntry
+ * @requires frappe.ui.form, frappe.call
+ */
+
 frappe.ui.form.on('Expulsion Report Entry', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Set page indicator based on status
 		set_status_indicator(frm);
 
@@ -13,7 +58,7 @@ frappe.ui.form.on('Expulsion Report Entry', {
 		toggle_status_fields(frm);
 	},
 
-	onload: function(frm) {
+	onload(frm) {
 		// Set default values for new documents
 		if (frm.is_new()) {
 			frm.set_value('expulsion_date', frappe.datetime.get_today());
@@ -24,22 +69,22 @@ frappe.ui.form.on('Expulsion Report Entry', {
 		set_query_filters(frm);
 	},
 
-	status: function(frm) {
+	status(frm) {
 		toggle_status_fields(frm);
 		set_field_properties(frm);
 	},
 
-	member_id: function(frm) {
+	member_id(frm) {
 		if (frm.doc.member_id) {
 			// Fetch member details
 			frappe.call({
 				method: 'frappe.client.get_value',
 				args: {
 					doctype: 'Member',
-					filters: {name: frm.doc.member_id},
+					filters: { name: frm.doc.member_id },
 					fieldname: ['full_name', 'current_chapter_display', 'email']
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frm.set_value('member_name', r.message.full_name);
 						if (r.message.current_chapter_display && !frm.doc.chapter_involved) {
@@ -54,9 +99,9 @@ frappe.ui.form.on('Expulsion Report Entry', {
 
 function set_status_indicator(frm) {
 	const indicator_map = {
-		'Active': ['Active', 'red'],
+		Active: ['Active', 'red'],
 		'Under Appeal': ['Under Appeal', 'orange'],
-		'Reversed': ['Reversed', 'green']
+		Reversed: ['Reversed', 'green']
 	};
 
 	const [label, color] = indicator_map[frm.doc.status] || ['Unknown', 'gray'];
@@ -68,7 +113,7 @@ function add_action_buttons(frm) {
 
 	if (frm.doc.status === 'Active' && !frm.doc.under_appeal) {
 		// Check for existing appeal
-		frm.add_custom_button(__('File Appeal'), function() {
+		frm.add_custom_button(__('File Appeal'), () => {
 			// Check if termination request exists
 			frappe.call({
 				method: 'frappe.client.get_list',
@@ -82,7 +127,7 @@ function add_action_buttons(frm) {
 					fields: ['name'],
 					limit: 1
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.length > 0) {
 						// Use the existing appeal creation dialog
 						if (window.show_appeal_creation_dialog) {
@@ -99,7 +144,7 @@ function add_action_buttons(frm) {
 	}
 
 	if (frm.doc.status === 'Active') {
-		frm.add_custom_button(__('Reverse Expulsion'), function() {
+		frm.add_custom_button(__('Reverse Expulsion'), () => {
 			frappe.prompt([
 				{
 					fieldname: 'reversal_reason',
@@ -107,14 +152,14 @@ function add_action_buttons(frm) {
 					fieldtype: 'Small Text',
 					reqd: 1
 				}
-			], function(values) {
+			], (values) => {
 				frappe.call({
 					method: 'reverse_expulsion',
 					doc: frm.doc,
 					args: {
 						reversal_reason: values.reversal_reason
 					},
-					callback: function(r) {
+					callback(r) {
 						if (r.message) {
 							frm.refresh();
 							frappe.show_alert({
@@ -130,20 +175,20 @@ function add_action_buttons(frm) {
 
 	// Add view buttons
 	if (frm.doc.member_id) {
-		frm.add_custom_button(__('View Member'), function() {
+		frm.add_custom_button(__('View Member'), () => {
 			frappe.set_route('Form', 'Member', frm.doc.member_id);
 		}, __('View'));
 	}
 
 	if (frm.doc.chapter_involved) {
-		frm.add_custom_button(__('View Chapter'), function() {
+		frm.add_custom_button(__('View Chapter'), () => {
 			frappe.set_route('Form', 'Chapter', frm.doc.chapter_involved);
 		}, __('View'));
 	}
 
 	// Add governance review button
 	if (!frm.doc.compliance_checked) {
-		frm.add_custom_button(__('Mark Compliance Verified'), function() {
+		frm.add_custom_button(__('Mark Compliance Verified'), () => {
 			frm.set_value('compliance_checked', 1);
 			frm.set_value('board_review_date', frappe.datetime.get_today());
 			frm.save();
@@ -177,7 +222,7 @@ function toggle_status_fields(frm) {
 
 function set_query_filters(frm) {
 	// Filter members to only show those with executed terminations
-	frm.set_query('member_id', function() {
+	frm.set_query('member_id', () => {
 		return {
 			query: 'frappe.client.get_list',
 			filters: {
@@ -185,7 +230,7 @@ function set_query_filters(frm) {
 				filters: [
 					['Member', 'name', 'in',
 						frappe.db.get_list('Membership Termination Request', {
-							filters: {status: 'Executed'},
+							filters: { status: 'Executed' },
 							fields: ['member']
 						}).then(r => r.map(d => d.member))
 					]
@@ -195,18 +240,18 @@ function set_query_filters(frm) {
 	});
 
 	// Filter initiator and approver to users with appropriate roles
-	frm.set_query('initiated_by', function() {
+	frm.set_query('initiated_by', () => {
 		return {
 			filters: {
-				'enabled': 1
+				enabled: 1
 			}
 		};
 	});
 
-	frm.set_query('approved_by', function() {
+	frm.set_query('approved_by', () => {
 		return {
 			filters: {
-				'enabled': 1
+				enabled: 1
 			}
 		};
 	});

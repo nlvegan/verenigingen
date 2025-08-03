@@ -1,6 +1,49 @@
 /**
- * Step Manager for Membership Application
- * Handles step navigation, validation, and progress tracking
+ * @fileoverview Multi-Step Form Management System
+ * @description Advanced step-by-step form navigation with intelligent validation and progress tracking
+ *
+ * Business Context:
+ * Manages complex membership application workflows with multiple data collection
+ * phases, ensuring user-friendly progression through lengthy forms while maintaining
+ * data integrity and providing clear guidance at each stage.
+ *
+ * Key Features:
+ * - Intelligent step progression with validation gates
+ * - Auto-save functionality with persistent storage
+ * - Accessibility-compliant navigation controls
+ * - Progress visualization and time estimation
+ * - Keyboard shortcuts for power users
+ * - URL hash navigation for bookmarking
+ *
+ * Workflow Architecture:
+ * - Linear progression with optional step skipping
+ * - Validation-based access control for subsequent steps
+ * - Real-time data persistence across steps
+ * - Context-aware field validation and error display
+ *
+ * User Experience Features:
+ * - Visual progress indicators with completion status
+ * - Estimated time per step for user planning
+ * - Seamless forward/backward navigation
+ * - Automatic focus management for accessibility
+ * - Responsive design for mobile compatibility
+ *
+ * Data Management:
+ * - Incremental data collection and validation
+ * - Local storage backup for session recovery
+ * - Step-level validation with detailed feedback
+ * - Comprehensive data aggregation for submission
+ *
+ * Integration Points:
+ * - Validation Service for business rule enforcement
+ * - Storage Service for persistent data management
+ * - Error Handler for consistent error presentation
+ * - Analytics tracking for form optimization
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module StepManager
+ * @requires ValidationService, StorageService, jQuery
  */
 
 class StepManager {
@@ -90,7 +133,7 @@ class StepManager {
      */
 	_createStepIndicator() {
 		const $container = $('.step-indicator-container');
-		if ($container.length === 0) return;
+		if ($container.length === 0) { return; }
 
 		let indicatorHTML = '<div class="step-indicator">';
 
@@ -129,7 +172,7 @@ class StepManager {
      */
 	_createNavigationButtons() {
 		const $container = $('.step-navigation-container');
-		if ($container.length === 0) return;
+		if ($container.length === 0) { return; }
 
 		const navigationHTML = `
             <div class="step-navigation">
@@ -184,7 +227,7 @@ class StepManager {
      * Navigate to next step
      */
 	async nextStep() {
-		if (this.currentStep >= this.options.totalSteps) return;
+		if (this.currentStep >= this.options.totalSteps) { return; }
 
 		// Validate current step
 		const isValid = await this.validateCurrentStep();
@@ -205,7 +248,7 @@ class StepManager {
      * Navigate to previous step
      */
 	async previousStep() {
-		if (this.currentStep <= 1) return;
+		if (this.currentStep <= 1) { return; }
 
 		// Save current step data without validation
 		if (this.options.autoSave) {
@@ -219,8 +262,8 @@ class StepManager {
      * Go directly to a specific step
      */
 	async goToStep(stepNumber) {
-		if (!this._isValidStepNumber(stepNumber)) return;
-		if (!this._isStepAccessible(stepNumber)) return;
+		if (!this._isValidStepNumber(stepNumber)) { return; }
+		if (!this._isStepAccessible(stepNumber)) { return; }
 
 		// Hide current step
 		this._hideStep(this.currentStep);
@@ -260,7 +303,7 @@ class StepManager {
      */
 	async validateCurrentStep() {
 		const step = this.steps[this.currentStep];
-		if (!step) return false;
+		if (!step) { return false; }
 
 		// Get current step data
 		const stepData = this._getCurrentStepData();
@@ -339,7 +382,7 @@ class StepManager {
      */
 	async _loadStepData(stepNumber) {
 		const savedData = this.stepData[stepNumber];
-		if (!savedData) return;
+		if (!savedData) { return; }
 
 		const $stepContainer = $(`.step-content[data-step="${stepNumber}"]`);
 
@@ -431,11 +474,11 @@ class StepManager {
 	}
 
 	_isStepAccessible(stepNumber) {
-		if (this.options.allowSkipping) return true;
+		if (this.options.allowSkipping) { return true; }
 
 		// Can access current step, previous steps, or next step if current is valid
-		if (stepNumber <= this.currentStep) return true;
-		if (stepNumber === this.currentStep + 1 && this.stepValidationResults[this.currentStep]?.valid) return true;
+		if (stepNumber <= this.currentStep) { return true; }
+		if (stepNumber === this.currentStep + 1 && this.stepValidationResults[this.currentStep]?.valid) { return true; }
 
 		return false;
 	}
@@ -495,7 +538,7 @@ class StepManager {
 		// Show error message (could be integrated with ErrorHandler)
 		frappe.msgprint({
 			title: 'Validation Error',
-			message: message,
+			message,
 			indicator: 'red'
 		});
 	}
@@ -504,7 +547,7 @@ class StepManager {
 		// Show submission error
 		frappe.msgprint({
 			title: 'Submission Error',
-			message: message,
+			message,
 			indicator: 'red'
 		});
 	}

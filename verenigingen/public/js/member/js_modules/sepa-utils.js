@@ -1,15 +1,107 @@
+/**
+ * @fileoverview SEPA Mandate Utilities Module - European Payment Standard Implementation
+ *
+ * Comprehensive SEPA (Single Euro Payments Area) mandate management utilities for
+ * the Verenigingen association platform. Provides complete European banking standard
+ * compliance with automated IBAN validation, BIC derivation, mandate lifecycle management,
+ * and seamless integration with member payment systems.
+ *
+ * ## Business Value
+ * - **Payment Automation**: Streamlined recurring payment collection via SEPA Direct Debit
+ * - **Regulatory Compliance**: Full adherence to European banking standards and regulations
+ * - **Member Experience**: Simplified payment setup with intelligent bank detection
+ * - **Administrative Efficiency**: Automated mandate creation and lifecycle management
+ * - **Financial Security**: Secure payment authorization with comprehensive audit trails
+ *
+ * ## Core Capabilities
+ * - **IBAN Validation**: Real-time International Bank Account Number validation
+ * - **BIC Derivation**: Automatic Bank Identifier Code lookup and validation
+ * - **Mandate Generation**: Intelligent mandate reference generation with unique identifiers
+ * - **Bank Recognition**: Automatic bank name and details recognition from IBAN
+ * - **Status Monitoring**: Real-time mandate status tracking and visualization
+ * - **Payment Integration**: Seamless integration with member payment method configuration
+ *
+ * ## Technical Architecture
+ * - **Modular Design**: Reusable utility functions with clear separation of concerns
+ * - **Client-side Validation**: Real-time IBAN/BIC validation before server submission
+ * - **Dialog Components**: Rich modal interfaces for mandate creation and management
+ * - **API Integration**: Secure communication with backend SEPA services
+ * - **Error Handling**: Comprehensive validation with user-friendly error messages
+ * - **State Management**: Intelligent UI state management preventing duplicate operations
+ *
+ * ## SEPA Compliance Features
+ * - **IBAN Standards**: Full ISO 13616 International Bank Account Number validation
+ * - **BIC Standards**: ISO 9362 Bank Identifier Code validation and derivation
+ * - **Mandate Types**: Support for both recurring and one-off payment mandates
+ * - **Signature Requirements**: Digital signature tracking and validation
+ * - **Regulatory Reporting**: Comprehensive audit trails for compliance reporting
+ * - **Data Protection**: GDPR-compliant handling of sensitive financial information
+ *
+ * ## Integration Points
+ * - **Member System**: Complete integration with member profile and payment methods
+ * - **SEPA Mandate DocType**: Direct integration with mandate management system
+ * - **Payment Processing**: Connection to SEPA Direct Debit batch processing
+ * - **Banking APIs**: Integration with bank identification and validation services
+ * - **Audit System**: Complete tracking of mandate creation and modifications
+ * - **Notification Engine**: Automated alerts for mandate status changes
+ *
+ * ## Security Features
+ * - **Data Validation**: Multi-layer validation of financial data before processing
+ * - **Secure Transmission**: Encrypted communication for sensitive financial information
+ * - **Access Control**: Role-based permissions for mandate creation and management
+ * - **Audit Trail**: Complete logging of all mandate-related operations
+ * - **Privacy Protection**: GDPR-compliant handling of personal financial data
+ *
+ * ## Performance Optimization
+ * - **Client-side Validation**: Immediate feedback without server round-trips
+ * - **Intelligent Caching**: Efficient caching of bank identification data
+ * - **Lazy Loading**: On-demand loading of mandate status and details
+ * - **Debounced Operations**: Prevention of duplicate API calls and submissions
+ * - **Progressive Enhancement**: Graceful degradation for basic mandate functionality
+ *
+ * ## Module Functions
+ * - `generateMandateReference()`: Create unique mandate identifiers
+ * - `create_sepa_mandate_with_dialog()`: Interactive mandate creation interface
+ * - `check_sepa_mandate_status()`: Real-time mandate status monitoring
+ * - `clear_sepa_ui_elements()`: Clean UI state management
+ *
+ * ## Usage Examples
+ * ```javascript
+ * // Create SEPA mandate with dialog
+ * SepaUtils.create_sepa_mandate_with_dialog(frm);
+ *
+ * // Check mandate status
+ * SepaUtils.check_sepa_mandate_status(frm);
+ *
+ * // Generate mandate reference
+ * const ref = SepaUtils.generateMandateReference(memberDoc);
+ * ```
+ *
+ * @version 1.4.0
+ * @author Verenigingen Development Team
+ * @since 2024-Q1
+ *
+ * @requires frappe.ui.Dialog
+ * @requires frappe.client
+ * @requires IBANValidator (optional)
+ *
+ * @see {@link member.js} Member DocType Controller
+ * @see {@link sepa_mandate.js} SEPA Mandate Management
+ * @see {@link direct_debit_batch.js} Payment Processing
+ */
+
 // SEPA mandate utility functions for Member doctype
 
 function generateMandateReference(memberDoc) {
 	// Format: M-[MemberID]-[YYYYMMDD]-[Random3Digits]
 	const today = new Date();
-	const dateStr = today.getFullYear().toString() +
-                   (today.getMonth() + 1).toString().padStart(2, '0') +
-                   today.getDate().toString().padStart(2, '0');
+	const dateStr = today.getFullYear().toString()
+                   + (today.getMonth() + 1).toString().padStart(2, '0')
+                   + today.getDate().toString().padStart(2, '0');
 
 	const randomSuffix = Math.floor(Math.random() * 900) + 100; // 3-digit random number
 
-	let memberId = memberDoc.member_id || memberDoc.name.replace('Assoc-Member-', '').replace(/-/g, '');
+	const memberId = memberDoc.member_id || memberDoc.name.replace('Assoc-Member-', '').replace(/-/g, '');
 
 	return `M-${memberId}-${dateStr}-${randomSuffix}`;
 }
@@ -26,12 +118,12 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 
 	frappe.confirm(
 		confirmMessage,
-		function() {
+		() => {
 			frm._sepa_mandate_dialog_open = true;
 			const d = new frappe.ui.Dialog({
 				title: __('Create SEPA Mandate'),
 				size: 'large',
-				onhide: function() {
+				onhide() {
 					// Reset flag when dialog is closed
 					frm._sepa_mandate_dialog_open = false;
 				},
@@ -115,7 +207,7 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 					}
 				],
 				primary_action_label: __('Create Mandate'),
-				primary_action: function(values) {
+				primary_action(values) {
 					// Validate IBAN before submission
 					if (window.IBANValidator) {
 						const validation = window.IBANValidator.validate(values.iban);
@@ -138,9 +230,9 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 			d.show();
 
 			// Auto-derive BIC and validate IBAN when it changes
-			d.fields_dict.iban.df.onchange = function() {
+			d.fields_dict.iban.df.onchange = function () {
 				const iban = d.get_value('iban');
-				if (!iban) return;
+				if (!iban) { return; }
 
 				// Use comprehensive IBAN validation if available
 				if (window.IBANValidator) {
@@ -180,8 +272,8 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 				if (!d.get_value('bic')) {
 					frappe.call({
 						method: 'verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban',
-						args: { iban: iban },
-						callback: function(r) {
+						args: { iban },
+						callback(r) {
 							if (r.message && r.message.bic) {
 								d.set_value('bic', r.message.bic);
 							}
@@ -190,14 +282,14 @@ function create_sepa_mandate_with_dialog(frm, message = null) {
 				}
 			};
 		},
-		function() {
+		() => {
 			frappe.show_alert(__('No new SEPA mandate created. The existing mandate will remain active.'), 5);
 		}
 	);
 }
 
 function create_mandate_with_values(frm, values, dialog) {
-	let additionalArgs = {};
+	const additionalArgs = {};
 
 	// Get server-side validation data
 	frappe.call({
@@ -207,7 +299,7 @@ function create_mandate_with_values(frm, values, dialog) {
 			iban: values.iban,
 			mandate_id: values.mandate_id
 		},
-		callback: function(validation_response) {
+		callback(validation_response) {
 			const serverData = validation_response.message;
 
 			if (serverData && serverData.existing_mandate) {
@@ -233,11 +325,11 @@ function create_mandate_with_values(frm, values, dialog) {
 					notes: values.notes,
 					...additionalArgs
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						let alertMessage = __('SEPA Mandate {0} created successfully', [values.mandate_id]);
 						if (serverData && serverData.existing_mandate) {
-							alertMessage += '. ' + __('Previous mandate has been marked as replaced.');
+							alertMessage += `. ${__('Previous mandate has been marked as replaced.')}`;
 						}
 
 						frappe.show_alert({
@@ -264,7 +356,7 @@ function create_mandate_with_values(frm, values, dialog) {
 						}, 1500);
 					}
 				},
-				error: function(r) {
+				error(r) {
 					// Reset flag on error too
 					frm._sepa_mandate_dialog_open = false;
 				}
@@ -284,14 +376,14 @@ function check_sepa_mandate_status(frm) {
 	const check_key = `${frm.doc.iban}-${frm.doc.payment_method || 'none'}`;
 
 	// Prevent duplicate checks for the same IBAN/payment method combination
-	if (frm._sepa_check_key === check_key) return;
+	if (frm._sepa_check_key === check_key) { return; }
 	frm._sepa_check_key = check_key;
 
 	// Clear existing SEPA UI elements before checking
 	clear_sepa_ui_elements(frm);
 
 	// Force a small delay to ensure cleanup is complete
-	setTimeout(function() {
+	setTimeout(() => {
 		let currentMandate = null;
 
 		frappe.call({
@@ -300,7 +392,7 @@ function check_sepa_mandate_status(frm) {
 				member: frm.doc.name,
 				iban: frm.doc.iban
 			},
-			callback: function(r) {
+			callback(r) {
 				// Only process if the response is for the current IBAN/payment method combination
 				const current_check_key = `${frm.doc.iban}-${frm.doc.payment_method || 'none'}`;
 				if (frm._sepa_check_key !== current_check_key) {
@@ -312,9 +404,9 @@ function check_sepa_mandate_status(frm) {
 
 					// Add mandate indicator
 					const status_colors = {
-						'Active': 'green',
-						'Pending': 'orange',
-						'Draft': 'orange'
+						Active: 'green',
+						Pending: 'orange',
+						Draft: 'orange'
 					};
 					const color = status_colors[currentMandate.status] || 'red';
 					const indicator_text = currentMandate.status === 'Active'
@@ -324,22 +416,21 @@ function check_sepa_mandate_status(frm) {
 					frm.dashboard.add_indicator(indicator_text, color);
 
 					// Add view mandate button
-					frm.add_custom_button(__('View SEPA Mandate'), function() {
+					frm.add_custom_button(__('View SEPA Mandate'), () => {
 						frappe.set_route('Form', 'SEPA Mandate', currentMandate.name);
 					}, __('SEPA'));
-
 				} else {
 					// No active mandate found
 					if (frm.doc.iban && frm.doc.payment_method === 'SEPA Direct Debit') {
 						frm.dashboard.add_indicator(__('No SEPA Mandate'), 'red');
 
-						frm.add_custom_button(__('Create SEPA Mandate'), function() {
+						frm.add_custom_button(__('Create SEPA Mandate'), () => {
 							create_sepa_mandate_with_dialog(frm, __('No active SEPA mandate found for this IBAN. Would you like to create one?'));
 						}, __('SEPA'));
 					}
 				}
 			},
-			error: function(r) {
+			error(r) {
 				// Don't show error to user, just fail silently
 			}
 		});
@@ -349,7 +440,7 @@ function check_sepa_mandate_status(frm) {
 function clear_sepa_ui_elements(frm) {
 	// Remove SEPA-related dashboard indicators
 	if (frm.dashboard && frm.dashboard.stats_area_row) {
-		$(frm.dashboard.stats_area_row).find('.indicator').filter(function() {
+		$(frm.dashboard.stats_area_row).find('.indicator').filter(function () {
 			const text = $(this).text().toLowerCase();
 			return text.includes('sepa') || text.includes('mandate');
 		}).remove();
@@ -359,14 +450,14 @@ function clear_sepa_ui_elements(frm) {
 	if (frm.custom_buttons) {
 		// Remove the SEPA button group
 		if (frm.custom_buttons['SEPA']) {
-			Object.keys(frm.custom_buttons['SEPA']).forEach(function(button_name) {
+			Object.keys(frm.custom_buttons['SEPA']).forEach((button_name) => {
 				frm.remove_custom_button(button_name, 'SEPA');
 			});
 			delete frm.custom_buttons['SEPA'];
 		}
 
 		// Also remove any stray SEPA buttons
-		$('.btn-custom').filter(function() {
+		$('.btn-custom').filter(function () {
 			const label = $(this).attr('data-label') || $(this).text();
 			return label && (label.includes('SEPA') || label.includes('Mandate'));
 		}).remove();

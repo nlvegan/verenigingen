@@ -1,5 +1,49 @@
-// Expense validation functions
+/**
+ * @fileoverview Expense Validation Utilities
+ * @description Comprehensive validation functions for volunteer expense management
+ *
+ * Business Context:
+ * Ensures financial integrity and compliance through robust expense validation.
+ * Critical for audit trail maintenance and financial governance in association
+ * expense reimbursement workflows.
+ *
+ * Key Features:
+ * - Amount validation with configurable limits
+ * - Date range validation for audit compliance
+ * - Expense status tracking and totaling
+ * - Comprehensive validation error messaging
+ *
+ * Validation Rules:
+ * - Expense amounts must be positive and within limits
+ * - Expense dates cannot be in future or beyond retention period
+ * - Status-based categorization for financial reporting
+ *
+ * Integration Points:
+ * - Volunteer expense submission forms
+ * - Financial reporting and analytics
+ * - Audit trail generation systems
+ * - Expense approval workflows
+ *
+ * Security Considerations:
+ * - Input sanitization and type validation
+ * - Business rule enforcement at client level
+ * - Audit-compliant error logging
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module ExpenseValidation
+ */
 
+/**
+ * Validates expense amount against business rules
+ *
+ * Enforces minimum and maximum expense limits for financial governance
+ * and audit compliance.
+ *
+ * @param {Object} expense - Expense object containing amount
+ * @param {number} expense.amount - Expense amount to validate
+ * @throws {Error} When amount validation fails
+ */
 function validateExpenseAmount(expense) {
 	if (!expense.amount || expense.amount <= 0) {
 		throw new Error('Amount must be greater than zero');
@@ -9,6 +53,17 @@ function validateExpenseAmount(expense) {
 	}
 }
 
+/**
+ * Validates expense date against business rules
+ *
+ * Ensures expense dates fall within acceptable ranges for audit
+ * and compliance purposes. Prevents future dates and enforces
+ * retention period limits.
+ *
+ * @param {Object} expense - Expense object containing date
+ * @param {string|Date} expense.expense_date - Expense date to validate
+ * @throws {Error} When date validation fails
+ */
 function validateExpenseDate(expense) {
 	const expenseDate = new Date(expense.expense_date);
 	expenseDate.setHours(0, 0, 0, 0);
@@ -28,6 +83,22 @@ function validateExpenseDate(expense) {
 	}
 }
 
+/**
+ * Calculates expense totals by status category
+ *
+ * Provides financial summary data for reporting and analytics,
+ * categorizing expenses by approval status for dashboard display
+ * and financial oversight.
+ *
+ * @param {Array<Object>} expenses - Array of expense objects
+ * @param {number} expenses[].amount - Individual expense amount
+ * @param {string} expenses[].status - Expense approval status
+ * @returns {Object} Totals object with categorized amounts
+ * @returns {number} returns.approved - Total approved expenses
+ * @returns {number} returns.pending - Total pending expenses
+ * @returns {number} returns.rejected - Total rejected expenses
+ * @returns {number} returns.total - Total all expenses
+ */
 function calculateExpenseTotals(expenses) {
 	const totals = {
 		approved: 0,

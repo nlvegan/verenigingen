@@ -1,6 +1,47 @@
 /**
- * Dues Schedule Calendar Component
- * Provides interactive calendar functionality for the dues schedule portal
+ * @fileoverview Dues Schedule Calendar Component
+ * @description Interactive payment calendar for membership dues visualization and management
+ *
+ * Business Context:
+ * Provides members with intuitive calendar-based visualization of their
+ * membership dues schedule, payment history, and upcoming obligations.
+ * Essential for member engagement and payment planning.
+ *
+ * Key Features:
+ * - Interactive monthly calendar with payment status visualization
+ * - Multi-status payment tracking (paid, due, overdue, upcoming)
+ * - Keyboard navigation for accessibility compliance
+ * - Responsive design for mobile and desktop use
+ * - Real-time payment data integration
+ *
+ * Payment Status Management:
+ * - Visual indicators for different payment states
+ * - Color-coded legend for user guidance
+ * - Click handlers for payment detail access
+ * - Status-based styling for immediate recognition
+ *
+ * User Experience:
+ * - Intuitive month navigation with smooth transitions
+ * - Accessible keyboard navigation for screen readers
+ * - Selected date tracking for context preservation
+ * - Hover states and interactive feedback
+ *
+ * Data Integration:
+ * - Dynamic payment data loading and updates
+ * - Currency formatting with locale support
+ * - Date handling with timezone considerations
+ * - Event callbacks for external system integration
+ *
+ * Accessibility Features:
+ * - ARIA labels and keyboard navigation support
+ * - High contrast color schemes for visibility
+ * - Screen reader compatibility
+ * - Focus management for keyboard users
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module DuesScheduleCalendar
+ * @requires Intl (for currency formatting)
  */
 
 class DuesScheduleCalendar {
@@ -144,7 +185,7 @@ class DuesScheduleCalendar {
 				day: date.getDate(),
 				month: date.getMonth(),
 				year: date.getFullYear(),
-				date: date,
+				date,
 				dateString: this.formatDate(date),
 				isCurrentMonth: date.getMonth() === month,
 				isToday: this.isToday(date),
@@ -203,7 +244,7 @@ class DuesScheduleCalendar {
                     <div class="payment-amount">${amount}</div>
                 </div>
             `,
-			payment: payment
+			payment
 		};
 	}
 

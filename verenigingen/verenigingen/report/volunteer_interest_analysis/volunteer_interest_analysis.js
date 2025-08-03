@@ -1,17 +1,55 @@
-// Report configuration
+/**
+ * @fileoverview Volunteer Interest Analysis Report
+ * @description Advanced analytics for volunteer recruitment and engagement optimization
+ *
+ * Business Context:
+ * Provides comprehensive analysis of member volunteer interests, enabling
+ * targeted recruitment campaigns and optimal volunteer-opportunity matching.
+ * Critical for maximizing volunteer engagement and organizational capacity.
+ *
+ * Key Features:
+ * - Multi-dimensional filtering by chapter, availability, and experience
+ * - Bulk volunteer record creation for interested members
+ * - Automated coordinator communication with targeted reports
+ * - Interest pattern analysis for recruitment optimization
+ *
+ * Report Capabilities:
+ * - Chapter-specific volunteer interest breakdown
+ * - Experience level distribution analysis
+ * - Availability pattern identification
+ * - Gap analysis between interests and opportunities
+ *
+ * Workflow Integration:
+ * - Direct volunteer record creation from interested members
+ * - Email integration with chapter coordinators
+ * - Automated welcome sequences for new volunteers
+ * - Customizable communication templates
+ *
+ * Strategic Value:
+ * - Identifies volunteer recruitment opportunities
+ * - Optimizes resource allocation across chapters
+ * - Enables proactive volunteer engagement
+ * - Supports data-driven volunteer program development
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module VolunteerInterestAnalysis
+ * @requires frappe.query_reports, frappe.ui.Dialog
+ */
+
 frappe.query_reports['Volunteer Interest Analysis'] = {
-	'filters': [
+	filters: [
 		{
-			'fieldname': 'chapter',
-			'label': __('Chapter'),
-			'fieldtype': 'Link',
-			'options': 'Chapter'
+			fieldname: 'chapter',
+			label: __('Chapter'),
+			fieldtype: 'Link',
+			options: 'Chapter'
 		},
 		{
-			'fieldname': 'availability',
-			'label': __('Availability'),
-			'fieldtype': 'Select',
-			'options': [
+			fieldname: 'availability',
+			label: __('Availability'),
+			fieldtype: 'Select',
+			options: [
 				'',
 				'Occasional',
 				'Monthly',
@@ -20,10 +58,10 @@ frappe.query_reports['Volunteer Interest Analysis'] = {
 			]
 		},
 		{
-			'fieldname': 'experience_level',
-			'label': __('Experience Level'),
-			'fieldtype': 'Select',
-			'options': [
+			fieldname: 'experience_level',
+			label: __('Experience Level'),
+			fieldtype: 'Select',
+			options: [
 				'',
 				'Beginner',
 				'Intermediate',
@@ -32,27 +70,27 @@ frappe.query_reports['Volunteer Interest Analysis'] = {
 			]
 		},
 		{
-			'fieldname': 'has_volunteer_record',
-			'label': __('Has Volunteer Record'),
-			'fieldtype': 'Check',
-			'default': 0
+			fieldname: 'has_volunteer_record',
+			label: __('Has Volunteer Record'),
+			fieldtype: 'Check',
+			default: 0
 		},
 		{
-			'fieldname': 'active_only',
-			'label': __('Active Members Only'),
-			'fieldtype': 'Check',
-			'default': 1
+			fieldname: 'active_only',
+			label: __('Active Members Only'),
+			fieldtype: 'Check',
+			default: 1
 		}
 	],
 
-	onload: function(report) {
+	onload(report) {
 		// Add button to create volunteer records
-		report.page.add_inner_button(__('Create Volunteer Records'), function() {
+		report.page.add_inner_button(__('Create Volunteer Records'), () => {
 			create_volunteer_records(report);
 		});
 
 		// Add export to coordinator button
-		report.page.add_inner_button(__('Email to Coordinators'), function() {
+		report.page.add_inner_button(__('Email to Coordinators'), () => {
 			email_to_coordinators(report);
 		});
 	}
@@ -60,14 +98,14 @@ frappe.query_reports['Volunteer Interest Analysis'] = {
 
 function create_volunteer_records(report) {
 	// Get members without volunteer records
-	let members_without_records = report.data.filter(row => !row.volunteer_id);
+	const members_without_records = report.data.filter(row => !row.volunteer_id);
 
 	if (members_without_records.length === 0) {
 		frappe.msgprint(__('All interested members already have volunteer records'));
 		return;
 	}
 
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Create Volunteer Records'),
 		fields: [
 			{
@@ -91,7 +129,7 @@ function create_volunteer_records(report) {
 			}
 		],
 		primary_action_label: __('Create Records'),
-		primary_action: function(values) {
+		primary_action(values) {
 			frappe.call({
 				method: 'verenigingen.api.volunteer_management.bulk_create_volunteer_records',
 				args: {
@@ -99,7 +137,7 @@ function create_volunteer_records(report) {
 					initial_status: values.initial_status,
 					send_email: values.send_welcome_email
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.msgprint(__('{0} volunteer records created', [r.message.created]));
 						report.refresh();
@@ -115,24 +153,24 @@ function create_volunteer_records(report) {
 
 function email_to_coordinators(report) {
 	// Group data by chapter
-	let chapter_data = {};
+	const chapter_data = {};
 
 	report.data.forEach(row => {
-		let chapter = row.current_chapter || 'Unassigned';
+		const chapter = row.current_chapter || 'Unassigned';
 		if (!chapter_data[chapter]) {
 			chapter_data[chapter] = [];
 		}
 		chapter_data[chapter].push(row);
 	});
 
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Email Volunteer Interest Report'),
 		fields: [
 			{
 				fieldname: 'chapters',
 				label: __('Chapters to Include'),
 				fieldtype: 'Table MultiSelect',
-				options: Object.keys(chapter_data).map(ch => ({label: ch, value: ch})),
+				options: Object.keys(chapter_data).map(ch => ({ label: ch, value: ch })),
 				reqd: 1
 			},
 			{
@@ -149,7 +187,7 @@ function email_to_coordinators(report) {
 			}
 		],
 		primary_action_label: __('Send'),
-		primary_action: function(values) {
+		primary_action(values) {
 			frappe.call({
 				method: 'verenigingen.api.volunteer_management.send_interest_report',
 				args: {
@@ -157,7 +195,7 @@ function email_to_coordinators(report) {
 					template: values.email_template,
 					message: values.additional_message
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.msgprint(__('Reports sent to {0} coordinators', [r.message.sent_count]));
 					}

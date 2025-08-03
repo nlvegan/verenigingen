@@ -190,10 +190,16 @@ def get_or_create_item_improved(
 
     # Step 3: Generate item code and apply smart categorization
     if description:
-        # Use description for more meaningful item code
-        clean_desc = "".join(c for c in description if c.isalnum() or c in " -_").strip()
-        clean_desc = clean_desc.replace(" ", "-").upper()[:30]
-        item_code = f"EBH-{clean_desc}"
+        # For descriptions, do minimal cleaning - just make it safe for item codes
+        import re
+
+        clean_desc = description.strip()
+        # Remove any existing prefixes to avoid double prefixes
+        clean_desc = re.sub(r"^(EBH-|ebh-)", "", clean_desc, flags=re.IGNORECASE)
+        # Make safe for item code (keep alphanumeric, spaces, hyphens, underscores)
+        clean_desc = "".join(c for c in clean_desc if c.isalnum() or c in " -_").strip()
+        clean_desc = clean_desc.replace(" ", "-").upper()[:40]  # Allow longer item codes
+        item_code = clean_desc  # Use description alone, no prefix
     else:
         item_code = item_name
 
@@ -241,6 +247,56 @@ def get_or_create_item_improved(
             item.custom_eboekhouden_account_code = str(account_code)
 
         item.insert()
+
+        # Create Item Defaults with proper account mapping instead of fallback
+        try:
+            # Get the mapped ERPNext account for this eBoekhouden account
+            from verenigingen.e_boekhouden.utils.invoice_helpers import map_grootboek_to_erpnext_account
+
+            mapped_account = None
+            if account_code:
+                debug_info = []
+                try:
+                    mapped_account = map_grootboek_to_erpnext_account(
+                        account_code, transaction_type.lower(), debug_info, allow_fallback=False
+                    )
+                except Exception as e:
+                    frappe.logger().debug(f"No account mapping found for {account_code}: {str(e)}")
+                    mapped_account = None
+
+            # Only create Item Defaults if we have a proper account mapping
+            if mapped_account:
+                # Check if Item Default already exists
+                existing_default = frappe.db.exists("Item Default", {"parent": item_code, "company": company})
+
+                if not existing_default:
+                    item_default = frappe.new_doc("Item Default")
+                    item_default.parent = item_code
+                    item_default.parenttype = "Item"
+                    item_default.parentfield = "item_defaults"
+                    item_default.company = company
+
+                    # Set the appropriate account based on transaction type
+                    if transaction_type in ["Sales", "Both"]:
+                        item_default.income_account = mapped_account
+                    if transaction_type in ["Purchase", "Both"]:
+                        item_default.expense_account = mapped_account
+
+                    item_default.insert()
+                    frappe.logger().info(
+                        f"E-Boekhouden Item Creation: Created Item Default for '{item_code}' with {transaction_type.lower()}_account: {mapped_account}"
+                    )
+                else:
+                    frappe.logger().debug(f"Item Default already exists for {item_code}")
+            else:
+                frappe.logger().warning(
+                    f"E-Boekhouden Item Creation: No account mapping found for account {account_code}, item '{item_code}' created without default accounts"
+                )
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to create Item Default for {item_code}: {str(e)}")
+            # Don't fail the item creation if Item Default creation fails
+
         frappe.logger().info(
             f"E-Boekhouden Item Creation: Successfully created item '{item_code}' with group '{item_group}' for account {account_code}"
         )
@@ -256,14 +312,60 @@ def get_or_create_item_improved(
 
 
 def clean_item_name(account_name):
-    """Clean account name to make a valid item name"""
-    # Remove account number prefixes if present
+    """Clean account name to make a valid item name
+
+    Note: This function is specifically for cleaning ACCOUNT NAMES,
+    not invoice descriptions. Invoice descriptions should be preserved as-is.
+    """
     import re
 
-    cleaned = re.sub(r"^\d+\s*-\s*", "", account_name)
+    cleaned = account_name.strip()
+
+    # Remove account number prefixes if present
+    cleaned = re.sub(r"^\d+\s*-\s*", "", cleaned)
 
     # Remove company abbreviations
     cleaned = re.sub(r"\s*-\s*[A-Z]{2,4}$", "", cleaned)
+
+    # Remove "EBH-" prefix if already present to avoid double prefixes
+    cleaned = re.sub(r"^EBH-", "", cleaned)
+
+    # For complex patterns like "EBH-VIRTUAL-SERVER-ID-12381564-MAA: Virtual Server ID: 12381564, maand januari"
+    # Extract the meaningful part after the colon if present
+    if ":" in cleaned:
+        # Split on colon and process each part
+        parts = cleaned.split(":", 1)
+        if len(parts) == 2:
+            prefix_part = parts[0].strip()
+            description_part = parts[1].strip()
+
+            # Remove redundant ID patterns from description
+            description_part = re.sub(r"Virtual Server ID:\s*\d+,?\s*", "", description_part)
+            description_part = re.sub(r"ID:\s*\d+,?\s*", "", description_part)
+            description_part = re.sub(r",?\s*maand\s+\w+$", "", description_part)
+
+            # If description part has meaningful content, use it; otherwise use prefix
+            if (
+                description_part
+                and len(description_part.strip()) > 3
+                and not description_part.strip().lower() in ["service", "item"]
+            ):
+                cleaned = description_part.strip()
+            else:
+                # Clean up the prefix part by removing redundant patterns
+                prefix_part = re.sub(r"-ID-\d+", "", prefix_part)
+                prefix_part = re.sub(r"EBH-VIRTUAL-SERVER", "Virtual-Server", prefix_part)
+                prefix_part = re.sub(r"-MAA$", "", prefix_part)
+                cleaned = prefix_part.strip()
+    else:
+        # For simple patterns without colon, just clean basic redundancies
+        cleaned = re.sub(r"Virtual Server ID:\s*\d+,?\s*", "", cleaned)
+        cleaned = re.sub(r"ID:\s*\d+,?\s*", "", cleaned)
+        cleaned = re.sub(r",?\s*maand\s+\w+$", "", cleaned)
+
+    # Final cleanup
+    cleaned = re.sub(r"^[:\-,\s]+", "", cleaned)  # Remove leading punctuation
+    cleaned = re.sub(r"[:\-,\s]+$", "", cleaned)  # Remove trailing punctuation
 
     # Limit length
     if len(cleaned) > 100:

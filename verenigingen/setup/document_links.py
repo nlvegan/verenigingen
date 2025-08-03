@@ -49,6 +49,7 @@ def add_member_ledger_link_to_expense_claim():
         frappe.log_error(f"Error adding Member link to Expense Claim: {str(e)}", "Document Links Setup")
 
 
+@frappe.whitelist()
 def get_member_from_expense_claim(expense_claim):
     """Get member record from expense claim via employee"""
 

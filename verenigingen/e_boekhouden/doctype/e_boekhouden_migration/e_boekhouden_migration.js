@@ -1,8 +1,63 @@
+/**
+ * @fileoverview E-Boekhouden Migration Interface - Enterprise Financial Data Integration
+ *
+ * This module provides a comprehensive financial data migration interface for importing
+ * Chart of Accounts, transactions, and financial data from E-Boekhouden (Dutch accounting
+ * software) into ERPNext. The system supports both SOAP and REST API endpoints with
+ * intelligent fallback mechanisms and robust data validation.
+ *
+ * ## Core Business Functions
+ * - **Two-Phase Migration Process**: Streamlined CoA setup followed by transaction import
+ * - **Multi-API Support**: SOAP API for basic operations, REST API for complete historical data
+ * - **Automatic Account Mapping**: Intelligent account type detection based on usage patterns
+ * - **Duplicate Prevention**: Advanced mutation ID tracking prevents duplicate transactions
+ * - **Opening Balance Integration**: Proper ERPNext Opening Invoice creation for receivables/payables
+ * - **Real-time Progress Monitoring**: Live migration status with detailed progress reporting
+ *
+ * ## Technical Architecture
+ * - **Progressive Enhancement**: Falls back from REST to SOAP when API credentials unavailable
+ * - **Transaction Batching**: Processes large datasets efficiently with memory management
+ * - **Error Recovery**: Comprehensive error handling with detailed logging and retry mechanisms
+ * - **Data Validation**: Pre-import analysis with data quality reporting
+ * - **Account Type Intelligence**: Uses transaction patterns to auto-classify account types
+ *
+ * ## Security & Compliance
+ * - **API Key Management**: Secure handling of E-Boekhouden API credentials
+ * - **Data Integrity**: Transaction checksums and validation before import
+ * - **Audit Trail**: Complete migration logging for compliance and debugging
+ * - **Permission Validation**: Ensures proper ERPNext permissions before data creation
+ *
+ * ## Performance Optimization
+ * - **Chunked Processing**: Handles large datasets without memory exhaustion
+ * - **Smart Caching**: Reduces API calls through intelligent data caching
+ * - **Background Processing**: Long-running imports use background jobs
+ * - **Progress Tracking**: Real-time status updates without blocking UI
+ *
+ * ## Integration Points
+ * - ERPNext Chart of Accounts management
+ * - Customer/Supplier master data synchronization
+ * - Journal Entry creation with proper ERPNext workflow
+ * - Opening Invoice generation for proper balance sheet reconciliation
+ * - Cost Center mapping for departmental accounting
+ *
+ * @company R.S.P. (Verenigingen Association Management)
+ * @version 2025.1.0
+ * @since 2024.3.0
+ * @license Proprietary
+ *
+ * @requires frappe>=15.0.0
+ * @requires erpnext>=15.0.0
+ * @requires verenigingen.e_boekhouden
+ *
+ * @see {@link https://api.e-boekhouden.nl/swagger/v1/swagger.json} E-Boekhouden REST API
+ * @see {@link https://cdn.e-boekhouden.nl/handleiding/Documentatie_soap.pdf} E-Boekhouden SOAP API
+ */
+
 // Copyright (c) 2025, R.S.P. and contributors
 // E-Boekhouden Migration Interface - Streamlined with SOAP API
 
 frappe.ui.form.on('E-Boekhouden Migration', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Hide legacy checkbox fields
 		hide_legacy_fields(frm);
 
@@ -26,7 +81,7 @@ frappe.ui.form.on('E-Boekhouden Migration', {
 		set_status_message(frm);
 	},
 
-	onload: function(frm) {
+	onload(frm) {
 		// Set defaults for new migration
 		if (frm.is_new()) {
 			set_migration_defaults(frm);
@@ -210,7 +265,7 @@ function setup_migration_type_handlers(frm) {
 	const wrapper = frm.migration_type_wrapper;
 
 	// Radio button change handler
-	wrapper.find('input[name="eb_migration_type"]').on('change', function() {
+	wrapper.find('input[name="eb_migration_type"]').on('change', function () {
 		const selected = $(this).val();
 		frm.selected_migration_type = selected;
 
@@ -241,7 +296,7 @@ function setup_migration_type_handlers(frm) {
 	});
 
 	// Date change handlers
-	wrapper.find('#eb_date_from, #eb_date_to').on('change', function() {
+	wrapper.find('#eb_date_from, #eb_date_to').on('change', () => {
 		frm.set_value('date_from', wrapper.find('#eb_date_from').val());
 		frm.set_value('date_to', wrapper.find('#eb_date_to').val());
 	});
@@ -256,32 +311,32 @@ function setup_action_buttons(frm) {
 			// Two main action buttons
 
 			// Step 1: Setup Chart of Accounts
-			frm.add_custom_button(__('1. Setup Chart of Accounts'), function() {
+			frm.add_custom_button(__('1. Setup Chart of Accounts'), () => {
 				handle_setup_coa(frm);
 			}).addClass('btn-primary');
 
 			// Step 2: Import Transactions
-			frm.add_custom_button(__('2. Import Transactions'), function() {
+			frm.add_custom_button(__('2. Import Transactions'), () => {
 				handle_import_transactions(frm);
 			}).addClass('btn-primary');
 
 			// Opening Balance Import
-			frm.add_custom_button(__('Import Opening Balances'), function() {
+			frm.add_custom_button(__('Import Opening Balances'), () => {
 				handle_import_opening_balances(frm);
 			}).addClass('btn-secondary');
 
 			// Helper buttons in dropdown
-			frm.add_custom_button(__('Test Connection'), function() {
+			frm.add_custom_button(__('Test Connection'), () => {
 				test_api_connection();
 			}, __('Tools'));
 
 			// Single mutation import for debugging
-			frm.add_custom_button(__('Import Single Mutation'), function() {
+			frm.add_custom_button(__('Import Single Mutation'), () => {
 				handle_import_single_mutation(frm);
 			}, __('Tools'));
 		} else {
 			// Refresh button for in-progress
-			frm.add_custom_button(__('Refresh'), function() {
+			frm.add_custom_button(__('Refresh'), () => {
 				frm.reload_doc();
 			});
 		}
@@ -302,7 +357,7 @@ function analyze_eboekhouden_data(frm) {
 
 	frappe.call({
 		method: 'verenigingen.api.update_prepare_system_button.analyze_eboekhouden_data',
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				const data = r.message;
 				let html = '<div style="max-height: 500px; overflow-y: auto;">';
@@ -354,13 +409,13 @@ function analyze_eboekhouden_data(frm) {
 					sorted_types.forEach(([type, count]) => {
 						// Translate mutation types
 						const type_labels = {
-							'FactuurVerstuurd': 'Sales Invoices',
-							'FactuurOntvangen': 'Purchase Invoices',
-							'FactuurbetalingOntvangen': 'Customer Payments',
-							'FactuurbetalingVerstuurd': 'Supplier Payments',
-							'GeldOntvangen': 'Money Received',
-							'GeldUitgegeven': 'Money Spent',
-							'Memoriaal': 'Journal Entries'
+							FactuurVerstuurd: 'Sales Invoices',
+							FactuurOntvangen: 'Purchase Invoices',
+							FactuurbetalingOntvangen: 'Customer Payments',
+							FactuurbetalingVerstuurd: 'Supplier Payments',
+							GeldOntvangen: 'Money Received',
+							GeldUitgegeven: 'Money Spent',
+							Memoriaal: 'Journal Entries'
 						};
 
 						const label = type_labels[type] || type;
@@ -378,11 +433,11 @@ function analyze_eboekhouden_data(frm) {
 					html += '<tbody>';
 
 					const account_labels = {
-						'receivable_accounts': 'Receivable Accounts (Used in Mutations)',
-						'payable_accounts': 'Payable Accounts (Used in Mutations)',
-						'bank_accounts': 'Bank Accounts',
-						'income_accounts': 'Income Accounts',
-						'expense_accounts': 'Expense Accounts'
+						receivable_accounts: 'Receivable Accounts (Used in Mutations)',
+						payable_accounts: 'Payable Accounts (Used in Mutations)',
+						bank_accounts: 'Bank Accounts',
+						income_accounts: 'Income Accounts',
+						expense_accounts: 'Expense Accounts'
 					};
 
 					Object.entries(data.account_summary).forEach(([type, count]) => {
@@ -392,8 +447,8 @@ function analyze_eboekhouden_data(frm) {
 					});
 
 					// Show actual receivable accounts if different
-					if (data.account_summary.actual_receivable_accounts &&
-						data.account_summary.actual_receivable_accounts !== data.account_summary.receivable_accounts) {
+					if (data.account_summary.actual_receivable_accounts
+						&& data.account_summary.actual_receivable_accounts !== data.account_summary.receivable_accounts) {
 						html += `<tr><td><strong>Receivable Accounts (System Total)</strong></td><td><strong>${data.account_summary.actual_receivable_accounts}</strong></td></tr>`;
 					}
 
@@ -450,7 +505,7 @@ function analyze_eboekhouden_data(frm) {
 					}],
 					size: 'large',
 					primary_action_label: 'Close',
-					primary_action: function() {
+					primary_action() {
 						dialog.hide();
 					}
 				});
@@ -508,7 +563,7 @@ function handle_start_migration(frm) {
 
 	// Set appropriate flags based on migration type
 	const type_settings = {
-		'full_initial': {
+		full_initial: {
 			migrate_accounts: 1,
 			migrate_cost_centers: 1,
 			migrate_customers: 1,
@@ -518,16 +573,16 @@ function handle_start_migration(frm) {
 			message: 'This will import all available data from E-Boekhouden (up to 500 most recent transactions due to SOAP API limit).',
 			auto_dates: true
 		},
-		'transactions_update': {
+		transactions_update: {
 			migrate_accounts: 0,
 			migrate_cost_centers: 0,
-			migrate_customers: 1,  // May need to import new customers
-			migrate_suppliers: 1,  // May need to import new suppliers
+			migrate_customers: 1, // May need to import new customers
+			migrate_suppliers: 1, // May need to import new suppliers
 			migrate_transactions: 1,
 			dry_run: 0,
 			message: 'This will import transactions for the selected date range.'
 		},
-		'preview': {
+		preview: {
 			migrate_accounts: 1,
 			migrate_cost_centers: 1,
 			migrate_customers: 1,
@@ -543,13 +598,13 @@ function handle_start_migration(frm) {
 
 	// Confirm action with enhanced message
 	frappe.confirm(
-		__(settings.message + '<br><br>The system will:<br>' +
-		'• Automatically detect and set correct account types<br>' +
-		'• Create accounts, customers, and suppliers as needed<br>' +
-		'• Import data in the correct sequence<br>' +
-		'• Skip any duplicate transactions<br><br>' +
-		'Continue?'),
-		function() {
+		__(`${settings.message}<br><br>The system will:<br>`
+		+ `• Automatically detect and set correct account types<br>`
+		+ `• Create accounts, customers, and suppliers as needed<br>`
+		+ `• Import data in the correct sequence<br>`
+		+ `• Skip any duplicate transactions<br><br>`
+		+ `Continue?`),
+		() => {
 			// Apply settings
 			Object.keys(settings).forEach(key => {
 				if (key !== 'message' && key !== 'auto_dates') {
@@ -588,7 +643,7 @@ function handle_start_migration(frm) {
 					args: {
 						migration_name: frm.doc.name
 					},
-					callback: function(r) {
+					callback(r) {
 						if (r.message && r.message.success) {
 							frappe.show_alert({
 								message: __('Migration started successfully!'),
@@ -617,7 +672,7 @@ function handle_start_migration(frm) {
 function test_api_connection() {
 	frappe.call({
 		method: 'verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection',
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.msgprint({
 					title: __('Connection Successful'),
@@ -638,7 +693,7 @@ function test_api_connection() {
 function show_migration_statistics() {
 	frappe.call({
 		method: 'verenigingen.api.eboekhouden_migration_redesign.get_migration_statistics',
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				const stats = r.message;
 				let html = '<div style="max-height: 500px; overflow-y: auto;">';
@@ -651,8 +706,8 @@ function show_migration_statistics() {
 					html += '<tbody>';
 
 					stats.migrations.forEach(m => {
-						const statusClass = m.migration_status === 'Completed' ? 'text-success' :
-							m.migration_status === 'Failed' ? 'text-danger' : '';
+						const statusClass = m.migration_status === 'Completed' ? 'text-success'
+							: m.migration_status === 'Failed' ? 'text-danger' : '';
 						html += `<tr>
 							<td class="${statusClass}">${m.migration_status}</td>
 							<td>${m.count}</td>
@@ -703,7 +758,7 @@ function show_migration_statistics() {
 					}],
 					size: 'large',
 					primary_action_label: 'Close',
-					primary_action: function() {
+					primary_action() {
 						dialog.hide();
 					}
 				});
@@ -756,8 +811,8 @@ function set_status_message(frm) {
 		// Don't show intro if guide is already displayed
 		if (!frm.guide_wrapper) {
 			frm.set_intro(
-				'<strong>Welcome to E-Boekhouden Migration!</strong><br>' +
-				'Follow the guide above to import your data.',
+				'<strong>Welcome to E-Boekhouden Migration!</strong><br>'
+				+ 'Follow the guide above to import your data.',
 				'blue'
 			);
 		}
@@ -765,9 +820,9 @@ function set_status_message(frm) {
 		frm.set_intro('Migration is running. Progress updates automatically.', 'yellow');
 	} else if (frm.doc.migration_status === 'Completed') {
 		frm.set_intro(
-			'Migration completed successfully! ' +
-			'Account types have been set automatically based on usage. ' +
-			'Use the Review button only if you notice any issues.',
+			'Migration completed successfully! '
+			+ 'Account types have been set automatically based on usage. '
+			+ 'Use the Review button only if you notice any issues.',
 			'green'
 		);
 	} else if (frm.doc.migration_status === 'Failed') {
@@ -791,20 +846,20 @@ function set_migration_defaults(frm) {
 
 function add_post_migration_tools(frm) {
 	// Simplified post-migration tool
-	frm.add_custom_button(__('Review Account Types'), function() {
+	frm.add_custom_button(__('Review Account Types'), () => {
 		// Redirect to the enhanced mapping review page
 		window.location.href = '/eboekhouden_mapping_review';
 	}, __('Tools'));
 
 	// Add mapping review button if using account mappings
 	if (frm.doc.use_account_mappings) {
-		frm.add_custom_button(__('Review Mappings'), function() {
+		frm.add_custom_button(__('Review Mappings'), () => {
 			window.location.href = '/eboekhouden_mapping_review';
 		}, __('Tools'));
 	}
 
 	// Add Data Quality Check button
-	frm.add_custom_button(__('Check Data Quality'), function() {
+	frm.add_custom_button(__('Check Data Quality'), () => {
 		frappe.show_alert({
 			message: __('Analyzing data quality...'),
 			indicator: 'blue'
@@ -817,7 +872,7 @@ function add_post_migration_tools(frm) {
 			},
 			freeze: true,
 			freeze_message: __('Analyzing imported data quality...'),
-			callback: function(r) {
+			callback(r) {
 				if (r.message && r.message.success) {
 					show_data_quality_report(frm, r.message.report);
 				} else {
@@ -838,7 +893,7 @@ function check_account_types(frm) {
 		args: {
 			company: frm.doc.company
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				const data = r.message;
 				let html = '<div style="max-height: 500px; overflow-y: auto;">';
@@ -879,7 +934,7 @@ function check_account_types(frm) {
 					}],
 					size: 'large',
 					primary_action_label: data.issues.length > 0 ? 'Fix Issues' : 'Close',
-					primary_action: function() {
+					primary_action() {
 						dialog.hide();
 						if (data.issues.length > 0) {
 							fix_account_type_issues(data.issues);
@@ -898,9 +953,9 @@ function fix_account_type_issues(issues) {
 	frappe.call({
 		method: 'verenigingen.api.check_account_types.fix_account_type_issues',
 		args: {
-			issues: issues
+			issues
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.msgprint({
 					title: __('Success'),
@@ -913,18 +968,18 @@ function fix_account_type_issues(issues) {
 }
 
 // Clean up on form unload and status changes
-frappe.ui.form.on('E-Boekhouden Migration', 'before_unload', function(frm) {
+frappe.ui.form.on('E-Boekhouden Migration', 'before_unload', (frm) => {
 	clear_migration_progress(frm);
 });
 
-frappe.ui.form.on('E-Boekhouden Migration', 'migration_status', function(frm) {
+frappe.ui.form.on('E-Boekhouden Migration', 'migration_status', (frm) => {
 	// Clear progress tracking when status changes from 'In Progress'
 	if (frm.doc.migration_status !== 'In Progress') {
 		clear_migration_progress(frm);
 	}
 });
 
-frappe.ui.form.on('E-Boekhouden Migration', 'refresh', function(frm) {
+frappe.ui.form.on('E-Boekhouden Migration', 'refresh', (frm) => {
 	// Ensure cleanup when form refreshes but migration is not in progress
 	if (frm.doc.migration_status !== 'In Progress') {
 		clear_migration_progress(frm);
@@ -943,7 +998,7 @@ function handle_setup_coa(frm) {
 	}
 
 	// Show setup dialog with cleanup option
-	let dialog = new frappe.ui.Dialog({
+	const dialog = new frappe.ui.Dialog({
 		title: 'Setup Chart of Accounts',
 		fields: [
 			{
@@ -966,7 +1021,7 @@ function handle_setup_coa(frm) {
 				options: 'No cleanup\nClean up E-Boekhouden accounts only\nClean up ALL accounts',
 				default: 'No cleanup',
 				description: 'Choose what to clean up before importing',
-				onchange: function() {
+				onchange() {
 					const cleanup_type = dialog.get_value('cleanup_type');
 					dialog.set_df_property('cleanup_warning', 'hidden', cleanup_type === 'No cleanup');
 
@@ -1000,18 +1055,18 @@ function handle_setup_coa(frm) {
 				// Extra confirmation for delete all
 				if (delete_all) {
 					frappe.confirm(
-						'<strong>Are you absolutely sure?</strong><br><br>' +
-						'This will delete ALL accounts in your Chart of Accounts.<br>' +
-						'This action cannot be undone!<br><br>' +
-						'Type "DELETE ALL" to confirm:',
-						function() {
+						'<strong>Are you absolutely sure?</strong><br><br>'
+						+ 'This will delete ALL accounts in your Chart of Accounts.<br>'
+						+ 'This action cannot be undone!<br><br>'
+						+ 'Type "DELETE ALL" to confirm:',
+						() => {
 							// Get the input value from the prompt
 							frappe.prompt({
 								fieldname: 'confirmation',
 								label: 'Type "DELETE ALL" to confirm',
 								fieldtype: 'Data',
 								reqd: 1
-							}, function(values) {
+							}, (values) => {
 								if (values.confirmation === 'DELETE ALL') {
 									perform_cleanup(frm, true);
 								} else {
@@ -1019,7 +1074,7 @@ function handle_setup_coa(frm) {
 								}
 							}, 'Confirm Deletion', 'Delete');
 						},
-						function() {
+						() => {
 							// Cancelled - do nothing
 						}
 					);
@@ -1042,9 +1097,9 @@ function perform_cleanup(frm, delete_all_accounts) {
 		method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.cleanup_chart_of_accounts',
 		args: {
 			company: frm.doc.company,
-			delete_all_accounts: delete_all_accounts
+			delete_all_accounts
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.show_alert({
 					message: r.message.message,
@@ -1084,9 +1139,9 @@ function start_coa_import(frm) {
 			method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.start_migration',
 			args: {
 				migration_name: frm.doc.name,
-				setup_only: true  // Special flag for CoA setup
+				setup_only: true // Special flag for CoA setup
 			},
-			callback: function(r) {
+			callback(r) {
 				if (r.message && r.message.success) {
 					frappe.show_alert({
 						message: __('Chart of Accounts setup started!'),
@@ -1121,7 +1176,7 @@ function check_and_show_account_type_review(frm) {
 			doctype: 'E-Boekhouden Migration',
 			name: frm.doc.name
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.migration_status === 'Completed') {
 				// Migration completed, show account type review
 				show_account_type_adjustment_dialog(frm);
@@ -1155,11 +1210,11 @@ function update_single_account_type(account_name, new_type, company, button) {
 	frappe.call({
 		method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.update_account_type_mapping',
 		args: {
-			account_name: account_name,  // This is the doctype name, not the account_name field
+			account_name, // This is the doctype name, not the account_name field
 			new_account_type: new_type,
-			company: company
+			company
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				button.text('✓ Updated').removeClass('btn-primary').addClass('btn-success');
 			} else {
@@ -1176,9 +1231,9 @@ function update_single_account_type(account_name, new_type, company, button) {
 
 function update_all_account_types(dialog, recommendations, company) {
 	// Collect all updates
-	let updates = [];
+	const updates = [];
 
-	dialog.$wrapper.find('.account-type-select').each(function() {
+	dialog.$wrapper.find('.account-type-select').each(function () {
 		const idx = $(this).data('idx');
 		const rec = recommendations[idx];
 		const new_type = $(this).val();
@@ -1187,7 +1242,7 @@ function update_all_account_types(dialog, recommendations, company) {
 			updates.push({
 				account: rec.account,
 				account_name: rec.account_name,
-				new_type: new_type
+				new_type
 			});
 		}
 	});
@@ -1209,11 +1264,11 @@ function update_all_account_types(dialog, recommendations, company) {
 		frappe.call({
 			method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.update_account_type_mapping',
 			args: {
-				account_name: update.account,  // Use the doctype name
+				account_name: update.account, // Use the doctype name
 				new_account_type: update.new_type,
-				company: company
+				company
 			},
-			callback: function(r) {
+			callback(r) {
 				completed++;
 				if (completed === updates.length) {
 					dialog.hide();
@@ -1248,7 +1303,7 @@ function handle_import_transactions(frm) {
 				eboekhouden_grootboek_nummer: ['!=', '']
 			}
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message === 0) {
 				frappe.msgprint({
 					title: __('Setup Required'),
@@ -1265,7 +1320,7 @@ function handle_import_transactions(frm) {
 }
 
 function show_transaction_import_dialog(frm) {
-	let dialog = new frappe.ui.Dialog({
+	const dialog = new frappe.ui.Dialog({
 		title: 'Import Transactions',
 		fields: [
 			{
@@ -1275,7 +1330,7 @@ function show_transaction_import_dialog(frm) {
 				options: 'Recent Transactions (Last 90 days)\nAll Transactions (Complete history)',
 				default: 'Recent Transactions (Last 90 days)',
 				description: 'Choose how many transactions to import',
-				onchange: function() {
+				onchange() {
 					const method = dialog.get_value('import_method');
 					dialog.set_df_property('rest_note', 'hidden', !method.includes('REST'));
 					dialog.set_df_property('date_range_section', 'hidden', method.includes('All'));
@@ -1354,7 +1409,7 @@ function import_transactions_soap(frm, options) {
 			args: {
 				migration_name: frm.doc.name
 			},
-			callback: function(r) {
+			callback(r) {
 				if (r.message && r.message.success) {
 					frappe.show_alert({
 						message: __('Transaction import started successfully!'),
@@ -1382,7 +1437,7 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 	// First check if REST API is configured
 	frappe.call({
 		method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.check_rest_api_status',
-		callback: function(r) {
+		callback(r) {
 			if (!r.message || !r.message.configured) {
 				frappe.msgprint({
 					title: __('REST API Not Configured'),
@@ -1464,9 +1519,9 @@ function import_transactions_rest(frm, options, import_type = 'all') {
 							method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_migration.e_boekhouden_migration.start_transaction_import',
 							args: {
 								migration_name: frm.doc.name,
-								import_type: import_type
+								import_type
 							},
-							callback: function(r) {
+							callback(r) {
 								if (r.message && r.message.success) {
 									frappe.show_alert({
 										message: __('REST API transaction import started! This may take several minutes.'),
@@ -1531,7 +1586,7 @@ function show_account_mapping_dialog(frm, mappings) {
 		}],
 		size: 'large',
 		primary_action_label: 'Confirm & Continue',
-		primary_action: function() {
+		primary_action() {
 			dialog.hide();
 			frappe.show_alert({
 				message: __('Chart of Accounts setup completed successfully!'),
@@ -1543,7 +1598,7 @@ function show_account_mapping_dialog(frm, mappings) {
 			});
 		},
 		secondary_action_label: 'Edit Mappings',
-		secondary_action: function() {
+		secondary_action() {
 			dialog.hide();
 			// Redirect to mapping page
 			window.location.href = '/eboekhouden_mapping_review';
@@ -1574,7 +1629,7 @@ function handle_import_opening_balances(frm) {
 				eboekhouden_grootboek_nummer: ['!=', '']
 			}
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message === 0) {
 				frappe.msgprint({
 					title: __('Setup Required'),
@@ -1591,7 +1646,7 @@ function handle_import_opening_balances(frm) {
 }
 
 function show_opening_balance_import_dialog(frm) {
-	let dialog = new frappe.ui.Dialog({
+	const dialog = new frappe.ui.Dialog({
 		title: 'Import Opening Balances',
 		fields: [
 			{
@@ -1642,14 +1697,14 @@ function start_opening_balance_import(frm, options) {
 			args: {
 				migration_name: frm.doc.name
 			},
-			callback: function(r) {
+			callback(r) {
 				if (r.message && r.message.success) {
 					const result = r.message.result;
 
 					// Show results
-					let message = options.dry_run ?
-						'<strong>Opening Balance Preview:</strong><br><br>' :
-						'<strong>Opening Balance Import Completed!</strong><br><br>';
+					let message = options.dry_run
+						? '<strong>Opening Balance Preview:</strong><br><br>'
+						: '<strong>Opening Balance Import Completed!</strong><br><br>';
 
 					message += '<strong>Summary:</strong><br>';
 					message += `• Total imported: ${result.imported}<br>`;
@@ -1670,7 +1725,7 @@ function start_opening_balance_import(frm, options) {
 
 					frappe.msgprint({
 						title: options.dry_run ? __('Opening Balance Preview') : __('Opening Balance Import Complete'),
-						message: message,
+						message,
 						indicator: result.errors && result.errors.length > 0 ? 'orange' : 'green',
 						wide: true
 					});
@@ -1705,22 +1760,22 @@ function add_tools_dropdown(frm) {
 	// Add debugging and REST API tools
 
 	// Debug Connection - moved to frm.add_custom_button
-	frm.add_custom_button(__('Debug Connection'), function() {
+	frm.add_custom_button(__('Debug Connection'), () => {
 		frappe.call({
 			method: 'verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection',
 			freeze: true,
 			freeze_message: __('Testing connection...'),
-			callback: function(r) {
+			callback(r) {
 				if (r.message && r.message.success) {
 					frappe.msgprint({
 						title: __('Connection Test Successful'),
-						message: __('Successfully connected to E-Boekhouden API.<br><br>Details:<br>' + r.message.message),
+						message: __(`Successfully connected to E-Boekhouden API.<br><br>Details:<br>${r.message.message}`),
 						indicator: 'green'
 					});
 				} else {
 					frappe.msgprint({
 						title: __('Connection Test Failed'),
-						message: __('Failed to connect: ' + (r.message ? r.message.message : 'Unknown error')),
+						message: __(`Failed to connect: ${r.message ? r.message.message : 'Unknown error'}`),
 						indicator: 'red'
 					});
 				}
@@ -1729,7 +1784,7 @@ function add_tools_dropdown(frm) {
 	}, __('Tools'));
 
 	// Add Data Quality Check
-	frm.add_custom_button(__('Check Data Quality'), function() {
+	frm.add_custom_button(__('Check Data Quality'), () => {
 		frappe.show_alert({
 			message: __('Analyzing data quality...'),
 			indicator: 'blue'
@@ -1742,7 +1797,7 @@ function add_tools_dropdown(frm) {
 			},
 			freeze: true,
 			freeze_message: __('Analyzing imported data quality...'),
-			callback: function(r) {
+			callback(r) {
 				if (r.message && r.message.success) {
 					show_data_quality_report(frm, r.message.report);
 				} else {
@@ -1757,12 +1812,12 @@ function add_tools_dropdown(frm) {
 	}, __('Tools'));
 
 	// Add REST API migration button
-	frm.add_custom_button(__('Fetch ALL Mutations (REST API)'), function() {
+	frm.add_custom_button(__('Fetch ALL Mutations (REST API)'), () => {
 		frappe.confirm(
 			__('This will fetch ALL historical mutations using the REST API by iterating through mutation IDs. This may take several minutes. Continue?'),
-			function() {
+			() => {
 				// Show a dialog with options
-				let d = new frappe.ui.Dialog({
+				const d = new frappe.ui.Dialog({
 					title: 'REST API Full Migration',
 					fields: [
 						{
@@ -1791,18 +1846,18 @@ function add_tools_dropdown(frm) {
 					primary_action(values) {
 						d.hide();
 
-						let start_id = values.start_id;
-						let end_id = values.test_mode ? Math.min(values.start_id + 100, values.end_id) : values.end_id;
+						const start_id = values.start_id;
+						const end_id = values.test_mode ? Math.min(values.start_id + 100, values.end_id) : values.end_id;
 
 						frappe.call({
 							method: 'verenigingen.utils.test_rest_migration.test_rest_mutation_fetch',
 							args: {
-								start_id: start_id,
-								end_id: end_id
+								start_id,
+								end_id
 							},
 							freeze: true,
 							freeze_message: __('Fetching mutations from REST API...'),
-							callback: function(r) {
+							callback(r) {
 								if (r.message && !r.message.error) {
 									let msg = '<b>REST API Migration Results:</b><br><br>';
 									msg += `Total Checked: ${r.message.summary.total_checked}<br>`;
@@ -1811,7 +1866,7 @@ function add_tools_dropdown(frm) {
 									msg += `Errors: ${r.message.summary.total_errors}<br><br>`;
 
 									msg += '<b>Type Distribution:</b><br>';
-									for (let [type, count] of Object.entries(r.message.summary.type_distribution)) {
+									for (const [type, count] of Object.entries(r.message.summary.type_distribution)) {
 										msg += `${type}: ${count}<br>`;
 									}
 
@@ -1861,18 +1916,18 @@ function show_data_quality_report(frm, report) {
 	// Issues Summary
 	if (report.issues && report.issues.length > 0) {
 		report_html += '<div style="margin-bottom: 20px;">';
-		report_html += '<h5 style="color: #d32f2f;">Issues Found (' + report.issues.length + ')</h5>';
+		report_html += `<h5 style="color: #d32f2f;">Issues Found (${report.issues.length})</h5>`;
 		report_html += '<ul style="list-style-type: disc; padding-left: 20px;">';
 		report.issues.forEach(issue => {
 			report_html += '<li style="margin-bottom: 10px;">';
-			report_html += '<strong>' + issue.type + ':</strong> ' + issue.description;
+			report_html += `<strong>${issue.type}:</strong> ${issue.description}`;
 			if (issue.count) {
-				report_html += ' <span style="color: #666;">(' + issue.count + ' records)</span>';
+				report_html += ` <span style="color: #666;">(${issue.count} records)</span>`;
 			}
 			if (issue.examples && issue.examples.length > 0) {
 				report_html += '<ul style="margin-top: 5px; font-size: 0.9em; color: #666;">';
 				issue.examples.forEach(example => {
-					report_html += '<li>' + example + '</li>';
+					report_html += `<li>${example}</li>`;
 				});
 				report_html += '</ul>';
 			}
@@ -1892,10 +1947,10 @@ function show_data_quality_report(frm, report) {
 		report_html += '<div style="margin-bottom: 20px;">';
 		report_html += '<h5>Import Statistics</h5>';
 		report_html += '<table style="width: 100%; border-collapse: collapse;">';
-		for (let [key, value] of Object.entries(report.statistics)) {
+		for (const [key, value] of Object.entries(report.statistics)) {
 			report_html += '<tr style="border-bottom: 1px solid #e0e0e0;">';
-			report_html += '<td style="padding: 8px;">' + key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) + '</td>';
-			report_html += '<td style="padding: 8px; text-align: right; font-weight: bold;">' + value + '</td>';
+			report_html += `<td style="padding: 8px;">${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}</td>`;
+			report_html += `<td style="padding: 8px; text-align: right; font-weight: bold;">${value}</td>`;
 			report_html += '</tr>';
 		}
 		report_html += '</table>';
@@ -1910,7 +1965,7 @@ function show_data_quality_report(frm, report) {
 		report.recommendations.forEach(rec => {
 			// Handle both string and object recommendations
 			if (typeof rec === 'string') {
-				report_html += '<li style="margin-bottom: 8px;">' + rec + '</li>';
+				report_html += `<li style="margin-bottom: 8px;">${rec}</li>`;
 			} else if (typeof rec === 'object' && rec !== null) {
 				// Format object recommendation
 				let recText = '';
@@ -1926,7 +1981,7 @@ function show_data_quality_report(frm, report) {
 				if (rec.impact) {
 					recText += ` <em>(${rec.impact})</em>`;
 				}
-				report_html += '<li style="margin-bottom: 8px;">' + (recText || JSON.stringify(rec)) + '</li>';
+				report_html += `<li style="margin-bottom: 8px;">${recText || JSON.stringify(rec)}</li>`;
 			}
 		});
 		report_html += '</ol>';
@@ -1943,7 +1998,7 @@ function show_data_quality_report(frm, report) {
 			fieldtype: 'HTML',
 			fieldname: 'report_html'
 		}],
-		primary_action: function() {
+		primary_action() {
 			dialog.hide();
 			// Update quality check timestamp
 			if (frm.doc.name) {
@@ -1978,7 +2033,7 @@ function handle_import_single_mutation(frm) {
 				description: __('Delete existing journal entry if it already exists')
 			}
 		],
-		primary_action: function(values) {
+		primary_action(values) {
 			dialog.hide();
 
 			frappe.show_alert({
@@ -1993,7 +2048,7 @@ function handle_import_single_mutation(frm) {
 					mutation_id: values.mutation_id,
 					overwrite_existing: values.overwrite_existing
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.success) {
 						frappe.show_alert({
 							message: __('Successfully imported mutation {0}', [values.mutation_id]),
@@ -2016,7 +2071,7 @@ function handle_import_single_mutation(frm) {
 
 						frappe.msgprint({
 							title: __('Import Complete'),
-							message: message,
+							message,
 							indicator: 'green'
 						});
 					} else {
@@ -2034,7 +2089,7 @@ function handle_import_single_mutation(frm) {
 						}
 					}
 				},
-				error: function(r) {
+				error(r) {
 					frappe.show_alert({
 						message: __('Error importing mutation {0}', [values.mutation_id]),
 						indicator: 'red'

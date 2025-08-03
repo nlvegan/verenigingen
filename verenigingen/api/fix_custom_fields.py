@@ -112,11 +112,11 @@ def fix_custom_field_modules():
         "custom_sepa_": "Verenigingen",
         "custom_mandate_": "Verenigingen",
         # E Boekhouden fields
-        "custom_ebh_": "E Boekhouden",
-        "custom_e_boekhouden_": "E Boekhouden",
-        "custom_relation_": "E Boekhouden",
-        "custom_gb_": "E Boekhouden",
-        "custom_mutatie_": "E Boekhouden",
+        "custom_ebh_": "E-Boekhouden",
+        "custom_e_boekhouden_": "E-Boekhouden",
+        "custom_relation_": "E-Boekhouden",
+        "custom_gb_": "E-Boekhouden",
+        "custom_mutatie_": "E-Boekhouden",
     }
 
     updated_count = 0

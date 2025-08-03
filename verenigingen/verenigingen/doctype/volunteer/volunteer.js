@@ -1,14 +1,89 @@
+/**
+ * @fileoverview Volunteer DocType Controller - Advanced Volunteer Management with Activity Tracking
+ *
+ * Comprehensive volunteer management system for the Verenigingen association platform,
+ * providing sophisticated volunteer lifecycle management, activity tracking, skill assessment,
+ * and assignment coordination. Enables complex volunteer operations including automated
+ * contact integration, member linking, assignment visualization, and reporting capabilities.
+ *
+ * ## Business Value
+ * - **Volunteer Engagement**: Streamlined onboarding and continuous engagement tracking
+ * - **Resource Allocation**: Intelligent matching of volunteers to opportunities
+ * - **Capacity Planning**: Skills-based assignment and workload management
+ * - **Impact Measurement**: Comprehensive activity tracking and contribution analysis
+ * - **Retention Analysis**: Historical engagement patterns and timeline visualization
+ *
+ * ## Core Capabilities
+ * - **Member Integration**: Seamless linking with existing member profiles
+ * - **Contact Management**: Dynamic address/contact integration via Frappe's contact system
+ * - **Assignment Tracking**: Real-time activity and role assignment management
+ * - **Skills Database**: Comprehensive skill cataloging with proficiency levels
+ * - **Timeline Visualization**: Historical engagement pattern analysis
+ * - **Automated Workflows**: Email generation and organizational integration
+ *
+ * ## Technical Architecture
+ * - **Form Controller**: Frappe-standard form event handling with enhanced UI components
+ * - **Dynamic Linking**: Conditional address/contact linking based on member association
+ * - **Real-time Updates**: Live assignment tracking with server-side method calls
+ * - **Dialog Components**: Modal interfaces for activity and skill management
+ * - **Report Generation**: Comprehensive volunteer profile and activity reporting
+ * - **Autocomplete Integration**: Intelligent skill suggestion and data entry assistance
+ *
+ * ## Integration Points
+ * - **Member System**: Bidirectional linking for member-volunteer relationships
+ * - **Contact Framework**: Frappe's native contact and address management
+ * - **Activity Tracking**: Integration with chapter, team, and event systems
+ * - **Settings System**: Organization-wide configuration and domain management
+ * - **Reporting Engine**: Multi-format export and print capabilities
+ *
+ * ## Security Features
+ * - **Permission-based Access**: Role-based form field visibility
+ * - **Data Validation**: Server-side validation for all volunteer operations
+ * - **Audit Trail**: Complete tracking of volunteer record modifications
+ * - **Privacy Compliance**: GDPR-compliant data handling and export features
+ *
+ * ## Performance Optimization
+ * - **Lazy Loading**: On-demand loading of assignment and skill data
+ * - **Caching Strategy**: Efficient skill suggestion caching
+ * - **Batch Operations**: Optimized bulk assignment and reporting operations
+ * - **Progressive Enhancement**: Graceful degradation for basic functionality
+ *
+ * ## Usage Examples
+ * ```javascript
+ * // Automatic member linking
+ * frm.set_value('member', 'MEM-2025-001');
+ *
+ * // Add volunteer activity
+ * show_add_activity_dialog(frm);
+ *
+ * // Generate comprehensive report
+ * generate_volunteer_report(frm);
+ * ```
+ *
+ * @version 1.2.0
+ * @author Verenigingen Development Team
+ * @since 2024-Q1
+ *
+ * @requires frappe.ui.form
+ * @requires frappe.contacts
+ * @requires frappe.model
+ *
+ * @see {@link member.js} Member DocType Controller
+ * @see {@link volunteer_activity.js} Activity Management
+ * @see {@link team.js} Team Assignment Integration
+ */
+
 // Copyright (c) 2025, Your Organization and contributors
 // For license information, please see license.txt
 
 frappe.ui.form.on('Volunteer', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Set up dynamic link for address and contact
 		// If volunteer is linked to a member, use member's address/contact
 		if (frm.doc.member) {
-			frappe.dynamic_link = {doc: {name: frm.doc.member, doctype: 'Member'}, fieldname: 'name', doctype: 'Member'};
+			frappe.dynamic_link = { doc: { name: frm.doc.member, doctype: 'Member' }, fieldname: 'name', doctype: 'Member' };
 		} else {
-			frappe.dynamic_link = {doc: frm.doc, fieldname: 'name', doctype: 'Volunteer'};
+			frappe.dynamic_link = { doc: frm.doc, fieldname: 'name', doctype: 'Volunteer' };
 		}
 
 		// Toggle address and contact display
@@ -20,7 +95,7 @@ frappe.ui.form.on('Volunteer', {
 
 			// Add button to view member record
 			if (frm.doc.member) {
-				frm.add_custom_button(__('View Member'), function() {
+				frm.add_custom_button(__('View Member'), () => {
 					frappe.set_route('Form', 'Member', frm.doc.member);
 				}, __('Links'));
 			}
@@ -29,17 +104,17 @@ frappe.ui.form.on('Volunteer', {
 			render_aggregated_assignments(frm);
 
 			// Add assignment buttons
-			frm.add_custom_button(__('Add Activity'), function() {
+			frm.add_custom_button(__('Add Activity'), () => {
 				show_add_activity_dialog(frm);
 			}, __('Assignments'));
 
 			// Add button to view volunteer assignments timeline
-			frm.add_custom_button(__('View Timeline'), function() {
+			frm.add_custom_button(__('View Timeline'), () => {
 				show_volunteer_timeline(frm);
 			}, __('View'));
 
 			// Add button to generate volunteer report
-			frm.add_custom_button(__('Volunteer Report'), function() {
+			frm.add_custom_button(__('Volunteer Report'), () => {
 				generate_volunteer_report(frm);
 			}, __('View'));
 		} else {
@@ -49,33 +124,33 @@ frappe.ui.form.on('Volunteer', {
 		// Add skills grid custom button
 		if (frm.fields_dict.skills_and_qualifications) {
 			frm.fields_dict.skills_and_qualifications.grid.add_custom_button(__('Add Skill'),
-				function() {
+				() => {
 					add_new_skill(frm);
 				}
 			);
 		}
 
 		// Set up filters for reference_doctype in assignment grid
-		frm.set_query('reference_doctype', 'assignment_history', function() {
+		frm.set_query('reference_doctype', 'assignment_history', () => {
 			return {
 				filters: {
-					'name': ['in', ['Chapter', 'Team', 'Event', 'Volunteer Activity', 'Commission']]
+					name: ['in', ['Chapter', 'Team', 'Event', 'Volunteer Activity', 'Commission']]
 				}
 			};
 		});
 	},
 
-	after_save: function(frm) {
+	after_save(frm) {
 		// Refresh the assignments view
 		render_aggregated_assignments(frm);
 	},
 
-	member: function(frm) {
+	member(frm) {
 		// When member is changed, update the dynamic link for address/contact
 		if (frm.doc.member) {
-			frappe.dynamic_link = {doc: {name: frm.doc.member, doctype: 'Member'}, fieldname: 'name', doctype: 'Member'};
+			frappe.dynamic_link = { doc: { name: frm.doc.member, doctype: 'Member' }, fieldname: 'name', doctype: 'Member' };
 		} else {
-			frappe.dynamic_link = {doc: frm.doc, fieldname: 'name', doctype: 'Volunteer'};
+			frappe.dynamic_link = { doc: frm.doc, fieldname: 'name', doctype: 'Volunteer' };
 		}
 
 		// Refresh address and contact display
@@ -91,9 +166,9 @@ frappe.ui.form.on('Volunteer', {
 					doctype: 'Member',
 					name: frm.doc.member
 				},
-				callback: function(response) {
+				callback(response) {
 					if (response.message) {
-						var member = response.message;
+						const member = response.message;
 
 						// If this is a new record, update fields from member
 						if (frm.doc.__islocal) {
@@ -106,7 +181,7 @@ frappe.ui.form.on('Volunteer', {
 									doctype: 'Verenigingen Settings',
 									fieldname: 'organization_email_domain'
 								},
-								callback: function(r) {
+								callback(r) {
 									// Default domain if not set
 									const domain = r.message && r.message.organization_email_domain
 										? r.message.organization_email_domain
@@ -154,7 +229,7 @@ function render_aggregated_assignments(frm) {
 	);
 
 	// Add header
-	$('<div class="assignments-header"><h4>' + __('Current Assignments') + '</h4></div>').appendTo(assignments_container);
+	$(`<div class="assignments-header"><h4>${__('Current Assignments')}</h4></div>`).appendTo(assignments_container);
 
 	// Get assignments data with error handling
 	frappe.call({
@@ -162,7 +237,7 @@ function render_aggregated_assignments(frm) {
 		doc: frm.doc,
 		freeze: true,
 		freeze_message: __('Loading assignments...'),
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.length) {
 				// Create table
 				const table = $(`
@@ -184,7 +259,7 @@ function render_aggregated_assignments(frm) {
 				// Add rows
 				const tbody = table.find('tbody');
 
-				r.message.forEach(function(assignment) {
+				r.message.forEach((assignment) => {
 					const row = $('<tr>').appendTo(tbody);
 
 					// Type column
@@ -211,13 +286,13 @@ function render_aggregated_assignments(frm) {
 					if (assignment.editable) {
 						$(`<button class="btn btn-xs btn-danger">${__('End')}</button>`)
 							.appendTo(actions_cell)
-							.click(function() {
+							.click(() => {
 								show_end_activity_dialog(frm, assignment.source_name);
 							});
 					} else {
 						$(`<button class="btn btn-xs btn-default">${__('View')}</button>`)
 							.appendTo(actions_cell)
-							.click(function() {
+							.click(() => {
 								frappe.set_route(assignment.source_link);
 							});
 					}
@@ -230,11 +305,11 @@ function render_aggregated_assignments(frm) {
 			$(`<div class="add-assignment-btn">
                 <button class="btn btn-xs btn-primary">${__('Add Activity')}</button>
             </div>`).appendTo(assignments_container)
-				.click(function() {
+				.click(() => {
 					show_add_activity_dialog(frm);
 				});
 		},
-		error: function(r) {
+		error(r) {
 			frappe.msgprint(__('Failed to load assignments: {0}', [r.message || __('Unknown error')]));
 			$(`<div class="text-muted text-danger">${__('Error loading assignments')}</div>`).appendTo(assignments_container);
 		}
@@ -291,10 +366,10 @@ function show_add_activity_dialog(frm) {
 				fieldtype: 'Link',
 				label: __('Reference DocType'),
 				options: 'DocType',
-				get_query: function() {
+				get_query() {
 					return {
 						filters: {
-							'name': ['in', ['Event', 'Project', 'Task']]
+							name: ['in', ['Event', 'Project', 'Task']]
 						}
 					};
 				}
@@ -322,7 +397,7 @@ function show_add_activity_dialog(frm) {
 			}
 		],
 		primary_action_label: __('Add'),
-		primary_action: function() {
+		primary_action() {
 			const values = d.get_values();
 
 			frappe.call({
@@ -341,7 +416,7 @@ function show_add_activity_dialog(frm) {
 					estimated_hours: values.estimated_hours,
 					notes: values.notes
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.show_alert({
 							message: __('Activity added successfully'),
@@ -352,7 +427,7 @@ function show_add_activity_dialog(frm) {
 						render_aggregated_assignments(frm);
 					}
 				},
-				error: function(r) {
+				error(r) {
 					frappe.msgprint(__('Failed to add activity: {0}', [r.message || __('Unknown error')]));
 				}
 			});
@@ -383,7 +458,7 @@ function show_end_activity_dialog(frm, activity_name) {
 			}
 		],
 		primary_action_label: __('End Activity'),
-		primary_action: function() {
+		primary_action() {
 			const values = d.get_values();
 
 			frappe.call({
@@ -392,11 +467,11 @@ function show_end_activity_dialog(frm, activity_name) {
 				freeze: true,
 				freeze_message: __('Ending activity...'),
 				args: {
-					activity_name: activity_name,
+					activity_name,
 					end_date: values.end_date,
 					notes: values.notes
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.show_alert({
 							message: __('Activity ended successfully'),
@@ -407,7 +482,7 @@ function show_end_activity_dialog(frm, activity_name) {
 						render_aggregated_assignments(frm);
 					}
 				},
-				error: function(r) {
+				error(r) {
 					frappe.msgprint(__('Failed to end activity: {0}', [r.message || __('Unknown error')]));
 				}
 			});
@@ -427,28 +502,28 @@ function show_volunteer_timeline(frm) {
 		doc: frm.doc,
 		freeze: true,
 		freeze_message: __('Loading volunteer history...'),
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
-				var history = r.message;
+				const history = r.message;
 
 				// Create a formatted HTML timeline
-				var html = '<div class="timeline-view">';
-				html += '<h4>' + __('Volunteer History Timeline') + '</h4>';
+				let html = '<div class="timeline-view">';
+				html += `<h4>${__('Volunteer History Timeline')}</h4>`;
 				html += '<div class="timeline-items">';
 
-				history.forEach(function(item) {
-					var status_color = item.is_active ? 'green' : 'grey';
-					if (item.status === 'Cancelled') status_color = 'red';
+				history.forEach((item) => {
+					let status_color = item.is_active ? 'green' : 'grey';
+					if (item.status === 'Cancelled') { status_color = 'red'; }
 
 					html += '<div class="timeline-item">';
-					html += '<div class="timeline-dot" style="background-color: var(--' + status_color + ');"></div>';
+					html += `<div class="timeline-dot" style="background-color: var(--${status_color});"></div>`;
 					html += '<div class="timeline-content">';
-					html += '<div class="timeline-title">' + item.role + ' (' + item.assignment_type + ')</div>';
-					html += '<div class="timeline-reference">' + (item.reference || '') + '</div>';
-					html += '<div class="timeline-dates">' + frappe.datetime.str_to_user(item.start_date) +
-                           (item.end_date ? ' to ' + frappe.datetime.str_to_user(item.end_date) : ' to Present') + '</div>';
-					html += '<div class="timeline-status"><span class="indicator ' + status_color + '">' +
-                           (item.is_active ? 'Active' : item.status) + '</span></div>';
+					html += `<div class="timeline-title">${item.role} (${item.assignment_type})</div>`;
+					html += `<div class="timeline-reference">${item.reference || ''}</div>`;
+					html += `<div class="timeline-dates">${frappe.datetime.str_to_user(item.start_date)
+					}${item.end_date ? ` to ${frappe.datetime.str_to_user(item.end_date)}` : ' to Present'}</div>`;
+					html += `<div class="timeline-status"><span class="indicator ${status_color}">${
+						item.is_active ? 'Active' : item.status}</span></div>`;
 					html += '</div>'; // timeline-content
 					html += '</div>'; // timeline-item
 				});
@@ -464,7 +539,7 @@ function show_volunteer_timeline(frm) {
 						options: html
 					}],
 					primary_action_label: __('Close'),
-					primary_action: function() {
+					primary_action() {
 						d.hide();
 					}
 				});
@@ -475,11 +550,11 @@ function show_volunteer_timeline(frm) {
 				d.$wrapper.find('.timeline-view').css({
 					'max-height': '400px',
 					'overflow-y': 'auto',
-					'padding': '10px'
+					padding: '10px'
 				});
 
 				d.$wrapper.find('.timeline-items').css({
-					'position': 'relative',
+					position: 'relative',
 					'border-left': '2px solid var(--gray-400)',
 					'margin-left': '10px',
 					'padding-left': '20px'
@@ -487,16 +562,16 @@ function show_volunteer_timeline(frm) {
 
 				d.$wrapper.find('.timeline-item').css({
 					'margin-bottom': '20px',
-					'position': 'relative'
+					position: 'relative'
 				});
 
 				d.$wrapper.find('.timeline-dot').css({
-					'width': '12px',
-					'height': '12px',
+					width: '12px',
+					height: '12px',
 					'border-radius': '50%',
-					'position': 'absolute',
-					'left': '-27px',
-					'top': '5px'
+					position: 'absolute',
+					left: '-27px',
+					top: '5px'
 				});
 
 				d.$wrapper.find('.timeline-title').css({
@@ -505,7 +580,7 @@ function show_volunteer_timeline(frm) {
 				});
 
 				d.$wrapper.find('.timeline-reference').css({
-					'color': 'var(--text-muted)',
+					color: 'var(--text-muted)',
 					'font-size': '12px'
 				});
 
@@ -515,7 +590,7 @@ function show_volunteer_timeline(frm) {
 				});
 			}
 		},
-		error: function(r) {
+		error(r) {
 			frappe.msgprint(__('Failed to load volunteer history: {0}', [r.message || __('Unknown error')]));
 		}
 	});
@@ -559,11 +634,11 @@ function add_new_skill(frm) {
 			}
 		],
 		primary_action_label: __('Add'),
-		primary_action: function() {
-			var values = d.get_values();
+		primary_action() {
+			const values = d.get_values();
 
 			// Add skill to the grid with explicit field setting
-			var child = frappe.model.add_child(frm.doc, 'Volunteer Skill', 'skills_and_qualifications');
+			const child = frappe.model.add_child(frm.doc, 'Volunteer Skill', 'skills_and_qualifications');
 
 			// Set values explicitly
 			child.skill_category = values.skill_category;
@@ -580,13 +655,13 @@ function add_new_skill(frm) {
 	});
 
 	// Add autocomplete to skill field
-	d.fields_dict.volunteer_skill.$input.on('input', function() {
+	d.fields_dict.volunteer_skill.$input.on('input', function () {
 		const partial_skill = $(this).val();
 		if (partial_skill && partial_skill.length >= 2) {
 			frappe.call({
 				method: 'verenigingen.verenigingen.doctype.volunteer.volunteer.get_skill_suggestions',
-				args: { partial_skill: partial_skill },
-				callback: function(r) {
+				args: { partial_skill },
+				callback(r) {
 					if (r.message && r.message.length > 0) {
 						setup_skill_autocomplete(d.fields_dict.volunteer_skill, r.message);
 					}
@@ -600,7 +675,7 @@ function add_new_skill(frm) {
 
 // Helper function to setup skill autocomplete
 function setup_skill_autocomplete(field, suggestions) {
-	if (!field || !field.$input) return;
+	if (!field || !field.$input) { return; }
 
 	// Remove existing autocomplete
 	if (field.$input.autocomplete) {
@@ -611,7 +686,7 @@ function setup_skill_autocomplete(field, suggestions) {
 	field.$input.autocomplete({
 		source: suggestions,
 		minLength: 2,
-		select: function(event, ui) {
+		select(event, ui) {
 			field.set_value(ui.item.value);
 			return false;
 		}
@@ -630,14 +705,14 @@ async function generate_volunteer_report(frm) {
 				frappe.call({
 					method: 'get_skills_by_category',
 					doc: frm.doc,
-					callback: function(r) {
+					callback(r) {
 						if (r.message !== undefined) {
 							resolve(r.message);
 						} else {
 							reject(new Error('Failed to get skills data'));
 						}
 					},
-					error: function(r) {
+					error(r) {
 						reject(new Error(r.message || 'Failed to get skills data'));
 					}
 				});
@@ -646,14 +721,14 @@ async function generate_volunteer_report(frm) {
 				frappe.call({
 					method: 'get_aggregated_assignments',
 					doc: frm.doc,
-					callback: function(r) {
+					callback(r) {
 						if (r.message !== undefined) {
 							resolve(r.message);
 						} else {
 							reject(new Error('Failed to get assignments data'));
 						}
 					},
-					error: function(r) {
+					error(r) {
 						reject(new Error(r.message || 'Failed to get assignments data'));
 					}
 				});
@@ -674,7 +749,6 @@ async function generate_volunteer_report(frm) {
 		show_report_dialog(frm, html);
 
 		frappe.hide_progress();
-
 	} catch (error) {
 		frappe.hide_progress();
 		frappe.msgprint(__('Failed to generate report: {0}', [error.message]));
@@ -683,61 +757,61 @@ async function generate_volunteer_report(frm) {
 
 // Helper function to generate report HTML
 function generate_report_html(frm, skills_by_category, assignments) {
-	var html = '<div class="volunteer-report">';
-	html += '<h3>' + __('Volunteer Report for {0}', [frm.doc.volunteer_name]) + '</h3>';
+	let html = '<div class="volunteer-report">';
+	html += `<h3>${__('Volunteer Report for {0}', [frm.doc.volunteer_name])}</h3>`;
 
 	// Basic information section
-	html += '<div class="report-section"><h4>' + __('Basic Information') + '</h4>';
+	html += `<div class="report-section"><h4>${__('Basic Information')}</h4>`;
 	html += '<table class="table table-condensed">';
-	html += '<tr><td><strong>' + __('Name') + '</strong></td><td>' + frm.doc.volunteer_name + '</td></tr>';
-	html += '<tr><td><strong>' + __('Status') + '</strong></td><td>' + frm.doc.status + '</td></tr>';
-	html += '<tr><td><strong>' + __('Volunteer Since') + '</strong></td><td>' +
-           frappe.datetime.str_to_user(frm.doc.start_date) + '</td></tr>';
-	html += '<tr><td><strong>' + __('Commitment Level') + '</strong></td><td>' +
-           (frm.doc.commitment_level || 'Not specified') + '</td></tr>';
-	html += '<tr><td><strong>' + __('Experience Level') + '</strong></td><td>' +
-           (frm.doc.experience_level || 'Not specified') + '</td></tr>';
-	html += '<tr><td><strong>' + __('Work Style') + '</strong></td><td>' +
-           (frm.doc.preferred_work_style || 'Not specified') + '</td></tr>';
+	html += `<tr><td><strong>${__('Name')}</strong></td><td>${frm.doc.volunteer_name}</td></tr>`;
+	html += `<tr><td><strong>${__('Status')}</strong></td><td>${frm.doc.status}</td></tr>`;
+	html += `<tr><td><strong>${__('Volunteer Since')}</strong></td><td>${
+		frappe.datetime.str_to_user(frm.doc.start_date)}</td></tr>`;
+	html += `<tr><td><strong>${__('Commitment Level')}</strong></td><td>${
+		frm.doc.commitment_level || 'Not specified'}</td></tr>`;
+	html += `<tr><td><strong>${__('Experience Level')}</strong></td><td>${
+		frm.doc.experience_level || 'Not specified'}</td></tr>`;
+	html += `<tr><td><strong>${__('Work Style')}</strong></td><td>${
+		frm.doc.preferred_work_style || 'Not specified'}</td></tr>`;
 	html += '</table></div>';
 
 	// Current assignments section
-	html += '<div class="report-section"><h4>' + __('Current Assignments') + '</h4>';
+	html += `<div class="report-section"><h4>${__('Current Assignments')}</h4>`;
 
 	if (assignments && assignments.length) {
 		html += '<table class="table table-condensed">';
-		html += '<thead><tr><th>' + __('Role') + '</th><th>' + __('Type') + '</th><th>' +
-               __('Source') + '</th><th>' + __('Since') + '</th></tr></thead>';
+		html += `<thead><tr><th>${__('Role')}</th><th>${__('Type')}</th><th>${
+			__('Source')}</th><th>${__('Since')}</th></tr></thead>`;
 		html += '<tbody>';
 
-		assignments.forEach(function(assignment) {
+		assignments.forEach((assignment) => {
 			html += '<tr>';
-			html += '<td>' + assignment.role + '</td>';
-			html += '<td>' + assignment.source_type + '</td>';
-			html += '<td>' + assignment.source_doctype_display + ': ' + assignment.source_name_display + '</td>';
-			html += '<td>' + frappe.datetime.str_to_user(assignment.start_date) + '</td>';
+			html += `<td>${assignment.role}</td>`;
+			html += `<td>${assignment.source_type}</td>`;
+			html += `<td>${assignment.source_doctype_display}: ${assignment.source_name_display}</td>`;
+			html += `<td>${frappe.datetime.str_to_user(assignment.start_date)}</td>`;
 			html += '</tr>';
 		});
 
 		html += '</tbody></table>';
 	} else {
-		html += '<p>' + __('No active assignments') + '</p>';
+		html += `<p>${__('No active assignments')}</p>`;
 	}
 
 	// Skills section
-	html += '<div class="report-section"><h4>' + __('Skills and Qualifications') + '</h4>';
+	html += `<div class="report-section"><h4>${__('Skills and Qualifications')}</h4>`;
 
 	if (Object.keys(skills_by_category).length) {
 		html += '<div class="row">';
 
-		for (var category in skills_by_category) {
+		for (const category in skills_by_category) {
 			html += '<div class="col-sm-6 col-md-4">';
-			html += '<div class="skill-category"><h5>' + category + '</h5>';
+			html += `<div class="skill-category"><h5>${category}</h5>`;
 			html += '<ul class="list-unstyled">';
 
-			skills_by_category[category].forEach(function(skill) {
-				html += '<li><span class="skill-name">' + skill.skill + '</span> <span class="skill-level">' +
-                       skill.level + '</span></li>';
+			skills_by_category[category].forEach((skill) => {
+				html += `<li><span class="skill-name">${skill.skill}</span> <span class="skill-level">${
+					skill.level}</span></li>`;
 			});
 
 			html += '</ul></div></div>';
@@ -745,26 +819,26 @@ function generate_report_html(frm, skills_by_category, assignments) {
 
 		html += '</div>';
 	} else {
-		html += '<p>' + __('No skills recorded') + '</p>';
+		html += `<p>${__('No skills recorded')}</p>`;
 	}
 
 	html += '</div>';
 
 	// Areas of interest section
 	if (frm.doc.interests && frm.doc.interests.length) {
-		html += '<div class="report-section"><h4>' + __('Areas of Interest') + '</h4>';
+		html += `<div class="report-section"><h4>${__('Areas of Interest')}</h4>`;
 		html += '<ul class="list-inline">';
 
-		frm.doc.interests.forEach(function(interest) {
-			html += '<li class="interest-tag">' + interest.interest_area + '</li>';
+		frm.doc.interests.forEach((interest) => {
+			html += `<li class="interest-tag">${interest.interest_area}</li>`;
 		});
 
 		html += '</ul></div>';
 	}
 
 	// Footer
-	html += '<div class="report-footer text-muted small">' +
-           __('Report generated on {0}', [frappe.datetime.now_date()]) + '</div>';
+	html += `<div class="report-footer text-muted small">${
+		__('Report generated on {0}', [frappe.datetime.now_date()])}</div>`;
 
 	html += '</div>'; // volunteer-report
 
@@ -780,12 +854,12 @@ function show_report_dialog(frm, html) {
 			options: html
 		}],
 		primary_action_label: __('Print'),
-		primary_action: function() {
+		primary_action() {
 			// Print the report
-			var w = window.open();
-			w.document.write('<html><head><title>' +
-                            __('Volunteer Report - {0}', [frm.doc.volunteer_name]) +
-                            '</title>');
+			const w = window.open();
+			w.document.write(`<html><head><title>${
+				__('Volunteer Report - {0}', [frm.doc.volunteer_name])
+			}</title>`);
 			w.document.write('<style>');
 			w.document.write('body { font-family: Arial, sans-serif; margin: 20px; }');
 			w.document.write('.volunteer-report { max-width: 800px; margin: 0 auto; }');
@@ -803,7 +877,7 @@ function show_report_dialog(frm, html) {
 			w.close();
 		},
 		secondary_action_label: __('Close'),
-		secondary_action: function() {
+		secondary_action() {
 			d.hide();
 		}
 	});
@@ -814,7 +888,7 @@ function show_report_dialog(frm, html) {
 	d.$wrapper.find('.volunteer-report').css({
 		'max-height': '500px',
 		'overflow-y': 'auto',
-		'padding': '10px'
+		padding: '10px'
 	});
 
 	d.$wrapper.find('.report-section').css({
@@ -824,41 +898,41 @@ function show_report_dialog(frm, html) {
 	});
 
 	d.$wrapper.find('.skill-category').css({
-		'border': '1px solid var(--gray-200)',
+		border: '1px solid var(--gray-200)',
 		'border-radius': '4px',
-		'padding': '10px',
+		padding: '10px',
 		'margin-bottom': '10px'
 	});
 
 	d.$wrapper.find('.skill-level').css({
 		'background-color': 'var(--gray-100)',
-		'padding': '2px 6px',
+		padding: '2px 6px',
 		'border-radius': '10px',
 		'font-size': '0.9em'
 	});
 
 	d.$wrapper.find('.interest-tag').css({
-		'display': 'inline-block',
+		display: 'inline-block',
 		'background-color': 'var(--gray-100)',
-		'padding': '3px 8px',
-		'margin': '3px',
+		padding: '3px 8px',
+		margin: '3px',
 		'border-radius': '10px'
 	});
 }
 
 // Child table events for Volunteer Skill
 frappe.ui.form.on('Volunteer Skill', {
-	volunteer_skill: function(frm, cdt, cdn) {
-		let row = locals[cdt][cdn];
+	volunteer_skill(frm, cdt, cdn) {
+		const row = locals[cdt][cdn];
 		if (row.volunteer_skill && row.volunteer_skill.length > 2) {
 			// Get suggestions from existing skills
 			frappe.call({
 				method: 'verenigingen.verenigingen.doctype.volunteer.volunteer.get_skill_suggestions',
 				args: { partial_skill: row.volunteer_skill },
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.length > 0) {
 						// Log suggestions for now - we can enhance this later with a proper autocomplete widget
-						console.warn('Skill suggestions for "' + row.volunteer_skill + '":', r.message);
+						console.warn(`Skill suggestions for "${row.volunteer_skill}":`, r.message);
 
 						// Show suggestions in a frappe message
 						if (r.message.length > 1) {

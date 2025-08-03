@@ -6,6 +6,7 @@ including proper bank account mapping and multi-invoice reconciliation support.
 """
 
 import json
+import re
 from typing import Dict, List, Optional, Tuple
 
 import frappe
@@ -45,6 +46,12 @@ class PaymentEntryHandler:
         """
         mutation_id = mutation.get("id")
         self._log(f"Processing payment mutation {mutation_id}")
+
+        # Log only essential mutation data for debugging
+        if frappe.conf.developer_mode:
+            self._log(
+                f"DEBUG - Mutation {mutation_id} type: {mutation.get('type')}, amount: {mutation.get('amount')}"
+            )
 
         # Check for duplicates before starting atomic operation
         existing_payment = frappe.db.get_value(
@@ -96,6 +103,12 @@ class PaymentEntryHandler:
             self._log(f"Found {len(invoice_numbers)} invoice(s): {invoice_numbers}")
             self._current_invoice_numbers = invoice_numbers  # Store for account lookup
 
+            # Extract additional invoice references from rows/regels
+            if frappe.conf.developer_mode and (mutation.get("rows") or mutation.get("Regels")):
+                self._log(
+                    f"Checking {len(mutation.get('rows', []))} rows and {len(mutation.get('Regels', []))} regels for invoice references"
+                )
+
             # Determine payment type and party
             payment_type = "Receive" if mutation_type == 3 else "Pay"
             party_type = "Customer" if payment_type == "Receive" else "Supplier"
@@ -128,12 +141,19 @@ class PaymentEntryHandler:
             )
 
             # Handle invoice allocations
-            if invoice_numbers:
+            # Combine invoice numbers from header and any found in rows
+            row_invoice_refs = self._extract_invoice_references_from_rows(mutation)
+            all_invoice_refs = list(set(invoice_numbers + row_invoice_refs))  # Remove duplicates
+
+            if all_invoice_refs:
+                self._log(f"All invoice references to link: {all_invoice_refs}")
                 if mutation.get("rows"):
-                    self._allocate_to_invoices(pe, invoice_numbers, mutation["rows"], party_type)
+                    self._allocate_to_invoices(pe, all_invoice_refs, mutation["rows"], party_type)
                 else:
                     # Single invoice or no rows - simple allocation
-                    self._simple_invoice_allocation(pe, invoice_numbers, party_type)
+                    self._simple_invoice_allocation(pe, all_invoice_refs, party_type)
+            else:
+                self._log("WARNING: No invoice references found in payment mutation")
 
             # Save and submit with proper permissions
             validate_and_insert(pe)
@@ -156,6 +176,54 @@ class PaymentEntryHandler:
         # Split by comma and clean up
         invoices = [inv.strip() for inv in str(invoice_str).split(",")]
         return [inv for inv in invoices if inv]
+
+    def _extract_invoice_references_from_rows(self, mutation: Dict) -> List[str]:
+        """Extract any invoice references from mutation rows/regels with validation."""
+        references = []
+
+        try:
+            # Check rows (REST API format)
+            rows = mutation.get("rows", [])
+            if rows and isinstance(rows, list):
+                for row in rows[:10]:  # Limit to first 10 rows for performance
+                    if not isinstance(row, dict):
+                        continue
+                    # Check various possible fields that might contain invoice references
+                    for field in ["invoiceId", "invoiceMutationId", "factuurNummer", "invoiceNumber"]:
+                        value = row.get(field)
+                        if value and str(value).strip():
+                            ref = str(value).strip()[:50]  # Limit length
+                            if ref not in references and self._is_valid_invoice_reference(ref):
+                                references.append(ref)
+                                if frappe.conf.developer_mode:
+                                    self._log(f"Found invoice reference in row field '{field}': {ref}")
+
+            # Check Regels (SOAP API format)
+            regels = mutation.get("Regels", [])
+            if regels and isinstance(regels, list):
+                for regel in regels[:10]:  # Limit to first 10 regels
+                    if not isinstance(regel, dict):
+                        continue
+                    for field in ["FactuurNummer", "InvoiceId", "MutatieNummer"]:
+                        value = regel.get(field)
+                        if value and str(value).strip():
+                            ref = str(value).strip()[:50]  # Limit length
+                            if ref not in references and self._is_valid_invoice_reference(ref):
+                                references.append(ref)
+                                if frappe.conf.developer_mode:
+                                    self._log(f"Found invoice reference in regel field '{field}': {ref}")
+
+        except Exception as e:
+            self._log(f"WARNING: Error extracting invoice references: {str(e)[:100]}")
+
+        return references[:20]  # Limit total references to prevent excessive processing
+
+    def _is_valid_invoice_reference(self, ref: str) -> bool:
+        """Validate invoice reference format."""
+        if not ref or len(ref) < 2 or len(ref) > 50:
+            return False
+        # Basic validation - alphanumeric with some allowed characters
+        return bool(re.match(r"^[A-Za-z0-9\-_./]+$", ref))
 
     def _determine_bank_account(
         self, ledger_id: int, payment_type: str, description: str = None
@@ -348,8 +416,8 @@ class PaymentEntryHandler:
             pe.party = party
 
         # Set accounts based on payment type
-        # PRIORITY 1: Use API row ledger data for party accounts (most accurate)
-        party_account = self._get_party_account_from_api_rows(mutation, party_type, party)
+        # Determine party account with invoice-first priority
+        party_account = self._get_party_account_with_invoice_priority(mutation, party_type, party)
 
         if payment_type == "Receive":
             pe.paid_to = bank_account  # Money goes to our bank
@@ -387,7 +455,7 @@ class PaymentEntryHandler:
         self, payment_entry: frappe._dict, invoice_numbers: List[str], rows: List[Dict], party_type: str
     ):
         """
-        Allocate payment to multiple invoices based on row data.
+        Allocate payment to multiple invoices based on row data with validation.
 
         Strategy:
         1. If row count matches invoice count - 1:1 mapping
@@ -401,6 +469,15 @@ class PaymentEntryHandler:
         if not invoices:
             self._log("WARNING: No matching invoices found for allocation")
             return
+
+        # Validate payment amount vs invoice amounts
+        total_payment = payment_entry.paid_amount or payment_entry.received_amount
+        total_outstanding = sum(inv.get("outstanding_amount", 0) for inv in invoices)
+
+        if total_payment > total_outstanding * 1.1:  # Allow 10% tolerance
+            self._log(
+                f"WARNING: Payment amount ({total_payment}) significantly exceeds total outstanding ({total_outstanding})"
+            )
 
         # Prepare row amounts (absolute values)
         row_amounts = [abs(flt(row.get("amount", 0))) for row in rows]
@@ -503,14 +580,69 @@ class PaymentEntryHandler:
     def _find_invoice_by_number(
         self, invoice_num: str, doctype: str, party_field: str, party: str
     ) -> List[Dict]:
-        """Find invoice using multiple strategies."""
-        # Strategy 1: E-Boekhouden invoice number field
-        if frappe.db.has_column(doctype, "eboekhouden_invoice_number"):
+        """Find invoice using multiple strategies with validation."""
+        if not invoice_num or not party:
+            return []
+
+        try:
+            # Validate inputs
+            invoice_num = str(invoice_num).strip()[:50]  # Limit length
+            if not invoice_num:
+                return []
+
+            # Strategy 1: Check if invoice_num is actually a mutation ID (all digits)
+            if invoice_num.isdigit() and frappe.db.has_column(doctype, "eboekhouden_mutation_nr"):
+                invoices = frappe.get_all(
+                    doctype,
+                    filters={
+                        party_field: party,
+                        "eboekhouden_mutation_nr": invoice_num,
+                        "docstatus": 1,
+                        "outstanding_amount": [">", 0],
+                    },
+                    fields=[
+                        "name",
+                        "grand_total",
+                        "outstanding_amount",
+                        "posting_date",
+                        "eboekhouden_invoice_number",
+                    ],
+                    limit=5,  # Limit results
+                )
+
+                if invoices:
+                    for inv in invoices:
+                        inv["doctype"] = doctype
+                    self._log(
+                        f"Found invoice {invoices[0]['name']} via eboekhouden_mutation_nr: {invoice_num}"
+                    )
+                    return invoices
+
+            # Strategy 2: E-Boekhouden invoice number field
+            if frappe.db.has_column(doctype, "eboekhouden_invoice_number"):
+                invoices = frappe.get_all(
+                    doctype,
+                    filters={
+                        party_field: party,
+                        "eboekhouden_invoice_number": invoice_num,
+                        "docstatus": 1,
+                        "outstanding_amount": [">", 0],
+                    },
+                    fields=["name", "grand_total", "outstanding_amount", "posting_date"],
+                )
+
+                if invoices:
+                    for inv in invoices:
+                        inv["doctype"] = doctype
+                    self._log(f"Found invoice {invoices[0]['name']} via eboekhouden_invoice_number")
+                    return invoices
+
+            # Strategy 3: Exact name match
             invoices = frappe.get_all(
                 doctype,
                 filters={
                     party_field: party,
-                    "eboekhouden_invoice_number": invoice_num,
+                    "name": invoice_num,
                     "docstatus": 1,
                     "outstanding_amount": [">", 0],
                 },
@@ -520,43 +652,34 @@ class PaymentEntryHandler:
             if invoices:
                 for inv in invoices:
                     inv["doctype"] = doctype
-                self._log(f"Found invoice {invoices[0]['name']} via eboekhouden_invoice_number")
+                self._log(f"Found invoice {invoices[0]['name']} via exact name match")
                 return invoices
 
-        # Strategy 2: Exact name match
-        invoices = frappe.get_all(
-            doctype,
-            filters={party_field: party, "name": invoice_num, "docstatus": 1, "outstanding_amount": [">", 0]},
-            fields=["name", "grand_total", "outstanding_amount", "posting_date"],
-        )
+            # Strategy 4: Partial match (last resort)
+            invoices = frappe.get_all(
+                doctype,
+                filters={
+                    party_field: party,
+                    "name": ["like", f"%{invoice_num}%"],
+                    "docstatus": 1,
+                    "outstanding_amount": [">", 0],
+                },
+                fields=["name", "grand_total", "outstanding_amount", "posting_date"],
+                limit=1,
+            )
 
-        if invoices:
-            for inv in invoices:
-                inv["doctype"] = doctype
-            self._log(f"Found invoice {invoices[0]['name']} via exact name match")
-            return invoices
+            if invoices:
+                for inv in invoices:
+                    inv["doctype"] = doctype
+                self._log(f"Found invoice {invoices[0]['name']} via partial match")
+                return invoices
 
-        # Strategy 3: Partial match (last resort)
-        invoices = frappe.get_all(
-            doctype,
-            filters={
-                party_field: party,
-                "name": ["like", f"%{invoice_num}%"],
-                "docstatus": 1,
-                "outstanding_amount": [">", 0],
-            },
-            fields=["name", "grand_total", "outstanding_amount", "posting_date"],
-            limit=1,
-        )
+            self._log(f"No invoice found for number: {invoice_num}")
+            return []
 
-        if invoices:
-            for inv in invoices:
-                inv["doctype"] = doctype
-            self._log(f"Found invoice {invoices[0]['name']} via partial match")
-            return invoices
-
-        self._log(f"No invoice found for number: {invoice_num}")
-        return []
+        except Exception as e:
+            self._log(f"ERROR: Failed to find invoice for number {invoice_num}: {str(e)[:100]}")
+            return []
 
     def _generate_remarks(self, mutation: Dict, bank_account: str, party: str) -> str:
         """Generate detailed remarks for audit trail."""
@@ -582,14 +705,60 @@ class PaymentEntryHandler:
 
         return "\n".join(remarks)
 
-    def _get_party_account_from_api_rows(self, mutation: Dict, party_type: str, party: str) -> str:
+    def _get_party_account_with_invoice_priority(self, mutation: Dict, party_type: str, party: str) -> str:
         """
-        Get party account using API row ledger data (PRIORITY 1) with intelligent fallbacks.
+        Get party account with invoice-first priority to avoid account mismatches.
 
         Priority order:
-        1. API row ledger data (most accurate)
-        2. Invoice-specific accounts (if available)
+        1. Invoice-specific accounts (if invoices found - most reliable)
+        2. API row ledger data (if no invoices)
         3. Party default accounts (last resort)
+        """
+        # PRIORITY 1: Use existing invoice accounts if we have matching invoices
+        invoice_account = self._get_account_from_matched_invoices(party_type, party)
+        if invoice_account:
+            self._log(f"Using matched invoice account: {invoice_account}")
+            return invoice_account
+
+        # PRIORITY 2: Fall back to API row ledger data
+        return self._get_party_account_from_api_rows(mutation, party_type, party)
+
+    def _get_account_from_matched_invoices(self, party_type: str, party: str) -> Optional[str]:
+        """
+        Get receivable/payable account from matched invoices to ensure consistency.
+        """
+        if not hasattr(self, "_current_invoice_numbers") or not self._current_invoice_numbers:
+            return None
+
+        # Check what account the matched invoices are using
+        for invoice_num in self._current_invoice_numbers:
+            if party_type == "Customer":
+                account = frappe.db.get_value(
+                    "Sales Invoice",
+                    {"customer": party, "eboekhouden_invoice_number": invoice_num, "docstatus": 1},
+                    "debit_to",
+                )
+                if account:
+                    self._log(f"Found receivable account from invoice {invoice_num}: {account}")
+                    return account
+            else:  # Supplier
+                account = frappe.db.get_value(
+                    "Purchase Invoice",
+                    {"supplier": party, "eboekhouden_invoice_number": invoice_num, "docstatus": 1},
+                    "credit_to",
+                )
+                if account:
+                    self._log(f"Found payable account from invoice {invoice_num}: {account}")
+                    return account
+        return None
+
+    def _get_party_account_from_api_rows(self, mutation: Dict, party_type: str, party: str) -> str:
+        """
+        Get party account using API row ledger data with intelligent fallbacks.
+
+        Priority order:
+        1. API row ledger data
+        2. Party default accounts (fallback)
         """
         # PRIORITY 1: Get receivable/payable account from API row ledger data
         rows = mutation.get("rows", [])

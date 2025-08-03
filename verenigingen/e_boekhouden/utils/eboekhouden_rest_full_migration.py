@@ -2016,7 +2016,7 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
         # Check for duplicate invoice numbers for invoices
         invoice_number = mutation_detail.get("invoiceNumber")
         if invoice_number and mutation_type in [1, 2]:  # Sales Invoice or Purchase Invoice
-            doctype = "Sales Invoice" if mutation_type == 1 else "Purchase Invoice"
+            doctype = "Purchase Invoice" if mutation_type == 1 else "Sales Invoice"
             existing_invoice = _check_if_invoice_number_exists(invoice_number, doctype)
             if existing_invoice:
                 debug_info.append(
@@ -2026,7 +2026,7 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
                 return None
 
             # Also check the opposite type to avoid conflicts
-            opposite_doctype = "Purchase Invoice" if mutation_type == 1 else "Sales Invoice"
+            opposite_doctype = "Sales Invoice" if mutation_type == 1 else "Purchase Invoice"
             existing_opposite = _check_if_invoice_number_exists(invoice_number, opposite_doctype)
             if existing_opposite:
                 debug_info.append(
@@ -2036,10 +2036,10 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
                 return None
 
         # Handle different mutation types with detailed data
-        if mutation_type == 1:  # Sales Invoice
-            return _create_sales_invoice(mutation_detail, company, cost_center, debug_info)
-        elif mutation_type == 2:  # Purchase Invoice
+        if mutation_type == 1:  # Purchase Invoice (Invoice received)
             return _create_purchase_invoice(mutation_detail, company, cost_center, debug_info)
+        elif mutation_type == 2:  # Sales Invoice (Invoice sent)
+            return _create_sales_invoice(mutation_detail, company, cost_center, debug_info)
         elif mutation_type in [3, 4]:  # Customer/Supplier Payment types
             return _create_payment_entry(mutation_detail, company, cost_center, debug_info)
         elif mutation_type in [5, 6]:  # Money Received/Money Paid - better as Payment Entries
@@ -2110,9 +2110,15 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     # Description
     si.remarks = description
 
-    # Check for credit notes
+    # Check for credit notes and handle negative amounts
     total_amount = frappe.utils.flt(mutation_detail.get("amount", 0))
-    si.is_return = total_amount < 0
+    is_credit_note = total_amount < 0
+    si.is_return = is_credit_note
+
+    if is_credit_note:
+        debug_info.append(
+            f"Detected credit note (negative amount: {total_amount}), will convert amounts to positive"
+        )
 
     # Custom tracking fields
     si.eboekhouden_mutation_nr = str(mutation_id)
@@ -2122,6 +2128,10 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     # CRITICAL: Process line items from Regels or rows
     regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
     if regels:
+        # For credit notes, we need to process amounts as positive values
+        if is_credit_note:
+            regels = _convert_negative_amounts_to_positive(regels, debug_info)
+
         success = process_line_items(si, regels, "sales", cost_center, debug_info)
         if success:
             add_tax_lines(si, regels, "sales", debug_info)
@@ -2131,12 +2141,72 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     else:
         # No line items available, create fallback
         debug_info.append("No Regels found, creating single line fallback")
+        # For credit notes, convert the mutation detail amount
+        if is_credit_note:
+            mutation_detail = _convert_mutation_detail_amount(mutation_detail, debug_info)
         create_single_line_fallback(si, mutation_detail, cost_center, debug_info)
 
     si.save()
     si.submit()
     debug_info.append(f"Created enhanced Sales Invoice {si.name} with {len(si.items)} line items")
     return si
+
+
+def _convert_negative_amounts_to_positive(regels, debug_info):
+    """Convert negative amounts in line items to positive values for credit notes"""
+    if not regels:
+        return regels
+
+    converted_regels = []
+    for regel in regels:
+        converted_regel = regel.copy()  # Create a copy to avoid modifying original
+
+        # Handle both Dutch (SOAP) and English (REST) field names
+        amount_field = "amount" if "amount" in regel else "Prijs"
+        quantity_field = "quantity" if "quantity" in regel else "Aantal"
+
+        # Convert amounts to positive
+        if amount_field in regel:
+            original_amount = frappe.utils.flt(regel[amount_field])
+            if original_amount < 0:
+                converted_regel[amount_field] = abs(original_amount)
+                debug_info.append(
+                    f"Converted negative amount {original_amount} to positive {abs(original_amount)}"
+                )
+
+        # Convert quantities to positive if negative
+        if quantity_field in regel:
+            original_quantity = frappe.utils.flt(regel[quantity_field])
+            if original_quantity < 0:
+                converted_regel[quantity_field] = abs(original_quantity)
+                debug_info.append(
+                    f"Converted negative quantity {original_quantity} to positive {abs(original_quantity)}"
+                )
+
+        converted_regels.append(converted_regel)
+
+    return converted_regels
+
+
+def _convert_mutation_detail_amount(mutation_detail, debug_info):
+    """Convert negative amount in mutation detail to positive for credit notes"""
+    if not mutation_detail:
+        return mutation_detail
+
+    converted_detail = mutation_detail.copy()
+
+    # Handle both Dutch (SOAP) and English (REST) field names
+    amount_field = "amount" if "amount" in mutation_detail else "Bedrag"
+
+    if amount_field in mutation_detail:
+        original_amount = frappe.utils.flt(mutation_detail[amount_field])
+        if original_amount < 0:
+            converted_detail[amount_field] = abs(original_amount)
+            debug_info.append(
+                f"Converted mutation detail amount {original_amount} to positive {abs(original_amount)}"
+            )
+
+    return converted_detail
 
 
 def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
@@ -2198,9 +2268,15 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     # Description
     pi.remarks = description
 
-    # Check for credit notes
+    # Check for credit notes and handle negative amounts
     total_amount = frappe.utils.flt(mutation_detail.get("amount", 0))
-    pi.is_return = total_amount < 0
+    is_credit_note = total_amount < 0
+    pi.is_return = is_credit_note
+
+    if is_credit_note:
+        debug_info.append(
+            f"Detected credit note (negative amount: {total_amount}), will convert amounts to positive"
+        )
 
     # Custom tracking fields
     pi.eboekhouden_mutation_nr = str(mutation_id)
@@ -2210,6 +2286,10 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     # CRITICAL: Process line items from Regels or rows
     regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
     if regels:
+        # For credit notes, we need to process amounts as positive values
+        if is_credit_note:
+            regels = _convert_negative_amounts_to_positive(regels, debug_info)
+
         success = process_line_items(pi, regels, "purchase", cost_center, debug_info)
         if success:
             add_tax_lines(pi, regels, "purchase", debug_info)
@@ -2219,6 +2299,9 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     else:
         # No line items available, create fallback
         debug_info.append("No Regels found, creating single line fallback")
+        # For credit notes, convert the mutation detail amount
+        if is_credit_note:
+            mutation_detail = _convert_mutation_detail_amount(mutation_detail, debug_info)
         create_single_line_fallback(pi, mutation_detail, cost_center, debug_info)
 
     pi.save()

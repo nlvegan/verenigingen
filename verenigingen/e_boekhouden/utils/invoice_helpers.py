@@ -156,11 +156,38 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
     for regel in regels:
         # Handle both Dutch (SOAP) and English (REST) field names
         description = regel.get("description") or regel.get("Omschrijving", "Service")
+        # Clean up description for ERPNext compatibility
+        if description and description.strip():
+            # Remove newlines and normalize whitespace
+            description = " ".join(description.split())
+            # Limit length to ERPNext's 140 character limit for item names
+            if len(description) > 140:
+                description = description[:137] + "..."
+        else:
+            description = "Service Item"  # Fallback for empty descriptions
+
         unit = regel.get("unit") or regel.get("Eenheid", "Nos")
         btw_code = regel.get("vatCode") or regel.get("BTWCode")
         account_code = regel.get("ledgerId") or regel.get("GrootboekNummer")
         quantity = flt(regel.get("quantity") or regel.get("Aantal", 1))
         price = flt(regel.get("amount") or regel.get("Prijs", 0))
+
+        # Debug: Log the amounts we're processing
+        debug_info.append(
+            f"Processing regel: qty={quantity}, price={price}, amount_field={'amount' if 'amount' in regel else 'Prijs'}"
+        )
+
+        # Handle quantities and prices with correction line item support
+        # Only convert to absolute if this was processed as a credit note (amounts already converted)
+        # Otherwise preserve negative amounts for correction entries within positive invoices
+        quantity = abs(quantity)  # Quantities should always be positive
+
+        # For prices/amounts: preserve negatives for correction entries, unless already processed for credit notes
+        # The regels will have been preprocessed by _convert_negative_amounts_to_positive() if it's a credit note
+        # If negative amounts still exist here, they're correction line items and should be preserved
+        if price < 0:
+            debug_info.append(f"Preserving negative amount {price} as correction line item")
+        # Don't apply abs() to price - let ERPNext handle negative line amounts
 
         # Get or create item using proper Item Mapping DocType integration
         from verenigingen.e_boekhouden.utils.eboekhouden_improved_item_naming import (
@@ -189,13 +216,19 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
 
         line_item = {
             "item_code": item_code,
-            "item_name": description,
-            "description": description,
+            "item_name": description[:140],  # Limit to ERPNext's item_name field limit
+            "description": description,  # Full description can be longer
             "qty": quantity,
             "uom": map_unit_of_measure(unit),
             "rate": price,
             "cost_center": cost_center,
         }
+
+        # For Purchase Invoices, ensure item_name stays as description, not item code
+        if invoice_type == "purchase":
+            # ERPNext may override item_name with Item.item_name during save
+            # Force it to use the mutation description instead
+            line_item["item_name"] = description
 
         # Set appropriate account
         if invoice_type == "sales":
@@ -231,6 +264,15 @@ def add_tax_lines(invoice, regels, invoice_type, debug_info):
         description = regel.get("description") or regel.get("Omschrijving", "Unknown")
         line_qty = flt(regel.get("quantity") or regel.get("Aantal", 1))
         line_price = flt(regel.get("amount") or regel.get("Prijs", 0))
+
+        # Handle quantities and prices for tax calculation with correction line item support
+        line_qty = abs(line_qty)  # Quantities should always be positive
+
+        # For prices: preserve negatives for correction entries (same logic as process_line_items)
+        # Don't convert negative amounts to positive - they represent corrections/discounts
+        if line_price < 0:
+            debug_info.append(f"Tax calculation preserving negative amount {line_price} as correction")
+
         line_total = line_qty * line_price
         total_net_amount += line_total
 
@@ -392,8 +434,8 @@ def generate_item_code(description):
     clean_desc = "".join(c for c in description if c.isalnum() or c in " -_").strip()
     clean_desc = clean_desc.replace(" ", "-").upper()[:30]
 
-    # Add prefix for E-Boekhouden items
-    return f"EBH-{clean_desc}"
+    # Use description alone without E-Boekhouden prefix
+    return clean_desc
 
 
 def determine_item_group(description, btw_code=None, account_code=None, price=None):
@@ -481,35 +523,29 @@ def map_grootboek_to_erpnext_account(
             debug_info.append(f"Found direct account match: {grootboek_nummer} -> {account}")
             return account
 
-    # Use modern account mapping system as fallback
+    # Use E-Boekhouden Ledger Mapping system (the actual table with data)
     try:
-        from verenigingen.verenigingen.doctype.eboekhouden_account_map.eboekhouden_account_map import (
-            EBoekhoudenAccountMap,
+        # Look up the account mapping in the correct table
+        mapping = frappe.db.get_value(
+            "E-Boekhouden Ledger Mapping",
+            {"ledger_id": str(grootboek_nummer)},
+            ["erpnext_account", "ledger_code", "ledger_name"],
+            as_dict=True,
         )
 
-        # Try to get existing mapping
-        mapping = EBoekhoudenAccountMap.get_account_mapping(grootboek_nummer)
-
-        if mapping:
-            debug_info.append(f"Found modern mapping: {grootboek_nummer} -> {mapping['erpnext_account']}")
+        if mapping and mapping.get("erpnext_account"):
+            debug_info.append(
+                f"Found ledger mapping: {grootboek_nummer} ({mapping.get('ledger_name')}) -> {mapping['erpnext_account']}"
+            )
             return mapping["erpnext_account"]
 
-        # Try to create auto-mapping
-        account_name = f"Account {grootboek_nummer}"  # Would be better with real name from API
-
-        auto_mapping = EBoekhoudenAccountMap.create_auto_mapping(grootboek_nummer, account_name, company)
-
-        if auto_mapping:
-            # Get the created mapping
-            new_mapping = EBoekhoudenAccountMap.get_account_mapping(grootboek_nummer, company)
-            if new_mapping:
-                debug_info.append(
-                    f"Created auto-mapping: {grootboek_nummer} -> {new_mapping['erpnext_account']}"
-                )
-                return new_mapping["erpnext_account"]
+        # No mapping found in ledger mapping table
+        debug_info.append(f"No ledger mapping found for {grootboek_nummer}")
+        return None
 
     except Exception as e:
-        debug_info.append(f"Account mapping error: {str(e)}")
+        debug_info.append(f"Ledger mapping lookup error: {str(e)}")
+        return None
 
     # No mapping found - use fallback account only if allowed
     if not allow_fallback:
@@ -630,7 +666,10 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
     amount = flt(mutation_detail.get("amount", 0))
     ledger_id = mutation_detail.get("ledgerId")
 
-    debug_info.append("Creating single line fallback item")
+    # For credit notes, use absolute amount (mutation_detail should already be converted)
+    amount = abs(amount)
+
+    debug_info.append(f"Creating single line fallback item with amount: {amount}")
 
     # Determine if this is sales or purchase based on document type
     transaction_type = "sales" if invoice.doctype == "Sales Invoice" else "purchase"
@@ -674,12 +713,17 @@ def create_single_line_fallback(invoice, mutation_detail, cost_center, debug_inf
 
     line_item = {
         "item_code": item_code,
+        "item_name": line_dict["description"],  # Use description as item name
         "description": line_dict["description"],
         "qty": line_dict["qty"],
         "rate": line_dict["rate"],
         "amount": line_dict["amount"],
         "cost_center": cost_center,
     }
+
+    # For Purchase Invoices, ensure item_name stays as description
+    if transaction_type == "purchase":
+        line_item["item_name"] = line_dict["description"]
 
     # Set appropriate account
     if transaction_type == "sales":

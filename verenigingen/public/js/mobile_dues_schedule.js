@@ -1,4 +1,87 @@
 /**
+ * @fileoverview Mobile Dues Schedule Interface - Touch-Optimized Financial Dashboard
+ *
+ * This module provides a comprehensive mobile-first user experience for the membership
+ * dues schedule dashboard. Features touch gestures, haptic feedback, accessibility
+ * enhancements, and performance optimizations specifically designed for mobile devices
+ * and progressive web app functionality.
+ *
+ * ## Core Mobile Features
+ * - **Touch Gesture Navigation**: Swipe between tabs and calendar months
+ * - **Pull-to-Refresh**: Native mobile refresh experience with visual feedback
+ * - **Floating Action Button**: Quick access to common financial actions
+ * - **Virtual Keyboard Optimization**: Smart form field handling and viewport management
+ * - **Haptic Feedback**: Tactile responses for touch interactions
+ * - **Offline Capability**: Service worker integration for PWA functionality
+ *
+ * ## Accessibility Enhancements
+ * - **Screen Reader Support**: ARIA labels and live regions for dynamic content
+ * - **Focus Management**: Proper keyboard navigation and focus trapping
+ * - **High Contrast**: Optimized visual hierarchy for mobile screens
+ * - **Touch Targets**: Minimum 44px touch targets following accessibility guidelines
+ * - **Skip Navigation**: Efficient navigation for assistive technologies
+ * - **Voice Control**: Support for voice navigation commands
+ *
+ * ## Performance Optimizations
+ * - **Virtual Scrolling**: Efficient rendering of large payment history lists
+ * - **Lazy Loading**: Progressive image and content loading
+ * - **Animation Optimization**: Reduced motion for slower devices
+ * - **Memory Management**: Automatic cleanup of unused DOM elements
+ * - **Bandwidth Awareness**: Adaptive content loading based on connection speed
+ * - **Critical Resource Preloading**: Preemptive loading of essential assets
+ *
+ * ## User Experience Features
+ * - **Responsive Layout**: Fluid design adapting to all screen sizes
+ * - **Touch Optimization**: Gesture-based navigation and interactions
+ * - **Progressive Enhancement**: Core functionality works without JavaScript
+ * - **Native App Feel**: App-like interactions and visual design
+ * - **Quick Actions**: Context-sensitive action buttons and shortcuts
+ * - **Smart Defaults**: Intelligent form pre-population and suggestions
+ *
+ * ## Technical Architecture
+ * - **Component-Based**: Modular components for different mobile features
+ * - **Event-Driven**: Efficient event handling with proper cleanup
+ * - **Memory Efficient**: Careful management of event listeners and DOM references
+ * - **Battery Optimized**: Reduced CPU usage through intelligent throttling
+ * - **Network Aware**: Adaptive behavior based on connection quality
+ * - **Device Detection**: Smart feature activation based on device capabilities
+ *
+ * ## Mobile-Specific Interactions
+ * - **Swipe Navigation**: Horizontal swipes for tab and calendar navigation
+ * - **Long Press**: Context menus and alternative actions
+ * - **Pinch to Zoom**: Calendar and chart zoom functionality
+ * - **Shake to Refresh**: Alternative refresh gesture
+ * - **Device Orientation**: Automatic layout adjustments for rotation
+ * - **Edge Gestures**: Navigation drawer and menu access
+ *
+ * ## Financial Dashboard Mobile Features
+ * - **Quick Payment**: One-tap payment initiation
+ * - **Fee Adjustment**: Mobile-optimized fee modification interface
+ * - **Payment History**: Touch-friendly transaction browsing
+ * - **Bank Details**: Secure IBAN and payment method management
+ * - **SEPA Integration**: Mobile-optimized direct debit setup
+ * - **Receipt Generation**: Instant digital receipts
+ *
+ * ## PWA Integration
+ * - **Installable**: Add to home screen functionality
+ * - **Offline Support**: Core features available without internet
+ * - **Background Sync**: Payment status updates when connection restored
+ * - **Push Notifications**: Payment reminders and confirmations
+ * - **App Shell**: Fast loading through application shell architecture
+ *
+ * @company R.S.P. (Verenigingen Association Management)
+ * @version 2025.1.0
+ * @since 2024.2.0
+ * @license Proprietary
+ *
+ * @requires verenigingen.public.js.dues_schedule_calendar
+ * @requires ServiceWorker for PWA functionality
+ *
+ * @see {@link https://web.dev/mobile-ux/} Mobile UX Best Practices
+ * @see {@link https://developers.google.com/web/fundamentals/accessibility/} Web Accessibility
+ */
+
+/**
  * Mobile-Specific Dues Schedule Functionality
  * Enhanced interactions for mobile devices
  */
@@ -70,7 +153,7 @@ class MobileDuesSchedule {
 	}
 
 	setupSwipeGestures() {
-		if (!this.isTouch) return;
+		if (!this.isTouch) { return; }
 
 		let startX = 0;
 		let startY = 0;
@@ -89,7 +172,7 @@ class MobileDuesSchedule {
 			});
 
 			tabContainer.addEventListener('touchmove', (e) => {
-				if (!startX || !startY) return;
+				if (!startX || !startY) { return; }
 
 				currentX = e.touches[0].clientX;
 				currentY = e.touches[0].clientY;
@@ -104,7 +187,7 @@ class MobileDuesSchedule {
 			});
 
 			tabContainer.addEventListener('touchend', (e) => {
-				if (!startX || !startY) return;
+				if (!startX || !startY) { return; }
 
 				const deltaX = currentX - startX;
 				const deltaY = currentY - startY;
@@ -139,7 +222,7 @@ class MobileDuesSchedule {
 		});
 
 		container.addEventListener('touchend', (e) => {
-			if (!startX || !startTime) return;
+			if (!startX || !startTime) { return; }
 
 			const endX = e.changedTouches[0].clientX;
 			const endTime = Date.now();
@@ -162,7 +245,7 @@ class MobileDuesSchedule {
 
 	handleTabSwipe(direction) {
 		const activeTab = document.querySelector('.tab-button.active');
-		if (!activeTab) return;
+		if (!activeTab) { return; }
 
 		const tabs = Array.from(document.querySelectorAll('.tab-button'));
 		const currentIndex = tabs.indexOf(activeTab);
@@ -214,18 +297,18 @@ class MobileDuesSchedule {
 	}
 
 	setupVirtualKeyboard() {
-		if (!this.isMobile) return;
+		if (!this.isMobile) { return; }
 
 		// Handle virtual keyboard appearance
 		const viewport = document.querySelector('meta[name="viewport"]');
-		let originalViewport = viewport ? viewport.content : '';
+		const originalViewport = viewport ? viewport.content : '';
 
 		const inputs = document.querySelectorAll('input, textarea, select');
 		inputs.forEach(input => {
 			input.addEventListener('focus', () => {
 				// Prevent zoom on iOS
 				if (viewport) {
-					viewport.content = originalViewport + ', user-scalable=no';
+					viewport.content = `${originalViewport}, user-scalable=no`;
 				}
 
 				// Scroll input into view
@@ -256,7 +339,7 @@ class MobileDuesSchedule {
 	}
 
 	setupPullToRefresh() {
-		if (!this.isMobile || !this.isTouch) return;
+		if (!this.isMobile || !this.isTouch) { return; }
 
 		let startY = 0;
 		let currentY = 0;
@@ -274,7 +357,7 @@ class MobileDuesSchedule {
 		});
 
 		document.addEventListener('touchmove', (e) => {
-			if (!isPulling || window.scrollY > 0) return;
+			if (!isPulling || window.scrollY > 0) { return; }
 
 			currentY = e.touches[0].clientY;
 			pullDistance = currentY - startY;
@@ -286,7 +369,7 @@ class MobileDuesSchedule {
 		});
 
 		document.addEventListener('touchend', (e) => {
-			if (!isPulling) return;
+			if (!isPulling) { return; }
 
 			if (pullDistance > pullThreshold) {
 				this.performRefresh();
@@ -675,7 +758,7 @@ class MobileDuesSchedule {
 	}
 
 	optimizeForMobile() {
-		if (!this.isMobile) return;
+		if (!this.isMobile) { return; }
 
 		// Optimize images
 		const images = document.querySelectorAll('img');

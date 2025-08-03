@@ -18,8 +18,17 @@ def create_eboekhouden_tracking_fields():
                 "insert_after": "naming_series",
                 "unique": 1,
                 "allow_on_submit": 1,
-                "module": "E Boekhouden",
-            }
+                "module": "E-Boekhouden",
+            },
+            {
+                "fieldname": "eboekhouden_mutation_nr",
+                "label": "E-Boekhouden Mutation Nr",
+                "fieldtype": "Data",
+                "insert_after": "cost_center",
+                "unique": 1,
+                "allow_on_submit": 1,
+                "module": "E-Boekhouden",
+            },
         ],
         "Purchase Invoice": [
             {
@@ -29,8 +38,17 @@ def create_eboekhouden_tracking_fields():
                 "insert_after": "naming_series",
                 "unique": 1,
                 "allow_on_submit": 1,
-                "module": "E Boekhouden",
-            }
+                "module": "E-Boekhouden",
+            },
+            {
+                "fieldname": "eboekhouden_mutation_nr",
+                "label": "E-Boekhouden Mutation Nr",
+                "fieldtype": "Data",
+                "insert_after": "cost_center",
+                "unique": 1,
+                "allow_on_submit": 1,
+                "module": "E-Boekhouden",
+            },
         ],
         "Customer": [
             {
@@ -39,7 +57,7 @@ def create_eboekhouden_tracking_fields():
                 "fieldtype": "Data",
                 "insert_after": "customer_name",
                 "unique": 1,
-                "module": "E Boekhouden",
+                "module": "E-Boekhouden",
             }
         ],
         "Supplier": [
@@ -49,7 +67,7 @@ def create_eboekhouden_tracking_fields():
                 "fieldtype": "Data",
                 "insert_after": "supplier_name",
                 "unique": 1,
-                "module": "E Boekhouden",
+                "module": "E-Boekhouden",
             }
         ],
         "Journal Entry": [
@@ -60,7 +78,7 @@ def create_eboekhouden_tracking_fields():
                 "insert_after": "naming_series",
                 "unique": 1,
                 "allow_on_submit": 1,
-                "module": "E Boekhouden",
+                "module": "E-Boekhouden",
             },
             {
                 "fieldname": "eboekhouden_relation_code",

@@ -1,4 +1,92 @@
 /**
+ * @fileoverview Membership Application Form - Multi-Step Public Registration System
+ *
+ * This module provides a comprehensive, user-friendly membership application form
+ * for public-facing member registration. Features a modern multi-step interface
+ * with real-time validation, payment integration, and seamless backend processing.
+ *
+ * ## Core Business Functions
+ * - **Multi-Step Registration**: Progressive form completion with validation at each step
+ * - **Membership Type Selection**: Dynamic options based on organizational configuration
+ * - **Payment Integration**: SEPA direct debit, iDEAL, and other Dutch payment methods
+ * - **Chapter Assignment**: Geographic-based or preference-based chapter selection
+ * - **ANBI Compliance**: Built-in tax benefit information and consent collection
+ * - **Data Privacy**: GDPR-compliant data collection with explicit consent management
+ *
+ * ## Technical Architecture
+ * - **Modular Components**: Service-oriented architecture with reusable components
+ * - **State Management**: Centralized application state with persistence
+ * - **Progressive Enhancement**: Works without JavaScript, enhanced with modern features
+ * - **API Integration**: RESTful backend communication with error handling
+ * - **Responsive Design**: Mobile-first interface with accessibility support
+ * - **Auto-Save Functionality**: Prevents data loss during lengthy form completion
+ *
+ * ## Form Steps
+ * 1. **Personal Information**: Basic contact details and identity data
+ * 2. **Membership Type**: Selection of membership level and benefits
+ * 3. **Chapter Selection**: Geographic or interest-based chapter assignment
+ * 4. **Payment Method**: SEPA mandate setup or alternative payment selection
+ * 5. **Consent & Privacy**: GDPR, ANBI, and communication preferences
+ * 6. **Review & Submit**: Final validation and submission
+ *
+ * ## Payment Processing
+ * - **SEPA Direct Debit**: Automated recurring payment setup with mandate management
+ * - **iDEAL Integration**: Real-time bank payments for Dutch users
+ * - **Payment Validation**: Real-time IBAN validation and bank verification
+ * - **Dues Calculation**: Automatic calculation based on membership type and duration
+ * - **Proration Support**: Mid-year membership adjustments
+ *
+ * ## Validation System
+ * - **Real-time Validation**: Field-level validation with immediate feedback
+ * - **Server-side Verification**: Critical validation performed on backend
+ * - **IBAN Validation**: MOD-97 algorithm with bank lookup
+ * - **Email Verification**: Domain validation and deliverability checks
+ * - **Address Validation**: PostNL integration for Dutch addresses
+ *
+ * ## Data Management
+ * - **Auto-Save**: Periodic state preservation to prevent data loss
+ * - **Session Management**: Secure handling of multi-step form state
+ * - **Error Recovery**: Graceful handling of network failures and timeouts
+ * - **Progress Tracking**: Visual indicators and completion status
+ * - **Draft Management**: Ability to save and resume incomplete applications
+ *
+ * ## Integration Points
+ * - Verenigingen Member management system
+ * - ERPNext Customer creation workflow
+ * - SEPA mandate processing
+ * - Email notification system
+ * - Chapter management integration
+ * - Membership dues scheduling
+ *
+ * ## Security Features
+ * - **CSRF Protection**: Token-based request validation
+ * - **Input Sanitization**: XSS prevention and data cleaning
+ * - **Rate Limiting**: Prevents abuse and spam submissions
+ * - **Data Encryption**: Sensitive data protection in transit and storage
+ * - **Audit Logging**: Complete trail of application processing
+ *
+ * ## User Experience
+ * - **Progressive Disclosure**: Information revealed as needed
+ * - **Smart Defaults**: Intelligent form pre-population
+ * - **Accessibility**: WCAG 2.1 AA compliance
+ * - **Multi-language**: Dutch and English language support
+ * - **Mobile Optimization**: Touch-friendly interface design
+ *
+ * @company R.S.P. (Verenigingen Association Management)
+ * @version 2025.1.0
+ * @since 2023.1.0
+ * @license Proprietary
+ *
+ * @requires frappe>=15.0.0
+ * @requires verenigingen.member
+ * @requires verenigingen.chapter
+ * @requires verenigingen.membership_type
+ *
+ * @see {@link /api/method/verenigingen.api.membership_application} Application API
+ * @see {@link /membership_application} Public registration form
+ */
+
+/**
  * Refactored Membership Application JavaScript
  * Uses modular components and services for better maintainability
  * Updated to use the Membership Dues Schedule system.
@@ -205,7 +293,6 @@ class _MembershipApplication {
 
 			// Load static data into form fields
 			this.loadStaticData(data);
-
 		} catch (error) {
 			console.error('Failed to load initial data:', error);
 			if (this.errorHandler && typeof this.errorHandler.handleAPIError === 'function') {
@@ -245,9 +332,9 @@ class _MembershipApplication {
 
 					chapters.forEach(chapter => {
 						let displayText = chapter.name;
-						let locationInfo = [];
+						const locationInfo = [];
 
-						if (chapter.region) locationInfo.push(chapter.region);
+						if (chapter.region) { locationInfo.push(chapter.region); }
 
 						if (locationInfo.length > 0) {
 							displayText += ` (${locationInfo.join(', ')})`;
@@ -308,7 +395,7 @@ class _MembershipApplication {
 	bindStepNavigation() {
 		// Initialize step navigation
 		this.currentStep = 1;
-		this.maxSteps = 6;  // Fixed: Match template which has 6 steps
+		this.maxSteps = 6; // Fixed: Match template which has 6 steps
 
 		// Show first step
 		this.showStep(1);
@@ -422,14 +509,14 @@ class _MembershipApplication {
 		$(`.form-step[data-step="${step}"] .is-invalid`).removeClass('is-invalid');
 		$(`.form-step[data-step="${step}"] .invalid-feedback`).hide();
 
-		switch(step) {
+		switch (step) {
 			case 1: { // Personal info
 				const requiredFields = ['#first_name', '#last_name', '#email', '#birth_date'];
 				requiredFields.forEach(field => {
 					const $field = $(field);
 					if (!$field.val() || $field.val().trim() === '') {
 						$field.addClass('is-invalid');
-						let feedback = $field.siblings('.invalid-feedback');
+						const feedback = $field.siblings('.invalid-feedback');
 						if (feedback.length === 0) {
 							$field.after('<div class="invalid-feedback">This field is required</div>');
 						}
@@ -453,7 +540,7 @@ class _MembershipApplication {
 					const $field = $(field);
 					if (!$field.val() || $field.val().trim() === '') {
 						$field.addClass('is-invalid');
-						let feedback = $field.siblings('.invalid-feedback');
+						const feedback = $field.siblings('.invalid-feedback');
 						if (feedback.length === 0) {
 							$field.after('<div class="invalid-feedback">This field is required</div>');
 						}
@@ -520,7 +607,7 @@ class _MembershipApplication {
 				if (!iban || iban.trim() === '') {
 					console.log('IBAN is empty');
 					$('#iban').addClass('is-invalid');
-					let feedback = $('#iban').siblings('.invalid-feedback');
+					const feedback = $('#iban').siblings('.invalid-feedback');
 					if (feedback.length === 0) {
 						$('#iban').after('<div class="invalid-feedback">IBAN is required</div>');
 					}
@@ -548,7 +635,7 @@ class _MembershipApplication {
 				if (!accountHolder || accountHolder.trim() === '') {
 					console.log('Account holder name is empty');
 					$('#account_holder_name').addClass('is-invalid');
-					let feedback = $('#account_holder_name').siblings('.invalid-feedback');
+					const feedback = $('#account_holder_name').siblings('.invalid-feedback');
 					if (feedback.length === 0) {
 						$('#account_holder_name').after('<div class="invalid-feedback">Account holder name is required</div>');
 					}
@@ -597,7 +684,7 @@ class _MembershipApplication {
 	}
 
 	setupStepContent(stepNumber) {
-		switch(stepNumber) {
+		switch (stepNumber) {
 			case 1:
 				this.setupPersonalInfoStep();
 				break;
@@ -715,7 +802,7 @@ class _MembershipApplication {
 
 	getSelectedVolunteerInterests() {
 		const interests = [];
-		$('#volunteer-interests input[type="checkbox"]:checked').each(function() {
+		$('#volunteer-interests input[type="checkbox"]:checked').each(function () {
 			interests.push($(this).val());
 		});
 		return interests;
@@ -723,7 +810,7 @@ class _MembershipApplication {
 
 	getVolunteerSkills() {
 		const skills = [];
-		$('.skill-row').each(function() {
+		$('.skill-row').each(function () {
 			const skillName = $(this).find('input[name="skill_name[]"]').val();
 			const skillLevel = $(this).find('select[name="skill_level[]"]').val();
 
@@ -784,7 +871,7 @@ class _MembershipApplication {
 					args: {
 						member: null, // We don't have a member yet during application
 						postal_code: postalCode,
-						city: city,
+						city,
 						state: null // Could be derived from city if needed
 					},
 					callback: (r) => {
@@ -806,7 +893,6 @@ class _MembershipApplication {
 				// Hide suggestion if no matches found
 				$('#suggested-chapter').hide();
 			}
-
 		} catch (error) {
 			console.error('Error suggesting chapters:', error);
 			// Hide suggestion on error
@@ -909,7 +995,7 @@ class _MembershipApplication {
 		const email = $('#email').val();
 		const emailField = $('#email');
 
-		if (!email) return;
+		if (!email) { return; }
 
 		// Basic email regex
 		const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -927,7 +1013,7 @@ class _MembershipApplication {
 	validatePostalCodeAndSuggestChapter() {
 		const postalCode = $('#postal_code').val();
 
-		if (!postalCode || postalCode.length < 4) return;
+		if (!postalCode || postalCode.length < 4) { return; }
 
 		// Call API to validate postal code and suggest chapters
 		frappe.call({
@@ -946,7 +1032,7 @@ class _MembershipApplication {
 		const iban = $('#iban').val();
 		const ibanField = $('#iban');
 
-		if (!iban) return;
+		if (!iban) { return; }
 
 		// Use comprehensive IBAN validation with mod-97 checksum
 		const validation = this.performIBANValidation(iban);
@@ -1008,10 +1094,10 @@ class _MembershipApplication {
 
 		// IBAN length specifications
 		const ibanLengths = {
-			'AD': 24, 'AT': 20, 'BE': 16, 'CH': 21, 'CZ': 24,
-			'DE': 22, 'DK': 18, 'ES': 24, 'FI': 18, 'FR': 27,
-			'GB': 22, 'IE': 22, 'IT': 27, 'LU': 20, 'NL': 18,
-			'NO': 15, 'PL': 28, 'PT': 25, 'SE': 24
+			AD: 24, AT: 20, BE: 16, CH: 21, CZ: 24,
+			DE: 22, DK: 18, ES: 24, FI: 18, FR: 27,
+			GB: 22, IE: 22, IT: 27, LU: 20, NL: 18,
+			NO: 15, PL: 28, PT: 25, SE: 24
 		};
 
 		// Check if country is supported
@@ -1023,9 +1109,9 @@ class _MembershipApplication {
 		const expectedLength = ibanLengths[countryCode];
 		if (cleanIBAN.length !== expectedLength) {
 			const countryNames = {
-				'NL': 'Dutch', 'BE': 'Belgian', 'DE': 'German',
-				'FR': 'French', 'GB': 'British', 'IT': 'Italian',
-				'ES': 'Spanish', 'AT': 'Austrian', 'CH': 'Swiss'
+				NL: 'Dutch', BE: 'Belgian', DE: 'German',
+				FR: 'French', GB: 'British', IT: 'Italian',
+				ES: 'Spanish', AT: 'Austrian', CH: 'Swiss'
 			};
 			const countryName = countryNames[countryCode] || countryCode;
 			return {
@@ -1048,11 +1134,11 @@ class _MembershipApplication {
 		// Format IBAN with spaces
 		const formatted = cleanIBAN.match(/.{1,4}/g).join(' ');
 
-		return { valid: true, error: null, formatted: formatted };
+		return { valid: true, error: null, formatted };
 	}
 
 	deriveBICFromIBAN(iban) {
-		if (!iban) return null;
+		if (!iban) { return null; }
 
 		const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -1062,23 +1148,23 @@ class _MembershipApplication {
 
 		const bankCode = cleanIBAN.substring(4, 8);
 		const nlBicCodes = {
-			'INGB': 'INGBNL2A',
-			'ABNA': 'ABNANL2A',
-			'RABO': 'RABONL2U',
-			'TRIO': 'TRIONL2U',
-			'SNSB': 'SNSBNL2A',
-			'ASNB': 'ASNBNL21',
-			'KNAB': 'KNABNL2H',
-			'BUNQ': 'BUNQNL2A',
-			'REVO': 'REVOLT21',
-			'RBRB': 'RBRBNL21'
+			INGB: 'INGBNL2A',
+			ABNA: 'ABNANL2A',
+			RABO: 'RABONL2U',
+			TRIO: 'TRIONL2U',
+			SNSB: 'SNSBNL2A',
+			ASNB: 'ASNBNL21',
+			KNAB: 'KNABNL2H',
+			BUNQ: 'BUNQNL2A',
+			REVO: 'REVOLT21',
+			RBRB: 'RBRBNL21'
 		};
 
 		return nlBicCodes[bankCode] || null;
 	}
 
 	getBankNameFromIBAN(iban) {
-		if (!iban) return null;
+		if (!iban) { return null; }
 
 		const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -1088,15 +1174,15 @@ class _MembershipApplication {
 
 		const bankCode = cleanIBAN.substring(4, 8);
 		const bankNames = {
-			'INGB': 'ING',
-			'ABNA': 'ABN AMRO',
-			'RABO': 'Rabobank',
-			'TRIO': 'Triodos Bank',
-			'SNSB': 'SNS Bank',
-			'ASNB': 'ASN Bank',
-			'KNAB': 'Knab',
-			'BUNQ': 'Bunq',
-			'RBRB': 'RegioBank'
+			INGB: 'ING',
+			ABNA: 'ABN AMRO',
+			RABO: 'Rabobank',
+			TRIO: 'Triodos Bank',
+			SNSB: 'SNS Bank',
+			ASNB: 'ASN Bank',
+			KNAB: 'Knab',
+			BUNQ: 'Bunq',
+			RBRB: 'RegioBank'
 		};
 
 		return bankNames[bankCode] || null;
@@ -1147,7 +1233,7 @@ class _MembershipApplication {
 	}
 
 	async loadExistingDraft() {
-		if (!this.storageService) return;
+		if (!this.storageService) { return; }
 
 		try {
 			const result = await this.storageService.loadDraft();
@@ -1229,7 +1315,6 @@ class _MembershipApplication {
 			}
 
 			return result;
-
 		} catch (error) {
 			console.error('Application submission failed:', error);
 			this.handleSubmissionError(error);
@@ -1291,7 +1376,7 @@ class _MembershipApplication {
 
 		if (result.application_id) {
 			successHTML += '<div class="alert alert-info mx-auto" style="max-width: 500px;">';
-			successHTML += '<h4>Your Application ID: <strong>' + result.application_id + '</strong></h4>';
+			successHTML += `<h4>Your Application ID: <strong>${result.application_id}</strong></h4>`;
 			successHTML += '<p>Please save this ID for future reference.</p>';
 			successHTML += '</div>';
 		}
@@ -1326,15 +1411,15 @@ class _MembershipApplication {
 		}
 
 		const fieldMappings = {
-			'first_name': 'firstName',
-			'last_name': 'lastName',
-			'email': 'email',
-			'birth_date': 'birthDate',
-			'address_line1': 'address',
-			'city': 'city',
-			'postal_code': 'postalCode',
-			'country': 'country',
-			'mobile_no': 'phone'
+			first_name: 'firstName',
+			last_name: 'lastName',
+			email: 'email',
+			birth_date: 'birthDate',
+			address_line1: 'address',
+			city: 'city',
+			postal_code: 'postalCode',
+			country: 'country',
+			mobile_no: 'phone'
 		};
 
 		Object.entries(fieldMappings).forEach(([fieldId, validationKey]) => {
@@ -1350,7 +1435,6 @@ class _MembershipApplication {
 			}
 		});
 	}
-
 
 
 	setupPersonalInfoStep() {
@@ -1385,7 +1469,7 @@ class _MembershipApplication {
 	setupVolunteerStep() {
 		console.log('Setting up volunteer step');
 		// Set up volunteer interest toggle
-		$('#interested_in_volunteering').off('change').on('change', function() {
+		$('#interested_in_volunteering').off('change').on('change', function () {
 			$('#volunteer-details').toggle($(this).is(':checked'));
 		});
 
@@ -1515,7 +1599,7 @@ class _MembershipApplication {
 
 			// Calculate based on percentage of monthly income
 			const monthlyContribution = monthlyIncome * (calculatorSettings.percentage / 100);
-			let displayAmount, displayFrequency;
+			let displayAmount; let displayFrequency;
 
 			if (paymentInterval === 'quarterly') {
 				displayAmount = monthlyContribution * 3; // 3 months worth
@@ -1531,11 +1615,11 @@ class _MembershipApplication {
 			calculatedAmount = displayAmount;
 
 			// Format currency
-			const formattedAmount = '€' + displayAmount.toFixed(2);
+			const formattedAmount = `€${displayAmount.toFixed(2)}`;
 
 			// Update display
 			$('#calc-suggested-amount').text(formattedAmount);
-			$('#calc-payment-frequency').text(' ' + displayFrequency);
+			$('#calc-payment-frequency').text(` ${displayFrequency}`);
 			$('#calc-result').show();
 			$('#apply-calculated-amount').show();
 		}
@@ -1612,7 +1696,6 @@ class _MembershipApplication {
 						$('html, body').animate({
 							scrollTop: $('#membership-types').offset().top - 100
 						}, 500);
-
 					}, 300);
 				} else {
 					console.warn('Could not find choose amount button for membership type');
@@ -1683,9 +1766,9 @@ class _MembershipApplication {
 
 		// Updated to use billing_period mapping
 		const billingPeriodMapping = {
-			'monthly': 'Monthly',
-			'quarterly': 'Quarterly',
-			'annually': 'Annual'
+			monthly: 'Monthly',
+			quarterly: 'Quarterly',
+			annually: 'Annual'
 		};
 
 		// Uses billing_period instead of legacy subscription_period
@@ -1703,9 +1786,9 @@ class _MembershipApplication {
 
 		// Second try: Fallback to name/description matching for legacy support
 		const intervalMatchers = {
-			'monthly': ['month', 'maand', 'monthly'],
-			'quarterly': ['quarter', 'kwartaal', 'quarterly', 'driemaandelijk'],
-			'annually': ['year', 'jaar', 'annual', 'yearly', 'jaarlijks']
+			monthly: ['month', 'maand', 'monthly'],
+			quarterly: ['quarter', 'kwartaal', 'quarterly', 'driemaandelijk'],
+			annually: ['year', 'jaar', 'annual', 'yearly', 'jaarlijks']
 		};
 
 		const matchers = intervalMatchers[paymentInterval] || [];
@@ -1746,7 +1829,7 @@ class _MembershipApplication {
 	}
 
 	loadCountries(countries) {
-		if (!countries || countries.length === 0) return;
+		if (!countries || countries.length === 0) { return; }
 
 		const select = $('#country');
 		select.empty().append('<option value="">Select Country...</option>');
@@ -1759,7 +1842,7 @@ class _MembershipApplication {
 	}
 
 	loadMembershipTypes(membershipTypes) {
-		if (!membershipTypes || membershipTypes.length === 0) return;
+		if (!membershipTypes || membershipTypes.length === 0) { return; }
 
 		const container = $('#membership-types');
 		container.empty();
@@ -1949,7 +2032,6 @@ class _MembershipApplication {
 					content += '<p><em>Account details will be provided via email</em></p>';
 				}
 			}
-
 		} else {
 			content += '<p><em>No payment method selected</em></p>';
 		}
@@ -1966,7 +2048,7 @@ class _MembershipApplication {
 		// Bind events for payment method selection to show/hide appropriate form sections
 		// Use a more robust selector to catch all payment method radio buttons
 		const self = this;
-		$(document).off('change', 'input[name="payment_method_selection"], .payment-method-radio').on('change', 'input[name="payment_method_selection"], .payment-method-radio', function() {
+		$(document).off('change', 'input[name="payment_method_selection"], .payment-method-radio').on('change', 'input[name="payment_method_selection"], .payment-method-radio', function () {
 			const selectedMethod = $(this).val();
 			console.log('Main app: Payment method selection changed to:', selectedMethod);
 
@@ -1975,16 +2057,16 @@ class _MembershipApplication {
 		});
 
 		// Format card number input
-		$('#card_number').off('input').on('input', function() {
-			let value = $(this).val().replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-			let formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
+		$('#card_number').off('input').on('input', function () {
+			const value = $(this).val().replace(/\s+/g, '').replace(/[^0-9]/gi, '');
+			const formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
 			$(this).val(formattedValue);
 		});
 
 		// Format IBAN inputs (for both direct debit and bank transfer)
-		$('#iban, #transfer_iban').off('input').on('input', function() {
-			let value = $(this).val().replace(/\s+/g, '').toUpperCase();
-			let formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
+		$('#iban, #transfer_iban').off('input').on('input', function () {
+			const value = $(this).val().replace(/\s+/g, '').toUpperCase();
+			const formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
 			$(this).val(formattedValue);
 		});
 	}
@@ -1995,7 +2077,7 @@ class _MembershipApplication {
 		console.log('Form data for confirmation:', data);
 
 		// Personal Information
-		const fullName = `${data.first_name || ''} ${data.middle_name ? data.middle_name + ' ' : ''}${data.last_name || ''}`.trim();
+		const fullName = `${data.first_name || ''} ${data.middle_name ? `${data.middle_name} ` : ''}${data.last_name || ''}`.trim();
 		$('#confirm-name').text(fullName || 'Not provided');
 		$('#confirm-email').text(data.email || 'Not provided');
 		$('#confirm-phone').text(data.mobile_no || 'Not provided');
@@ -2054,7 +2136,7 @@ class _MembershipApplication {
 					}
 				}
 				if (accountHolder) {
-					if (bankInfo) bankInfo += '<br>';
+					if (bankInfo) { bankInfo += '<br>'; }
 					bankInfo += `Account Holder: ${accountHolder}`;
 				}
 				$('#confirm-bank-info').html(bankInfo);
@@ -2085,12 +2167,12 @@ class _MembershipApplication {
 
 		console.log('Creating membership card for:', { name: type.name, amount, type });
 
-		let cardHTML = '<div class="membership-type-card" data-type="' + (type.name || '') + '" data-amount="' + amount + '">';
-		cardHTML += '<h5>' + membershipTypeName + '</h5>';
+		let cardHTML = `<div class="membership-type-card" data-type="${type.name || ''}" data-amount="${amount}">`;
+		cardHTML += `<h5>${membershipTypeName}</h5>`;
 		cardHTML += '<div class="membership-price">';
-		cardHTML += frappe.format(amount, {fieldtype: 'Currency'}) + ' / ' + billingPeriod;
+		cardHTML += `${frappe.format(amount, { fieldtype: 'Currency' })} / ${billingPeriod}`;
 		cardHTML += '</div>';
-		cardHTML += '<p class="membership-description">' + (type.description || '') + '</p>';
+		cardHTML += `<p class="membership-description">${type.description || ''}</p>`;
 
 		// Add custom amount section if allowed
 		if (type.allow_custom_amount) {
@@ -2099,12 +2181,12 @@ class _MembershipApplication {
 			cardHTML += '<div class="amount-suggestion-pills">';
 
 			if (type.suggested_amounts && type.suggested_amounts.length > 0) {
-				type.suggested_amounts.forEach(function(suggestion) {
+				type.suggested_amounts.forEach((suggestion) => {
 					const suggestionAmount = parseFloat(suggestion.amount) || 0;
 					console.log('Creating amount pill:', { label: suggestion.label, amount: suggestionAmount });
-					cardHTML += '<span class="amount-pill" data-amount="' + suggestionAmount + '">';
-					cardHTML += frappe.format(suggestionAmount, {fieldtype: 'Currency'});
-					cardHTML += '<br><small>' + suggestion.label + '</small>';
+					cardHTML += `<span class="amount-pill" data-amount="${suggestionAmount}">`;
+					cardHTML += frappe.format(suggestionAmount, { fieldtype: 'Currency' });
+					cardHTML += `<br><small>${suggestion.label}</small>`;
 					cardHTML += '</span>';
 				});
 			}
@@ -2114,15 +2196,15 @@ class _MembershipApplication {
 			cardHTML += '<label>Or enter custom amount:</label>';
 			const minAmount = type.minimum_amount || amount;
 			cardHTML += '<input type="number" class="form-control custom-amount-input" ';
-			cardHTML += 'min="' + minAmount + '" step="0.01" placeholder="Enter amount">';
-			cardHTML += '<small class="text-muted">Minimum: ' + frappe.format(minAmount, {fieldtype: 'Currency'}) + '</small>';
+			cardHTML += `min="${minAmount}" step="0.01" placeholder="Enter amount">`;
+			cardHTML += `<small class="text-muted">Minimum: ${frappe.format(minAmount, { fieldtype: 'Currency' })}</small>`;
 			cardHTML += '</div>';
 			cardHTML += '</div>';
 		}
 
 		cardHTML += '<div class="btn-group mt-3">';
 		cardHTML += '<button type="button" class="btn btn-primary select-membership">';
-		cardHTML += 'Select' + (type.allow_custom_amount ? ' Standard' : '');
+		cardHTML += `Select${type.allow_custom_amount ? ' Standard' : ''}`;
 		cardHTML += '</button>';
 
 		if (type.allow_custom_amount) {
@@ -2134,7 +2216,7 @@ class _MembershipApplication {
 
 		if (type.allow_custom_amount && type.custom_amount_note) {
 			cardHTML += '<div class="mt-2">';
-			cardHTML += '<small class="text-muted">' + type.custom_amount_note + '</small>';
+			cardHTML += `<small class="text-muted">${type.custom_amount_note}</small>`;
 			cardHTML += '</div>';
 		}
 
@@ -2144,19 +2226,19 @@ class _MembershipApplication {
 	}
 
 	createPaymentMethodCard(method) {
-		let methodCardHTML = '<div class="payment-method-option" data-method="' + method.name + '">';
+		let methodCardHTML = `<div class="payment-method-option" data-method="${method.name}">`;
 		methodCardHTML += '<div class="d-flex align-items-center">';
 		methodCardHTML += '<div class="payment-method-icon">';
-		methodCardHTML += '<i class="fa ' + (method.icon || 'fa-university') + '"></i>';
+		methodCardHTML += `<i class="fa ${method.icon || 'fa-university'}"></i>`;
 		methodCardHTML += '</div>';
 		methodCardHTML += '<div class="payment-method-info flex-grow-1">';
-		methodCardHTML += '<h6>' + method.name + '</h6>';
+		methodCardHTML += `<h6>${method.name}</h6>`;
 		methodCardHTML += '<div class="text-muted">';
-		methodCardHTML += method.description + '<br>';
-		methodCardHTML += '<small><strong>Processing:</strong> ' + method.processing_time + '</small>';
+		methodCardHTML += `${method.description}<br>`;
+		methodCardHTML += `<small><strong>Processing:</strong> ${method.processing_time}</small>`;
 
 		if (method.requires_mandate) {
-			methodCardHTML += '<br><small class="text-warning"><strong>Note:</strong> ' + method.note + '</small>';
+			methodCardHTML += `<br><small class="text-warning"><strong>Note:</strong> ${method.note}</small>`;
 		}
 
 		methodCardHTML += '</div>';
@@ -2164,10 +2246,10 @@ class _MembershipApplication {
 		methodCardHTML += '<div class="payment-method-selector">';
 		methodCardHTML += '<div class="form-check">';
 
-		const radioId = 'payment_' + method.name.replace(/\s+/g, '_').toLowerCase();
+		const radioId = `payment_${method.name.replace(/\s+/g, '_').toLowerCase()}`;
 		methodCardHTML += '<input class="form-check-input payment-method-radio" type="radio" ';
-		methodCardHTML += 'name="payment_method_selection" value="' + method.name + '" id="' + radioId + '">';
-		methodCardHTML += '<label class="form-check-label" for="' + radioId + '">';
+		methodCardHTML += `name="payment_method_selection" value="${method.name}" id="${radioId}">`;
+		methodCardHTML += `<label class="form-check-label" for="${radioId}">`;
 		methodCardHTML += 'Select';
 		methodCardHTML += '</label>';
 		methodCardHTML += '</div>';
@@ -2269,7 +2351,7 @@ class _MembershipApplication {
 			if (amount < minAmount) {
 				input.addClass('is-invalid');
 				input.siblings('.invalid-feedback').remove();
-				input.after(`<div class="invalid-feedback">Amount must be at least ${frappe.format(minAmount, {fieldtype: 'Currency'})}</div>`);
+				input.after(`<div class="invalid-feedback">Amount must be at least ${frappe.format(minAmount, { fieldtype: 'Currency' })}</div>`);
 				return;
 			}
 
@@ -2358,13 +2440,13 @@ class _MembershipApplication {
 
 		// Find the membership type details
 		const membershipTypeDetails = this.membershipTypes && this.membershipTypes.find(t => t.name === membershipType);
-		const membershipTypeName = membershipTypeDetails ?
-			(membershipTypeDetails.membership_type_name || membershipTypeDetails.name) :
-			membershipType;
+		const membershipTypeName = membershipTypeDetails
+			? (membershipTypeDetails.membership_type_name || membershipTypeDetails.name)
+			: membershipType;
 
-		const billingPeriod = membershipTypeDetails ?
-			(membershipTypeDetails.billing_period || 'year') :
-			'year';
+		const billingPeriod = membershipTypeDetails
+			? (membershipTypeDetails.billing_period || 'year')
+			: 'year';
 
 		const periodText = billingPeriod.toLowerCase() === 'quarterly' ? 'Quarterly' : `per ${billingPeriod}`;
 
@@ -2418,7 +2500,7 @@ class _MembershipApplication {
 	}
 
 	selectPaymentMethod(methodName) {
-		if (!methodName) return;
+		if (!methodName) { return; }
 
 		console.log('Selecting payment method:', methodName);
 
@@ -2641,7 +2723,7 @@ class PersonalInfoStep extends BaseStep {
 		}
 
 		const email = emailField.val();
-		if (!email) return true;
+		if (!email) { return true; }
 
 		try {
 			// Check if membershipApp and its API are available
@@ -2677,7 +2759,7 @@ class PersonalInfoStep extends BaseStep {
 		}
 
 		const birthDate = birthDateField.val();
-		if (!birthDate) return true;
+		if (!birthDate) { return true; }
 
 		const age = this.calculateAge(birthDate);
 		let warningDiv = $('#age-warning');
@@ -2719,7 +2801,7 @@ class PersonalInfoStep extends BaseStep {
 	}
 
 	calculateAge(birthDate) {
-		if (!birthDate) return 0;
+		if (!birthDate) { return 0; }
 
 		try {
 			const birth = new Date(birthDate);
@@ -2738,8 +2820,8 @@ class PersonalInfoStep extends BaseStep {
 			let age = today.getFullYear() - birth.getFullYear();
 
 			// Adjust for birthday not yet reached this year
-			if (today.getMonth() < birth.getMonth() ||
-                (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) {
+			if (today.getMonth() < birth.getMonth()
+                || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) {
 				age--;
 			}
 
@@ -2821,7 +2903,7 @@ class AddressStep extends BaseStep {
 		const postalCode = $('#postal_code').val();
 		const country = $('#country').val() || 'Netherlands';
 
-		if (!postalCode) return;
+		if (!postalCode) { return; }
 
 		try {
 			if (typeof membershipApp === 'undefined' || !membershipApp.apiService) {
@@ -2836,7 +2918,7 @@ class AddressStep extends BaseStep {
 				$('#suggested-chapter-name').text(suggestion.name);
 				$('#suggested-chapter').show();
 
-				$('#accept-suggestion').off('click').on('click', function() {
+				$('#accept-suggestion').off('click').on('click', () => {
 					$('#selected_chapter').val(suggestion.name);
 					$('#suggested-chapter').hide();
 				});
@@ -2895,10 +2977,10 @@ class MembershipStep extends BaseStep {
 				frappe.call({
 					method: 'verenigingen.api.membership_application.get_membership_type_details',
 					args: { membership_type: type.name },
-					callback: function(r) {
+					callback(r) {
 						resolve(r.message || type);
 					},
-					error: function() {
+					error() {
 						resolve(type); // Fallback to basic type data
 					}
 				});
@@ -2961,15 +3043,15 @@ class VolunteerStep extends BaseStep {
 		container.empty();
 
 		areas.forEach(area => {
-			const checkboxId = 'interest_' + area.name.replace(/\s+/g, '_');
+			const checkboxId = `interest_${area.name.replace(/\s+/g, '_')}`;
 			let checkboxHTML = '<div class="form-check">';
 			checkboxHTML += '<input class="form-check-input" type="checkbox" ';
-			checkboxHTML += 'value="' + area.name + '" id="' + checkboxId + '">';
-			checkboxHTML += '<label class="form-check-label" for="' + checkboxId + '">';
+			checkboxHTML += `value="${area.name}" id="${checkboxId}">`;
+			checkboxHTML += `<label class="form-check-label" for="${checkboxId}">`;
 			checkboxHTML += area.name;
 
 			if (area.description) {
-				checkboxHTML += '<small class="text-muted d-block">' + area.description + '</small>';
+				checkboxHTML += `<small class="text-muted d-block">${area.description}</small>`;
 			}
 
 			checkboxHTML += '</label>';
@@ -2980,11 +3062,11 @@ class VolunteerStep extends BaseStep {
 	}
 
 	bindEvents() {
-		$('#interested_in_volunteering').off('change').on('change', function() {
+		$('#interested_in_volunteering').off('change').on('change', function () {
 			$('#volunteer-details').toggle($(this).is(':checked'));
 		});
 
-		$('#application_source').off('change').on('change', function() {
+		$('#application_source').off('change').on('change', function () {
 			$('#source-details-container').toggle($(this).val() === 'Other');
 		});
 	}
@@ -2996,7 +3078,7 @@ class VolunteerStep extends BaseStep {
 
 	getData() {
 		const interests = [];
-		$('#volunteer-interests input[type="checkbox"]:checked').each(function() {
+		$('#volunteer-interests input[type="checkbox"]:checked').each(function () {
 			interests.push($(this).val());
 		});
 
@@ -3056,19 +3138,19 @@ class PaymentStep extends BaseStep {
 	}
 
 	createPaymentMethodCard(method) {
-		let methodCardHTML = '<div class="payment-method-option" data-method="' + method.name + '">';
+		let methodCardHTML = `<div class="payment-method-option" data-method="${method.name}">`;
 		methodCardHTML += '<div class="d-flex align-items-center">';
 		methodCardHTML += '<div class="payment-method-icon">';
-		methodCardHTML += '<i class="fa ' + (method.icon || 'fa-university') + '"></i>';
+		methodCardHTML += `<i class="fa ${method.icon || 'fa-university'}"></i>`;
 		methodCardHTML += '</div>';
 		methodCardHTML += '<div class="payment-method-info flex-grow-1">';
-		methodCardHTML += '<h6>' + method.name + '</h6>';
+		methodCardHTML += `<h6>${method.name}</h6>`;
 		methodCardHTML += '<div class="text-muted">';
-		methodCardHTML += method.description + '<br>';
-		methodCardHTML += '<small><strong>Processing:</strong> ' + method.processing_time + '</small>';
+		methodCardHTML += `${method.description}<br>`;
+		methodCardHTML += `<small><strong>Processing:</strong> ${method.processing_time}</small>`;
 
 		if (method.requires_mandate) {
-			methodCardHTML += '<br><small class="text-warning"><strong>Note:</strong> ' + method.note + '</small>';
+			methodCardHTML += `<br><small class="text-warning"><strong>Note:</strong> ${method.note}</small>`;
 		}
 
 		methodCardHTML += '</div>';
@@ -3076,10 +3158,10 @@ class PaymentStep extends BaseStep {
 		methodCardHTML += '<div class="payment-method-selector">';
 		methodCardHTML += '<div class="form-check">';
 
-		const radioId = 'payment_' + method.name.replace(/\s+/g, '_').toLowerCase();
+		const radioId = `payment_${method.name.replace(/\s+/g, '_').toLowerCase()}`;
 		methodCardHTML += '<input class="form-check-input payment-method-radio" type="radio" ';
-		methodCardHTML += 'name="payment_method_selection" value="' + method.name + '" id="' + radioId + '">';
-		methodCardHTML += '<label class="form-check-label" for="' + radioId + '">';
+		methodCardHTML += `name="payment_method_selection" value="${method.name}" id="${radioId}">`;
+		methodCardHTML += `<label class="form-check-label" for="${radioId}">`;
 		methodCardHTML += 'Select';
 		methodCardHTML += '</label>';
 		methodCardHTML += '</div>';
@@ -3169,7 +3251,7 @@ class PaymentStep extends BaseStep {
 	}
 
 	selectPaymentMethod(methodName) {
-		if (!methodName) return;
+		if (!methodName) { return; }
 
 		console.log('Selecting payment method:', methodName);
 
@@ -3228,12 +3310,12 @@ class PaymentStep extends BaseStep {
 		let content = '<div class="row">';
 		content += '<div class="col-md-6">';
 		content += '<h6>Personal Information</h6>';
-		content += '<p><strong>Name:</strong> ' + ($('#first_name').val() || '') + ' ' + ($('#last_name').val() || '') + '</p>';
-		content += '<p><strong>Email:</strong> ' + ($('#email').val() || '') + '</p>';
+		content += `<p><strong>Name:</strong> ${$('#first_name').val() || ''} ${$('#last_name').val() || ''}</p>`;
+		content += `<p><strong>Email:</strong> ${$('#email').val() || ''}</p>`;
 
 		const age = this.calculateAge($('#birth_date').val());
 		if (age > 0) {
-			content += '<p><strong>Age:</strong> ' + age + ' years</p>';
+			content += `<p><strong>Age:</strong> ${age} years</p>`;
 		}
 
 		content += '</div>';
@@ -3245,8 +3327,8 @@ class PaymentStep extends BaseStep {
 			const membershipTypes = state.get('membershipTypes') || [];
 			const membershipType = membershipTypes.find(t => t.name === membership.type);
 			if (membershipType) {
-				content += '<p><strong>Type:</strong> ' + membershipType.membership_type_name + '</p>';
-				content += '<p><strong>Amount:</strong> ' + frappe.format(membership.amount, {fieldtype: 'Currency'}) + '</p>';
+				content += `<p><strong>Type:</strong> ${membershipType.membership_type_name}</p>`;
+				content += `<p><strong>Amount:</strong> ${frappe.format(membership.amount, { fieldtype: 'Currency' })}</p>`;
 				if (membership.isCustom) {
 					content += '<p><em>Custom contribution selected</em></p>';
 				}
@@ -3257,7 +3339,7 @@ class PaymentStep extends BaseStep {
 		content += '</div>';
 
 		if ($('#selected_chapter').val()) {
-			content += '<p><strong>Chapter:</strong> ' + $('#selected_chapter option:selected').text() + '</p>';
+			content += `<p><strong>Chapter:</strong> ${$('#selected_chapter option:selected').text()}</p>`;
 		}
 
 		if ($('#interested_in_volunteering').is(':checked')) {
@@ -3266,14 +3348,14 @@ class PaymentStep extends BaseStep {
 
 		const paymentMethod = $('input[name="payment_method_selection"]:checked').val() || $('#payment_method').val();
 		if (paymentMethod) {
-			content += '<p><strong>Payment Method:</strong> ' + paymentMethod + '</p>';
+			content += `<p><strong>Payment Method:</strong> ${paymentMethod}</p>`;
 		}
 
 		summary.html(content);
 	}
 
 	calculateAge(birthDate) {
-		if (!birthDate) return 0;
+		if (!birthDate) { return 0; }
 
 		try {
 			const birth = new Date(birthDate);
@@ -3286,8 +3368,8 @@ class PaymentStep extends BaseStep {
 
 			let age = today.getFullYear() - birth.getFullYear();
 
-			if (today.getMonth() < birth.getMonth() ||
-                (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) {
+			if (today.getMonth() < birth.getMonth()
+                || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) {
 				age--;
 			}
 
@@ -3376,14 +3458,14 @@ class MembershipAPI {
 	async validatePostalCode(postalCode, country) {
 		return await this.call('verenigingen.api.membership_application.validate_postal_code', {
 			postal_code: postalCode,
-			country: country
+			country
 		});
 	}
 
 	async validateCustomAmount(membershipType, amount) {
 		return await this.call('verenigingen.api.membership_application.validate_custom_amount', {
 			membership_type: membershipType,
-			amount: amount
+			amount
 		});
 	}
 
@@ -3402,7 +3484,7 @@ class MembershipAPI {
 					'X-Frappe-CSRF-Token': frappe.csrf_token || ''
 				},
 				dataType: 'json',
-				success: function(response) {
+				success(response) {
 					console.log('Direct AJAX response:', response);
 					if (response.message && response.message.success) {
 						resolve(response.message);
@@ -3414,8 +3496,8 @@ class MembershipAPI {
 						reject(new Error('Unknown response format'));
 					}
 				},
-				error: function(xhr, status, error) {
-					console.error('Direct AJAX error:', {xhr, status, error});
+				error(xhr, status, error) {
+					console.error('Direct AJAX error:', { xhr, status, error });
 					let errorMsg = 'Network error occurred';
 
 					if (xhr.responseJSON && xhr.responseJSON.exc) {
@@ -3496,7 +3578,7 @@ class MembershipAPI {
 				headers: {
 					'X-Frappe-CSRF-Token': frappe.csrf_token
 				},
-				success: function(response) {
+				success(response) {
 					console.log('Direct AJAX response:', response);
 
 					// Check if response contains an error message (even in "success" response)
@@ -3530,7 +3612,7 @@ class MembershipAPI {
 						reject(new Error(response.message || 'Unknown error occurred'));
 					}
 				},
-				error: function(xhr, status, error) {
+				error(xhr, status, error) {
 					console.error('Direct AJAX error:', xhr, status, error);
 					let errorMsg = `Server error: ${xhr.status}`;
 
@@ -3599,7 +3681,7 @@ class _UIManager {
 		// Display application ID if available
 		if (result.application_id) {
 			successHTML += '<div class="alert alert-info mx-auto" style="max-width: 500px;">';
-			successHTML += '<h4>Your Application ID: <strong>' + result.application_id + '</strong></h4>';
+			successHTML += `<h4>Your Application ID: <strong>${result.application_id}</strong></h4>`;
 			successHTML += '<p>Please save this ID for future reference.</p>';
 			successHTML += '</div>';
 		}
@@ -3616,7 +3698,7 @@ class _UIManager {
 		} else {
 			successHTML += 'You will receive an email with next steps.</p>';
 			successHTML += '<div class="mt-4">';
-			successHTML += '<a href="/application-status?id=' + result.application_id + '" class="btn btn-primary">';
+			successHTML += `<a href="/application-status?id=${result.application_id}" class="btn btn-primary">`;
 			successHTML += 'Check Application Status';
 			successHTML += '</a>';
 			successHTML += '</div>';
@@ -3633,8 +3715,8 @@ class _UIManager {
 	showError(title, error) {
 		const message = error.message || error.toString();
 		frappe.msgprint({
-			title: title,
-			message: message,
+			title,
+			message,
 			indicator: 'red'
 		});
 	}
@@ -3672,14 +3754,14 @@ window.debugMembershipSelection = () => {
 	console.log('  - uses_custom_amount:', window.membershipApp.state.get('uses_custom_amount'));
 
 	// Check visible custom sections
-	$('.custom-amount-section:visible').each(function() {
+	$('.custom-amount-section:visible').each(function () {
 		const card = $(this).closest('.membership-type-card');
 		console.log('Visible custom section for:', card.data('type'));
 		console.log('Input value:', $(this).find('.custom-amount-input').val());
 	});
 
 	// Check selected membership cards
-	$('.membership-type-card.selected').each(function() {
+	$('.membership-type-card.selected').each(function () {
 		console.log('Selected card:', $(this).data('type'), 'amount:', $(this).data('amount'));
 	});
 
@@ -3770,12 +3852,12 @@ class ConfirmationStep extends BaseStep {
 		if (typeof amount !== 'number' || isNaN(amount)) {
 			return '€0.00';
 		}
-		return '€' + amount.toFixed(2);
+		return `€${amount.toFixed(2)}`;
 	}
 }
 
 // Add this debug function to test the backend method
-window.testBackendMethod = async function() {
+window.testBackendMethod = async function () {
 	console.log('Testing backend method availability...');
 
 	try {

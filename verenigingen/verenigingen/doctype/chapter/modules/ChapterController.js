@@ -1,3 +1,103 @@
+/**
+ * @fileoverview Chapter Controller - Advanced Chapter Management Orchestration System
+ *
+ * Comprehensive chapter management controller for the Verenigingen association platform,
+ * providing sophisticated orchestration of board management, member administration,
+ * communication systems, and statistical analytics through a modular, event-driven
+ * architecture with state management and comprehensive validation systems.
+ *
+ * ## Business Value
+ * - **Chapter Administration**: Streamlined management of regional chapter operations
+ * - **Board Governance**: Comprehensive board member lifecycle and role management
+ * - **Member Oversight**: Centralized member administration and engagement tracking
+ * - **Communication Hub**: Integrated communication management for chapter coordination
+ * - **Analytics Dashboard**: Real-time statistics and performance monitoring
+ *
+ * ## Core Capabilities
+ * - **Modular Architecture**: Pluggable manager system for board, member, and communication functions
+ * - **State Management**: Centralized state with reactive UI updates and event propagation
+ * - **Validation Framework**: Multi-layer validation for data integrity and business rules
+ * - **UI Orchestration**: Dynamic button management and user interface coordination
+ * - **Event Handling**: Comprehensive form lifecycle management with custom handlers
+ * - **Integration Management**: Seamless coordination between chapter subsystems
+ *
+ * ## Technical Architecture
+ * - **Controller Pattern**: Central orchestration of chapter management subsystems
+ * - **Dependency Injection**: Manager composition through constructor injection
+ * - **Event-driven Design**: State changes propagated through observer pattern
+ * - **Modular Components**: Separate managers for distinct functional areas
+ * - **State Synchronization**: Reactive UI updates based on data state changes
+ * - **Validation Pipeline**: Multi-stage validation with comprehensive error reporting
+ *
+ * ## Integration Points
+ * - **Board Management**: Complete board member lifecycle and role administration
+ * - **Member Administration**: Chapter-specific member management and oversight
+ * - **Communication System**: Integrated messaging and notification management
+ * - **Statistics Engine**: Real-time analytics and performance monitoring
+ * - **SEPA Integration**: Financial mandate and payment system coordination
+ * - **Volunteer System**: Synchronization with volunteer management platform
+ *
+ * ## Manager Components
+ * - **BoardManager**: Board member lifecycle, role transitions, and governance
+ * - **MemberManager**: Chapter member administration and relationship management
+ * - **CommunicationManager**: Message coordination and notification systems
+ * - **ChapterStatistics**: Analytics, reporting, and performance monitoring
+ * - **ChapterUI**: User interface management and dynamic element coordination
+ * - **ChapterState**: Centralized state management with reactive updates
+ *
+ * ## Validation Framework
+ * - **Chapter Information**: Basic chapter data validation and consistency checks
+ * - **Board Member Validation**: Role conflicts, term limits, and governance compliance
+ * - **Postal Code Validation**: Geographic coverage area validation and formatting
+ * - **Cross-system Validation**: Integration consistency across related systems
+ * - **Business Rule Enforcement**: Chapter-specific policy and procedure compliance
+ *
+ * ## Security Features
+ * - **Role-based Access**: Permission validation for chapter operations
+ * - **Data Integrity**: Comprehensive validation preventing data corruption
+ * - **Audit Trail**: Complete tracking of chapter modifications and board changes
+ * - **Privacy Protection**: Secure handling of member and board information
+ *
+ * ## Performance Optimization
+ * - **Lazy Loading**: On-demand initialization of manager components
+ * - **State Caching**: Efficient state management with minimal re-computation
+ * - **Event Debouncing**: Optimized event handling for responsive user interface
+ * - **Modular Loading**: Dynamic import of functionality based on usage patterns
+ *
+ * ## Usage Examples
+ * ```javascript
+ * // Initialize controller
+ * const controller = new ChapterController(frm);
+ *
+ * // Trigger form refresh
+ * controller.refresh();
+ *
+ * // Validate before save
+ * const isValid = await controller.beforeSave();
+ *
+ * // Handle state changes
+ * controller.handleStateChange('boardMembers.added', newMember);
+ * ```
+ *
+ * @version 1.3.0
+ * @author Verenigingen Development Team
+ * @since 2024-Q1
+ *
+ * @requires BoardManager
+ * @requires MemberManager
+ * @requires CommunicationManager
+ * @requires ChapterStatistics
+ * @requires ChapterUI
+ * @requires ChapterState
+ * @requires ChapterValidation
+ * @requires ChapterConfig
+ *
+ * @see {@link BoardManager} Board member management
+ * @see {@link MemberManager} Chapter member administration
+ * @see {@link CommunicationManager} Communication coordination
+ * @see {@link ChapterStatistics} Analytics and reporting
+ */
+
 // verenigingen/verenigingen/doctype/chapter/modules/ChapterController.js
 
 import { BoardManager } from './BoardManager.js';
@@ -151,7 +251,7 @@ export class ChapterController {
 
 	hasCurrentMandate() {
 		// Check if chapter has a current SEPA mandate
-		return this.frm.doc.current_sepa_mandate ? true : false;
+		return !!this.frm.doc.current_sepa_mandate;
 	}
 
 	navigateToCurrentMandate() {

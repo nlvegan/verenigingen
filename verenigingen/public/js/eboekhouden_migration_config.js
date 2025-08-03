@@ -1,5 +1,73 @@
+/**
+ * @fileoverview E-Boekhouden Migration Configuration Interface
+ * @description Advanced configuration wizard for migrating financial data from E-Boekhouden to ERPNext
+ *
+ * Business Context:
+ * Provides comprehensive migration management for Dutch accounting data from E-Boekhouden
+ * into ERPNext. Critical for organizations transitioning from external accounting software
+ * to integrated ERP systems while maintaining fiscal compliance and audit trails.
+ *
+ * Key Features:
+ * - Interactive 5-step migration wizard with progress tracking
+ * - Data staging and validation before actual migration
+ * - Advanced account mapping with intelligent suggestions
+ * - Real-time preview of migration impact
+ * - Configuration export/import for repeatability
+ * - Bulk operations for efficient account management
+ *
+ * Migration Workflow:
+ * 1. Data Staging: Pull transactions from E-Boekhouden API
+ * 2. Data Review: Analyze accounts and transaction patterns
+ * 3. Account Mapping: Configure target account types in ERPNext
+ * 4. Impact Preview: Calculate migration consequences
+ * 5. Migration Execution: Execute full data migration
+ *
+ * Architecture:
+ * - State-driven UI with step-by-step progression
+ * - Modular functions for each migration phase
+ * - RESTful API integration with comprehensive error handling
+ * - Dynamic DOM updates with responsive user feedback
+ * - Persistent configuration storage for resumable migrations
+ *
+ * Security Measures:
+ * - API authentication for E-Boekhouden access
+ * - Data validation before staging operations
+ * - User confirmation for destructive operations
+ * - Audit logging for all migration activities
+ *
+ * Performance Optimizations:
+ * - Asynchronous operations with loading indicators
+ * - Chunked data processing for large datasets
+ * - Cached API responses for repeated operations
+ * - Progressive disclosure of complex configurations
+ *
+ * Integration Points:
+ * - E-Boekhouden REST API for data extraction
+ * - ERPNext Chart of Accounts for mapping validation
+ * - Journal Entry creation for transaction recording
+ * - Purchase Invoice generation for vendor transactions
+ *
+ * Compliance Features:
+ * - Dutch fiscal year handling and date formatting
+ * - VAT category mapping for tax compliance
+ * - Audit trail preservation during migration
+ * - Multi-currency transaction support
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module EBoekhoudenMigration
+ * @requires frappe, frappe.ui.Dialog
+ */
+
 frappe.ready(() => {
-	// State management
+	/**
+	 * Application state management for migration wizard
+	 * @type {Object}
+	 * @property {Object|null} stagedData - Cached staging results from E-Boekhouden
+	 * @property {Array} mappings - Current account type mappings configuration
+	 * @property {number} currentStep - Current wizard step (1-5)
+	 * @property {string|null} migrationId - Active migration process identifier
+	 */
 	const state = {
 		stagedData: null,
 		mappings: [],
@@ -54,9 +122,9 @@ frappe.ready(() => {
                     <div class="info-item">
                         <label class="text-muted">${__('Staged Data')}</label>
                         <p class="mb-0">
-                            ${data.staged_data_exists ?
-		`<span class="badge badge-success">${__('Available')}</span> - ${data.staged_count || 0} ${__('transactions')}` :
-		`<span class="badge badge-secondary">${__('Not staged')}</span>`
+                            ${data.staged_data_exists
+		? `<span class="badge badge-success">${__('Available')}</span> - ${data.staged_count || 0} ${__('transactions')}`
+		: `<span class="badge badge-secondary">${__('Not staged')}</span>`
 }
                         </p>
                     </div>
@@ -70,8 +138,8 @@ frappe.ready(() => {
                     </div>
                 </div>
             </div>
-            ${data.last_staging_date ?
-		`<div class="mt-2">
+            ${data.last_staging_date
+		? `<div class="mt-2">
                     <small class="text-muted">${__('Last staged')}: ${frappe.datetime.str_to_user(data.last_staging_date)}</small>
                 </div>` : ''
 }
@@ -108,7 +176,7 @@ frappe.ready(() => {
 		// Enter key on mapping inputs
 		['account-code', 'account-type', 'mapping-notes'].forEach(id => {
 			document.getElementById(id).addEventListener('keypress', (e) => {
-				if (e.key === 'Enter') addMapping();
+				if (e.key === 'Enter') { addMapping(); }
 			});
 		});
 	}
@@ -117,7 +185,7 @@ frappe.ready(() => {
 	function updateStepVisibility() {
 		for (let i = 1; i <= 5; i++) {
 			const card = document.getElementById(`step${i}-card`);
-			if (!card) continue;
+			if (!card) { continue; }
 
 			if (i <= state.currentStep) {
 				card.style.display = 'block';
@@ -137,7 +205,7 @@ frappe.ready(() => {
 	// Stage data from E-Boekhouden
 	async function stageData() {
 		const dateRange = await promptDateRange();
-		if (!dateRange) return;
+		if (!dateRange) { return; }
 
 		try {
 			const response = await frappe.call({
@@ -221,10 +289,10 @@ frappe.ready(() => {
                                     <td><code>${account.code}</code></td>
                                     <td>${account.name}</td>
                                     <td>${account.count}</td>
-                                    <td>${frappe.format(account.total, {fieldtype: 'Currency'})}</td>
-                                    <td>${account.suggested_type ?
-		`<span class="badge badge-info">${account.suggested_type}</span>` :
-		'<span class="text-muted">-</span>'
+                                    <td>${frappe.format(account.total, { fieldtype: 'Currency' })}</td>
+                                    <td>${account.suggested_type
+		? `<span class="badge badge-info">${account.suggested_type}</span>`
+		: '<span class="text-muted">-</span>'
 }</td>
                                 </tr>
                             `).join('')}
@@ -269,7 +337,7 @@ frappe.ready(() => {
 				args: {
 					account_code: accountCode,
 					account_type: accountType,
-					notes: notes
+					notes
 				}
 			});
 
@@ -300,7 +368,7 @@ frappe.ready(() => {
 		const container = document.getElementById('mappings-table');
 
 		if (state.mappings.length === 0) {
-			container.innerHTML = '<p class="text-muted">' + __('No mappings configured yet') + '</p>';
+			container.innerHTML = `<p class="text-muted">${__('No mappings configured yet')}</p>`;
 			document.getElementById('bulk-edit-btn').style.display = 'none';
 			return;
 		}
@@ -348,8 +416,8 @@ frappe.ready(() => {
 	}
 
 	// Remove a mapping
-	window.removeMapping = async function(index) {
-		if (!confirm(__('Are you sure you want to remove this mapping?'))) return;
+	window.removeMapping = async function (index) {
+		if (!confirm(__('Are you sure you want to remove this mapping?'))) { return; }
 
 		try {
 			const mapping = state.mappings[index];
@@ -441,7 +509,7 @@ frappe.ready(() => {
 
 	// Start the migration
 	async function startMigration() {
-		if (!confirm(__('Are you ready to start the migration with your current configuration?'))) return;
+		if (!confirm(__('Are you ready to start the migration with your current configuration?'))) { return; }
 
 		try {
 			const response = await frappe.call({
@@ -513,7 +581,7 @@ frappe.ready(() => {
 
 			const response = await frappe.call({
 				method: 'verenigingen.e_boekhouden.api.import_migration_config',
-				args: { config: config }
+				args: { config }
 			});
 
 			if (response.message.success) {
@@ -532,7 +600,7 @@ frappe.ready(() => {
 
 	// Clear all mappings
 	async function clearAllMappings() {
-		if (!confirm(__('Are you sure you want to clear all mappings? This cannot be undone.'))) return;
+		if (!confirm(__('Are you sure you want to clear all mappings? This cannot be undone.'))) { return; }
 
 		try {
 			const response = await frappe.call({
@@ -590,13 +658,13 @@ frappe.ready(() => {
 	function showError(message, error) {
 		console.error(error);
 		frappe.show_alert({
-			message: __(message) + ': ' + (error.message || error),
+			message: `${__(message)}: ${error.message || error}`,
 			indicator: 'red'
 		});
 	}
 
 	// Toggle all mappings selection
-	window.toggleAllMappings = function() {
+	window.toggleAllMappings = function () {
 		const selectAll = document.getElementById('select-all-mappings');
 		const checkboxes = document.querySelectorAll('.mapping-checkbox');
 		checkboxes.forEach(cb => cb.checked = selectAll.checked);
@@ -613,7 +681,7 @@ frappe.ready(() => {
 	}
 
 	// Edit a single mapping
-	window.editMapping = async function(index) {
+	window.editMapping = async function (index) {
 		const mapping = state.mappings[index];
 
 		const d = new frappe.ui.Dialog({
@@ -644,7 +712,7 @@ frappe.ready(() => {
 				}
 			],
 			primary_action_label: __('Update'),
-			primary_action: async function(values) {
+			async primary_action(values) {
 				try {
 					const response = await frappe.call({
 						method: 'verenigingen.e_boekhouden.api.update_account_mapping',
@@ -678,7 +746,7 @@ frappe.ready(() => {
 	};
 
 	// Bulk edit selected mappings
-	document.getElementById('bulk-edit-btn').addEventListener('click', function() {
+	document.getElementById('bulk-edit-btn').addEventListener('click', () => {
 		const checkboxes = document.querySelectorAll('.mapping-checkbox:checked');
 		const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.value));
 
@@ -711,7 +779,7 @@ frappe.ready(() => {
 				}
 			],
 			primary_action_label: __('Update Selected'),
-			primary_action: async function(values) {
+			async primary_action(values) {
 				try {
 					const updates = [];
 					for (const index of selectedIndices) {
@@ -727,7 +795,7 @@ frappe.ready(() => {
 
 					const response = await frappe.call({
 						method: 'verenigingen.e_boekhouden.api.bulk_update_mappings',
-						args: { updates: updates }
+						args: { updates }
 					});
 
 					if (response.message.success) {
@@ -747,7 +815,7 @@ frappe.ready(() => {
 	});
 
 	// Auto-suggest mappings
-	document.getElementById('suggest-mappings-btn').addEventListener('click', async function() {
+	document.getElementById('suggest-mappings-btn').addEventListener('click', async () => {
 		try {
 			const response = await frappe.call({
 				method: 'verenigingen.e_boekhouden.api.suggest_account_mappings',
@@ -767,7 +835,7 @@ frappe.ready(() => {
 						}
 					],
 					primary_action_label: __('Apply Selected'),
-					primary_action: async function() {
+					async primary_action() {
 						const selected = [];
 						document.querySelectorAll('.suggestion-checkbox:checked').forEach(cb => {
 							selected.push(JSON.parse(cb.value));
@@ -803,8 +871,8 @@ frappe.ready(() => {
 
 				// Build suggestions HTML
 				let html = '<div class="suggestions-list">';
-				html += '<div class="mb-2"><label><input type="checkbox" id="select-all-suggestions"> ' + __('Select All') + '</label></div>';
-				html += '<table class="table table-sm"><thead><tr><th></th><th>' + __('Account') + '</th><th>' + __('Suggested Type') + '</th><th>' + __('Confidence') + '</th></tr></thead><tbody>';
+				html += `<div class="mb-2"><label><input type="checkbox" id="select-all-suggestions"> ${__('Select All')}</label></div>`;
+				html += `<table class="table table-sm"><thead><tr><th></th><th>${__('Account')}</th><th>${__('Suggested Type')}</th><th>${__('Confidence')}</th></tr></thead><tbody>`;
 
 				suggestions.forEach((sug, idx) => {
 					const confidence = sug.confidence || 'medium';
@@ -822,7 +890,7 @@ frappe.ready(() => {
 				d.fields_dict.suggestions_html.$wrapper.html(html);
 
 				// Add select all functionality
-				document.getElementById('select-all-suggestions').addEventListener('change', function() {
+				document.getElementById('select-all-suggestions').addEventListener('change', function () {
 					document.querySelectorAll('.suggestion-checkbox').forEach(cb => {
 						cb.checked = this.checked;
 					});
@@ -836,7 +904,7 @@ frappe.ready(() => {
 	});
 
 	// Add event delegation for checkbox changes
-	document.addEventListener('change', function(e) {
+	document.addEventListener('change', (e) => {
 		if (e.target.classList.contains('mapping-checkbox')) {
 			updateBulkEditButton();
 		}

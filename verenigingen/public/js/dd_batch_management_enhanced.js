@@ -1,4 +1,99 @@
 /**
+ * @fileoverview Enhanced SEPA Direct Debit Batch Management - Enterprise-grade Payment Processing
+ *
+ * Comprehensive SEPA Direct Debit batch management system for the Verenigingen association platform,
+ * providing advanced security validation, conflict resolution, real-time monitoring, and intelligent
+ * duplicate detection with enterprise-grade financial processing capabilities and compliance features.
+ *
+ * ## Business Value
+ * - **Payment Automation**: Streamlined bulk payment processing with automated validation
+ * - **Risk Management**: Advanced security analysis and conflict detection preventing payment failures
+ * - **Compliance Assurance**: SEPA standard compliance with comprehensive audit trails
+ * - **Operational Efficiency**: Automated batch creation with intelligent invoice selection
+ * - **Financial Security**: Multi-layer validation preventing duplicate charges and fraud
+ *
+ * ## Core Capabilities
+ * - **Batch Lifecycle Management**: Complete workflow from creation to processing
+ * - **Security Analysis**: Real-time risk assessment and anomaly detection
+ * - **Conflict Resolution**: Intelligent duplicate detection with guided resolution workflows
+ * - **Real-time Monitoring**: Live batch status updates with progress tracking
+ * - **Wizard-driven Creation**: Step-by-step batch creation with validation at each stage
+ * - **Multi-tier Filtering**: Advanced filtering by status, risk level, and financial criteria
+ *
+ * ## Technical Architecture
+ * - **Class-based Design**: Modular architecture with separate dashboard and wizard components
+ * - **Real-time Updates**: Automatic refresh with configurable update intervals
+ * - **Modal Interface**: Rich dialog-based interaction for detailed operations
+ * - **Event-driven Architecture**: Comprehensive event handling for user interactions
+ * - **Progressive Enhancement**: Graceful degradation for basic functionality
+ * - **Responsive Design**: Mobile-friendly interface with adaptive layout
+ *
+ * ## Security Features
+ * - **IBAN Masking**: Secure display of sensitive banking information
+ * - **Risk Assessment**: Multi-factor risk scoring with color-coded indicators
+ * - **Duplicate Detection**: Advanced similarity algorithms for member verification
+ * - **Conflict Escalation**: Administrative escalation for high-risk scenarios
+ * - **Audit Trail**: Complete tracking of all batch operations and decisions
+ * - **Access Control**: Role-based permissions for batch operations
+ *
+ * ## Integration Points
+ * - **SEPA API**: Direct integration with SEPA Direct Debit processing systems
+ * - **Member Database**: Real-time member verification and duplicate detection
+ * - **Invoice System**: Automated invoice selection and payment matching
+ * - **Notification Engine**: Automated alerts for batch status changes
+ * - **Audit System**: Comprehensive logging of all financial operations
+ * - **Security Framework**: Integration with fraud detection and prevention systems
+ *
+ * ## Advanced Features
+ * - **Intelligent Filtering**: Multi-dimensional filtering with persistent preferences
+ * - **Batch Analytics**: Real-time statistics and performance monitoring
+ * - **Conflict Resolution Wizard**: Step-by-step guided conflict resolution
+ * - **Security Dashboard**: Comprehensive security overview with actionable alerts
+ * - **Automated Validation**: Multi-stage validation with business rule enforcement
+ * - **Export Capabilities**: SEPA-compliant file generation and download
+ *
+ * ## Workflow Components
+ * - **Invoice Selection**: Intelligent filtering and selection of eligible invoices
+ * - **Duplicate Detection**: Advanced similarity matching with configurable thresholds
+ * - **Conflict Resolution**: Manual and automated conflict resolution strategies
+ * - **Security Validation**: Multi-layer security checks and risk assessment
+ * - **Final Review**: Comprehensive pre-processing validation and approval
+ * - **Batch Processing**: Automated batch execution with progress monitoring
+ *
+ * ## Performance Optimization
+ * - **Lazy Loading**: On-demand loading of batch details and conflict data
+ * - **Efficient Rendering**: Optimized DOM manipulation for large datasets
+ * - **Smart Caching**: Intelligent caching of frequently accessed data
+ * - **Debounced Updates**: Optimized real-time updates preventing excessive API calls
+ * - **Progressive Loading**: Staged loading of complex interfaces
+ *
+ * ## Usage Examples
+ * ```javascript
+ * // Initialize dashboard
+ * const dashboard = new DDBatchManagementDashboard();
+ *
+ * // Start batch creation wizard
+ * const wizard = new BatchCreationWizard();
+ * wizard.start();
+ *
+ * // Apply conflict resolutions
+ * dashboard.applyConflictResolutions();
+ * ```
+ *
+ * @version 2.1.0
+ * @author Verenigingen Development Team
+ * @since 2024-Q1
+ *
+ * @requires frappe
+ * @requires jQuery
+ * @requires Bootstrap Modal
+ *
+ * @see {@link direct_debit_batch.js} Batch DocType Controller
+ * @see {@link sepa_mandate.js} SEPA Mandate Management
+ * @see {@link api-service.js} API Integration Layer
+ */
+
+/**
  * Enhanced SEPA Direct Debit Batch Management Interface
  * Provides comprehensive batch management with security validation and conflict resolution
  */
@@ -418,7 +513,7 @@ class DDBatchManagementDashboard {
 
 			const response = await frappe.call({
 				method: 'verenigingen.api.dd_batch_api.get_batch_list_with_security',
-				args: { filters: filters }
+				args: { filters }
 			});
 
 			if (response.message && response.message.success) {
@@ -427,10 +522,9 @@ class DDBatchManagementDashboard {
 			} else {
 				this.showError('Failed to load batch list');
 			}
-
 		} catch (error) {
 			console.error('Error loading batch list:', error);
-			this.showError('Error loading batch list: ' + error.message);
+			this.showError(`Error loading batch list: ${error.message}`);
 		}
 	}
 
@@ -474,7 +568,7 @@ class DDBatchManagementDashboard {
                     </span>
                 </td>
                 <td>${batch.entry_count || 0}</td>
-                <td>${frappe.format_value(batch.total_amount, {fieldtype: 'Currency'})}</td>
+                <td>${frappe.format_value(batch.total_amount, { fieldtype: 'Currency' })}</td>
                 <td>
                     <span class="risk-badge ${riskLevel}">
                         ${riskLevel.toUpperCase()}
@@ -513,25 +607,25 @@ class DDBatchManagementDashboard {
 		let score = 0;
 
 		// High amount increases risk
-		if (batch.total_amount > 10000) score += 0.3;
+		if (batch.total_amount > 10000) { score += 0.3; }
 
 		// Many entries increase risk
-		if (batch.entry_count > 100) score += 0.2;
+		if (batch.entry_count > 100) { score += 0.2; }
 
 		// Conflicts increase risk significantly
-		if (batch.conflicts > 0) score += 0.4;
+		if (batch.conflicts > 0) { score += 0.4; }
 
 		// Failed batches are high risk
-		if (batch.status === 'Failed') score += 0.5;
+		if (batch.status === 'Failed') { score += 0.5; }
 
-		if (score >= 0.7) return 'high';
-		if (score >= 0.4) return 'medium';
+		if (score >= 0.7) { return 'high'; }
+		if (score >= 0.4) { return 'medium'; }
 		return 'low';
 	}
 
 	getConflictLevel(batch) {
-		if (!batch.conflicts || batch.conflicts === 0) return 'none';
-		if (batch.conflicts <= 2) return 'minor';
+		if (!batch.conflicts || batch.conflicts === 0) { return 'none'; }
+		if (batch.conflicts <= 2) { return 'minor'; }
 		return 'major';
 	}
 
@@ -570,10 +664,9 @@ class DDBatchManagementDashboard {
 			} else {
 				this.showError('Failed to load batch details');
 			}
-
 		} catch (error) {
 			console.error('Error loading batch details:', error);
-			this.showError('Error loading batch details: ' + error.message);
+			this.showError(`Error loading batch details: ${error.message}`);
 		}
 	}
 
@@ -597,8 +690,8 @@ class DDBatchManagementDashboard {
                         <h5>Financial Summary</h5>
                         <table class="table table-sm">
                             <tr><td><strong>Entry Count:</strong></td><td>${batch.entry_count}</td></tr>
-                            <tr><td><strong>Total Amount:</strong></td><td>${frappe.format_value(batch.total_amount, {fieldtype: 'Currency'})}</td></tr>
-                            <tr><td><strong>Average Amount:</strong></td><td>${frappe.format_value(batch.total_amount / batch.entry_count, {fieldtype: 'Currency'})}</td></tr>
+                            <tr><td><strong>Total Amount:</strong></td><td>${frappe.format_value(batch.total_amount, { fieldtype: 'Currency' })}</td></tr>
+                            <tr><td><strong>Average Amount:</strong></td><td>${frappe.format_value(batch.total_amount / batch.entry_count, { fieldtype: 'Currency' })}</td></tr>
                             <tr><td><strong>Risk Level:</strong></td><td>
                                 <span class="risk-badge ${this.calculateRiskLevel(batch)}">${this.calculateRiskLevel(batch).toUpperCase()}</span>
                             </td></tr>
@@ -699,7 +792,7 @@ class DDBatchManagementDashboard {
             <tr>
                 <td>${invoice.invoice}</td>
                 <td>${invoice.member_name}</td>
-                <td>${frappe.format_value(invoice.amount, {fieldtype: 'Currency'})}</td>
+                <td>${frappe.format_value(invoice.amount, { fieldtype: 'Currency' })}</td>
                 <td>${this.maskIban(invoice.iban)}</td>
                 <td>
                     <span class="badge badge-${this.getInvoiceStatusColor(invoice.status)}">
@@ -719,8 +812,8 @@ class DDBatchManagementDashboard {
 	}
 
 	maskIban(iban) {
-		if (!iban || iban.length < 8) return iban;
-		return iban.substring(0, 4) + '****' + iban.substring(iban.length - 4);
+		if (!iban || iban.length < 8) { return iban; }
+		return `${iban.substring(0, 4)}****${iban.substring(iban.length - 4)}`;
 	}
 
 	getInvoiceStatusColor(status) {
@@ -746,10 +839,9 @@ class DDBatchManagementDashboard {
 			} else {
 				this.showError('Failed to load conflict data');
 			}
-
 		} catch (error) {
 			console.error('Error loading conflicts:', error);
-			this.showError('Error loading conflicts: ' + error.message);
+			this.showError(`Error loading conflicts: ${error.message}`);
 		}
 	}
 
@@ -885,7 +977,7 @@ class DDBatchManagementDashboard {
 				method: 'verenigingen.api.dd_batch_api.apply_conflict_resolutions',
 				args: {
 					batch_id: this.currentBatch,
-					resolutions: resolutions
+					resolutions
 				}
 			});
 
@@ -896,10 +988,9 @@ class DDBatchManagementDashboard {
 			} else {
 				this.showError('Failed to apply conflict resolutions');
 			}
-
 		} catch (error) {
 			console.error('Error applying resolutions:', error);
-			this.showError('Error applying resolutions: ' + error.message);
+			this.showError(`Error applying resolutions: ${error.message}`);
 		}
 	}
 
@@ -907,7 +998,7 @@ class DDBatchManagementDashboard {
 		const resolutions = {};
 
 		// Collect all radio button selections
-		$('input[type="radio"]:checked').each(function() {
+		$('input[type="radio"]:checked').each(function () {
 			const name = $(this).attr('name');
 			const value = $(this).val();
 
@@ -936,10 +1027,9 @@ class DDBatchManagementDashboard {
 			} else {
 				this.showError('Failed to escalate conflicts');
 			}
-
 		} catch (error) {
 			console.error('Error escalating conflicts:', error);
-			this.showError('Error escalating conflicts: ' + error.message);
+			this.showError(`Error escalating conflicts: ${error.message}`);
 		}
 	}
 
@@ -1005,7 +1095,7 @@ class DDBatchManagementDashboard {
 	showError(message) {
 		frappe.msgprint({
 			title: 'Error',
-			message: message,
+			message,
 			indicator: 'red'
 		});
 	}
@@ -1013,7 +1103,7 @@ class DDBatchManagementDashboard {
 	showSuccess(message) {
 		frappe.msgprint({
 			title: 'Success',
-			message: message,
+			message,
 			indicator: 'green'
 		});
 	}
@@ -1126,7 +1216,7 @@ class BatchCreationWizard {
 
 	updateProgress() {
 		const progress = ((this.currentStep + 1) / this.steps.length) * 100;
-		$('.progress-bar').css('width', progress + '%');
+		$('.progress-bar').css('width', `${progress}%`);
 
 		$('.step-label').removeClass('active completed');
 		$('.step-label').each((index, element) => {
@@ -1146,7 +1236,7 @@ class BatchCreationWizard {
 	async nextStep() {
 		// Validate current step before proceeding
 		const isValid = await this.validateCurrentStep();
-		if (!isValid) return;
+		if (!isValid) { return; }
 
 		if (this.currentStep < this.steps.length - 1) {
 			await this.loadStep(this.currentStep + 1);
@@ -1235,7 +1325,7 @@ class BatchCreationWizard {
 
 			const response = await frappe.call({
 				method: 'verenigingen.api.dd_batch_api.get_eligible_invoices',
-				args: { filters: filters }
+				args: { filters }
 			});
 
 			if (response.message && response.message.success) {
@@ -1243,7 +1333,6 @@ class BatchCreationWizard {
 			} else {
 				$('#invoice-selection-results').html('<p class="text-danger">Failed to load invoices</p>');
 			}
-
 		} catch (error) {
 			console.error('Error loading invoices:', error);
 			$('#invoice-selection-results').html('<p class="text-danger">Error loading invoices</p>');
@@ -1256,7 +1345,7 @@ class BatchCreationWizard {
 			return;
 		}
 
-		let html = `
+		const html = `
             <div class="invoice-selection-table">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                     <h6>Found ${invoices.length} eligible invoices</h6>
@@ -1285,7 +1374,7 @@ class BatchCreationWizard {
                                     <td><input type="checkbox" class="invoice-checkbox" value="${invoice.name}"></td>
                                     <td>${invoice.name}</td>
                                     <td>${invoice.member_name}</td>
-                                    <td>${frappe.format_value(invoice.amount, {fieldtype: 'Currency'})}</td>
+                                    <td>${frappe.format_value(invoice.amount, { fieldtype: 'Currency' })}</td>
                                     <td>${frappe.datetime.str_to_user(invoice.due_date)}</td>
                                     <td>${this.maskIban(invoice.iban)}</td>
                                     <td>
@@ -1337,22 +1426,22 @@ class BatchCreationWizard {
 		const count = selectedInvoices.length;
 
 		let total = 0;
-		selectedInvoices.each(function() {
+		selectedInvoices.each(() => {
 			const invoiceId = $(this).val();
 			const invoice = this.batchData.available_invoices.find(inv => inv.name === invoiceId);
 			if (invoice) {
 				total += invoice.amount;
 			}
-		}.bind(this));
+		});
 
 		$('#selection-count').text(count);
-		$('#selection-total').text(frappe.format_value(total, {fieldtype: 'Currency'}));
+		$('#selection-total').text(frappe.format_value(total, { fieldtype: 'Currency' }));
 
 		// Store selected invoices
 		this.batchData.selected_invoices = [];
-		selectedInvoices.each(function() {
+		selectedInvoices.each(() => {
 			this.batchData.selected_invoices.push($(this).val());
-		}.bind(this));
+		});
 	}
 
 	validateInvoiceSelection() {
@@ -1365,13 +1454,13 @@ class BatchCreationWizard {
 	}
 
 	maskIban(iban) {
-		if (!iban || iban.length < 8) return iban;
-		return iban.substring(0, 4) + '****' + iban.substring(iban.length - 4);
+		if (!iban || iban.length < 8) { return iban; }
+		return `${iban.substring(0, 4)}****${iban.substring(iban.length - 4)}`;
 	}
 }
 
 // Initialize the dashboard when document is ready
-$(document).ready(function() {
+$(document).ready(() => {
 	// Only initialize if we're on the appropriate page
 	if (window.location.pathname.includes('dd-batch') || window.location.pathname.includes('direct-debit')) {
 		window.ddBatchDashboard = new DDBatchManagementDashboard();

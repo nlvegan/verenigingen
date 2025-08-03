@@ -1,4 +1,71 @@
 /**
+ * @fileoverview Validation Service - Real-time Form Validation with Smart Caching
+ *
+ * This module provides comprehensive client-side and server-side validation for
+ * membership application forms. Features intelligent validation rules, real-time
+ * feedback, debounced API calls, and smart caching for optimal user experience.
+ *
+ * ## Core Features
+ * - **Real-time Validation**: Immediate feedback as users type with debounced API calls
+ * - **Smart Caching**: Prevents redundant validation requests with TTL-based cache
+ * - **Progressive Enhancement**: Graceful degradation for poor network conditions
+ * - **Accessibility**: Screen reader friendly validation messages and states
+ * - **Multi-language Support**: Localized error messages and field labels
+ * - **Context-aware Rules**: Validation adapts based on user input and application state
+ *
+ * ## Validation Types
+ * - **Synchronous**: Immediate pattern, length, and format validation
+ * - **Asynchronous**: Server-side uniqueness, existence, and complex business rule checks
+ * - **Cross-field**: Dependencies between multiple form fields
+ * - **Conditional**: Rules that change based on user selections or data
+ * - **Custom**: Extensible validation functions for specific business requirements
+ *
+ * ## Technical Architecture
+ * - **Debounced API Calls**: Prevents excessive server requests during typing
+ * - **Request Deduplication**: Avoids multiple identical validation requests
+ * - **Smart Caching**: LRU cache with TTL for validation results
+ * - **Error Recovery**: Graceful handling of network failures and timeouts
+ * - **Performance Optimization**: Lazy loading of validation rules and minimal DOM manipulation
+ *
+ * ## Validation Rules
+ * - **Email**: Pattern validation + server-side uniqueness check + deliverability
+ * - **Names**: Unicode-aware pattern matching for international names
+ * - **Birth Date**: Age calculation with business rule validation (min/max age)
+ * - **Postal Codes**: Country-specific format validation with address lookup
+ * - **Phone Numbers**: International format validation with carrier verification
+ * - **Addresses**: PostNL integration for Dutch address validation
+ *
+ * ## User Experience Features
+ * - **Progressive Feedback**: Visual indicators show validation progress
+ * - **Contextual Help**: Inline guidance for complex validation rules
+ * - **Error Recovery**: Clear instructions for fixing validation failures
+ * - **Optimistic Updates**: Immediate positive feedback for likely valid input
+ * - **Batch Validation**: Efficient validation of multiple fields simultaneously
+ *
+ * ## Integration Points
+ * - Membership application form components
+ * - API service for server-side validation
+ * - Address lookup services (PostNL, Google Maps)
+ * - Email verification services
+ * - Phone number validation services
+ *
+ * ## Performance Optimizations
+ * - **Debouncing**: 500ms delay for API-based validation
+ * - **Caching**: 5-minute TTL for validation results
+ * - **Request Batching**: Multiple validations in single API call
+ * - **Lazy Loading**: Validation rules loaded on demand
+ * - **Memory Management**: Automatic cleanup of expired cache entries
+ *
+ * @company R.S.P. (Verenigingen Association Management)
+ * @version 2025.1.0
+ * @since 2024.1.0
+ * @license Proprietary
+ *
+ * @requires verenigingen.public.js.services.api-service
+ * @see {@link /api/method/verenigingen.api.validation} Validation API endpoints
+ */
+
+/**
  * Validation Service for Membership Application
  * Handles all form validation with consistent error handling and UI feedback
  */

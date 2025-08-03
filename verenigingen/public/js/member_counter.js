@@ -1,11 +1,104 @@
 /**
+ * @fileoverview Member ID Counter Management - Sequential ID Assignment & Migration Tools
+ *
+ * This module provides comprehensive member ID counter management functionality,
+ * featuring sequential ID assignment, gap detection, counter reset capabilities,
+ * and migration tools for transitioning from legacy member ID systems.
+ *
+ * ## Core Functionality
+ * - **Sequential ID Assignment**: Automatic assignment of unique, sequential member IDs
+ * - **Gap Detection & Utilization**: Intelligent identification and reuse of ID gaps
+ * - **Counter Management**: Administrative controls for counter reset and adjustment
+ * - **Migration Support**: Tools for migrating from legacy member ID systems
+ * - **Statistics & Monitoring**: Real-time counter statistics and assignment tracking
+ * - **Validation & Safety**: Comprehensive validation to prevent ID conflicts
+ *
+ * ## Technical Architecture
+ * - **Atomic Operations**: Thread-safe counter incrementation with database locks
+ * - **Gap Analysis**: Efficient algorithms for identifying and managing ID gaps
+ * - **Migration Engine**: Robust migration tools with rollback capabilities
+ * - **Audit Trail**: Complete logging of all counter operations and changes
+ * - **Performance Optimization**: Optimized queries for large member datasets
+ * - **Error Recovery**: Graceful handling of counter conflicts and edge cases
+ *
+ * ## ID Assignment Strategy
+ * - **Sequential Allocation**: IDs assigned in numerical sequence starting from configurable base
+ * - **Gap Filling**: Automatic reuse of gaps created by deleted or migrated members
+ * - **Conflict Prevention**: Atomic operations prevent duplicate ID assignment
+ * - **Range Management**: Support for different ID ranges for different member types
+ * - **Custom Numbering**: Configurable starting points and increment patterns
+ * - **Legacy Integration**: Seamless integration with existing member numbering schemes
+ *
+ * ## Administrative Features
+ * - **Counter Reset**: Controlled reset of member ID counter with validation
+ * - **Statistics Dashboard**: Real-time monitoring of ID assignment patterns
+ * - **Gap Analysis**: Detailed reporting of unused ID ranges
+ * - **Migration Tools**: Step-by-step migration from legacy systems
+ * - **System Health**: Monitoring and alerting for counter system issues
+ * - **Bulk Operations**: Efficient processing of large member datasets
+ *
+ * ## Migration Capabilities
+ * - **Legacy System Import**: Automated migration from Verenigingen Settings counter
+ * - **Data Validation**: Comprehensive validation of existing member ID assignments
+ * - **Conflict Resolution**: Intelligent handling of ID conflicts during migration
+ * - **Rollback Support**: Safe rollback options if migration issues occur
+ * - **Progress Tracking**: Real-time migration progress monitoring
+ * - **Post-Migration Validation**: Comprehensive system health checks after migration
+ *
+ * ## Safety & Validation
+ * - **Duplicate Prevention**: Multi-layer validation prevents duplicate ID assignment
+ * - **Range Validation**: Ensures counter values stay within acceptable ranges
+ * - **Permission Control**: Role-based access to sensitive counter operations
+ * - **Audit Logging**: Complete audit trail of all counter modifications
+ * - **Backup Integration**: Automatic backup before major counter operations
+ * - **Recovery Procedures**: Documented recovery procedures for system failures
+ *
+ * ## User Interface Features
+ * - **Real-time Preview**: Shows next member ID during member creation
+ * - **Administrative Dashboard**: Comprehensive counter management interface
+ * - **Visual Statistics**: Charts and graphs showing ID assignment patterns
+ * - **Alert System**: Notifications for unusual counter activity
+ * - **Migration Wizard**: Step-by-step guidance for system migration
+ * - **Troubleshooting Tools**: Diagnostic tools for resolving counter issues
+ *
+ * ## Integration Points
+ * - Member management system
+ * - Verenigingen Settings configuration
+ * - Database counter tables
+ * - Audit logging system
+ * - Migration utilities
+ * - System health monitoring
+ *
+ * ## Performance Considerations
+ * - **Optimized Queries**: Efficient database operations for counter management
+ * - **Caching Strategy**: Smart caching of counter values and statistics
+ * - **Bulk Processing**: Optimized algorithms for large-scale operations
+ * - **Memory Management**: Efficient handling of member ID datasets
+ * - **Connection Pooling**: Optimized database connection usage
+ * - **Background Processing**: Non-blocking operations for complex tasks
+ *
+ * @company R.S.P. (Verenigingen Association Management)
+ * @version 2025.1.0
+ * @since 2024.1.0
+ * @license Proprietary
+ *
+ * @requires frappe>=15.0.0
+ * @requires verenigingen.member
+ * @requires verenigingen.verenigingen_settings
+ * @requires verenigingen.member.member_id_manager
+ *
+ * @see {@link /app/Form/Member} Member Form
+ * @see {@link /app/Form/Verenigingen%20Settings} System Settings
+ */
+
+/**
  * Member Counter Management Frontend
  * verenigingen/public/js/member_counter.js
  */
 
 // Member doctype form customizations
 frappe.ui.form.on('Member', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Only show counter management for system managers
 		if (frappe.user.has_role('System Manager')) {
 			setup_member_counter_section(frm);
@@ -18,11 +111,11 @@ frappe.ui.form.on('Member', {
 		}
 	},
 
-	reset_counter_button: function(frm) {
+	reset_counter_button(frm) {
 		handle_counter_reset(frm);
 	},
 
-	birth_date: function(frm) {
+	birth_date(frm) {
 		// Auto-calculate age when birth date changes
 		if (frm.doc.birth_date) {
 			const age = calculate_age(frm.doc.birth_date);
@@ -48,11 +141,11 @@ function setup_member_counter_section(frm) {
 	// Add custom buttons for counter management
 	// Counter Statistics button removed as requested
 
-	frm.add_custom_button(__('Reset Counter'), function() {
+	frm.add_custom_button(__('Reset Counter'), () => {
 		show_counter_reset_dialog(frm);
 	}, __('Member ID Management'));
 
-	frm.add_custom_button(__('Migration Tools'), function() {
+	frm.add_custom_button(__('Migration Tools'), () => {
 		show_migration_tools_dialog();
 	}, __('Member ID Management'));
 }
@@ -61,7 +154,7 @@ function load_counter_statistics(frm) {
 	// Load and display current counter statistics
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				update_counter_display(frm, r.message);
 			}
@@ -81,7 +174,7 @@ function show_member_id_preview(frm) {
 	// Show preview of next member ID for new members
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_next_member_id_preview',
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				frm.set_df_property('member_id', 'description',
 					`Will be assigned: ${r.message.next_id}`);
@@ -99,7 +192,7 @@ function handle_counter_reset(frm) {
 
 	frappe.confirm(
 		__('Are you sure you want to reset the member ID counter to {0}? This action cannot be undone.', [frm.doc.reset_counter_to]),
-		function() {
+		() => {
 			frappe.call({
 				method: 'verenigingen.verenigingen.doctype.member.member_id_manager.reset_member_id_counter',
 				args: {
@@ -107,7 +200,7 @@ function handle_counter_reset(frm) {
 				},
 				freeze: true,
 				freeze_message: __('Resetting counter...'),
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.success) {
 						frappe.show_alert({
 							message: r.message.message,
@@ -130,7 +223,7 @@ function _show_counter_statistics_dialog() {
 	// Show detailed counter statistics
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				const stats = r.message;
 
@@ -167,7 +260,7 @@ function _show_counter_statistics_dialog() {
 
 function show_counter_reset_dialog(frm) {
 	// Show dialog for counter reset with validation
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Reset Member ID Counter'),
 		fields: [
 			{
@@ -185,7 +278,7 @@ function show_counter_reset_dialog(frm) {
 			}
 		],
 		primary_action_label: __('Reset Counter'),
-		primary_action: function(values) {
+		primary_action(values) {
 			if (!values.confirm_reset) {
 				frappe.msgprint(__('Please confirm you understand this action cannot be undone'));
 				return;
@@ -198,7 +291,7 @@ function show_counter_reset_dialog(frm) {
 				},
 				freeze: true,
 				freeze_message: __('Resetting counter...'),
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.success) {
 						frappe.show_alert({
 							message: r.message.message,
@@ -218,7 +311,7 @@ function show_counter_reset_dialog(frm) {
 
 function show_migration_tools_dialog() {
 	// Show migration tools for counter system
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Member ID Migration Tools'),
 		fields: [
 			{
@@ -234,15 +327,15 @@ function show_migration_tools_dialog() {
 			}
 		],
 		primary_action_label: __('Run Migration'),
-		primary_action: function() {
+		primary_action() {
 			frappe.confirm(
 				__('Run member ID counter migration? This should only be done once during system upgrade.'),
-				function() {
+				() => {
 					frappe.call({
 						method: 'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
 						freeze: true,
 						freeze_message: __('Running migration...'),
-						callback: function(r) {
+						callback(r) {
 							if (r.message) {
 								if (r.message.success) {
 									frappe.show_alert({
@@ -266,18 +359,18 @@ function show_migration_tools_dialog() {
 
 function calculate_age(birth_date) {
 	// Calculate age from birth date
-	if (!birth_date) return null;
+	if (!birth_date) { return null; }
 
 	const birth = new Date(birth_date);
 	const today = new Date();
 
-	if (isNaN(birth.getTime())) return null;
+	if (isNaN(birth.getTime())) { return null; }
 
 	let age = today.getFullYear() - birth.getFullYear();
 
 	// Adjust if birthday hasn't occurred this year
-	if (today.getMonth() < birth.getMonth() ||
-        (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) {
+	if (today.getMonth() < birth.getMonth()
+        || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) {
 		age--;
 	}
 
@@ -286,13 +379,13 @@ function calculate_age(birth_date) {
 
 // Verenigingen Settings form customizations
 frappe.ui.form.on('Verenigingen Settings', {
-	refresh: function(frm) {
+	refresh(frm) {
 		if (frappe.user.has_role('System Manager')) {
 			setup_settings_counter_section(frm);
 		}
 	},
 
-	member_id_start: function(frm) {
+	member_id_start(frm) {
 		// Show warning when changing the start value
 		if (frm.doc.member_id_start) {
 			frm.set_df_property('member_id_start', 'description',
@@ -303,10 +396,10 @@ frappe.ui.form.on('Verenigingen Settings', {
 
 function setup_settings_counter_section(frm) {
 	// Add button to view current counter status
-	frm.add_custom_button(__('View Member ID Status'), function() {
+	frm.add_custom_button(__('View Member ID Status'), () => {
 		frappe.call({
 			method: 'verenigingen.verenigingen.doctype.member.member_id_manager.get_member_id_statistics',
-			callback: function(r) {
+			callback(r) {
 				if (r.message) {
 					const stats = r.message;
 
@@ -340,7 +433,7 @@ function migrate_member_id_system() {
 
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.member.member.migrate_member_id_counter',
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				if (r.message.success) {
 					console.log('✓ Migration successful:', r.message.message);
@@ -350,11 +443,11 @@ function migrate_member_id_system() {
 					}, 8);
 				} else {
 					console.error('✗ Migration failed:', r.message.error);
-					frappe.msgprint('Migration failed: ' + r.message.error);
+					frappe.msgprint(`Migration failed: ${r.message.error}`);
 				}
 			}
 		},
-		error: function(r) {
+		error(r) {
 			console.error('✗ Migration error:', r);
 			frappe.msgprint('Migration error occurred. Check console for details.');
 		}
@@ -365,11 +458,10 @@ function migrate_member_id_system() {
 window.migrate_member_id_system = migrate_member_id_system;
 
 // Auto-run migration check on page load for System Managers
-$(document).ready(function() {
-	if (frappe.user.has_role('System Manager') &&
-        (frappe.get_route()[0] === 'List' && frappe.get_route()[1] === 'Member') ||
-        (frappe.get_route()[0] === 'Form' && frappe.get_route()[1] === 'Verenigingen Settings')) {
-
+$(document).ready(() => {
+	if (frappe.user.has_role('System Manager')
+        && (frappe.get_route()[0] === 'List' && frappe.get_route()[1] === 'Member')
+        || (frappe.get_route()[0] === 'Form' && frappe.get_route()[1] === 'Verenigingen Settings')) {
 		// Check if migration might be needed
 		frappe.call({
 			method: 'frappe.client.get_single_value',
@@ -377,7 +469,7 @@ $(document).ready(function() {
 				doctype: 'Verenigingen Settings',
 				field: 'last_member_id'
 			},
-			callback: function(r) {
+			callback(r) {
 				if (r.message && parseInt(r.message) > 0) {
 					// Old system detected, suggest migration
 					frappe.show_alert({

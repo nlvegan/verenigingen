@@ -1,14 +1,60 @@
+/**
+ * @fileoverview SEPA Payment Retry Management Controller
+ * @description Advanced retry management for failed SEPA direct debit payments
+ *
+ * Business Context:
+ * Manages the comprehensive retry workflow for failed SEPA direct debit
+ * payments, providing intelligent retry scheduling, escalation procedures,
+ * and detailed tracking for financial recovery operations.
+ *
+ * Key Features:
+ * - Interactive retry timeline with visual progress tracking
+ * - Intelligent retry scheduling with configurable intervals
+ * - Comprehensive status management and escalation workflows
+ * - Member communication integration for payment issues
+ * - Financial analytics and reporting for retry effectiveness
+ *
+ * Retry Workflow:
+ * - Automatic retry scheduling based on failure type
+ * - Manual retry intervention for special circumstances
+ * - Escalation to manual collection after retry exhaustion
+ * - Resolution tracking for successful payment recovery
+ *
+ * Visual Interface:
+ * - Color-coded status indicators for immediate status recognition
+ * - Interactive timeline showing retry history and outcomes
+ * - Comprehensive payment information dashboard
+ * - Member-specific context for personalized resolution
+ *
+ * Financial Management:
+ * - Original amount tracking for accurate recovery
+ * - Retry cost analysis and effectiveness metrics
+ * - Integration with invoice and payment systems
+ * - Audit trail for regulatory compliance
+ *
+ * Integration Points:
+ * - SEPA Direct Debit system for retry execution
+ * - Member communication for payment notifications
+ * - Financial reporting for collection analytics
+ * - Invoice management for payment correlation
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module SEPAPaymentRetry
+ * @requires frappe.ui.form, frappe.call
+ */
+
 frappe.ui.form.on('SEPA Payment Retry', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Add status indicator
 		const status_colors = {
-			'Pending': 'blue',
-			'Scheduled': 'orange',
-			'Retried': 'yellow',
-			'Failed': 'red',
-			'Escalated': 'red',
-			'Resolved': 'green',
-			'Error': 'red'
+			Pending: 'blue',
+			Scheduled: 'orange',
+			Retried: 'yellow',
+			Failed: 'red',
+			Escalated: 'red',
+			Resolved: 'green',
+			Error: 'red'
 		};
 
 		if (frm.doc.status) {
@@ -22,23 +68,23 @@ frappe.ui.form.on('SEPA Payment Retry', {
 
 		// Add action buttons based on status
 		if (frm.doc.status === 'Scheduled' && frm.doc.next_retry_date) {
-			frm.add_custom_button(__('Retry Now'), function() {
+			frm.add_custom_button(__('Retry Now'), () => {
 				retry_payment_now(frm);
 			}, __('Actions'));
 
-			frm.add_custom_button(__('Cancel Retry'), function() {
+			frm.add_custom_button(__('Cancel Retry'), () => {
 				cancel_retry(frm);
 			}, __('Actions'));
 		}
 
 		if (frm.doc.status === 'Failed' || frm.doc.status === 'Error') {
-			frm.add_custom_button(__('Schedule New Retry'), function() {
+			frm.add_custom_button(__('Schedule New Retry'), () => {
 				schedule_new_retry(frm);
 			}, __('Actions')).addClass('btn-primary');
 		}
 
 		if (frm.doc.status === 'Escalated') {
-			frm.add_custom_button(__('Mark as Resolved'), function() {
+			frm.add_custom_button(__('Mark as Resolved'), () => {
 				mark_as_resolved(frm);
 			}, __('Actions'));
 		}
@@ -47,7 +93,7 @@ frappe.ui.form.on('SEPA Payment Retry', {
 		add_retry_info_section(frm);
 	},
 
-	onload: function(frm) {
+	onload(frm) {
 		// Set up field properties
 		if (frm.is_new()) {
 			frm.set_df_property('retry_count', 'hidden', 1);
@@ -82,8 +128,8 @@ function add_retry_timeline(frm) {
                         ${__('Reason')}: ${attempt.reason_code || 'Unknown'}<br>
                         ${attempt.reason_message || ''}
                     </div>
-                    ${attempt.scheduled_retry ?
-		`<div class="timeline-next">
+                    ${attempt.scheduled_retry
+		? `<div class="timeline-next">
                             ${__('Next retry scheduled for')}: ${frappe.datetime.str_to_user(attempt.scheduled_retry)}
                         </div>` : ''
 }
@@ -135,9 +181,9 @@ function add_retry_info_section(frm) {
                 <div class="info-card">
                     <div class="info-label">${__('Next Retry')}</div>
                     <div class="info-value">
-                        ${frm.doc.next_retry_date ?
-		frappe.datetime.str_to_user(frm.doc.next_retry_date) :
-		__('Not scheduled')}
+                        ${frm.doc.next_retry_date
+		? frappe.datetime.str_to_user(frm.doc.next_retry_date)
+		: __('Not scheduled')}
                     </div>
                 </div>
             </div>
@@ -186,13 +232,13 @@ function add_retry_info_section(frm) {
 function retry_payment_now(frm) {
 	frappe.confirm(
 		__('Are you sure you want to retry this payment immediately?'),
-		function() {
+		() => {
 			frappe.call({
 				method: 'verenigingen.utils.payment_retry.execute_payment_retry',
 				args: {
 					retry_record: frm.doc.name
 				},
-				callback: function(r) {
+				callback(r) {
 					if (!r.exc) {
 						frappe.show_alert({
 							message: __('Payment retry initiated'),
@@ -209,7 +255,7 @@ function retry_payment_now(frm) {
 function cancel_retry(frm) {
 	frappe.confirm(
 		__('Are you sure you want to cancel the scheduled retry?'),
-		function() {
+		() => {
 			frm.set_value('status', 'Cancelled');
 			frm.set_value('next_retry_date', null);
 			frm.save();
@@ -243,7 +289,7 @@ function schedule_new_retry(frm) {
 				args: {
 					invoice_id: frm.doc.invoice
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.success) {
 						frappe.show_alert({
 							message: r.message.message,

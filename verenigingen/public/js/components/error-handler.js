@@ -1,6 +1,48 @@
 /**
- * Error Handler for Membership Application
- * Provides consistent error handling, logging, and user feedback
+ * @fileoverview Advanced Error Management System
+ * @description Comprehensive error handling framework with intelligent categorization and user feedback
+ *
+ * Business Context:
+ * Provides enterprise-grade error management for association membership systems,
+ * ensuring reliable user experience and comprehensive error tracking for audit
+ * and debugging purposes. Critical for maintaining data integrity and user trust.
+ *
+ * Key Features:
+ * - Intelligent error categorization and severity assessment
+ * - Multi-modal user feedback (notifications, modals, field validation)
+ * - Comprehensive error logging with statistical analysis
+ * - Network awareness and offline handling
+ * - Retryable error management with automatic recovery
+ * - Real-time error reporting and analytics
+ *
+ * Error Management Architecture:
+ * - Global error event capturing (JavaScript errors, promise rejections)
+ * - Contextual error handling with user activity correlation
+ * - Progressive error disclosure based on user technical level
+ * - Automated error escalation for critical system issues
+ *
+ * User Experience Features:
+ * - Non-intrusive notifications for minor issues
+ * - Clear action guidance for recoverable errors
+ * - Technical details available for advanced users
+ * - Offline capability with automatic retry mechanisms
+ *
+ * Security Considerations:
+ * - Sanitized error messages to prevent information disclosure
+ * - Rate limiting for error reporting to prevent abuse
+ * - User session correlation for security audit trails
+ * - Secure error transmission with authentication
+ *
+ * Integration Points:
+ * - Form validation systems for field-level errors
+ * - API services for network error handling
+ * - Logging infrastructure for centralized error analysis
+ * - User notification systems for proactive communication
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module ErrorHandler
+ * @requires jQuery, Bootstrap
  */
 
 class ErrorHandler {
@@ -162,9 +204,9 @@ class ErrorHandler {
 	handleValidationError(field, error, context = {}) {
 		const validationError = {
 			type: 'validation',
-			field: field,
+			field,
 			message: error.message || error,
-			context: context
+			context
 		};
 
 		// Show field-specific error
@@ -180,7 +222,7 @@ class ErrorHandler {
 	handleAPIError(error, endpoint, options = {}) {
 		const apiError = {
 			type: 'api',
-			endpoint: endpoint,
+			endpoint,
 			status: error.status || error.httpStatus,
 			message: error.message,
 			response: error.response,
@@ -223,9 +265,9 @@ class ErrorHandler {
 	showNotification(type, title, message, options = {}) {
 		const notification = {
 			id: this._generateId(),
-			type: type, // success, info, warning, error
-			title: title,
-			message: message,
+			type, // success, info, warning, error
+			title,
+			message,
 			timestamp: new Date(),
 			autoHide: options.autoHide !== false,
 			actions: options.actions || []
@@ -378,7 +420,6 @@ class ErrorHandler {
 	}
 
 	_logError(error) {
-
 		this.errorLog.push({
 			...error,
 			timestamp: new Date().toISOString()
@@ -453,7 +494,7 @@ class ErrorHandler {
 
 	_showFieldError(field, error) {
 		const $field = $(`[name="${field}"], #${field}`);
-		if ($field.length === 0) return;
+		if ($field.length === 0) { return; }
 
 		$field.addClass('is-invalid');
 
@@ -489,7 +530,7 @@ class ErrorHandler {
 	}
 
 	_generateId() {
-		return 'err_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+		return `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 	}
 
 	_disableForm() {

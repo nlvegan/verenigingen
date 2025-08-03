@@ -56,7 +56,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Mapping & Configuration",
-   "link_count": 4,
+   "link_count": 6,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -84,6 +84,26 @@
   {
    "hidden": 0,
    "is_query_report": 0,
+   "label": "Payment Mapping",
+   "link_count": 0,
+   "link_to": "EBoekhouden Payment Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Party Enrichment Queue",
+   "link_count": 0,
+   "link_to": "Party Enrichment Queue",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Monitoring & Logs",
    "link_count": 1,
    "link_type": "DocType",
@@ -99,21 +119,11 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Account Mapping",
-   "link_count": 0,
-   "link_to": "E-Boekhouden Account Map",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
   }
  ],
  "modified": "2025-07-24 21:48:11.815722",
  "modified_by": "Administrator",
- "module": "Verenigingen",
+ "module": "E-Boekhouden",
  "name": "E-Boekhouden",
  "number_cards": [],
  "owner": "Administrator",

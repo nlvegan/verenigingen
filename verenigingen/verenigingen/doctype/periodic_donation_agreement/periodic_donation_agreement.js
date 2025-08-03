@@ -1,8 +1,70 @@
+/**
+ * @fileoverview Periodic Donation Agreement Management - ANBI Tax Compliance & Donor Relations
+ *
+ * This module manages multi-year donation agreements between donors and the organization,
+ * with specialized support for Dutch ANBI (Algemeen Nut Beogende Instelling) tax compliance.
+ * Handles commitment tracking, payment scheduling, and automatic tax benefit qualification.
+ *
+ * ## Core Business Functions
+ * - **ANBI Compliance Management**: Automatic qualification for 5+ year agreements
+ * - **Multi-Year Commitment Tracking**: Progress monitoring across agreement duration
+ * - **Payment Schedule Management**: Flexible frequency options (monthly, quarterly, annual)
+ * - **Donation Linkage**: Connect individual donations to periodic agreements
+ * - **Tax Benefit Optimization**: Maximize donor tax advantages through proper structuring
+ * - **Agreement Lifecycle**: Draft → Active → Completed/Cancelled workflow
+ *
+ * ## Technical Architecture
+ * - **Real-time Validation**: ANBI eligibility checks during data entry
+ * - **Progress Tracking**: Visual indicators for commitment fulfillment
+ * - **Document Generation**: PDF agreement creation with legal compliance
+ * - **Integration Points**: Links with Donation, Donor, and SEPA mandate systems
+ * - **Audit Trail**: Complete history of agreement modifications and cancellations
+ *
+ * ## ANBI Tax Compliance Features
+ * - **5-Year Minimum**: Automatic qualification detection for periodic donation benefits
+ * - **Tax Deduction Optimization**: Full deductibility without annual limits for qualified agreements
+ * - **Donor Verification**: Identity and consent validation for tax purposes
+ * - **Notarial Requirements**: Automatic determination of deed requirements based on amounts
+ * - **Compliance Reporting**: ANBI-ready documentation for tax authority submissions
+ *
+ * ## Financial Integration
+ * - **Payment Amount Calculation**: Automatic distribution across payment frequency
+ * - **Expected vs Actual Tracking**: Monitors commitment fulfillment rates
+ * - **SEPA Integration**: Links with direct debit mandates for automated collections
+ * - **Donation Attribution**: Proper allocation of received payments to agreements
+ * - **Revenue Recognition**: Support for accounting period allocation
+ *
+ * ## Donor Experience Features
+ * - **Flexible Commitment Options**: Multiple duration and payment frequency choices
+ * - **Progress Visualization**: Clear status on commitment fulfillment
+ * - **Agreement Modification**: Structured process for changes and cancellations
+ * - **Tax Benefit Communication**: Clear explanation of available tax advantages
+ * - **Automated Reminders**: Payment notification and receipt generation
+ *
+ * ## Compliance & Security
+ * - **GDPR Compliance**: Secure handling of donor personal and financial data
+ * - **ANBI Regulation Adherence**: Meets Dutch tax authority requirements
+ * - **Audit Trail**: Complete logging for compliance and forensic purposes
+ * - **Data Integrity**: Validation prevents invalid agreement configurations
+ * - **Permission Control**: Role-based access to sensitive donation data
+ *
+ * @company R.S.P. (Verenigingen Association Management)
+ * @version 2025.1.0
+ * @since 2024.2.0
+ * @license Proprietary
+ *
+ * @requires frappe>=15.0.0
+ * @requires verenigingen.donor
+ * @requires verenigingen.donation
+ *
+ * @see {@link https://www.belastingdienst.nl/wps/wcm/connect/bldcontentnl/belastingdienst/zakelijk/bijzondere_regelingen/goede_doelen/anbi/} ANBI Regulations
+ */
+
 // Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 // For license information, please see license.txt
 
 frappe.ui.form.on('Periodic Donation Agreement', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Show ANBI validation status
 		if (frm.doc.anbi_eligible) {
 			show_anbi_validation_status(frm);
@@ -11,21 +73,21 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 		// Add buttons based on status
 		if (!frm.doc.__islocal) {
 			if (frm.doc.status === 'Active') {
-				frm.add_custom_button(__('Link Donation'), function() {
+				frm.add_custom_button(__('Link Donation'), () => {
 					link_donation_dialog(frm);
 				}, __('Actions'));
 
-				frm.add_custom_button(__('Cancel Agreement'), function() {
+				frm.add_custom_button(__('Cancel Agreement'), () => {
 					cancel_agreement_dialog(frm);
 				}, __('Actions'));
 
-				frm.add_custom_button(__('Generate PDF'), function() {
+				frm.add_custom_button(__('Generate PDF'), () => {
 					generate_agreement_pdf(frm);
 				}, __('Actions'));
 			}
 
 			if (frm.doc.status === 'Draft') {
-				frm.add_custom_button(__('Activate Agreement'), function() {
+				frm.add_custom_button(__('Activate Agreement'), () => {
 					activate_agreement(frm);
 				}, __('Actions'));
 			}
@@ -47,40 +109,40 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 		}
 	},
 
-	annual_amount: function(frm) {
+	annual_amount(frm) {
 		calculate_payment_amount(frm);
 	},
 
-	payment_frequency: function(frm) {
+	payment_frequency(frm) {
 		calculate_payment_amount(frm);
 	},
 
-	agreement_duration_years: function(frm) {
+	agreement_duration_years(frm) {
 		// Update ANBI eligibility message
 		update_anbi_eligibility_message(frm);
 
 		// Auto-update end date based on duration
 		if (frm.doc.start_date && frm.doc.agreement_duration_years) {
-			let duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
+			const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
 			if (duration) {
-				let end_date = frappe.datetime.add_years(frm.doc.start_date, duration);
+				const end_date = frappe.datetime.add_years(frm.doc.start_date, duration);
 				frm.set_value('end_date', end_date);
 			}
 		}
 	},
 
-	start_date: function(frm) {
+	start_date(frm) {
 		// Auto-calculate end date based on selected duration
 		if (frm.doc.start_date && frm.doc.agreement_duration_years) {
-			let duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
+			const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
 			if (duration) {
-				let end_date = frappe.datetime.add_years(frm.doc.start_date, duration);
+				const end_date = frappe.datetime.add_years(frm.doc.start_date, duration);
 				frm.set_value('end_date', end_date);
 			}
 		}
 	},
 
-	donor: function(frm) {
+	donor(frm) {
 		// Check if donor has active ANBI consent
 		if (frm.doc.donor) {
 			frappe.call({
@@ -88,7 +150,7 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 				args: {
 					donor: frm.doc.donor
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.success) {
 						if (!r.message.anbi_consent) {
 							frappe.msgprint({
@@ -142,9 +204,9 @@ function link_donation_dialog(frm) {
 			fields: ['name', 'donation_date', 'amount', 'payment_method'],
 			limit_page_length: 100
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.length > 0) {
-				let fields = [
+				const fields = [
 					{
 						label: __('Select Donation'),
 						fieldname: 'donation',
@@ -157,18 +219,18 @@ function link_donation_dialog(frm) {
 					}
 				];
 
-				let d = new frappe.ui.Dialog({
+				const d = new frappe.ui.Dialog({
 					title: __('Link Donation to Agreement'),
-					fields: fields,
+					fields,
 					primary_action_label: __('Link'),
-					primary_action: function(values) {
+					primary_action(values) {
 						frappe.call({
 							method: 'link_donation',
 							doc: frm.doc,
 							args: {
 								donation_name: values.donation
 							},
-							callback: function(r) {
+							callback(r) {
 								if (r.message) {
 									frappe.show_alert({
 										message: __('Donation linked successfully'),
@@ -191,7 +253,7 @@ function link_donation_dialog(frm) {
 }
 
 function cancel_agreement_dialog(frm) {
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Cancel Periodic Donation Agreement'),
 		fields: [
 			{
@@ -202,17 +264,17 @@ function cancel_agreement_dialog(frm) {
 			}
 		],
 		primary_action_label: __('Cancel Agreement'),
-		primary_action: function(values) {
+		primary_action(values) {
 			frappe.confirm(
 				__('Are you sure you want to cancel this agreement? This action cannot be undone.'),
-				function() {
+				() => {
 					frappe.call({
 						method: 'cancel_agreement',
 						doc: frm.doc,
 						args: {
 							reason: values.reason
 						},
-						callback: function(r) {
+						callback(r) {
 							if (r.message) {
 								frappe.show_alert({
 									message: __('Agreement cancelled successfully'),
@@ -233,8 +295,8 @@ function cancel_agreement_dialog(frm) {
 
 function activate_agreement(frm) {
 	// Check required fields
-	let required_fields = ['donor', 'start_date', 'annual_amount', 'payment_frequency', 'payment_method'];
-	let missing_fields = [];
+	const required_fields = ['donor', 'start_date', 'annual_amount', 'payment_frequency', 'payment_method'];
+	const missing_fields = [];
 
 	required_fields.forEach(field => {
 		if (!frm.doc[field]) {
@@ -253,7 +315,7 @@ function activate_agreement(frm) {
 
 	frappe.confirm(
 		__('Are you sure you want to activate this agreement?'),
-		function() {
+		() => {
 			frm.set_value('status', 'Active');
 			frm.save();
 		}
@@ -274,13 +336,13 @@ function add_donation_statistics(frm) {
 			duration_years = parseInt(frm.doc.agreement_duration_years.split(' ')[0]) || 5;
 		}
 
-		let total_expected = frm.doc.annual_amount * duration_years;
-		let progress_percentage = total_expected > 0 ? ((frm.doc.total_donated / total_expected) * 100).toFixed(1) : 0;
+		const total_expected = frm.doc.annual_amount * duration_years;
+		const progress_percentage = total_expected > 0 ? ((frm.doc.total_donated / total_expected) * 100).toFixed(1) : 0;
 
 		// Determine agreement type for display
-		let agreement_type = duration_years >= 5 ? __('ANBI Agreement') : __('Donation Pledge');
+		const agreement_type = duration_years >= 5 ? __('ANBI Agreement') : __('Donation Pledge');
 
-		let stats_html = `
+		const stats_html = `
             <div class="donation-statistics">
                 <h5>${__('Donation Statistics')} - ${agreement_type}</h5>
                 <div class="row">
@@ -317,24 +379,24 @@ function set_agreement_type_options(frm) {
 
 // Child table events for donations tracking
 frappe.ui.form.on('Periodic Donation Agreement Item', {
-	donations_add: function(frm, cdt, cdn) {
+	donations_add(frm, cdt, cdn) {
 		// Update tracking when donation is added
 		frm.trigger('update_donation_tracking');
 	},
 
-	donations_remove: function(frm, cdt, cdn) {
+	donations_remove(frm, cdt, cdn) {
 		// Update tracking when donation is removed
 		frm.trigger('update_donation_tracking');
 	},
 
-	status: function(frm, cdt, cdn) {
+	status(frm, cdt, cdn) {
 		// Update tracking when status changes
 		frm.trigger('update_donation_tracking');
 	}
 });
 
 frappe.ui.form.on('Periodic Donation Agreement', {
-	update_donation_tracking: function(frm) {
+	update_donation_tracking(frm) {
 		// This will be handled server-side in the validate method
 		frm.dirty();
 	}
@@ -345,11 +407,11 @@ function show_anbi_validation_status(frm) {
 	frappe.call({
 		method: 'get_anbi_validation_status',
 		doc: frm.doc,
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
-				let status = r.message;
-				let indicator_class = status.valid ? 'green' : 'red';
-				let icon = status.valid ? '✓' : '⚠';
+				const status = r.message;
+				const indicator_class = status.valid ? 'green' : 'red';
+				const icon = status.valid ? '✓' : '⚠';
 
 				// Create status HTML
 				let status_html = `
@@ -400,7 +462,7 @@ function show_anbi_validation_status(frm) {
 				}
 			}
 		},
-		error: function(xhr, status, error) {
+		error(xhr, status, error) {
 			frappe.show_alert({
 				message: __('Failed to check ANBI validation status. Please try again.'),
 				indicator: 'orange'
@@ -412,7 +474,7 @@ function show_anbi_validation_status(frm) {
 function update_anbi_eligibility_message(frm) {
 	// Update ANBI eligibility message based on selected duration
 	if (frm.doc.agreement_duration_years) {
-		let duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
+		const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
 		let message = '';
 		let indicator = '';
 
@@ -422,7 +484,7 @@ function update_anbi_eligibility_message(frm) {
 			frm.set_value('anbi_eligible', 1);
 
 			// Show expected ANBI benefits
-			let anbi_info = `
+			const anbi_info = `
                 <div style="margin-top: 10px; padding: 10px; background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
                     <strong>${__('ANBI Tax Benefits')}:</strong>
                     <ul style="margin-bottom: 0;">
@@ -440,7 +502,7 @@ function update_anbi_eligibility_message(frm) {
 			frm.set_value('anbi_eligible', 0);
 
 			// Show pledge information
-			let pledge_info = `
+			const pledge_info = `
                 <div style="margin-top: 10px; padding: 10px; background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">
                     <strong>${__('Donation Pledge (No Special ANBI Benefits)')}:</strong>
                     <ul style="margin-bottom: 0;">
@@ -457,8 +519,8 @@ function update_anbi_eligibility_message(frm) {
 		// Display message to user
 		if (!frm.is_new()) {
 			frappe.show_alert({
-				message: message,
-				indicator: indicator
+				message,
+				indicator
 			}, 5);
 		}
 

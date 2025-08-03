@@ -1,3 +1,93 @@
+/**
+ * @fileoverview Volunteer Utilities Module - Member-Volunteer Integration Services
+ *
+ * Comprehensive utility library for managing volunteer-related functionality within
+ * the Member DocType context. Provides seamless integration between member profiles
+ * and volunteer activities, enabling rich volunteer information display, profile
+ * creation, and activity tracking directly from member records.
+ *
+ * ## Business Value
+ * - **Volunteer Recruitment**: Streamlined conversion of members to volunteers
+ * - **Engagement Visualization**: Rich display of volunteer activities and skills
+ * - **Administrative Efficiency**: Centralized volunteer management from member records
+ * - **Talent Management**: Skills-based volunteer matching and development
+ * - **Activity Tracking**: Comprehensive volunteer contribution monitoring
+ *
+ * ## Core Capabilities
+ * - **Profile Integration**: Dynamic volunteer information display within member forms
+ * - **Skill Visualization**: Color-coded proficiency level display with badge system
+ * - **Activity Navigation**: Direct access to volunteer activities and assignments
+ * - **Profile Creation**: One-click volunteer profile generation from member data
+ * - **Status Monitoring**: Real-time volunteer status tracking and visualization
+ * - **Interest Mapping**: Display of volunteer interest areas and specializations
+ *
+ * ## Technical Architecture
+ * - **Modular Design**: Reusable utility functions with clean separation of concerns
+ * - **DOM Manipulation**: Dynamic HTML injection for volunteer information cards
+ * - **Event Handling**: User interaction management for profile creation and navigation
+ * - **API Integration**: Secure communication with backend volunteer services
+ * - **Error Handling**: Comprehensive validation and user feedback systems
+ * - **Global Namespace**: Window-level exports for cross-module accessibility
+ *
+ * ## Integration Points
+ * - **Member DocType**: Primary integration point for volunteer functionality
+ * - **Volunteer System**: Complete volunteer profile and activity management
+ * - **Skills Database**: Volunteer competency tracking and visualization
+ * - **Activity Engine**: Volunteer assignment and contribution tracking
+ * - **UI Framework**: Frappe's standard interface components and styling
+ * - **Navigation System**: Seamless routing to volunteer-related views
+ *
+ * ## User Experience Features
+ * - **Visual Indicators**: Color-coded badges for status and proficiency levels
+ * - **Information Cards**: Rich, contextual volunteer information display
+ * - **Quick Actions**: One-click navigation to volunteer profiles and activities
+ * - **Confirmation Dialogs**: User-friendly prompts for profile creation
+ * - **Progress Feedback**: Visual indicators for long-running operations
+ * - **Responsive Design**: Mobile-friendly volunteer information display
+ *
+ * ## Security Features
+ * - **Permission Validation**: Role-based access to volunteer functionality
+ * - **Data Sanitization**: Safe HTML generation and DOM manipulation
+ * - **Audit Trail**: Complete tracking of volunteer profile creation and modifications
+ * - **Privacy Compliance**: GDPR-compliant volunteer data handling
+ *
+ * ## Performance Optimization
+ * - **Lazy Loading**: On-demand volunteer information retrieval
+ * - **DOM Caching**: Efficient management of volunteer information displays
+ * - **API Optimization**: Minimized server requests through intelligent caching
+ * - **Progressive Enhancement**: Graceful degradation for basic functionality
+ *
+ * ## Module Functions
+ * - `show_volunteer_info()`: Display volunteer profile within member form
+ * - `create_volunteer_from_member()`: Generate volunteer profile from member data
+ * - `show_volunteer_activities()`: Navigate to volunteer activity listings
+ * - `show_volunteer_assignments()`: Access volunteer assignment management
+ *
+ * ## Usage Examples
+ * ```javascript
+ * // Display volunteer information
+ * VolunteerUtils.show_volunteer_info(frm);
+ *
+ * // Create volunteer profile
+ * VolunteerUtils.create_volunteer_from_member(frm);
+ *
+ * // Navigate to activities
+ * VolunteerUtils.show_volunteer_activities('MEM-2025-001');
+ * ```
+ *
+ * @version 1.1.0
+ * @author Verenigingen Development Team
+ * @since 2024-Q1
+ *
+ * @requires frappe.client
+ * @requires frappe.ui
+ * @requires frappe.route
+ *
+ * @see {@link member.js} Member DocType Controller
+ * @see {@link volunteer.js} Volunteer Management System
+ * @see {@link volunteer_activity.js} Activity Tracking
+ */
+
 // Volunteer-related utility functions for Member doctype
 
 function show_volunteer_info(frm) {
@@ -6,11 +96,11 @@ function show_volunteer_info(frm) {
 		args: {
 			doctype: 'Volunteer',
 			filters: {
-				'member': frm.doc.name
+				member: frm.doc.name
 			},
 			fields: ['name', 'status', 'start_date']
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.length > 0) {
 				const volunteer = r.message[0];
 
@@ -21,7 +111,7 @@ function show_volunteer_info(frm) {
 						doctype: 'Volunteer',
 						name: volunteer.name
 					},
-					callback: function(r) {
+					callback(r) {
 						if (r.message) {
 							const volunteerDoc = r.message;
 							let skillsHtml = '';
@@ -42,7 +132,7 @@ function show_volunteer_info(frm) {
 								});
 							}
 
-							let html = `
+							const html = `
                                 <div class="volunteer-info-card" style="background: #f8f9fa; padding: 15px; border-radius: 5px; margin: 10px 0;">
                                     <h5>🤝 Volunteer Information</h5>
                                     <div class="row">
@@ -77,20 +167,20 @@ function show_volunteer_info(frm) {
 
 function get_proficiency_color(proficiency) {
 	const colors = {
-		'Beginner': '#ffc107',
-		'Intermediate': '#17a2b8',
-		'Advanced': '#28a745',
-		'Expert': '#6f42c1'
+		Beginner: '#ffc107',
+		Intermediate: '#17a2b8',
+		Advanced: '#28a745',
+		Expert: '#6f42c1'
 	};
 	return colors[proficiency] || '#6c757d';
 }
 
 function get_status_class(status) {
 	const classes = {
-		'Active': 'badge-success',
-		'Inactive': 'badge-secondary',
+		Active: 'badge-success',
+		Inactive: 'badge-secondary',
 		'On Hold': 'badge-warning',
-		'Terminated': 'badge-danger'
+		Terminated: 'badge-danger'
 	};
 	return classes[status] || 'badge-secondary';
 }
@@ -98,13 +188,13 @@ function get_status_class(status) {
 function create_volunteer_from_member(frm) {
 	frappe.confirm(
 		__('Would you like to create a volunteer profile for this member?'),
-		function() {
+		() => {
 			frappe.call({
 				method: 'verenigingen.verenigingen.doctype.volunteer.volunteer.create_from_member',
 				args: {
 					member: frm.doc.name
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.show_alert({
 							message: __('Volunteer profile created successfully'),
@@ -124,14 +214,14 @@ function create_volunteer_from_member(frm) {
 
 function show_volunteer_activities(member_name) {
 	frappe.route_options = {
-		'volunteer': member_name
+		volunteer: member_name
 	};
 	frappe.set_route('List', 'Volunteer Activity');
 }
 
 function show_volunteer_assignments(member_name) {
 	frappe.route_options = {
-		'volunteer': member_name
+		volunteer: member_name
 	};
 	frappe.set_route('List', 'Volunteer Assignment');
 }

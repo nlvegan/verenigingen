@@ -31,10 +31,10 @@ class InvoiceProcessor(BaseTransactionProcessor):
         # Determine invoice type based on mutation type
         mutation_type = mutation.get("type", 0)
 
-        if mutation_type == 1:  # Sales
-            return _create_sales_invoice(mutation, self.company, self.cost_center, self.debug_info)
-        elif mutation_type == 2:  # Purchase
+        if mutation_type == 1:  # Purchase (Invoice received)
             return _create_purchase_invoice(mutation, self.company, self.cost_center, self.debug_info)
+        elif mutation_type == 2:  # Sales (Invoice sent)
+            return _create_sales_invoice(mutation, self.company, self.cost_center, self.debug_info)
         else:
             # Try to determine by other means (amount, description, etc.)
             amount = self.get_amount(mutation)

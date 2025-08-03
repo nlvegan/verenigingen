@@ -13,7 +13,11 @@ class EBoekhoudenPartyResolver:
         self.enrichment_queue = []
 
     def resolve_customer(self, relation_id, debug_info=None):
-        """Resolve relation ID to proper customer with intelligent fallback"""
+        """
+        Resolve relation ID to proper customer using E-Boekhouden as Single Source of Truth.
+
+        ALWAYS fetches fresh API data and updates existing customers if better data is available.
+        """
         if debug_info is None:
             debug_info = []
 
@@ -21,7 +25,14 @@ class EBoekhoudenPartyResolver:
             debug_info.append("No relation ID provided, using default customer")
             return self.get_default_customer()
 
-        # Step 1: Check existing mapping
+        # Step 1: ALWAYS try to fetch fresh data from E-Boekhouden API first (SSoT approach)
+        relation_details = None
+        try:
+            relation_details = self.fetch_relation_details(relation_id, debug_info)
+        except Exception as e:
+            debug_info.append(f"API fetch failed for relation {relation_id}: {str(e)}")
+
+        # Step 2: Check if customer already exists
         existing = frappe.db.get_value(
             "Customer",
             {"eboekhouden_relation_code": str(relation_id)},
@@ -31,21 +42,29 @@ class EBoekhoudenPartyResolver:
 
         if existing:
             debug_info.append(f"Found existing customer: {existing['customer_name']} ({existing['name']})")
+
+            # Step 3: Update existing customer with fresh API data if available
+            if relation_details:
+                updated = self.update_customer_with_fresh_data(existing["name"], relation_details, debug_info)
+                if updated:
+                    debug_info.append(f"Updated customer {existing['name']} with fresh API data")
+
             return existing["name"]
 
-        # Step 2: Try to fetch relation details from e-boekhouden API
-        try:
-            relation_details = self.fetch_relation_details(relation_id, debug_info)
-            if relation_details:
-                return self.create_customer_from_relation(relation_details, debug_info)
-        except Exception as e:
-            debug_info.append(f"Could not fetch relation details for {relation_id}: {str(e)}")
+        # Step 4: Create new customer from API data if available
+        if relation_details:
+            return self.create_customer_from_relation(relation_details, debug_info)
 
-        # Step 3: Create provisional customer
+        # Step 5: Only create provisional customer if API is completely unavailable
+        debug_info.append(f"API unavailable for relation {relation_id}, creating provisional customer")
         return self.create_provisional_customer(relation_id, debug_info)
 
     def resolve_supplier(self, relation_id, debug_info=None):
-        """Resolve relation ID to proper supplier with intelligent fallback"""
+        """
+        Resolve relation ID to proper supplier using E-Boekhouden as Single Source of Truth.
+
+        ALWAYS fetches fresh API data and updates existing suppliers if better data is available.
+        """
         if debug_info is None:
             debug_info = []
 
@@ -53,7 +72,14 @@ class EBoekhoudenPartyResolver:
             debug_info.append("No relation ID provided, using default supplier")
             return self.get_default_supplier()
 
-        # Check existing mapping
+        # Step 1: ALWAYS try to fetch fresh data from E-Boekhouden API first (SSoT approach)
+        relation_details = None
+        try:
+            relation_details = self.fetch_relation_details(relation_id, debug_info)
+        except Exception as e:
+            debug_info.append(f"API fetch failed for relation {relation_id}: {str(e)}")
+
+        # Step 2: Check if supplier already exists
         existing = frappe.db.get_value(
             "Supplier",
             {"eboekhouden_relation_code": str(relation_id)},
@@ -63,17 +89,21 @@ class EBoekhoudenPartyResolver:
 
         if existing:
             debug_info.append(f"Found existing supplier: {existing['supplier_name']} ({existing['name']})")
+
+            # Step 3: Update existing supplier with fresh API data if available
+            if relation_details:
+                updated = self.update_supplier_with_fresh_data(existing["name"], relation_details, debug_info)
+                if updated:
+                    debug_info.append(f"Updated supplier {existing['name']} with fresh API data")
+
             return existing["name"]
 
-        # Try to fetch relation details
-        try:
-            relation_details = self.fetch_relation_details(relation_id, debug_info)
-            if relation_details:
-                return self.create_supplier_from_relation(relation_details, debug_info)
-        except Exception as e:
-            debug_info.append(f"Could not fetch relation details for {relation_id}: {str(e)}")
+        # Step 4: Create new supplier from API data if available
+        if relation_details:
+            return self.create_supplier_from_relation(relation_details, debug_info)
 
-        # Create provisional supplier
+        # Step 5: Only create provisional supplier if API is completely unavailable
+        debug_info.append(f"API unavailable for relation {relation_id}, creating provisional supplier")
         return self.create_provisional_supplier(relation_id, debug_info)
 
     def fetch_relation_details(self, relation_id, debug_info=None):
@@ -203,6 +233,10 @@ class EBoekhoudenPartyResolver:
         customer.customer_group = "All Customer Groups"
         customer.territory = "All Territories"
 
+        # Force the document name to use the customer name instead of auto-generated ID
+        # This prevents "E-Boekhouden Relation 123" showing in UI
+        customer.name = customer_name[:140]  # ERPNext name field limit
+
         # Store relation ID for future matching
         customer.eboekhouden_relation_code = str(relation_details["id"])
 
@@ -292,13 +326,49 @@ class EBoekhoudenPartyResolver:
                             )
                             pass
 
-            # Final fallback
+            # Final fallback - try to extract meaningful name from any available data
             if not supplier_name or supplier_name.isspace():
-                supplier_name = f"E-Boekhouden Relation {relation_details['id']}"
+                # Try to extract from any other fields that might contain a name
+                fallback_name = None
+
+                # Check for any field containing name-like data
+                name_fields = ["companyName", "company", "bedrijf", "naam", "contactName", "contact"]
+                for field in name_fields:
+                    if relation_details.get(field):
+                        fallback_name = relation_details[field]
+                        break
+
+                # If still no name, check address fields for business names
+                if not fallback_name:
+                    address_fields = ["street", "straat", "address"]
+                    for field in address_fields:
+                        addr = relation_details.get(field)
+                        if addr and len(addr) > 3 and not addr.isdigit():
+                            # Extract potential business name from address (before street number)
+                            import re
+
+                            name_match = re.match(r"^([A-Za-z\s&.-]+)", addr)
+                            if name_match:
+                                potential_name = name_match.group(1).strip()
+                                if len(potential_name) > 3:
+                                    fallback_name = f"{potential_name} (eBoekhouden)"
+                                    break
+
+                if fallback_name:
+                    supplier_name = fallback_name[:50]  # Limit length
+                    debug_info.append(f"Using extracted fallback name: {supplier_name}")
+                else:
+                    # Last resort: include relation ID but make it more descriptive
+                    supplier_name = f"Supplier {relation_details['id']} (eBoekhouden)"
+                    debug_info.append(f"Using final fallback name: {supplier_name}")
 
         supplier.supplier_name = supplier_name
         supplier.supplier_type = supplier_type
         supplier.supplier_group = "All Supplier Groups"
+
+        # Force the document name to use the supplier name instead of auto-generated ID
+        # This prevents "E-Boekhouden Relation 123" showing in UI
+        supplier.name = supplier_name[:140]  # ERPNext name field limit
 
         # Store relation ID
         supplier.eboekhouden_relation_code = str(relation_details["id"])
@@ -320,6 +390,124 @@ class EBoekhoudenPartyResolver:
             self.add_supplier_address(supplier, relation_details, debug_info)
 
         return supplier.name
+
+    def update_customer_with_fresh_data(self, customer_name, relation_details, debug_info=None):
+        """
+        Update existing customer with fresh API data from E-Boekhouden.
+
+        Returns True if customer was updated with better data, False otherwise.
+        """
+        if debug_info is None:
+            debug_info = []
+
+        try:
+            customer = frappe.get_doc("Customer", customer_name)
+
+            # Determine if we have better name data from API
+            relation_name = relation_details.get("name")
+            relation_type = relation_details.get("type", "P")
+
+            current_name = customer.customer_name
+            better_name = None
+
+            if relation_name and relation_name.strip():
+                better_name = relation_name.strip()
+                customer_type = "Company" if relation_type == "B" else "Individual"
+            else:
+                # Try legacy field names
+                company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
+                first_name = relation_details.get("voornaam") or relation_details.get("firstName")
+                last_name = relation_details.get("achternaam") or relation_details.get("lastName")
+
+                if company_name and company_name.strip():
+                    better_name = company_name.strip()
+                    customer_type = "Company"
+                elif first_name or last_name:
+                    better_name = f"{first_name or ''} {last_name or ''}".strip()
+                    customer_type = "Individual"
+
+            # Only update if we have significantly better data
+            if better_name and not current_name.startswith("E-Boekhouden"):
+                # Current name is already good, don't update
+                debug_info.append(f"Customer {customer_name} already has good name: {current_name}")
+                return False
+            elif better_name and better_name != current_name:
+                # Update with better name
+                customer.customer_name = better_name
+                customer.customer_type = customer_type
+
+                # Update other fields if available
+                if relation_details.get("email") and not customer.get("email_id"):
+                    customer.email_id = relation_details["email"]
+
+                customer.save()
+                debug_info.append(f"Updated customer name: '{current_name}' → '{better_name}'")
+                return True
+
+            return False
+
+        except Exception as e:
+            debug_info.append(f"Failed to update customer {customer_name}: {str(e)}")
+            return False
+
+    def update_supplier_with_fresh_data(self, supplier_name, relation_details, debug_info=None):
+        """
+        Update existing supplier with fresh API data from E-Boekhouden.
+
+        Returns True if supplier was updated with better data, False otherwise.
+        """
+        if debug_info is None:
+            debug_info = []
+
+        try:
+            supplier = frappe.get_doc("Supplier", supplier_name)
+
+            # Determine if we have better name data from API
+            relation_name = relation_details.get("name")
+            relation_type = relation_details.get("type", "P")
+
+            current_name = supplier.supplier_name
+            better_name = None
+
+            if relation_name and relation_name.strip():
+                better_name = relation_name.strip()
+                supplier_type = "Company" if relation_type == "B" else "Individual"
+            else:
+                # Try legacy field names
+                company_name = relation_details.get("bedrijfsnaam") or relation_details.get("companyName")
+                first_name = relation_details.get("voornaam") or relation_details.get("firstName")
+                last_name = relation_details.get("achternaam") or relation_details.get("lastName")
+
+                if company_name and company_name.strip():
+                    better_name = company_name.strip()
+                    supplier_type = "Company"
+                elif first_name or last_name:
+                    better_name = f"{first_name or ''} {last_name or ''}".strip()
+                    supplier_type = "Individual"
+
+            # Only update if we have significantly better data
+            if better_name and not current_name.startswith("E-Boekhouden"):
+                # Current name is already good, don't update
+                debug_info.append(f"Supplier {supplier_name} already has good name: {current_name}")
+                return False
+            elif better_name and better_name != current_name:
+                # Update with better name
+                supplier.supplier_name = better_name
+                supplier.supplier_type = supplier_type
+
+                # Update tax ID if available
+                if relation_details.get("btwNummer") and not supplier.get("tax_id"):
+                    supplier.tax_id = relation_details["btwNummer"]
+
+                supplier.save()
+                debug_info.append(f"Updated supplier name: '{current_name}' → '{better_name}'")
+                return True
+
+            return False
+
+        except Exception as e:
+            debug_info.append(f"Failed to update supplier {supplier_name}: {str(e)}")
+            return False
 
     def create_provisional_customer(self, relation_id, debug_info=None):
         """Create provisional customer for later enrichment"""
@@ -356,7 +544,7 @@ class EBoekhoudenPartyResolver:
         if debug_info is None:
             debug_info = []
 
-        supplier_name = f"E-Boekhouden Supplier {relation_id}"
+        supplier_name = f"Supplier {relation_id} (eBoekhouden)"
 
         # Check if already exists
         if frappe.db.exists("Supplier", {"supplier_name": supplier_name}):
@@ -368,6 +556,9 @@ class EBoekhoudenPartyResolver:
         supplier.supplier_name = supplier_name
         supplier.supplier_group = "All Supplier Groups"
         supplier.eboekhouden_relation_code = str(relation_id)
+
+        # Use supplier name as document name to avoid generic IDs
+        supplier.name = supplier_name[:140]
 
         # Mark for enrichment (basic tracking)
 

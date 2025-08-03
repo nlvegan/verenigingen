@@ -1,5 +1,50 @@
+/**
+ * @fileoverview Contribution Amendment Request Controller
+ * @description Manages membership fee and billing modifications with approval workflows
+ *
+ * Business Context:
+ * Handles member requests for changes to their contribution amounts, billing
+ * intervals, and payment schedules. Provides structured approval workflows
+ * and impact analysis for membership fee modifications.
+ *
+ * Key Features:
+ * - Multi-type amendment support (fee changes, billing intervals)
+ * - Comprehensive approval workflow with role-based access
+ * - Real-time impact preview for financial changes
+ * - Automated effective date management
+ * - Integration with dues schedule system
+ *
+ * Workflow Management:
+ * - Draft → Pending Approval → Approved → Applied progression
+ * - Role-based approval restrictions for financial oversight
+ * - Automated validation for required fields and business rules
+ * - Historical tracking of amendment decisions
+ *
+ * Financial Impact Analysis:
+ * - Real-time calculation of payment changes
+ * - Future billing schedule adjustments
+ * - Impact visualization for informed decisions
+ * - Integration with membership billing systems
+ *
+ * Amendment Types:
+ * - Fee Change: Modify contribution amounts with impact analysis
+ * - Billing Interval Change: Adjust payment frequency
+ * - Custom amendments with extensible field visibility
+ *
+ * Security Features:
+ * - Role-based action restrictions
+ * - Approval audit trails
+ * - Irreversible application controls
+ * - Member consent tracking
+ *
+ * @author Verenigingen Development Team
+ * @since 2024
+ * @module ContributionAmendmentRequest
+ * @requires frappe.ui.form, frappe.call
+ */
+
 frappe.ui.form.on('Contribution Amendment Request', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Add custom buttons based on status
 		add_amendment_buttons(frm);
 
@@ -12,27 +57,27 @@ frappe.ui.form.on('Contribution Amendment Request', {
 		set_field_visibility(frm);
 	},
 
-	membership: function(frm) {
+	membership(frm) {
 		if (frm.doc.membership) {
 			// Load current membership details
 			load_membership_details(frm);
 		}
 	},
 
-	amendment_type: function(frm) {
+	amendment_type(frm) {
 		set_field_visibility(frm);
 		if (frm.doc.amendment_type === 'Fee Change') {
 			load_impact_preview(frm);
 		}
 	},
 
-	requested_amount: function(frm) {
+	requested_amount(frm) {
 		if (frm.doc.amendment_type === 'Fee Change' && frm.doc.requested_amount) {
 			load_impact_preview(frm);
 		}
 	},
 
-	effective_date: function(frm) {
+	effective_date(frm) {
 		if (frm.doc.amendment_type === 'Fee Change') {
 			load_impact_preview(frm);
 		}
@@ -43,11 +88,11 @@ function add_amendment_buttons(frm) {
 	if (frm.doc.status === 'Pending Approval') {
 		// Add approval buttons for authorized users
 		if (frappe.user.has_role(['System Manager', 'Membership Manager'])) {
-			frm.add_custom_button(__('Approve'), function() {
+			frm.add_custom_button(__('Approve'), () => {
 				approve_amendment(frm);
 			}, __('Actions')).addClass('btn-success');
 
-			frm.add_custom_button(__('Reject'), function() {
+			frm.add_custom_button(__('Reject'), () => {
 				reject_amendment(frm);
 			}, __('Actions')).addClass('btn-danger');
 		}
@@ -56,7 +101,7 @@ function add_amendment_buttons(frm) {
 	if (frm.doc.status === 'Approved') {
 		// Add apply button for system managers
 		if (frappe.user.has_role(['System Manager', 'Membership Manager'])) {
-			frm.add_custom_button(__('Apply Amendment'), function() {
+			frm.add_custom_button(__('Apply Amendment'), () => {
 				apply_amendment(frm);
 			}).addClass('btn-primary');
 		}
@@ -73,11 +118,11 @@ function add_amendment_buttons(frm) {
 	}
 
 	if (frm.doc.status === 'Draft') {
-		frm.add_custom_button(__('Submit for Approval'), function() {
+		frm.add_custom_button(__('Submit for Approval'), () => {
 			submit_for_approval(frm);
 		}).addClass('btn-warning');
 
-		frm.add_custom_button(__('Preview Impact'), function() {
+		frm.add_custom_button(__('Preview Impact'), () => {
 			preview_amendment_impact(frm);
 		});
 	}
@@ -94,7 +139,7 @@ function set_field_visibility(frm) {
 }
 
 function load_membership_details(frm) {
-	if (!frm.doc.membership) return;
+	if (!frm.doc.membership) { return; }
 
 	frappe.call({
 		method: 'frappe.client.get',
@@ -102,7 +147,7 @@ function load_membership_details(frm) {
 			doctype: 'Membership',
 			name: frm.doc.membership
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				const membership = r.message;
 
@@ -115,7 +160,7 @@ function load_membership_details(frm) {
 				frappe.call({
 					method: 'get_billing_amount',
 					doc: membership,
-					callback: function(amount_result) {
+					callback(amount_result) {
 						if (amount_result.message) {
 							frm.set_value('current_amount', amount_result.message);
 						}
@@ -136,7 +181,7 @@ function load_impact_preview(frm) {
 	frappe.call({
 		method: 'get_impact_preview',
 		doc: frm.doc,
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.html) {
 				frm.fields_dict.impact_preview.$wrapper.html(r.message.html);
 			}
@@ -152,14 +197,14 @@ function approve_amendment(frm) {
 			fieldtype: 'Small Text',
 			description: __('Optional notes about the approval')
 		}
-	], function(values) {
+	], (values) => {
 		frappe.call({
 			method: 'approve_amendment',
 			doc: frm.doc,
 			args: {
 				approval_notes: values.approval_notes
 			},
-			callback: function(r) {
+			callback(r) {
 				if (!r.exc) {
 					frm.reload_doc();
 				}
@@ -177,14 +222,14 @@ function reject_amendment(frm) {
 			reqd: 1,
 			description: __('Please provide a reason for rejection')
 		}
-	], function(values) {
+	], (values) => {
 		frappe.call({
 			method: 'reject_amendment',
 			doc: frm.doc,
 			args: {
 				rejection_reason: values.rejection_reason
 			},
-			callback: function(r) {
+			callback(r) {
 				if (!r.exc) {
 					frm.reload_doc();
 				}
@@ -196,11 +241,11 @@ function reject_amendment(frm) {
 function apply_amendment(frm) {
 	frappe.confirm(
 		__('Are you sure you want to apply this amendment? This action cannot be undone.'),
-		function() {
+		() => {
 			frappe.call({
 				method: 'apply_amendment',
 				doc: frm.doc,
-				callback: function(r) {
+				callback(r) {
 					if (!r.exc && r.message) {
 						const response = r.message;
 
@@ -253,7 +298,7 @@ function submit_for_approval(frm) {
 
 	frappe.confirm(
 		__('Submit this amendment for approval?'),
-		function() {
+		() => {
 			frm.set_value('status', 'Pending Approval');
 			frm.save();
 		}
@@ -269,7 +314,7 @@ function preview_amendment_impact(frm) {
 	frappe.call({
 		method: 'get_impact_preview',
 		doc: frm.doc,
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.html) {
 				frappe.msgprint({
 					title: __('Amendment Impact Preview'),
