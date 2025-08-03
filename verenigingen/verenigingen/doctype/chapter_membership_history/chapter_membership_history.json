@@ -5,78 +5,78 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
-   "chapter_name",
-   "assignment_type",
-   "column_break_2",
-   "start_date",
-   "end_date",
-   "status",
-   "details_section",
-   "reason",
-   "notes"
+  "chapter_name",
+  "assignment_type",
+  "column_break_2",
+  "start_date",
+  "end_date",
+  "status",
+  "details_section",
+  "reason",
+  "notes"
  ],
  "fields": [
-   {
-     "fieldname": "chapter_name",
-     "fieldtype": "Link",
-     "in_list_view": 1,
-     "label": "Chapter",
-     "options": "Chapter",
-     "reqd": 1,
-     "columns": 3
-   },
-   {
-     "fieldname": "assignment_type",
-     "fieldtype": "Select",
-     "in_list_view": 1,
-     "label": "Assignment Type",
-     "options": "Member\nBoard Member",
-     "reqd": 1,
-     "columns": 2
-   },
-   {
-     "fieldname": "column_break_2",
-     "fieldtype": "Column Break"
-   },
-   {
-     "fieldname": "start_date",
-     "fieldtype": "Date",
-     "in_list_view": 1,
-     "label": "Start Date",
-     "reqd": 1,
-     "columns": 2
-   },
-   {
-     "fieldname": "end_date",
-     "fieldtype": "Date",
-     "in_list_view": 1,
-     "label": "End Date",
-     "columns": 2
-   },
-   {
-     "default": "Active",
-     "fieldname": "status",
-     "fieldtype": "Select",
-     "in_list_view": 1,
-     "label": "Status",
-     "options": "Active\nPending\nCompleted\nTerminated",
-     "columns": 1
-   },
-   {
-     "fieldname": "details_section",
-     "fieldtype": "Section Break",
-     "label": "Details"
-   },
-   {
-     "fieldname": "reason",
-     "fieldtype": "Data",
-     "label": "Reason for Change"
-   },
-   {
-     "fieldname": "notes",
-     "fieldtype": "Text",
-     "label": "Notes"
-   }
+  {
+   "fieldname": "chapter_name",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Chapter",
+   "options": "Chapter",
+   "reqd": 1,
+   "columns": 3
+  },
+  {
+   "fieldname": "assignment_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Assignment Type",
+   "options": "Member\nBoard Member",
+   "reqd": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Start Date",
+   "reqd": 1,
+   "columns": 2
+  },
+  {
+   "fieldname": "end_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "End Date",
+   "columns": 2
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Active\nPending\nCompleted\nTerminated",
+   "columns": 1
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Data",
+   "label": "Reason for Change"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Text",
+   "label": "Notes"
+  }
  ],
  "istable": 1,
  "modified": "2025-06-17 14:30:00.000000",
@@ -84,7 +84,12 @@
  "module": "Verenigingen",
  "name": "Chapter Membership History",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
  "sort_field": "start_date",
  "sort_order": "DESC"
 }

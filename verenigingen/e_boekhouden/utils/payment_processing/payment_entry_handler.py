@@ -470,13 +470,28 @@ class PaymentEntryHandler:
             self._log("WARNING: No matching invoices found for allocation")
             return
 
-        # Validate payment amount vs invoice amounts
+        # For Type 3/4 payments, don't filter by outstanding_amount since E-Boekhouden
+        # has already determined the payment-invoice relationship
+        # ERPNext outstanding_amount may be incorrect during batch import due to race conditions
+
+        if not invoices:
+            self._log("WARNING: No matching invoices found for allocation")
+            return
+
+        # Log invoice status for debugging
+        for inv in invoices:
+            outstanding = flt(inv.get("outstanding_amount", 0))
+            grand_total = flt(inv.get("grand_total", 0))
+            self._log(f"Found invoice {inv['name']}: grand_total={grand_total}, outstanding={outstanding}")
+
+        # Validate payment amount vs invoice amounts (informational only)
         total_payment = payment_entry.paid_amount or payment_entry.received_amount
         total_outstanding = sum(inv.get("outstanding_amount", 0) for inv in invoices)
+        total_grand = sum(inv.get("grand_total", 0) for inv in invoices)
 
-        if total_payment > total_outstanding * 1.1:  # Allow 10% tolerance
+        if total_payment > total_grand * 1.1:  # Allow 10% tolerance
             self._log(
-                f"WARNING: Payment amount ({total_payment}) significantly exceeds total outstanding ({total_outstanding})"
+                f"INFO: Payment amount ({total_payment}) exceeds total invoice amount ({total_grand}) - possible overpayment"
             )
 
         # Prepare row amounts (absolute values)
@@ -498,9 +513,15 @@ class PaymentEntryHandler:
     def _allocate_one_to_one(
         self, payment_entry: frappe._dict, invoices: List[Dict], row_amounts: List[float]
     ):
-        """Allocate with 1:1 mapping between rows and invoices."""
+        """Allocate with 1:1 mapping between rows and invoices.
+
+        For Type 3/4 payments, trust E-Boekhouden amounts completely since
+        ERPNext outstanding_amount may be incorrect during batch processing.
+        """
         for invoice, amount in zip(invoices, row_amounts):
-            allocation = min(amount, invoice["outstanding_amount"])
+            # For Type 3/4 payments, use E-Boekhouden amount directly
+            # Don't limit by outstanding_amount due to race conditions
+            allocation = amount
 
             payment_entry.append(
                 "references",
@@ -516,7 +537,11 @@ class PaymentEntryHandler:
             self._log(f"Allocated {allocation} to {invoice['name']} (1:1 mapping)")
 
     def _allocate_fifo(self, payment_entry: frappe._dict, invoices: List[Dict], row_amounts: List[float]):
-        """Allocate using FIFO strategy."""
+        """Allocate using FIFO strategy.
+
+        For Type 3/4 payments, trust E-Boekhouden amounts and relationships.
+        Don't limit by outstanding_amount due to potential race conditions.
+        """
         total_to_allocate = (
             sum(row_amounts) if row_amounts else payment_entry.paid_amount or payment_entry.received_amount
         )
@@ -525,7 +550,10 @@ class PaymentEntryHandler:
             if total_to_allocate <= 0:
                 break
 
-            allocation = min(total_to_allocate, invoice["outstanding_amount"])
+            # For Type 3/4 payments, allocate what E-Boekhouden specifies
+            # Use grand_total as maximum to prevent extreme overpayments
+            max_allocation = min(total_to_allocate, invoice["grand_total"])
+            allocation = max_allocation
 
             payment_entry.append(
                 "references",
@@ -547,11 +575,24 @@ class PaymentEntryHandler:
     def _simple_invoice_allocation(
         self, payment_entry: frappe._dict, invoice_numbers: List[str], party_type: str
     ):
-        """Simple allocation for payments without row details."""
+        """Simple allocation for payments without row details.
+
+        For Type 3/4 payments, trust E-Boekhouden linkage regardless of
+        ERPNext outstanding_amount which may be incorrect during batch processing.
+        """
         invoice_doctype = "Sales Invoice" if party_type == "Customer" else "Purchase Invoice"
         invoices = self._find_invoices(invoice_numbers, invoice_doctype, payment_entry.party)
 
         if invoices:
+            # For Type 3/4 payments, don't filter by outstanding_amount
+            # E-Boekhouden has already determined the payment-invoice relationship
+            for inv in invoices:
+                outstanding = flt(inv.get("outstanding_amount", 0))
+                grand_total = flt(inv.get("grand_total", 0))
+                self._log(
+                    f"Allocating to invoice {inv['name']}: grand_total={grand_total}, outstanding={outstanding}"
+                )
+
             # Use FIFO allocation with total payment amount
             self._allocate_fifo(payment_entry, invoices, [])
 
@@ -580,7 +621,11 @@ class PaymentEntryHandler:
     def _find_invoice_by_number(
         self, invoice_num: str, doctype: str, party_field: str, party: str
     ) -> List[Dict]:
-        """Find invoice using multiple strategies with validation."""
+        """Find invoice using multiple strategies with validation.
+
+        For Type 3/4 payments, ignores outstanding_amount filters since E-Boekhouden
+        has already determined the payment-invoice relationship.
+        """
         if not invoice_num or not party:
             return []
 
@@ -592,13 +637,13 @@ class PaymentEntryHandler:
 
             # Strategy 1: Check if invoice_num is actually a mutation ID (all digits)
             if invoice_num.isdigit() and frappe.db.has_column(doctype, "eboekhouden_mutation_nr"):
+                # For Type 3/4 payments, don't filter by outstanding_amount - E-Boekhouden is source of truth
                 invoices = frappe.get_all(
                     doctype,
                     filters={
                         party_field: party,
                         "eboekhouden_mutation_nr": invoice_num,
                         "docstatus": 1,
-                        "outstanding_amount": [">", 0],
                     },
                     fields=[
                         "name",
@@ -620,13 +665,13 @@ class PaymentEntryHandler:
 
             # Strategy 2: E-Boekhouden invoice number field
             if frappe.db.has_column(doctype, "eboekhouden_invoice_number"):
+                # For Type 3/4 payments, find all matching invoices regardless of outstanding_amount
                 invoices = frappe.get_all(
                     doctype,
                     filters={
                         party_field: party,
                         "eboekhouden_invoice_number": invoice_num,
                         "docstatus": 1,
-                        "outstanding_amount": [">", 0],
                     },
                     fields=["name", "grand_total", "outstanding_amount", "posting_date"],
                 )
@@ -634,17 +679,20 @@ class PaymentEntryHandler:
                 if invoices:
                     for inv in invoices:
                         inv["doctype"] = doctype
-                    self._log(f"Found invoice {invoices[0]['name']} via eboekhouden_invoice_number")
+                        outstanding = flt(inv.get("outstanding_amount", 0))
+                        self._log(
+                            f"Found invoice {inv['name']} via eboekhouden_invoice_number (outstanding: {outstanding})"
+                        )
                     return invoices
 
             # Strategy 3: Exact name match
+            # For Type 3/4 payments, don't filter by outstanding_amount
             invoices = frappe.get_all(
                 doctype,
                 filters={
                     party_field: party,
                     "name": invoice_num,
                     "docstatus": 1,
-                    "outstanding_amount": [">", 0],
                 },
                 fields=["name", "grand_total", "outstanding_amount", "posting_date"],
             )
@@ -656,13 +704,13 @@ class PaymentEntryHandler:
                 return invoices
 
             # Strategy 4: Partial match (last resort)
+            # For Type 3/4 payments, don't filter by outstanding_amount
             invoices = frappe.get_all(
                 doctype,
                 filters={
                     party_field: party,
                     "name": ["like", f"%{invoice_num}%"],
                     "docstatus": 1,
-                    "outstanding_amount": [">", 0],
                 },
                 fields=["name", "grand_total", "outstanding_amount", "posting_date"],
                 limit=1,

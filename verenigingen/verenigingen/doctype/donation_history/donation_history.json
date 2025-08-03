@@ -1,7 +1,7 @@
 {
  "actions": [],
-
- "app": "verenigingen","allow_rename": 1,
+ "app": "verenigingen",
+ "allow_rename": 1,
  "creation": "2023-06-15 10:55:12.848423",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -84,7 +84,12 @@
  "module": "Verenigingen",
  "name": "Donation History",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

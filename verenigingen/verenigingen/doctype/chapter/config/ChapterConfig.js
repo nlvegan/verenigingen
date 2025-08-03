@@ -1,3 +1,74 @@
+/**
+ * @fileoverview Chapter Configuration System - Central configuration management for Chapter DocType
+ *
+ * This module provides comprehensive configuration management for the Chapter DocType,
+ * encompassing board management, member operations, communications, statistics, validation,
+ * API settings, and feature flags. It serves as the single source of truth for all
+ * chapter-related configuration parameters.
+ *
+ * Key Features:
+ * - Board management rules and role definitions
+ * - Member status and operation limits
+ * - Communication templates and batch processing
+ * - Statistical dashboard and chart configurations
+ * - Form validation patterns and rules
+ * - API endpoints and rate limiting
+ * - Feature toggles and workflow settings
+ * - Helper methods for configuration access
+ *
+ * Usage:
+ * ```javascript
+ * import { ChapterConfig } from './ChapterConfig.js';
+ *
+ * // Get board minimum size
+ * const minSize = ChapterConfig.get('board.minimumSize', 3);
+ *
+ * // Check if feature is enabled
+ * if (ChapterConfig.isFeatureEnabled('enableBoardManagement')) {
+ *     // Board management logic
+ * }
+ *
+ * // Get role permissions
+ * const permissions = ChapterConfig.getRolePermissions('Chair');
+ * ```
+ *
+ * Configuration Categories:
+ * - board: Board composition, roles, permissions, and tenure rules
+ * - members: Member status, pagination, export/import limits
+ * - communication: Email batching, templates, attachment rules
+ * - statistics: Chart colors, metrics, refresh intervals
+ * - postalCodes: Validation patterns by country
+ * - ui: Animation durations, modal sizes, pagination
+ * - validation: Field patterns, length limits, required permissions
+ * - api: Timeouts, retry logic, rate limits, endpoints
+ * - features: Feature flags for various functionalities
+ * - messages: Error, confirmation, and success message templates
+ * - dateTime: Date/time formatting and working day definitions
+ * - security: Session, password, and audit configurations
+ * - integrations: Volunteer, SEPA, and event integration settings
+ * - workflows: Approval processes and notification templates
+ *
+ * Business Rules:
+ * - Boards must have minimum 3 members, maximum 15
+ * - Critical roles (Chair, President, Treasurer) have enhanced permissions
+ * - Member exports limited to 500 records per batch
+ * - Email communications respect unsubscribe requirements
+ * - Statistical data refreshes every 5 minutes
+ * - API requests timeout after 30 seconds with 3 retry attempts
+ * - Strong password requirements and session management
+ *
+ * @module ChapterConfig
+ * @version 2.1.0
+ * @since 1.0.0
+ * @requires frappe
+ * @see {@link https://frappeframework.com/docs/user/en/api/frappe-client|Frappe Client API}
+ * @see {@link ../chapter.js|Chapter Controller}
+ * @see {@link ../modules/ChapterController.js|Chapter Controller Module}
+ *
+ * @author Verenigingen System
+ * @copyright 2024 Verenigingen
+ */
+
 export const ChapterConfig = {
 	// Board Management Configuration
 	board: {
@@ -7,10 +78,10 @@ export const ChapterConfig = {
 		requiredRoles: ['Chair', 'Secretary', 'Treasurer'],
 		criticalRoles: ['Chair', 'President', 'Treasurer'],
 		rolePermissions: {
-			'Chair': ['manage_all', 'view_financials', 'send_communications'],
-			'President': ['manage_all', 'view_financials', 'send_communications'],
-			'Secretary': ['manage_members', 'send_communications', 'view_reports'],
-			'Treasurer': ['view_financials', 'manage_payments', 'view_reports'],
+			Chair: ['manage_all', 'view_financials', 'send_communications'],
+			President: ['manage_all', 'view_financials', 'send_communications'],
+			Secretary: ['manage_members', 'send_communications', 'view_reports'],
+			Treasurer: ['view_financials', 'manage_payments', 'view_reports'],
 			'Board Member': ['view_reports', 'vote']
 		},
 		tenureWarningDays: 365, // Warn if board member tenure exceeds this
@@ -41,10 +112,10 @@ export const ChapterConfig = {
 		defaultEmailDelay: 100, // milliseconds between emails
 		unsubscribeTokenExpiry: 30, // days
 		emailTemplates: {
-			'welcome': 'Welcome to {chapter_name}',
-			'board_appointment': 'Board Appointment Notification',
-			'meeting_reminder': 'Chapter Meeting Reminder',
-			'newsletter': 'Chapter Newsletter'
+			welcome: 'Welcome to {chapter_name}',
+			board_appointment: 'Board Appointment Notification',
+			meeting_reminder: 'Chapter Meeting Reminder',
+			newsletter: 'Chapter Newsletter'
 		},
 		allowedAttachmentTypes: ['.pdf', '.doc', '.docx', '.jpg', '.png', '.xlsx'],
 		maxAttachmentSize: 10 * 1024 * 1024, // 10MB
@@ -76,10 +147,10 @@ export const ChapterConfig = {
 		defaultChartHeight: 300,
 		exportFormats: ['csv', 'xlsx', 'pdf'],
 		dateRanges: {
-			'last_30_days': { label: __('Last 30 Days'), days: 30 },
-			'last_90_days': { label: __('Last 90 Days'), days: 90 },
-			'last_year': { label: __('Last Year'), days: 365 },
-			'all_time': { label: __('All Time'), days: null }
+			last_30_days: { label: __('Last 30 Days'), days: 30 },
+			last_90_days: { label: __('Last 90 Days'), days: 90 },
+			last_year: { label: __('Last Year'), days: 365 },
+			all_time: { label: __('All Time'), days: null }
 		},
 		engagementScoreWeights: {
 			eventAttendance: 10,
@@ -102,11 +173,11 @@ export const ChapterConfig = {
 		maxPatterns: 50,
 		patternTypes: ['exact', 'range', 'wildcard'],
 		validationRules: {
-			'NL': /^[1-9][0-9]{3}$/,  // Netherlands
-			'BE': /^[1-9][0-9]{3}$/,  // Belgium
-			'DE': /^[0-9]{5}$/,       // Germany
-			'US': /^[0-9]{5}$/,       // USA
-			'UK': /^[A-Z]{1,2}[0-9][0-9A-Z]?$/ // UK
+			NL: /^[1-9][0-9]{3}$/, // Netherlands
+			BE: /^[1-9][0-9]{3}$/, // Belgium
+			DE: /^[0-9]{5}$/, // Germany
+			US: /^[0-9]{5}$/, // USA
+			UK: /^[A-Z]{1,2}[0-9][0-9A-Z]?$/ // UK
 		},
 		defaultCountry: 'NL'
 	},
@@ -239,9 +310,9 @@ export const ChapterConfig = {
 			enabled: true,
 			syncInterval: 86400, // 24 hours in seconds
 			fieldMapping: {
-				'volunteer_name': 'full_name',
-				'email': 'email',
-				'phone': 'mobile_no'
+				volunteer_name: 'full_name',
+				email: 'email',
+				phone: 'mobile_no'
 			}
 		},
 		sepa: {

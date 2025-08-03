@@ -1,7 +1,7 @@
 {
  "actions": [],
-
- "app": "verenigingen","allow_rename": 1,
+ "app": "verenigingen",
+ "allow_rename": 1,
  "creation": "2023-06-15 11:43:25.034613",
  "default_view": "List",
  "doctype": "DocType",
@@ -34,7 +34,12 @@
  "module": "Verenigingen",
  "name": "Donor Relationships",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": []

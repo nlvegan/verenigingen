@@ -1,0 +1,40 @@
+{
+  "metadata": {
+    "total_reports": 17,
+    "total_dashboards": 0,
+    "audit_timestamp": "2025-08-03 23:36:40.462024"
+  },
+  "report_issues": [],
+  "dashboard_issues": [],
+  "priority_fixes": {
+    "critical": [],
+    "high": [],
+    "medium": []
+  },
+  "summary": {
+    "reports_with_issues": 0,
+    "dashboards_with_issues": 0,
+    "reports_by_module": {
+      "Verenigingen": [
+        "ANBI Donation Summary",
+        "ANBI Periodic Agreements",
+        "Chapter Expense Report",
+        "Chapter Members",
+        "Expiring Memberships",
+        "Members Without Active Memberships",
+        "Members Without Chapter",
+        "Members Without Dues Schedule",
+        "Membership Dues Coverage Analysis",
+        "New Members",
+        "Orphaned Subscriptions Report",
+        "Overdue Member Payments",
+        "Pending Membership Applications",
+        "Recent Chapter Changes",
+        "Team Members",
+        "Termination Compliance Report",
+        "Users by Team"
+      ]
+    },
+    "dashboards_by_module": {}
+  }
+}

@@ -1,7 +1,44 @@
+/**
+ * @fileoverview UI Utility Functions for Member DocType
+ *
+ * This module provides optimized UI utility functions for the Member DocType form,
+ * focusing on grid formatting, custom CSS application, and performance improvements.
+ * It handles payment history visualization and form element styling.
+ *
+ * Business Context:
+ * - Member forms display complex payment history that needs clean presentation
+ * - Grid columns need selective hiding for better user experience
+ * - Performance optimization is critical for forms with many payment records
+ * - Consistent styling across member-related interfaces
+ *
+ * Key Functions:
+ * - Payment history grid setup and formatting
+ * - Custom CSS injection for member-specific styling
+ * - Grid column visibility management
+ * - Performance-optimized DOM operations
+ *
+ * Performance Optimizations:
+ * - Uses requestAnimationFrame for non-blocking DOM updates
+ * - Batch DOM operations to reduce reflow/repaint
+ * - CSS-based hiding instead of individual jQuery operations
+ * - Conditional module loading to reduce memory footprint
+ *
+ * Integration Points:
+ * - PaymentUtils module for row formatting
+ * - Member DocType form events
+ * - Grid wrapper styling system
+ *
+ * @module verenigingen/public/js/member/js_modules/ui-utils
+ * @version 1.0.0
+ * @since 2024
+ * @requires jQuery
+ * @see {@link ./payment-utils.js|PaymentUtils}
+ */
+
 // UI utility functions for Member doctype - modernized for performance
 
 function setup_payment_history_grid(frm) {
-	if (!frm.fields_dict.payment_history) return;
+	if (!frm.fields_dict.payment_history) { return; }
 
 	const gridWrapper = $(frm.fields_dict.payment_history.grid.wrapper);
 	gridWrapper.addClass('payment-history-grid');
@@ -13,10 +50,10 @@ function setup_payment_history_grid(frm) {
 
 		// Batch hide operations for better performance
 		const elementsToHide = gridWrapper.find(
-			'.grid-heading-row .grid-row-check, ' +
-			'.grid-heading-row .row-index, ' +
-			'.grid-body .data-row .row-index, ' +
-			'.grid-body .data-row .grid-row-check'
+			'.grid-heading-row .grid-row-check, '
+			+ '.grid-heading-row .row-index, '
+			+ '.grid-body .data-row .row-index, '
+			+ '.grid-body .data-row .grid-row-check'
 		);
 		elementsToHide.hide();
 	};
@@ -96,7 +133,7 @@ function show_debug_postal_code_info(frm) {
 			args: {
 				pincode: frm.doc.pincode
 			},
-			callback: function(r) {
+			callback(r) {
 				if (r.message) {
 					let message = `<div><strong>Postal Code Debug Results for ${r.message.pincode}</strong><br><br>`;
 
@@ -120,7 +157,7 @@ function show_debug_postal_code_info(frm) {
 
 					frappe.msgprint({
 						title: __('Postal Code Debug'),
-						message: message,
+						message,
 						indicator: 'blue'
 					});
 				}
@@ -145,15 +182,14 @@ function show_board_memberships(frm) {
 		args: {
 			member_name: frm.doc.name
 		},
-		callback: function(r) {
-
+		callback(r) {
 			// Only show board memberships if we actually have results
 			if (r.message && Array.isArray(r.message) && r.message.length > 0) {
-				var html = '<div class="board-memberships"><h4>Board Positions</h4><ul>';
-				r.message.forEach(function(membership) {
-					html += '<li><strong>' + membership.chapter + ':</strong> ' + membership.role +
-                            ' (' + frappe.datetime.str_to_user(membership.start_date) + ' - ' +
-                            (membership.end_date ? frappe.datetime.str_to_user(membership.end_date) : 'Current') + ')</li>';
+				let html = '<div class="board-memberships"><h4>Board Positions</h4><ul>';
+				r.message.forEach((membership) => {
+					html += `<li><strong>${membership.chapter}:</strong> ${membership.role
+					} (${frappe.datetime.str_to_user(membership.start_date)} - ${
+						membership.end_date ? frappe.datetime.str_to_user(membership.end_date) : 'Current'})</li>`;
 				});
 				html += '</ul></div>';
 
@@ -168,7 +204,7 @@ function show_board_memberships(frm) {
 				// No board memberships found - ensure no stale HTML is displayed
 			}
 		},
-		error: function(r) {
+		error(r) {
 			// Remove any existing display on error
 			$('.board-memberships').remove();
 		}
@@ -178,7 +214,7 @@ function show_board_memberships(frm) {
 function create_organization_user(frm) {
 	frappe.call({
 		method: 'verenigingen.verenigingen.doctype.verenigingen_settings.verenigingen_settings.get_organization_email_domain',
-		callback: function(r) {
+		callback(r) {
 			const domain = r.message && r.message.organization_email_domain
 				? r.message.organization_email_domain
 				: 'example.org';
@@ -222,7 +258,7 @@ function create_organization_user(frm) {
 					}
 				],
 				primary_action_label: __('Create User'),
-				primary_action: function(values) {
+				primary_action(values) {
 					frappe.call({
 						method: 'verenigingen.verenigingen.doctype.member.member.create_organization_user',
 						args: {
@@ -232,7 +268,7 @@ function create_organization_user(frm) {
 							last_name: values.last_name,
 							send_welcome_email: values.send_welcome_email
 						},
-						callback: function(r) {
+						callback(r) {
 							if (r.message) {
 								d.hide();
 								frm.refresh();
@@ -288,7 +324,7 @@ function setup_iban_bic_derivation(frm) {
 	// Set up IBAN field to auto-derive BIC
 	// Check if IBAN field exists and is rendered before attaching handlers
 	if (frm.fields_dict.iban && frm.fields_dict.iban.$input) {
-		frm.fields_dict.iban.$input.off('change.bic_derivation').on('change.bic_derivation', function() {
+		frm.fields_dict.iban.$input.off('change.bic_derivation').on('change.bic_derivation', function () {
 			const iban = $(this).val();
 			if (iban) {
 				const derivedBic = get_bic_from_iban(iban);
@@ -323,13 +359,13 @@ function get_bic_from_iban(iban) {
 
 			// Common Dutch bank codes (matching backend)
 			const bankCodes = {
-				'INGB': 'INGBNL2A',  // ING Bank
-				'ABNA': 'ABNANL2A',  // ABN AMRO
-				'RABO': 'RABONL2U',  // Rabobank
-				'TRIO': 'TRIONL2U',  // Triodos Bank
-				'SNSB': 'SNSBNL2A',  // SNS Bank
-				'ASNB': 'ASNBNL21',  // ASN Bank
-				'KNAB': 'KNABNL2H'   // Knab
+				INGB: 'INGBNL2A', // ING Bank
+				ABNA: 'ABNANL2A', // ABN AMRO
+				RABO: 'RABONL2U', // Rabobank
+				TRIO: 'TRIONL2U', // Triodos Bank
+				SNSB: 'SNSBNL2A', // SNS Bank
+				ASNB: 'ASNBNL21', // ASN Bank
+				KNAB: 'KNABNL2H' // Knab
 			};
 
 			return bankCodes[bankCode] || null;

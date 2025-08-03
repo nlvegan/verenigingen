@@ -1,4 +1,29 @@
 /**
+ * @fileoverview ESLint rule to ensure secure handling of SEPA and financial data
+ *
+ * This custom ESLint rule enforces security patterns for financial data handling in
+ * the Verenigingen application. It prevents common security vulnerabilities related
+ * to SEPA payments, banking data, and other sensitive financial information.
+ *
+ * Business Context:
+ * - Verenigingen processes SEPA direct debits for membership fees and donations
+ * - IBAN, BIC, and mandate data must be handled securely per PCI DSS and GDPR
+ * - Prevents accidental logging or display of sensitive financial information
+ * - Ensures proper validation and sanitization of banking data
+ *
+ * Security Patterns Enforced:
+ * - No logging of IBAN, BIC, account numbers, or other sensitive data
+ * - No display of sensitive data in alerts or user messages
+ * - Proper validation requirements for financial data access
+ * - Secure templating instead of string concatenation with sensitive data
+ * - Detection of common financial data patterns in code
+ *
+ * @module eslint-plugin-frappe/rules/sepa-security-patterns
+ * @version 1.0.0
+ * @since 2024
+ * @see {@link https://en.wikipedia.org/wiki/Single_Euro_Payments_Area|SEPA Standard}
+ * @see {@link https://gdpr.eu/|GDPR Compliance}
+ *
  * Rule: sepa-security-patterns
  * Ensures secure handling of SEPA/financial data
  */
@@ -46,11 +71,11 @@ module.exports = {
 			CallExpression(node) {
 				// Check console.log and similar methods
 				if (
-					(node.callee.type === 'MemberExpression' &&
-					node.callee.object.name === 'console') ||
-					(node.callee.type === 'MemberExpression' &&
-					node.callee.object.name === 'frappe' &&
-					['log', 'msgprint'].includes(node.callee.property.name))
+					(node.callee.type === 'MemberExpression'
+					&& node.callee.object.name === 'console')
+					|| (node.callee.type === 'MemberExpression'
+					&& node.callee.object.name === 'frappe'
+					&& ['log', 'msgprint'].includes(node.callee.property.name))
 				) {
 					node.arguments.forEach(arg => {
 						if (this.containsSensitiveData(arg)) {
@@ -64,8 +89,8 @@ module.exports = {
 
 				// Check for alert/msgprint with sensitive data
 				if (
-					node.callee.type === 'Identifier' &&
-					['alert', 'msgprint'].includes(node.callee.name)
+					node.callee.type === 'Identifier'
+					&& ['alert', 'msgprint'].includes(node.callee.name)
 				) {
 					node.arguments.forEach(arg => {
 						if (this.containsSensitiveData(arg)) {
@@ -79,14 +104,14 @@ module.exports = {
 
 				// Check for IBAN/BIC validation without proper sanitization
 				if (
-					node.callee.type === 'MemberExpression' &&
-					node.callee.property.name === 'validate' &&
-					node.arguments.length > 0
+					node.callee.type === 'MemberExpression'
+					&& node.callee.property.name === 'validate'
+					&& node.arguments.length > 0
 				) {
 					// Look for IBAN validation patterns
 					const firstArg = node.arguments[0];
-					if (firstArg.type === 'Identifier' &&
-						sensitiveFields.some(field => firstArg.name.toLowerCase().includes(field))) {
+					if (firstArg.type === 'Identifier'
+						&& sensitiveFields.some(field => firstArg.name.toLowerCase().includes(field))) {
 						context.report({
 							node,
 							message: 'Ensure IBAN/BIC validation includes proper sanitization and format checking'
@@ -98,10 +123,10 @@ module.exports = {
 			// Check for direct access to sensitive fields without validation
 			MemberExpression(node) {
 				if (
-					node.object.type === 'MemberExpression' &&
-					node.object.object.name === 'frm' &&
-					node.object.property.name === 'doc' &&
-					node.property.type === 'Identifier'
+					node.object.type === 'MemberExpression'
+					&& node.object.object.name === 'frm'
+					&& node.object.property.name === 'doc'
+					&& node.property.type === 'Identifier'
 				) {
 					const fieldName = node.property.name.toLowerCase();
 
@@ -148,7 +173,7 @@ module.exports = {
 
 	// Helper method to detect sensitive data patterns
 	containsSensitiveData(node) {
-		if (!node) return false;
+		if (!node) { return false; }
 
 		const sensitivePatterns = [
 			'iban',
@@ -177,9 +202,9 @@ module.exports = {
 		// Check string literals for patterns like "IBAN: NL91..."
 		if (node.type === 'Literal' && typeof node.value === 'string') {
 			const value = node.value.toLowerCase();
-			return sensitivePatterns.some(pattern => value.includes(pattern)) ||
-				/\b[a-z]{2}\d{2}[a-z0-9]{4,30}\b/i.test(node.value) || // IBAN pattern
-				/\b[a-z]{4}[a-z]{2}[a-z0-9]{2}([a-z0-9]{3})?\b/i.test(node.value); // BIC pattern
+			return sensitivePatterns.some(pattern => value.includes(pattern))
+				|| /\b[a-z]{2}\d{2}[a-z0-9]{4,30}\b/i.test(node.value) // IBAN pattern
+				|| /\b[a-z]{4}[a-z]{2}[a-z0-9]{2}([a-z0-9]{3})?\b/i.test(node.value); // BIC pattern
 		}
 
 		// Check call expressions (function calls)

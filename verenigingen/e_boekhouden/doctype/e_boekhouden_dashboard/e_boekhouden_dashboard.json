@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "app": "verenigingen",
  "creation": "2025-06-25 14:30:00.000000",
  "doctype": "DocType",
  "engine": "InnoDB",

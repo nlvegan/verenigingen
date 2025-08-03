@@ -1,3 +1,55 @@
+/**
+ * @fileoverview ChapterState - Centralized state management for chapter functionality
+ *
+ * This module provides a centralized state management system for the Chapter DocType
+ * and its associated modules. It implements a reactive state pattern with history
+ * tracking, subscriptions, and efficient state updates for complex chapter operations.
+ *
+ * Business Context:
+ * - Chapter forms have complex state with board members, members, and UI interactions
+ * - Multiple modules need to share and react to state changes
+ * - Undo functionality is needed for critical operations
+ * - Loading states must be managed across async operations
+ * - Cache management improves performance for expensive operations
+ *
+ * State Structure:
+ * - chapter: Core chapter data (name, region, board members, members)
+ * - ui: User interface state (dialogs, selections, loading states)
+ * - cache: Cached data for performance (statistics, board history)
+ *
+ * Key Features:
+ * - Reactive state updates with subscriber notifications
+ * - History tracking for undo/redo functionality
+ * - Nested state path access and updates
+ * - Loading state management for async operations
+ * - Cache invalidation and management
+ * - Bulk action state tracking
+ *
+ * Usage Examples:
+ * ```javascript
+ * const state = new ChapterState();
+ *
+ * // Subscribe to state changes
+ * state.subscribe(path => {
+ *   console.log('State changed:', path);
+ * });
+ *
+ * // Update nested state
+ * state.update('ui.loadingStates.memberValidation', true);
+ *
+ * // Get state values
+ * const isLoading = state.get('ui.loadingStates.memberValidation');
+ *
+ * // Manage loading states
+ * state.setLoading('apiCall', true);
+ * const loading = state.isLoading('apiCall');
+ * ```
+ *
+ * @module verenigingen/doctype/chapter/modules/ChapterState
+ * @version 1.0.0
+ * @since 2024
+ */
+
 // verenigingen/verenigingen/doctype/chapter/modules/ChapterState.js
 
 export class ChapterState {
@@ -28,25 +80,36 @@ export class ChapterState {
 		this.maxHistorySize = 10;
 	}
 
-	// Get state value by path
+	/**
+	 * Get state value by path
+	 * @param {string} path - Dot-separated path to state value (e.g., 'ui.loadingStates.memberValidation')
+	 * @returns {any} The state value at the specified path
+	 */
 	get(path) {
 		return this._getNestedValue(this.state, path);
 	}
 
-	// Update state and notify subscribers
-	update(path, value) {
+	/**
+	 * Update state and notify subscribers
+	 * @param {string} path - Dot-separated path to state value
+	 * @param {any} value - New value to set
+	 * @param {boolean} trackHistory - Whether to track this change in history (default: true)
+	 */
+	update(path, value, trackHistory = true) {
 		const oldValue = this.get(path);
 
 		// Store history for undo functionality
-		this.history.push({
-			path,
-			oldValue,
-			newValue: value,
-			timestamp: new Date()
-		});
+		if (trackHistory) {
+			this.history.push({
+				path,
+				oldValue,
+				newValue: value,
+				timestamp: new Date()
+			});
 
-		if (this.history.length > this.maxHistorySize) {
-			this.history.shift();
+			if (this.history.length > this.maxHistorySize) {
+				this.history.shift();
+			}
 		}
 
 		// Update state
@@ -117,7 +180,7 @@ export class ChapterState {
 
 	// Undo last state change
 	undo() {
-		if (this.history.length === 0) return false;
+		if (this.history.length === 0) { return false; }
 
 		const lastChange = this.history.pop();
 		this._setNestedValue(this.state, lastChange.path, lastChange.oldValue);

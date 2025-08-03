@@ -552,6 +552,7 @@ permission_query_conditions = {
     "Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
     "Address": "verenigingen.permissions.get_address_permission_query",
     "Donor": "verenigingen.permissions.get_donor_permission_query",
+    "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.get_permission_query_conditions",
 }
 
 has_permission = {
@@ -559,6 +560,8 @@ has_permission = {
     "Membership": "verenigingen.permissions.has_membership_permission",
     "Address": "verenigingen.permissions.has_address_permission",
     "Donor": "verenigingen.permissions.has_donor_permission",
+    "Volunteer": "verenigingen.permissions.has_volunteer_permission",
+    "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.has_permission",
 }
 
 # Workflow Action Handlers

@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "app": "verenigingen",
  "autoname": "format:EIM-{company}-{account_code}-{####}",
  "creation": "2025-01-03 10:00:00.000000",
  "doctype": "DocType",

@@ -69,7 +69,9 @@ def get_data(filters):
     # Apply additional filters
     if filters:
         if filters.get("chapter"):
-            member_filters["primary_chapter"] = filters.get("chapter")
+            # Chapter filtering will be applied after getting member data
+            # since primary_chapter is not a direct field on Member DocType
+            pass
 
         if filters.get("membership_type"):
             # We'll filter this after getting membership data
@@ -132,9 +134,29 @@ def get_data(filters):
             if getdate(member_since) > getdate(filters.get("to_date")):
                 continue
 
-        # Get primary chapter using new chapter system
-        member_chapters = member.get_current_chapters()
-        primary_chapter = member_chapters[0]["chapter"] if member_chapters else None
+        # Get primary chapter using chapter membership system
+        try:
+            # Load the full Member document to access the get_current_chapters method
+            member_doc = frappe.get_doc("Member", member.name)
+            member_chapters = member_doc.get_current_chapters()
+            primary_chapter = member_chapters[0]["chapter"] if member_chapters else None
+        except Exception as e:
+            # Fallback: Try to get chapter from current_chapter_display field or Chapter Member records
+            try:
+                chapter_member = frappe.get_value(
+                    "Chapter Member",
+                    {"member": member.name, "status": "Active"},
+                    ["chapter"],
+                    order_by="creation desc",
+                )
+                primary_chapter = chapter_member if chapter_member else None
+            except Exception:
+                primary_chapter = None
+
+        # Apply chapter filter if specified
+        if filters and filters.get("chapter"):
+            if primary_chapter != filters.get("chapter"):
+                continue
 
         # Apply user access filtering
         if user_chapters is not None:  # None means see all

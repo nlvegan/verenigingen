@@ -1,7 +1,89 @@
+/**
+ * @fileoverview Chapter API Utility - Centralized API management for Chapter DocType operations
+ *
+ * This module provides a comprehensive API layer for all Chapter DocType operations,
+ * implementing advanced features like request caching, retry logic, error handling,
+ * rate limiting, and batch processing. It serves as the primary interface between
+ * the Chapter UI components and the Frappe backend.
+ *
+ * Key Features:
+ * - Intelligent request caching with TTL (Time To Live)
+ * - Automatic retry logic with exponential backoff
+ * - Comprehensive error handling and user feedback
+ * - Request deduplication for concurrent identical calls
+ * - Batch processing for bulk operations
+ * - File upload handling with progress tracking
+ * - Report generation and data export
+ * - Email communication integration
+ *
+ * Usage:
+ * ```javascript
+ * import { chapterAPI } from './ChapterAPI.js';
+ *
+ * // Get a document with caching
+ * const chapter = await chapterAPI.getDoc('Chapter', 'CHAP-001', { cache: true });
+ *
+ * // Batch update multiple documents
+ * await chapterAPI.bulkUpdate('Member', memberIds, { status: 'Active' });
+ *
+ * // Send email to chapter members
+ * await chapterAPI.sendEmail({
+ *     recipients: members,
+ *     subject: 'Chapter Meeting Reminder',
+ *     content: emailContent
+ * });
+ * ```
+ *
+ * Caching Strategy:
+ * - Document reads are cached by default
+ * - Cache keys include doctype, name, and field identifiers
+ * - Automatic cache invalidation on document updates
+ * - Configurable cache duration per request type
+ * - Memory-efficient cache cleanup
+ *
+ * Error Handling:
+ * - Automatic retry for transient failures
+ * - User-friendly error messages with contextual information
+ * - Server-side error logging for critical failures
+ * - Graceful fallback mechanisms
+ * - Permission and validation error categorization
+ *
+ * Performance Optimizations:
+ * - Request deduplication for concurrent identical calls
+ * - Batch processing with configurable batch sizes
+ * - Parallel execution with throttling
+ * - Smart cache management
+ * - Rate limiting compliance
+ *
+ * Security Features:
+ * - Input validation for all API calls
+ * - Error message sanitization
+ * - Audit logging for sensitive operations
+ * - Permission validation integration
+ *
+ * @module ChapterAPI
+ * @version 2.0.0
+ * @since 1.5.0
+ * @requires frappe
+ * @requires ChapterConfig
+ * @see {@link https://frappeframework.com/docs/user/en/api/frappe-client|Frappe Client API}
+ * @see {@link ../config/ChapterConfig.js|Chapter Configuration}
+ * @see {@link ../chapter.js|Chapter Controller}
+ *
+ * @author Verenigingen System
+ * @copyright 2024 Verenigingen
+ */
+
 // verenigingen/verenigingen/doctype/chapter/utils/ChapterAPI.js
 
 import { ChapterConfig } from '../config/ChapterConfig.js';
 
+/**
+ * Chapter API Class - Centralized API management for Chapter operations
+ *
+ * Provides a robust, feature-rich API layer with caching, error handling,
+ * retry logic, and batch processing capabilities.
+ */
 export class ChapterAPI {
 	constructor() {
 		this.requestQueue = [];
@@ -81,8 +163,8 @@ export class ChapterAPI {
 	async _makeCall(method, args, options, attemptNumber = 1) {
 		try {
 			const response = await frappe.call({
-				method: method,
-				args: args,
+				method,
+				args,
 				freeze: options.freeze,
 				freeze_message: options.freeze_message
 			});
@@ -117,8 +199,8 @@ export class ChapterAPI {
      */
 	async getDoc(doctype, name, options = {}) {
 		return this.call('frappe.client.get', {
-			doctype: doctype,
-			name: name
+			doctype,
+			name
 		}, {
 			...options,
 			cache: options.cache !== false, // Cache by default
@@ -135,7 +217,7 @@ export class ChapterAPI {
      */
 	async getList(doctype, params = {}, options = {}) {
 		const defaultParams = {
-			doctype: doctype,
+			doctype,
 			fields: params.fields || ['name'],
 			filters: params.filters || {},
 			order_by: params.order_by || 'modified desc',
@@ -155,8 +237,8 @@ export class ChapterAPI {
      */
 	async getCount(doctype, filters = {}, options = {}) {
 		return this.call('frappe.client.get_count', {
-			doctype: doctype,
-			filters: filters
+			doctype,
+			filters
 		}, options);
 	}
 
@@ -170,9 +252,9 @@ export class ChapterAPI {
      */
 	async getValue(doctype, name, fieldname, options = {}) {
 		return this.call('frappe.client.get_value', {
-			doctype: doctype,
-			filters: { name: name },
-			fieldname: fieldname
+			doctype,
+			filters: { name },
+			fieldname
 		}, {
 			...options,
 			cache: true,
@@ -194,10 +276,10 @@ export class ChapterAPI {
 		this.clearDocCache(doctype, name);
 
 		return this.call('frappe.client.set_value', {
-			doctype: doctype,
-			name: name,
-			fieldname: fieldname,
-			value: value
+			doctype,
+			name,
+			fieldname,
+			value
 		}, options);
 	}
 
@@ -209,7 +291,7 @@ export class ChapterAPI {
      */
 	async insert(doc, options = {}) {
 		return this.call('frappe.client.insert', {
-			doc: doc
+			doc
 		}, options);
 	}
 
@@ -224,7 +306,7 @@ export class ChapterAPI {
 		this.clearDocCache(doc.doctype, doc.name);
 
 		return this.call('frappe.client.save', {
-			doc: doc
+			doc
 		}, options);
 	}
 
@@ -240,8 +322,8 @@ export class ChapterAPI {
 		this.clearDocCache(doctype, name);
 
 		return this.call('frappe.client.delete', {
-			doctype: doctype,
-			name: name
+			doctype,
+			name
 		}, options);
 	}
 
@@ -258,9 +340,9 @@ export class ChapterAPI {
 		names.forEach(name => this.clearDocCache(doctype, name));
 
 		return this.call('frappe.client.bulk_update', {
-			doctype: doctype,
-			names: names,
-			updates: updates
+			doctype,
+			names,
+			updates
 		}, options);
 	}
 
@@ -274,7 +356,7 @@ export class ChapterAPI {
 	async runReport(report, filters = {}, options = {}) {
 		return this.call('frappe.desk.query_report.run', {
 			report_name: report,
-			filters: filters
+			filters
 		}, options);
 	}
 
@@ -306,9 +388,9 @@ export class ChapterAPI {
      */
 	async getPrintFormat(doctype, name, format, options = {}) {
 		return this.call('frappe.www.printview.get_print_format', {
-			doctype: doctype,
-			name: name,
-			format: format
+			doctype,
+			name,
+			format
 		}, options);
 	}
 
@@ -439,7 +521,7 @@ export class ChapterAPI {
 
 		let message = ChapterConfig.messages.errors.generic;
 		let title = __('Error');
-		let indicator = 'red';
+		const indicator = 'red';
 
 		// Parse error message
 		if (error.message) {
@@ -469,9 +551,9 @@ export class ChapterAPI {
 
 		// Show error to user
 		frappe.msgprint({
-			title: title,
-			indicator: indicator,
-			message: message
+			title,
+			indicator,
+			message
 		});
 
 		// Log to server if critical

@@ -1,3 +1,47 @@
+/**
+ * @fileoverview CommunicationManager - Handles chapter communication functionality
+ *
+ * This module manages all communication features for chapters in the Verenigingen
+ * application. It provides comprehensive email functionality including board member
+ * communications, member newsletters, and communication history tracking.
+ *
+ * Business Context:
+ * - Chapters need to communicate regularly with board members and general members
+ * - Newsletter functionality supports member engagement and retention
+ * - Communication history provides audit trail for chapter activities
+ * - Email templates reduce workload for chapter administrators
+ * - Personalization and scheduling support professional communication
+ *
+ * Key Features:
+ * - Board member email with individual/BCC options
+ * - Chapter member mass email with filtering capabilities
+ * - Rich newsletter creation with sections and images
+ * - Communication history tracking and display
+ * - Email template integration and personalization
+ * - Scheduled email sending and queue management
+ * - Unsubscribe link generation for GDPR compliance
+ * - Email open tracking and statistics
+ *
+ * Communication Workflows:
+ * 1. Board Communications: Quick targeted emails to active board members
+ * 2. Member Communications: Filtered mass emails with unsubscribe options
+ * 3. Newsletter Creation: Rich content newsletters with preview functionality
+ * 4. History Tracking: Audit trail of all chapter communications
+ *
+ * Integration Points:
+ * - ChapterAPI for data operations
+ * - ChapterState for loading state management
+ * - Frappe Communication system for email delivery
+ * - Email Template system for reusable content
+ * - Email Queue for scheduled delivery
+ *
+ * @module verenigingen/doctype/chapter/modules/CommunicationManager
+ * @version 1.0.0
+ * @since 2024
+ * @see {@link ../utils/ChapterAPI.js|ChapterAPI}
+ * @see {@link ./ChapterState.js|ChapterState}
+ */
+
 // verenigingen/verenigingen/doctype/chapter/modules/CommunicationManager.js
 
 import { ChapterAPI } from '../utils/ChapterAPI.js';
@@ -50,7 +94,7 @@ export class CommunicationManager {
 						fieldname: 'use_template',
 						fieldtype: 'Check',
 						label: __('Use Email Template'),
-						onchange: function() {
+						onchange() {
 							dialog.fields_dict.email_template.df.hidden = !this.get_value();
 							dialog.fields_dict.message.df.hidden = this.get_value();
 							dialog.refresh();
@@ -63,9 +107,9 @@ export class CommunicationManager {
 						options: 'Email Template',
 						hidden: 1,
 						get_query: () => ({
-							filters: { 'enabled': 1 }
+							filters: { enabled: 1 }
 						}),
-						onchange: async function() {
+						onchange: async function () {
 							const template = this.get_value();
 							if (template) {
 								await this.loadEmailTemplate(dialog, template);
@@ -98,7 +142,6 @@ export class CommunicationManager {
 			});
 
 			dialog.show();
-
 		} catch (error) {
 			frappe.msgprint(__('Error preparing email dialog: {0}', [error.message]));
 		}
@@ -182,7 +225,7 @@ export class CommunicationManager {
 						fieldtype: 'Check',
 						label: __('Send Immediately'),
 						default: 1,
-						onchange: function() {
+						onchange() {
 							dialog.fields_dict.send_after.df.hidden = this.get_value();
 							dialog.refresh();
 						}
@@ -202,7 +245,6 @@ export class CommunicationManager {
 			});
 
 			dialog.show();
-
 		} catch (error) {
 			frappe.msgprint(__('Error preparing member email dialog: {0}', [error.message]));
 		}
@@ -231,7 +273,7 @@ export class CommunicationManager {
 					],
 					default: __('All Chapter Members'),
 					reqd: 1,
-					onchange: function() {
+					onchange() {
 						const isCustom = this.get_value() === __('Custom Selection');
 						dialog.fields_dict.custom_recipients.df.hidden = !isCustom;
 						dialog.refresh();
@@ -342,13 +384,12 @@ export class CommunicationManager {
 					options: html
 				}],
 				primary_action_label: __('Close'),
-				primary_action: function() {
+				primary_action() {
 					this.hide();
 				}
 			});
 
 			dialog.show();
-
 		} catch (error) {
 			frappe.msgprint(__('Error loading communication history: {0}', [error.message]));
 		} finally {
@@ -423,7 +464,7 @@ export class CommunicationManager {
 			.filter(m => m.enabled)
 			.map(m => m.member);
 
-		if (memberIds.length === 0) return [];
+		if (memberIds.length === 0) { return []; }
 
 		return await this.api.getList('Member', {
 			filters: [
@@ -472,7 +513,6 @@ export class CommunicationManager {
 
 				frappe.msgprint(__('Email sent to {0} board members', [boardMembers.length]));
 			}
-
 		} catch (error) {
 			frappe.msgprint(__('Error sending emails: {0}', [error.message]));
 		} finally {
@@ -516,7 +556,7 @@ export class CommunicationManager {
 				await this.sendEmail({
 					recipients: recipients.join(','),
 					subject: values.subject,
-					content: content,
+					content,
 					use_bcc: true
 				});
 
@@ -524,16 +564,15 @@ export class CommunicationManager {
 			} else {
 				// Schedule for later
 				await this.scheduleEmail({
-					recipients: recipients,
+					recipients,
 					subject: values.subject,
-					content: content,
+					content,
 					send_after: values.send_after
 				});
 
 				frappe.msgprint(__('Email scheduled to be sent to {0} members after {1}',
 					[recipients.length, frappe.datetime.str_to_user(values.send_after)]));
 			}
-
 		} catch (error) {
 			frappe.msgprint(__('Error sending member emails: {0}', [error.message]));
 		} finally {
@@ -586,7 +625,6 @@ export class CommunicationManager {
 			});
 
 			frappe.msgprint(__('Newsletter sent to {0} recipients', [recipients.length]));
-
 		} catch (error) {
 			frappe.msgprint(__('Error sending newsletter: {0}', [error.message]));
 		} finally {
@@ -750,7 +788,7 @@ export class CommunicationManager {
 			return;
 		}
 
-		let subject, message;
+		let subject; let message;
 
 		switch (eventType) {
 			case 'chapter_submitted':
@@ -775,13 +813,13 @@ export class CommunicationManager {
 
 		// Add custom data to message
 		if (data.customMessage) {
-			message += '\n\n' + data.customMessage;
+			message += `\n\n${data.customMessage}`;
 		}
 
 		try {
 			await this.sendEmail({
 				recipients: boardMembers.map(m => m.email).join(','),
-				subject: subject,
+				subject,
 				content: message,
 				use_bcc: true
 			});
@@ -831,7 +869,6 @@ export class CommunicationManager {
 			if (communications.length > 0) {
 				stats.last_communication = communications[0].creation;
 			}
-
 		} catch (error) {
 			console.error('Error getting communication stats:', error);
 		}

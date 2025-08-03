@@ -1,4 +1,62 @@
 /**
+ * @fileoverview ESLint rule to enforce proper form event handler patterns in Frappe Framework
+ *
+ * This ESLint rule ensures that Frappe Framework form event handlers follow proper
+ * patterns and conventions. It validates parameter naming, event handler structure,
+ * and UI component usage for consistent and maintainable form customizations.
+ *
+ * Business Context:
+ * - Verenigingen has extensive form customizations for member management
+ * - Proper event handler patterns prevent runtime errors and improve UX
+ * - Consistent parameter naming makes code more maintainable
+ * - Translation support ensures internationalization compatibility
+ * - Proper dialog patterns maintain UI consistency
+ *
+ * Form Event Patterns Validated:
+ * - frappe.ui.form.on() structure and parameter validation
+ * - Standard form events: refresh, onload, validate, before_save, after_save
+ * - Child table events: fieldname_add, fieldname_remove with (frm, cdt, cdn) params
+ * - Field change events with proper frm parameter
+ * - Custom button creation with translation support
+ * - Dialog function patterns
+ *
+ * Event Handler Examples:
+ * ```javascript
+ * // ✅ Correct form event patterns
+ * frappe.ui.form.on('Member', {
+ *   refresh: function(frm) {
+ *     // Form refresh logic
+ *   },
+ *
+ *   first_name: function(frm) {
+ *     // Field change handler
+ *   },
+ *
+ *   addresses_add: function(frm, cdt, cdn) {
+ *     // Child table row add handler
+ *   }
+ * });
+ *
+ * // ✅ Custom button with translation
+ * frm.add_custom_button(__('Send Email'), function() {
+ *   // Button action
+ * });
+ *
+ * // ❌ Wrong patterns (flagged by rule)
+ * frappe.ui.form.on('Member', {
+ *   refresh: function() { }, // Missing frm parameter
+ *   addresses_add: function(frm) { } // Missing cdt, cdn parameters
+ * });
+ *
+ * frm.add_custom_button('Send Email', function() {}); // Missing translation wrapper
+ * ```
+ *
+ * @module eslint-plugin-frappe/rules/form-event-patterns
+ * @version 1.0.0
+ * @since 2024
+ * @see {@link https://frappeframework.com/docs/user/en/api/form|Frappe Form API}
+ * @see {@link https://frappeframework.com/docs/user/en/guides/integration/client-side-scripting|Client-side Scripting}
+ *
  * Rule: form-event-patterns
  * Ensures proper form event handler patterns
  */
@@ -20,14 +78,14 @@ module.exports = {
 			// Check frappe.ui.form.on patterns
 			CallExpression(node) {
 				if (
-					node.callee.type === 'MemberExpression' &&
-					node.callee.object.type === 'MemberExpression' &&
-					node.callee.object.type === 'MemberExpression' &&
-					node.callee.object.object.type === 'MemberExpression' &&
-					node.callee.object.object.object.name === 'frappe' &&
-					node.callee.object.object.property.name === 'ui' &&
-					node.callee.object.property.name === 'form' &&
-					node.callee.property.name === 'on'
+					node.callee.type === 'MemberExpression'
+					&& node.callee.object.type === 'MemberExpression'
+					&& node.callee.object.type === 'MemberExpression'
+					&& node.callee.object.object.type === 'MemberExpression'
+					&& node.callee.object.object.object.name === 'frappe'
+					&& node.callee.object.object.property.name === 'ui'
+					&& node.callee.object.property.name === 'form'
+					&& node.callee.property.name === 'on'
 				) {
 					const args = node.arguments;
 					if (args.length >= 2) {
@@ -78,8 +136,8 @@ module.exports = {
 									}
 
 									// Check for field change events
-									if (!['refresh', 'onload', 'validate', 'before_save', 'after_save'].includes(eventName) &&
-										!eventName.includes('_add') && !eventName.includes('_remove')) {
+									if (!['refresh', 'onload', 'validate', 'before_save', 'after_save'].includes(eventName)
+										&& !eventName.includes('_add') && !eventName.includes('_remove')) {
 										// This is likely a field change event
 										if (func.params.length === 0 || func.params[0].name !== 'frm') {
 											context.report({
@@ -96,8 +154,8 @@ module.exports = {
 
 				// Check for proper return statements in validate handlers
 				if (
-					node.callee.type === 'Identifier' &&
-					node.callee.name === 'validate'
+					node.callee.type === 'Identifier'
+					&& node.callee.name === 'validate'
 				) {
 					// This would need more context analysis to be truly effective
 					// For now, just suggest proper return patterns
@@ -137,8 +195,8 @@ module.exports = {
 			// Check for proper button adding patterns
 			MemberExpression(node) {
 				if (
-					node.object.name === 'frm' &&
-					node.property.name === 'add_custom_button'
+					node.object.name === 'frm'
+					&& node.property.name === 'add_custom_button'
 				) {
 					// This suggests checking the parent CallExpression
 					const parent = node.parent;

@@ -120,7 +120,7 @@ def get_chapter_join_context(chapter_name):
 
 
 @frappe.whitelist()
-@high_security_api  # Chapter membership operations
+@high_security_api()  # Chapter membership operations
 def join_chapter(chapter_name, introduction):
     """Handle chapter join request.
 

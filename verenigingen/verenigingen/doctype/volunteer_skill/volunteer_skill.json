@@ -1,58 +1,63 @@
 {
  "app": "verenigingen",
-  "autoname": "hash",
-  "creation": "2025-05-17 12:43:45.267592",
-  "doctype": "DocType",
-  "engine": "InnoDB",
-  "field_order": [
-    "skill_category",
-    "volunteer_skill",
-    "proficiency_level",
-    "experience_years",
-    "certifications"
-  ],
-  "fields": [
-    {
-      "fieldname": "skill_category",
-      "fieldtype": "Select",
-      "in_list_view": 1,
-      "label": "Skill Category",
-      "options": "Technical\nOrganizational\nCommunication\nLeadership\nFinancial\nEvent Planning\nOther",
-      "reqd": 1
-    },
-    {
-      "fieldname": "volunteer_skill",
-      "fieldtype": "Data",
-      "in_list_view": 1,
-      "label": "Skill",
-      "reqd": 1
-    },
-    {
-      "default": "3",
-      "fieldname": "proficiency_level",
-      "fieldtype": "Select",
-      "in_list_view": 1,
-      "label": "Proficiency Level",
-      "options": "1 - Beginner\n2 - Basic\n3 - Intermediate\n4 - Advanced\n5 - Expert"
-    },
-    {
-      "fieldname": "experience_years",
-      "fieldtype": "Int",
-      "label": "Years of Experience"
-    },
-    {
-      "fieldname": "certifications",
-      "fieldtype": "Small Text",
-      "label": "Relevant Certifications"
-    }
-  ],
-  "istable": 1,
-  "modified": "2025-05-17 12:43:45.267592",
-  "modified_by": "Administrator",
-  "module": "Verenigingen",
-  "name": "Volunteer Skill",
-  "owner": "Administrator",
-  "permissions": [],
-  "sort_field": "modified",
-  "sort_order": "DESC"
+ "autoname": "hash",
+ "creation": "2025-05-17 12:43:45.267592",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "skill_category",
+  "volunteer_skill",
+  "proficiency_level",
+  "experience_years",
+  "certifications"
+ ],
+ "fields": [
+  {
+   "fieldname": "skill_category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Skill Category",
+   "options": "Technical\nOrganizational\nCommunication\nLeadership\nFinancial\nEvent Planning\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "volunteer_skill",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Skill",
+   "reqd": 1
+  },
+  {
+   "default": "3",
+   "fieldname": "proficiency_level",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Proficiency Level",
+   "options": "1 - Beginner\n2 - Basic\n3 - Intermediate\n4 - Advanced\n5 - Expert"
+  },
+  {
+   "fieldname": "experience_years",
+   "fieldtype": "Int",
+   "label": "Years of Experience"
+  },
+  {
+   "fieldname": "certifications",
+   "fieldtype": "Small Text",
+   "label": "Relevant Certifications"
+  }
+ ],
+ "istable": 1,
+ "modified": "2025-05-17 12:43:45.267592",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Volunteer Skill",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC"
 }

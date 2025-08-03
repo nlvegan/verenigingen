@@ -1,6 +1,7 @@
 {
  "actions": [],
  "allow_rename": 1,
+ "app": "verenigingen",
  "autoname": "field:ledger_id",
  "creation": "2025-07-04 10:43:43.300268",
  "doctype": "DocType",

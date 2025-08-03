@@ -130,7 +130,12 @@
  "module": "Verenigingen",
  "name": "Direct Debit Batch Invoice",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
  "sort_field": "modified",
  "sort_order": "DESC",
  "track_changes": 1

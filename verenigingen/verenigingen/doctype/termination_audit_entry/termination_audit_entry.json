@@ -1,7 +1,7 @@
 {
  "actions": [],
-
- "app": "verenigingen","creation": "2025-01-20 00:00:00",
+ "app": "verenigingen",
+ "creation": "2025-01-20 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
@@ -57,7 +57,12 @@
  "module": "Verenigingen",
  "name": "Termination Audit Entry",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

@@ -65,7 +65,12 @@
  "module": "Verenigingen",
  "name": "Member SEPA Mandate Link",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
  "sort_field": "modified",
  "sort_order": "DESC"
 }

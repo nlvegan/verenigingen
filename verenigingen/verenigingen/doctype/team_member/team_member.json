@@ -1,7 +1,7 @@
 {
  "actions": [],
-
- "app": "verenigingen","allow_rename": 1,
+ "app": "verenigingen",
+ "allow_rename": 1,
  "creation": "2025-05-18 12:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
@@ -104,7 +104,12 @@
  "module": "Verenigingen",
  "name": "Team Member",
  "owner": "Administrator",
- "permissions": [],
+ "permissions": [
+  {
+   "read": 1,
+   "role": "All"
+  }
+ ],
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",

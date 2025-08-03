@@ -1,3 +1,55 @@
+/**
+ * @fileoverview ChapterStatistics - Comprehensive analytics and reporting for chapters
+ *
+ * This module provides detailed statistical analysis and reporting capabilities for
+ * chapters in the Verenigingen application. It generates visualizations, growth
+ * reports, and activity dashboards to help chapter administrators understand their
+ * chapter's performance and member engagement patterns.
+ *
+ * Business Context:
+ * - Chapter administrators need insights into member growth and retention
+ * - Board members require activity metrics for reporting to national organization
+ * - Growth trends help with strategic planning and resource allocation
+ * - Engagement metrics support member retention strategies
+ * - Export functionality enables external reporting and analysis
+ *
+ * Key Analytics Features:
+ * - Member statistics (total, active, retention rates)
+ * - Board member analysis (tenure, turnover, role distribution)
+ * - Activity metrics (events, volunteer hours, communications)
+ * - Growth tracking with monthly breakdowns
+ * - Interactive charts and visualizations
+ * - CSV export for external analysis
+ * - Activity timeline and dashboard
+ *
+ * Visualization Components:
+ * - Pie charts for status and type distributions
+ * - Line charts for growth trends over time
+ * - Bar charts for activity metrics
+ * - Timeline views for recent activities
+ * - Statistical summary tables
+ *
+ * Reporting Capabilities:
+ * 1. Chapter Statistics: Overview of current state
+ * 2. Growth Report: Historical growth analysis
+ * 3. Activity Dashboard: Recent activity and engagement
+ * 4. Export Analytics: CSV download for external tools
+ *
+ * Integration Points:
+ * - ChapterAPI for data retrieval and aggregation
+ * - ChapterState for loading state management
+ * - Chart.js for interactive visualizations
+ * - Frappe reporting system for data queries
+ * - Member, Membership, and Volunteer modules for data
+ *
+ * @module verenigingen/doctype/chapter/modules/ChapterStatistics
+ * @version 1.0.0
+ * @since 2024
+ * @requires Chart.js
+ * @see {@link ../utils/ChapterAPI.js|ChapterAPI}
+ * @see {@link ./ChapterState.js|ChapterState}
+ */
+
 // verenigingen/verenigingen/doctype/chapter/modules/ChapterStatistics.js
 
 import { ChapterAPI } from '../utils/ChapterAPI.js';
@@ -41,7 +93,6 @@ export class ChapterStatistics {
 
 			// Initialize charts after dialog is shown
 			setTimeout(() => this.initializeCharts(dialog, stats), 100);
-
 		} catch (error) {
 			frappe.msgprint(__('Error loading statistics: {0}', [error.message]));
 		} finally {
@@ -226,8 +277,8 @@ export class ChapterStatistics {
 		let changes = 0;
 
 		boardMembers.forEach(member => {
-			if ((member.from_date && member.from_date >= lastYear) ||
-                (member.to_date && member.to_date >= lastYear)) {
+			if ((member.from_date && member.from_date >= lastYear)
+                || (member.to_date && member.to_date >= lastYear)) {
 				changes++;
 			}
 		});
@@ -465,12 +516,12 @@ export class ChapterStatistics {
 	}
 
 	createPieChart(canvas, chartId, data) {
-		if (!canvas || !window.Chart) return;
+		if (!canvas || !window.Chart) { return; }
 
 		const ctx = canvas.getContext('2d');
 		const chart = new Chart(ctx, {
 			type: 'pie',
-			data: data,
+			data,
 			options: {
 				responsive: true,
 				maintainAspectRatio: false,
@@ -486,7 +537,7 @@ export class ChapterStatistics {
 					},
 					tooltip: {
 						callbacks: {
-							label: function(context) {
+							label(context) {
 								const label = context.label || '';
 								const value = context.parsed || 0;
 								const total = context.dataset.data.reduce((a, b) => a + b, 0);
@@ -503,12 +554,12 @@ export class ChapterStatistics {
 	}
 
 	createBarChart(canvas, chartId, data) {
-		if (!canvas || !window.Chart) return;
+		if (!canvas || !window.Chart) { return; }
 
 		const ctx = canvas.getContext('2d');
 		const chart = new Chart(ctx, {
 			type: 'bar',
-			data: data,
+			data,
 			options: {
 				responsive: true,
 				maintainAspectRatio: false,
@@ -578,7 +629,6 @@ export class ChapterStatistics {
 				message: __('Statistics refreshed'),
 				indicator: 'green'
 			}, 3);
-
 		} catch (error) {
 			frappe.msgprint(__('Error refreshing statistics: {0}', [error.message]));
 		} finally {
@@ -609,7 +659,6 @@ export class ChapterStatistics {
 
 			// Initialize growth chart
 			setTimeout(() => this.initializeGrowthChart(dialog, growthData), 100);
-
 		} catch (error) {
 			frappe.msgprint(__('Error loading growth report: {0}', [error.message]));
 		} finally {
@@ -731,7 +780,7 @@ export class ChapterStatistics {
 
 	initializeGrowthChart(dialog, data) {
 		const canvas = dialog.$wrapper.find('#growth-chart')[0];
-		if (!canvas || !window.Chart) return;
+		if (!canvas || !window.Chart) { return; }
 
 		const months = new Set();
 		data.monthlyGrowth.forEach(d => months.add(d.month));
@@ -805,7 +854,6 @@ export class ChapterStatistics {
 
 			// Initialize activity timeline
 			setTimeout(() => this.initializeActivityTimeline(dialog, activityData), 100);
-
 		} catch (error) {
 			frappe.msgprint(__('Error loading activity dashboard: {0}', [error.message]));
 		} finally {
@@ -1038,7 +1086,7 @@ export class ChapterStatistics {
 
 	initializeActivityTimeline(dialog, data) {
 		// Add any interactive features to the timeline
-		dialog.$wrapper.find('.activity-item').on('click', function() {
+		dialog.$wrapper.find('.activity-item').on('click', function () {
 			$(this).toggleClass('expanded');
 		});
 	}
@@ -1070,7 +1118,6 @@ export class ChapterStatistics {
 				message: __('Analytics exported successfully'),
 				indicator: 'green'
 			}, 3);
-
 		} catch (error) {
 			frappe.msgprint(__('Error exporting analytics: {0}', [error.message]));
 		} finally {
@@ -1129,7 +1176,7 @@ export class ChapterStatistics {
 	}
 
 	async getChapterMemberIds() {
-		if (!this.frm.doc.members) return [];
+		if (!this.frm.doc.members) { return []; }
 
 		return this.frm.doc.members
 			.filter(m => m.enabled)
@@ -1137,7 +1184,7 @@ export class ChapterStatistics {
 	}
 
 	async getChapterVolunteerIds() {
-		if (!this.frm.doc.board_members) return [];
+		if (!this.frm.doc.board_members) { return []; }
 
 		return this.frm.doc.board_members
 			.filter(m => m.is_active && m.volunteer)

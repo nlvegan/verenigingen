@@ -1,7 +1,87 @@
+/**
+ * @fileoverview Chapter Validation System - Comprehensive validation utilities for Chapter DocType
+ *
+ * This module provides a robust validation framework for all Chapter-related operations,
+ * including board member validation, postal code patterns, member data, communications,
+ * and business rule enforcement. It ensures data integrity and provides detailed
+ * error reporting for user guidance.
+ *
+ * Key Features:
+ * - Board composition and role assignment validation
+ * - Postal code pattern validation with international support
+ * - Member data integrity checks
+ * - Communication template and content validation
+ * - Date range and tenure validation
+ * - Bulk operation data validation
+ * - Permission-based access control validation
+ *
+ * Usage:
+ * ```javascript
+ * import { ChapterValidation } from './ChapterValidation.js';
+ *
+ * // Validate board members
+ * const result = await ChapterValidation.validateBoardMembers(boardMembers);
+ * if (!result.isValid) {
+ *     console.error('Validation errors:', result.errors);
+ * }
+ *
+ * // Validate postal codes
+ * const postalValidation = ChapterValidation.validatePostalCodes('1000-1099,2000*');
+ *
+ * // Check permissions
+ * if (!ChapterValidation.hasPermission('board_management')) {
+ *     throw new Error('Access denied');
+ * }
+ * ```
+ *
+ * Validation Categories:
+ * - Board Management: Member count, role assignments, tenure limits
+ * - Data Integrity: Required fields, format validation, length limits
+ * - Business Rules: Unique role constraints, active status requirements
+ * - Date Validation: Chronological order, range limits, tenure calculations
+ * - Communication: Email format, content requirements, attachment limits
+ * - Postal Codes: Pattern validation, range validation, wildcard support
+ * - Permissions: Role-based access control validation
+ *
+ * Business Rules Enforced:
+ * - Board must have 3-15 active members
+ * - Required roles: Chair, Secretary, Treasurer must be assigned
+ * - Unique roles can only be assigned to one active member
+ * - Board member tenure cannot exceed 10 years
+ * - End dates must be after start dates
+ * - Active members cannot have past end dates
+ * - Email addresses must follow RFC standards
+ * - Postal codes validated by country-specific patterns
+ *
+ * Error Handling:
+ * - Detailed error messages with field context
+ * - Multilingual error message support
+ * - Batch validation with comprehensive error collection
+ * - User-friendly error formatting
+ *
+ * @module ChapterValidation
+ * @version 2.0.0
+ * @since 1.0.0
+ * @requires frappe
+ * @requires ChapterConfig
+ * @see {@link https://frappeframework.com/docs/user/en/api/frappe-client|Frappe Client API}
+ * @see {@link ../config/ChapterConfig.js|Chapter Configuration}
+ * @see {@link ../chapter.js|Chapter Controller}
+ *
+ * @author Verenigingen System
+ * @copyright 2024 Verenigingen
+ */
+
 // verenigingen/verenigingen/doctype/chapter/utils/ChapterValidation.js
 
 import { ChapterConfig } from '../config/ChapterConfig.js';
 
+/**
+ * Chapter Validation Class - Comprehensive validation utilities for Chapter operations
+ *
+ * Provides static methods for validating various aspects of Chapter data,
+ * including board members, postal codes, member information, and communications.
+ */
 export class ChapterValidation {
 	/**
      * Validate board members data
@@ -56,7 +136,7 @@ export class ChapterValidation {
 
 		return {
 			isValid: errors.length === 0,
-			errors: errors
+			errors
 		};
 	}
 
@@ -158,12 +238,12 @@ export class ChapterValidation {
      * @returns {Boolean} Whether pattern is valid
      */
 	static isValidPostalCodePattern(pattern) {
-		if (!pattern) return false;
+		if (!pattern) { return false; }
 
 		// Check for range pattern (e.g. 1000-1099)
 		if (pattern.includes('-')) {
 			const parts = pattern.split('-');
-			if (parts.length !== 2) return false;
+			if (parts.length !== 2) { return false; }
 
 			const [start, end] = parts;
 			if (!this.isValidPostalCode(start) || !this.isValidPostalCode(end)) {
@@ -195,7 +275,7 @@ export class ChapterValidation {
      * @returns {Boolean} Whether postal code is valid
      */
 	static isValidPostalCode(postalCode) {
-		if (!postalCode) return false;
+		if (!postalCode) { return false; }
 
 		const country = ChapterConfig.postalCodes.defaultCountry;
 		const pattern = ChapterConfig.postalCodes.validationRules[country];
@@ -279,7 +359,7 @@ export class ChapterValidation {
      * @returns {Boolean} Whether phone number is valid
      */
 	static validatePhone(phone) {
-		if (!phone) return true; // Phone is optional
+		if (!phone) { return true; } // Phone is optional
 		return ChapterConfig.validation.phonePattern.test(phone);
 	}
 
@@ -289,7 +369,7 @@ export class ChapterValidation {
      * @returns {Boolean} Whether URL is valid
      */
 	static validateURL(url) {
-		if (!url) return true; // URL is optional
+		if (!url) { return true; } // URL is optional
 		return ChapterConfig.validation.urlPattern.test(url);
 	}
 

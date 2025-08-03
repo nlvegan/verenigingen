@@ -2218,6 +2218,112 @@ def test_template_daglid_fix():
     }
 
 
+def has_permission(doc, user=None, permission_type="read"):
+    """Custom permission handler for Membership Dues Schedule"""
+    if not user:
+        user = frappe.session.user
+
+    # Debug logging
+    frappe.logger().info(
+        f"PERMISSION CHECK: User {user}, Doc {doc.name if hasattr(doc, 'name') else 'Unknown'}, Type {permission_type}"
+    )
+
+    # System Manager always has access
+    if "System Manager" in frappe.get_roles(user):
+        frappe.logger().info(f"PERMISSION GRANTED: System Manager access for {user}")
+        return True
+
+    # Verenigingen Administrator and Manager have full access
+    user_roles = frappe.get_roles(user)
+    if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Manager"]):
+        frappe.logger().info(f"PERMISSION GRANTED: Admin role access for {user}")
+        return True
+
+    # Templates are visible to all authenticated users (for viewing available options)
+    if hasattr(doc, "is_template") and doc.is_template:
+        frappe.logger().info(f"PERMISSION GRANTED: Template access for {user}")
+        return True
+
+    # For non-templates, only allow access if user is the member
+    if hasattr(doc, "member") and doc.member:
+        # Check if current user is linked to this member
+        member_user = frappe.db.get_value("Member", doc.member, "user")
+        frappe.logger().info(
+            f"PERMISSION CHECK: Doc member {doc.member}, Member user {member_user}, Current user {user}"
+        )
+        if member_user == user:
+            frappe.logger().info(f"PERMISSION GRANTED: User matches member for {user}")
+            return True
+
+    # Check if user is chapter board with finance permissions
+    if hasattr(doc, "member") and doc.member:
+        try:
+            # Get member's chapter
+            chapter = frappe.db.get_value(
+                "Chapter Member", {"member": doc.member, "status": "Active"}, "parent"
+            )
+            if chapter:
+                # Get user's member record
+                user_member = frappe.db.get_value("Member", {"user": user}, "name")
+                if user_member:
+                    # Check if user is board member with finance permissions
+                    board_member = frappe.db.get_value(
+                        "Chapter Board Member",
+                        {
+                            "parent": chapter,
+                            "member": user_member,
+                            "is_active": 1,
+                        },
+                        ["chapter_role"],
+                        as_dict=True,
+                    )
+
+                    if board_member and board_member.chapter_role:
+                        role_doc = frappe.get_doc("Chapter Role", board_member.chapter_role)
+                        if getattr(role_doc, "permissions_level", None) in ["Financial", "Admin"]:
+                            frappe.logger().info(f"PERMISSION GRANTED: Chapter board access for {user}")
+                            return True
+        except Exception:
+            pass  # If any chapter permission check fails, continue to deny access
+
+    frappe.logger().info(
+        f"PERMISSION DENIED: No access granted for {user} to doc {doc.name if hasattr(doc, 'name') else 'Unknown'}"
+    )
+    return False
+
+
+def get_permission_query_conditions(user=None):
+    """Permission query conditions for Membership Dues Schedule list views"""
+    if not user:
+        user = frappe.session.user
+
+    # Debug logging
+    frappe.logger().info(f"QUERY PERMISSION CHECK: User {user}")
+
+    # System Manager and admin roles get full access
+    user_roles = frappe.get_roles(user)
+    if "System Manager" in user_roles:
+        frappe.logger().info(f"QUERY PERMISSION: System Manager full access for {user}")
+        return ""  # No restrictions
+
+    if any(role in user_roles for role in ["Verenigingen Administrator", "Verenigingen Manager"]):
+        frappe.logger().info(f"QUERY PERMISSION: Admin role full access for {user}")
+        return ""  # No restrictions
+
+    # For regular members, restrict to templates OR their own records
+    # Get the user's member record
+    user_member = frappe.db.get_value("Member", {"user": user}, "name")
+
+    if user_member:
+        frappe.logger().info(f"QUERY PERMISSION: Member {user_member} access for {user}")
+        # Allow templates OR records where the member field matches their member record
+        return f"(`tabMembership Dues Schedule`.is_template = 1 OR `tabMembership Dues Schedule`.member = '{user_member}')"
+    else:
+        frappe.logger().info(f"QUERY PERMISSION: Template-only access for {user}")
+        # Only allow templates if user is not linked to a member
+        return "`tabMembership Dues Schedule`.is_template = 1"
+
+
 @frappe.whitelist()
 def validate_and_fix_schedule_dates():
     """

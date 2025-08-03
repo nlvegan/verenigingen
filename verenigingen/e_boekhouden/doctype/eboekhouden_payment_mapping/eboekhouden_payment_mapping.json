@@ -1,6 +1,7 @@
 {
   "actions": [],
   "allow_copy": 0,
+  "app": "verenigingen",
   "creation": "2025-01-07 10:00:00.000000",
   "doctype": "DocType",
   "editable_grid": 1,

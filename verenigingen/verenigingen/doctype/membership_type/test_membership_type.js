@@ -1,7 +1,81 @@
+/**
+ * @fileoverview Membership Type QUnit Tests - Frontend testing for Membership Type DocType
+ *
+ * This module contains comprehensive QUnit tests for the Membership Type DocType,
+ * covering form behavior, validation logic, business rules, and user interface
+ * interactions. Tests ensure proper functionality of membership type management,
+ * default settings, and subscription plan integration.
+ *
+ * Test Coverage:
+ * - Basic membership type creation and validation
+ * - Dues schedule period handling and field visibility
+ * - Default membership type management (only one default allowed)
+ * - Subscription plan integration and button functionality
+ * - Form field dependencies and requirements
+ * - Currency and amount validation
+ *
+ * Test Scenarios:
+ * 1. Basic Membership Type Creation:
+ *    - Create membership type with required fields
+ *    - Validate field values after creation
+ *    - Test dues schedule period changes
+ *
+ * 2. Default Setting Management:
+ *    - Create first default membership type
+ *    - Create second default (should unset first)
+ *    - Verify only one default exists at a time
+ *
+ * 3. Subscription Plan Integration:
+ *    - Verify subscription plan button availability
+ *    - Test initial plan field state
+ *    - Validate plan creation workflow
+ *
+ * Usage:
+ * ```javascript
+ * // Run specific test
+ * QUnit.test("test: Membership Type", function (assert) {
+ *     // Test implementation
+ * });
+ *
+ * // Run all tests
+ * frappe.run_tests('Membership Type');
+ * ```
+ *
+ * Test Structure:
+ * - Uses QUnit framework for test organization
+ * - Utilizes frappe.tests.make() for document creation
+ * - Implements async testing with assert.async()
+ * - Follows frappe.run_serially() pattern for sequential operations
+ *
+ * Business Rules Tested:
+ * - Membership type name is required and properly set
+ * - Dues schedule period affects field visibility
+ * - Custom period requires months field
+ * - Only one default membership type allowed
+ * - Subscription plan integration works correctly
+ *
+ * @module test_membership_type
+ * @version 1.2.0
+ * @since 1.0.0
+ * @requires QUnit
+ * @requires frappe
+ * @see {@link https://qunitjs.com/|QUnit Documentation}
+ * @see {@link https://frappeframework.com/docs/user/en/testing|Frappe Testing}
+ * @see {@link membership_type.js|Membership Type Controller}
+ *
+ * @author Verenigingen System
+ * @copyright 2024 Verenigingen
+ */
+
 /* eslint-disable */
 // rename this file from _test_[name] to test_[name] to activate
 // and remove above this line
 
+/**
+ * Test basic membership type creation and field validation
+ *
+ * @param {Object} assert - QUnit assertion object
+ */
 QUnit.test("test: Membership Type", function (assert) {
 	let done = assert.async();
 
@@ -38,7 +112,11 @@ QUnit.test("test: Membership Type", function (assert) {
 	]);
 });
 
-// Test for default membership handling
+/**
+ * Test default membership type handling - ensures only one default type exists
+ *
+ * @param {Object} assert - QUnit assertion object
+ */
 QUnit.test("test: Membership Type - Default Setting", function (assert) {
 	let done = assert.async();
 
@@ -79,7 +157,11 @@ QUnit.test("test: Membership Type - Default Setting", function (assert) {
 	]);
 });
 
-// Test for dues_schedule plan creation
+/**
+ * Test subscription plan integration and button functionality
+ *
+ * @param {Object} assert - QUnit assertion object
+ */
 QUnit.test("test: Membership Type - Subscription Plan", function (assert) {
 	let done = assert.async();
 
