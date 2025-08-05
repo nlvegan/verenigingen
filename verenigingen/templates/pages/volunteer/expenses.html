@@ -384,14 +384,14 @@ function initExpenseForm() {
         const formAlerts = $('#form-alerts');
 
         // Disable submit button
-        submitBtn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> {{ _("Submitting...") }}');
+        submitBtn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Submitting...');
 
         // Clear previous alerts
         formAlerts.empty();
 
         // Validate organization selection
         if (!validateOrganizationSelection()) {
-            submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> {{ _("Submit Expense") }}');
+            submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit Expense');
             return;
         }
 
@@ -456,7 +456,7 @@ function initExpenseForm() {
                 </div>
             `);
             // Don't submit the expense if file upload fails - let user try again
-            submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane mr-2"></i>{{ _("Submit Expense") }}');
+            submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane mr-2"></i>Submit Expense');
             return;
         }
     }
@@ -529,7 +529,7 @@ function initExpenseForm() {
                         <br><small>Cannot submit expense without receipt. Please try again or contact support.</small>
                     </div>
                 `);
-                submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane mr-2"></i>{{ _("Submit Expense") }}');
+                submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane mr-2"></i>Submit Expense');
             }
         });
     }
@@ -566,7 +566,7 @@ function initExpenseForm() {
                 expense_data: formData
             },
             callback: function(r) {
-                submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> {{ _("Submit Expense") }}');
+                submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit Expense');
 
                 if (r.message && r.message.success) {
                     // Show success message
@@ -603,7 +603,7 @@ function initExpenseForm() {
                 }
             },
             error: function(xhr, status, error) {
-                submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> {{ _("Submit Expense") }}');
+                submitBtn.prop('disabled', false).html('<i class="fa fa-paper-plane"></i> Submit Expense');
                 formAlerts.html(`
                     <div class="alert alert-danger">
                         <i class="fa fa-exclamation-triangle"></i>

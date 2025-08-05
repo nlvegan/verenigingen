@@ -250,7 +250,7 @@ function createIssueSection(issueType, title, count, alertType, description) {
 
 function confirmCleanup(issueType, title, count) {
     currentIssueType = issueType;
-    $('#cleanup-confirmation-text').text(`{{ _("Are you sure you want to clean up") }} ${count} {{ _("schedules for") }} ${title}?`);
+    $('#cleanup-confirmation-text').text(__("Are you sure you want to clean up") + " " + count + " " + __("schedules for") + " " + title + "?");
     $('#cleanupModal').modal('show');
 }
 

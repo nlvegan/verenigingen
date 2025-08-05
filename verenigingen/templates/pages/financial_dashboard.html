@@ -980,7 +980,7 @@ function exportFinancialData() {
                 link.download = r.message.filename;
                 link.click();
 
-                showMessage('{{ _("Financial data exported successfully") }}', 'success');
+                showMessage(__("Financial data exported successfully"), 'success');
             }
         }
     });
@@ -998,7 +998,7 @@ function exportPayments() {
                 link.download = r.message.filename;
                 link.click();
 
-                showMessage('{{ _("Payment history exported successfully") }}', 'success');
+                showMessage(__("Payment history exported successfully"), 'success');
             }
         }
     });
@@ -1014,7 +1014,7 @@ function exportAllData() {
                 link.download = r.message.filename;
                 link.click();
 
-                showMessage('{{ _("All financial data exported successfully") }}', 'success');
+                showMessage(__("All financial data exported successfully"), 'success');
             }
         }
     });
@@ -1047,9 +1047,9 @@ function saveSettings() {
         args: { settings: settings },
         callback: function(r) {
             if (r.message && r.message.success) {
-                showMessage('{{ _("Settings saved successfully") }}', 'success');
+                showMessage(__("Settings saved successfully"), 'success');
             } else {
-                showMessage('{{ _("Failed to save settings") }}', 'error');
+                showMessage(__("Failed to save settings"), 'error');
             }
         }
     });

@@ -782,7 +782,7 @@ function renderPaymentSchedule(schedule) {
 }
 
 function downloadMandateDocument() {
-    frappe.msgprint('{{ _("Downloading SEPA mandate document...") }}');
+    frappe.msgprint(__("Downloading SEPA mandate document..."));
 }
 
 function downloadReceipt(paymentId) {
@@ -791,7 +791,7 @@ function downloadReceipt(paymentId) {
         args: { payment_id: paymentId },
         callback: function(r) {
             if (!r.exc) {
-                frappe.msgprint('{{ _("Receipt downloaded successfully") }}');
+                frappe.msgprint(__("Receipt downloaded successfully"));
             }
         }
     });
@@ -831,7 +831,7 @@ function exportPaymentHistory() {
         args: { year: year },
         callback: function(r) {
             if (!r.exc) {
-                frappe.msgprint('{{ _("Payment history exported successfully") }}');
+                frappe.msgprint(__("Payment history exported successfully"));
             }
         }
     });

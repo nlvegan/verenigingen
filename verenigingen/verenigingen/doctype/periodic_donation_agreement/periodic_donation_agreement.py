@@ -597,6 +597,7 @@ class PeriodicDonationAgreement(Document):
                         ).format(", ".join(active_agreements))
                     )
 
+    @frappe.whitelist()
     def get_anbi_validation_status(self):
         """
         Get comprehensive ANBI validation status for UI feedback and diagnostics.

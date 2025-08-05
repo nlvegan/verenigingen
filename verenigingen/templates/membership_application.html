@@ -393,10 +393,10 @@ $(document).ready(function() {
 
         if (paymentInterval === 'quarterly') {
             displayAmount = monthlyContribution * 3; // 3 months worth
-            displayFrequency = '{{ _("per quarter") }}';
+            displayFrequency = 'per quarter';
         } else {
             displayAmount = monthlyContribution;
-            displayFrequency = '{{ _("per month") }}';
+            displayFrequency = 'per month';
         }
 
         // Format currency
@@ -446,7 +446,7 @@ $(document).ready(function() {
         e.preventDefault();
 
         var $btn = $('#submit-application');
-        $btn.prop('disabled', true).html('{{ _("Processing...") }}');
+        $btn.prop('disabled', true).html('Processing...');
 
         // Collect form data
         var formData = {};
@@ -460,8 +460,8 @@ $(document).ready(function() {
 
         // Validate terms acceptance
         if (!formData.terms) {
-            frappe.msgprint('{{ _("Please accept the terms and conditions") }}');
-            $btn.prop('disabled', false).html('{{ _("Submit Application") }}');
+            frappe.msgprint('Please accept the terms and conditions');
+            $btn.prop('disabled', false).html('Submit Application');
             return;
         }
 
@@ -476,22 +476,22 @@ $(document).ready(function() {
                     // Show success message
                     $('.membership-application-form').html(
                         '<div class="alert alert-success">' +
-                        '<h4>{{ _("Application Submitted Successfully!") }}</h4>' +
+                        '<h4>Application Submitted Successfully!</h4>' +
                         '<p>' + r.message.message + '</p>' +
-                        '<p><a href="/" class="btn btn-primary">{{ _("Return to Home") }}</a></p>' +
+                        '<p><a href="/" class="btn btn-primary">Return to Home</a></p>' +
                         '</div>'
                     );
 
                     // Scroll to top
                     window.scrollTo(0, 0);
                 } else {
-                    frappe.msgprint(r.message || '{{ _("An error occurred. Please try again.") }}');
-                    $btn.prop('disabled', false).html('{{ _("Submit Application") }}');
+                    frappe.msgprint(r.message || 'An error occurred. Please try again.');
+                    $btn.prop('disabled', false).html('Submit Application');
                 }
             },
             error: function(r) {
-                frappe.msgprint('{{ _("An error occurred. Please try again.") }}');
-                $btn.prop('disabled', false).html('{{ _("Submit Application") }}');
+                frappe.msgprint('An error occurred. Please try again.');
+                $btn.prop('disabled', false).html('Submit Application');
             }
         });
     });

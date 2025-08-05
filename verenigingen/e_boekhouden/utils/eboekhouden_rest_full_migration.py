@@ -1185,6 +1185,91 @@ def _get_or_create_company_as_supplier(company, debug_info):
 
 
 @frappe.whitelist()
+def analyze_import_failures():
+    """Analyze recent import failures and categorize them"""
+    try:
+        # Get recent error logs
+        errors = frappe.db.sql(
+            """
+            SELECT error FROM `tabError Log`
+            WHERE creation > '2025-08-05 06:00:00'
+            AND error LIKE '%Books have been closed%'
+            LIMIT 3
+        """,
+            as_dict=True,
+        )
+
+        results = {"closed_book_errors": len(errors), "sample_errors": []}
+
+        for error in errors:
+            # Extract mutation data from error
+            error_text = error["error"]
+            if '"date":' in error_text:
+                import re
+
+                date_match = re.search(r'"date": "([^"]+)"', error_text)
+                id_match = re.search(r'"id": (\d+)', error_text)
+                type_match = re.search(r'"type": (\d+)', error_text)
+
+                results["sample_errors"].append(
+                    {
+                        "date": date_match.group(1) if date_match else "unknown",
+                        "id": id_match.group(1) if id_match else "unknown",
+                        "type": type_match.group(1) if type_match else "unknown",
+                    }
+                )
+
+        return results
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@frappe.whitelist()
+def debug_single_mutation(mutation_id):
+    """Debug a single mutation by ID - useful for investigating import failures"""
+    try:
+        # Get company and cost center
+        settings = frappe.get_single("E-Boekhouden Settings")
+        company = settings.company
+        cost_center = frappe.db.get_value("Cost Center", {"company": company, "is_group": 0}, "name")
+
+        if not cost_center:
+            return {"success": False, "error": "No cost center found"}
+
+        # Fetch the mutation from cache or API
+        mutation_cache = frappe.cache().get_value("eboekhouden_mutations")
+        if not mutation_cache:
+            return {"success": False, "error": "No mutations cached. Run a full import first."}
+
+        # Find the specific mutation
+        mutation = None
+        for cached_mutation in mutation_cache:
+            if cached_mutation.get("id") == int(mutation_id):
+                mutation = cached_mutation
+                break
+
+        if not mutation:
+            return {"success": False, "error": f"Mutation {mutation_id} not found in cache"}
+
+        # Process the single mutation
+        debug_info = []
+        try:
+            result = _process_single_mutation(mutation, company, cost_center, debug_info)
+            return {
+                "success": True,
+                "mutation": mutation,
+                "result": result.name if result else None,
+                "debug_info": debug_info,
+            }
+        except Exception as e:
+            return {"success": False, "mutation": mutation, "error": str(e), "debug_info": debug_info}
+
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
 def get_mutation_gap_report():
     """Generate a report of missing mutations in the sequence"""
     try:
@@ -3238,6 +3323,15 @@ def start_full_rest_import(migration_name):
                         summary_content += f"• Skipped: {batch_result['skipped']}\n"
                         summary_content += f"• Total Errors: {len(batch_result['errors'])}\n"
                         frappe.log_error(summary_content, summary_title)
+
+                        # Log detailed error information for opening balances when there are failures
+                        if batch_result["errors"]:
+                            detailed_error_content = "DETAILED ERROR REPORT for Opening Balances:\n\n"
+                            for i, error in enumerate(batch_result["errors"], 1):
+                                detailed_error_content += f"{i}. {error}\n\n"
+
+                            detailed_title = "eBoekhouden REST Import - Opening Balances - Detailed Errors"
+                            frappe.log_error(detailed_error_content, detailed_title)
                     else:
                         # Process other mutations using the batch import with enhanced error handling
                         batch_result = _import_rest_mutations_batch_enhanced(
@@ -3481,5 +3575,19 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                 summary_content += f"  ... and {len(category_errors) - 5} more\n"
 
     frappe.log_error(summary_content, summary_title)
+
+    # Log detailed error information when there are failures
+    if errors:
+        detailed_error_content = f"DETAILED ERROR REPORT for {type_name}:\n\n"
+
+        for category, category_errors in error_categories.items():
+            detailed_error_content += f"{category} ({len(category_errors)} errors):\n"
+            for i, error in enumerate(category_errors, 1):
+                detailed_error_content += f"\n{i}. {error}\n"
+            detailed_error_content += "\n" + "=" * 80 + "\n\n"
+
+        # Log detailed errors separately for easy access
+        detailed_title = f"eBoekhouden REST Import - {type_name} - Detailed Errors"
+        frappe.log_error(detailed_error_content, detailed_title)
 
     return {"imported": imported, "failed": failed, "skipped": skipped, "errors": errors}

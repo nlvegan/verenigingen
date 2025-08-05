@@ -119,7 +119,36 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
+{% block style %}
+<style>
+.card {
+    margin-bottom: 1rem;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+}
+
+.card-body {
+    padding: 1.25rem;
+}
+
+.card-title {
+    margin-bottom: 0.75rem;
+    font-weight: 500;
+}
+
+.card-text {
+    margin-bottom: 0;
+}
+
+.text-center {
+    text-align: center;
+}
+</style>
+{% endblock %}
+
+{% block script %}
 <script>
 $(document).ready(function() {
     $('#trigger-auto-creation').on('click', function() {
@@ -128,7 +157,7 @@ $(document).ready(function() {
 
         // Disable button and show loading
         btn.prop('disabled', true);
-        btn.html('<i class="fa fa-spinner fa-spin"></i> {{ _("Processing...") }}');
+        btn.html('<i class="fa fa-spinner fa-spin"></i> Processing...');
 
         // Call the server
         frappe.call({
@@ -156,7 +185,7 @@ $(document).ready(function() {
                     $('#results-content')
                         .removeClass('alert-success')
                         .addClass('alert-danger')
-                        .html('<i class="fa fa-exclamation-triangle"></i> {{ _("An error occurred. Please check the logs.") }}');
+                        .html('<i class="fa fa-exclamation-triangle"></i> An error occurred. Please check the logs.');
                 }
             },
             error: function(r) {
@@ -169,35 +198,10 @@ $(document).ready(function() {
                 $('#results-content')
                     .removeClass('alert-success')
                     .addClass('alert-danger')
-                    .html('<i class="fa fa-exclamation-triangle"></i> ' + (r.message || '{{ _("An error occurred") }}'));
+                    .html('<i class="fa fa-exclamation-triangle"></i> ' + (r.message || 'An error occurred'));
             }
         });
     });
 });
 </script>
-
-<style>
-.card {
-    margin-bottom: 1rem;
-    border: 1px solid #e0e0e0;
-    border-radius: 4px;
-}
-
-.card-body {
-    padding: 1.25rem;
-}
-
-.card-title {
-    margin-bottom: 0.75rem;
-    font-weight: 500;
-}
-
-.card-text {
-    margin-bottom: 0;
-}
-
-.text-center {
-    text-align: center;
-}
-</style>
 {% endblock %}

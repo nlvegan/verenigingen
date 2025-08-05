@@ -356,7 +356,7 @@ $(document).ready(function() {
         let currentFormatted = formatAddressForDisplay(current);
         let newFormatted = formatAddressForDisplay(newData);
 
-        $('#comparison-current').html(currentFormatted || '<em>{{ _("No address on file") }}</em>');
+        $('#comparison-current').html(currentFormatted || '<em>' + __("No address on file") + '</em>');
         $('#comparison-new').html(newFormatted);
 
         $('#address-form').hide();
@@ -385,7 +385,7 @@ $(document).ready(function() {
     }
 
     function submitAddressUpdate(formData) {
-        $('#confirm-btn').prop('disabled', true).text('{{ _("Updating...") }}');
+        $('#confirm-btn').prop('disabled', true).text(__("Updating..."));
 
         frappe.call({
             method: 'verenigingen.templates.pages.address_change.update_member_address',
@@ -396,17 +396,17 @@ $(document).ready(function() {
                 if (r.message && r.message.success) {
                     showSuccess(r.message.message);
                 } else {
-                    showError('{{ _("An unexpected error occurred") }}');
+                    showError(__("An unexpected error occurred"));
                 }
             },
             error: function(r) {
                 const error_msg = r.responseJSON && r.responseJSON.message
                     ? r.responseJSON.message
-                    : '{{ _("An error occurred while updating your address") }}';
+                    : __("An error occurred while updating your address");
                 showError(error_msg);
             },
             always: function() {
-                $('#confirm-btn').prop('disabled', false).text('{{ _("Confirm and Update") }}');
+                $('#confirm-btn').prop('disabled', false).text(__("Confirm and Update"));
             }
         });
     }

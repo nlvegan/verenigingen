@@ -188,7 +188,7 @@ function getConfig() {
 }
 
 function loadEligibleInvoices() {
-    showLoading('{{ _("Loading eligible invoices...") }}');
+    showLoading(__("Loading eligible invoices..."));
 
     frappe.call({
         method: 'verenigingen.api.dd_batch_optimizer.get_batching_preview',
@@ -208,13 +208,13 @@ function loadEligibleInvoices() {
         },
         error: function() {
             hideLoading();
-            frappe.msgprint('{{ _("Error loading invoice data") }}');
+            frappe.msgprint(__("Error loading invoice data"));
         }
     });
 }
 
 function previewBatches() {
-    showLoading('{{ _("Generating batch preview...") }}');
+    showLoading(__("Generating batch preview..."));
 
     frappe.call({
         method: 'verenigingen.api.dd_batch_optimizer.get_batching_preview',
@@ -226,12 +226,12 @@ function previewBatches() {
             if (r.message && r.message.success) {
                 displayPreview(r.message);
             } else {
-                frappe.msgprint('{{ _("Error generating preview") }}');
+                frappe.msgprint(__("Error generating preview"));
             }
         },
         error: function() {
             hideLoading();
-            frappe.msgprint('{{ _("Error generating preview") }}');
+            frappe.msgprint(__("Error generating preview"));
         }
     });
 }
@@ -244,7 +244,7 @@ function displayPreview(data) {
 
 function generatePreviewHtml(data) {
     if (!data.preview || data.preview.length === 0) {
-        return '<div class="alert alert-info">{{ _("No batches would be created with current configuration") }}</div>';
+        return '<div class="alert alert-info">' + __("No batches would be created with current configuration") + '</div>';
     }
 
     let html = `
@@ -296,11 +296,11 @@ function generatePreviewHtml(data) {
 }
 
 function createOptimalBatches() {
-    if (!confirm('{{ _("Create optimal batches with current configuration?") }}')) {
+    if (!confirm(__("Create optimal batches with current configuration?"))) {
         return;
     }
 
-    showLoading('{{ _("Creating optimal batches...") }}');
+    showLoading(__("Creating optimal batches..."));
 
     frappe.call({
         method: 'verenigingen.api.dd_batch_optimizer.create_optimal_batches',
@@ -314,12 +314,12 @@ function createOptimalBatches() {
                 displayCreationResults(r.message);
                 loadEligibleInvoices(); // Refresh eligible count
             } else {
-                frappe.msgprint(`{{ _("Error creating batches:") }} ${r.message.error || 'Unknown error'}`);
+                frappe.msgprint(__("Error creating batches:") + " " + (r.message.error || 'Unknown error'));
             }
         },
         error: function() {
             hideLoading();
-            frappe.msgprint('{{ _("Error creating batches") }}');
+            frappe.msgprint(__("Error creating batches"));
         }
     });
 }

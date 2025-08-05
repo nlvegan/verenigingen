@@ -329,7 +329,7 @@ $(document).ready(function() {
     // Income calculator variables
     const calculatorSettings = {
         enabled: {{ enable_income_calculator|default(false)|lower }},
-        percentage: {{ income_percentage_rate|default(0.5) }}
+        percentage: {{ income_percentage_rate|default(0.5)|float }}
     };
     let calculatedAmount = 0;
 
@@ -354,14 +354,14 @@ $(document).ready(function() {
         // Update button state based on amount validity
         const minFee = parseFloat(feeSlider.attr('min'));
         const maxFee = parseFloat(feeSlider.attr('max'));
-        const currentFee = {{ current_fee.amount }};
-        const maximumFeeMultiplier = {{ maximum_fee_multiplier }};
-        const baseFee = {{ standard_fee }};
+        const currentFee = {{ current_fee.amount|default(0)|float }};
+        const maximumFeeMultiplier = {{ maximum_fee_multiplier|default(10)|float }};
+        const baseFee = {{ standard_fee|default(15)|float }};
 
         if (amount < minFee || amount > maxFee) {
             submitBtn.prop('disabled', true);
             submitBtn.text('{{ _("Contact us for amounts outside this range") }}');
-            submitBtn.attr('title', '{{ _("For amounts outside the normal range, please contact us at {0}").format(member_contact_email) }}');
+            submitBtn.attr('title', '{{ _("For amounts outside the normal range, please contact us at {0}").format(member_contact_email|e) }}');
         } else {
             submitBtn.prop('disabled', false);
 
@@ -520,7 +520,7 @@ $(document).ready(function() {
                     submitBtn.text('{{ _("Submit Fee Adjustment") }}');
                 } else if (r.message === null || r.message === undefined) {
                     // Handle null response (redirect cases)
-                    showMessage('{{ _("Your request was processed but we couldn\'t get the status. Please refresh the page to see the result.") }}', 'info');
+                    showMessage('{{ _("Your request was processed but we could not get the status. Please refresh the page to see the result.") }}', 'info');
                     setTimeout(function() {
                         window.location.reload();
                     }, 3000);
@@ -602,21 +602,21 @@ $(document).ready(function() {
 
         // Create dialog content
         let dialogHtml = '<div class="membership-type-selection">';
-        dialogHtml += '<p class="mb-4">{{ _("Select the membership type you would like to switch to:") }}</p>';
+        dialogHtml += '<p class="mb-4">Select the membership type you would like to switch to:</p>';
         dialogHtml += '<div class="membership-types-list">';
 
         membershipTypes.forEach(function(type) {
             const isCurrent = type.name === currentType;
-            const currentBadge = isCurrent ? '<span class="badge badge-info ml-2">{{ _("Current") }}</span>' : '';
+            const currentBadge = isCurrent ? '<span class="badge badge-info ml-2">Current</span>' : '';
 
             dialogHtml += `
                 <div class="membership-type-option mb-3 p-3 border rounded ${isCurrent ? 'bg-gray-100 cursor-not-allowed' : 'cursor-pointer'}"
-                     data-type="${type.name}" ${isCurrent ? 'data-disabled="true"' : ''}>
+                     data-type="${type.name.replace(/"/g, '&quot;')}" ${isCurrent ? 'data-disabled="true"' : ''}>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <h6 class="mb-1">${type.membership_type_name}${currentBadge}</h6>
-                            <p class="mb-0 text-muted" style="font-size: 0.875rem;">${type.description || ''}</p>
-                            <p class="mb-0"><strong>{{ _("Fee") }}:</strong> €${parseFloat(type.amount || 0).toFixed(2)}</p>
+                            <h6 class="mb-1">${type.membership_type_name.replace(/'/g, "\\'").replace(/"/g, '\\"')}${currentBadge}</h6>
+                            <p class="mb-0 text-muted" style="font-size: 0.875rem;">${(type.description || '').replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, ' ')}</p>
+                            <p class="mb-0"><strong>Fee:</strong> €${parseFloat(type.amount || 0).toFixed(2)}</p>
                         </div>
                         ${!isCurrent ? '<i class="fa fa-chevron-right text-muted"></i>' : ''}
                     </div>
@@ -626,8 +626,8 @@ $(document).ready(function() {
 
         dialogHtml += '</div>';
         dialogHtml += '<div class="mt-4">';
-        dialogHtml += '<label for="change-reason">{{ _("Reason for change") }} <span class="text-danger">*</span></label>';
-        dialogHtml += '<textarea id="change-reason" class="form-control" rows="3" placeholder="{{ _("Please explain why you want to change your membership type...") }}" required></textarea>';
+        dialogHtml += '<label for="change-reason">Reason for change <span class="text-danger">*</span></label>';
+        dialogHtml += '<textarea id="change-reason" class="form-control" rows="3" placeholder="Please explain why you want to change your membership type..." required></textarea>';
         dialogHtml += '</div>';
         dialogHtml += '</div>';
 
@@ -637,7 +637,7 @@ $(document).ready(function() {
                 <div class="modal-dialog modal-lg" role="document">
                     <div class="modal-content">
                         <div class="modal-header">
-                            <h5 class="modal-title">{{ _("Change Membership Type") }}</h5>
+                            <h5 class="modal-title">Change Membership Type</h5>
                             <button type="button" class="close" data-dismiss="modal">
                                 <span>&times;</span>
                             </button>
@@ -646,8 +646,8 @@ $(document).ready(function() {
                             ${dialogHtml}
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-dismiss="modal">{{ _("Cancel") }}</button>
-                            <button type="button" class="btn btn-primary" id="submit-membership-change">{{ _("Submit Request") }}</button>
+                            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" id="submit-membership-change">Submit Request</button>
                         </div>
                     </div>
                 </div>

@@ -698,9 +698,9 @@ $(document).ready(function() {
                     link.download = r.message.filename;
                     link.click();
 
-                    showMessage('{{ _("Schedule exported successfully") }}', 'success');
+                    showMessage(__("Schedule exported successfully"), 'success');
                 } else {
-                    showMessage('{{ _("Failed to export schedule") }}', 'danger');
+                    showMessage(__("Failed to export schedule"), 'danger');
                 }
             }
         });

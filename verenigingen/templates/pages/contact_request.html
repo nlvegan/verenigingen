@@ -385,7 +385,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             } else {
                 // Show error message
-                const errorMessage = result.message ? result.message.message : '{{ _("An error occurred") }}';
+                const errorMessage = result.message ? result.message.message : __("An error occurred");
                 showAlert('error', '{{ _("Error") }}', errorMessage);
             }
         })
