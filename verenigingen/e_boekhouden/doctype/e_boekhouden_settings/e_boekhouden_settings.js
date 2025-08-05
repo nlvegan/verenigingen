@@ -49,9 +49,9 @@
 // For license information, please see license.txt
 
 frappe.ui.form.on('E-Boekhouden Settings', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Add custom buttons for testing
-		frm.add_custom_button(__('Test REST API Connection'), function() {
+		frm.add_custom_button(__('Test REST API Connection'), () => {
 			if (!frm.doc.api_token) {
 				frappe.msgprint(__('Please enter your API token first.'));
 				return;
@@ -59,7 +59,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 			frappe.call({
 				method: 'verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings.test_connection',
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.success) {
 						frappe.show_alert({
 							message: __('Connection test successful!'),
@@ -79,12 +79,12 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 
 		// Add test API call buttons
 		if (frm.doc.connection_status && frm.doc.connection_status.includes('✅')) {
-			frm.add_custom_button(__('Test Chart of Accounts'), function() {
+			frm.add_custom_button(__('Test Chart of Accounts'), () => {
 				frappe.call({
 					method: 'verenigingen.e_boekhouden.utils.eboekhouden_api.preview_chart_of_accounts',
-					callback: function(r) {
+					callback(r) {
 						if (r.message && r.message.success) {
-							let dialog = new frappe.ui.Dialog({
+							const dialog = new frappe.ui.Dialog({
 								title: 'Chart of Accounts Preview',
 								fields: [{
 									fieldtype: 'HTML',
@@ -94,7 +94,7 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 									</div>`
 								}],
 								primary_action_label: 'Close',
-								primary_action: function() { dialog.hide(); }
+								primary_action() { dialog.hide(); }
 							});
 							dialog.show();
 						} else {
@@ -107,11 +107,10 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 					}
 				});
 			});
-
 		}
 
 		// Helper function for showing migration test results
-		frm.show_migration_test_results = function(r, type) {
+		frm.show_migration_test_results = function (r, type) {
 			if (r.message && r.message.success) {
 				frappe.msgprint({
 					title: `${type} Migration Test Results`,
@@ -135,11 +134,11 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 		};
 	},
 
-	default_company: function(frm) {
+	default_company(frm) {
 		// Auto-set cost center when company changes
 		if (frm.doc.default_company) {
 			frappe.db.get_value('Cost Center',
-				{'company': frm.doc.default_company, 'is_group': 0},
+				{ company: frm.doc.default_company, is_group: 0 },
 				'name'
 			).then(r => {
 				if (r.message && r.message.name) {
@@ -151,6 +150,6 @@ frappe.ui.form.on('E-Boekhouden Settings', {
 });
 
 // Add help text
-frappe.ui.form.on('E-Boekhouden Settings', 'onload', function(frm) {
+frappe.ui.form.on('E-Boekhouden Settings', 'onload', (frm) => {
 	frm.set_intro(__('Configure your e-Boekhouden API token to enable data migration to ERPNext. You can find your API token in your e-Boekhouden account settings under "API Access" or "Integrations".'));
 });

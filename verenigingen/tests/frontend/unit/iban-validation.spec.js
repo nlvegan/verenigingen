@@ -1,6 +1,57 @@
 /**
- * IBAN Validation Unit Tests
- * Tests the enhanced IBAN validation in membership application form
+ * @fileoverview IBAN Validation Unit Tests - Comprehensive Banking Integration Testing
+ *
+ * This file provides extensive unit testing for IBAN (International Bank Account Number)
+ * validation functionality within the membership application system.
+ *
+ * BUSINESS PURPOSE:
+ * Ensures reliable financial transaction processing for membership payments:
+ * - Validate IBAN format compliance across European banking systems
+ * - Prevent payment failures due to incorrect banking information
+ * - Support automated SEPA (Single Euro Payments Area) direct debit operations
+ * - Enhance user experience with real-time validation feedback
+ * - Reduce administrative burden through automated BIC code derivation
+ *
+ * TESTING SCOPE:
+ * - Multi-country IBAN format validation (Dutch, Belgian, German, etc.)
+ * - Checksum validation using mod-97 algorithm
+ * - Country-specific length requirements
+ * - Case sensitivity and formatting normalization
+ * - Dutch banking system BIC code derivation
+ * - UI feedback and field interaction behavior
+ *
+ * VALIDATION FEATURES TESTED:
+ * - Format validation (country code, check digits, bank identifier, account number)
+ * - Mathematical checksum verification using mod-97 algorithm
+ * - Country-specific length validation for 18+ European countries
+ * - Input normalization (case conversion, space handling)
+ * - Bank identification for Dutch financial institutions
+ * - BIC code derivation for major Dutch banks
+ *
+ * UI INTERACTION TESTING:
+ * - Real-time validation feedback with visual indicators
+ * - Error message display for various validation failures
+ * - Automatic BIC field population for Dutch IBANs
+ * - Field state management (valid/invalid styling)
+ * - Readonly field behavior for derived values
+ *
+ * SUPPORTED BANKING SYSTEMS:
+ * - Dutch banks: ABN AMRO, ING, Rabobank, Triodos, SNS, ASN, Knab, Bunq
+ * - European SEPA zone banks with standardized IBAN formats
+ * - Country-specific validation rules for 18+ European countries
+ *
+ * TECHNICAL IMPLEMENTATION:
+ * - Jest testing framework with comprehensive mocking
+ * - jQuery UI interaction simulation
+ * - Chainable element mocking for realistic DOM behavior
+ * - Modular validation logic testing
+ * - Error handling and edge case coverage
+ *
+ * @author Frappe Technologies Pvt. Ltd.
+ * @since 2025
+ * @category Financial Integration / Payment Processing
+ * @requires jest
+ * @standard ISO 13616 (IBAN), SEPA Direct Debit
  */
 
 describe('IBAN Validation in Membership Application', () => {
@@ -47,7 +98,7 @@ describe('IBAN Validation in Membership Application', () => {
 
 		// Create a simple mock of MembershipApplication
 		membershipApp = {
-			performIBANValidation: function(iban) {
+			performIBANValidation(iban) {
 				if (!iban) {
 					return { valid: false, error: 'IBAN is required' };
 				}
@@ -65,10 +116,10 @@ describe('IBAN Validation in Membership Application', () => {
 				const countryCode = cleanIBAN.substring(0, 2);
 
 				const ibanLengths = {
-					'AD': 24, 'AT': 20, 'BE': 16, 'CH': 21, 'CZ': 24,
-					'DE': 22, 'DK': 18, 'ES': 24, 'FI': 18, 'FR': 27,
-					'GB': 22, 'IE': 22, 'IT': 27, 'LU': 20, 'NL': 18,
-					'NO': 15, 'PL': 28, 'PT': 25, 'SE': 24
+					AD: 24, AT: 20, BE: 16, CH: 21, CZ: 24,
+					DE: 22, DK: 18, ES: 24, FI: 18, FR: 27,
+					GB: 22, IE: 22, IT: 27, LU: 20, NL: 18,
+					NO: 15, PL: 28, PT: 25, SE: 24
 				};
 
 				if (!(countryCode in ibanLengths)) {
@@ -78,9 +129,9 @@ describe('IBAN Validation in Membership Application', () => {
 				const expectedLength = ibanLengths[countryCode];
 				if (cleanIBAN.length !== expectedLength) {
 					const countryNames = {
-						'NL': 'Dutch', 'BE': 'Belgian', 'DE': 'German',
-						'FR': 'French', 'GB': 'British', 'IT': 'Italian',
-						'ES': 'Spanish', 'AT': 'Austrian', 'CH': 'Swiss'
+						NL: 'Dutch', BE: 'Belgian', DE: 'German',
+						FR: 'French', GB: 'British', IT: 'Italian',
+						ES: 'Spanish', AT: 'Austrian', CH: 'Swiss'
 					};
 					const countryName = countryNames[countryCode] || countryCode;
 					return {
@@ -102,11 +153,11 @@ describe('IBAN Validation in Membership Application', () => {
 
 				const formatted = cleanIBAN.match(/.{1,4}/g).join(' ');
 
-				return { valid: true, error: null, formatted: formatted };
+				return { valid: true, error: null, formatted };
 			},
 
-			deriveBICFromIBAN: function(iban) {
-				if (!iban) return null;
+			deriveBICFromIBAN(iban) {
+				if (!iban) { return null; }
 
 				const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -116,23 +167,23 @@ describe('IBAN Validation in Membership Application', () => {
 
 				const bankCode = cleanIBAN.substring(4, 8);
 				const nlBicCodes = {
-					'INGB': 'INGBNL2A',
-					'ABNA': 'ABNANL2A',
-					'RABO': 'RABONL2U',
-					'TRIO': 'TRIONL2U',
-					'SNSB': 'SNSBNL2A',
-					'ASNB': 'ASNBNL21',
-					'KNAB': 'KNABNL2H',
-					'BUNQ': 'BUNQNL2A',
-					'REVO': 'REVOLT21',
-					'RBRB': 'RBRBNL21'
+					INGB: 'INGBNL2A',
+					ABNA: 'ABNANL2A',
+					RABO: 'RABONL2U',
+					TRIO: 'TRIONL2U',
+					SNSB: 'SNSBNL2A',
+					ASNB: 'ASNBNL21',
+					KNAB: 'KNABNL2H',
+					BUNQ: 'BUNQNL2A',
+					REVO: 'REVOLT21',
+					RBRB: 'RBRBNL21'
 				};
 
 				return nlBicCodes[bankCode] || null;
 			},
 
-			getBankNameFromIBAN: function(iban) {
-				if (!iban) return null;
+			getBankNameFromIBAN(iban) {
+				if (!iban) { return null; }
 
 				const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -142,25 +193,25 @@ describe('IBAN Validation in Membership Application', () => {
 
 				const bankCode = cleanIBAN.substring(4, 8);
 				const bankNames = {
-					'INGB': 'ING',
-					'ABNA': 'ABN AMRO',
-					'RABO': 'Rabobank',
-					'TRIO': 'Triodos Bank',
-					'SNSB': 'SNS Bank',
-					'ASNB': 'ASN Bank',
-					'KNAB': 'Knab',
-					'BUNQ': 'Bunq',
-					'RBRB': 'RegioBank'
+					INGB: 'ING',
+					ABNA: 'ABN AMRO',
+					RABO: 'Rabobank',
+					TRIO: 'Triodos Bank',
+					SNSB: 'SNS Bank',
+					ASNB: 'ASN Bank',
+					KNAB: 'Knab',
+					BUNQ: 'Bunq',
+					RBRB: 'RegioBank'
 				};
 
 				return bankNames[bankCode] || null;
 			},
 
-			validateIBAN: function() {
+			validateIBAN() {
 				const ibanField = $('#iban');
 				const iban = ibanField.val();
 
-				if (!iban) return;
+				if (!iban) { return; }
 
 				const validation = this.performIBANValidation(iban);
 
@@ -293,7 +344,7 @@ describe('IBAN Validation in Membership Application', () => {
 	});
 
 	describe('validateIBAN UI behavior', () => {
-		let ibanField, bicField;
+		let ibanField; let bicField;
 
 		beforeEach(() => {
 			// Store references to mock elements

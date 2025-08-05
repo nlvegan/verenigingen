@@ -59,8 +59,8 @@
 
 // Updated to use the Membership Dues Schedule system.
 
-frappe.pages['system-health-dashboard'].on_page_load = function(wrapper) {
-	var page = frappe.ui.make_app_page({
+frappe.pages['system-health-dashboard'].on_page_load = function (wrapper) {
+	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'System Health Dashboard',
 		single_column: true
@@ -171,7 +171,7 @@ class SystemHealthDashboard {
 		console.log('Modal elements found:', {
 			'progress-modal': $('.progress-modal').length,
 			'modal-backdrop': $('.modal-backdrop').length,
-			'modal': $('.modal').length,
+			modal: $('.modal').length,
 			'modal-open': $('body').hasClass('modal-open'),
 			'frappe-modal': $('.frappe-modal').length
 		});
@@ -190,7 +190,7 @@ class SystemHealthDashboard {
 				$('body').removeClass('modal-open');
 
 				// Force remove any remaining backdrops
-				$('.modal-backdrop').each(function() {
+				$('.modal-backdrop').each(function () {
 					$(this).remove();
 				});
 
@@ -227,16 +227,16 @@ class SystemHealthDashboard {
 				$('body').removeClass('modal-open');
 
 				// Force hide any visible progress elements
-				$('[class*="progress"]').filter(function() {
+				$('[class*="progress"]').filter(function () {
 					return $(this).is(':visible');
 				}).hide();
 
 				// Target specific progress dialog elements that might persist
 				$('.progress-area, .progress-bar, .progress-message').hide();
-				$('div:contains("Loading")').filter(function() {
+				$('div:contains("Loading")').filter(function () {
 					return $(this).text().trim() === 'Loading';
 				}).hide();
-				$('div:contains("Please wait")').filter(function() {
+				$('div:contains("Please wait")').filter(function () {
 					return $(this).text().includes('Please wait');
 				}).hide();
 
@@ -244,7 +244,6 @@ class SystemHealthDashboard {
 				console.log('Final cleanup - modal-backdrop count:', $('.modal-backdrop').length);
 				console.log('Final cleanup - body modal-open:', $('body').hasClass('modal-open'));
 			}, 500);
-
 		} catch (e) {
 			console.error('Error hiding progress:', e);
 		}
@@ -361,17 +360,17 @@ class SystemHealthDashboard {
 	}
 
 	render_health_status(data) {
-		const status_color = data.status === 'healthy' ? 'green' :
-						   data.status === 'degraded' ? 'orange' : 'red';
+		const status_color = data.status === 'healthy' ? 'green'
+						   : data.status === 'degraded' ? 'orange' : 'red';
 
-		const status_icon = data.status === 'healthy' ? 'fa-check-circle' :
-						   data.status === 'degraded' ? 'fa-exclamation-triangle' : 'fa-times-circle';
+		const status_icon = data.status === 'healthy' ? 'fa-check-circle'
+						   : data.status === 'degraded' ? 'fa-exclamation-triangle' : 'fa-times-circle';
 
 		let checks_html = '';
-		for (let [check, result] of Object.entries(data.checks || {})) {
-			const check_color = result.status === 'ok' ? 'green' :
-							   result.status === 'warning' ? 'orange' :
-							   result.status === 'slow' ? 'orange' : 'red';
+		for (const [check, result] of Object.entries(data.checks || {})) {
+			const check_color = result.status === 'ok' ? 'green'
+							   : result.status === 'warning' ? 'orange'
+							   : result.status === 'slow' ? 'orange' : 'red';
 
 			let details = '';
 			if (result.response_time_ms !== undefined) {
@@ -438,9 +437,9 @@ class SystemHealthDashboard {
 
 		// API Performance Summary
 		if (data.api_performance && data.api_performance.endpoints) {
-			for (let [endpoint, stats] of Object.entries(data.api_performance.endpoints)) {
-				const perf_color = stats.avg_time_ms < 500 ? 'green' :
-								  stats.avg_time_ms < 1000 ? 'orange' : 'red';
+			for (const [endpoint, stats] of Object.entries(data.api_performance.endpoints)) {
+				const perf_color = stats.avg_time_ms < 500 ? 'green'
+								  : stats.avg_time_ms < 1000 ? 'orange' : 'red';
 				metrics_html += `
 					<tr>
 						<td>${endpoint}</td>
@@ -492,7 +491,7 @@ class SystemHealthDashboard {
 	render_optimization_suggestions(data) {
 		let suggestions_html = '';
 
-		for (let [category, items] of Object.entries(data)) {
+		for (const [category, items] of Object.entries(data)) {
 			if (items && items.length > 0) {
 				suggestions_html += `
 					<div class="mb-3">
@@ -529,9 +528,9 @@ class SystemHealthDashboard {
 	}
 
 	render_database_stats(data) {
-		let largest_tables = data.tables.slice(0, 10);
+		const largest_tables = data.tables.slice(0, 10);
 
-		let table_html = largest_tables.map(table => `
+		const table_html = largest_tables.map(table => `
 			<tr>
 				<td>${table.table_name}</td>
 				<td class="text-right">${table.table_rows.toLocaleString()}</td>
@@ -637,7 +636,7 @@ class SystemHealthDashboard {
 			}
 		];
 
-		let metrics_html = businessMetrics.map(metric => `
+		const metrics_html = businessMetrics.map(metric => `
 			<div class="col-md-6 mb-3">
 				<div class="card">
 					<div class="card-body text-center">
@@ -680,7 +679,7 @@ class SystemHealthDashboard {
 
 		if (data.endpoints && Object.keys(data.endpoints).length > 0) {
 			// Create performance chart data
-			let chart_data = {
+			const chart_data = {
 				labels: [],
 				datasets: [{
 					name: 'Average Response Time (ms)',
@@ -688,8 +687,8 @@ class SystemHealthDashboard {
 				}]
 			};
 
-			for (let [endpoint, stats] of Object.entries(data.endpoints)) {
-				chart_data.labels.push(endpoint.substring(0, 30) + '...');
+			for (const [endpoint, stats] of Object.entries(data.endpoints)) {
+				chart_data.labels.push(`${endpoint.substring(0, 30)}...`);
 				chart_data.datasets[0].values.push(stats.avg_time_ms.toFixed(2));
 			}
 

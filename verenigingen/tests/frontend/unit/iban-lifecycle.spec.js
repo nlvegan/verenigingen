@@ -28,7 +28,7 @@ describe('IBAN Lifecycle Management', () => {
 
 	describe('IBAN Validation', () => {
 		const validateIBAN = (iban) => {
-			if (!iban) return { valid: false, error: 'IBAN is required' };
+			if (!iban) { return { valid: false, error: 'IBAN is required' }; }
 
 			// Remove spaces and convert to uppercase
 			const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
@@ -40,12 +40,12 @@ describe('IBAN Lifecycle Management', () => {
 
 			// Length check by country
 			const ibanLengths = {
-				'NL': 18, // Netherlands
-				'BE': 16, // Belgium
-				'DE': 22, // Germany
-				'FR': 27, // France
-				'ES': 24, // Spain
-				'IT': 27  // Italy
+				NL: 18, // Netherlands
+				BE: 16, // Belgium
+				DE: 22, // Germany
+				FR: 27, // France
+				ES: 24, // Spain
+				IT: 27 // Italy
 			};
 
 			const countryCode = cleanIBAN.substring(0, 2);
@@ -115,15 +115,15 @@ describe('IBAN Lifecycle Management', () => {
 
 			// Dutch bank BIC mapping
 			const dutchBankCodes = {
-				'ABNA': 'ABNANL2A', // ABN AMRO
-				'RABO': 'RABONL2U', // Rabobank
-				'INGB': 'INGBNL2A', // ING
-				'TRIO': 'TRIONL2U', // Triodos
-				'ASNB': 'ASNBNL21', // ASN Bank
-				'BUNQ': 'BUNQNL2A', // Bunq
-				'KNAB': 'KNABNL2H', // Knab
-				'SNSB': 'SNSBNL2A', // SNS Bank
-				'RBRB': 'RBRBNL21', // RegioBank
+				ABNA: 'ABNANL2A', // ABN AMRO
+				RABO: 'RABONL2U', // Rabobank
+				INGB: 'INGBNL2A', // ING
+				TRIO: 'TRIONL2U', // Triodos
+				ASNB: 'ASNBNL21', // ASN Bank
+				BUNQ: 'BUNQNL2A', // Bunq
+				KNAB: 'KNABNL2H', // Knab
+				SNSB: 'SNSBNL2A', // SNS Bank
+				RBRB: 'RBRBNL21' // RegioBank
 			};
 
 			if (cleanIBAN.startsWith('NL')) {
@@ -172,7 +172,7 @@ describe('IBAN Lifecycle Management', () => {
 
 			getLatestIBAN(memberName) {
 				const memberHistory = this.getMemberHistory(memberName);
-				if (memberHistory.length === 0) return null;
+				if (memberHistory.length === 0) { return null; }
 				return memberHistory[memberHistory.length - 1].new_iban;
 			}
 		};
@@ -201,7 +201,7 @@ describe('IBAN Lifecycle Management', () => {
 		it('should handle validation during IBAN change', () => {
 			// Define validateIBAN within the test scope
 			const validateIBAN = (iban) => {
-				if (!iban) return { valid: false, error: 'IBAN is required' };
+				if (!iban) { return { valid: false, error: 'IBAN is required' }; }
 				const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 				if (!/^[A-Z]{2}[0-9]{2}[A-Z0-9]+$/.test(cleanIBAN)) {
 					return { valid: false, error: 'Invalid IBAN format' };
@@ -252,8 +252,8 @@ describe('IBAN Lifecycle Management', () => {
 					name: `SEPA-${Date.now()}`,
 					member: memberName,
 					mandate_id: this.generateMandateId(memberName),
-					iban: iban,
-					bic: bic,
+					iban,
+					bic,
 					status: 'Active',
 					signature_date: frappe.datetime.nowdate(),
 					first_collection_date: null,
@@ -399,8 +399,8 @@ describe('IBAN Lifecycle Management', () => {
 					name: `SEPA-${Date.now()}`,
 					member: memberName,
 					mandate_id: `M-${memberName}-${Date.now()}`,
-					iban: iban,
-					bic: bic,
+					iban,
+					bic,
 					status: 'Active'
 				};
 				this.mandates.push(mandate);

@@ -115,7 +115,7 @@ export class BoardManager {
 	 */
 	setupGrid() {
 		const grid = this.frm.fields_dict.board_members?.grid;
-		if (!grid) return;
+		if (!grid) { return; }
 
 		// Add custom button to grid
 		grid.add_custom_button(__('Add Board Member'), () => this.addNewBoardMember());
@@ -127,7 +127,7 @@ export class BoardManager {
 
 	enhanceGridWithSelection() {
 		const $grid = this.frm.fields_dict.board_members?.grid.wrapper;
-		if (!$grid) return;
+		if (!$grid) { return; }
 
 		// Add bulk actions bar if not exists
 		if (!$grid.find('.bulk-actions-bar').length) {
@@ -161,7 +161,7 @@ export class BoardManager {
 
 	addSelectionCheckboxes() {
 		const $grid = this.frm.fields_dict.board_members?.grid.wrapper;
-		if (!$grid) return;
+		if (!$grid) { return; }
 
 		$grid.find('.grid-row').each((i, row) => {
 			const $row = $(row);
@@ -193,7 +193,7 @@ export class BoardManager {
 
 	updateBulkActionsVisibility() {
 		const $grid = this.frm.fields_dict.board_members?.grid.wrapper;
-		if (!$grid) return;
+		if (!$grid) { return; }
 
 		const $bulkBar = $grid.find('.bulk-actions-bar');
 		if (this.selectedMembers.size > 0) {
@@ -207,7 +207,7 @@ export class BoardManager {
 
 	selectAllActive() {
 		const $grid = this.frm.fields_dict.board_members?.grid.wrapper;
-		if (!$grid) return;
+		if (!$grid) { return; }
 
 		$grid.find('.board-member-checkbox').each((i, checkbox) => {
 			$(checkbox).prop('checked', true).trigger('change');
@@ -216,7 +216,7 @@ export class BoardManager {
 
 	deselectAll() {
 		const $grid = this.frm.fields_dict.board_members?.grid.wrapper;
-		if (!$grid) return;
+		if (!$grid) { return; }
 
 		$grid.find('.board-member-checkbox:checked').prop('checked', false).trigger('change');
 	}
@@ -348,9 +348,9 @@ export class BoardManager {
 
 		if (role?.is_unique) {
 			const duplicates = this.frm.doc.board_members.filter(member =>
-				member.is_active &&
-                member.chapter_role === currentRow.chapter_role &&
-                member.name !== currentRow.name
+				member.is_active
+                && member.chapter_role === currentRow.chapter_role
+                && member.name !== currentRow.name
 			);
 
 			if (duplicates.length > 0) {
@@ -478,7 +478,7 @@ export class BoardManager {
 				try {
 					const result = await this.api.call('transition_board_role', {
 						doc: this.frm.doc,
-						volunteer: volunteer,
+						volunteer,
 						new_role: values.new_role,
 						transition_date: values.transition_date
 					});
@@ -516,7 +516,7 @@ export class BoardManager {
 					options: html
 				}],
 				primary_action_label: __('Close'),
-				primary_action: function() {
+				primary_action() {
 					this.hide();
 				}
 			});
@@ -530,11 +530,11 @@ export class BoardManager {
 	generateHistoryHTML(history) {
 		let html = '<div class="board-history"><table class="table table-bordered">';
 		html += '<thead><tr>';
-		html += '<th>' + __('Member') + '</th>';
-		html += '<th>' + __('Role') + '</th>';
-		html += '<th>' + __('From Date') + '</th>';
-		html += '<th>' + __('To Date') + '</th>';
-		html += '<th>' + __('Status') + '</th>';
+		html += `<th>${__('Member')}</th>`;
+		html += `<th>${__('Role')}</th>`;
+		html += `<th>${__('From Date')}</th>`;
+		html += `<th>${__('To Date')}</th>`;
+		html += `<th>${__('Status')}</th>`;
 		html += '</tr></thead><tbody>';
 
 		history.forEach(entry => {
@@ -542,11 +542,11 @@ export class BoardManager {
 			const statusColor = entry.is_active ? 'green' : 'gray';
 
 			html += '<tr>';
-			html += '<td>' + (entry.volunteer_name || entry.member_name) + '</td>';
-			html += '<td>' + (entry.role || entry.chapter_role) + '</td>';
-			html += '<td>' + this.ui.formatDate(entry.from_date) + '</td>';
-			html += '<td>' + (entry.to_date ? this.ui.formatDate(entry.to_date) : '') + '</td>';
-			html += '<td><span class="indicator ' + statusColor + '">' + status + '</span></td>';
+			html += `<td>${entry.volunteer_name || entry.member_name}</td>`;
+			html += `<td>${entry.role || entry.chapter_role}</td>`;
+			html += `<td>${this.ui.formatDate(entry.from_date)}</td>`;
+			html += `<td>${entry.to_date ? this.ui.formatDate(entry.to_date) : ''}</td>`;
+			html += `<td><span class="indicator ${statusColor}">${status}</span></td>`;
 			html += '</tr>';
 		});
 
@@ -585,9 +585,9 @@ export class BoardManager {
 		}
 
 		const memberOptions = activeMembers.map(member => ({
-			label: member.volunteer_name + ' (' + member.chapter_role + ')',
+			label: `${member.volunteer_name} (${member.chapter_role})`,
 			value: member.volunteer,
-			description: 'From: ' + this.ui.formatDate(member.from_date)
+			description: `From: ${this.ui.formatDate(member.from_date)}`
 		}));
 
 		const dialog = this.ui.showDialog({
@@ -705,11 +705,11 @@ export class BoardManager {
 			: __('This will deactivate the selected board members (they will remain in the list but marked as inactive).');
 
 		const membersList = selectedMembers.map(member =>
-			'• ' + member.volunteer_name + ' (' + member.chapter_role + ')'
+			`• ${member.volunteer_name} (${member.chapter_role})`
 		).join('\n');
 
 		const dialog = this.ui.showDialog({
-			title: actionLabel + ' ' + __('Board Members'),
+			title: `${actionLabel} ${__('Board Members')}`,
 			fields: [
 				{
 					fieldtype: 'HTML',
@@ -733,7 +733,7 @@ export class BoardManager {
 					description: __('Optional reason for this action')
 				}
 			],
-			primary_action_label: actionLabel + ' ' + selectedMembers.length + ' ' + __('Members'),
+			primary_action_label: `${actionLabel} ${selectedMembers.length} ${__('Members')}`,
 			primary_action: async (values) => {
 				await this.processBulkRemoval(selectedMembers, action, values);
 				dialog.hide();
@@ -798,7 +798,7 @@ export class BoardManager {
 			const boardMember = this.frm.doc.board_members[parseInt(idx) - 1];
 			if (boardMember) {
 				selected.push({
-					idx: idx,
+					idx,
 					volunteer: boardMember.volunteer,
 					volunteer_name: boardMember.volunteer_name,
 					chapter_role: boardMember.chapter_role,
@@ -855,7 +855,7 @@ export class BoardManager {
 	// Event handlers
 	async onVolunteerChange(cdt, cdn) {
 		const row = locals[cdt][cdn];
-		if (!row.volunteer) return;
+		if (!row.volunteer) { return; }
 
 		try {
 			const volunteer = await this.api.getDoc('Volunteer', row.volunteer);

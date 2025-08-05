@@ -96,12 +96,12 @@ frappe.ui.form.on('Donor', {
 	 * @param {Object} frm - Frappe form object with donor data and methods
 	 * @since 1.0.0
 	 */
-	refresh: function(frm) {
-		frappe.dynamic_link = {doc: frm.doc, fieldname: 'name', doctype: 'Donor'};
+	refresh(frm) {
+		frappe.dynamic_link = { doc: frm.doc, fieldname: 'name', doctype: 'Donor' };
 
-		frm.toggle_display(['address_html','contact_html'], !frm.doc.__islocal);
+		frm.toggle_display(['address_html', 'contact_html'], !frm.doc.__islocal);
 
-		if(!frm.doc.__islocal) {
+		if (!frm.doc.__islocal) {
 			frappe.contacts.render_address_and_contact(frm);
 
 			// Add donation history functionality
@@ -114,26 +114,26 @@ frappe.ui.form.on('Donor', {
 		}
 	},
 
-	donor_type: function(frm) {
+	donor_type(frm) {
 		// Show/hide appropriate tax identifier field based on donor type
 		update_tax_field_visibility(frm);
 	},
 
-	identification_verified: function(frm) {
+	identification_verified(frm) {
 		// Update verification fields when checkbox is changed
 		if (frm.doc.identification_verified && !frm.doc.identification_verification_date) {
 			frm.set_value('identification_verification_date', frappe.datetime.nowdate());
 		}
 	},
 
-	anbi_consent: function(frm) {
+	anbi_consent(frm) {
 		// Update consent date when consent is given
 		if (frm.doc.anbi_consent && !frm.doc.anbi_consent_date) {
 			frm.set_value('anbi_consent_date', frappe.datetime.now_datetime());
 		}
 	},
 
-	bsn_citizen_service_number: function(frm) {
+	bsn_citizen_service_number(frm) {
 		// Validate BSN on change
 		if (frm.doc.bsn_citizen_service_number && !frm.doc.bsn_citizen_service_number.startsWith('*')) {
 			validate_bsn_field(frm);
@@ -161,12 +161,12 @@ frappe.ui.form.on('Donor', {
  */
 function setup_donation_history(frm) {
 	// Add sync button for donation history
-	frm.add_custom_button(__('Sync Donation History'), function() {
+	frm.add_custom_button(__('Sync Donation History'), () => {
 		sync_donation_history(frm);
 	}, __('Actions'));
 
 	// Add new donation button
-	frm.add_custom_button(__('New Donation'), function() {
+	frm.add_custom_button(__('New Donation'), () => {
 		frappe.new_doc('Donation', {
 			donor: frm.doc.name
 		});
@@ -187,7 +187,7 @@ function sync_donation_history(frm) {
 		args: {
 			donor_name: frm.doc.name
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.show_alert({
 					message: __(r.message.message),
@@ -210,7 +210,7 @@ function load_donation_summary(frm) {
 		args: {
 			donor_name: frm.doc.name
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && !r.message.error) {
 				display_donation_summary(frm, r.message);
 			}
@@ -267,11 +267,11 @@ function display_donation_summary(frm, summary) {
 	// Add payment methods breakdown if available
 	if (summary.payment_methods && Object.keys(summary.payment_methods).length > 0) {
 		let methods_html = '<p><strong>Payment Methods:</strong> ';
-		let methods = [];
-		for (let method in summary.payment_methods) {
+		const methods = [];
+		for (const method in summary.payment_methods) {
 			methods.push(`${method} (${summary.payment_methods[method]})`);
 		}
-		methods_html += methods.join(', ') + '</p>';
+		methods_html += `${methods.join(', ')}</p>`;
 		summary_html += `
 			<div class="row">
 				<div class="col-sm-12">
@@ -282,7 +282,7 @@ function display_donation_summary(frm, summary) {
 	}
 
 	// Find the donation history section and add summary before it
-	let $donation_tab = frm.get_field('donor_history').$wrapper.closest('.tab-pane');
+	const $donation_tab = frm.get_field('donor_history').$wrapper.closest('.tab-pane');
 	if ($donation_tab.length) {
 		// Remove existing summary if it exists
 		$donation_tab.find('.donation-summary').remove();
@@ -295,12 +295,12 @@ function display_donation_summary(frm, summary) {
 // ANBI-specific functions
 function setup_anbi_features(frm) {
 	// Add simplified ANBI operations for tax identifiers only
-	if (frm.perm[1] && frm.perm[1].read) {  // Check permlevel 1 permissions
-		frm.add_custom_button(__('Validate BSN'), function() {
+	if (frm.perm[1] && frm.perm[1].read) { // Check permlevel 1 permissions
+		frm.add_custom_button(__('Validate BSN'), () => {
 			validate_bsn_dialog(frm);
 		}, __('ANBI'));
 
-		frm.add_custom_button(__('Update Tax ID'), function() {
+		frm.add_custom_button(__('Update Tax ID'), () => {
 			update_tax_id_dialog(frm);
 		}, __('ANBI'));
 
@@ -309,7 +309,7 @@ function setup_anbi_features(frm) {
 	}
 
 	// Add button for creating periodic donation agreement
-	frm.add_custom_button(__('Create Donation Agreement'), function() {
+	frm.add_custom_button(__('Create Donation Agreement'), () => {
 		frappe.new_doc('Periodic Donation Agreement', {
 			donor: frm.doc.name,
 			donor_name: frm.doc.donor_name
@@ -321,7 +321,7 @@ function setup_anbi_features(frm) {
 }
 
 function validate_bsn_dialog(frm) {
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Validate BSN'),
 		fields: [
 			{
@@ -330,13 +330,13 @@ function validate_bsn_dialog(frm) {
 				fieldtype: 'Data',
 				reqd: 1,
 				description: __('9-digit Dutch citizen service number'),
-				change: function() {
+				change() {
 					validate_bsn_format(d, this.get_value());
 				}
 			}
 		],
 		primary_action_label: __('Validate'),
-		primary_action: function(values) {
+		primary_action(values) {
 			if (validate_bsn_format(d, values.bsn)) {
 				validate_bsn(values.bsn);
 				d.hide();
@@ -347,7 +347,7 @@ function validate_bsn_dialog(frm) {
 }
 
 function update_tax_id_dialog(frm) {
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Update Tax Identifiers'),
 		fields: [
 			{
@@ -371,7 +371,7 @@ function update_tax_id_dialog(frm) {
 			}
 		],
 		primary_action_label: __('Update'),
-		primary_action: function(values) {
+		primary_action(values) {
 			update_tax_identifiers(frm, values);
 			d.hide();
 		}
@@ -381,10 +381,10 @@ function update_tax_id_dialog(frm) {
 
 // BSN format validation function
 function validate_bsn_format(dialog, bsn) {
-	if (!bsn) return false;
+	if (!bsn) { return false; }
 
 	// Clean BSN - remove spaces and non-digits
-	let clean_bsn = bsn.replace(/\D/g, '');
+	const clean_bsn = bsn.replace(/\D/g, '');
 
 	// Check length
 	if (clean_bsn.length !== 9) {
@@ -394,11 +394,11 @@ function validate_bsn_format(dialog, bsn) {
 	}
 
 	// Check for obvious invalid patterns
-	if (clean_bsn === '000000000' || clean_bsn === '111111111' ||
-		clean_bsn === '222222222' || clean_bsn === '333333333' ||
-		clean_bsn === '444444444' || clean_bsn === '555555555' ||
-		clean_bsn === '666666666' || clean_bsn === '777777777' ||
-		clean_bsn === '888888888' || clean_bsn === '999999999') {
+	if (clean_bsn === '000000000' || clean_bsn === '111111111'
+		|| clean_bsn === '222222222' || clean_bsn === '333333333'
+		|| clean_bsn === '444444444' || clean_bsn === '555555555'
+		|| clean_bsn === '666666666' || clean_bsn === '777777777'
+		|| clean_bsn === '888888888' || clean_bsn === '999999999') {
 		dialog.set_df_property('bsn', 'description',
 			__('Invalid: BSN cannot be all the same digit'));
 		return false;
@@ -419,7 +419,7 @@ function update_tax_identifiers(frm, values) {
 			rsin: values.rsin || null,
 			verification_method: values.verification_method
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.show_alert({
 					message: r.message.message || __('Tax identifiers updated successfully'),
@@ -427,15 +427,15 @@ function update_tax_identifiers(frm, values) {
 				});
 				frm.reload_doc();
 			} else {
-				let error_msg = r.message && r.message.message ?
-					r.message.message : __('Failed to update tax identifiers. Please try again.');
+				const error_msg = r.message && r.message.message
+					? r.message.message : __('Failed to update tax identifiers. Please try again.');
 				frappe.show_alert({
 					message: error_msg,
 					indicator: 'red'
 				});
 			}
 		},
-		error: function(xhr, status, error) {
+		error(xhr, status, error) {
 			frappe.show_alert({
 				message: __('Network error while updating tax identifiers. Please check your connection.'),
 				indicator: 'red'
@@ -448,9 +448,9 @@ function validate_bsn(bsn) {
 	frappe.call({
 		method: 'verenigingen.api.anbi_operations.validate_bsn',
 		args: {
-			bsn: bsn
+			bsn
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				frappe.msgprint({
 					title: __('BSN Validation Result'),
@@ -465,7 +465,7 @@ function validate_bsn(bsn) {
 				});
 			}
 		},
-		error: function(xhr, status, error) {
+		error(xhr, status, error) {
 			frappe.msgprint({
 				title: __('BSN Validation Error'),
 				message: __('Network error during BSN validation. Please check your connection and try again.'),
@@ -476,14 +476,14 @@ function validate_bsn(bsn) {
 }
 
 function validate_bsn_field(frm) {
-	let bsn = frm.doc.bsn_citizen_service_number;
+	const bsn = frm.doc.bsn_citizen_service_number;
 	if (bsn) {
 		frappe.call({
 			method: 'verenigingen.api.anbi_operations.validate_bsn',
 			args: {
-				bsn: bsn
+				bsn
 			},
-			callback: function(r) {
+			callback(r) {
 				if (r.message && !r.message.valid) {
 					frappe.show_alert({
 						message: r.message.message,
@@ -496,7 +496,7 @@ function validate_bsn_field(frm) {
 }
 
 function generate_anbi_report(frm) {
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Generate ANBI Report'),
 		fields: [
 			{
@@ -521,11 +521,11 @@ function generate_anbi_report(frm) {
 			}
 		],
 		primary_action_label: __('Generate'),
-		primary_action: function(values) {
+		primary_action(values) {
 			frappe.call({
 				method: 'verenigingen.api.anbi_operations.generate_anbi_report',
 				args: values,
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.success) {
 						// Show report in a dialog or download as Excel
 						show_anbi_report(r.message);
@@ -546,7 +546,7 @@ function generate_anbi_report(frm) {
 
 function show_anbi_report(report_data) {
 	// Create a detailed report dialog
-	let report_html = `
+	const report_html = `
 		<h4>ANBI Report - ${frappe.datetime.str_to_user(report_data.report_date)}</h4>
 		<p><strong>Period:</strong> ${frappe.datetime.str_to_user(report_data.period.from)} to ${frappe.datetime.str_to_user(report_data.period.to)}</p>
 		<p><strong>Total Donations:</strong> ${report_data.summary.total_donations}</p>
@@ -565,8 +565,8 @@ function show_anbi_report(report_data) {
 	});
 }
 
-window.download_anbi_report = function(report_data_encoded) {
-	let report_data = JSON.parse(decodeURIComponent(report_data_encoded));
+window.download_anbi_report = function (report_data_encoded) {
+	const report_data = JSON.parse(decodeURIComponent(report_data_encoded));
 
 	// Convert to CSV format for Excel
 	let csv = 'Donation ID,Date,Amount,Donor Name,Donor Type,ANBI Agreement Number,ANBI Agreement Date,Purpose';
@@ -584,8 +584,8 @@ window.download_anbi_report = function(report_data_encoded) {
 	});
 
 	// Download CSV file
-	let blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-	let link = document.createElement('a');
+	const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+	const link = document.createElement('a');
 	link.href = URL.createObjectURL(blob);
 	link.download = `ANBI_Report_${report_data.period.from}_to_${report_data.period.to}.csv`;
 	link.click();

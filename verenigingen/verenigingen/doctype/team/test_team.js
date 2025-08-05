@@ -1,3 +1,38 @@
+/**
+ * @fileoverview Frontend test suite for Team DocType
+ *
+ * This QUnit test module provides comprehensive frontend testing for the Team DocType,
+ * covering team creation, member management, responsibility tracking, and status workflows.
+ * The tests validate business logic for team composition, role assignments, and
+ * collaborative work coordination within the association structure.
+ *
+ * Key Test Coverage:
+ * - Team creation with basic properties and validation
+ * - Team member addition with roles and status management
+ * - Responsibility assignment and tracking
+ * - Member status transitions and lifecycle management
+ *
+ * Business Context:
+ * Teams are fundamental organizational units for coordinating volunteers and managing
+ * specific areas of work (committees, working groups, project teams). These tests
+ * ensure the frontend properly handles team formation, member coordination, and
+ * responsibility distribution that supports effective volunteer management.
+ *
+ * Integration Points:
+ * - Volunteer DocType for team membership
+ * - Team Member child DocType for role management
+ * - Team Responsibility child DocType for task coordination
+ *
+ * Test Infrastructure:
+ * Uses Frappe's QUnit framework with serial test execution and automatic cleanup.
+ * Creates isolated test data including volunteers and team structures for each scenario.
+ *
+ * @requires frappe.tests
+ * @requires QUnit
+ * @module TeamTests
+ * @since 2024
+ */
+
 /* eslint-disable */
 // rename this file from _test_[name] to test_[name] to activate
 // and remove above this line

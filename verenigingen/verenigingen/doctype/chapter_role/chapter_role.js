@@ -1,11 +1,11 @@
 /**
  * @fileoverview Chapter Role DocType Controller - Advanced Role Management with Leadership Hierarchy
- * 
+ *
  * This module provides comprehensive management for chapter-level organizational roles with
  * intelligent chair designation, automatic chapter head assignment, and conflict detection.
  * Designed to support complex organizational hierarchies while maintaining clear leadership
  * accountability and preventing administrative conflicts.
- * 
+ *
  * Key Features:
  * - Intelligent chair role detection and assignment
  * - Automatic chapter head designation for chair roles
@@ -14,14 +14,14 @@
  * - Bulk chapter updates for role changes
  * - Permission level integration and validation
  * - Real-time organizational impact assessment
- * 
+ *
  * Leadership Management:
  * - Automatic identification of leadership roles
  * - Chair role validation and conflict prevention
  * - Cross-chapter consistency enforcement
  * - Leadership transition workflow support
  * - Administrative delegation and permission assignment
- * 
+ *
  * Business Value:
  * - Ensures clear organizational hierarchy and accountability
  * - Prevents leadership conflicts and administrative confusion
@@ -29,7 +29,7 @@
  * - Maintains consistency across all chapter operations
  * - Supports organizational growth and restructuring
  * - Provides audit trail for role changes and assignments
- * 
+ *
  * Technical Architecture:
  * - Frappe DocType form controller with advanced workflow logic
  * - Real-time validation and conflict detection
@@ -37,7 +37,7 @@
  * - Integration with chapter board member management
  * - Permission level mapping and enforcement
  * - Automated suggestion engine for role categorization
- * 
+ *
  * Organizational Features:
  * - Role hierarchy definition and enforcement
  * - Leadership succession planning support
@@ -45,23 +45,23 @@
  * - Administrative permission delegation
  * - Conflict resolution and duplicate detection
  * - Performance impact assessment for changes
- * 
+ *
  * @author Verenigingen Development Team
  * @version 1.7.0
  * @since 1.0.0
- * 
+ *
  * @requires frappe
  * @requires verenigingen.verenigingen.doctype.chapter_role.chapter_role (Python backend)
  * @requires verenigingen.verenigingen.doctype.chapter_board_member (Board management)
  * @requires verenigingen.verenigingen.doctype.chapter (Chapter operations)
- * 
+ *
  * @example
  * // Creating a chair role with automatic conflict detection
  * // 1. Set role_name: 'Chairman'
  * // 2. System suggests is_chair: true
  * // 3. Automatic duplicate detection and warning
  * // 4. Bulk update all affected chapters
- * 
+ *
  * @see {@link verenigingen.verenigingen.doctype.chapter_board_member} Board Member Management
  * @see {@link verenigingen.verenigingen.doctype.chapter} Chapter Operations
  */
@@ -74,7 +74,7 @@
  * @description Advanced role management form controller with leadership hierarchy support
  */
 frappe.ui.form.on('Chapter Role', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Add visual indication for chair role
 		if (frm.doc.is_chair && frm.doc.is_active) {
 			frm.page.set_indicator(__('Chair Role'), 'blue');
@@ -87,29 +87,29 @@ frappe.ui.form.on('Chapter Role', {
 		}
 
 		// Add button to view chapters using this role
-		frm.add_custom_button(__('View Chapters Using This Role'), function() {
+		frm.add_custom_button(__('View Chapters Using This Role'), () => {
 			frappe.set_route('List', 'Chapter Board Member', {
-				'chapter_role': frm.doc.name
+				chapter_role: frm.doc.name
 			});
 		}, __('View'));
 
 		// Add button to update affected chapters if this is a chair role
 		if (frm.doc.is_chair && frm.doc.is_active) {
-			frm.add_custom_button(__('Update Affected Chapters'), function() {
+			frm.add_custom_button(__('Update Affected Chapters'), () => {
 				update_chapters_with_this_role(frm);
 			}, __('Actions'));
 		}
 	},
 
-	is_chair: function(frm) {
+	is_chair(frm) {
 		if (frm.doc.is_chair && frm.doc.is_active) {
 			frappe.confirm(
 				__('Setting this role as Chair will make board members with this role automatically set as Chapter Head. Continue?'),
-				function() {
+				() => {
 					// Yes - check for duplicates
 					check_for_duplicate_chair_roles(frm);
 				},
-				function() {
+				() => {
 					// No - uncheck
 					frm.set_value('is_chair', 0);
 				}
@@ -117,14 +117,14 @@ frappe.ui.form.on('Chapter Role', {
 		}
 	},
 
-	is_active: function(frm) {
+	is_active(frm) {
 		// If activating a chair role, check for duplicates
 		if (frm.doc.is_active && frm.doc.is_chair) {
 			check_for_duplicate_chair_roles(frm);
 		}
 	},
 
-	role_name: function(frm) {
+	role_name(frm) {
 		// If role name contains 'chair' or related terms, suggest setting is_chair
 		if (!frm.doc.is_chair && frm.doc.role_name && frm.doc.is_active) {
 			const chairTerms = ['chair', 'chairperson', 'president', 'head'];
@@ -133,7 +133,7 @@ frappe.ui.form.on('Chapter Role', {
 			if (chairTerms.some(term => lowerName.includes(term))) {
 				frappe.confirm(
 					__('This role name suggests it might be a Chair role. Would you like to mark it as Chair?'),
-					function() {
+					() => {
 						// Yes - set as chair
 						frm.set_value('is_chair', 1);
 						check_for_duplicate_chair_roles(frm);
@@ -143,12 +143,12 @@ frappe.ui.form.on('Chapter Role', {
 		}
 	},
 
-	permissions_level: function(frm) {
+	permissions_level(frm) {
 		// If setting admin permissions level, suggest setting is_chair if not already set
 		if (frm.doc.permissions_level === 'Admin' && !frm.doc.is_chair && frm.doc.is_active) {
 			frappe.confirm(
 				__('Admin roles are often chair roles. Would you like to mark this role as Chair?'),
-				function() {
+				() => {
 					// Yes - set as chair
 					frm.set_value('is_chair', 1);
 					check_for_duplicate_chair_roles(frm);
@@ -157,12 +157,12 @@ frappe.ui.form.on('Chapter Role', {
 		}
 	},
 
-	after_save: function(frm) {
+	after_save(frm) {
 		// If this is a chair role, suggest updating affected chapters
 		if (frm.doc.is_chair && frm.doc.is_active) {
 			frappe.confirm(
 				__('Would you like to update the Chapter Head for all chapters using this role now?'),
-				function() {
+				() => {
 					// Yes - update chapters
 					update_chapters_with_this_role(frm);
 				}
@@ -178,13 +178,13 @@ function check_for_duplicate_chair_roles(frm) {
 		args: {
 			doctype: 'Chapter Role',
 			filters: {
-				'is_chair': 1,
-				'is_active': 1,
-				'name': ['!=', frm.doc.name]
+				is_chair: 1,
+				is_active: 1,
+				name: ['!=', frm.doc.name]
 			},
 			fields: ['name', 'role_name']
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.length > 0) {
 				// Found other chair roles
 				frm.set_intro(
@@ -217,7 +217,7 @@ function update_chapters_with_this_role(frm) {
 		},
 		freeze: true,
 		freeze_message: __('Updating chapters...'),
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				frappe.msgprint({
 					title: __('Chapters Updated'),

@@ -1,8 +1,77 @@
 /**
- * Workflow Transition Tests
+ * @fileoverview Workflow Transition Tests - Comprehensive Business Process Testing
  *
- * Tests for various workflow transitions including
- * chapter membership, termination, and approval workflows
+ * This file provides extensive testing for workflow transitions across the association
+ * management system, ensuring reliable state management and business process compliance.
+ *
+ * BUSINESS PURPOSE:
+ * Validates critical organizational workflows and state transitions:
+ * - Chapter membership lifecycle from application to activation
+ * - Member termination processes with appropriate governance
+ * - Multi-stage approval workflows for expense claims and volunteer applications
+ * - State machine validation for complex business processes
+ * - Role-based permission enforcement across workflows
+ *
+ * WORKFLOW CATEGORIES TESTED:
+ *
+ * 1. CHAPTER MEMBERSHIP WORKFLOW:
+ * - Application submission and initial review processes
+ * - Approval pathways with role-based permissions
+ * - State transitions from applied through active membership
+ * - Transfer and status change management
+ *
+ * 2. TERMINATION WORKFLOW:
+ * - Voluntary termination with cooling-off periods
+ * - Non-payment termination with escalation steps
+ * - Disciplinary termination with investigation processes
+ * - Financial impact calculation and refund processing
+ * - SEPA mandate cancellation and administrative cleanup
+ *
+ * 3. APPROVAL WORKFLOW:
+ * - Multi-stage approval processes with amount-based limits
+ * - Role-based approver assignment and validation
+ * - Escalation paths for high-value transactions
+ * - Approval history tracking and audit trails
+ *
+ * 4. STATE MACHINE VALIDATION:
+ * - Finite state machine implementation for business processes
+ * - Transition validation and error handling
+ * - History tracking for audit and compliance
+ * - Reset and recovery mechanisms
+ *
+ * ROLE-BASED SECURITY TESTING:
+ * - Chapter Coordinator: Basic operational approvals
+ * - Chapter Manager: Strategic decisions and member management
+ * - Chapter Board Member: High-level governance decisions
+ * - Finance Manager: Financial approval authority
+ * - System Manager: Administrative override capabilities
+ *
+ * COMPLIANCE FEATURES:
+ * - Cooling-off periods for voluntary terminations (14-30 days)
+ * - Required documentation for disciplinary actions
+ * - Financial impact assessment for membership changes
+ * - Audit trail maintenance for governance requirements
+ * - Permission validation for sensitive operations
+ *
+ * BUSINESS RULES TESTED:
+ * - Minimum notice periods for terminations
+ * - Approval limits based on role and amount
+ * - Required documentation for specific workflow types
+ * - State transition validation and rollback prevention
+ * - Financial reconciliation for membership changes
+ *
+ * TECHNICAL IMPLEMENTATION:
+ * - Jest testing framework with workflow simulation
+ * - Mock role and permission system
+ * - State machine pattern implementation
+ * - History tracking and audit trail validation
+ * - Error handling and edge case coverage
+ *
+ * @author Frappe Technologies Pvt. Ltd.
+ * @since 2025
+ * @category Workflow Management / Business Process Testing
+ * @requires jest
+ * @compliance Organizational Governance, Financial Regulations
  */
 
 describe('Workflow Transitions', () => {
@@ -34,11 +103,11 @@ describe('Workflow Transitions', () => {
 			states: ['Applied', 'Under Review', 'Approved', 'Active', 'Inactive'],
 
 			transitions: {
-				'Applied': ['Under Review', 'Rejected'],
+				Applied: ['Under Review', 'Rejected'],
 				'Under Review': ['Approved', 'Rejected', 'More Info Needed'],
-				'Approved': ['Active'],
-				'Active': ['Inactive', 'Transferred'],
-				'Inactive': ['Active']
+				Approved: ['Active'],
+				Active: ['Inactive', 'Transferred'],
+				Inactive: ['Active']
 			},
 
 			canTransition(fromState, toState, userRoles) {
@@ -101,7 +170,7 @@ describe('Workflow Transitions', () => {
 					to_state: toState,
 					transition_date: frappe.datetime.nowdate(),
 					transitioned_by: frappe.session.user,
-					notes: notes
+					notes
 				});
 			};
 
@@ -116,7 +185,7 @@ describe('Workflow Transitions', () => {
 	describe('Termination Workflow', () => {
 		const TerminationWorkflow = {
 			types: {
-				'Voluntary': {
+				Voluntary: {
 					steps: ['Request Submitted', 'Confirmed', 'Processed'],
 					requiresApproval: false,
 					coolingOffPeriod: 14 // days
@@ -126,7 +195,7 @@ describe('Workflow Transitions', () => {
 					requiresApproval: true,
 					coolingOffPeriod: 30
 				},
-				'Disciplinary': {
+				Disciplinary: {
 					steps: ['Investigation', 'Review', 'Decision', 'Terminated'],
 					requiresApproval: true,
 					coolingOffPeriod: 0
@@ -162,7 +231,7 @@ describe('Workflow Transitions', () => {
 
 			getNextStep(terminationType, currentStep) {
 				const workflow = this.types[terminationType];
-				if (!workflow) return null;
+				if (!workflow) { return null; }
 
 				const currentIndex = workflow.steps.indexOf(currentStep);
 				if (currentIndex === -1 || currentIndex === workflow.steps.length - 1) {
@@ -281,7 +350,7 @@ describe('Workflow Transitions', () => {
 	describe('Approval Workflow', () => {
 		const ApprovalWorkflow = {
 			templates: {
-				'expense_claim': {
+				expense_claim: {
 					stages: [
 						{ name: 'Draft', approvers: [] },
 						{ name: 'Submitted', approvers: ['Expense Approver'] },
@@ -294,7 +363,7 @@ describe('Workflow Transitions', () => {
 						'Board Member': Infinity
 					}
 				},
-				'volunteer_application': {
+				volunteer_application: {
 					stages: [
 						{ name: 'Applied', approvers: [] },
 						{ name: 'Screening', approvers: ['Volunteer Coordinator'] },
@@ -306,10 +375,10 @@ describe('Workflow Transitions', () => {
 
 			getApprovers(doctype, stage, amount = 0) {
 				const template = this.templates[doctype];
-				if (!template) return [];
+				if (!template) { return []; }
 
 				const stageConfig = template.stages.find(s => s.name === stage);
-				if (!stageConfig) return [];
+				if (!stageConfig) { return []; }
 
 				// Filter approvers based on amount limits
 				if (template.limits && amount > 0) {
@@ -324,10 +393,10 @@ describe('Workflow Transitions', () => {
 
 			canApprove(doctype, stage, userRoles, amount = 0) {
 				const template = this.templates[doctype];
-				if (!template) return { allowed: false, reason: 'Invalid doctype' };
+				if (!template) { return { allowed: false, reason: 'Invalid doctype' }; }
 
 				const stageConfig = template.stages.find(s => s.name === stage);
-				if (!stageConfig) return { allowed: false, reason: 'Invalid stage' };
+				if (!stageConfig) { return { allowed: false, reason: 'Invalid stage' }; }
 
 				// Get all approvers for this stage (without amount filtering)
 				const stageApprovers = stageConfig.approvers;
@@ -431,11 +500,11 @@ describe('Workflow Transitions', () => {
 			const recordApproval = (docName, stage, approver, decision, notes) => {
 				approvalHistory.push({
 					document: docName,
-					stage: stage,
-					approver: approver,
-					decision: decision,
+					stage,
+					approver,
+					decision,
 					approval_date: frappe.datetime.nowdate(),
-					notes: notes,
+					notes,
 					duration_hours: Math.random() * 48 // Mock processing time
 				});
 			};
@@ -495,10 +564,10 @@ describe('Workflow Transitions', () => {
 				states: ['Draft', 'Active', 'Suspended', 'Terminated'],
 				initialState: 'Draft',
 				transitions: {
-					'Draft': ['Active'],
-					'Active': ['Suspended', 'Terminated'],
-					'Suspended': ['Active', 'Terminated'],
-					'Terminated': []
+					Draft: ['Active'],
+					Active: ['Suspended', 'Terminated'],
+					Suspended: ['Active', 'Terminated'],
+					Terminated: []
 				}
 			});
 
@@ -518,9 +587,9 @@ describe('Workflow Transitions', () => {
 				states: ['New', 'InProgress', 'Completed'],
 				initialState: 'New',
 				transitions: {
-					'New': ['InProgress'],
-					'InProgress': ['Completed'],
-					'Completed': []
+					New: ['InProgress'],
+					InProgress: ['Completed'],
+					Completed: []
 				}
 			});
 

@@ -227,9 +227,9 @@ describe('Membership Form', () => {
 		it('should calculate next renewal date for auto-renewal', () => {
 			const calculateNextRenewal = (currentEnd, renewalPeriod) => {
 				const periods = {
-					'Monthly': 1,
-					'Quarterly': 3,
-					'Annual': 12
+					Monthly: 1,
+					Quarterly: 3,
+					Annual: 12
 				};
 
 				const months = periods[renewalPeriod] || 12;
@@ -269,19 +269,19 @@ describe('Membership Form', () => {
 
 // Mock implementation of membership form events
 const membershipFormEvents = {
-	membership_type: function(frm) {
+	membership_type(frm) {
 		frm.trigger('set_renewal_date');
 	},
 
-	from_date: function(frm) {
+	from_date(frm) {
 		frm.trigger('set_renewal_date');
 	},
 
-	set_renewal_date: function(frm) {
-		if (!frm.doc.from_date) return;
+	set_renewal_date(frm) {
+		if (!frm.doc.from_date) { return; }
 
 		let toDate;
-		switch(frm.doc.membership_type) {
+		switch (frm.doc.membership_type) {
 			case 'Monthly':
 				toDate = frappe.datetime.add_months(frm.doc.from_date, 1);
 				break;
@@ -298,18 +298,18 @@ const membershipFormEvents = {
 		frm.set_value('to_date', toDate);
 	},
 
-	payment_method: function(frm) {
+	payment_method(frm) {
 		const isSepa = frm.doc.payment_method === 'SEPA Direct Debit';
 		frm.toggle_reqd('mandate_id', isSepa ? 1 : 0);
 		frm.toggle_display('mandate_section', isSepa ? 1 : 0);
 	},
 
-	enable_razorpay: function(frm) {
+	enable_razorpay(frm) {
 		frm.toggle_display('razorpay_details_section', frm.doc.enable_razorpay);
 		frm.toggle_reqd('payment_url', frm.doc.enable_razorpay);
 	},
 
-	auto_renew: function(frm) {
+	auto_renew(frm) {
 		frm.toggle_display('auto_renewal_settings', frm.doc.auto_renew);
 		frm.toggle_reqd('renewal_period', frm.doc.auto_renew);
 	}

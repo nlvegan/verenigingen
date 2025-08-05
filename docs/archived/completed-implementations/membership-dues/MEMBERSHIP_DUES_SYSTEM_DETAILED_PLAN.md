@@ -1,5 +1,9 @@
 # Membership Dues System - Detailed Implementation Guide
 
+> **Version History**: This is the most comprehensive version of the membership dues system plan.
+> Previous versions (V1, V2, Enhanced) have been archived in `/docs/archived/superseded-versions/`
+> for reference but this version supersedes them all with the most complete implementation details.
+
 ## Table of Contents
 1. [System Architecture Details](#system-architecture-details)
 2. [Data Model & Relationships](#data-model--relationships)

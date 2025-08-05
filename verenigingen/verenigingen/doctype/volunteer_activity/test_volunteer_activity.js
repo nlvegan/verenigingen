@@ -1,3 +1,33 @@
+/**
+ * @fileoverview Frontend test suite for Volunteer Activity DocType
+ *
+ * This QUnit test module provides comprehensive frontend testing for the Volunteer Activity
+ * DocType, covering creation, completion workflows, and reference linking functionality.
+ * The tests validate business logic for volunteer engagement tracking, activity lifecycle
+ * management, and integration with other DocTypes (Team, Event, etc.).
+ *
+ * Key Test Coverage:
+ * - Volunteer Activity creation with required fields validation
+ * - Activity completion workflow with end date and hours tracking
+ * - Reference linking to external DocTypes for activity context
+ * - Status transitions and field dependencies
+ *
+ * Business Context:
+ * Volunteer Activities are core to tracking volunteer engagement and measuring
+ * organizational impact. These tests ensure the frontend properly handles activity
+ * creation, status management, and completion tracking workflows that support
+ * volunteer coordination and performance measurement.
+ *
+ * Test Infrastructure:
+ * Uses Frappe's QUnit framework with serial test execution and automatic cleanup.
+ * Creates isolated test data for each scenario to prevent test interdependencies.
+ *
+ * @requires frappe.tests
+ * @requires QUnit
+ * @module VolunteerActivityTests
+ * @since 2024
+ */
+
 /* eslint-disable */
 // rename this file from _test_[name] to test_[name] to activate
 // and remove above this line

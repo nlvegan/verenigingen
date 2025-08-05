@@ -1,68 +1,122 @@
+/**
+ * @fileoverview Members Without Dues Schedule Report - JavaScript Configuration
+ *
+ * This file provides critical payment monitoring capabilities for member dues collection,
+ * identifying and resolving gaps in the automated payment scheduling system.
+ *
+ * BUSINESS PURPOSE:
+ * Ensures reliable membership dues collection by identifying members without proper payment schedules:
+ * - Detect members missing automated dues collection setup
+ * - Identify overdue schedule creation or activation
+ * - Monitor compliance with payment automation requirements
+ * - Support revenue protection through comprehensive payment coverage
+ * - Enable bulk remediation of schedule issues
+ *
+ * KEY FEATURES:
+ * - Multi-status filtering (Active, Pending, Suspended, Terminated members)
+ * - Problem-focused filtering to highlight critical issues
+ * - Critical issue detection (>7 days overdue)
+ * - Enhanced visual indicators with color-coded severity levels
+ * - Bulk issue resolution with automated schedule fixes
+ * - Real-time processing feedback and success reporting
+ *
+ * SEVERITY INDICATORS:
+ * - Red (Critical): >14 days overdue - immediate attention required
+ * - Orange (Warning): >7 days overdue - urgent resolution needed
+ * - Yellow (Caution): 1-7 days overdue - monitor closely
+ * - Bold formatting for dues rates to highlight financial impact
+ *
+ * AUTOMATED REMEDIATION:
+ * - Batch processing of problematic members
+ * - Intelligent schedule issue detection
+ * - Automated schedule creation and activation
+ * - Success/failure tracking with detailed reporting
+ * - Real-time progress feedback during bulk operations
+ *
+ * FILTERING CAPABILITIES:
+ * - Include/exclude by member status (terminated, suspended, pending)
+ * - Focus on specific member status categories
+ * - Problems-only view for operational efficiency
+ * - Critical issues filter for immediate attention
+ *
+ * INTEGRATION POINTS:
+ * - Links to Member DocType for member management
+ * - Connects with Dues Schedule system for payment automation
+ * - Integrates with membership status workflows
+ * - Supports bulk remediation backend services
+ *
+ * @author Frappe Technologies Pvt. Ltd.
+ * @since 2025
+ * @category Payment Management
+ * @requires frappe.query_reports
+ * @requires verenigingen.verenigingen.report.members_without_dues_schedule.members_without_dues_schedule
+ */
+
 // Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 // For license information, please see license.txt
 
 frappe.query_reports['Members Without Dues Schedule'] = {
-	'filters': [
+	filters: [
 		{
-			'fieldname': 'include_terminated',
-			'label': __('Include Terminated Members'),
-			'fieldtype': 'Check',
-			'default': 0,
-			'description': 'Include members with status \'Terminated\''
+			fieldname: 'include_terminated',
+			label: __('Include Terminated Members'),
+			fieldtype: 'Check',
+			default: 0,
+			description: 'Include members with status \'Terminated\''
 		},
 		{
-			'fieldname': 'include_suspended',
-			'label': __('Include Suspended Members'),
-			'fieldtype': 'Check',
-			'default': 0,
-			'description': 'Include members with status \'Suspended\''
+			fieldname: 'include_suspended',
+			label: __('Include Suspended Members'),
+			fieldtype: 'Check',
+			default: 0,
+			description: 'Include members with status \'Suspended\''
 		},
 		{
-			'fieldname': 'include_pending',
-			'label': __('Include Pending Members'),
-			'fieldtype': 'Check',
-			'default': 0,
-			'description': 'Include members with status \'Pending\' (applicants who haven\'t been approved yet)'
+			fieldname: 'include_pending',
+			label: __('Include Pending Members'),
+			fieldtype: 'Check',
+			default: 0,
+			description: 'Include members with status \'Pending\' (applicants who haven\'t been approved yet)'
 		},
 		{
-			'fieldname': 'member_status',
-			'label': __('Member Status'),
-			'fieldtype': 'Select',
-			'options': '\nActive\nPending\nSuspended\nTerminated',
-			'description': 'Filter by specific member status (optional)'
+			fieldname: 'member_status',
+			label: __('Member Status'),
+			fieldtype: 'Select',
+			options: '\nActive\nPending\nSuspended\nTerminated',
+			description: 'Filter by specific member status (optional)'
 		},
 		{
-			'fieldname': 'problems_only',
-			'label': __('Problems Only'),
-			'fieldtype': 'Check',
-			'default': 0,
-			'description': 'Show only members with schedule issues or no schedules'
+			fieldname: 'problems_only',
+			label: __('Problems Only'),
+			fieldtype: 'Check',
+			default: 0,
+			description: 'Show only members with schedule issues or no schedules'
 		},
 		{
-			'fieldname': 'critical_only',
-			'label': __('Critical Issues Only'),
-			'fieldtype': 'Check',
-			'default': 0,
-			'description': 'Show only critical issues (>7 days overdue)'
+			fieldname: 'critical_only',
+			label: __('Critical Issues Only'),
+			fieldtype: 'Check',
+			default: 0,
+			description: 'Show only critical issues (>7 days overdue)'
 		}
 	],
 
-	'formatter': function (value, row, column, data, default_formatter) {
+	formatter(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
 
 		// Color code member status
-		if (column.fieldname == 'member_status') {
-			if (value == 'Terminated') {
+		if (column.fieldname === 'member_status') {
+			if (value === 'Terminated') {
 				value = `<span style="color: red; font-weight: bold;">${value}</span>`;
-			} else if (value == 'Suspended') {
+			} else if (value === 'Suspended') {
 				value = `<span style="color: orange; font-weight: bold;">${value}</span>`;
-			} else if (value == 'Pending') {
+			} else if (value === 'Pending') {
 				value = `<span style="color: blue;">${value}</span>`;
 			}
 		}
 
 		// Highlight overdue days
-		if (column.fieldname == 'days_overdue' && value && value > 0) {
+		if (column.fieldname === 'days_overdue' && value && value > 0) {
 			if (value > 14) {
 				value = `<span style="color: red; font-weight: bold; background-color: #ffebee; padding: 2px 6px; border-radius: 3px;">${value}</span>`;
 			} else if (value > 7) {
@@ -73,25 +127,25 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 		}
 
 		// Format currency with better visibility
-		if (column.fieldname == 'dues_rate' && value) {
+		if (column.fieldname === 'dues_rate' && value) {
 			value = `<span style="font-weight: bold;">€${parseFloat(value).toFixed(2)}</span>`;
 		}
 
 		return value;
 	},
 
-	onload: function(report) {
+	onload(report) {
 		// Add custom buttons for bulk actions
 
-		report.page.add_inner_button(__('Fix Selected Issues'), function() {
-			let data = report.data;
+		report.page.add_inner_button(__('Fix Selected Issues'), () => {
+			const data = report.data;
 			if (!data || data.length === 0) {
 				frappe.msgprint(__('No data available'));
 				return;
 			}
 
 			// Get members with issues
-			let problematic_members = data.filter(function(row) {
+			const problematic_members = data.filter((row) => {
 				return row.days_overdue > 0 || row.dues_schedule_status.includes('No Schedule');
 			});
 
@@ -102,17 +156,17 @@ frappe.query_reports['Members Without Dues Schedule'] = {
 
 			frappe.confirm(
 				__('This will attempt to fix schedule issues for {0} members. Continue?', [problematic_members.length]),
-				function() {
-					let member_list = problematic_members.map(row => row.member_id);
+				() => {
+					const member_list = problematic_members.map(row => row.member_id);
 
 					frappe.call({
 						method: 'verenigingen.verenigingen.report.members_without_dues_schedule.members_without_dues_schedule.fix_member_schedule_issues',
 						args: {
-							member_list: member_list
+							member_list
 						},
-						callback: function(r) {
+						callback(r) {
 							if (r.message && r.message.success) {
-								let result = r.message;
+								const result = r.message;
 								frappe.msgprint({
 									title: __('Batch Fix Results'),
 									message: `

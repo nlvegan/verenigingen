@@ -389,8 +389,9 @@ def cleanup_test_data():
 
     print("\nCleaning up test data...")
 
-    # Clean up test alerts
-    test_alerts = frappe.get_all("System Alert", filters={"message": ["like", "%test%"]}, pluck="name")
+    # Clean up test alerts - handle all test sources
+    test_sources = ["test_monitoring", "e2e_test", "integration_test"]
+    test_alerts = frappe.get_all("System Alert", filters={"source": ["in", test_sources]}, pluck="name")
     for alert in test_alerts:
         frappe.delete("System Alert", alert, force=True)
     print(f"  Cleaned {len(test_alerts)} test alerts")

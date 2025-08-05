@@ -9,13 +9,13 @@ This guide provides solutions to common issues encountered during eBoekhouden in
 ### System Health Check
 ```python
 # Run in ERPNext console
-frappe.call('verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection')
+frappe.call('verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.test_rest_iterator')
 ```
 
 ### Migration Status Check
 ```python
 # Check current migration status
-frappe.call('verenigingen.utils.eboekhouden.import_manager.get_import_status')
+frappe.call('verenigingen.e_boekhouden.utils.migration_api.get_migration_status')
 ```
 
 ## Connection Issues

@@ -284,7 +284,7 @@ class APIService {
 						args,
 						status: response.status,
 						statusText: response.statusText,
-						headers: headers
+						headers
 					});
 
 					reject(error);

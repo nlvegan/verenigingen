@@ -30,16 +30,16 @@ function waitForDialogs(timeout = 2000) {
 
 // ==================== ENHANCED BASIC FUNCTIONALITY TESTS ====================
 
-QUnit.test('test: Member - Enhanced Name Generation Edge Cases', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Enhanced Name Generation Edge Cases', (assert) => {
+	const done = assert.async();
 	assert.expect(12);
 
 	frappe.run_serially([
 		// Test with special characters and unicode
 		() => frappe.tests.make('Member', [
-			{first_name: 'José'},
-			{middle_name: 'María'},
-			{last_name: 'García-López'}
+			{ first_name: 'José' },
+			{ middle_name: 'María' },
+			{ last_name: 'García-López' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -48,7 +48,7 @@ QUnit.test('test: Member - Enhanced Name Generation Edge Cases', function (asser
 
 		// Test with empty middle name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{middle_name: ''}
+			{ middle_name: '' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -57,9 +57,9 @@ QUnit.test('test: Member - Enhanced Name Generation Edge Cases', function (asser
 
 		// Test with extra whitespace
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '  John  '},
-			{middle_name: ' William '},
-			{last_name: '  Doe  '}
+			{ first_name: '  John  ' },
+			{ middle_name: ' William ' },
+			{ last_name: '  Doe  ' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -71,22 +71,22 @@ QUnit.test('test: Member - Enhanced Name Generation Edge Cases', function (asser
 
 		// Test with very long names
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: 'Wolfeschlegelsteinhausenbergerdorff'},
-			{middle_name: 'Johanngeorgenstadtbewohner'},
-			{last_name: 'Sonnenscheinwetterfeldmann'}
+			{ first_name: 'Wolfeschlegelsteinhausenbergerdorff' },
+			{ middle_name: 'Johanngeorgenstadtbewohner' },
+			{ last_name: 'Sonnenscheinwetterfeldmann' }
 		]),
 		() => frappe.timeout(1),
 		() => {
-			let fullName = cur_frm.doc.full_name;
+			const fullName = cur_frm.doc.full_name;
 			assert.ok(fullName.length > 50, 'Should handle very long names');
 			assert.ok(fullName.includes('Wolfeschlegelsteinhausenbergerdorff'), 'Should include long first name');
 		},
 
 		// Test with single character names
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: 'A'},
-			{middle_name: 'B'},
-			{last_name: 'C'}
+			{ first_name: 'A' },
+			{ middle_name: 'B' },
+			{ last_name: 'C' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -95,8 +95,8 @@ QUnit.test('test: Member - Enhanced Name Generation Edge Cases', function (asser
 
 		// Test with numbers in names
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: 'John2'},
-			{last_name: 'Smith3'}
+			{ first_name: 'John2' },
+			{ last_name: 'Smith3' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -106,9 +106,9 @@ QUnit.test('test: Member - Enhanced Name Generation Edge Cases', function (asser
 
 		// Test with only last name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: ''},
-			{middle_name: ''},
-			{last_name: 'Madonna'}
+			{ first_name: '' },
+			{ middle_name: '' },
+			{ last_name: 'Madonna' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -121,8 +121,8 @@ QUnit.test('test: Member - Enhanced Name Generation Edge Cases', function (asser
 
 // ==================== EMAIL VALIDATION EDGE CASES ====================
 
-QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Email Validation Edge Cases', (assert) => {
+	const done = assert.async();
 	assert.expect(8);
 
 	frappe.run_serially([
@@ -137,7 +137,7 @@ QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
 
 		// Test email with subdomain
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'user@mail.example.com'}
+			{ email: 'user@mail.example.com' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -146,7 +146,7 @@ QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
 
 		// Test international domain
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'test@münchen.de'}
+			{ email: 'test@münchen.de' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -155,7 +155,7 @@ QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
 
 		// Test very long email
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'very.long.email.address.for.testing.purposes@very.long.domain.name.example.com'}
+			{ email: 'very.long.email.address.for.testing.purposes@very.long.domain.name.example.com' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -164,7 +164,7 @@ QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
 
 		// Test email case sensitivity
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'Test.EMAIL@EXAMPLE.COM'}
+			{ email: 'Test.EMAIL@EXAMPLE.COM' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -174,7 +174,7 @@ QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
 
 		// Test email with numbers
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'user123@example123.com'}
+			{ email: 'user123@example123.com' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -183,7 +183,7 @@ QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
 
 		// Test edge case with multiple dots
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'user.name.test@example.co.uk'}
+			{ email: 'user.name.test@example.co.uk' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -192,7 +192,7 @@ QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
 
 		// Test minimum length email
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'a@b.co'}
+			{ email: 'a@b.co' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -205,8 +205,8 @@ QUnit.test('test: Member - Email Validation Edge Cases', function (assert) {
 
 // ==================== PAYMENT METHOD EDGE CASES ====================
 
-QUnit.test('test: Member - Payment Method Edge Cases', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Payment Method Edge Cases', (assert) => {
+	const done = assert.async();
 	assert.expect(10);
 
 	frappe.run_serially([
@@ -217,48 +217,48 @@ QUnit.test('test: Member - Payment Method Edge Cases', function (assert) {
 
 		// Test Bank Transfer (should not require bank details)
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'Bank Transfer'}
+			{ payment_method: 'Bank Transfer' }
 		]),
 		() => frappe.timeout(1),
 		() => {
-			let bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
+			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
 			assert.ok(!bankSection.is(':visible') || bankSection.length === 0, 'Bank details should be hidden for Bank Transfer');
 
-			let ibanField = cur_frm.get_field('iban');
+			const ibanField = cur_frm.get_field('iban');
 			assert.ok(!ibanField.df.reqd, 'IBAN should not be required for Bank Transfer');
 		},
 
 		// Test SEPA Direct Debit (should require bank details)
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'SEPA Direct Debit'}
+			{ payment_method: 'SEPA Direct Debit' }
 		]),
 		() => frappe.timeout(1),
 		() => {
-			let bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
+			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
 			assert.ok(bankSection.is(':visible'), 'Bank details should be visible for SEPA Direct Debit');
 
-			let ibanField = cur_frm.get_field('iban');
+			const ibanField = cur_frm.get_field('iban');
 			assert.ok(ibanField.df.reqd, 'IBAN should be required for SEPA Direct Debit');
 		},
 
 		// Test switching back and forth rapidly
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'Bank Transfer'}
+			{ payment_method: 'Bank Transfer' }
 		]),
 		() => frappe.timeout(500),
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'SEPA Direct Debit'}
+			{ payment_method: 'SEPA Direct Debit' }
 		]),
 		() => frappe.timeout(500),
 		() => {
-			let bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
+			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
 			assert.ok(bankSection.is(':visible'), 'Bank details should remain visible after rapid switching');
 		},
 
 		// Test with existing IBAN when switching to Bank Transfer
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA0417164300'},
-			{payment_method: 'Bank Transfer'}
+			{ iban: 'NL91ABNA0417164300' },
+			{ payment_method: 'Bank Transfer' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -267,17 +267,17 @@ QUnit.test('test: Member - Payment Method Edge Cases', function (assert) {
 
 		// Test with empty payment method
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: ''}
+			{ payment_method: '' }
 		]),
 		() => frappe.timeout(1),
 		() => {
-			let bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
+			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
 			assert.ok(!bankSection.is(':visible') || bankSection.length === 0, 'Bank details should be hidden for empty payment method');
 		},
 
 		// Test with invalid payment method (if possible)
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'Invalid Method'}
+			{ payment_method: 'Invalid Method' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -287,11 +287,11 @@ QUnit.test('test: Member - Payment Method Edge Cases', function (assert) {
 
 		// Test Cash payment method (if available)
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'Cash'}
+			{ payment_method: 'Cash' }
 		]),
 		() => frappe.timeout(1),
 		() => {
-			let bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
+			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
 			assert.ok(!bankSection.is(':visible') || bankSection.length === 0, 'Bank details should be hidden for Cash payment');
 		},
 
@@ -301,8 +301,8 @@ QUnit.test('test: Member - Payment Method Edge Cases', function (assert) {
 
 // ==================== IBAN VALIDATION EDGE CASES ====================
 
-QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - IBAN Validation Edge Cases', (assert) => {
+	const done = assert.async();
 	assert.expect(15);
 
 	frappe.run_serially([
@@ -315,7 +315,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test valid Dutch IBAN
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA0417164300'}
+			{ iban: 'NL91ABNA0417164300' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -324,7 +324,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test valid German IBAN
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'DE89370400440532013000'}
+			{ iban: 'DE89370400440532013000' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -333,7 +333,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test valid French IBAN
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'FR1420041010050500013M02606'}
+			{ iban: 'FR1420041010050500013M02606' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -342,7 +342,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test IBAN with spaces (should be normalized)
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91 ABNA 0417 1643 00'}
+			{ iban: 'NL91 ABNA 0417 1643 00' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -352,7 +352,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test lowercase IBAN (should be normalized)
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'nl91abna0417164300'}
+			{ iban: 'nl91abna0417164300' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -361,7 +361,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test too short IBAN
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA'}
+			{ iban: 'NL91ABNA' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -371,7 +371,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test too long IBAN
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA0417164300EXTRALONG'}
+			{ iban: 'NL91ABNA0417164300EXTRALONG' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -380,7 +380,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test IBAN with invalid country code
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'XX91ABNA0417164300'}
+			{ iban: 'XX91ABNA0417164300' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -389,7 +389,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test IBAN with invalid check digits
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL00ABNA0417164300'}
+			{ iban: 'NL00ABNA0417164300' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -398,7 +398,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test empty IBAN with SEPA Direct Debit
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: ''}
+			{ iban: '' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -408,7 +408,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test IBAN with special characters
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91-ABNA-0417-1643-00'}
+			{ iban: 'NL91-ABNA-0417-1643-00' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -417,7 +417,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test very long valid IBAN (Malta has 31 characters)
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'MT84MALT011000012345MTLCAST001S'}
+			{ iban: 'MT84MALT011000012345MTLCAST001S' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -426,7 +426,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test IBAN with numbers only
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: '1234567890123456'}
+			{ iban: '1234567890123456' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -435,7 +435,7 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 		// Test IBAN with letters only
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NLABCDABCDABCDABCD'}
+			{ iban: 'NLABCDABCDABCDABCD' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -448,8 +448,8 @@ QUnit.test('test: Member - IBAN Validation Edge Cases', function (assert) {
 
 // ==================== SEPA MANDATE COMPLEX SCENARIOS ====================
 
-QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - SEPA Mandate Complex Scenarios', (assert) => {
+	const done = assert.async();
 	assert.expect(12);
 
 	frappe.run_serially([
@@ -464,7 +464,7 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test initial mandate creation
 		() => {
-			let dialogVisible = $('.modal-dialog:visible').length > 0;
+			const dialogVisible = $('.modal-dialog:visible').length > 0;
 			assert.ok(dialogVisible || true, 'Mandate dialog should appear for new SEPA Direct Debit setup');
 		},
 
@@ -477,7 +477,7 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test IBAN change with existing mandate
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'DE89370400440532013000'}
+			{ iban: 'DE89370400440532013000' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(2),
@@ -488,7 +488,7 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test bank account name change
 		() => frappe.tests.set_form_values(cur_frm, [
-			{bank_account_name: 'Updated Account Name'}
+			{ bank_account_name: 'Updated Account Name' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(2),
@@ -498,7 +498,7 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test switching from SEPA Direct Debit to Bank Transfer
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'Bank Transfer'}
+			{ payment_method: 'Bank Transfer' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
@@ -510,7 +510,7 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test switching back to SEPA Direct Debit
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'SEPA Direct Debit'}
+			{ payment_method: 'SEPA Direct Debit' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(2),
@@ -521,15 +521,15 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test rapid IBAN changes
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA0417164300'}
+			{ iban: 'NL91ABNA0417164300' }
 		]),
 		() => frappe.timeout(500),
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'FR1420041010050500013M02606'}
+			{ iban: 'FR1420041010050500013M02606' }
 		]),
 		() => frappe.timeout(500),
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA0417164300'}
+			{ iban: 'NL91ABNA0417164300' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(2),
@@ -539,7 +539,7 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test mandate with empty bank account name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{bank_account_name: ''}
+			{ bank_account_name: '' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(2),
@@ -550,7 +550,7 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test mandate with special characters in bank name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{bank_account_name: 'José María García-López & Associates'}
+			{ bank_account_name: 'José María García-López & Associates' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(2),
@@ -560,7 +560,7 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 		// Test very long bank account name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{bank_account_name: 'Very Long Bank Account Name That Exceeds Normal Limits For Testing Purposes'}
+			{ bank_account_name: 'Very Long Bank Account Name That Exceeds Normal Limits For Testing Purposes' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(2),
@@ -574,8 +574,8 @@ QUnit.test('test: Member - SEPA Mandate Complex Scenarios', function (assert) {
 
 // ==================== CHAPTER ASSIGNMENT EDGE CASES ====================
 
-QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Chapter Assignment Edge Cases', (assert) => {
+	const done = assert.async();
 	assert.expect(10);
 
 	frappe.run_serially([
@@ -590,7 +590,7 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test postal code notification
 		() => frappe.tests.set_form_values(cur_frm, [
-			{pincode: '5678CD'}
+			{ pincode: '5678CD' }
 		]),
 		() => frappe.timeout(2),
 		() => {
@@ -600,7 +600,7 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test invalid postal code format
 		() => frappe.tests.set_form_values(cur_frm, [
-			{pincode: '12345'}
+			{ pincode: '12345' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -609,7 +609,7 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test international postal code
 		() => frappe.tests.set_form_values(cur_frm, [
-			{pincode: '10115'}
+			{ pincode: '10115' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -618,7 +618,7 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test postal code with spaces
 		() => frappe.tests.set_form_values(cur_frm, [
-			{pincode: '1234 AB'}
+			{ pincode: '1234 AB' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -627,7 +627,7 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test chapter assignment
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: 'Test Chapter'}
+			{ current_chapter_display: 'Test Chapter' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -636,7 +636,7 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test chapter unassignment
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: ''}
+			{ current_chapter_display: '' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -645,7 +645,7 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test chapter assignment with long name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: 'Very Long Chapter Name That Might Cause Display Issues'}
+			{ current_chapter_display: 'Very Long Chapter Name That Might Cause Display Issues' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -654,7 +654,7 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test chapter assignment with special characters
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: 'Chapter München & Zürich'}
+			{ current_chapter_display: 'Chapter München & Zürich' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -663,15 +663,15 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 		// Test multiple rapid chapter changes
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: 'Chapter A'}
+			{ current_chapter_display: 'Chapter A' }
 		]),
 		() => frappe.timeout(200),
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: 'Chapter B'}
+			{ current_chapter_display: 'Chapter B' }
 		]),
 		() => frappe.timeout(200),
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: 'Chapter C'}
+			{ current_chapter_display: 'Chapter C' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -684,8 +684,8 @@ QUnit.test('test: Member - Chapter Assignment Edge Cases', function (assert) {
 
 // ==================== PAYMENT HISTORY EDGE CASES ====================
 
-QUnit.test('test: Member - Payment History Edge Cases', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Payment History Edge Cases', (assert) => {
+	const done = assert.async();
 	assert.expect(12);
 
 	frappe.run_serially([
@@ -696,107 +696,107 @@ QUnit.test('test: Member - Payment History Edge Cases', function (assert) {
 
 		// Test adding payment with future date
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
-			let future_date = frappe.datetime.add_days(frappe.datetime.get_today(), 30);
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const future_date = frappe.datetime.add_days(frappe.datetime.get_today(), 30);
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'transaction_date': future_date,
-				'amount': 100.00
+				transaction_date: future_date,
+				amount: 100.00
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.ok(payment.amount === 100.00, 'Should accept future payment date');
 		},
 
 		// Test adding payment with past date
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
-			let past_date = frappe.datetime.add_days(frappe.datetime.get_today(), -365);
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const past_date = frappe.datetime.add_days(frappe.datetime.get_today(), -365);
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'transaction_date': past_date,
-				'amount': 50.00
+				transaction_date: past_date,
+				amount: 50.00
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payments = cur_frm.doc.payment_history;
+			const payments = cur_frm.doc.payment_history;
 			assert.ok(payments.length >= 2, 'Should accept historical payment date');
 		},
 
 		// Test zero amount payment
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': 0.00
+				amount: 0.00
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.equal(payment.amount, 0.00, 'Should accept zero amount payment');
 		},
 
 		// Test negative amount payment
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': -25.00
+				amount: -25.00
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.equal(payment.amount, -25.00, 'Should accept negative amount (refund)');
 		},
 
 		// Test very large amount
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': 999999.99
+				amount: 999999.99
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.equal(payment.amount, 999999.99, 'Should accept large amounts');
 		},
 
 		// Test decimal precision
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': 12.345
+				amount: 12.345
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.ok(payment.amount >= 12.34 && payment.amount <= 12.35, 'Should handle decimal precision correctly');
 		},
 
 		// Test outstanding amount different from payment amount
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': 100.00,
-				'outstanding_amount': 75.00
+				amount: 100.00,
+				outstanding_amount: 75.00
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.equal(payment.outstanding_amount, 75.00, 'Should accept different outstanding amount');
 		},
 
 		// Test adding multiple payments quickly
 		() => {
 			for (let i = 0; i < 5; i++) {
-				let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+				const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 				frappe.model.set_value(payment_row.doctype, payment_row.name, {
-					'amount': (i + 1) * 10,
-					'transaction_date': frappe.datetime.add_days(frappe.datetime.get_today(), i)
+					amount: (i + 1) * 10,
+					transaction_date: frappe.datetime.add_days(frappe.datetime.get_today(), i)
 				});
 			}
 		},
@@ -807,28 +807,28 @@ QUnit.test('test: Member - Payment History Edge Cases', function (assert) {
 
 		// Test payment with very long description
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': 25.00,
-				'notes': 'Very long payment description that might exceed normal field limits and could potentially cause display or storage issues in the system'
+				amount: 25.00,
+				notes: 'Very long payment description that might exceed normal field limits and could potentially cause display or storage issues in the system'
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.ok(payment.notes && payment.notes.length > 50, 'Should handle long payment descriptions');
 		},
 
 		// Test payment without date (should default to today)
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': 15.00
+				amount: 15.00
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.ok(payment.transaction_date === frappe.datetime.get_today() || payment.transaction_date, 'Should set default date for payment');
 		},
 
@@ -838,8 +838,8 @@ QUnit.test('test: Member - Payment History Edge Cases', function (assert) {
 
 // ==================== ERROR HANDLING AND RECOVERY TESTS ====================
 
-QUnit.test('test: Member - Error Handling and Recovery', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Error Handling and Recovery', (assert) => {
+	const done = assert.async();
 	assert.expect(8);
 
 	frappe.run_serially([
@@ -871,9 +871,9 @@ QUnit.test('test: Member - Error Handling and Recovery', function (assert) {
 
 		// Test with very long field values
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: 'A'.repeat(200)},
-			{last_name: 'B'.repeat(200)},
-			{email: 'test@' + 'verylongdomain'.repeat(20) + '.com'}
+			{ first_name: 'A'.repeat(200) },
+			{ last_name: 'B'.repeat(200) },
+			{ email: `test@${'verylongdomain'.repeat(20)}.com` }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -884,8 +884,8 @@ QUnit.test('test: Member - Error Handling and Recovery', function (assert) {
 		() => {
 			try {
 				frappe.tests.set_form_values(cur_frm, [
-					{first_name: null},
-					{middle_name: undefined}
+					{ first_name: null },
+					{ middle_name: undefined }
 				]);
 			} catch (e) {
 				// Should handle null/undefined gracefully
@@ -900,7 +900,7 @@ QUnit.test('test: Member - Error Handling and Recovery', function (assert) {
 		() => {
 			for (let i = 0; i < 10; i++) {
 				frappe.tests.set_form_values(cur_frm, [
-					{first_name: 'Name' + i}
+					{ first_name: `Name${i}` }
 				]);
 			}
 		},
@@ -926,9 +926,9 @@ QUnit.test('test: Member - Error Handling and Recovery', function (assert) {
 		() => {
 			// Test with various data types
 			frappe.tests.set_form_values(cur_frm, [
-				{first_name: 123}, // Number as string
-				{mobile_no: ''},
-				{pincode: 'ABC123'}
+				{ first_name: 123 }, // Number as string
+				{ mobile_no: '' },
+				{ pincode: 'ABC123' }
 			]);
 		},
 		() => frappe.timeout(1),
@@ -939,8 +939,8 @@ QUnit.test('test: Member - Error Handling and Recovery', function (assert) {
 		// Test network error simulation
 		() => {
 			// Simulate form behavior when network requests fail
-			let originalCall = frappe.call;
-			frappe.call = function() {
+			const originalCall = frappe.call;
+			frappe.call = function () {
 				return Promise.reject(new Error('Network error'));
 			};
 
@@ -966,17 +966,17 @@ QUnit.test('test: Member - Error Handling and Recovery', function (assert) {
 
 // ==================== PERFORMANCE AND LOAD TESTS ====================
 
-QUnit.test('test: Member - Performance and Load Tests', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Performance and Load Tests', (assert) => {
+	const done = assert.async();
 	assert.expect(6);
 
 	frappe.run_serially([
 		// Test form initialization time
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 			cur_frm = new frappe.ui.form.Form('Member', null, true);
-			let end = performance.now();
-			let initTime = end - start;
+			const end = performance.now();
+			const initTime = end - start;
 			assert.ok(initTime < 1000, 'Form initialization should complete within 1 second');
 		},
 
@@ -985,49 +985,49 @@ QUnit.test('test: Member - Performance and Load Tests', function (assert) {
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 
 			// Add 100 payment history entries
 			for (let i = 0; i < 100; i++) {
-				let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+				const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 				frappe.model.set_value(payment_row.doctype, payment_row.name, {
-					'amount': Math.random() * 100,
-					'transaction_date': frappe.datetime.add_days(frappe.datetime.get_today(), -i)
+					amount: Math.random() * 100,
+					transaction_date: frappe.datetime.add_days(frappe.datetime.get_today(), -i)
 				});
 			}
 
-			let end = performance.now();
-			let addTime = end - start;
+			const end = performance.now();
+			const addTime = end - start;
 			assert.ok(addTime < 2000, 'Adding 100 payment entries should complete within 2 seconds');
 		},
 
 		// Test form refresh performance with large dataset
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 			cur_frm.refresh();
-			let end = performance.now();
-			let refreshTime = end - start;
+			const end = performance.now();
+			const refreshTime = end - start;
 			assert.ok(refreshTime < 1000, 'Form refresh with large dataset should complete within 1 second');
 		},
 
 		// Test rapid field updates performance
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 
 			for (let i = 0; i < 50; i++) {
 				frappe.tests.set_form_values(cur_frm, [
-					{first_name: 'Performance' + i}
+					{ first_name: `Performance${i}` }
 				]);
 			}
 
-			let end = performance.now();
-			let updateTime = end - start;
+			const end = performance.now();
+			const updateTime = end - start;
 			assert.ok(updateTime < 1000, '50 rapid field updates should complete within 1 second');
 		},
 
 		// Test memory usage with multiple form instances
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 			let forms = [];
 
 			for (let i = 0; i < 10; i++) {
@@ -1038,14 +1038,14 @@ QUnit.test('test: Member - Performance and Load Tests', function (assert) {
 			forms.forEach(form => form = null);
 			forms = null;
 
-			let end = performance.now();
-			let memoryTime = end - start;
+			const end = performance.now();
+			const memoryTime = end - start;
 			assert.ok(memoryTime < 1000, 'Creating/destroying 10 forms should complete within 1 second');
 		},
 
 		// Test utility function performance
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 
 			// Test utility functions if available
 			if (typeof UIUtils !== 'undefined') {
@@ -1054,8 +1054,8 @@ QUnit.test('test: Member - Performance and Load Tests', function (assert) {
 				}
 			}
 
-			let end = performance.now();
-			let utilTime = end - start;
+			const end = performance.now();
+			const utilTime = end - start;
 			assert.ok(utilTime < 500, 'Utility function calls should be fast');
 		},
 
@@ -1065,8 +1065,8 @@ QUnit.test('test: Member - Performance and Load Tests', function (assert) {
 
 // ==================== ACCESSIBILITY AND USABILITY TESTS ====================
 
-QUnit.test('test: Member - Accessibility and Usability', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Accessibility and Usability', (assert) => {
+	const done = assert.async();
 	assert.expect(8);
 
 	frappe.run_serially([
@@ -1077,26 +1077,26 @@ QUnit.test('test: Member - Accessibility and Usability', function (assert) {
 
 		// Test keyboard navigation
 		() => {
-			let firstNameField = cur_frm.get_field('first_name');
+			const firstNameField = cur_frm.get_field('first_name');
 			assert.ok(firstNameField.$input.is(':focusable'), 'First name field should be focusable');
 		},
 
 		// Test required field indicators
 		() => {
-			let emailField = cur_frm.get_field('email');
+			const emailField = cur_frm.get_field('email');
 			assert.ok(emailField.df.reqd || emailField.$wrapper.find('.reqd').length > 0, 'Required fields should be visually indicated');
 		},
 
 		// Test form labels
 		() => {
-			let firstNameField = cur_frm.get_field('first_name');
-			let hasLabel = firstNameField.$wrapper.find('label').length > 0 || firstNameField.df.label;
+			const firstNameField = cur_frm.get_field('first_name');
+			const hasLabel = firstNameField.$wrapper.find('label').length > 0 || firstNameField.df.label;
 			assert.ok(hasLabel, 'Fields should have proper labels');
 		},
 
 		// Test error message display
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'invalid-email'}
+			{ email: 'invalid-email' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -1106,27 +1106,27 @@ QUnit.test('test: Member - Accessibility and Usability', function (assert) {
 
 		// Test button accessibility
 		() => {
-			let buttons = cur_frm.page.inner_toolbar.find('button');
-			let hasAccessibleButtons = buttons.length === 0 || buttons.first().attr('type') !== undefined;
+			const buttons = cur_frm.page.inner_toolbar.find('button');
+			const hasAccessibleButtons = buttons.length === 0 || buttons.first().attr('type') !== undefined;
 			assert.ok(hasAccessibleButtons || buttons.length > 0, 'Buttons should be properly marked up');
 		},
 
 		// Test color contrast (basic check)
 		() => {
-			let backgroundColor = $('body').css('background-color');
-			let textColor = $('body').css('color');
+			const backgroundColor = $('body').css('background-color');
+			const textColor = $('body').css('color');
 			assert.ok(backgroundColor && textColor, 'Should have proper color styling');
 		},
 
 		// Test responsive design elements
 		() => {
-			let formWidth = cur_frm.$wrapper.width();
+			const formWidth = cur_frm.$wrapper.width();
 			assert.ok(formWidth > 0, 'Form should have proper width');
 		},
 
 		// Test help text and tooltips
 		() => {
-			let fieldsWithHelp = cur_frm.fields.filter(field => field.df.description);
+			const fieldsWithHelp = cur_frm.fields.filter(field => field.df.description);
 			assert.ok(fieldsWithHelp.length >= 0, 'Should support help text for fields');
 		},
 
@@ -1136,8 +1136,8 @@ QUnit.test('test: Member - Accessibility and Usability', function (assert) {
 
 // ==================== INTEGRATION WORKFLOW TESTS ====================
 
-QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Complete Workflow Integration', (assert) => {
+	const done = assert.async();
 	assert.expect(15);
 
 	frappe.run_serially([
@@ -1163,18 +1163,18 @@ QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
 
 		// Setup payment method
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'SEPA Direct Debit'}
+			{ payment_method: 'SEPA Direct Debit' }
 		]),
 		() => frappe.timeout(1),
 		() => {
-			let bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
+			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
 			assert.ok(bankSection.is(':visible'), 'Bank details section should appear');
 		},
 
 		// Add bank details
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA0417164300'},
-			{bank_account_name: 'Workflow Test Account'}
+			{ iban: 'NL91ABNA0417164300' },
+			{ bank_account_name: 'Workflow Test Account' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(2),
@@ -1185,7 +1185,7 @@ QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
 
 		// Handle any mandate dialog
 		() => {
-			let dialog = $('.modal-dialog:visible');
+			const dialog = $('.modal-dialog:visible');
 			if (dialog.length > 0) {
 				dialog.find('.btn-primary').click();
 			}
@@ -1194,9 +1194,9 @@ QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
 
 		// Add address information
 		() => frappe.tests.set_form_values(cur_frm, [
-			{pincode: '1234AB'},
-			{city: 'Amsterdam'},
-			{state: 'North Holland'}
+			{ pincode: '1234AB' },
+			{ city: 'Amsterdam' },
+			{ state: 'North Holland' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -1205,7 +1205,7 @@ QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
 
 		// Assign chapter
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: 'Amsterdam Chapter'}
+			{ current_chapter_display: 'Amsterdam Chapter' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -1214,11 +1214,11 @@ QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
 
 		// Add payment history
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': 25.00,
-				'transaction_date': frappe.datetime.get_today(),
-				'payment_method': 'SEPA Direct Debit'
+				amount: 25.00,
+				transaction_date: frappe.datetime.get_today(),
+				payment_method: 'SEPA Direct Debit'
 			});
 		},
 		() => frappe.timeout(1),
@@ -1228,7 +1228,7 @@ QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
 
 		// Create customer (if button exists)
 		() => {
-			let customerBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Create Customer")');
+			const customerBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Create Customer")');
 			if (customerBtn.length > 0) {
 				// Would trigger customer creation
 				assert.ok(true, 'Customer creation should be available');
@@ -1239,7 +1239,7 @@ QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
 
 		// Create volunteer (if button exists)
 		() => {
-			let volunteerBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Create Volunteer")');
+			const volunteerBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Create Volunteer")');
 			if (volunteerBtn.length > 0) {
 				assert.ok(true, 'Volunteer creation should be available');
 			} else {
@@ -1250,7 +1250,7 @@ QUnit.test('test: Member - Complete Workflow Integration', function (assert) {
 		// Test payment processing workflow
 		() => {
 			if (cur_frm.doc.payment_status !== 'Paid') {
-				let processBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Process Payment")');
+				const processBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Process Payment")');
 				assert.ok(processBtn.length > 0 || true, 'Payment processing should be available for unpaid members');
 			} else {
 				assert.ok(true, 'Member already marked as paid');

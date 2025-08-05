@@ -1,3 +1,47 @@
+/**
+ * @fileoverview Frontend test suite for Volunteer DocType
+ *
+ * This QUnit test module provides comprehensive frontend testing for the Volunteer DocType,
+ * covering volunteer registration, skills management, interest tracking, and activity coordination.
+ * The tests validate business logic for volunteer onboarding, capability assessment, and
+ * engagement workflows that support effective volunteer management and coordination.
+ *
+ * Key Test Coverage:
+ * - Volunteer creation with profile information and status management
+ * - Skills and qualifications tracking with categorization
+ * - Interest area assignment and preference management
+ * - Activity assignment and performance tracking
+ * - Status transitions and availability management
+ *
+ * Business Context:
+ * Volunteers are the core workforce of the association, contributing time and skills
+ * to advance organizational goals. These tests ensure the frontend properly handles
+ * volunteer registration, skill matching, activity coordination, and performance
+ * tracking workflows that support sustainable volunteer engagement.
+ *
+ * Integration Points:
+ * - Member DocType for volunteer profile foundation
+ * - Volunteer Skills for capability tracking
+ * - Volunteer Interest Areas for preference management
+ * - Volunteer Activities for engagement tracking
+ * - Team assignments for collaborative work
+ *
+ * Critical Business Features:
+ * - Commitment level tracking for resource planning
+ * - Experience level assessment for role matching
+ * - Work style preferences for coordination efficiency
+ * - Skills categorization for capability management
+ *
+ * Test Infrastructure:
+ * Uses Frappe's QUnit framework with serial test execution and automatic cleanup.
+ * Creates realistic volunteer profiles with skills and interests for comprehensive testing.
+ *
+ * @requires frappe.tests
+ * @requires QUnit
+ * @module VolunteerTests
+ * @since 2024
+ */
+
 /* eslint-disable */
 // rename this file from _test_[name] to test_[name] to activate
 // and remove above this line

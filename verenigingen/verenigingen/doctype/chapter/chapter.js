@@ -64,7 +64,7 @@ frappe.ui.form.on('Chapter', {
 	 *
 	 * @param {Object} frm - Frappe Form object for chapter document
 	 */
-	onload: function(frm) {
+	onload(frm) {
 		// Initialize chapter form functionality
 		if (!frm._chapter_initialized) {
 			setup_chapter_form(frm);
@@ -87,7 +87,7 @@ frappe.ui.form.on('Chapter', {
 	 *
 	 * @param {Object} frm - Form object containing chapter data
 	 */
-	refresh: function(frm) {
+	refresh(frm) {
 		setup_chapter_buttons(frm);
 		update_chapter_ui(frm);
 		setup_board_grid(frm);
@@ -102,7 +102,7 @@ frappe.ui.form.on('Chapter', {
 	 * @param {Object} frm - Form object to validate
 	 * @returns {boolean} True if validation passes, false otherwise
 	 */
-	validate: function(frm) {
+	validate(frm) {
 		return validate_chapter_form(frm);
 	},
 
@@ -115,7 +115,7 @@ frappe.ui.form.on('Chapter', {
 	 * @param {Object} frm - Form object being saved
 	 * @returns {boolean} True to continue save, false to abort
 	 */
-	before_save: function(frm) {
+	before_save(frm) {
 		return prepare_chapter_save(frm);
 	},
 
@@ -127,7 +127,7 @@ frappe.ui.form.on('Chapter', {
 	 *
 	 * @param {Object} frm - Saved form object
 	 */
-	after_save: function(frm) {
+	after_save(frm) {
 		handle_chapter_after_save(frm);
 	},
 
@@ -141,7 +141,7 @@ frappe.ui.form.on('Chapter', {
 	 *
 	 * @param {Object} frm - Form object with postal code data
 	 */
-	postal_codes: function(frm) {
+	postal_codes(frm) {
 		validate_postal_codes(frm);
 	},
 
@@ -153,7 +153,7 @@ frappe.ui.form.on('Chapter', {
 	 *
 	 * @param {Object} frm - Form object with chapter head assignment
 	 */
-	chapter_head: function(frm) {
+	chapter_head(frm) {
 		validate_chapter_head(frm);
 	},
 
@@ -165,7 +165,7 @@ frappe.ui.form.on('Chapter', {
 	 *
 	 * @param {Object} frm - Form object with region data
 	 */
-	region: function(frm) {
+	region(frm) {
 		handle_region_change(frm);
 	},
 
@@ -177,7 +177,7 @@ frappe.ui.form.on('Chapter', {
 	 *
 	 * @param {Object} frm - Form object with publication status
 	 */
-	published: function(frm) {
+	published(frm) {
 		handle_published_change(frm);
 	}
 });
@@ -200,7 +200,7 @@ frappe.ui.form.on('Chapter Board Member', {
 	 * @param {string} cdt - Child DocType name ('Chapter Board Member')
 	 * @param {string} cdn - Child document name/ID
 	 */
-	board_members_add: function(frm, cdt, cdn) {
+	board_members_add(frm, cdt, cdn) {
 		handle_board_member_add(frm, cdt, cdn);
 	},
 
@@ -214,7 +214,7 @@ frappe.ui.form.on('Chapter Board Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	board_members_remove: function(frm, cdt, cdn) {
+	board_members_remove(frm, cdt, cdn) {
 		handle_board_member_remove(frm, cdt, cdn);
 	},
 
@@ -228,7 +228,7 @@ frappe.ui.form.on('Chapter Board Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	volunteer: function(frm, cdt, cdn) {
+	volunteer(frm, cdt, cdn) {
 		handle_volunteer_change(frm, cdt, cdn);
 	},
 
@@ -242,7 +242,7 @@ frappe.ui.form.on('Chapter Board Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	chapter_role: function(frm, cdt, cdn) {
+	chapter_role(frm, cdt, cdn) {
 		handle_role_change(frm, cdt, cdn);
 	},
 
@@ -256,7 +256,7 @@ frappe.ui.form.on('Chapter Board Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	from_date: function(frm, cdt, cdn) {
+	from_date(frm, cdt, cdn) {
 		handle_date_change(frm, cdt, cdn, 'from_date');
 	},
 
@@ -270,7 +270,7 @@ frappe.ui.form.on('Chapter Board Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	to_date: function(frm, cdt, cdn) {
+	to_date(frm, cdt, cdn) {
 		handle_date_change(frm, cdt, cdn, 'to_date');
 	},
 
@@ -284,7 +284,7 @@ frappe.ui.form.on('Chapter Board Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	is_active: function(frm, cdt, cdn) {
+	is_active(frm, cdt, cdn) {
 		handle_active_change(frm, cdt, cdn);
 	}
 });
@@ -306,7 +306,7 @@ frappe.ui.form.on('Chapter Member', {
 	 * @param {string} cdt - Child DocType name ('Chapter Member')
 	 * @param {string} cdn - Child document name/ID
 	 */
-	members_add: function(frm, cdt, cdn) {
+	members_add(frm, cdt, cdn) {
 		handle_member_add(frm, cdt, cdn);
 	},
 
@@ -320,7 +320,7 @@ frappe.ui.form.on('Chapter Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	members_remove: function(frm, cdt, cdn) {
+	members_remove(frm, cdt, cdn) {
 		handle_member_remove(frm, cdt, cdn);
 	},
 
@@ -334,7 +334,7 @@ frappe.ui.form.on('Chapter Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	member: function(frm, cdt, cdn) {
+	member(frm, cdt, cdn) {
 		handle_member_change(frm, cdt, cdn);
 	},
 
@@ -348,7 +348,7 @@ frappe.ui.form.on('Chapter Member', {
 	 * @param {string} cdt - Child DocType name
 	 * @param {string} cdn - Child document name/ID
 	 */
-	enabled: function(frm, cdt, cdn) {
+	enabled(frm, cdt, cdn) {
 		handle_enabled_change(frm, cdt, cdn);
 	}
 });
@@ -366,26 +366,26 @@ function setup_chapter_buttons(frm) {
 
 	if (!frm.doc.__islocal) {
 		// Add navigation buttons
-		frm.add_custom_button(__('View Members'), function() {
+		frm.add_custom_button(__('View Members'), () => {
 			view_chapter_members(frm);
 		}, __('View'));
 
 		if (frm.doc.current_sepa_mandate) {
-			frm.add_custom_button(__('Current SEPA Mandate'), function() {
+			frm.add_custom_button(__('Current SEPA Mandate'), () => {
 				frappe.set_route('Form', 'SEPA Mandate', frm.doc.current_sepa_mandate);
 			}, __('View'));
 		}
 
 		// Add board management buttons
-		frm.add_custom_button(__('Manage Board Members'), function() {
+		frm.add_custom_button(__('Manage Board Members'), () => {
 			show_board_management_dialog(frm);
 		}, __('Board'));
 
-		frm.add_custom_button(__('View Board History'), function() {
+		frm.add_custom_button(__('View Board History'), () => {
 			show_board_history(frm);
 		}, __('Board'));
 
-		frm.add_custom_button(__('Sync with Volunteer System'), function() {
+		frm.add_custom_button(__('Sync with Volunteer System'), () => {
 			sync_board_with_volunteers(frm);
 		}, __('Board'));
 	}
@@ -400,18 +400,18 @@ function update_chapter_ui(frm) {
 function setup_board_grid(frm) {
 	// Set up board members grid
 	if (frm.fields_dict.board_members && frm.fields_dict.board_members.grid) {
-		frm.fields_dict.board_members.grid.get_field('volunteer').get_query = function() {
+		frm.fields_dict.board_members.grid.get_field('volunteer').get_query = function () {
 			return {
 				filters: {
-					'status': ['in', ['Active', 'New']]
+					status: ['in', ['Active', 'New']]
 				}
 			};
 		};
 
-		frm.fields_dict.board_members.grid.get_field('chapter_role').get_query = function() {
+		frm.fields_dict.board_members.grid.get_field('chapter_role').get_query = function () {
 			return {
 				filters: {
-					'is_active': 1
+					is_active: 1
 				}
 			};
 		};
@@ -436,7 +436,7 @@ function validate_chapter_form(frm) {
 function prepare_chapter_save(frm) {
 	// Prepare data before save
 	if (!frm.doc.route && frm.doc.name) {
-		frm.doc.route = 'chapters/' + frappe.scrub(frm.doc.name);
+		frm.doc.route = `chapters/${frappe.scrub(frm.doc.name)}`;
 	}
 
 	return true;
@@ -450,13 +450,13 @@ function handle_chapter_after_save(frm) {
 }
 
 function validate_postal_codes(frm) {
-	if (!frm.doc.postal_codes) return true;
+	if (!frm.doc.postal_codes) { return true; }
 
 	try {
 		frappe.call({
 			method: 'validate_postal_codes',
 			doc: frm.doc,
-			callback: function(r) {
+			callback(r) {
 				if (!r.message) {
 					frappe.msgprint({
 						title: __('Invalid Postal Codes'),
@@ -465,7 +465,7 @@ function validate_postal_codes(frm) {
 					});
 				}
 			},
-			error: function(r) {
+			error(r) {
 				frappe.msgprint(__('Error validating postal codes: {0}', [r.message]));
 			}
 		});
@@ -478,7 +478,7 @@ function validate_postal_codes(frm) {
 
 function validate_chapter_head(frm) {
 	if (frm.doc.chapter_head) {
-		frappe.db.get_value('Member', frm.doc.chapter_head, 'status', function(r) {
+		frappe.db.get_value('Member', frm.doc.chapter_head, 'status', (r) => {
 			if (r && r.status !== 'Active') {
 				frappe.msgprint(__('Warning: Selected chapter head is not an active member'));
 			}
@@ -518,7 +518,7 @@ function suggest_postal_codes_for_region(frm) {
 			fields: ['postal_codes'],
 			limit_page_length: 5
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.length > 0) {
 				const all_codes = new Set();
 				r.message.forEach(chapter => {
@@ -538,7 +538,7 @@ function suggest_postal_codes_for_region(frm) {
 				}
 			}
 		},
-		error: function(r) {
+		error(r) {
 			console.error('Error suggesting postal codes:', r);
 		}
 	});
@@ -560,7 +560,7 @@ function handle_board_member_remove(frm, cdt, cdn) {
 function handle_volunteer_change(frm, cdt, cdn) {
 	const row = locals[cdt][cdn];
 	if (row.volunteer) {
-		frappe.db.get_value('Volunteer', row.volunteer, ['volunteer_name', 'email'], function(r) {
+		frappe.db.get_value('Volunteer', row.volunteer, ['volunteer_name', 'email'], (r) => {
 			if (r) {
 				frappe.model.set_value(cdt, cdn, 'volunteer_name', r.volunteer_name);
 				frappe.model.set_value(cdt, cdn, 'email', r.email);
@@ -639,10 +639,10 @@ function setup_postal_code_validation(frm) {
 
 function setup_member_filters(frm) {
 	// Set up member field filters
-	frm.set_query('chapter_head', function() {
+	frm.set_query('chapter_head', () => {
 		return {
 			filters: {
-				'status': 'Active'
+				status: 'Active'
 			}
 		};
 	});
@@ -669,10 +669,10 @@ function show_board_management_dialog(frm) {
 				fieldtype: 'Link',
 				options: 'Volunteer',
 				reqd: 1,
-				get_query: function() {
+				get_query() {
 					return {
 						filters: {
-							'status': ['in', ['Active', 'New']]
+							status: ['in', ['Active', 'New']]
 						}
 					};
 				}
@@ -683,10 +683,10 @@ function show_board_management_dialog(frm) {
 				fieldtype: 'Link',
 				options: 'Chapter Role',
 				reqd: 1,
-				get_query: function() {
+				get_query() {
 					return {
 						filters: {
-							'is_active': 1
+							is_active: 1
 						}
 					};
 				}
@@ -705,9 +705,9 @@ function show_board_management_dialog(frm) {
 			}
 		],
 		primary_action_label: __('Add Board Member'),
-		primary_action: function() {
+		primary_action() {
 			const values = d.get_values();
-			if (!values) return;
+			if (!values) { return; }
 
 			frappe.call({
 				method: 'add_board_member',
@@ -720,7 +720,7 @@ function show_board_management_dialog(frm) {
 				},
 				freeze: true,
 				freeze_message: __('Adding board member...'),
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.success) {
 						frappe.show_alert({
 							message: __('Board member added successfully'),
@@ -730,7 +730,7 @@ function show_board_management_dialog(frm) {
 						d.hide();
 					}
 				},
-				error: function(r) {
+				error(r) {
 					frappe.msgprint(__('Error adding board member: {0}', [r.message]));
 				}
 			});
@@ -747,12 +747,12 @@ function show_board_history(frm) {
 		args: {
 			include_inactive: true
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				show_board_history_dialog(r.message);
 			}
 		},
-		error: function(r) {
+		error(r) {
 			frappe.msgprint(__('Error loading board history: {0}', [r.message]));
 		}
 	});
@@ -766,7 +766,7 @@ function show_board_history_dialog(board_history) {
 			options: render_board_history_html(board_history)
 		}],
 		primary_action_label: __('Close'),
-		primary_action: function() {
+		primary_action() {
 			d.hide();
 		}
 	});
@@ -778,21 +778,21 @@ function render_board_history_html(board_history) {
 	let html = '<div class="board-history">';
 	html += '<table class="table table-bordered">';
 	html += '<thead><tr>';
-	html += '<th>' + __('Volunteer') + '</th>';
-	html += '<th>' + __('Role') + '</th>';
-	html += '<th>' + __('From') + '</th>';
-	html += '<th>' + __('To') + '</th>';
-	html += '<th>' + __('Status') + '</th>';
+	html += `<th>${__('Volunteer')}</th>`;
+	html += `<th>${__('Role')}</th>`;
+	html += `<th>${__('From')}</th>`;
+	html += `<th>${__('To')}</th>`;
+	html += `<th>${__('Status')}</th>`;
 	html += '</tr></thead><tbody>';
 
 	board_history.forEach(member => {
 		html += '<tr>';
-		html += '<td>' + (member.volunteer_name || '') + '</td>';
-		html += '<td>' + (member.chapter_role || '') + '</td>';
-		html += '<td>' + (member.from_date ? frappe.datetime.str_to_user(member.from_date) : '') + '</td>';
-		html += '<td>' + (member.to_date ? frappe.datetime.str_to_user(member.to_date) : __('Present')) + '</td>';
-		html += '<td><span class="indicator ' + (member.is_active ? 'green' : 'red') + '">' +
-               (member.is_active ? __('Active') : __('Inactive')) + '</span></td>';
+		html += `<td>${member.volunteer_name || ''}</td>`;
+		html += `<td>${member.chapter_role || ''}</td>`;
+		html += `<td>${member.from_date ? frappe.datetime.str_to_user(member.from_date) : ''}</td>`;
+		html += `<td>${member.to_date ? frappe.datetime.str_to_user(member.to_date) : __('Present')}</td>`;
+		html += `<td><span class="indicator ${member.is_active ? 'green' : 'red'}">${
+			member.is_active ? __('Active') : __('Inactive')}</span></td>`;
 		html += '</tr>';
 	});
 
@@ -806,7 +806,7 @@ function sync_board_with_volunteers(frm) {
 		doc: frm.doc,
 		freeze: true,
 		freeze_message: __('Syncing with volunteer system...'),
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				frappe.show_alert({
 					message: __('Board members synced successfully'),
@@ -815,7 +815,7 @@ function sync_board_with_volunteers(frm) {
 				frm.refresh();
 			}
 		},
-		error: function(r) {
+		error(r) {
 			frappe.msgprint(__('Error syncing board members: {0}', [r.message]));
 		}
 	});

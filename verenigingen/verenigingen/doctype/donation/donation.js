@@ -78,9 +78,9 @@ frappe.ui.form.on('Donation', {
 	 * // Automatically called when donation form is displayed:
 	 * // Shows "Create Payment Entry" button for submitted unpaid donations
 	 */
-	refresh: function(frm) {
+	refresh(frm) {
 		if (frm.doc.docstatus === 1 && !frm.doc.paid) {
-			frm.add_custom_button(__('Create Payment Entry'), function() {
+			frm.add_custom_button(__('Create Payment Entry'), () => {
 				frm.events.make_payment_entry(frm);
 			});
 		}
@@ -118,17 +118,17 @@ frappe.ui.form.on('Donation', {
 	 * // Called when user clicks "Create Payment Entry" button:
 	 * // Generates Payment Entry and redirects to form for completion
 	 */
-	make_payment_entry: function(frm) {
+	make_payment_entry(frm) {
 		return frappe.call({
 			method: 'verenigingen.utils.payment_utils.get_donation_payment_entry',
 			args: {
-				'dt': frm.doc.doctype,
-				'dn': frm.doc.name
+				dt: frm.doc.doctype,
+				dn: frm.doc.name
 			},
-			callback: function(r) {
-				var doc = frappe.model.sync(r.message);
+			callback(r) {
+				const doc = frappe.model.sync(r.message);
 				frappe.set_route('Form', doc[0].doctype, doc[0].name);
 			}
 		});
-	},
+	}
 });

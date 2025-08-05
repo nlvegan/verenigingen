@@ -1,3 +1,46 @@
+/**
+ * @fileoverview Member List View customizations with comprehensive status management
+ *
+ * Provides advanced list view customizations for the Member DocType, featuring
+ * sophisticated status tracking, application lifecycle management, and enhanced
+ * filtering capabilities. This configuration transforms the default list view
+ * into a powerful member management dashboard.
+ *
+ * Key Features:
+ * - Dual status tracking (member status + application status)
+ * - Visual status indicators with emojis and color coding
+ * - Advanced filtering for new members and status changes
+ * - Automatic status synchronization tools
+ * - Quick access to member reports and analytics
+ * - Application review workflow integration
+ * - Chapter assignment change tracking
+ *
+ * Status Management:
+ * - Application status tracking for frontend applications
+ * - Member status management for backend members
+ * - Visual distinction between application and member records
+ * - Automated status synchronization tools
+ * - Recent activity highlighting (7-day and 30-day markers)
+ * - Chapter assignment change detection
+ *
+ * Business Context:
+ * Essential for membership administrators managing the complete member lifecycle
+ * from application through active membership to termination. Provides clear
+ * visibility into pending applications, new member onboarding progress,
+ * and member status changes for effective membership management.
+ *
+ * Integration:
+ * - Connects to Member and Membership Application DocTypes
+ * - Integrates with application review workflows
+ * - Links to member analytics and reporting
+ * - Supports chapter assignment management
+ * - Enables bulk member operations and status fixes
+ *
+ * @author Verenigingen Development Team
+ * @version 2.8.0
+ * @since 2024-09-15
+ */
+
 // Copyright (c) 2025, Your Name and contributors
 // For license information, please see license.txt
 
@@ -9,7 +52,7 @@ frappe.listview_settings['Member'] = {
 	add_fields: ['status', 'chapter_assigned_date', 'creation', 'application_id', 'application_status'],
 
 	// Auto refresh when data changes
-	refresh: function(listview) {
+	refresh(listview) {
 		// Force refresh of list view data to show updated statuses
 		if (listview && listview.refresh) {
 			listview.refresh();
@@ -21,7 +64,7 @@ frappe.listview_settings['Member'] = {
 
 	// ==================== STATUS INDICATORS ====================
 
-	get_indicator: function(doc) {
+	get_indicator(doc) {
 		// Check if this is an application-created member
 		const is_application_member = !!doc.application_id;
 
@@ -50,14 +93,14 @@ frappe.listview_settings['Member'] = {
 
 		// Primary status based on member status field
 		const status_indicators = {
-			'Pending': ['yellow', is_application_member ? 'Pending Application' : 'Pending Member'],
-			'Active': ['green', 'Active Member'],
-			'Rejected': ['red', 'Application Rejected'],
-			'Expired': ['orange', 'Membership Expired'],
-			'Suspended': ['dark grey', 'Account Suspended'],
-			'Banned': ['black', 'Permanently Banned'],
-			'Deceased': ['purple', 'Deceased'],
-			'Terminated': ['red', 'Membership Terminated']
+			Pending: ['yellow', is_application_member ? 'Pending Application' : 'Pending Member'],
+			Active: ['green', 'Active Member'],
+			Rejected: ['red', 'Application Rejected'],
+			Expired: ['orange', 'Membership Expired'],
+			Suspended: ['dark grey', 'Account Suspended'],
+			Banned: ['black', 'Permanently Banned'],
+			Deceased: ['purple', 'Deceased'],
+			Terminated: ['red', 'Membership Terminated']
 		};
 
 		// Get indicator for main status
@@ -66,10 +109,10 @@ frappe.listview_settings['Member'] = {
 		// Only override with application status for application-created members
 		if (is_application_member && doc.application_status && doc.application_status !== 'Active') {
 			const app_status_indicators = {
-				'Pending': ['yellow', 'Application Pending Review'],
+				Pending: ['yellow', 'Application Pending Review'],
 				'Under Review': ['blue', 'Under Review'],
-				'Approved': ['light-blue', 'Approved - Awaiting Payment'],
-				'Rejected': ['red', 'Application Rejected'],
+				Approved: ['light-blue', 'Approved - Awaiting Payment'],
+				Rejected: ['red', 'Application Rejected'],
 				'Payment Failed': ['orange', 'Payment Failed'],
 				'Payment Cancelled': ['grey', 'Payment Cancelled'],
 				'Payment Pending': ['orange', 'Payment Pending']
@@ -85,15 +128,15 @@ frappe.listview_settings['Member'] = {
 
 	formatters: {
 		// Format application status with emoji indicators
-		application_status: function(value, field, doc) {
-			if (!value) return '';
+		application_status(value, field, doc) {
+			if (!value) { return ''; }
 
 			const status_emojis = {
-				'Pending': '⏳',
+				Pending: '⏳',
 				'Under Review': '👀',
-				'Approved': '✅',
-				'Active': '🟢',
-				'Rejected': '❌',
+				Approved: '✅',
+				Active: '🟢',
+				Rejected: '❌',
 				'Payment Failed': '💳',
 				'Payment Cancelled': '⚫',
 				'Payment Pending': '⏰'
@@ -104,18 +147,18 @@ frappe.listview_settings['Member'] = {
 		},
 
 		// Format main status with emoji indicators
-		status: function(value, field, doc) {
-			if (!value) return '';
+		status(value, field, doc) {
+			if (!value) { return ''; }
 
 			const status_emojis = {
-				'Pending': '⏳',
-				'Active': '✅',
-				'Rejected': '❌',
-				'Expired': '⏰',
-				'Suspended': '⏸️',
-				'Banned': '🚫',
-				'Deceased': '🕊️',
-				'Terminated': '🔴'
+				Pending: '⏳',
+				Active: '✅',
+				Rejected: '❌',
+				Expired: '⏰',
+				Suspended: '⏸️',
+				Banned: '🚫',
+				Deceased: '🕊️',
+				Terminated: '🔴'
 			};
 
 			const emoji = status_emojis[value] || '';
@@ -123,18 +166,18 @@ frappe.listview_settings['Member'] = {
 		},
 
 		// Format member name with status context
-		full_name: function(value, field, doc) {
-			if (!value) return value;
+		full_name(value, field, doc) {
+			if (!value) { return value; }
 
 			// Only show application status indicators for application-created members
 			const is_application_member = !!doc.application_id;
 
 			if (is_application_member && doc.application_status && doc.application_status !== 'Active') {
 				const status_badges = {
-					'Pending': '🟡',
+					Pending: '🟡',
 					'Under Review': '🔵',
-					'Approved': '🟢',
-					'Rejected': '🔴',
+					Approved: '🟢',
+					Rejected: '🔴',
 					'Payment Failed': '🟠',
 					'Payment Cancelled': '⚫',
 					'Payment Pending': '🟠'
@@ -147,12 +190,12 @@ frappe.listview_settings['Member'] = {
 			// For backend-created members, show member status if not Active
 			if (!is_application_member && doc.status && doc.status !== 'Active') {
 				const member_status_badges = {
-					'Pending': '⏳',
-					'Expired': '⏰',
-					'Suspended': '⏸️',
-					'Banned': '🚫',
-					'Deceased': '🕊️',
-					'Terminated': '🔴'
+					Pending: '⏳',
+					Expired: '⏰',
+					Suspended: '⏸️',
+					Banned: '🚫',
+					Deceased: '🕊️',
+					Terminated: '🔴'
 				};
 
 				const badge_emoji = member_status_badges[doc.status] || '';
@@ -165,7 +208,7 @@ frappe.listview_settings['Member'] = {
 
 	// ==================== CUSTOM ACTIONS ====================
 
-	onload: function(listview) {
+	onload(listview) {
 		// Add custom CSS for better status visualization
 		if (!$('#member-list-custom-css').length) {
 			$('head').append(`
@@ -220,10 +263,10 @@ frappe.listview_settings['Member'] = {
 		}
 
 		// Add refresh button for manual status sync
-		listview.page.add_menu_item(__('Refresh Status'), function() {
+		listview.page.add_menu_item(__('Refresh Status'), () => {
 			frappe.call({
 				method: 'verenigingen.api.membership_application_review.sync_member_statuses',
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.show_alert({
 							message: __('Member statuses synchronized'),
@@ -237,15 +280,15 @@ frappe.listview_settings['Member'] = {
 
 		// Add fix for backend members showing as pending
 		if (frappe.user.has_role(['System Manager', 'Verenigingen Administrator'])) {
-			listview.page.add_menu_item(__('Fix Backend Member Status'), function() {
+			listview.page.add_menu_item(__('Fix Backend Member Status'), () => {
 				frappe.confirm(
 					__('This will fix backend-created members that are incorrectly showing as "Pending". Continue?'),
-					function() {
+					() => {
 						frappe.show_alert(__('Fixing backend member statuses...'), 2);
 
 						frappe.call({
 							method: 'verenigingen.api.membership_application_review.fix_backend_member_statuses',
-							callback: function(r) {
+							callback(r) {
 								if (r.message && r.message.success) {
 									frappe.show_alert({
 										message: r.message.message,
@@ -259,7 +302,7 @@ frappe.listview_settings['Member'] = {
 									}, 8);
 								}
 							},
-							error: function(err) {
+							error(err) {
 								console.error('Fix backend members error:', err);
 								frappe.show_alert({
 									message: __('Error occurred. Please run manually: bench execute verenigingen.manual_fix.fix_backend_members_now'),
@@ -279,24 +322,24 @@ frappe.listview_settings['Member'] = {
 	// ==================== BUTTON CONFIGURATIONS ====================
 
 	button: {
-		show: function(doc) {
+		show(doc) {
 			// Only show for members with application_id (created through application process)
 			// and have pending status
 			return doc.application_id && doc.application_status === 'Pending';
 		},
-		get_label: function(doc) {
+		get_label(doc) {
 			if (doc.application_id && doc.application_status === 'Pending') {
 				return __('Review Application');
 			}
 			return __('View');
 		},
-		get_description: function(doc) {
+		get_description(doc) {
 			if (doc.application_id && doc.application_status === 'Pending') {
 				return __('Review and approve/reject this application');
 			}
 			return __('View member details');
 		},
-		action: function(doc) {
+		action(doc) {
 			// Open form for review
 			frappe.set_route('Form', 'Member', doc.name);
 		}
@@ -314,13 +357,13 @@ function add_status_filter_buttons(listview) {
 		{ label: __('Payment Pending'), filter: { application_status: 'Payment Pending' }, color: 'yellow' }
 	];
 
-	status_filters.forEach(function(status_filter) {
-		listview.page.add_action_item(status_filter.label, function() {
+	status_filters.forEach((status_filter) => {
+		listview.page.add_action_item(status_filter.label, () => {
 			// Clear existing filters
 			listview.filter_area.clear();
 
 			// Apply new filter
-			Object.keys(status_filter.filter).forEach(function(key) {
+			Object.keys(status_filter.filter).forEach((key) => {
 				listview.filter_area.add(key, '=', status_filter.filter[key]);
 			});
 
@@ -370,12 +413,12 @@ function add_new_member_filter_buttons(listview) {
 	listview.$frappe_list.find('.filter-area').after($filter_buttons);
 
 	// Bind click events
-	$filter_buttons.on('click', 'button', function() {
+	$filter_buttons.on('click', 'button', function () {
 		const filter = $(this).data('filter');
 
 		listview.filter_area.clear();
 
-		switch(filter) {
+		switch (filter) {
 			case 'new-7':
 				listview.filter_area.add([
 					['Member', 'status', '=', 'Active'],
@@ -417,15 +460,15 @@ function add_new_member_filter_buttons(listview) {
 	});
 
 	// Add menu items for reports
-	listview.page.add_menu_item(__('📊 New Members Report'), function() {
+	listview.page.add_menu_item(__('📊 New Members Report'), () => {
 		frappe.set_route('query-report', 'New Members');
 	});
 
-	listview.page.add_menu_item(__('📊 Recent Chapter Changes Report'), function() {
+	listview.page.add_menu_item(__('📊 Recent Chapter Changes Report'), () => {
 		frappe.set_route('query-report', 'Recent Chapter Changes');
 	});
 
-	listview.page.add_menu_item(__('📊 Members Without Chapter Report'), function() {
+	listview.page.add_menu_item(__('📊 Members Without Chapter Report'), () => {
 		frappe.set_route('query-report', 'Members Without Chapter');
 	});
 }

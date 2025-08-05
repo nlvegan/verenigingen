@@ -53,7 +53,7 @@
 // Global state management for donation form
 let currentStep = 1;
 const totalSteps = 5;
-let formData = {};
+const formData = {};
 
 /**
  * Document Ready Event Handler
@@ -73,7 +73,7 @@ let formData = {};
  * // - Payment method configuration
  * // - Progress tracking initialization
  */
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', () => {
 	// Initialize form
 	updateProgress();
 
@@ -172,7 +172,7 @@ function showStep(stepNumber) {
 
 function updateProgress() {
 	const progress = (currentStep / totalSteps) * 100;
-	document.getElementById('form-progress').style.width = progress + '%';
+	document.getElementById('form-progress').style.width = `${progress}%`;
 }
 
 function validateCurrentStep() {
@@ -254,7 +254,7 @@ function setupFormValidation() {
 	// Add real-time validation for amount
 	const amountField = document.getElementById('amount');
 	if (amountField) {
-		amountField.addEventListener('input', function() {
+		amountField.addEventListener('input', function () {
 			const value = parseFloat(this.value);
 			if (value > 0) {
 				clearFieldError(this);
@@ -265,7 +265,7 @@ function setupFormValidation() {
 	// Add real-time validation for email
 	const emailField = document.querySelector('[name="donor_email"]');
 	if (emailField) {
-		emailField.addEventListener('blur', function() {
+		emailField.addEventListener('blur', function () {
 			if (isValidEmail(this.value)) {
 				clearFieldError(this);
 			}
@@ -276,7 +276,7 @@ function setupFormValidation() {
 function initializePaymentMethods() {
 	// Set up payment method selection handlers
 	document.querySelectorAll('.payment-method').forEach(method => {
-		method.addEventListener('click', function() {
+		method.addEventListener('click', function () {
 			selectPaymentMethod(this);
 		});
 	});
@@ -434,7 +434,7 @@ function submitDonation() {
 	frappe.call({
 		method: 'verenigingen.templates.pages.donate.submit_donation',
 		args: formData,
-		callback: function(response) {
+		callback(response) {
 			submitBtn.disabled = false;
 			submitText.style.display = 'inline-block';
 			submitLoading.style.display = 'none';
@@ -445,7 +445,7 @@ function submitDonation() {
 				showAlert(response.message.message || __('An error occurred'), 'danger');
 			}
 		},
-		error: function(error) {
+		error(error) {
 			submitBtn.disabled = false;
 			submitText.style.display = 'inline-block';
 			submitLoading.style.display = 'none';
@@ -544,7 +544,7 @@ function toggleAnbiFields() {
 		if (!numberField.value) {
 			frappe.call({
 				method: 'verenigingen.verenigingen.doctype.donation.donation.generate_anbi_agreement_number',
-				callback: function(response) {
+				callback(response) {
 					if (response.message) {
 						numberField.value = response.message;
 					}
@@ -615,7 +615,7 @@ function clearErrors() {
 }
 
 function copyToClipboard(text) {
-	navigator.clipboard.writeText(text).then(function() {
+	navigator.clipboard.writeText(text).then(() => {
 		showAlert(__('Copied to clipboard!'), 'success');
 	});
 }

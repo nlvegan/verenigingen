@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Debug Integration Testing API
+Integration Test Framework
 
-Provides whitelisted functions to run comprehensive integration tests
-and analyze the 66.7% FAIR score issues.
+Provides comprehensive integration testing capabilities for monitoring systems
+and security components.
 """
 
 import json

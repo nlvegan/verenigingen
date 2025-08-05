@@ -1,8 +1,18 @@
-# JavaScript Testing Guide for Verenigingen
+# JavaScript Testing Infrastructure Guide
 
 ## Overview
 
-This guide covers the JavaScript testing infrastructure for the Verenigingen app, including unit tests, integration tests, and end-to-end (E2E) tests.
+This guide covers the JavaScript testing infrastructure for the Verenigingen app, including tool setup, CI/CD configuration, and development environment configuration for unit tests, integration tests, and end-to-end (E2E) tests.
+
+## Related JavaScript Testing Documentation
+
+This infrastructure guide is part of a comprehensive JavaScript testing documentation set:
+
+- **📋 [Testing Strategy Overview](../testing-strategy.md)** - Our overall testing philosophy, coverage goals (70% threshold), and performance benchmarks
+- **📝 [DocType JavaScript Testing](../javascript-testing-guide.md)** - Practical testing patterns for form controllers and business logic
+- **📑 [JavaScript Testing Index](javascript-testing-index.md)** - Quick navigation to find the right guide for your needs
+
+**Focus of this guide:** Tool configuration, CI/CD setup, development workflows, and testing infrastructure management.
 
 ## Testing Stack
 
@@ -145,11 +155,13 @@ open coverage/lcov-report/index.html
 
 ### Coverage Thresholds
 
-We aim for:
-- **Statements**: 80%
-- **Branches**: 75%
-- **Functions**: 80%
-- **Lines**: 80%
+Current Jest configuration requires:
+- **Statements**: 70%
+- **Branches**: 70%
+- **Functions**: 70%
+- **Lines**: 70%
+
+*Note: These thresholds are defined in `jest.config.js` and enforced by CI/CD pipelines. See [Testing Strategy](../testing-strategy.md) for coverage philosophy.*
 
 ## Best Practices
 
@@ -287,9 +299,25 @@ cy.screenshot('debug-state');
 }
 ```
 
+## Next Steps
+
+### For DocType Testing Patterns
+Once your infrastructure is set up, learn practical testing patterns:
+- **[DocType JavaScript Testing](../javascript-testing-guide.md)** - Form controller testing, mocking strategies, business logic validation
+
+### For Strategic Context
+To understand our testing philosophy and coverage goals:
+- **[Testing Strategy Overview](../testing-strategy.md)** - Testing categories, performance benchmarks, coverage requirements
+
+### For Navigation Help
+If you're looking for different testing documentation:
+- **[JavaScript Testing Index](javascript-testing-index.md)** - Quick navigation to all JavaScript testing guides
+
 ## Resources
 
 - [Jest Documentation](https://jestjs.io/docs/getting-started)
 - [Cypress Documentation](https://docs.cypress.io)
 - [Testing Library](https://testing-library.com)
 - [Frappe Testing Guide](https://frappeframework.com/docs/user/en/testing)
+- [DocType Testing Patterns](../javascript-testing-guide.md) - Practical testing examples
+- [Testing Strategy Document](../testing-strategy.md) - Philosophy and benchmarks

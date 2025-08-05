@@ -1,5 +1,7 @@
 """
-Test decorator compatibility issues directly in API context
+Decorator Compatibility Validator
+
+Validates that various decorators work correctly together in API contexts.
 """
 
 import frappe
@@ -11,28 +13,28 @@ from verenigingen.utils.security.api_security_framework import OperationType, st
 
 
 @frappe.whitelist()
-def test_individual_decorators():
+def validate_individual_decorators():
     """Test individual decorators work"""
     return {"result": "individual decorators work"}
 
 
 @frappe.whitelist()
 @handle_api_error
-def test_handle_api_error_only():
+def validate_handle_api_error_decorator():
     """Test @handle_api_error alone"""
     return {"result": "@handle_api_error works"}
 
 
 @frappe.whitelist()
 @performance_monitor(threshold_ms=1000)
-def test_performance_monitor_only():
+def validate_performance_monitor_decorator():
     """Test @performance_monitor alone"""
     return {"result": "@performance_monitor works"}
 
 
 @frappe.whitelist()
 @standard_api()
-def test_standard_api_only():
+def validate_standard_api_only():
     """Test @standard_api() alone"""
     return {"result": "@standard_api works"}
 
@@ -41,7 +43,7 @@ def test_standard_api_only():
 @frappe.whitelist(allow_guest=True)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
-def test_working_combination():
+def validate_working_combination():
     """Test the working combination without @standard_api()"""
     return {"result": "working combination without @standard_api"}
 
@@ -51,7 +53,7 @@ def test_working_combination():
 @standard_api()
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
-def test_failing_combination():
+def validate_failing_combination():
     """Test the reported failing combination"""
     return {"result": "this might fail with decorator error"}
 
@@ -59,7 +61,7 @@ def test_failing_combination():
 # Known working @standard_api pattern from dd_batch_workflow_controller.py
 @standard_api()
 @frappe.whitelist()
-def test_known_working_pattern():
+def validate_known_working_pattern():
     """Test the pattern that works in dd_batch_workflow_controller.py"""
     return {"result": "known working @standard_api pattern"}
 
@@ -69,7 +71,7 @@ def test_known_working_pattern():
 @frappe.whitelist(allow_guest=True)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
-def test_order_1():
+def validate_decorator_order_1():
     """Test with @standard_api() first"""
     return {"result": "@standard_api first"}
 
@@ -78,7 +80,7 @@ def test_order_1():
 @handle_api_error
 @standard_api()
 @frappe.whitelist(allow_guest=True)
-def test_order_2():
+def validate_decorator_order_2():
     """Test with @performance_monitor first"""
     return {"result": "@performance_monitor first"}
 
@@ -92,15 +94,15 @@ def run_decorator_compatibility_tests():
     results = []
 
     test_functions = [
-        ("individual_decorators", test_individual_decorators),
-        ("handle_api_error_only", test_handle_api_error_only),
-        ("performance_monitor_only", test_performance_monitor_only),
-        ("standard_api_only", test_standard_api_only),
-        ("working_combination", test_working_combination),
-        ("failing_combination", test_failing_combination),
-        ("known_working_pattern", test_known_working_pattern),
-        ("order_1", test_order_1),
-        ("order_2", test_order_2),
+        ("individual_decorators", validate_individual_decorators),
+        ("handle_api_error_only", validate_handle_api_error_decorator),
+        ("performance_monitor_only", validate_performance_monitor_decorator),
+        ("standard_api_only", validate_standard_api_only),
+        ("working_combination", validate_working_combination),
+        ("failing_combination", validate_failing_combination),
+        ("known_working_pattern", validate_known_working_pattern),
+        ("decorator_order_1", validate_decorator_order_1),
+        ("decorator_order_2", validate_decorator_order_2),
     ]
 
     for test_name, test_func in test_functions:

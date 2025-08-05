@@ -47,7 +47,7 @@ describe('Doctype JavaScript Integration Tests', () => {
 				user: 'test@example.com'
 			},
 			ui: {
-				Dialog: jest.fn().mockImplementation(function() {
+				Dialog: jest.fn().mockImplementation(function () {
 					this.show = jest.fn();
 					this.hide = jest.fn();
 					return this;
@@ -180,7 +180,7 @@ describe('Doctype JavaScript Integration Tests', () => {
 				const boardMember = {
 					chapter: chapterName,
 					member: memberName,
-					role: role,
+					role,
 					start_date: '2024-01-01'
 				};
 
@@ -195,7 +195,7 @@ describe('Doctype JavaScript Integration Tests', () => {
 					volunteer: volunteer.message.name,
 					team: 'Board',
 					chapter: chapterName,
-					role: role,
+					role,
 					is_active: 1
 				};
 
@@ -360,9 +360,9 @@ describe('Doctype JavaScript Integration Tests', () => {
 
 			const canAssignRole = (members, newMember, newRole) => {
 				const existingRole = members.find(m =>
-					m.role === newRole &&
-                    m.is_active &&
-                    m.member !== newMember
+					m.role === newRole
+                    && m.is_active
+                    && m.member !== newMember
 				);
 				return !existingRole;
 			};
@@ -418,7 +418,7 @@ describe('Doctype JavaScript Integration Tests', () => {
 				steps.push({
 					status: 'Active Member',
 					date: '2024-01-05',
-					membership: membership
+					membership
 				});
 
 				return { steps, member, membership };

@@ -1,8 +1,51 @@
+/**
+ * @fileoverview Member termination utilities with comprehensive impact assessment
+ *
+ * Provides sophisticated termination management capabilities for Member DocType,
+ * including detailed impact assessment, automated cleanup coordination, and
+ * comprehensive termination request processing. This module handles the complex
+ * business logic around membership termination while ensuring data integrity.
+ *
+ * Key Features:
+ * - Comprehensive termination impact assessment
+ * - Interactive termination request creation
+ * - Automated cleanup coordination (SEPA, board roles, memberships)
+ * - Disciplinary action support with appeal processes
+ * - Termination history tracking and visualization
+ * - Dues schedule cancellation integration
+ * - Outstanding invoice processing coordination
+ *
+ * Termination Types:
+ * - Voluntary terminations (member-initiated)
+ * - Non-payment terminations (administrative)
+ * - Deceased member processing
+ * - Disciplinary actions (policy violations, expulsions)
+ * - Appeal deadline management for disciplinary cases
+ *
+ * Business Context:
+ * Critical for managing the complex process of membership termination while
+ * maintaining data integrity across all related systems. Ensures proper
+ * cleanup of financial obligations, chapter relationships, and system access
+ * while providing audit trails for compliance and governance requirements.
+ *
+ * Integration:
+ * - Works with Membership Termination Request DocType
+ * - Coordinates with SEPA mandate deactivation
+ * - Integrates with board position management
+ * - Handles dues schedule cancellations
+ * - Processes outstanding invoice workflows
+ * - Manages chapter membership cleanup
+ *
+ * @author Verenigingen Development Team
+ * @version 2.3.0
+ * @since 2024-08-20
+ */
+
 // Termination-related utility functions for Member doctype
 // Updated to use the Membership Dues Schedule system.
 
 function show_termination_dialog(member_id, member_name) {
-	get_termination_impact(member_id, function(impact_data) {
+	get_termination_impact(member_id, (impact_data) => {
 		const dialog = new frappe.ui.Dialog({
 			title: __('Terminate Membership for {0}', [member_name]),
 			size: 'extra-large',
@@ -21,7 +64,7 @@ function show_termination_dialog(member_id, member_name) {
 					label: __('Termination Type'),
 					options: 'Voluntary\nNon-payment\nDeceased\n--- Disciplinary ---\nPolicy Violation\nDisciplinary Action\nExpulsion',
 					reqd: 1,
-					onchange: function() {
+					onchange() {
 						update_termination_dialog_fields(dialog);
 					}
 				},
@@ -47,36 +90,36 @@ function show_termination_dialog(member_id, member_name) {
 					fieldtype: 'Check',
 					label: __('Deactivate SEPA Mandates'),
 					default: impact_data.sepa_mandates > 0 ? 1 : 0,
-					description: impact_data.sepa_mandates > 0 ?
-						__('Will deactivate {0} SEPA mandate(s)', [impact_data.sepa_mandates]) :
-						__('No SEPA mandates found')
+					description: impact_data.sepa_mandates > 0
+						? __('Will deactivate {0} SEPA mandate(s)', [impact_data.sepa_mandates])
+						: __('No SEPA mandates found')
 				},
 				{
 					fieldname: 'end_board_positions',
 					fieldtype: 'Check',
 					label: __('End Board Positions'),
 					default: impact_data.board_positions > 0 ? 1 : 0,
-					description: impact_data.board_positions > 0 ?
-						__('Will end {0} active board position(s)', [impact_data.board_positions]) :
-						__('No active board positions found')
+					description: impact_data.board_positions > 0
+						? __('Will end {0} active board position(s)', [impact_data.board_positions])
+						: __('No active board positions found')
 				},
 				{
 					fieldname: 'cancel_memberships',
 					fieldtype: 'Check',
 					label: __('Cancel Active Memberships'),
 					default: impact_data.active_memberships > 0 ? 1 : 0,
-					description: impact_data.active_memberships > 0 ?
-						__('Will cancel {0} active membership(s)', [impact_data.active_memberships]) :
-						__('No active memberships found')
+					description: impact_data.active_memberships > 0
+						? __('Will cancel {0} active membership(s)', [impact_data.active_memberships])
+						: __('No active memberships found')
 				},
 				{
 					fieldname: 'process_invoices',
 					fieldtype: 'Check',
 					label: __('Process Outstanding Invoices'),
 					default: impact_data.outstanding_invoices > 0 ? 1 : 0,
-					description: impact_data.outstanding_invoices > 0 ?
-						__('Will process {0} outstanding invoice(s)', [impact_data.outstanding_invoices]) :
-						__('No outstanding invoices found')
+					description: impact_data.outstanding_invoices > 0
+						? __('Will process {0} outstanding invoice(s)', [impact_data.outstanding_invoices])
+						: __('No outstanding invoices found')
 				},
 				{
 					// Updated to use dues schedule system
@@ -86,9 +129,9 @@ function show_termination_dialog(member_id, member_name) {
 					// Updated to use dues schedule system
 					default: impact_data.dues_schedules > 0 ? 1 : 0,
 					// Updated to use dues schedule system
-					description: impact_data.dues_schedules > 0 ?
-						__('Will cancel {0} active dues schedule(s)', [impact_data.dues_schedules]) :
-						__('No active dues schedules found')
+					description: impact_data.dues_schedules > 0
+						? __('Will cancel {0} active dues schedule(s)', [impact_data.dues_schedules])
+						: __('No active dues schedules found')
 				},
 				{
 					fieldtype: 'Section Break',
@@ -112,7 +155,7 @@ function show_termination_dialog(member_id, member_name) {
 				}
 			],
 			primary_action_label: __('Create Termination Request'),
-			primary_action: function(values) {
+			primary_action(values) {
 				create_termination_request_v2(member_id, member_name, values, dialog);
 			}
 		});
@@ -131,7 +174,7 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 	const termination_data = {
 		doctype: 'Membership Termination Request',
 		member: member_id,
-		member_name: member_name,
+		member_name,
 		termination_type: values.termination_type,
 		termination_reason: values.termination_reason,
 		execution_date: values.execution_date,
@@ -159,13 +202,13 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 
 	frappe.confirm(
 		confirmation_msg,
-		function() {
+		() => {
 			frappe.call({
 				method: 'frappe.client.insert',
 				args: {
 					doc: termination_data
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						dialog.hide();
 						frappe.set_route('Form', 'Membership Termination Request', r.message.name);
@@ -183,25 +226,25 @@ function create_termination_request_v2(member_id, member_name, values, dialog) {
 function create_confirmation_message(values, termination_data) {
 	let msg = __('Are you sure you want to terminate membership for {0}?', [values.member_name || 'this member']);
 
-	msg += '<br><br><strong>' + __('Termination Details:') + '</strong><br>';
-	msg += __('Type: {0}', [values.termination_type]) + '<br>';
-	msg += __('Date: {0}', [frappe.datetime.str_to_user(values.execution_date)]) + '<br>';
+	msg += `<br><br><strong>${__('Termination Details:')}</strong><br>`;
+	msg += `${__('Type: {0}', [values.termination_type])}<br>`;
+	msg += `${__('Date: {0}', [frappe.datetime.str_to_user(values.execution_date)])}<br>`;
 
 	if (values.termination_reason) {
-		msg += __('Reason: {0}', [values.termination_reason.substring(0, 100) + '...']) + '<br>';
+		msg += `${__('Reason: {0}', [`${values.termination_reason.substring(0, 100)}...`])}<br>`;
 	}
 
-	msg += '<br><strong>' + __('Actions to be taken:') + '</strong><br>';
+	msg += `<br><strong>${__('Actions to be taken:')}</strong><br>`;
 
 	const actions = [];
-	if (values.deactivate_sepa_mandates) actions.push(__('Deactivate SEPA mandates'));
-	if (values.end_board_positions) actions.push(__('End board positions'));
-	if (values.cancel_memberships) actions.push(__('Cancel memberships'));
-	if (values.process_invoices) actions.push(__('Process outstanding invoices'));
-	if (values.cancel_dues_schedules) actions.push(__('Cancel dues schedules'));
+	if (values.deactivate_sepa_mandates) { actions.push(__('Deactivate SEPA mandates')); }
+	if (values.end_board_positions) { actions.push(__('End board positions')); }
+	if (values.cancel_memberships) { actions.push(__('Cancel memberships')); }
+	if (values.process_invoices) { actions.push(__('Process outstanding invoices')); }
+	if (values.cancel_dues_schedules) { actions.push(__('Cancel dues schedules')); }
 
 	if (actions.length > 0) {
-		msg += '• ' + actions.join('<br>• ');
+		msg += `• ${actions.join('<br>• ')}`;
 	} else {
 		msg += __('No automatic actions selected');
 	}
@@ -215,7 +258,7 @@ function show_termination_history(member_id) {
 		args: {
 			member: member_id
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				display_termination_history_dialog(r.message);
 			} else {
@@ -227,24 +270,24 @@ function show_termination_history(member_id) {
 
 function display_termination_history_dialog(termination_records) {
 	let html = '<div class="termination-history">';
-	html += '<h5>' + __('Termination History') + '</h5>';
+	html += `<h5>${__('Termination History')}</h5>`;
 
 	if (termination_records.length === 0) {
-		html += '<p>' + __('No termination requests found.') + '</p>';
+		html += `<p>${__('No termination requests found.')}</p>`;
 	} else {
 		html += '<div class="table-responsive">';
 		html += '<table class="table table-bordered">';
-		html += '<thead><tr><th>' + __('Date') + '</th><th>' + __('Type') + '</th><th>' + __('Status') + '</th><th>' + __('Action') + '</th></tr></thead>';
+		html += `<thead><tr><th>${__('Date')}</th><th>${__('Type')}</th><th>${__('Status')}</th><th>${__('Action')}</th></tr></thead>`;
 		html += '<tbody>';
 
 		termination_records.forEach(record => {
 			const status_color = {
-				'Draft': 'gray',
+				Draft: 'gray',
 				'Pending Approval': 'orange',
-				'Approved': 'green',
-				'Rejected': 'red',
-				'Executed': 'blue',
-				'Cancelled': 'red'
+				Approved: 'green',
+				Rejected: 'red',
+				Executed: 'blue',
+				Cancelled: 'red'
 			};
 
 			const type_color = ['Policy Violation', 'Disciplinary Action', 'Expulsion'].includes(record.termination_type) ? 'red' : 'blue';
@@ -321,7 +364,7 @@ function get_termination_impact(member_id, callback) {
 		args: {
 			member: member_id
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && callback) {
 				callback(r.message);
 			}

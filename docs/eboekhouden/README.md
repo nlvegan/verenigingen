@@ -37,13 +37,13 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 
 ## System Status
 
-**Current Version**: 2025.1 (July 2025)
-- ✅ **100% REST API** (SOAP completely removed)
-- ✅ **Enhanced opening balance import** with stock account handling
-- ✅ **Automatic balancing** for unbalanced entries
-- ✅ **Grace period support** for membership management
+**Current Version**: 2025.1 (August 2025)
+- ✅ **Dual API Support** (REST primary, SOAP legacy fallback)
+- ✅ **Complete DocType Implementation** (E-Boekhouden Settings, Migration, Import Log, etc.)
+- ✅ **Enhanced migration orchestration** with progress tracking
+- ✅ **Intelligent account mapping** with type detection
 - ✅ **Comprehensive error handling** and recovery
-- ✅ **Production-ready** with 65+ files archived and organized
+- ✅ **Production-ready** with modular architecture and proper logging
 
 ## Key Features
 
@@ -78,24 +78,31 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 
 ### Essential API Endpoints
 ```python
-# Start full migration
-verenigingen.utils.eboekhouden.import_manager.clean_import_all()
-
 # Test API connection
-verenigingen.api.test_eboekhouden_connection.test_eboekhouden_connection()
+verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.test_rest_iterator()
+
+# Import chart of accounts
+verenigingen.e_boekhouden.utils.eboekhouden_coa_import.import_chart_of_accounts()
+
+# Start full REST migration
+verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.start_full_rest_import()
 
 # Import opening balances only
-verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration.import_opening_balances_only()
+verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.test_opening_balance_import()
 
-# Get migration status
-verenigingen.utils.eboekhouden.import_manager.get_import_status()
+# Run quality checks
+verenigingen.e_boekhouden.utils.migration.quality_checker.run_migration_quality_check()
+
+# Get cache statistics
+verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.get_cache_statistics()
 ```
 
-### Key Configuration
-- **E-Boekhouden Settings**: DocType for API configuration
-- **Account Mappings**: Automatic grootboek number mapping
-- **Company Settings**: Default company and cost center
-- **Migration Dashboard**: Real-time monitoring interface
+### Key Configuration DocTypes
+- **E-Boekhouden Settings**: Single doctype for API configuration and defaults
+- **E-Boekhouden Migration**: Migration orchestration with progress tracking
+- **E-Boekhouden Ledger Mapping**: Account mapping between systems
+- **E-Boekhouden Import Log**: Detailed logging of all import operations
+- **EBoekhouden Payment Mapping**: Payment reconciliation mapping
 
 ---
 

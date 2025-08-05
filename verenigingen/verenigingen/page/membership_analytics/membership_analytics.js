@@ -69,15 +69,15 @@
  * @param {Object} wrapper - Frappe page wrapper element
  * @throws {Error} If page initialization fails or user lacks permissions
  */
-frappe.pages['membership-analytics'].on_page_load = function(wrapper) {
-	var page = frappe.ui.make_app_page({
+frappe.pages['membership-analytics'].on_page_load = function (wrapper) {
+	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: __('Membership Analytics Dashboard'),
 		single_column: true
 	});
 
 	// Create the page
-	let membership_analytics = new MembershipAnalytics(page);
+	const membership_analytics = new MembershipAnalytics(page);
 	membership_analytics.make();
 };
 
@@ -450,7 +450,7 @@ class MembershipAnalytics {
 		$('#net-growth').html(this.format_growth_number(summary.net_growth));
 
 		// Growth Rate
-		$('#growth-rate').text(summary.growth_rate.toFixed(1) + '%');
+		$('#growth-rate').text(`${summary.growth_rate.toFixed(1)}%`);
 
 		// Projected Revenue
 		$('#projected-revenue').text(this.format_currency(summary.projected_revenue));
@@ -458,8 +458,8 @@ class MembershipAnalytics {
 		// Show comparison if available
 		if (previous) {
 			const growth_change = summary.net_growth - previous.net_growth;
-			const growth_pct = previous.net_growth ?
-				((growth_change / Math.abs(previous.net_growth)) * 100).toFixed(1) : 0;
+			const growth_pct = previous.net_growth
+				? ((growth_change / Math.abs(previous.net_growth)) * 100).toFixed(1) : 0;
 
 			$('#net-growth-change').html(
 				`<i class="fa fa-${growth_change >= 0 ? 'arrow-up' : 'arrow-down'}"></i> ${growth_pct}%`
@@ -531,14 +531,14 @@ class MembershipAnalytics {
 		container.empty();
 
 		if (!goals || goals.length === 0) {
-			container.html('<p class="text-muted">' + __('No goals set for this period') + '</p>');
+			container.html(`<p class="text-muted">${__('No goals set for this period')}</p>`);
 			return;
 		}
 
 		goals.forEach(goal => {
-			const progress_class = goal.achievement_percentage >= 100 ? 'progress-bar-success' :
-				goal.achievement_percentage >= 75 ? 'progress-bar-warning' :
-					'progress-bar-danger';
+			const progress_class = goal.achievement_percentage >= 100 ? 'progress-bar-success'
+				: goal.achievement_percentage >= 75 ? 'progress-bar-warning'
+					: 'progress-bar-danger';
 
 			const goal_html = `
                 <div class="goal-item mb-3">
@@ -566,7 +566,7 @@ class MembershipAnalytics {
 		container.empty();
 
 		if (!data || data.length === 0) {
-			container.html('<p class="text-muted">' + __('No membership data available') + '</p>');
+			container.html(`<p class="text-muted">${__('No membership data available')}</p>`);
 			return;
 		}
 
@@ -595,7 +595,7 @@ class MembershipAnalytics {
 		container.empty();
 
 		if (!insights || insights.length === 0) {
-			container.html('<p class="text-muted">' + __('No insights available') + '</p>');
+			container.html(`<p class="text-muted">${__('No insights available')}</p>`);
 			return;
 		}
 
@@ -712,7 +712,7 @@ class MembershipAnalytics {
 
 	format_goal_value(value, goal_type) {
 		if (goal_type.includes('Rate') || goal_type.includes('Percentage')) {
-			return value.toFixed(1) + '%';
+			return `${value.toFixed(1)}%`;
 		} else if (goal_type.includes('Revenue')) {
 			return this.format_currency(value);
 		}
@@ -721,10 +721,10 @@ class MembershipAnalytics {
 
 	get_insight_icon(type) {
 		const icons = {
-			'success': 'check-circle',
-			'warning': 'exclamation-triangle',
-			'danger': 'exclamation-circle',
-			'info': 'info-circle'
+			success: 'check-circle',
+			warning: 'exclamation-triangle',
+			danger: 'exclamation-circle',
+			info: 'info-circle'
 		};
 		return icons[type] || 'info-circle';
 	}
@@ -753,7 +753,7 @@ class MembershipAnalytics {
 
 	render_segmentation_chart(elementId, data, title) {
 		const container = $(`#${elementId}`);
-		if (!container.length) return;
+		if (!container.length) { return; }
 
 		// Sort by total members descending and take top 10
 		const sortedData = data.sort((a, b) => b.total_members - a.total_members).slice(0, 10);
@@ -785,7 +785,7 @@ class MembershipAnalytics {
 
 	render_cohort_analysis(cohortData) {
 		const container = $('#cohort-heatmap');
-		if (!container.length || !cohortData || cohortData.length === 0) return;
+		if (!container.length || !cohortData || cohortData.length === 0) { return; }
 
 		// Create heatmap data
 		const heatmapData = {
@@ -805,7 +805,7 @@ class MembershipAnalytics {
 			}
 			heatmapData.datasets.push({
 				name: cohort.cohort,
-				values: values
+				values
 			});
 		});
 
@@ -840,9 +840,9 @@ class MembershipAnalytics {
 				const retention = cohort.retention.find(r => r.month === i);
 				if (retention) {
 					const rate = retention.rate;
-					const colorClass = rate >= 80 ? 'bg-success' :
-						rate >= 60 ? 'bg-info' :
-							rate >= 40 ? 'bg-warning' : 'bg-danger';
+					const colorClass = rate >= 80 ? 'bg-success'
+						: rate >= 60 ? 'bg-info'
+							: rate >= 40 ? 'bg-warning' : 'bg-danger';
 					tableHtml += `<td class="${colorClass} text-white">${rate.toFixed(0)}%</td>`;
 				} else {
 					tableHtml += '<td>-</td>';
@@ -901,7 +901,7 @@ class MembershipAnalytics {
 			args: {
 				year: this.filters.year,
 				period: this.filters.period,
-				format: format
+				format
 			},
 			callback: (r) => {
 				frappe.dom.unfreeze();
@@ -1227,7 +1227,7 @@ class MembershipAnalytics {
 
 	build_risk_members_html(members) {
 		if (!members || members.length === 0) {
-			return '<p class="text-muted">' + __('No high-risk members identified') + '</p>';
+			return `<p class="text-muted">${__('No high-risk members identified')}</p>`;
 		}
 
 		let html = '<table class="table table-sm"><thead><tr><th>Member</th><th>Risk Score</th><th>Factors</th><th>Action</th></tr></thead><tbody>';
@@ -1266,7 +1266,7 @@ class MembershipAnalytics {
 	}
 
 	render_forecast_chart(forecast) {
-		if (!forecast || !forecast.forecast) return;
+		if (!forecast || !forecast.forecast) { return; }
 
 		const chartData = {
 			labels: [...forecast.historical_trend.months, ...forecast.forecast.months],
@@ -1292,7 +1292,7 @@ class MembershipAnalytics {
 	}
 
 	render_revenue_forecast_chart(forecast) {
-		if (!forecast || !forecast.monthly_forecast) return;
+		if (!forecast || !forecast.monthly_forecast) { return; }
 
 		const chartData = {
 			labels: forecast.monthly_forecast.map(d => d.month),
@@ -1319,7 +1319,7 @@ class MembershipAnalytics {
 	}
 
 	render_scenarios_chart(scenarios) {
-		if (!scenarios || !scenarios.scenarios) return;
+		if (!scenarios || !scenarios.scenarios) { return; }
 
 		const labels = [];
 		const year1_values = [];
@@ -1332,7 +1332,7 @@ class MembershipAnalytics {
 		}
 
 		const chartData = {
-			labels: labels,
+			labels,
 			datasets: [{
 				name: __('Year 1'),
 				values: year1_values

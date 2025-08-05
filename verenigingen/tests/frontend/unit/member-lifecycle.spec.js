@@ -18,7 +18,7 @@ describe('Member Lifecycle - Client Side', () => {
 			show_alert: jest.fn(),
 			confirm: jest.fn(),
 			ui: {
-				Dialog: jest.fn().mockImplementation(function(options) {
+				Dialog: jest.fn().mockImplementation(function (options) {
 					this.show = jest.fn();
 					this.hide = jest.fn();
 					this.set_value = jest.fn();
@@ -356,9 +356,9 @@ describe('Member Lifecycle - Client Side', () => {
 		it('should calculate membership dates correctly', () => {
 			const calculateMembershipDates = (startDate, membershipType) => {
 				const durations = {
-					'Monthly': 1,
-					'Quarterly': 3,
-					'Annual': 12
+					Monthly: 1,
+					Quarterly: 3,
+					Annual: 12
 				};
 
 				const start = new Date(startDate);
@@ -419,8 +419,8 @@ describe('Member Lifecycle - Client Side', () => {
 	describe('Stage 6: Volunteer Creation', () => {
 		it('should validate volunteer interest before creation', () => {
 			const shouldCreateVolunteer = (member) => {
-				return member.interested_in_volunteering === 1 &&
-					   member.application_status === 'Approved';
+				return member.interested_in_volunteering === 1
+					   && member.application_status === 'Approved';
 			};
 
 			expect(shouldCreateVolunteer({
@@ -522,9 +522,9 @@ describe('Member Lifecycle - Client Side', () => {
 				return {
 					eligible: daysUntilExpiry <= 30 && daysUntilExpiry >= -30,
 					daysUntilExpiry,
-					message: daysUntilExpiry > 30 ? 'Too early to renew' :
-						daysUntilExpiry < -30 ? 'Membership expired' :
-							'Eligible for renewal'
+					message: daysUntilExpiry > 30 ? 'Too early to renew'
+						: daysUntilExpiry < -30 ? 'Membership expired'
+							: 'Eligible for renewal'
 				};
 			};
 
@@ -747,7 +747,7 @@ describe('Member Lifecycle - Client Side', () => {
 
 				canProceed() {
 					const currentStepIndex = this.steps.findIndex(s => s.status === 'pending');
-					if (currentStepIndex === 0) return true;
+					if (currentStepIndex === 0) { return true; }
 					return this.steps[currentStepIndex - 1].status === 'completed';
 				}
 			};

@@ -76,16 +76,16 @@ frappe.ui.form.on('Membership Type', {
 	 * @param {Object} frm - Frappe form object with document data and methods
 	 * @since 1.0.0
 	 */
-	refresh: function(frm) {
+	refresh(frm) {
 		// Add button to create dues schedule template
 		if (!frm.doc.dues_schedule_template) {
-			frm.add_custom_button(__('Create Dues Schedule Template'), function() {
+			frm.add_custom_button(__('Create Dues Schedule Template'), () => {
 				frappe.call({
 					method: 'verenigingen.verenigingen.doctype.membership_type.membership_type.create_dues_schedule_template',
 					args: {
-						'membership_type_name': frm.doc.name
+						membership_type_name: frm.doc.name
 					},
-					callback: function(r) {
+					callback(r) {
 						if (r.message) {
 							frm.refresh();
 						}
@@ -96,14 +96,14 @@ frappe.ui.form.on('Membership Type', {
 
 		// Add button to view linked dues schedule template
 		if (frm.doc.dues_schedule_template) {
-			frm.add_custom_button(__('Dues Schedule Template'), function() {
+			frm.add_custom_button(__('Dues Schedule Template'), () => {
 				frappe.set_route('Form', 'Membership Dues Schedule', frm.doc.dues_schedule_template);
 			}, __('View'));
 		}
 
 		// Add button to view memberships of this type
-		frm.add_custom_button(__('Memberships'), function() {
-			frappe.set_route('List', 'Membership', {'membership_type': frm.doc.name});
+		frm.add_custom_button(__('Memberships'), () => {
+			frappe.set_route('List', 'Membership', { membership_type: frm.doc.name });
 		}, __('View'));
 	},
 
@@ -125,7 +125,7 @@ frappe.ui.form.on('Membership Type', {
 	 * @param {Object} frm - Frappe form object
 	 * @since 1.0.0
 	 */
-	billing_period: function(frm) {
+	billing_period(frm) {
 		// Toggle custom period field
 		frm.toggle_reqd('billing_period_in_months', frm.doc.billing_period === 'Custom');
 		frm.toggle_display('billing_period_in_months', frm.doc.billing_period === 'Custom');
@@ -153,7 +153,7 @@ frappe.ui.form.on('Membership Type', {
 	 * @param {Object} frm - Frappe form object
 	 * @since 1.2.0
 	 */
-	allow_auto_renewal: function(frm) {
+	allow_auto_renewal(frm) {
 		// If auto renewal is disabled, uncheck default for new members
 		if (!frm.doc.allow_auto_renewal && frm.doc.default_for_new_members) {
 			frm.set_value('default_for_new_members', 0);
@@ -185,7 +185,7 @@ frappe.ui.form.on('Membership Type', {
 	 * @param {Object} frm - Frappe form object
 	 * @since 1.0.0
 	 */
-	default_for_new_members: function(frm) {
+	default_for_new_members(frm) {
 		// Only one membership type can be default
 		if (frm.doc.default_for_new_members) {
 			frappe.call({
@@ -193,16 +193,16 @@ frappe.ui.form.on('Membership Type', {
 				args: {
 					doctype: 'Membership Type',
 					filters: {
-						'default_for_new_members': 1,
-						'name': ['!=', frm.doc.name]
+						default_for_new_members: 1,
+						name: ['!=', frm.doc.name]
 					},
 					fields: ['name']
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.length) {
 						frappe.confirm(
 							__('"{0}" is already set as default membership type. Do you want to make this the default instead?', [r.message[0].name]),
-							function() {
+							() => {
 								// Yes - keep this as default
 								frappe.call({
 									method: 'frappe.client.set_value',
@@ -212,12 +212,12 @@ frappe.ui.form.on('Membership Type', {
 										fieldname: 'default_for_new_members',
 										value: 0
 									},
-									callback: function() {
+									callback() {
 										frm.refresh();
 									}
 								});
 							},
-							function() {
+							() => {
 								// No - revert this change
 								frm.set_value('default_for_new_members', 0);
 								frm.refresh_field('default_for_new_members');

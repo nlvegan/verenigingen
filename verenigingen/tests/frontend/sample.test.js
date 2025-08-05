@@ -21,7 +21,7 @@ describe('Sample Tests', () => {
 		console.log('test');
 		console.warn('test');
 		console.error('test');
-    
+
 		expect(console.log).toHaveBeenCalledWith('test');
 		expect(console.warn).toHaveBeenCalledWith('test');
 		expect(console.error).toHaveBeenCalledWith('test');

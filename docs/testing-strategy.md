@@ -9,8 +9,21 @@ This document outlines the comprehensive testing strategy for the Verenigingen a
 1. **Shift Left**: Catch issues early in development
 2. **Automate Everything**: Reduce manual testing burden
 3. **Fast Feedback**: Quick tests run frequently, comprehensive tests run regularly
-4. **Coverage Matters**: Aim for >80% code coverage
+4. **Coverage Matters**: Aim for >80% code coverage (JavaScript: 70% minimum per jest.config.js)
 5. **Test Categories**: Different test suites for different purposes
+
+## Related Testing Documentation
+
+### JavaScript Testing Implementation
+For JavaScript-specific testing setup and patterns:
+
+- **🔧 [JavaScript Testing Infrastructure](testing/javascript-testing-guide.md)** - Jest/Cypress setup, CI/CD pipelines, coverage reporting (70% thresholds)
+- **📝 [DocType JavaScript Testing](javascript-testing-guide.md)** - Form controller testing patterns, mocking strategies for Frappe DocTypes
+- **📑 [JavaScript Testing Index](testing/javascript-testing-index.md)** - Quick navigation for JavaScript testing needs
+
+### Python Testing
+- **Python testing documentation** is located in `/docs/testing/` directory
+- **Enhanced Test Factory** guide available in `vereinigingen/tests/fixtures/`
 
 ## Test Structure
 
@@ -170,10 +183,15 @@ self.assertTrue(all([
 
 ### Minimum Coverage Requirements
 
+**Python Testing:**
 - Overall: 80%
 - Critical paths: 95%
 - New code: 90%
 - API endpoints: 100%
+
+**JavaScript Testing:**
+- All categories: 70% (defined in jest.config.js)
+- See [JavaScript Testing Infrastructure](testing/javascript-testing-guide.md) for implementation details
 
 ### Coverage Reports
 
@@ -289,9 +307,17 @@ Test results available at:
 4. **Chaos Engineering**: Failure injection
 5. **A/B Testing**: Feature flag testing
 
-## Resources
+## Implementation Resources
 
+### JavaScript Testing Implementation
+- **[JavaScript Testing Infrastructure](testing/javascript-testing-guide.md)** - Setup, CI/CD, coverage reporting
+- **[DocType JavaScript Testing](javascript-testing-guide.md)** - Practical patterns and examples
+- **[JavaScript Testing Index](testing/javascript-testing-index.md)** - Navigation and quick reference
+
+### External Resources
 - [Frappe Testing Guide](https://frappeframework.com/docs/user/en/testing)
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
 - [Pre-commit Documentation](https://pre-commit.com/)
 - [Coverage.py Documentation](https://coverage.readthedocs.io/)
+- [Jest Documentation](https://jestjs.io/docs/getting-started) - For JavaScript unit testing
+- [Cypress Documentation](https://docs.cypress.io) - For JavaScript E2E testing

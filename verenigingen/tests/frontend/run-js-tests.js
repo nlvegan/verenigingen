@@ -18,7 +18,7 @@ const runTests = (testSuite) => {
 	let command = 'npx jest';
 
 	if (testSuite) {
-		switch(testSuite) {
+		switch (testSuite) {
 			case 'unit':
 				command += ' tests/unit';
 				break;

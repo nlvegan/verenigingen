@@ -75,31 +75,31 @@ frappe.query_reports['Chapter Members'] = {
 	 * permission management and user access control. Ensures users can only access
 	 * chapters they have permission to view and manage.
 	 */
-	'filters': [
+	filters: [
 		{
-			'fieldname': 'chapter',
-			'label': __('Chapter'),
-			'fieldtype': 'Link',
-			'options': 'Chapter',
-			'reqd': 1,
-			'get_query': function() {
+			fieldname: 'chapter',
+			label: __('Chapter'),
+			fieldtype: 'Link',
+			options: 'Chapter',
+			reqd: 1,
+			get_query() {
 				// Only show chapters that user has access to
 				return {
-					'query': 'verenigingen.api.member_portal.get_user_chapters'
+					query: 'verenigingen.api.member_portal.get_user_chapters'
 				};
 			}
 		},
 		{
-			'fieldname': 'status',
-			'label': __('Status'),
-			'fieldtype': 'Select',
-			'options': [
+			fieldname: 'status',
+			label: __('Status'),
+			fieldtype: 'Select',
+			options: [
 				'',
 				'Pending',
 				'Active',
 				'Inactive'
 			],
-			'default': ''
+			default: ''
 		}
 	],
 
@@ -125,19 +125,17 @@ frappe.query_reports['Chapter Members'] = {
 	 *
 	 * @since 1.0.0
 	 */
-	'formatter': function (value, row, column, data, default_formatter) {
+	formatter(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
 
 		// Highlight pending members
-		if (column.fieldname == 'status' && value == 'Pending') {
+		if (column.fieldname === 'status' && value === 'Pending') {
 			value = `<span style="color: #ff9800; font-weight: bold;">${value}</span>`;
-		}
-		// Highlight inactive members
-		else if (column.fieldname == 'status' && value == 'Inactive') {
+		} else if (column.fieldname === 'status' && value === 'Inactive') {
+			// Highlight inactive members
 			value = `<span style="color: #f44336; font-weight: bold;">${value}</span>`;
-		}
-		// Active members in green
-		else if (column.fieldname == 'status' && value == 'Active') {
+		} else if (column.fieldname === 'status' && value === 'Active') {
+			// Active members in green
 			value = `<span style="color: #4caf50; font-weight: bold;">${value}</span>`;
 		}
 

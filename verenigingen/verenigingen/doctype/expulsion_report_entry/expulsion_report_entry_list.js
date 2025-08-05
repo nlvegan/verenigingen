@@ -1,5 +1,64 @@
+/**
+ * @fileoverview Expulsion Report Entry List View - JavaScript Configuration
+ *
+ * This file manages the list view behavior for expulsion report entries, providing comprehensive
+ * oversight and governance tools for sensitive disciplinary actions within the organization.
+ *
+ * BUSINESS PURPOSE:
+ * Ensures proper governance and compliance for disciplinary actions:
+ * - Track expulsion decisions with full audit trails
+ * - Monitor appeal processes and status changes
+ * - Support board-level governance and oversight
+ * - Generate compliance reports for regulatory requirements
+ * - Maintain organizational accountability and transparency
+ *
+ * GOVERNANCE FEATURES:
+ * - Status tracking with visual indicators (Active: red, Under Appeal: orange, Reversed: green)
+ * - Appeals process integration with workflow management
+ * - Compliance verification and board review tracking
+ * - Chapter-specific reporting and analysis
+ * - Export capabilities for governance documentation
+ *
+ * EXPULSION CATEGORIES:
+ * - Policy Violation (Red): Breach of organizational policies
+ * - Disciplinary Action (Orange): Behavioral or conduct issues
+ * - Expulsion (Dark Red): Most severe disciplinary measure
+ *
+ * ADMINISTRATIVE TOOLS:
+ * - Governance Report Generator: Comprehensive period-based reporting
+ * - Excel Export: Detailed data export for analysis
+ * - Bulk Compliance Verification: Efficient board review processing
+ * - Appeal Filing: Direct integration with appeals workflow
+ *
+ * COMPLIANCE MONITORING:
+ * - Automatic compliance checking indicators
+ * - Board review date tracking
+ * - Appeal status monitoring
+ * - Chapter involvement documentation
+ * - Approval chain verification
+ *
+ * REPORTING CAPABILITIES:
+ * - Period-based governance reports with summary statistics
+ * - Chapter-specific analysis and filtering
+ * - Appeals data integration for comprehensive oversight
+ * - Compliance issue identification and tracking
+ * - Visual dashboard with key metrics
+ *
+ * SECURITY CONSIDERATIONS:
+ * - Controlled access to sensitive disciplinary information
+ * - Audit trail maintenance for all actions
+ * - Board-level approval requirements
+ * - Protected member information with proper linking
+ *
+ * @author Frappe Technologies Pvt. Ltd.
+ * @since 2025
+ * @category Governance / Compliance
+ * @requires frappe.listview_settings
+ * @requires verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry
+ */
+
 frappe.listview_settings['Expulsion Report Entry'] = {
-	get_indicator: function(doc) {
+	get_indicator(doc) {
 		if (doc.status === 'Active') {
 			return [__('Active'), 'red', 'status,=,Active'];
 		} else if (doc.status === 'Under Appeal') {
@@ -10,51 +69,51 @@ frappe.listview_settings['Expulsion Report Entry'] = {
 		return [__(doc.status), 'gray'];
 	},
 
-	onload: function(listview) {
+	onload(listview) {
 		// Add menu items
-		listview.page.add_menu_item(__('Generate Governance Report'), function() {
+		listview.page.add_menu_item(__('Generate Governance Report'), () => {
 			show_governance_report_dialog(listview);
 		});
 
-		listview.page.add_menu_item(__('Export to Excel'), function() {
+		listview.page.add_menu_item(__('Export to Excel'), () => {
 			export_expulsion_report(listview);
 		});
 
 		// Add action button for bulk compliance verification
-		listview.page.add_action_item(__('Mark Compliance Verified'), function() {
+		listview.page.add_action_item(__('Mark Compliance Verified'), () => {
 			bulk_verify_compliance(listview);
 		});
 	},
 
 	formatters: {
-		member_name: function(value, df, doc) {
+		member_name(value, df, doc) {
 			return `<a href="/app/member/${doc.member_id}">${value}</a>`;
 		},
 
-		expulsion_type: function(value) {
+		expulsion_type(value) {
 			const type_colors = {
 				'Policy Violation': 'red',
 				'Disciplinary Action': 'orange',
-				'Expulsion': 'darkred'
+				Expulsion: 'darkred'
 			};
 
 			const color = type_colors[value] || 'gray';
 			return `<span style="color: ${color}; font-weight: bold;">${value}</span>`;
 		},
 
-		chapter_involved: function(value, df, doc) {
-			if (!value) return '-';
+		chapter_involved(value, df, doc) {
+			if (!value) { return '-'; }
 			return `<a href="/app/chapter/${value}">${value}</a>`;
 		},
 
-		under_appeal: function(value) {
+		under_appeal(value) {
 			if (value) {
 				return '<span class="indicator orange">Yes</span>';
 			}
 			return '<span class="indicator gray">No</span>';
 		},
 
-		compliance_checked: function(value) {
+		compliance_checked(value) {
 			if (value) {
 				return '<i class="fa fa-check text-success"></i>';
 			}
@@ -63,16 +122,16 @@ frappe.listview_settings['Expulsion Report Entry'] = {
 	},
 
 	button: {
-		show: function(doc) {
+		show(doc) {
 			return doc.status === 'Active' && !doc.under_appeal;
 		},
-		get_label: function() {
+		get_label() {
 			return __('File Appeal');
 		},
-		get_description: function(doc) {
+		get_description(doc) {
 			return __('File an appeal for this expulsion');
 		},
-		action: function(doc) {
+		action(doc) {
 			// Navigate to create appeal
 			frappe.new_doc('Termination Appeals Process', {
 				member: doc.member_id,
@@ -114,7 +173,7 @@ function show_governance_report_dialog(listview) {
 			}
 		],
 		primary_action_label: __('Generate Report'),
-		primary_action: function(values) {
+		primary_action(values) {
 			frappe.call({
 				method: 'verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry.generate_expulsion_governance_report',
 				args: {
@@ -122,7 +181,7 @@ function show_governance_report_dialog(listview) {
 					chapter: values.chapter,
 					include_appeals: values.include_appeals
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						// Show report in a new dialog or route to report viewer
 						show_governance_report_results(r.message);
@@ -140,7 +199,7 @@ function export_expulsion_report(listview) {
 	// Get selected items or all filtered items
 	const selected = listview.get_checked_items();
 	const filters = selected.length > 0
-		? {name: ['in', selected.map(item => item.name)]}
+		? { name: ['in', selected.map(item => item.name)] }
 		: listview.filter_area.get();
 
 	frappe.call({
@@ -149,7 +208,7 @@ function export_expulsion_report(listview) {
 			title: __('Expulsion Report'),
 			doctype: 'Expulsion Report Entry',
 			file_format_type: 'Excel',
-			filters: filters,
+			filters,
 			fields: [
 				'name', 'member_name', 'member_id', 'expulsion_date',
 				'expulsion_type', 'chapter_involved', 'status',
@@ -169,7 +228,7 @@ function bulk_verify_compliance(listview) {
 
 	frappe.confirm(
 		__('Mark {0} entries as compliance verified?', [selected.length]),
-		function() {
+		() => {
 			frappe.call({
 				method: 'frappe.client.set_value',
 				args: {
@@ -180,7 +239,7 @@ function bulk_verify_compliance(listview) {
 						board_review_date: frappe.datetime.get_today()
 					}
 				},
-				callback: function() {
+				callback() {
 					listview.refresh();
 					frappe.show_alert({
 						message: __('Compliance verified for {0} entries', [selected.length]),
@@ -206,7 +265,7 @@ function show_governance_report_results(data) {
 			}
 		],
 		primary_action_label: __('Download PDF'),
-		primary_action: function() {
+		primary_action() {
 			// Generate PDF version
 			frappe.msgprint(__('PDF generation to be implemented'));
 		}

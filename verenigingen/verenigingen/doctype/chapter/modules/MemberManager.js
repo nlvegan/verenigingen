@@ -1,3 +1,46 @@
+/**
+ * @fileoverview Chapter member management module for comprehensive member operations
+ *
+ * Provides sophisticated member management capabilities within chapters, handling
+ * the complex relationships between members and their chapter associations.
+ * This module manages the full lifecycle of chapter membership including
+ * addition, removal, directory management, and member data visualization.
+ *
+ * Key Features:
+ * - Interactive member addition with availability filtering
+ * - Rich member directory with search and filtering
+ * - Bulk member operations and CSV export
+ * - Member status management and validation
+ * - Primary chapter assignment handling
+ * - Member introduction and profile management
+ * - Grid-based member editing with validation
+ *
+ * Member Operations:
+ * - Add/remove members from chapters
+ * - Update member status within chapters
+ * - Manage member introductions and profiles
+ * - Handle chapter transitions and history
+ * - Export member data for reporting
+ * - Validate member information integrity
+ *
+ * Business Context:
+ * Critical for chapter administrators managing local membership rosters.
+ * Handles the complex business rules around chapter membership including
+ * primary chapter relationships, member transfers between chapters,
+ * and maintaining accurate member directories for community engagement.
+ *
+ * Integration:
+ * - Works with ChapterAPI for data operations
+ * - Connects to ChapterUI for user interactions
+ * - Integrates with Member DocType for member data
+ * - Supports Chapter Member child table operations
+ * - Coordinates with ChapterState for state management
+ *
+ * @author Verenigingen Development Team
+ * @version 2.2.0
+ * @since 2024-09-01
+ */
+
 // verenigingen/verenigingen/doctype/chapter/modules/MemberManager.js
 
 import { ChapterAPI } from '../utils/ChapterAPI.js';
@@ -162,7 +205,6 @@ export class MemberManager {
 
 			// Update member count
 			this.ui.updateMembersSummary();
-
 		} catch (error) {
 			this.ui.showError(__('Failed to add members: {0}', [error.message]));
 		} finally {
@@ -194,14 +236,13 @@ export class MemberManager {
 					}
 				],
 				primary_action_label: __('Close'),
-				primary_action: function() {
+				primary_action() {
 					this.hide();
 				}
 			});
 
 			// Add search functionality
 			this.addDirectorySearch(dialog);
-
 		} catch (error) {
 			this.ui.showError(__('Failed to load member directory: {0}', [error.message]));
 		} finally {
@@ -212,7 +253,7 @@ export class MemberManager {
 	async getChapterMembersDetails() {
 		const memberIds = this.frm.doc.members?.filter(m => m.enabled).map(m => m.member) || [];
 
-		if (memberIds.length === 0) return [];
+		if (memberIds.length === 0) { return []; }
 
 		// Get detailed member information
 		const members = await this.api.getList('Member', {
@@ -343,10 +384,10 @@ export class MemberManager {
 	addDirectorySearch(dialog) {
 		const $search = dialog.$wrapper.find('.directory-search');
 
-		$search.on('input', function() {
+		$search.on('input', function () {
 			const searchTerm = $(this).val().toLowerCase();
 
-			dialog.$wrapper.find('.member-card-wrapper').each(function() {
+			dialog.$wrapper.find('.member-card-wrapper').each(function () {
 				const $card = $(this);
 				const text = $card.text().toLowerCase();
 
@@ -430,7 +471,6 @@ export class MemberManager {
 			document.body.removeChild(link);
 
 			this.ui.showAlert(__('Member list exported successfully'), 'green');
-
 		} catch (error) {
 			this.ui.showError(__('Failed to export member list: {0}', [error.message]));
 		} finally {
@@ -459,8 +499,8 @@ export class MemberManager {
 
 	canManageMembers() {
 		// Check if user has permission to manage members
-		return frappe.user_roles.includes('Verenigingen Administrator') ||
-               frappe.user_roles.includes('System Manager');
+		return frappe.user_roles.includes('Verenigingen Administrator')
+               || frappe.user_roles.includes('System Manager');
 	}
 
 	// Handle member-related state changes
@@ -505,7 +545,7 @@ export class MemberManager {
 
 		if (member) {
 			frappe.model.set_value(member.doctype, member.name, {
-				enabled: enabled,
+				enabled,
 				leave_reason: leaveReason
 			});
 
@@ -546,7 +586,7 @@ export class MemberManager {
 
 	async onMemberChange(cdt, cdn) {
 		const row = locals[cdt][cdn];
-		if (!row.member) return;
+		if (!row.member) { return; }
 
 		try {
 			// Fetch member details
@@ -609,7 +649,7 @@ export class MemberManager {
 			} else {
 				// Add protocol if missing
 				if (!row.website_url.startsWith('http://') && !row.website_url.startsWith('https://')) {
-					frappe.model.set_value(cdt, cdn, 'website_url', 'https://' + row.website_url);
+					frappe.model.set_value(cdt, cdn, 'website_url', `https://${row.website_url}`);
 				}
 			}
 		}

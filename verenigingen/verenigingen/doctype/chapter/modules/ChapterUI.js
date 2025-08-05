@@ -1,3 +1,45 @@
+/**
+ * @fileoverview Chapter UI management module for advanced user interface operations
+ *
+ * Provides comprehensive UI management capabilities for Chapter DocType forms,
+ * handling complex interface elements, user interactions, and visual feedback.
+ * This module specializes in creating rich, interactive experiences for chapter
+ * administration within the association management system.
+ *
+ * Key Features:
+ * - Dynamic button and dialog management
+ * - Custom styling and visual states
+ * - Board membership visualization
+ * - Postal code coverage preview
+ * - Progress tracking and loading indicators
+ * - Event handling and cleanup
+ * - Grid interactions and bulk actions
+ *
+ * UI Components:
+ * - Board member selection interfaces
+ * - Chapter statistics displays
+ * - Postal code pattern visualization
+ * - Custom dialog systems
+ * - Progress bars and status alerts
+ * - Bulk action interfaces
+ *
+ * Business Context:
+ * Enhances chapter management workflows by providing intuitive visual interfaces
+ * for complex operations like board member management, territory assignment,
+ * and member administration. Critical for chapter administrators who need
+ * efficient tools for managing regional association activities.
+ *
+ * Integration:
+ * - Works with ChapterController for business logic
+ * - Connects to ChapterState for data management
+ * - Integrates with Frappe UI framework
+ * - Supports responsive design patterns
+ *
+ * @author Verenigingen Development Team
+ * @version 2.1.0
+ * @since 2024-08-15
+ */
+
 // verenigingen/verenigingen/doctype/chapter/modules/ChapterUI.js
 
 export class ChapterUI {
@@ -86,9 +128,9 @@ export class ChapterUI {
 	}
 
 	showBoardMemberships(memberships) {
-		if (!memberships || !memberships.length) return;
+		if (!memberships || !memberships.length) { return; }
 
-		let html = '<div class="board-memberships"><h4>' + __('Board Positions') + '</h4><ul>';
+		let html = `<div class="board-memberships"><h4>${__('Board Positions')}</h4><ul>`;
 
 		memberships.forEach(board => {
 			html += `<li><strong>${board.chapter_role}</strong> at
@@ -103,7 +145,7 @@ export class ChapterUI {
 	}
 
 	updateMembersSummary() {
-		if (!this.frm.doc.name) return;
+		if (!this.frm.doc.name) { return; }
 
 		// Count members from Chapter Member child table instead
 		const enabledMembers = this.frm.doc.members?.filter(m => m.enabled) || [];
@@ -122,10 +164,10 @@ export class ChapterUI {
 	}
 
 	updatePostalCodePreview() {
-		if (!this.frm.doc.postal_codes) return;
+		if (!this.frm.doc.postal_codes) { return; }
 
 		const $wrapper = this.frm.get_field('postal_codes')?.$wrapper;
-		if (!$wrapper) return;
+		if (!$wrapper) { return; }
 
 		let $preview = $wrapper.find('.postal-code-preview');
 		if (!$preview.length) {
@@ -134,7 +176,7 @@ export class ChapterUI {
 		}
 
 		const patterns = this.frm.doc.postal_codes.split(',').map(p => p.trim());
-		let html = '<strong>' + __('Chapter covers the following areas:') + '</strong><ul class="mt-2">';
+		let html = `<strong>${__('Chapter covers the following areas:')}</strong><ul class="mt-2">`;
 
 		patterns.forEach(pattern => {
 			if (pattern.includes('-')) {
@@ -153,7 +195,7 @@ export class ChapterUI {
 	}
 
 	showPostalCodeWarning(invalidPatterns) {
-		if (!invalidPatterns || !invalidPatterns.length) return;
+		if (!invalidPatterns || !invalidPatterns.length) { return; }
 
 		frappe.msgprint({
 			title: __('Invalid Postal Code Patterns'),
@@ -165,7 +207,7 @@ export class ChapterUI {
 
 	toggleBulkActions(visible) {
 		const $grid = this.frm.fields_dict.board_members?.grid.wrapper;
-		if (!$grid) return;
+		if (!$grid) { return; }
 
 		const $bulkBar = $grid.find('.bulk-actions-bar');
 		if (visible) {
@@ -189,16 +231,16 @@ export class ChapterUI {
 
 	showAlert(message, indicator = 'green', duration = 5) {
 		frappe.show_alert({
-			message: message,
-			indicator: indicator
+			message,
+			indicator
 		}, duration);
 	}
 
 	showError(message, title = __('Error')) {
 		frappe.msgprint({
-			title: title,
+			title,
 			indicator: 'red',
-			message: message
+			message
 		});
 	}
 
@@ -223,10 +265,10 @@ export class ChapterUI {
 
 	promptInput(title, fieldname, fieldtype = 'Data', onSubmit) {
 		const dialog = this.showDialog({
-			title: title,
+			title,
 			fields: [{
-				fieldname: fieldname,
-				fieldtype: fieldtype,
+				fieldname,
+				fieldtype,
 				reqd: 1
 			}],
 			primary_action_label: __('Submit'),
@@ -290,7 +332,7 @@ export class ChapterUI {
 
 		if (!this.progressDialog) {
 			this.progressDialog = this.showDialog({
-				title: title,
+				title,
 				fields: [{
 					fieldtype: 'HTML',
 					options: `

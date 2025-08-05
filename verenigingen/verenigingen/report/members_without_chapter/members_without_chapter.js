@@ -1,7 +1,48 @@
+/**
+ * @fileoverview Members Without Chapter report JavaScript for interactive assignment
+ *
+ * Provides interactive functionality for the Members Without Chapter report,
+ * enabling administrators to efficiently assign unassigned members to appropriate
+ * chapters directly from the report interface. This module transforms the static
+ * report into an actionable member management tool.
+ *
+ * Key Features:
+ * - Interactive chapter assignment buttons in report rows
+ * - Automatic chapter suggestion based on member data
+ * - Manual chapter selection dialog for complex cases
+ * - Real-time report refresh after assignments
+ * - Bulk assignment capabilities for efficiency
+ * - Assignment confirmation and error handling
+ *
+ * Assignment Workflows:
+ * - Suggested assignments based on postal codes or member preferences
+ * - Manual assignment dialog with published chapter selection
+ * - Confirmation dialogs to prevent accidental assignments
+ * - Success/error feedback with appropriate messaging
+ * - Automatic report refresh to reflect changes
+ *
+ * Business Context:
+ * Critical for maintaining clean member-chapter relationships and ensuring
+ * all active members have appropriate chapter assignments. Helps administrators
+ * quickly process new members or fix chapter assignment gaps, supporting
+ * effective regional member management and chapter participation tracking.
+ *
+ * Integration:
+ * - Connects to Member and Chapter DocTypes for assignment operations
+ * - Uses member management API for secure assignment processing
+ * - Integrates with chapter filtering and selection systems
+ * - Supports real-time report updates and data refresh
+ * - Links to broader member administration workflows
+ *
+ * @author Verenigingen Development Team
+ * @version 1.5.0
+ * @since 2024-05-25
+ */
+
 frappe.query_reports['Members Without Chapter'] = {
-	'onload': function(report) {
+	onload(report) {
 		// Event delegation for assign chapter buttons
-		$(document).on('click', '.assign-chapter-btn', function(e) {
+		$(document).on('click', '.assign-chapter-btn', function (e) {
 			e.preventDefault();
 			e.stopPropagation();
 
@@ -10,14 +51,14 @@ frappe.query_reports['Members Without Chapter'] = {
 
 			frappe.confirm(
 				`Are you sure you want to assign ${memberName} to ${chapterName}?`,
-				function() {
+				() => {
 					assignMemberToChapter(memberName, chapterName, report);
 				}
 			);
 		});
 
 		// Event delegation for manual assign buttons
-		$(document).on('click', '.manual-assign-btn', function(e) {
+		$(document).on('click', '.manual-assign-btn', function (e) {
 			e.preventDefault();
 			e.stopPropagation();
 
@@ -34,7 +75,7 @@ function assignMemberToChapter(memberName, chapterName, report) {
 			member_name: memberName,
 			chapter_name: chapterName
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				frappe.msgprint({
 					message: `${memberName} has been assigned to ${chapterName}`,
@@ -51,7 +92,7 @@ function assignMemberToChapter(memberName, chapterName, report) {
 				});
 			}
 		},
-		error: function(r) {
+		error(r) {
 			frappe.msgprint({
 				message: 'Error assigning member to chapter',
 				indicator: 'red'
@@ -72,27 +113,27 @@ function showManualAssignDialog(memberName, report) {
 			fields: ['name', 'region'],
 			order_by: 'name'
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
-				let chapters = r.message;
-				let options = chapters.map(ch => ({
+				const chapters = r.message;
+				const options = chapters.map(ch => ({
 					label: ch.region ? `${ch.name} - ${ch.region}` : ch.name,
 					value: ch.name
 				}));
 
-				let dialog = new frappe.ui.Dialog({
+				const dialog = new frappe.ui.Dialog({
 					title: `Assign ${memberName} to Chapter`,
 					fields: [
 						{
 							fieldtype: 'Select',
 							fieldname: 'chapter',
 							label: 'Select Chapter',
-							options: options,
+							options,
 							reqd: 1
 						}
 					],
 					primary_action_label: 'Assign',
-					primary_action: function(values) {
+					primary_action(values) {
 						assignMemberToChapter(memberName, values.chapter, report);
 						dialog.hide();
 					}

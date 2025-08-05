@@ -61,7 +61,7 @@ const testCases = [
 
 // Mock the MembershipApplication instance for testing
 const mockApp = {
-	performIBANValidation: function(iban) {
+	performIBANValidation(iban) {
 		// This is the same validation logic from membership_application.js
 		if (!iban) {
 			return { valid: false, error: 'IBAN is required' };
@@ -80,10 +80,10 @@ const mockApp = {
 		const countryCode = cleanIBAN.substring(0, 2);
 
 		const ibanLengths = {
-			'AD': 24, 'AT': 20, 'BE': 16, 'CH': 21, 'CZ': 24,
-			'DE': 22, 'DK': 18, 'ES': 24, 'FI': 18, 'FR': 27,
-			'GB': 22, 'IE': 22, 'IT': 27, 'LU': 20, 'NL': 18,
-			'NO': 15, 'PL': 28, 'PT': 25, 'SE': 24
+			AD: 24, AT: 20, BE: 16, CH: 21, CZ: 24,
+			DE: 22, DK: 18, ES: 24, FI: 18, FR: 27,
+			GB: 22, IE: 22, IT: 27, LU: 20, NL: 18,
+			NO: 15, PL: 28, PT: 25, SE: 24
 		};
 
 		if (!(countryCode in ibanLengths)) {
@@ -93,9 +93,9 @@ const mockApp = {
 		const expectedLength = ibanLengths[countryCode];
 		if (cleanIBAN.length !== expectedLength) {
 			const countryNames = {
-				'NL': 'Dutch', 'BE': 'Belgian', 'DE': 'German',
-				'FR': 'French', 'GB': 'British', 'IT': 'Italian',
-				'ES': 'Spanish', 'AT': 'Austrian', 'CH': 'Swiss'
+				NL: 'Dutch', BE: 'Belgian', DE: 'German',
+				FR: 'French', GB: 'British', IT: 'Italian',
+				ES: 'Spanish', AT: 'Austrian', CH: 'Swiss'
 			};
 			const countryName = countryNames[countryCode] || countryCode;
 			return {
@@ -117,11 +117,11 @@ const mockApp = {
 
 		const formatted = cleanIBAN.match(/.{1,4}/g).join(' ');
 
-		return { valid: true, error: null, formatted: formatted };
+		return { valid: true, error: null, formatted };
 	},
 
-	deriveBICFromIBAN: function(iban) {
-		if (!iban) return null;
+	deriveBICFromIBAN(iban) {
+		if (!iban) { return null; }
 
 		const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -131,23 +131,23 @@ const mockApp = {
 
 		const bankCode = cleanIBAN.substring(4, 8);
 		const nlBicCodes = {
-			'INGB': 'INGBNL2A',
-			'ABNA': 'ABNANL2A',
-			'RABO': 'RABONL2U',
-			'TRIO': 'TRIONL2U',
-			'SNSB': 'SNSBNL2A',
-			'ASNB': 'ASNBNL21',
-			'KNAB': 'KNABNL2H',
-			'BUNQ': 'BUNQNL2A',
-			'REVO': 'REVOLT21',
-			'RBRB': 'RBRBNL21'
+			INGB: 'INGBNL2A',
+			ABNA: 'ABNANL2A',
+			RABO: 'RABONL2U',
+			TRIO: 'TRIONL2U',
+			SNSB: 'SNSBNL2A',
+			ASNB: 'ASNBNL21',
+			KNAB: 'KNABNL2H',
+			BUNQ: 'BUNQNL2A',
+			REVO: 'REVOLT21',
+			RBRB: 'RBRBNL21'
 		};
 
 		return nlBicCodes[bankCode] || null;
 	},
 
-	getBankNameFromIBAN: function(iban) {
-		if (!iban) return null;
+	getBankNameFromIBAN(iban) {
+		if (!iban) { return null; }
 
 		const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -157,15 +157,15 @@ const mockApp = {
 
 		const bankCode = cleanIBAN.substring(4, 8);
 		const bankNames = {
-			'INGB': 'ING',
-			'ABNA': 'ABN AMRO',
-			'RABO': 'Rabobank',
-			'TRIO': 'Triodos Bank',
-			'SNSB': 'SNS Bank',
-			'ASNB': 'ASN Bank',
-			'KNAB': 'Knab',
-			'BUNQ': 'Bunq',
-			'RBRB': 'RegioBank'
+			INGB: 'ING',
+			ABNA: 'ABN AMRO',
+			RABO: 'Rabobank',
+			TRIO: 'Triodos Bank',
+			SNSB: 'SNS Bank',
+			ASNB: 'ASN Bank',
+			KNAB: 'Knab',
+			BUNQ: 'Bunq',
+			RBRB: 'RegioBank'
 		};
 
 		return bankNames[bankCode] || null;
@@ -174,7 +174,7 @@ const mockApp = {
 
 // Run tests
 console.log('Testing IBAN Validation with Mod-97 Checksum');
-console.log('=' .repeat(50));
+console.log('='.repeat(50));
 
 testCases.forEach(test => {
 	console.log(`\nTest: ${test.description}`);
@@ -190,8 +190,8 @@ testCases.forEach(test => {
 			const bank = mockApp.getBankNameFromIBAN(test.iban);
 			const bic = mockApp.deriveBICFromIBAN(test.iban);
 
-			if (bank) console.log(`  Bank: ${bank}`);
-			if (bic) console.log(`  BIC: ${bic}`);
+			if (bank) { console.log(`  Bank: ${bank}`); }
+			if (bic) { console.log(`  BIC: ${bic}`); }
 
 			// Check expectations
 			if (result.formatted !== test.expected.formatted) {
@@ -220,7 +220,7 @@ testCases.forEach(test => {
 	}
 });
 
-console.log('\n' + '=' .repeat(50));
+console.log(`\n${'='.repeat(50)}`);
 console.log('IBAN validation now includes:');
 console.log('1. Immediate validation on blur (when leaving IBAN field)');
 console.log('2. Validation when moving to payment step');

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Debug Security Monitor Issues
+Security Monitor Diagnostics
 
-Provides debugging functions to identify why security monitor initialization fails.
+Provides diagnostic functions to analyze and troubleshoot security monitor initialization.
 """
 
 import frappe
@@ -10,7 +10,7 @@ from frappe import _
 
 
 @frappe.whitelist()
-def debug_security_monitor_initialization():
+def diagnose_security_monitor_initialization():
     """Debug security monitor initialization issues"""
     try:
         debug_info = {"step_results": [], "final_result": None, "error_details": None}

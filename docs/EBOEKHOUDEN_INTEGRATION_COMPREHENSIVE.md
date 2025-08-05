@@ -215,19 +215,33 @@ def get_all_mutations(self, date_from=None, date_to=None) -> Dict[str, Any]:
 | Maintenance | Active | Legacy |
 | Error Handling | Detailed | Basic |
 
-### API Capabilities Comparison
+### Current Implementation Status
 
-#### REST API Advantages
-- **Unlimited History**: Access to complete transaction history
-- **Better Performance**: JSON parsing is faster than XML
-- **Enhanced Metadata**: More detailed transaction information
-- **Modern Standards**: RESTful design with proper HTTP status codes
-- **Future-Proof**: Actively maintained and enhanced
+#### Verified API Implementation
+- **REST API Client**: `EBoekhoudenRESTClient` in `utils/eboekhouden_rest_client.py`
+- **Legacy SOAP API**: `EBoekhoudenAPI` in `utils/eboekhouden_api.py`
+- **Session Management**: Automatic token refresh with 60-minute expiry
+- **Pagination Support**: Handles large datasets with configurable batch sizes
+- **Error Recovery**: Comprehensive error handling and retry mechanisms
 
-#### SOAP API Use Cases
-- **Legacy Compatibility**: Systems requiring XML format
-- **Specific Endpoints**: Some legacy-only functionality
-- **Fallback Option**: When REST API is temporarily unavailable
+#### DocTypes Currently Implemented
+- **E-Boekhouden Settings**: Single doctype for API configuration
+- **E-Boekhouden Migration**: Main migration orchestration doctype
+- **E-Boekhouden Import Log**: Detailed logging of all import operations
+- **E-Boekhouden Ledger Mapping**: Account mapping between systems
+- **E-Boekhouden Item Mapping**: Product/item synchronization
+- **EBoekhouden Payment Mapping**: Payment reconciliation mapping
+
+#### API Capabilities Comparison
+
+| Feature | REST API | SOAP API |
+|---------|----------|----------|
+| Transaction Limit | Unlimited | 500 records |
+| Data Format | JSON | XML |
+| Performance | High | Moderate |
+| Maintenance | Active | Legacy |
+| Error Handling | Detailed | Basic |
+| Session Management | Token-based | Direct credentials |
 
 ## Data Synchronization
 
@@ -237,55 +251,80 @@ The system imports the complete chart of accounts from eBoekhouden and creates c
 
 #### Account Type Mapping
 
+The system uses intelligent account type detection based on eBoekhouden account codes and categories. The mapping is implemented in `utils/eboekhouden_coa_import.py`:
+
 ```python
-ACCOUNT_TYPE_MAPPING = {
-    # Assets
-    "10": "Fixed Asset",      # Vaste activa
-    "11": "Current Asset",    # Vlottende activa
-    "12": "Current Asset",    # Voorraden
-    "13": "Receivable",       # Debiteuren
-    "14": "Current Asset",    # Overige vorderingen
+# Account types are determined by code ranges and categories
+def determine_account_type(account_code, category):
+    """Determine ERPNext account type from eBoekhouden data"""
+    code_prefix = str(account_code)[:2] if account_code else ""
 
-    # Liabilities & Equity
-    "20": "Equity",           # Eigen vermogen
-    "21": "Current Liability", # Kortlopende schulden
-    "22": "Payable",          # Crediteuren
-    "23": "Current Liability", # Overige schulden
+    # Assets (10-19)
+    if code_prefix in ["10", "11", "12", "14"]:
+        return "Current Asset"
+    elif code_prefix == "13":
+        return "Receivable"
 
-    # Income & Expenses
-    "80": "Income",           # Omzet
-    "81": "Expense",          # Kosten van omzet
-    "82": "Expense",          # Overige bedrijfskosten
-    "90": "Expense"           # Financiële lasten
-}
+    # Liabilities & Equity (20-29)
+    elif code_prefix == "20":
+        return "Equity"
+    elif code_prefix in ["21", "23"]:
+        return "Current Liability"
+    elif code_prefix == "22":
+        return "Payable"
+
+    # Income & Expenses (80-99)
+    elif code_prefix == "80":
+        return "Income"
+    elif code_prefix in ["81", "82", "90"]:
+        return "Expense"
+
+    # Default fallback
+    return "Current Asset"
 ```
 
 #### Account Creation Process
 
+Account creation is handled by the Chart of Accounts import functionality in `utils/eboekhouden_coa_import.py`:
+
 ```python
-def create_account_from_ledger(ledger_data: Dict) -> str:
-    """Create ERPNext account from eBoekhouden ledger"""
+@frappe.whitelist()
+def import_chart_of_accounts():
+    """Import complete chart of accounts from eBoekhouden"""
 
-    # Extract account information
-    account_code = ledger_data.get("code", "")
-    account_name = ledger_data.get("description", "")
-    category = ledger_data.get("category", "")
+    # Get API client and fetch ledger data
+    client = EBoekhoudenRESTClient()
+    results = client.get_grootboek()  # Chart of accounts
 
-    # Determine account type and parent
-    account_type = determine_account_type(account_code, category)
-    parent_account = find_or_create_parent_account(account_code)
+    for ledger in results.get('ledgers', []):
+        # Create or update account
+        account_name = create_account_from_ledger(ledger)
 
-    # Create account with validation
+        # Create mapping record for future reference
+        mapping = frappe.new_doc("E-Boekhouden Ledger Mapping")
+        mapping.ledger_id = ledger.get('id')
+        mapping.ledger_code = ledger.get('code')
+        mapping.ledger_name = ledger.get('description')
+        mapping.erpnext_account = account_name
+        mapping.save()
+
+def create_account_from_ledger(ledger_data):
+    """Create ERPNext account from eBoekhouden ledger data"""
+
+    # Use actual field names from eBoekhouden API
+    account_code = ledger_data.get("Code", "")
+    account_name = ledger_data.get("Desc", "")
+
+    # Create account with proper hierarchy
     account = frappe.new_doc("Account")
-    account.account_name = f"{account_code} - {account_name}"
+    account.account_name = f"{account_code} {account_name}"
     account.account_number = account_code
-    account.parent_account = parent_account
-    account.account_type = account_type
-    account.company = company
-    account.is_group = 0
+    account.company = frappe.get_single("E-Boekhouden Settings").default_company
+    account.account_type = determine_account_type(account_code)
+    account.parent_account = find_parent_account(account_code)
 
-    # Add eBoekhouden reference
-    account.eboekhouden_ledger_id = ledger_data.get("id")
+    # Add custom field for eBoekhouden reference
+    account.eboekhouden_account_id = ledger_data.get("ID")
     account.save()
 
     return account.name
@@ -293,10 +332,14 @@ def create_account_from_ledger(ledger_data: Dict) -> str:
 
 ### Transaction Processing
 
+#### Transaction Processing
+
 #### Transaction Type Mapping
 
-| eBoekhouden Type | ERPNext Document | Description |
-|------------------|------------------|-------------|
+The current implementation supports the following transaction types:
+
+| eBoekhouden Type | ERPNext Document | Description | Processor Class |
+|------------------|------------------|-------------|-----------------|
 | 0 | Journal Entry | Opening Balance |
 | 1 | Purchase Invoice | Supplier Invoice |
 | 2 | Sales Invoice | Customer Invoice |
@@ -454,9 +497,41 @@ def create_customer(party_data: Dict) -> str:
 ### Prerequisites
 
 1. **eBoekhouden Account**: Active subscription with API access
-2. **API Credentials**: API token from eBoekhouden administration
+2. **API Credentials**:
+   - REST API token from eBoekhouden account settings
+   - Optional: SOAP credentials (username, security codes) for legacy endpoints
 3. **ERPNext Setup**: Company and basic chart of accounts configured
 4. **Permissions**: System Manager or Verenigingen Administrator role
+
+### E-Boekhouden Settings Configuration
+
+The integration uses a single settings doctype with the following required fields:
+
+#### API Connection (Required)
+- **API URL**: `https://api.e-boekhouden.nl` (default REST endpoint)
+- **API Token**: Your eBoekhouden API token (stored encrypted)
+- **Source Application**: `VerenigingenERPNext` (API identifier)
+
+#### SOAP API Credentials (Optional)
+- **SOAP Username**: eBoekhouden username
+- **Security Code 1**: First authentication code
+- **Security Code 2 (GUID)**: Second authentication code in GUID format
+- **Administration GUID**: Optional specific administration identifier
+
+#### Default Mapping Settings (Required)
+- **Default Company**: ERPNext company for imports
+- **Default Cost Center**: Optional default cost center
+- **Default Currency**: EUR (typically)
+- **Fiscal Year Start Month**: 1-12 (default: 1 for January)
+
+#### Account Group Mappings (Optional)
+Custom account group codes and names in format:
+```
+001 Vaste activa
+002 Liquide middelen
+055 Opbrengsten
+056 Personeelskosten
+```
 
 ### Initial Configuration
 

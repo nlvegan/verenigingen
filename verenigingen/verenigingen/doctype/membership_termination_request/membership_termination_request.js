@@ -80,7 +80,7 @@
  * @description Advanced membership termination form controller with workflow management
  */
 frappe.ui.form.on('Membership Termination Request', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Set indicators based on status
 		set_status_indicator(frm);
 
@@ -95,13 +95,13 @@ frappe.ui.form.on('Membership Termination Request', {
 
 		// Add view member button
 		if (frm.doc.member) {
-			frm.add_custom_button(__('View Member'), function() {
+			frm.add_custom_button(__('View Member'), () => {
 				frappe.set_route('Form', 'Member', frm.doc.member);
 			}, __('View'));
 		}
 	},
 
-	onload: function(frm) {
+	onload(frm) {
 		// Set default values for new documents
 		if (frm.is_new()) {
 			frm.set_value('request_date', frappe.datetime.get_today());
@@ -113,7 +113,7 @@ frappe.ui.form.on('Membership Termination Request', {
 		set_secondary_approver_filter(frm);
 	},
 
-	termination_type: function(frm) {
+	termination_type(frm) {
 		// Toggle disciplinary fields based on termination type
 		toggle_disciplinary_fields(frm);
 
@@ -124,26 +124,26 @@ frappe.ui.form.on('Membership Termination Request', {
 		set_default_dates(frm);
 	},
 
-	member: function(frm) {
+	member(frm) {
 		// Clear member name when member changes
 		if (!frm.doc.member) {
 			frm.set_value('member_name', '');
 		}
 	},
 
-	before_save: function(frm) {
+	before_save(frm) {
 		// Validate required fields based on termination type
 		validate_required_fields(frm);
 	}
 });
 
 function set_status_indicator(frm) {
-	let indicator_map = {
-		'Draft': 'blue',
-		'Pending': 'yellow',
-		'Approved': 'green',
-		'Rejected': 'red',
-		'Executed': 'gray'
+	const indicator_map = {
+		Draft: 'blue',
+		Pending: 'yellow',
+		Approved: 'green',
+		Rejected: 'red',
+		Executed: 'gray'
 	};
 
 	if (frm.doc.status && indicator_map[frm.doc.status]) {
@@ -157,32 +157,30 @@ function add_action_buttons(frm) {
 
 	if (frm.doc.status === 'Draft') {
 		// Submit for approval button
-		frm.add_custom_button(__('Submit for Approval'), function() {
+		frm.add_custom_button(__('Submit for Approval'), () => {
 			submit_for_approval(frm);
 		}, __('Actions')).addClass('btn-primary');
-
 	} else if (frm.doc.status === 'Pending') {
 		// Show approval buttons if user can approve
 		if (can_approve_request(frm)) {
-			frm.add_custom_button(__('Approve'), function() {
+			frm.add_custom_button(__('Approve'), () => {
 				approve_request(frm, 'approved');
 			}, __('Actions')).addClass('btn-success');
 
-			frm.add_custom_button(__('Reject'), function() {
+			frm.add_custom_button(__('Reject'), () => {
 				approve_request(frm, 'rejected');
 			}, __('Actions')).addClass('btn-danger');
 		}
-
 	} else if (frm.doc.status === 'Approved') {
 		// Execute termination button
-		frm.add_custom_button(__('Execute Termination'), function() {
+		frm.add_custom_button(__('Execute Termination'), () => {
 			execute_termination(frm);
 		}, __('Actions')).addClass('btn-warning');
 	}
 
 	// View member button
 	if (frm.doc.member) {
-		frm.add_custom_button(__('View Member'), function() {
+		frm.add_custom_button(__('View Member'), () => {
 			frappe.set_route('Form', 'Member', frm.doc.member);
 		}, __('View'));
 	}
@@ -234,7 +232,7 @@ function set_default_dates(frm) {
 }
 
 function set_secondary_approver_filter(frm) {
-	frm.set_query('secondary_approver', function() {
+	frm.set_query('secondary_approver', () => {
 		return {
 			query: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers'
 		};
@@ -263,7 +261,7 @@ function submit_for_approval(frm) {
 	frappe.call({
 		method: 'submit_for_approval',
 		doc: frm.doc,
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				frm.refresh();
 				frappe.show_alert({
@@ -312,15 +310,15 @@ function approve_request(frm, decision) {
 			}
 		],
 		primary_action_label: __(decision === 'approved' ? 'Approve' : 'Reject'),
-		primary_action: function(values) {
+		primary_action(values) {
 			frappe.call({
 				method: 'approve_request',
 				doc: frm.doc,
 				args: {
-					decision: decision,
+					decision,
 					notes: values.notes || ''
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						// Update termination date if provided
 						if (decision === 'approved' && values.termination_date) {
@@ -330,12 +328,12 @@ function approve_request(frm, decision) {
 						frm.refresh();
 						dialog.hide();
 
-						const message = decision === 'approved' ?
-							__('Request approved successfully') :
-							__('Request rejected');
+						const message = decision === 'approved'
+							? __('Request approved successfully')
+							: __('Request rejected');
 
 						frappe.show_alert({
-							message: message,
+							message,
 							indicator: decision === 'approved' ? 'green' : 'red'
 						}, 5);
 					}
@@ -350,20 +348,20 @@ function approve_request(frm, decision) {
 function execute_termination(frm) {
 	// Show confirmation dialog
 	frappe.confirm(
-		__('Are you sure you want to execute this termination? This action cannot be undone and will:') +
-        '<br><br>' +
-        '• ' + __('Cancel all SEPA mandates') + '<br>' +
-        '• ' + __('Unsubscribe from member newsletters') + '<br>' +
-        '• ' + __('End all board/committee positions') + '<br>' +
-        '• ' + __('Update membership status'),
-		function() {
+		`${__('Are you sure you want to execute this termination? This action cannot be undone and will:')
+		}<br><br>`
+        + `• ${__('Cancel all SEPA mandates')}<br>`
+        + `• ${__('Unsubscribe from member newsletters')}<br>`
+        + `• ${__('End all board/committee positions')}<br>`
+        + `• ${__('Update membership status')}`,
+		() => {
 			// User confirmed
 			frappe.call({
 				method: 'execute_termination',
 				doc: frm.doc,
 				freeze: true,
 				freeze_message: __('Executing termination...'),
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frm.refresh();
 						frappe.show_alert({
@@ -378,7 +376,7 @@ function execute_termination(frm) {
 }
 
 // Enhanced termination dialog function that can be called from Member form
-window.show_enhanced_termination_dialog = function(member_id, member_name) {
+window.show_enhanced_termination_dialog = function (member_id, member_name) {
 	const dialog = new frappe.ui.Dialog({
 		title: __('Terminate Membership: {0}', [member_name]),
 		size: 'large',
@@ -395,13 +393,13 @@ window.show_enhanced_termination_dialog = function(member_id, member_name) {
 					'Voluntary',
 					'Non-payment',
 					'Deceased',
-					'--- Disciplinary ---',  // Visual separator
+					'--- Disciplinary ---', // Visual separator
 					'Policy Violation',
 					'Disciplinary Action',
 					'Expulsion'
 				],
 				reqd: 1,
-				onchange: function() {
+				onchange() {
 					toggle_dialog_fields(dialog, this.value);
 				}
 			},
@@ -435,7 +433,7 @@ window.show_enhanced_termination_dialog = function(member_id, member_name) {
 				options: 'User',
 				depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
 				mandatory_depends_on: 'eval:["Policy Violation", "Disciplinary Action", "Expulsion"].includes(termination_type)',
-				get_query: function() {
+				get_query() {
 					return {
 						query: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers'
 					};
@@ -465,7 +463,7 @@ window.show_enhanced_termination_dialog = function(member_id, member_name) {
 			}
 		],
 		primary_action_label: __('Create Termination Request'),
-		primary_action: function(values) {
+		primary_action(values) {
 			// Create the termination request
 			const termination_data = {
 				termination_type: values.termination_type,
@@ -486,10 +484,10 @@ window.show_enhanced_termination_dialog = function(member_id, member_name) {
 				frappe.call({
 					method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.initiate_disciplinary_termination',
 					args: {
-						member_id: member_id,
-						termination_data: termination_data
+						member_id,
+						termination_data
 					},
-					callback: function(r) {
+					callback(r) {
 						if (r.message) {
 							dialog.hide();
 							frappe.set_route('Form', 'Membership Termination Request', r.message.request_id);
@@ -500,7 +498,7 @@ window.show_enhanced_termination_dialog = function(member_id, member_name) {
 				// Standard workflow - create request directly
 				frappe.new_doc('Membership Termination Request', {
 					member: member_id,
-					member_name: member_name,
+					member_name,
 					termination_type: values.termination_type,
 					termination_reason: values.termination_reason,
 					cancel_sepa_mandates: values.cancel_sepa_mandates,
@@ -531,7 +529,7 @@ function toggle_dialog_fields(dialog, termination_type) {
 frappe.provide('verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request');
 
 frappe.query_reports['Get Eligible Approvers'] = {
-	execute: function(filters) {
+	execute(filters) {
 		return frappe.call({
 			method: 'verenigingen.verenigingen.doctype.membership_termination_request.membership_termination_request.get_eligible_approvers',
 			args: filters

@@ -516,6 +516,9 @@ def _check_if_invoice_number_exists(invoice_number, doctype):
     return existing
 
 
+# Removed: _check_if_invoice_number_exists_for_party - E-Boekhouden handles duplicate detection
+
+
 def create_invoice_line_for_tegenrekening(
     tegenrekening_code=None, amount=0, description="", transaction_type="purchase"
 ):
@@ -640,6 +643,7 @@ def get_progress_info():
 def _import_rest_mutations_batch(migration_name, mutations, settings, opening_balances_imported=False):
     """Import a batch of REST API mutations with smart tegenrekening mapping"""
     imported = 0
+    skipped = 0
     errors = []
     debug_info = []
 
@@ -648,7 +652,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
     if not mutations:
         debug_info.append("No mutations provided, returning early")
         frappe.log_error("BATCH Log:\n" + "\n".join(debug_info), "REST Batch Debug")
-        return {"imported": 0, "failed": 0, "errors": []}
+        return {"imported": 0, "failed": 0, "skipped": 0, "errors": []}
 
     # # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)  # Not needed for batch processing
     company = settings.default_company
@@ -663,7 +667,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
         errors.append("No cost center found")
         debug_info.append("ERROR - No cost center found")
         frappe.log_error("BATCH Log:\n" + "\n".join(debug_info), "REST Batch Debug")
-        return {"imported": 0, "failed": len(mutations), "errors": errors}
+        return {"imported": 0, "failed": len(mutations), "skipped": 0, "errors": errors}
 
     for i, mutation in enumerate(mutations):
         try:
@@ -683,7 +687,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
             existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
 
             if existing_je or existing_pe or existing_si or existing_pi:
-                debug_info.append(f"Mutation {mutation_id} already imported, skipping")
+                skipped += 1
                 continue
 
             # Check if this mutation should be skipped (e.g., zero-amount system notifications)
@@ -731,7 +735,12 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
     if debug_info:
         frappe.log_error("BATCH Log:\n" + "\n".join(debug_info[-100:]), "REST Batch Debug")  # Last 100 lines
 
-    return {"imported": imported, "failed": len(mutations) - imported, "errors": errors}
+    return {
+        "imported": imported,
+        "failed": len(mutations) - imported - skipped,
+        "skipped": skipped,
+        "errors": errors,
+    }
 
 
 # Removed _process_money_transfer_with_mapping - types 5 & 6 now handled directly by _create_journal_entry
@@ -1266,7 +1275,7 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
         )
 
         if existing_opening_balance:
-            debug_info.append(f"Opening balances already imported: {existing_opening_balance}")
+            # Opening balances already imported
             return {
                 "success": True,
                 "message": "Opening balances already imported",
@@ -1383,11 +1392,9 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
                     skipped_accounts["pnl"].append({"account": account, "type": root_type})
                 continue
 
-            # Skip Stock accounts - they can only be updated via Stock transactions
+            # Handle Stock accounts via Stock Reconciliation instead of Journal Entry
             if account_type == "Stock":
-                debug_info.append(
-                    f"Skipping Stock account {account} - can only be updated via Stock transactions"
-                )
+                debug_info.append(f"Stock account {account} will be handled via Stock Reconciliation")
                 if "skipped_accounts" in locals():
                     skipped_accounts["stock"].append({"account": account, "balance": amount})
                 continue
@@ -1488,20 +1495,56 @@ def _import_opening_balances(company, cost_center, debug_info, dry_run=False):
                 je.submit()
                 debug_info.append(f"Successfully created opening balance journal entry: {je.name}")
 
-                # Add summary of what was skipped
-                total_skipped = (
-                    len(skipped_accounts["stock"])
-                    + len(skipped_accounts["pnl"])
-                    + len(skipped_accounts["errors"])
-                )
-                if total_skipped > 0:
+                # Handle stock accounts via Stock Reconciliation
+                stock_reconciliations = []
+                if skipped_accounts["stock"]:
                     debug_info.append(
-                        f"Skipped {total_skipped} accounts: {len(skipped_accounts['stock'])} stock, {len(skipped_accounts['pnl'])} P&L, {len(skipped_accounts['errors'])} errors"
+                        f"Creating Stock Reconciliations for {len(skipped_accounts['stock'])} stock accounts"
                     )
+
+                    try:
+                        from verenigingen.e_boekhouden.utils.stock_opening_balance_handler import (
+                            create_stock_reconciliation_for_opening_balance,
+                        )
+
+                        stock_result = create_stock_reconciliation_for_opening_balance(
+                            skipped_accounts["stock"], company, debug_info
+                        )
+
+                        if stock_result.get("success"):
+                            stock_reconciliations = stock_result.get("created_reconciliations", [])
+                            debug_info.append(
+                                f"Created {len(stock_reconciliations)} Stock Reconciliation entries"
+                            )
+                        else:
+                            debug_info.append(
+                                f"Stock reconciliation failed: {stock_result.get('error', 'Unknown error')}"
+                            )
+
+                    except Exception as e:
+                        debug_info.append(f"Error importing stock reconciliations: {str(e)}")
+
+                # Add summary of what was processed
+                total_skipped = len(skipped_accounts["pnl"]) + len(skipped_accounts["errors"])
+                total_stock_processed = len(stock_reconciliations)
+
+                if total_skipped > 0 or total_stock_processed > 0:
+                    summary_parts = []
+                    if total_stock_processed > 0:
+                        summary_parts.append(
+                            f"{total_stock_processed} stock accounts via Stock Reconciliation"
+                        )
+                    if len(skipped_accounts["pnl"]) > 0:
+                        summary_parts.append(f"{len(skipped_accounts['pnl'])} P&L accounts skipped")
+                    if len(skipped_accounts["errors"]) > 0:
+                        summary_parts.append(f"{len(skipped_accounts['errors'])} error accounts skipped")
+
+                    debug_info.append(f"Additional processing: {', '.join(summary_parts)}")
 
                 return {
                     "success": True,
                     "journal_entry": je.name,
+                    "stock_reconciliations": stock_reconciliations,
                     "message": "Opening balances imported successfully",
                     "skipped_accounts": skipped_accounts,
                     "accounts_processed": len(processed_accounts),
@@ -1535,7 +1578,7 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
         )
 
         if existing_opening_balance:
-            debug_info.append(f"Opening balances already imported: {existing_opening_balance}")
+            # Opening balances already imported
             return {
                 "success": True,
                 "message": "Opening balances already imported",
@@ -1621,11 +1664,9 @@ def _import_opening_balances_from_data(mutations_data, company, cost_center, deb
                     skipped_accounts["pnl"].append({"account": account, "type": root_type})
                 continue
 
-            # Skip Stock accounts - they can only be updated via Stock transactions
+            # Handle Stock accounts via Stock Reconciliation instead of Journal Entry
             if account_type == "Stock":
-                debug_info.append(
-                    f"Skipping Stock account {account} - can only be updated via Stock transactions"
-                )
+                debug_info.append(f"Stock account {account} will be handled via Stock Reconciliation")
                 if "skipped_accounts" in locals():
                     skipped_accounts["stock"].append({"account": account, "balance": amount})
                 continue
@@ -1983,7 +2024,7 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
 
         if existing_je or existing_pe or existing_si or existing_pi:
             existing_doc = existing_je or existing_pe or existing_si or existing_pi
-            debug_info.append(f"Mutation {mutation_id} already imported as {existing_doc}")
+            # Mutation already imported
             return frappe.get_doc(
                 "Journal Entry"
                 if existing_je
@@ -2013,27 +2054,7 @@ def _process_single_mutation(mutation, company, cost_center, debug_info):
                 f"Fetched detailed data for mutation {mutation_id} with {total_items} line items (Regels: {regels_count}, rows: {rows_count})"
             )
 
-        # Check for duplicate invoice numbers for invoices
-        invoice_number = mutation_detail.get("invoiceNumber")
-        if invoice_number and mutation_type in [1, 2]:  # Sales Invoice or Purchase Invoice
-            doctype = "Purchase Invoice" if mutation_type == 1 else "Sales Invoice"
-            existing_invoice = _check_if_invoice_number_exists(invoice_number, doctype)
-            if existing_invoice:
-                debug_info.append(
-                    f"Invoice number {invoice_number} already exists as {existing_invoice}, skipping mutation {mutation_id}"
-                )
-                # Return None to indicate this was skipped, not newly imported
-                return None
-
-            # Also check the opposite type to avoid conflicts
-            opposite_doctype = "Sales Invoice" if mutation_type == 1 else "Purchase Invoice"
-            existing_opposite = _check_if_invoice_number_exists(invoice_number, opposite_doctype)
-            if existing_opposite:
-                debug_info.append(
-                    f"Invoice number {invoice_number} already exists as {opposite_doctype} {existing_opposite}, skipping mutation {mutation_id}"
-                )
-                # Return None to indicate this was skipped, not newly imported
-                return None
+        # REMOVED: Duplicate detection - E-Boekhouden already enforces this perfectly
 
         # Handle different mutation types with detailed data
         if mutation_type == 1:  # Purchase Invoice (Invoice received)
@@ -3215,8 +3236,7 @@ def start_full_rest_import(migration_name):
                         summary_content += f"• Imported: {batch_result['imported']}\n"
                         summary_content += f"• Failed: {batch_result['failed']}\n"
                         summary_content += f"• Skipped: {batch_result['skipped']}\n"
-                        summary_content += f"• Errors: {len(batch_result['errors'])}\n\n"
-                        summary_content += "DETAILED LOG:\n" + "\n".join(debug_info)
+                        summary_content += f"• Total Errors: {len(batch_result['errors'])}\n"
                         frappe.log_error(summary_content, summary_title)
                     else:
                         # Process other mutations using the batch import with enhanced error handling
@@ -3361,7 +3381,7 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
             existing_pi = _check_if_already_imported(mutation_id, "Purchase Invoice")
 
             if existing_je or existing_pe or existing_si or existing_pi:
-                debug_info.append(f"Mutation {mutation_id} already imported, skipping")
+                skipped += 1
                 skipped += 1
                 continue
 
@@ -3405,17 +3425,31 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                     errors.append(error_msg)
                     debug_info.append(f"PROCESSING ERROR - {error_msg}")
 
-                # Log the specific error for debugging
-                frappe.log_error(
-                    f"Enhanced Batch Processing Error for mutation {mutation_id}:\n{str(processing_error)}\n\nMutation data:\n{mutation}",
-                    "Enhanced Batch Processing Error",
-                )
+                # Error details collected in batch summary
 
         except Exception as e:
             failed += 1
             error_msg = f"Error in batch processing loop for mutation {i}: {str(e)}"
             errors.append(error_msg)
             debug_info.append(f"LOOP ERROR - {error_msg}")
+
+    # Group errors by category
+    error_categories = {}
+    for error in errors:
+        if "Stock accounts" in error and "can only be updated via Stock Transactions" in error:
+            category = "Stock Account Updates (Fixed - now creates Stock Reconciliations)"
+        elif "already been fully paid" in error or "cannot be greater than outstanding amount" in error:
+            category = "Payment Allocation Issues"
+        elif "Could not find" in error:
+            category = "Missing References"
+        elif "already exists" in error:
+            category = "Duplicate Entries"
+        else:
+            category = "Other Errors"
+
+        if category not in error_categories:
+            error_categories[category] = []
+        error_categories[category].append(error)
 
     # Log comprehensive debug info with more descriptive title
     summary_title = f"eBoekhouden REST Import - {type_name} Complete"
@@ -3424,8 +3458,27 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
     summary_content += f"• Imported: {imported}\n"
     summary_content += f"• Failed: {failed}\n"
     summary_content += f"• Skipped: {skipped}\n"
-    summary_content += f"• Errors: {len(errors)}\n\n"
-    summary_content += "DETAILED LOG:\n" + "\n".join(debug_info)
+    summary_content += f"• Total Errors: {len(errors)}\n\n"
+
+    if error_categories:
+        summary_content += "ERROR CATEGORIES:\n"
+        for category, category_errors in error_categories.items():
+            summary_content += f"\n{category} ({len(category_errors)} errors):\n"
+            # Show first 5 errors of each category
+            for error in category_errors[:5]:
+                # Extract just mutation ID from error message
+                if "mutation" in error:
+                    import re
+
+                    mutation_match = re.search(r"mutation (\d+)", error)
+                    if mutation_match:
+                        summary_content += f"  - Mutation {mutation_match.group(1)}\n"
+                    else:
+                        summary_content += f"  - {error[:100]}...\n" if len(error) > 100 else f"  - {error}\n"
+                else:
+                    summary_content += f"  - {error[:100]}...\n" if len(error) > 100 else f"  - {error}\n"
+            if len(category_errors) > 5:
+                summary_content += f"  ... and {len(category_errors) - 5} more\n"
 
     frappe.log_error(summary_content, summary_title)
 

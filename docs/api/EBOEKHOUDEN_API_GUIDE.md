@@ -6,83 +6,167 @@ Complete guide for integrating and using the eBoekhouden accounting API with the
 
 ### API Endpoints Summary
 
-The integration provides several key API endpoints for managing eBoekhouden data:
+The integration provides numerous API endpoints organized by functionality. Here are the key categories:
 
+#### Core Migration Functions
 ```python
-# Core Migration Functions
+# Main migration orchestration (e_boekhouden_migration.py)
 @frappe.whitelist()
-def start_full_rest_import(migration_name)
-def test_opening_balance_import()
-def fetch_and_cache_all_mutations(start_id=None, end_id=None, batch_size=100)
+def start_migration(migration_name)  # Start complete migration
+def start_dry_run_migration(migration_name)  # Preview-only migration
+def pause_migration(migration_name)  # Pause running migration
+def resume_migration(migration_name)  # Resume paused migration
 
-# Analysis and Monitoring
+# REST API specific migrations (eboekhouden_rest_full_migration.py)
 @frappe.whitelist()
-def get_cache_statistics()
-def analyze_missing_ledger_mappings()
-def export_unprocessed_mutations(export_path="/tmp/unprocessed_mutations.json")
-
-# Testing and Validation
-@frappe.whitelist()
-def test_rest_iterator()
-def check_fiscal_years()
-def estimate_mutation_range()
+def start_full_rest_import(migration_name)  # Full REST API import
+def test_opening_balance_import()  # Test opening balance import
+def get_cache_statistics()  # API cache performance metrics
 ```
 
-### Basic Usage Example
-
+#### Chart of Accounts Management
 ```python
-# Start a complete REST API migration
-bench --site your-site execute verenigingen.utils.eboekhouden_rest_full_migration.start_full_rest_import --args '{"migration_name": "My Migration"}'
+# Chart of Accounts import (eboekhouden_coa_import.py)
+@frappe.whitelist()
+def import_chart_of_accounts()  # Import complete COA
+def analyze_chart_of_accounts()  # Analyze COA structure
+def validate_account_mappings()  # Validate existing mappings
+def setup_account_groups()  # Setup account group hierarchy
+```
 
-# Test the opening balance import
-bench --site your-site execute verenigingen.utils.eboekhouden_rest_full_migration.test_opening_balance_import
+#### Data Analysis and Monitoring
+```python
+# REST API iteration and caching (eboekhouden_rest_iterator.py)
+@frappe.whitelist()
+def test_rest_iterator()  # Test API connectivity
+def estimate_mutation_range()  # Estimate data volume
+def check_fiscal_years()  # Validate fiscal year setup
 
-# Check API connectivity and data availability
-bench --site your-site execute verenigingen.utils.eboekhouden_rest_iterator.test_rest_iterator
+# Quality checking (migration/quality_checker.py)
+@frappe.whitelist()
+def run_migration_quality_check()  # Comprehensive data validation
+```
+
+#### Utility Functions
+```python
+# Cleanup and maintenance (cleanup_utils.py)
+@frappe.whitelist()
+def cleanup_failed_migrations()  # Clean up failed imports
+def reset_migration_state()  # Reset migration to fresh state
+def archive_old_logs()  # Archive historical import logs
+
+# Configuration management (eboekhouden_migration_config.py)
+@frappe.whitelist()
+def test_api_connection()  # Test API connectivity
+def validate_migration_settings()  # Validate configuration
+```
+
+### Basic Usage Examples
+
+#### Command Line Execution
+```bash
+# Test API connectivity
+bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_rest_iterator.test_rest_iterator
+
+# Import chart of accounts
+bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_coa_import.import_chart_of_accounts
+
+# Start full migration
+bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.start_full_rest_import --args '{"migration_name": "Production Import 2025"}'
+
+# Test opening balance import
+bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.test_opening_balance_import
+
+# Run quality checks
+bench --site dev.veganisme.net execute verenigingen.e_boekhouden.utils.migration.quality_checker.run_migration_quality_check
+```
+
+#### Migration DocType Usage
+```python
+# Create and configure migration through UI or code
+migration = frappe.new_doc("E-Boekhouden Migration")
+migration.migration_name = "My Migration"
+migration.company = "Your Company"
+migration.migrate_accounts = 1
+migration.migrate_transactions = 1
+migration.dry_run = 1  # Preview mode
+migration.batch_size = 100
+migration.save()
+
+# Start migration programmatically
+migration.start_migration()
 ```
 
 ## Configuration Setup
 
-### API Credentials
+### API Credentials Configuration
 
-Configure eBoekhouden API access in the E-Boekhouden Settings doctype:
+Configure eBoekhouden API access in the **E-Boekhouden Settings** doctype (single doctype):
 
+#### Required Settings
 ```python
-# Required fields for API access
 {
-    "api_url": "https://secure.e-boekhouden.nl/bh/api.asp",  # SOAP API
-    "rest_api_url": "https://api.e-boekhouden.nl",          # REST API
-    "username": "your_username",
-    "security_code1": "your_security_code_1",
-    "security_code2": "your_security_code_2",
-    "api_token": "your_rest_api_token",       # For REST API
-    "default_company": "Your Company Name",
-    "source_application": "Verenigingen ERPNext"
+    # Primary REST API settings
+    "api_url": "https://api.e-boekhouden.nl",  # Default REST endpoint
+    "api_token": "your_rest_api_token",        # From eBoekhouden account settings
+    "source_application": "VerenigingenERPNext",  # API identifier
+
+    # Default mapping settings
+    "default_company": "Your Company Name",     # ERPNext company
+    "default_currency": "EUR",                  # Default currency
+    "fiscal_year_start_month": "1",             # January start
 }
+```
+
+#### Optional SOAP API Settings
+```python
+{
+    # Legacy SOAP API credentials (if needed)
+    "soap_username": "your_username",
+    "soap_security_code1": "your_security_code_1",
+    "soap_security_code2": "your_security_code_2_guid",
+    "soap_guid": "optional_administration_guid"
+}
+```
+
+#### Access the Settings
+```python
+# Get settings in code
+settings = frappe.get_single("E-Boekhouden Settings")
+api_token = settings.get_password("api_token")
+company = settings.default_company
 ```
 
 ### Authentication Methods
 
 #### REST API Authentication
 ```python
-# Session-based authentication with token
-session_data = {
-    "accessToken": api_token,
-    "source": source_application
-}
+# Implemented in EBoekhoudenRESTClient
+class EBoekhoudenRESTClient:
+    def get_session_token(self):
+        """Get session token using API token"""
+        session_url = f"{self.base_url}/v1/session"
+        session_data = {
+            "accessToken": self.api_token,
+            "source": self.source_application
+        }
+        response = requests.post(session_url, json=session_data)
+        return response.json().get("SessionToken")
 
-# Token expires after 60 minutes
-# System automatically handles token refresh
+    # Token automatically refreshed when expired
+    # Session tokens expire after 60 minutes
 ```
 
 #### SOAP API Authentication
 ```python
-# Direct credential authentication
-soap_credentials = {
-    "username": username,
-    "securitycode1": security_code1,
-    "securitycode2": security_code2
-}
+# Implemented in EBoekhoudenAPI (legacy)
+class EBoekhoudenAPI:
+    def __init__(self, settings):
+        self.soap_username = settings.soap_username
+        self.security_code1 = settings.get_password("soap_security_code1")
+        self.security_code2 = settings.get_password("soap_security_code2")
+
+    # Direct credential authentication for each request
 ```
 
 ## Data Import Process

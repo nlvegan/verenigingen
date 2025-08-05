@@ -1,3 +1,46 @@
+/**
+ * @fileoverview Frontend test suite for Membership DocType
+ *
+ * This QUnit test module provides comprehensive frontend testing for the Membership DocType,
+ * covering membership creation, payment method handling, dues schedule generation, and
+ * cancellation workflows. The tests validate critical business logic for membership
+ * lifecycle management, payment processing, and member engagement tracking.
+ *
+ * Key Test Coverage:
+ * - Membership creation with member association and automatic field population
+ * - Payment method selection with SEPA Direct Debit mandate requirements
+ * - Dues schedule automatic generation and visibility controls
+ * - Membership cancellation eligibility and button availability
+ * - Status transitions (Draft → Active) through submission workflow
+ *
+ * Business Context:
+ * Memberships are the core revenue-generating entity linking members to payment
+ * obligations and organizational benefits. These tests ensure the frontend properly
+ * handles membership registration, payment setup, dues scheduling, and lifecycle
+ * management that supports sustainable organizational funding.
+ *
+ * Integration Points:
+ * - Member DocType for membership holder association
+ * - Membership Type DocType for fee structure
+ * - SEPA Mandate DocType for payment authorization
+ * - Dues Schedule DocType for payment tracking
+ *
+ * Critical Business Rules Tested:
+ * - Renewal date calculation (1 year from start date)
+ * - SEPA mandate requirement for direct debit payments
+ * - Automatic dues schedule generation upon submission
+ * - Cancellation button availability for long-term memberships
+ *
+ * Test Infrastructure:
+ * Uses Frappe's QUnit framework with serial test execution and automatic cleanup.
+ * Creates complete member and membership data chains for realistic testing scenarios.
+ *
+ * @requires frappe.tests
+ * @requires QUnit
+ * @module MembershipTests
+ * @since 2024
+ */
+
 /* eslint-disable */
 // rename this file from _test_[name] to test_[name] to activate
 // and remove above this line

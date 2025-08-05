@@ -1,6 +1,68 @@
 /**
- * Member Form JavaScript Unit Tests
- * Tests the complex member form functionality including payments, SEPA, chapters, and workflows
+ * @fileoverview Member Form JavaScript Unit Tests - Comprehensive Form Behavior Testing
+ *
+ * This file provides comprehensive unit testing for the Member form JavaScript functionality,
+ * covering the full spectrum of member management workflows and integrations.
+ *
+ * BUSINESS PURPOSE:
+ * Ensures reliable member management system operations:
+ * - Validate member data entry and form interactions
+ * - Test payment processing and SEPA direct debit integration
+ * - Verify chapter assignment and geographic functionality
+ * - Test membership application approval/rejection workflows
+ * - Validate termination processes and compliance requirements
+ * - Ensure data integrity across complex member relationships
+ *
+ * TESTING SCOPE:
+ * - IBAN validation and banking integration with Dutch financial institutions
+ * - SEPA mandate creation and management workflows
+ * - Payment processing with multiple payment methods
+ * - Address-based chapter suggestions and member grouping
+ * - Membership application review and decision workflows
+ * - Termination request creation and approval processes
+ * - Form initialization and button management
+ * - Dutch naming conventions and cultural considerations
+ *
+ * FINANCIAL INTEGRATION TESTING:
+ * - Real-time IBAN validation with checksum verification
+ * - BIC code derivation for Dutch banks (ABN AMRO, ING, Rabobank, etc.)
+ * - SEPA mandate validation and creation
+ * - Payment status tracking and processing
+ * - Financial compliance and audit trail maintenance
+ *
+ * WORKFLOW TESTING:
+ * - Member lifecycle management from application to termination
+ * - Status transitions and business rule validation
+ * - Permission-based button visibility and access control
+ * - Multi-step approval processes with proper documentation
+ * - Error handling and user feedback mechanisms
+ *
+ * UI/UX BEHAVIOR TESTING:
+ * - Dynamic form field visibility and requirements
+ * - Real-time validation feedback and error messaging
+ * - Contextual button availability based on member status
+ * - Address-based member relationship display
+ * - Cultural formatting for Dutch naming conventions
+ *
+ * INTEGRATION POINTS TESTED:
+ * - Window utilities for IBAN validation and banking operations
+ * - SEPA utilities for mandate management
+ * - Payment utilities for transaction processing
+ * - Chapter utilities for geographic assignment
+ * - Address management for member relationships
+ *
+ * TECHNICAL IMPLEMENTATION:
+ * - Jest testing framework with comprehensive mocking
+ * - Frappe framework mock implementation
+ * - Form object simulation with realistic field interactions
+ * - Dialog and UI component testing
+ * - Asynchronous operation testing with proper error handling
+ *
+ * @author Frappe Technologies Pvt. Ltd.
+ * @since 2025
+ * @category Member Management / Form Testing
+ * @requires jest
+ * @integration SEPA Direct Debit, Dutch Banking System
  */
 
 describe('Member Form', () => {
@@ -37,7 +99,7 @@ describe('Member Form', () => {
 				user: 'test@example.com'
 			},
 			ui: {
-				Dialog: jest.fn().mockImplementation(function(opts) {
+				Dialog: jest.fn().mockImplementation(function (opts) {
 					this.show = jest.fn();
 					this.hide = jest.fn();
 					this.get_value = jest.fn();

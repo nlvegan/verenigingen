@@ -301,7 +301,7 @@ def import_opening_balances_only(company=None, opening_date=None):
 ```javascript
 // JavaScript - Import opening balances via UI
 frappe.call({
-    method: 'verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration.import_opening_balances_only',
+    method: 'verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.test_opening_balance_import',
     args: {
         company: 'Your Company Name',
         opening_date: '2024-01-01'
@@ -318,7 +318,7 @@ frappe.call({
 ```python
 # Python - Import opening balances programmatically
 result = frappe.call(
-    'verenigingen.utils.eboekhouden.eboekhouden_rest_full_migration.import_opening_balances_only',
+    'verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration.test_opening_balance_import',
     company='Your Company Name'
 )
 

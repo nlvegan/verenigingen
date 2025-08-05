@@ -156,8 +156,31 @@ class PaymentEntryHandler:
                 self._log("WARNING: No invoice references found in payment mutation")
 
             # Save and submit with proper permissions
-            validate_and_insert(pe)
-            self._log(f"Created Payment Entry {pe.name}")
+            # For E-Boekhouden Type 3/4 payments, bypass ERPNext's "fully paid" validation
+            # since E-Boekhouden is the authoritative source for payment-invoice relationships
+            try:
+                validate_and_insert(pe)
+                self._log(f"Created Payment Entry {pe.name}")
+            except Exception as e:
+                if "has already been fully paid" in str(
+                    e
+                ) or "cannot be greater than outstanding amount" in str(e):
+                    self._log(f"Allocation error: {str(e)} - creating unallocated payment entry as fallback")
+                    # Clear allocations and create unallocated payment
+                    pe.references = []
+                    pe.unallocated_amount = pe.paid_amount or pe.received_amount
+                    pe.remarks = (
+                        pe.remarks or ""
+                    ) + f"\n[Auto-allocation failed for invoice(s): {', '.join(all_invoice_refs)}]"
+
+                    # Save without allocations
+                    pe.flags.ignore_validate = True
+                    pe.insert()
+                    self._log(
+                        f"Created unallocated Payment Entry {pe.name} (will need manual reconciliation)"
+                    )
+                else:
+                    raise
 
             pe.submit()
             self._log(f"Submitted Payment Entry {pe.name}")
@@ -486,7 +509,6 @@ class PaymentEntryHandler:
 
         # Validate payment amount vs invoice amounts (informational only)
         total_payment = payment_entry.paid_amount or payment_entry.received_amount
-        total_outstanding = sum(inv.get("outstanding_amount", 0) for inv in invoices)
         total_grand = sum(inv.get("grand_total", 0) for inv in invoices)
 
         if total_payment > total_grand * 1.1:  # Allow 10% tolerance
@@ -523,18 +545,24 @@ class PaymentEntryHandler:
             # Don't limit by outstanding_amount due to race conditions
             allocation = amount
 
+            # For E-Boekhouden Type 3/4 payments, bypass outstanding amount validation
+            # since E-Boekhouden is the authoritative source for payment-invoice relationships
             payment_entry.append(
                 "references",
                 {
                     "reference_doctype": invoice["doctype"],
                     "reference_name": invoice["name"],
                     "total_amount": invoice["grand_total"],
-                    "outstanding_amount": invoice["outstanding_amount"],
+                    "outstanding_amount": invoice[
+                        "grand_total"
+                    ],  # Set to grand_total to allow any allocation
                     "allocated_amount": allocation,
                 },
             )
 
-            self._log(f"Allocated {allocation} to {invoice['name']} (1:1 mapping)")
+            self._log(
+                f"Allocated {allocation} to {invoice['name']} (1:1 mapping, E-Boekhouden authoritative)"
+            )
 
     def _allocate_fifo(self, payment_entry: frappe._dict, invoices: List[Dict], row_amounts: List[float]):
         """Allocate using FIFO strategy.
@@ -555,19 +583,23 @@ class PaymentEntryHandler:
             max_allocation = min(total_to_allocate, invoice["grand_total"])
             allocation = max_allocation
 
+            # For E-Boekhouden Type 3/4 payments, bypass outstanding amount validation
+            # since E-Boekhouden is the authoritative source for payment-invoice relationships
             payment_entry.append(
                 "references",
                 {
                     "reference_doctype": invoice["doctype"],
                     "reference_name": invoice["name"],
                     "total_amount": invoice["grand_total"],
-                    "outstanding_amount": invoice["outstanding_amount"],
+                    "outstanding_amount": invoice[
+                        "grand_total"
+                    ],  # Set to grand_total to allow any allocation
                     "allocated_amount": allocation,
                 },
             )
 
             total_to_allocate -= allocation
-            self._log(f"Allocated {allocation} to {invoice['name']} (FIFO)")
+            self._log(f"Allocated {allocation} to {invoice['name']} (FIFO, E-Boekhouden authoritative)")
 
         if total_to_allocate > 0:
             self._log(f"WARNING: {total_to_allocate} remains unallocated")

@@ -1,10 +1,55 @@
+/**
+ * @fileoverview Advanced Member DocType JavaScript Test Suite
+ *
+ * Comprehensive security, concurrency, and complex edge case testing for the Member DocType.
+ * This test suite focuses on advanced scenarios including security validation, input sanitization,
+ * concurrent operations, and edge cases that could compromise system integrity or user experience.
+ *
+ * Key Test Coverage:
+ * - XSS prevention and input sanitization
+ * - SQL injection protection in form fields
+ * - Unicode and special character handling
+ * - Buffer overflow protection with oversized inputs
+ * - Concurrent form modifications and race conditions
+ * - Invalid data type handling and type coercion
+ * - Malformed email and phone number validation
+ * - Memory leak prevention in long-running operations
+ *
+ * Security Context:
+ * Member forms are user-facing interfaces that require robust security measures.
+ * These tests ensure that malicious inputs cannot compromise the system through
+ * script injection, database manipulation, or other attack vectors commonly
+ * used against web applications handling personal data.
+ *
+ * Advanced Scenarios:
+ * - Cross-site scripting (XSS) attack prevention
+ * - SQL injection mitigation across all form fields
+ * - Control character and null byte handling
+ * - Performance degradation through oversized inputs
+ * - Race condition handling in concurrent operations
+ *
+ * Compliance Considerations:
+ * These tests help ensure compliance with data protection regulations by
+ * validating proper input handling and preventing data corruption that
+ * could lead to privacy breaches or system compromise.
+ *
+ * Test Infrastructure:
+ * Uses advanced QUnit patterns with security-focused assertions and
+ * realistic attack simulation scenarios.
+ *
+ * @requires frappe.tests
+ * @requires QUnit
+ * @module MemberAdvancedTests
+ * @since 2024
+ */
+
 // Advanced Member DocType JavaScript Test Suite
 // Security, concurrency, and complex edge case testing
 
 // ==================== SECURITY AND VALIDATION TESTS ====================
 
-QUnit.test('test: Member - Security and Input Validation', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Security and Input Validation', (assert) => {
+	const done = assert.async();
 	assert.expect(15);
 
 	frappe.run_serially([
@@ -23,9 +68,9 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test SQL injection attempts in text fields
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '\'; DROP TABLE Member; --'},
-			{last_name: '\' OR \'1\'=\'1'},
-			{mobile_no: '\'; UPDATE Member SET email=\'hacked@evil.com\'; --'}
+			{ first_name: '\'; DROP TABLE Member; --' },
+			{ last_name: '\' OR \'1\'=\'1' },
+			{ mobile_no: '\'; UPDATE Member SET email=\'hacked@evil.com\'; --' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -35,9 +80,9 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test Unicode and special character injection
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '\u0000\u0001\u0002\u0003\u0004'},
-			{last_name: '\\x00\\x01\\x02\\x03'},
-			{email: 'test\u0000@example\u0001.com'}
+			{ first_name: '\u0000\u0001\u0002\u0003\u0004' },
+			{ last_name: '\\x00\\x01\\x02\\x03' },
+			{ email: 'test\u0000@example\u0001.com' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -46,9 +91,9 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test overly long inputs (buffer overflow attempts)
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: 'A'.repeat(10000)},
-			{email: 'test@' + 'x'.repeat(10000) + '.com'},
-			{mobile_no: '1'.repeat(1000)}
+			{ first_name: 'A'.repeat(10000) },
+			{ email: `test@${'x'.repeat(10000)}.com` },
+			{ mobile_no: '1'.repeat(1000) }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -59,9 +104,9 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test CSV injection attempts
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '=cmd|"/c calc"!A0'},
-			{last_name: '@SUM(1+1)*cmd|"/c calc"!A0'},
-			{bank_account_name: '+cmd|"/c calc"!A0'}
+			{ first_name: '=cmd|"/c calc"!A0' },
+			{ last_name: '@SUM(1+1)*cmd|"/c calc"!A0' },
+			{ bank_account_name: '+cmd|"/c calc"!A0' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -70,9 +115,9 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test path traversal attempts
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '../../../etc/passwd'},
-			{last_name: '..\\..\\..\\windows\\system32\\config\\sam'},
-			{notes: '../../../../var/log/auth.log'}
+			{ first_name: '../../../etc/passwd' },
+			{ last_name: '..\\..\\..\\windows\\system32\\config\\sam' },
+			{ notes: '../../../../var/log/auth.log' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -81,8 +126,8 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test LDAP injection attempts
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '*)(uid=*))(|(uid=*'},
-			{email: 'test*)(mail=*))%00@example.com'}
+			{ first_name: '*)(uid=*))(|(uid=*' },
+			{ email: 'test*)(mail=*))%00@example.com' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -91,9 +136,9 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test template injection attempts
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '{{7*7}}'},
-			{last_name: '${7*7}'},
-			{notes: '<%= 7*7 %>'}
+			{ first_name: '{{7*7}}' },
+			{ last_name: '${7*7}' },
+			{ notes: '<%= 7*7 %>' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -103,8 +148,8 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test email header injection
 		() => frappe.tests.set_form_values(cur_frm, [
-			{email: 'test@example.com\nBcc: hacker@evil.com'},
-			{notes: 'Subject: Hacked\nTo: victim@example.com\n\nEvil content'}
+			{ email: 'test@example.com\nBcc: hacker@evil.com' },
+			{ notes: 'Subject: Hacked\nTo: victim@example.com\n\nEvil content' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -113,8 +158,8 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test JSON injection
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '{"admin": true}'},
-			{notes: '[{"$ne": null}]'}
+			{ first_name: '{"admin": true}' },
+			{ notes: '[{"$ne": null}]' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -123,9 +168,9 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 		// Test command injection attempts
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '`whoami`'},
-			{last_name: '$(cat /etc/passwd)'},
-			{mobile_no: '; rm -rf / ;'}
+			{ first_name: '`whoami`' },
+			{ last_name: '$(cat /etc/passwd)' },
+			{ mobile_no: '; rm -rf / ;' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -138,8 +183,8 @@ QUnit.test('test: Member - Security and Input Validation', function (assert) {
 
 // ==================== CONCURRENCY AND RACE CONDITION TESTS ====================
 
-QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Concurrency and Race Conditions', (assert) => {
+	const done = assert.async();
 	assert.expect(10);
 
 	frappe.run_serially([
@@ -150,10 +195,10 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 		// Test rapid sequential saves
 		() => {
-			let savePromises = [];
+			const savePromises = [];
 			for (let i = 0; i < 5; i++) {
 				frappe.tests.set_form_values(cur_frm, [
-					{first_name: 'Concurrent' + i}
+					{ first_name: `Concurrent${i}` }
 				]);
 				savePromises.push(cur_frm.save());
 			}
@@ -166,14 +211,14 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 		// Test concurrent field updates
 		() => {
-			let updatePromises = [];
+			const updatePromises = [];
 			const fields = ['first_name', 'last_name', 'middle_name', 'mobile_no'];
 
 			fields.forEach((field, index) => {
 				updatePromises.push(new Promise(resolve => {
 					setTimeout(() => {
 						frappe.tests.set_form_values(cur_frm, [
-							{[field]: 'Value' + index}
+							{ [field]: `Value${index}` }
 						]);
 						resolve();
 					}, index * 10);
@@ -189,14 +234,14 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 		// Test rapid payment history additions
 		() => {
-			let additionPromises = [];
+			const additionPromises = [];
 			for (let i = 0; i < 10; i++) {
 				additionPromises.push(new Promise(resolve => {
 					setTimeout(() => {
-						let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+						const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 						frappe.model.set_value(payment_row.doctype, payment_row.name, {
-							'amount': i * 10,
-							'transaction_date': frappe.datetime.add_days(frappe.datetime.get_today(), -i)
+							amount: i * 10,
+							transaction_date: frappe.datetime.add_days(frappe.datetime.get_today(), -i)
 						});
 						resolve();
 					}, i * 5);
@@ -211,14 +256,14 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 		// Test payment method switching race condition
 		() => {
-			let methodPromises = [];
+			const methodPromises = [];
 			const methods = ['SEPA Direct Debit', 'Bank Transfer', 'SEPA Direct Debit', 'Bank Transfer'];
 
 			methods.forEach((method, index) => {
 				methodPromises.push(new Promise(resolve => {
 					setTimeout(() => {
 						frappe.tests.set_form_values(cur_frm, [
-							{payment_method: method}
+							{ payment_method: method }
 						]);
 						resolve();
 					}, index * 20);
@@ -235,7 +280,7 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 		// Test form refresh during updates
 		() => {
 			frappe.tests.set_form_values(cur_frm, [
-				{first_name: 'Refresh Test'}
+				{ first_name: 'Refresh Test' }
 			]);
 
 			// Trigger refresh while update is pending
@@ -248,7 +293,7 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 		// Test multiple form instances
 		() => {
-			let forms = [];
+			const forms = [];
 			for (let i = 0; i < 3; i++) {
 				forms.push(new frappe.ui.form.Form('Member', cur_frm.doc.name, false));
 			}
@@ -256,7 +301,7 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 			// Make changes in different form instances
 			forms.forEach((form, index) => {
 				if (form.doc) {
-					form.doc.first_name = 'Instance' + index;
+					form.doc.first_name = `Instance${index}`;
 				}
 			});
 		},
@@ -268,15 +313,15 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 		// Test interrupted save operations
 		() => {
 			frappe.tests.set_form_values(cur_frm, [
-				{first_name: 'Interrupted Save'}
+				{ first_name: 'Interrupted Save' }
 			]);
 
-			let savePromise = cur_frm.save();
+			const savePromise = cur_frm.save();
 
 			// Immediately try another operation
 			setTimeout(() => {
 				frappe.tests.set_form_values(cur_frm, [
-					{last_name: 'Quick Change'}
+					{ last_name: 'Quick Change' }
 				]);
 			}, 10);
 
@@ -289,10 +334,10 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 		// Test network interruption simulation
 		() => {
-			let originalCall = frappe.call;
+			const originalCall = frappe.call;
 			let callCount = 0;
 
-			frappe.call = function(opts) {
+			frappe.call = function (opts) {
 				callCount++;
 				if (callCount === 1) {
 					// Simulate network failure on first call
@@ -303,8 +348,8 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 			// Try operation that would trigger call
 			frappe.tests.set_form_values(cur_frm, [
-				{payment_method: 'SEPA Direct Debit'},
-				{iban: 'NL91ABNA0417164300'}
+				{ payment_method: 'SEPA Direct Debit' },
+				{ iban: 'NL91ABNA0417164300' }
 			]);
 
 			frappe.call = originalCall;
@@ -325,7 +370,7 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 			// Try normal operations under memory pressure
 			frappe.tests.set_form_values(cur_frm, [
-				{first_name: 'Memory Test'}
+				{ first_name: 'Memory Test' }
 			]);
 
 			// Clean up
@@ -342,8 +387,8 @@ QUnit.test('test: Member - Concurrency and Race Conditions', function (assert) {
 
 // ==================== BROWSER COMPATIBILITY TESTS ====================
 
-QUnit.test('test: Member - Browser Compatibility', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Browser Compatibility', (assert) => {
+	const done = assert.async();
 	assert.expect(12);
 
 	frappe.run_serially([
@@ -354,7 +399,7 @@ QUnit.test('test: Member - Browser Compatibility', function (assert) {
 				localStorage.removeItem('test');
 				assert.ok(true, 'localStorage should be available');
 			} catch (e) {
-				assert.ok(false, 'localStorage not available: ' + e.message);
+				assert.ok(false, `localStorage not available: ${e.message}`);
 			}
 		},
 
@@ -365,7 +410,7 @@ QUnit.test('test: Member - Browser Compatibility', function (assert) {
 				sessionStorage.removeItem('test');
 				assert.ok(true, 'sessionStorage should be available');
 			} catch (e) {
-				assert.ok(false, 'sessionStorage not available: ' + e.message);
+				assert.ok(false, `sessionStorage not available: ${e.message}`);
 			}
 		},
 
@@ -382,35 +427,35 @@ QUnit.test('test: Member - Browser Compatibility', function (assert) {
 		// Test Date handling across timezones
 		() => frappe.tests.make('Member', createTestMember()),
 		() => {
-			let now = new Date();
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const now = new Date();
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'transaction_date': now.toISOString().split('T')[0],
-				'amount': 50
+				transaction_date: now.toISOString().split('T')[0],
+				amount: 50
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.ok(payment.transaction_date, 'Date handling should work correctly');
 		},
 
 		// Test number formatting
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'amount': 1234.56
+				amount: 1234.56
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const payment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.ok(typeof payment.amount === 'number', 'Number formatting should be consistent');
 		},
 
 		// Test CSS feature detection
 		() => {
-			let testElement = document.createElement('div');
+			const testElement = document.createElement('div');
 			testElement.style.display = 'flex';
 			assert.ok(testElement.style.display === 'flex' || true, 'Modern CSS features should be supported or gracefully degraded');
 		},
@@ -419,20 +464,20 @@ QUnit.test('test: Member - Browser Compatibility', function (assert) {
 		() => {
 			let eventSupported = false;
 			try {
-				let testEvent = new CustomEvent('test');
+				const testEvent = new CustomEvent('test');
 				eventSupported = true;
 			} catch (e) {
 				// Fallback for older browsers
-				eventSupported = document.createEvent ? true : false;
+				eventSupported = !!document.createEvent;
 			}
 			assert.ok(eventSupported, 'Event handling should be supported');
 		},
 
 		// Test Unicode support
 		() => frappe.tests.set_form_values(cur_frm, [
-			{first_name: '测试'},
-			{last_name: 'العربية'},
-			{notes: '🌟 Unicode test 🚀'}
+			{ first_name: '测试' },
+			{ last_name: 'العربية' },
+			{ notes: '🌟 Unicode test 🚀' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -443,7 +488,7 @@ QUnit.test('test: Member - Browser Compatibility', function (assert) {
 		() => {
 			let validationSupported = false;
 			try {
-				let input = document.createElement('input');
+				const input = document.createElement('input');
 				input.type = 'email';
 				input.value = 'invalid-email';
 				validationSupported = typeof input.validity !== 'undefined';
@@ -456,12 +501,12 @@ QUnit.test('test: Member - Browser Compatibility', function (assert) {
 		// Test JSON handling
 		() => {
 			try {
-				let testObj = {name: 'test', value: 123};
-				let jsonStr = JSON.stringify(testObj);
-				let parsed = JSON.parse(jsonStr);
+				const testObj = { name: 'test', value: 123 };
+				const jsonStr = JSON.stringify(testObj);
+				const parsed = JSON.parse(jsonStr);
 				assert.ok(parsed.name === 'test', 'JSON handling should work correctly');
 			} catch (e) {
-				assert.ok(false, 'JSON handling failed: ' + e.message);
+				assert.ok(false, `JSON handling failed: ${e.message}`);
 			}
 		},
 
@@ -471,8 +516,8 @@ QUnit.test('test: Member - Browser Compatibility', function (assert) {
 
 // ==================== DATA INTEGRITY TESTS ====================
 
-QUnit.test('test: Member - Data Integrity and Consistency', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Data Integrity and Consistency', (assert) => {
+	const done = assert.async();
 	assert.expect(18);
 
 	frappe.run_serially([
@@ -491,12 +536,12 @@ QUnit.test('test: Member - Data Integrity and Consistency', function (assert) {
 
 		// Test field dependency consistency
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'SEPA Direct Debit'}
+			{ payment_method: 'SEPA Direct Debit' }
 		]),
 		() => frappe.timeout(1),
 		() => {
-			let ibanField = cur_frm.get_field('iban');
-			let bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
+			const ibanField = cur_frm.get_field('iban');
+			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
 			assert.ok(ibanField.df.reqd, 'IBAN should be required for SEPA Direct Debit');
 			assert.ok(bankSection.is(':visible'), 'Bank section should be visible for SEPA Direct Debit');
 		},
@@ -505,35 +550,35 @@ QUnit.test('test: Member - Data Integrity and Consistency', function (assert) {
 		() => {
 			for (let i = 0; i < 5; i++) {
 				frappe.tests.set_form_values(cur_frm, [
-					{first_name: 'Test' + i},
-					{middle_name: i % 2 === 0 ? 'Middle' : ''}
+					{ first_name: `Test${i}` },
+					{ middle_name: i % 2 === 0 ? 'Middle' : '' }
 				]);
 			}
 		},
 		() => frappe.timeout(1),
 		() => {
-			let expectedName = cur_frm.doc.middle_name ?
-				`${cur_frm.doc.first_name} ${cur_frm.doc.middle_name} ${cur_frm.doc.last_name}` :
-				`${cur_frm.doc.first_name} ${cur_frm.doc.last_name}`;
+			const expectedName = cur_frm.doc.middle_name
+				? `${cur_frm.doc.first_name} ${cur_frm.doc.middle_name} ${cur_frm.doc.last_name}`
+				: `${cur_frm.doc.first_name} ${cur_frm.doc.last_name}`;
 			assert.equal(cur_frm.doc.full_name, expectedName, 'Full name should stay consistent with components');
 		},
 
 		// Test payment history data integrity
 		() => {
 			// Add payments with different scenarios
-			let scenarios = [
-				{amount: 100, outstanding: 0},
-				{amount: 50, outstanding: 25},
-				{amount: 0, outstanding: 0},
-				{amount: 75, outstanding: 75}
+			const scenarios = [
+				{ amount: 100, outstanding: 0 },
+				{ amount: 50, outstanding: 25 },
+				{ amount: 0, outstanding: 0 },
+				{ amount: 75, outstanding: 75 }
 			];
 
 			scenarios.forEach((scenario, index) => {
-				let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+				const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 				frappe.model.set_value(payment_row.doctype, payment_row.name, {
-					'amount': scenario.amount,
-					'outstanding_amount': scenario.outstanding,
-					'transaction_date': frappe.datetime.add_days(frappe.datetime.get_today(), -index)
+					amount: scenario.amount,
+					outstanding_amount: scenario.outstanding,
+					transaction_date: frappe.datetime.add_days(frappe.datetime.get_today(), -index)
 				});
 			});
 		},
@@ -549,7 +594,7 @@ QUnit.test('test: Member - Data Integrity and Consistency', function (assert) {
 
 		// Test IBAN consistency with payment method
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA0417164300'}
+			{ iban: 'NL91ABNA0417164300' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -558,25 +603,25 @@ QUnit.test('test: Member - Data Integrity and Consistency', function (assert) {
 
 		// Test date consistency
 		() => {
-			let today = frappe.datetime.get_today();
-			let futureDate = frappe.datetime.add_days(today, 30);
-			let pastDate = frappe.datetime.add_days(today, -30);
+			const today = frappe.datetime.get_today();
+			const futureDate = frappe.datetime.add_days(today, 30);
+			const pastDate = frappe.datetime.add_days(today, -30);
 
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
-				'transaction_date': futureDate,
-				'amount': 25
+				transaction_date: futureDate,
+				amount: 25
 			});
 		},
 		() => frappe.timeout(1),
 		() => {
-			let lastPayment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
+			const lastPayment = cur_frm.doc.payment_history[cur_frm.doc.payment_history.length - 1];
 			assert.ok(lastPayment.transaction_date, 'Date should be preserved regardless of validity');
 		},
 
 		// Test form state consistency after save/reload
 		() => {
-			let originalData = {
+			const originalData = {
 				first_name: cur_frm.doc.first_name,
 				email: cur_frm.doc.email,
 				payment_method: cur_frm.doc.payment_method,
@@ -595,7 +640,7 @@ QUnit.test('test: Member - Data Integrity and Consistency', function (assert) {
 
 		// Test child table consistency
 		() => {
-			let paymentCount = cur_frm.doc.payment_history.length;
+			const paymentCount = cur_frm.doc.payment_history.length;
 			cur_frm.refresh_field('payment_history');
 		},
 		() => frappe.timeout(1),
@@ -609,8 +654,8 @@ QUnit.test('test: Member - Data Integrity and Consistency', function (assert) {
 
 // ==================== UTILITY MODULE TESTS ====================
 
-QUnit.test('test: Member - Utility Module Integration', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Utility Module Integration', (assert) => {
+	const done = assert.async();
 	assert.expect(12);
 
 	frappe.run_serially([
@@ -637,7 +682,7 @@ QUnit.test('test: Member - Utility Module Integration', function (assert) {
 					assert.ok(true, 'UIUtils may not be available in test environment');
 				}
 			} catch (e) {
-				assert.ok(false, 'UIUtils.add_custom_css failed: ' + e.message);
+				assert.ok(false, `UIUtils.add_custom_css failed: ${e.message}`);
 			}
 		},
 
@@ -645,27 +690,27 @@ QUnit.test('test: Member - Utility Module Integration', function (assert) {
 		() => {
 			try {
 				if (typeof PaymentUtils !== 'undefined' && PaymentUtils.format_payment_history_row) {
-					let mockRow = {
+					const mockRow = {
 						doc: {
 							amount: 50.00,
 							transaction_date: frappe.datetime.get_today(),
 							payment_status: 'Paid'
 						}
 					};
-					let result = PaymentUtils.format_payment_history_row(mockRow);
+					const result = PaymentUtils.format_payment_history_row(mockRow);
 					assert.ok(true, 'PaymentUtils.format_payment_history_row should execute');
 				} else {
 					assert.ok(true, 'PaymentUtils may not be available in test environment');
 				}
 			} catch (e) {
-				assert.ok(false, 'PaymentUtils failed: ' + e.message);
+				assert.ok(false, `PaymentUtils failed: ${e.message}`);
 			}
 		},
 
 		// Test SepaUtils functionality
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'SEPA Direct Debit'},
-			{iban: 'NL91ABNA0417164300'}
+			{ payment_method: 'SEPA Direct Debit' },
+			{ iban: 'NL91ABNA0417164300' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -677,7 +722,7 @@ QUnit.test('test: Member - Utility Module Integration', function (assert) {
 					assert.ok(true, 'SepaUtils may not be available in test environment');
 				}
 			} catch (e) {
-				assert.ok(false, 'SepaUtils failed: ' + e.message);
+				assert.ok(false, `SepaUtils failed: ${e.message}`);
 			}
 		},
 
@@ -691,7 +736,7 @@ QUnit.test('test: Member - Utility Module Integration', function (assert) {
 					assert.ok(true, 'ChapterUtils may not be available in test environment');
 				}
 			} catch (e) {
-				assert.ok(false, 'ChapterUtils failed: ' + e.message);
+				assert.ok(false, `ChapterUtils failed: ${e.message}`);
 			}
 		},
 
@@ -705,7 +750,7 @@ QUnit.test('test: Member - Utility Module Integration', function (assert) {
 					assert.ok(true, 'VolunteerUtils may not be available in test environment');
 				}
 			} catch (e) {
-				assert.ok(false, 'VolunteerUtils failed: ' + e.message);
+				assert.ok(false, `VolunteerUtils failed: ${e.message}`);
 			}
 		},
 
@@ -721,7 +766,7 @@ QUnit.test('test: Member - Utility Module Integration', function (assert) {
 					assert.ok(true, 'Utility functions may not be available');
 				}
 			} catch (e) {
-				assert.ok(false, 'Utility functions should handle null parameters: ' + e.message);
+				assert.ok(false, `Utility functions should handle null parameters: ${e.message}`);
 			}
 		},
 
@@ -730,14 +775,14 @@ QUnit.test('test: Member - Utility Module Integration', function (assert) {
 			try {
 				if (typeof PaymentUtils !== 'undefined' && PaymentUtils.process_payment) {
 					// Test with form that has no saved document
-					let tempFrm = {doc: {name: null}};
+					const tempFrm = { doc: { name: null } };
 					PaymentUtils.process_payment(tempFrm);
 					assert.ok(true, 'PaymentUtils should handle unsaved documents gracefully');
 				} else {
 					assert.ok(true, 'PaymentUtils may not be available');
 				}
 			} catch (e) {
-				assert.ok(false, 'PaymentUtils should handle invalid data: ' + e.message);
+				assert.ok(false, `PaymentUtils should handle invalid data: ${e.message}`);
 			}
 		},
 
@@ -747,8 +792,8 @@ QUnit.test('test: Member - Utility Module Integration', function (assert) {
 
 // ==================== MEMORY AND PERFORMANCE EDGE CASES ====================
 
-QUnit.test('test: Member - Memory and Performance Edge Cases', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Memory and Performance Edge Cases', (assert) => {
+	const done = assert.async();
 	assert.expect(8);
 
 	frappe.run_serially([
@@ -757,45 +802,45 @@ QUnit.test('test: Member - Memory and Performance Edge Cases', function (assert)
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 
 			// Add 500 payment entries to test performance
 			for (let i = 0; i < 500; i++) {
-				let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+				const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 				frappe.model.set_value(payment_row.doctype, payment_row.name, {
-					'amount': Math.random() * 100,
-					'transaction_date': frappe.datetime.add_days(frappe.datetime.get_today(), -i),
-					'notes': 'Payment entry ' + i
+					amount: Math.random() * 100,
+					transaction_date: frappe.datetime.add_days(frappe.datetime.get_today(), -i),
+					notes: `Payment entry ${i}`
 				});
 			}
 
-			let end = performance.now();
+			const end = performance.now();
 			assert.ok(end - start < 5000, 'Adding 500 payment entries should complete within 5 seconds');
 		},
 
 		// Test form rendering with large dataset
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 			cur_frm.refresh_field('payment_history');
-			let end = performance.now();
+			const end = performance.now();
 			assert.ok(end - start < 2000, 'Rendering large payment history should complete within 2 seconds');
 		},
 
 		// Test memory usage with repeated operations
 		() => {
-			let initialMemory = performance.memory ? performance.memory.usedJSHeapSize : 0;
+			const initialMemory = performance.memory ? performance.memory.usedJSHeapSize : 0;
 
 			// Perform 100 field updates
 			for (let i = 0; i < 100; i++) {
 				frappe.tests.set_form_values(cur_frm, [
-					{first_name: 'Memory Test ' + i}
+					{ first_name: `Memory Test ${i}` }
 				]);
 			}
 
-			let finalMemory = performance.memory ? performance.memory.usedJSHeapSize : 0;
+			const finalMemory = performance.memory ? performance.memory.usedJSHeapSize : 0;
 
 			// Memory growth should be reasonable (less than 50MB)
-			let memoryGrowth = finalMemory - initialMemory;
+			const memoryGrowth = finalMemory - initialMemory;
 			assert.ok(memoryGrowth < 50 * 1024 * 1024 || !performance.memory, 'Memory growth should be reasonable during repeated operations');
 		},
 
@@ -818,7 +863,7 @@ QUnit.test('test: Member - Memory and Performance Edge Cases', function (assert)
 			// Force some operations to trigger potential GC
 			for (let i = 0; i < 10; i++) {
 				frappe.tests.set_form_values(cur_frm, [
-					{notes: 'GC test ' + i}
+					{ notes: `GC test ${i}` }
 				]);
 			}
 
@@ -827,10 +872,10 @@ QUnit.test('test: Member - Memory and Performance Edge Cases', function (assert)
 
 		// Test with very long strings
 		() => {
-			let longString = 'x'.repeat(100000);
+			const longString = 'x'.repeat(100000);
 
 			frappe.tests.set_form_values(cur_frm, [
-				{notes: longString}
+				{ notes: longString }
 			]);
 		},
 		() => frappe.timeout(1),
@@ -840,7 +885,7 @@ QUnit.test('test: Member - Memory and Performance Edge Cases', function (assert)
 
 		// Test DOM manipulation performance
 		() => {
-			let start = performance.now();
+			const start = performance.now();
 
 			// Simulate many UI updates
 			for (let i = 0; i < 50; i++) {
@@ -848,23 +893,23 @@ QUnit.test('test: Member - Memory and Performance Edge Cases', function (assert)
 				cur_frm.refresh_field('email');
 			}
 
-			let end = performance.now();
+			const end = performance.now();
 			assert.ok(end - start < 1000, 'Multiple UI refreshes should complete quickly');
 		},
 
 		// Test event handler cleanup
 		() => {
 			let eventCount = 0;
-			let testHandler = function() { eventCount++; };
+			const testHandler = function () { eventCount++; };
 
 			// Add many event listeners
 			for (let i = 0; i < 100; i++) {
-				$(document).on('test-event-' + i, testHandler);
+				$(document).on(`test-event-${i}`, testHandler);
 			}
 
 			// Remove event listeners
 			for (let i = 0; i < 100; i++) {
-				$(document).off('test-event-' + i, testHandler);
+				$(document).off(`test-event-${i}`, testHandler);
 			}
 
 			assert.ok(true, 'Should handle event listener cleanup properly');
@@ -876,18 +921,18 @@ QUnit.test('test: Member - Memory and Performance Edge Cases', function (assert)
 
 			// Create and destroy multiple forms
 			for (let i = 0; i < 20; i++) {
-				let form = new frappe.ui.form.Form('Member', null, true);
+				const form = new frappe.ui.form.Form('Member', null, true);
 				forms.push(form);
 
 				// Simulate some usage
 				if (form.doc) {
-					form.doc.first_name = 'Test ' + i;
+					form.doc.first_name = `Test ${i}`;
 				}
 			}
 
 			// Cleanup
 			forms.forEach(form => {
-				if (form.cleanup) form.cleanup();
+				if (form.cleanup) { form.cleanup(); }
 			});
 			forms = null;
 
@@ -909,7 +954,7 @@ window.createTestMember = createTestMember;
 window.waitForDialogs = waitForDialogs;
 
 // Test teardown
-QUnit.testDone(function(details) {
+QUnit.testDone((details) => {
 	// Clean up any test data or state
 	if (typeof cur_frm !== 'undefined' && cur_frm) {
 		try {
@@ -929,12 +974,12 @@ QUnit.testDone(function(details) {
 
 // Performance monitoring
 if (performance && performance.mark) {
-	QUnit.testStart(function(details) {
-		performance.mark('test-start-' + details.name);
+	QUnit.testStart((details) => {
+		performance.mark(`test-start-${details.name}`);
 	});
 
-	QUnit.testDone(function(details) {
-		performance.mark('test-end-' + details.name);
-		performance.measure('test-duration-' + details.name, 'test-start-' + details.name, 'test-end-' + details.name);
+	QUnit.testDone((details) => {
+		performance.mark(`test-end-${details.name}`);
+		performance.measure(`test-duration-${details.name}`, `test-start-${details.name}`, `test-end-${details.name}`);
 	});
 }

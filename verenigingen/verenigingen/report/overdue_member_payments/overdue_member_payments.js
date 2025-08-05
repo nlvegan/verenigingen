@@ -74,55 +74,55 @@
  * @description Comprehensive collections management and payment tracking report
  */
 frappe.query_reports['Overdue Member Payments'] = {
-	'filters': [
+	filters: [
 		{
-			'fieldname': 'chapter',
-			'label': __('Chapter'),
-			'fieldtype': 'Link',
-			'options': 'Chapter'
+			fieldname: 'chapter',
+			label: __('Chapter'),
+			fieldtype: 'Link',
+			options: 'Chapter'
 		},
 		{
-			'fieldname': 'from_date',
-			'label': __('From Date'),
-			'fieldtype': 'Date',
-			'default': frappe.datetime.add_months(frappe.datetime.get_today(), -3)
+			fieldname: 'from_date',
+			label: __('From Date'),
+			fieldtype: 'Date',
+			default: frappe.datetime.add_months(frappe.datetime.get_today(), -3)
 		},
 		{
-			'fieldname': 'to_date',
-			'label': __('To Date'),
-			'fieldtype': 'Date',
-			'default': frappe.datetime.get_today()
+			fieldname: 'to_date',
+			label: __('To Date'),
+			fieldtype: 'Date',
+			default: frappe.datetime.get_today()
 		},
 		{
-			'fieldname': 'membership_type',
-			'label': __('Membership Type'),
-			'fieldtype': 'Link',
-			'options': 'Membership Type'
+			fieldname: 'membership_type',
+			label: __('Membership Type'),
+			fieldtype: 'Link',
+			options: 'Membership Type'
 		},
 		{
-			'fieldname': 'days_overdue',
-			'label': __('Minimum Days Overdue'),
-			'fieldtype': 'Int',
-			'description': __('Show only payments overdue for at least X days')
+			fieldname: 'days_overdue',
+			label: __('Minimum Days Overdue'),
+			fieldtype: 'Int',
+			description: __('Show only payments overdue for at least X days')
 		},
 		{
-			'fieldname': 'critical_only',
-			'label': __('Critical Only (>60 days)'),
-			'fieldtype': 'Check',
-			'default': 0
+			fieldname: 'critical_only',
+			label: __('Critical Only (>60 days)'),
+			fieldtype: 'Check',
+			default: 0
 		},
 		{
-			'fieldname': 'urgent_only',
-			'label': __('Urgent Only (>30 days)'),
-			'fieldtype': 'Check',
-			'default': 0
+			fieldname: 'urgent_only',
+			label: __('Urgent Only (>30 days)'),
+			fieldtype: 'Check',
+			default: 0
 		}
 	],
 
-	'formatter': function(value, row, column, data, default_formatter) {
+	formatter(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
 
-		if (column.fieldname == 'days_overdue') {
+		if (column.fieldname === 'days_overdue') {
 			if (value > 60) {
 				value = `<span style="color: red; font-weight: bold">${value}</span>`;
 			} else if (value > 30) {
@@ -132,7 +132,7 @@ frappe.query_reports['Overdue Member Payments'] = {
 			}
 		}
 
-		if (column.fieldname == 'total_overdue') {
+		if (column.fieldname === 'total_overdue') {
 			if (value > 100) {
 				value = `<span style="color: red; font-weight: bold">${value}</span>`;
 			} else if (value > 50) {
@@ -140,7 +140,7 @@ frappe.query_reports['Overdue Member Payments'] = {
 			}
 		}
 
-		if (column.fieldname == 'overdue_count') {
+		if (column.fieldname === 'overdue_count') {
 			if (value > 3) {
 				value = `<span style="color: red; font-weight: bold">${value}</span>`;
 			} else if (value > 1) {
@@ -151,7 +151,7 @@ frappe.query_reports['Overdue Member Payments'] = {
 		return value;
 	},
 
-	onload: function(report) {
+	onload(report) {
 		// Check for URL parameters to auto-set filters
 		const urlParams = new URLSearchParams(window.location.search);
 		const preset = urlParams.get('preset');
@@ -163,7 +163,7 @@ frappe.query_reports['Overdue Member Payments'] = {
 			report.set_filter_value('urgent_only', 1);
 			report.refresh();
 		} else if (preset === 'days' && urlParams.get('days')) {
-			const days = parseInt(urlParams.get('days'));
+			const days = parseInt(urlParams.get('days'), 10);
 			if (days > 0) {
 				report.set_filter_value('days_overdue', days);
 				report.refresh();
@@ -173,7 +173,7 @@ frappe.query_reports['Overdue Member Payments'] = {
 		// Add role-based chapter filter for non-admin users
 		frappe.call({
 			method: 'verenigingen.api.membership_application_review.get_user_chapter_access',
-			callback: function(r) {
+			callback(r) {
 				if (r.message && r.message.restrict_to_chapters && r.message.chapters.length === 1) {
 					// Auto-set chapter filter if user only has access to one chapter
 					report.set_filter_value('chapter', r.message.chapters[0]);
@@ -187,36 +187,36 @@ frappe.query_reports['Overdue Member Payments'] = {
 		});
 
 		// Add custom button to send payment reminders
-		report.page.add_inner_button(__('Send Payment Reminders'), function() {
+		report.page.add_inner_button(__('Send Payment Reminders'), () => {
 			show_payment_reminder_dialog(report);
 		});
 
 		// Add button to create payment entries
-		report.page.add_inner_button(__('Record Payments'), function() {
+		report.page.add_inner_button(__('Record Payments'), () => {
 			show_payment_recording_dialog(report);
 		});
 
 		// Add button to export for external collection
-		report.page.add_inner_button(__('Export for Collection'), function() {
+		report.page.add_inner_button(__('Export for Collection'), () => {
 			export_for_collection(report);
 		});
 
 		// Add button for bulk actions
-		report.page.add_inner_button(__('Bulk Actions'), function() {
+		report.page.add_inner_button(__('Bulk Actions'), () => {
 			show_bulk_payment_actions_dialog(report);
 		});
 	}
 };
 
 function show_payment_reminder_dialog(report) {
-	let data = report.data || [];
+	const data = report.data || [];
 
 	if (data.length === 0) {
 		frappe.msgprint(__('No overdue payments to process'));
 		return;
 	}
 
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Send Payment Reminders'),
 		fields: [
 			{
@@ -248,7 +248,7 @@ function show_payment_reminder_dialog(report) {
 			}
 		],
 		primary_action_label: __('Send Reminders'),
-		primary_action: function(values) {
+		primary_action(values) {
 			frappe.call({
 				method: 'verenigingen.api.payment_processing.send_overdue_payment_reminders',
 				args: {
@@ -258,7 +258,7 @@ function show_payment_reminder_dialog(report) {
 					send_to_chapters: values.send_to_chapters,
 					filters: report.get_filter_values()
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.msgprint(__('Sent {0} payment reminders', [r.message.count]));
 					}
@@ -272,14 +272,14 @@ function show_payment_reminder_dialog(report) {
 }
 
 function show_payment_recording_dialog(report) {
-	let data = report.data || [];
+	const data = report.data || [];
 
 	if (data.length === 0) {
 		frappe.msgprint(__('No overdue payments found'));
 		return;
 	}
 
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Record Payments'),
 		fields: [
 			{
@@ -309,7 +309,7 @@ function show_payment_recording_dialog(report) {
 			}
 		],
 		primary_action_label: __('Record Payments'),
-		primary_action: function(values) {
+		primary_action(_values) {
 			// This would open a detailed payment recording interface
 			frappe.msgprint(__('Payment recording interface would open here'));
 			d.hide();
@@ -320,7 +320,7 @@ function show_payment_recording_dialog(report) {
 }
 
 function export_for_collection(report) {
-	let data = report.data || [];
+	const data = report.data || [];
 
 	if (data.length === 0) {
 		frappe.msgprint(__('No data to export'));
@@ -333,7 +333,7 @@ function export_for_collection(report) {
 			filters: report.get_filter_values(),
 			format: 'CSV'
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message) {
 				// Download the generated file
 				window.open(r.message.file_url, '_blank');
@@ -344,14 +344,14 @@ function export_for_collection(report) {
 }
 
 function show_bulk_payment_actions_dialog(report) {
-	let data = report.data || [];
+	const data = report.data || [];
 
 	if (data.length === 0) {
 		frappe.msgprint(__('No overdue payments to process'));
 		return;
 	}
 
-	let d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Bulk Payment Actions'),
 		fields: [
 			{
@@ -383,7 +383,7 @@ function show_bulk_payment_actions_dialog(report) {
 			}
 		],
 		primary_action_label: __('Execute'),
-		primary_action: function(values) {
+		primary_action(values) {
 			if (!values.confirmation) {
 				frappe.msgprint(__('Please confirm you understand this action'));
 				return;
@@ -391,7 +391,7 @@ function show_bulk_payment_actions_dialog(report) {
 
 			frappe.confirm(
 				__('Are you sure you want to execute this bulk action?'),
-				function() {
+				() => {
 					frappe.call({
 						method: 'verenigingen.api.payment_processing.execute_bulk_payment_action',
 						args: {
@@ -399,7 +399,7 @@ function show_bulk_payment_actions_dialog(report) {
 							apply_to: values.apply_to,
 							filters: report.get_filter_values()
 						},
-						callback: function(r) {
+						callback(r) {
 							if (r.message) {
 								frappe.msgprint(__('Bulk action completed. {0} records processed.', [r.message.count]));
 								report.refresh();

@@ -2,7 +2,17 @@
 
 ## Overview
 
-This guide covers the JavaScript testing infrastructure for the Verenigingen app's doctype forms, including unit tests, integration tests, and best practices.
+This guide covers practical JavaScript testing patterns for the Verenigingen app's DocType forms, including unit tests, integration tests, and testing best practices specific to Frappe form controllers.
+
+## Related JavaScript Testing Documentation
+
+This guide is part of a comprehensive JavaScript testing documentation set:
+
+- **📋 [Testing Strategy Overview](testing-strategy.md)** - Our overall testing philosophy, coverage goals, and performance benchmarks
+- **🔧 [JavaScript Testing Infrastructure](testing/javascript-testing-guide.md)** - CI/CD setup, tool configuration, and development environment
+- **📑 [JavaScript Testing Index](testing/javascript-testing-index.md)** - Quick navigation to find the right guide for your needs
+
+**Focus of this guide:** DocType-specific testing patterns, form controller testing, and business logic validation for individual Frappe DocTypes.
 
 ## Test Structure
 
@@ -335,8 +345,24 @@ When adding new features:
 3. Add integration tests for cross-doctype features
 4. Update this documentation
 
+## Next Steps
+
+### For Infrastructure Setup
+If you need to set up testing infrastructure or CI/CD pipelines, see:
+- **[JavaScript Testing Infrastructure](testing/javascript-testing-guide.md)** - Jest/Cypress setup, GitHub Actions, coverage reporting
+
+### For Strategic Context
+To understand our testing philosophy and performance requirements, see:
+- **[Testing Strategy Overview](testing-strategy.md)** - Coverage goals, performance benchmarks, testing categories
+
+### For Navigation Help
+If you're looking for different testing documentation, see:
+- **[JavaScript Testing Index](testing/javascript-testing-index.md)** - Quick navigation to all JavaScript testing guides
+
 ## Resources
 
 - [Jest Documentation](https://jestjs.io/)
 - [Testing Library](https://testing-library.com/)
 - [Frappe Framework Docs](https://frappeframework.com/)
+- [JavaScript Testing Infrastructure Guide](testing/javascript-testing-guide.md) - Setup and CI/CD
+- [Testing Strategy Document](testing-strategy.md) - Philosophy and benchmarks

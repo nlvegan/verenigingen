@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""Debug API for field validation"""
+"""
+DocType Field Inspector
+
+Provides utilities to inspect and validate DocType fields dynamically.
+"""
 
 import frappe
 
 
 @frappe.whitelist()
-def check_expense_claim_fields():
+def inspect_expense_claim_fields():
     """Check actual field names in Expense Claim DocType"""
     try:
         # Check if DocType exists
@@ -31,7 +35,7 @@ def check_expense_claim_fields():
 
 
 @frappe.whitelist()
-def check_member_fields():
+def inspect_member_fields():
     """Check actual field names in Member DocType"""
     try:
         member_doc = frappe.get_doc("DocType", "Member")
@@ -54,7 +58,7 @@ def check_member_fields():
 
 
 @frappe.whitelist()
-def check_volunteer_expense_fields():
+def inspect_volunteer_expense_fields():
     """Check actual field names in Volunteer Expense DocType"""
     try:
         volunteer_expense_doc = frappe.get_doc("DocType", "Volunteer Expense")

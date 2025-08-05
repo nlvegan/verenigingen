@@ -1,6 +1,10 @@
 # Enhanced Logging Implementation Plan
 ## Detailed Action Plan for Verenigingen
 
+> **Version History**: This is the main enhanced logging implementation plan.
+> Supporting addendums (DevOps, Zabbix) remain active. Superseded versions (feedback, summary, original proposal)
+> have been archived in `/docs/archived/superseded-versions/` for reference.
+
 **Document Version:** 1.1
 **Date:** January 2025
 **Implementation Period:** 16 weeks

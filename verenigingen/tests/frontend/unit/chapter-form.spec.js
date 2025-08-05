@@ -343,7 +343,7 @@ describe('Chapter Form', () => {
 
 // Helper functions that would be in the actual implementation
 function isValidPostalCodeRegex(pattern) {
-	if (!pattern) return false;
+	if (!pattern) { return false; }
 	try {
 		new RegExp(pattern);
 		return pattern.includes('^') && /\d/.test(pattern);

@@ -87,16 +87,16 @@ frappe.ui.form.on('Direct Debit Batch', {
 	 * // Generated: "Generate SEPA File", "Download SEPA File"
 	 * // Submitted: "Submit to Bank", "Process Returns"
 	 */
-	refresh: function(frm) {
+	refresh(frm) {
 		// Add status indicator with color
 		if (frm.doc.status) {
 			const status_colors = {
-				'Draft': 'gray',
-				'Generated': 'blue',
-				'Submitted': 'orange',
-				'Processed': 'green',
-				'Failed': 'red',
-				'Cancelled': 'gray',
+				Draft: 'gray',
+				Generated: 'blue',
+				Submitted: 'orange',
+				Processed: 'green',
+				Failed: 'red',
+				Cancelled: 'gray',
 				'Partially Processed': 'yellow'
 			};
 			frm.page.set_indicator(__(frm.doc.status), status_colors[frm.doc.status] || 'gray');
@@ -109,39 +109,39 @@ frappe.ui.form.on('Direct Debit Batch', {
 		add_batch_summary(frm);
 
 		// Add action buttons based on status
-		if(frm.doc.docstatus === 0) {
+		if (frm.doc.docstatus === 0) {
 			// Draft state
-			frm.add_custom_button(__('Load Unpaid Invoices'), function() {
+			frm.add_custom_button(__('Load Unpaid Invoices'), () => {
 				load_unpaid_invoices(frm);
 			}, __('Get Items'));
 
-			frm.add_custom_button(__('Validate Mandates'), function() {
+			frm.add_custom_button(__('Validate Mandates'), () => {
 				validate_mandates(frm);
 			});
 		}
 
-		if(frm.doc.docstatus === 1 && !frm.doc.sepa_file_generated) {
-			frm.add_custom_button(__('Generate SEPA File'), function() {
+		if (frm.doc.docstatus === 1 && !frm.doc.sepa_file_generated) {
+			frm.add_custom_button(__('Generate SEPA File'), () => {
 				generate_sepa_file_dialog(frm);
 			}, __('Actions')).addClass('btn-primary');
 		}
 
-		if(frm.doc.docstatus === 1 && frm.doc.sepa_file_generated && frm.doc.status !== 'Processed') {
-			frm.add_custom_button(__('Submit to Bank'), function() {
+		if (frm.doc.docstatus === 1 && frm.doc.sepa_file_generated && frm.doc.status !== 'Processed') {
+			frm.add_custom_button(__('Submit to Bank'), () => {
 				submit_to_bank_dialog(frm);
 			}, __('Actions')).addClass('btn-primary');
 
-			frm.add_custom_button(__('Download SEPA File'), function() {
+			frm.add_custom_button(__('Download SEPA File'), () => {
 				window.open(frm.doc.sepa_file);
 			});
 		}
 
-		if(frm.doc.docstatus === 1 && frm.doc.status === 'Submitted') {
-			frm.add_custom_button(__('Process Returns'), function() {
+		if (frm.doc.docstatus === 1 && frm.doc.status === 'Submitted') {
+			frm.add_custom_button(__('Process Returns'), () => {
 				process_returns_dialog(frm);
 			}, __('Actions'));
 
-			frm.add_custom_button(__('Mark as Processed'), function() {
+			frm.add_custom_button(__('Mark as Processed'), () => {
 				mark_as_processed_dialog(frm);
 			}, __('Actions')).addClass('btn-primary');
 		}
@@ -152,7 +152,7 @@ frappe.ui.form.on('Direct Debit Batch', {
 		}
 	},
 
-	onload: function(frm) {
+	onload(frm) {
 		// Set field properties when form loads
 		set_field_properties(frm);
 
@@ -163,32 +163,32 @@ frappe.ui.form.on('Direct Debit Batch', {
 		add_custom_styles(frm);
 
 		// Set query filters
-		frm.set_query('invoice', 'invoices', function() {
+		frm.set_query('invoice', 'invoices', () => {
 			return {
 				filters: {
-					'status': ['in', ['Unpaid', 'Overdue']],
-					'docstatus': 1
+					status: ['in', ['Unpaid', 'Overdue']],
+					docstatus: 1
 				}
 			};
 		});
 	},
 
-	batch_type: function(frm) {
+	batch_type(frm) {
 		// Update help text and warnings based on batch type
 		const batch_info = {
-			'FRST': {
+			FRST: {
 				help: __('First collection - Use for new mandates'),
 				warning: __('Ensure all mandates are properly signed before using FRST')
 			},
-			'RCUR': {
+			RCUR: {
 				help: __('Recurring collection - Use for existing mandates'),
 				warning: null
 			},
-			'OOFF': {
+			OOFF: {
 				help: __('One-off collection - Single payment only'),
 				warning: __('Mandates will not be reusable after this collection')
 			},
-			'FNAL': {
+			FNAL: {
 				help: __('Final collection - Last payment before mandate cancellation'),
 				warning: __('Mandates will be cancelled after this collection')
 			}
@@ -207,7 +207,7 @@ frappe.ui.form.on('Direct Debit Batch', {
 		}
 	},
 
-	batch_date: function(frm) {
+	batch_date(frm) {
 		// Validate collection date (must be at least 2 business days in future)
 		if (frm.doc.batch_date) {
 			const today = frappe.datetime.get_today();
@@ -224,7 +224,7 @@ frappe.ui.form.on('Direct Debit Batch', {
 		}
 	},
 
-	generate_sepa_file: function(frm) {
+	generate_sepa_file(frm) {
 		// Handle button field trigger for SEPA file generation
 		if (frm.doc.docstatus !== 1) {
 			frappe.msgprint(__('Please submit the batch before generating SEPA file'));
@@ -238,14 +238,14 @@ frappe.ui.form.on('Direct Debit Batch', {
 
 // Child table events
 frappe.ui.form.on('Direct Debit Invoice', {
-	invoices_add: function(frm, cdt, cdn) {
+	invoices_add(frm, cdt, cdn) {
 		// Auto-populate mandate info when invoice is selected
 		const row = locals[cdt][cdn];
 		if (row.invoice) {
 			frappe.call({
 				method: 'verenigingen.api.sepa_batch_ui.get_invoice_mandate_info',
 				args: { invoice: row.invoice },
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.model.set_value(cdt, cdn, 'iban', r.message.iban);
 						frappe.model.set_value(cdt, cdn, 'bic', r.message.bic);
@@ -257,12 +257,12 @@ frappe.ui.form.on('Direct Debit Invoice', {
 		}
 	},
 
-	invoices_remove: function(frm) {
+	invoices_remove(frm) {
 		// Update totals when invoice is removed
 		update_batch_totals(frm);
 	},
 
-	amount: function(frm) {
+	amount(frm) {
 		// Update totals when amount changes
 		update_batch_totals(frm);
 	}
@@ -277,7 +277,7 @@ function update_batch_totals(frm) {
 
 // Helper functions
 function add_batch_summary(frm) {
-	if (!frm.doc.invoices || frm.doc.invoices.length === 0) return;
+	if (!frm.doc.invoices || frm.doc.invoices.length === 0) { return; }
 
 	const summary = calculate_batch_summary(frm);
 
@@ -326,7 +326,7 @@ function add_batch_summary(frm) {
 }
 
 function calculate_batch_summary(frm) {
-	let summary = {
+	const summary = {
 		total_count: frm.doc.invoices.length,
 		total_amount: 0,
 		ready_count: 0,
@@ -373,7 +373,7 @@ function add_invoice_filters(frm) {
 	update_filter_counts(frm);
 
 	// Add click handlers
-	$(frm.fields_dict.invoices.wrapper).find('.filter-btn').on('click', function() {
+	$(frm.fields_dict.invoices.wrapper).find('.filter-btn').on('click', function () {
 		const filter = $(this).data('filter');
 		apply_invoice_filter(frm, filter);
 
@@ -384,7 +384,7 @@ function add_invoice_filters(frm) {
 }
 
 function update_filter_counts(frm) {
-	let counts = { ready: 0, issues: 0, processed: 0 };
+	const counts = { ready: 0, issues: 0, processed: 0 };
 
 	frm.doc.invoices.forEach(inv => {
 		if (inv.status === 'Successful' || inv.status === 'Failed') {
@@ -404,7 +404,7 @@ function update_filter_counts(frm) {
 function apply_invoice_filter(frm, filter) {
 	const rows = $(frm.fields_dict.invoices.wrapper).find('.grid-row');
 
-	rows.each(function(idx) {
+	rows.each(function (idx) {
 		const row_data = frm.doc.invoices[idx];
 		let show = true;
 
@@ -454,7 +454,7 @@ function load_unpaid_invoices(frm) {
 			frappe.call({
 				method: 'verenigingen.api.sepa_batch_ui.load_unpaid_invoices',
 				args: values,
-				callback: function(r) {
+				callback(r) {
 					if (r.message && r.message.length > 0) {
 						// Set defaults if new batch
 						if (!frm.doc.batch_description) {
@@ -506,7 +506,7 @@ function validate_mandates(frm) {
 
 	frappe.show_progress(__('Validating'), 0, frm.doc.invoices.length);
 	let processed = 0;
-	let clientValidationErrors = [];
+	const clientValidationErrors = [];
 
 	// First do client-side IBAN validation if available
 	if (window.IBANValidator) {
@@ -515,7 +515,7 @@ function validate_mandates(frm) {
 				const validation = window.IBANValidator.validate(inv.iban);
 				if (!validation.valid) {
 					clientValidationErrors.push({
-						idx: idx,
+						idx,
 						invoice: inv.invoice,
 						error: validation.error
 					});
@@ -525,7 +525,7 @@ function validate_mandates(frm) {
 
 		// Show client validation errors if any
 		if (clientValidationErrors.length > 0) {
-			let errorMsg = __('Invalid IBANs found:') + '<br>';
+			let errorMsg = `${__('Invalid IBANs found:')}<br>`;
 			clientValidationErrors.forEach(err => {
 				errorMsg += `<br>Invoice ${err.invoice}: ${err.error}`;
 			});
@@ -544,7 +544,7 @@ function validate_mandates(frm) {
 				invoice: inv.invoice,
 				member: inv.member
 			},
-			callback: function(r) {
+			callback(r) {
 				processed++;
 				frappe.show_progress(__('Validating'), processed, frm.doc.invoices.length);
 
@@ -607,7 +607,7 @@ function generate_sepa_file_dialog(frm) {
 			frappe.call({
 				method: 'generate_sepa_xml',
 				doc: frm.doc,
-				callback: function(r) {
+				callback(r) {
 					if (!r.exc) {
 						frm.reload_doc();
 						frappe.show_alert({
@@ -627,11 +627,11 @@ function generate_sepa_file_dialog(frm) {
 function submit_to_bank_dialog(frm) {
 	frappe.confirm(
 		__('Are you sure you want to submit this batch to the bank? This action cannot be undone.'),
-		function() {
+		() => {
 			frappe.call({
 				method: 'process_batch',
 				doc: frm.doc,
-				callback: function(r) {
+				callback(r) {
 					if (!r.exc) {
 						frm.reload_doc();
 						frappe.show_alert({
@@ -665,7 +665,7 @@ function process_returns_dialog(frm) {
 					file_content: values.return_file,
 					file_type: 'pain.002'
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
 						frappe.msgprint(
 							__('Processed {0} of {1} returns', [r.message.processed, r.message.total])
@@ -710,14 +710,14 @@ function mark_as_processed_dialog(frm) {
 		],
 		primary_action_label: __('Process Payments'),
 		primary_action(values) {
-			if (!values.confirm) return;
+			if (!values.confirm) { return; }
 
 			frappe.show_progress(__('Processing Payments'), 0, 100);
 
 			frappe.call({
 				method: 'mark_invoices_as_paid',
 				doc: frm.doc,
-				callback: function(r) {
+				callback(r) {
 					frappe.hide_progress();
 					if (!r.exc && r.message) {
 						frm.reload_doc();
@@ -736,7 +736,7 @@ function mark_as_processed_dialog(frm) {
 
 function setup_realtime_updates(frm) {
 	if (!frm.is_new()) {
-		frappe.realtime.on('dd_batch_update_' + frm.doc.name, function(data) {
+		frappe.realtime.on(`dd_batch_update_${frm.doc.name}`, (data) => {
 			if (data.message) {
 				frappe.show_alert({
 					message: data.message,
@@ -816,9 +816,9 @@ function format_currency(amount) {
 // Set field properties based on batch status
 function set_field_properties(frm) {
 	// Disable editing fields after generation or submission
-	const is_generated = frm.doc.status === 'Generated' ||
-                        frm.doc.status === 'Submitted' ||
-                        frm.doc.status === 'Processed';
+	const is_generated = frm.doc.status === 'Generated'
+                        || frm.doc.status === 'Submitted'
+                        || frm.doc.status === 'Processed';
 
 	// Fields to disable when batch is generated/submitted
 	const fields_to_disable = ['batch_date', 'batch_description', 'batch_type', 'currency'];

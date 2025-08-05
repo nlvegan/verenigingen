@@ -1,8 +1,14 @@
+"""
+Permission Testing Framework
+
+Provides utilities for testing and validating DocType permissions across different user roles.
+"""
+
 import frappe
 
 
 @frappe.whitelist()
-def test_membership_dues_schedule_permissions_detailed():
+def validate_membership_dues_schedule_permissions():
     """Test permissions for membership dues schedule"""
 
     current_user = frappe.session.user
@@ -130,7 +136,7 @@ def test_membership_dues_schedule_permissions_detailed():
 
 
 @frappe.whitelist()
-def test_doctype_list_access():
+def validate_doctype_list_access():
     """Test what happens when accessing the doctype list"""
 
     current_user = frappe.session.user
@@ -153,7 +159,7 @@ def test_doctype_list_access():
 
 
 @frappe.whitelist()
-def test_as_different_user(test_user_email):
+def validate_permissions_for_user(test_user_email):
     """Test permissions as a different user"""
 
     # Temporarily switch user context

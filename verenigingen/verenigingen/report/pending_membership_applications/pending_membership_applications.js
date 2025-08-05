@@ -139,7 +139,7 @@ frappe.query_reports['Pending Membership Applications'] = {
 	formatter(value, row, column, data, default_formatter) {
 		value = default_formatter(value, row, column, data);
 
-		if (column.fieldname == 'days_pending') {
+		if (column.fieldname === 'days_pending') {
 			if (value > 14) {
 				value = `<span style="color: red; font-weight: bold">${value}</span>`;
 			} else if (value > 7) {
@@ -162,7 +162,7 @@ frappe.query_reports['Pending Membership Applications'] = {
 			report.set_filter_value('aging_only', 1);
 			report.refresh();
 		} else if (preset === 'days' && urlParams.get('days')) {
-			const days = parseInt(urlParams.get('days'));
+			const days = parseInt(urlParams.get('days'), 10);
 			if (days > 0) {
 				report.set_filter_value('days_filter', days);
 				report.refresh();
@@ -233,7 +233,7 @@ function show_bulk_actions_dialog(report) {
 			}
 		],
 		primary_action_label: __('Execute'),
-		primary_action(values) {
+		primary_action(_values) {
 			// Implementation would go here
 			frappe.msgprint(__('Bulk action executed'));
 			d.hide();

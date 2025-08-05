@@ -1,7 +1,49 @@
+/**
+ * @fileoverview Chapter membership history utilities for Member DocType
+ *
+ * Provides specialized utilities for managing and displaying chapter membership
+ * history within Member forms. This module enhances the visualization and
+ * analysis of a member's chapter association journey, providing insights
+ * into membership patterns and chapter transitions over time.
+ *
+ * Key Features:
+ * - Enhanced chapter history table with status color coding
+ * - Membership history insights and analytics
+ * - Visual status indicators for different membership states
+ * - Chapter transition statistics and summaries
+ * - Historical pattern analysis and reporting
+ * - Multi-chapter membership tracking
+ *
+ * Display Enhancements:
+ * - Color-coded status indicators (Active, Completed, Terminated)
+ * - Chapter statistics with counts and percentages
+ * - Unique chapter association tracking
+ * - Membership duration calculations
+ * - Transition timeline visualization
+ * - Historical trends and patterns
+ *
+ * Business Context:
+ * Essential for understanding member engagement patterns and chapter
+ * loyalty. Helps administrators identify members with multiple chapter
+ * associations, track successful chapter transitions, and analyze
+ * membership stability across different regions and time periods.
+ *
+ * Integration:
+ * - Integrates with Member DocType chapter history child table
+ * - Connects to Chapter DocType for name resolution
+ * - Supports chapter transition workflow analysis
+ * - Enables membership pattern reporting
+ * - Provides data for member retention analytics
+ *
+ * @author Verenigingen Development Team
+ * @version 1.6.0
+ * @since 2024-06-20
+ */
+
 // Chapter Membership History utility functions for Member doctype
 
 function setup_chapter_history_display(frm) {
-	if (!frm.doc.name || frm.doc.__islocal) return;
+	if (!frm.doc.name || frm.doc.__islocal) { return; }
 
 	// Enhance the chapter membership history table display
 	enhance_chapter_history_table(frm);
@@ -9,10 +51,10 @@ function setup_chapter_history_display(frm) {
 
 
 function enhance_chapter_history_table(frm) {
-	if (!frm.fields_dict.chapter_membership_history) return;
+	if (!frm.fields_dict.chapter_membership_history) { return; }
 
 	// Add custom styling and functionality to the chapter membership history table
-	frm.fields_dict.chapter_membership_history.grid.get_field('status').get_query = function() {
+	frm.fields_dict.chapter_membership_history.grid.get_field('status').get_query = function () {
 		return {
 			filters: [
 				['name', 'in', ['Active', 'Completed', 'Terminated']]
@@ -23,7 +65,7 @@ function enhance_chapter_history_table(frm) {
 	// Color code status in the grid
 	setTimeout(() => {
 		const grid_wrapper = frm.fields_dict.chapter_membership_history.$wrapper;
-		grid_wrapper.find('.grid-body .rows .grid-row').each(function() {
+		grid_wrapper.find('.grid-body .rows .grid-row').each(function () {
 			const row = $(this);
 			const status_cell = row.find('[data-fieldname="status"]');
 			const status = status_cell.text().trim();

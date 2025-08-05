@@ -1,16 +1,16 @@
 // Simple validation test for Member doctype JavaScript tests
 // This file tests the basic structure and syntax of our test files
 
-QUnit.test('test: Member - Basic Test Structure Validation', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Basic Test Structure Validation', (assert) => {
+	const done = assert.async();
 	assert.expect(3);
 
 	frappe.run_serially([
 		// Test basic member creation
 		() => frappe.tests.make('Member', [
-			{first_name: 'Validation'},
-			{last_name: 'Test'},
-			{email: 'validation.test@example.com'}
+			{ first_name: 'Validation' },
+			{ last_name: 'Test' },
+			{ email: 'validation.test@example.com' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -23,8 +23,8 @@ QUnit.test('test: Member - Basic Test Structure Validation', function (assert) {
 });
 
 // Test utility function existence
-QUnit.test('test: Member - Utility Function Availability', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Utility Function Availability', (assert) => {
+	const done = assert.async();
 	assert.expect(5);
 
 	frappe.run_serially([
@@ -41,18 +41,18 @@ QUnit.test('test: Member - Utility Function Availability', function (assert) {
 });
 
 // Test basic error handling
-QUnit.test('test: Member - Error Handling Validation', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Error Handling Validation', (assert) => {
+	const done = assert.async();
 	assert.expect(2);
 
 	frappe.run_serially([
 		() => {
 			// Test that we can handle form creation gracefully
 			try {
-				let testForm = new frappe.ui.form.Form('Member', null, true);
+				const testForm = new frappe.ui.form.Form('Member', null, true);
 				assert.ok(testForm.doc.doctype === 'Member', 'Form creation should work');
 			} catch (e) {
-				assert.ok(false, 'Form creation should not throw errors: ' + e.message);
+				assert.ok(false, `Form creation should not throw errors: ${e.message}`);
 			}
 		},
 		() => {

@@ -17,12 +17,12 @@ describe('Expense Validation', () => {
 			call: jest.fn(),
 			model: {
 				get_value: jest.fn(),
-				set_value: jest.fn(),
+				set_value: jest.fn()
 			},
 			datetime: {
 				str_to_obj: jest.fn((str) => new Date(str)),
-				nowdate: jest.fn(() => '2024-01-15'),
-			},
+				nowdate: jest.fn(() => '2024-01-15')
+			}
 		};
 		global.frappe = mockFrappe;
 	});
@@ -108,7 +108,7 @@ describe('Expense Validation', () => {
 				{ amount: 25.50, status: 'Approved' },
 				{ amount: 30.00, status: 'Approved' },
 				{ amount: 15.00, status: 'Pending' },
-				{ amount: 20.00, status: 'Rejected' },
+				{ amount: 20.00, status: 'Rejected' }
 			];
 
 			const totals = calculateExpenseTotals(expenses);

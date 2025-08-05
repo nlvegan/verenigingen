@@ -1,3 +1,44 @@
+/**
+ * @fileoverview Chapter assignment utilities for Member DocType management
+ *
+ * Provides specialized utilities for managing chapter assignments within the
+ * Member DocType, handling the complex business logic around chapter membership
+ * transitions and cleanup operations. These utilities ensure data integrity
+ * when members move between chapters or are assigned to their first chapter.
+ *
+ * Key Features:
+ * - Interactive chapter assignment dialog
+ * - Automatic cleanup of previous chapter memberships
+ * - Board role termination on chapter changes
+ * - Assignment note tracking for audit purposes
+ * - Published chapter filtering for active assignments
+ * - Comprehensive feedback and error handling
+ *
+ * Business Rules:
+ * - Members can only be assigned to published (active) chapters
+ * - Previous chapter memberships are automatically ended
+ * - Board roles are terminated when leaving chapters
+ * - Assignment changes are logged with optional notes
+ * - Form refresh ensures UI consistency after changes
+ *
+ * Business Context:
+ * Essential for managing member mobility within the association structure.
+ * Handles the complex scenarios when members relocate, change affiliations,
+ * or need to be reassigned for administrative reasons. Ensures clean
+ * transitions while maintaining historical records.
+ *
+ * Integration:
+ * - Called from Member DocType form events
+ * - Uses Chapter DocType API methods
+ * - Integrates with board role management
+ * - Supports membership history tracking
+ * - Provides UI feedback through Frappe dialogs
+ *
+ * @author Verenigingen Development Team
+ * @version 1.8.0
+ * @since 2024-07-10
+ */
+
 // Chapter-related utility functions for Member doctype
 
 function assign_chapter_for_member(frm) {
@@ -20,10 +61,10 @@ function assign_chapter_for_member(frm) {
 				label: __('Chapter'),
 				options: 'Chapter',
 				reqd: 1,
-				get_query: function() {
+				get_query() {
 					return {
 						filters: {
-							'published': 1
+							published: 1
 						}
 					};
 				}
@@ -36,7 +77,7 @@ function assign_chapter_for_member(frm) {
 			}
 		],
 		primary_action_label: __('Assign to Chapter'),
-		primary_action: function(values) {
+		primary_action(values) {
 			if (values.chapter) {
 				assign_chapter_to_member(frm, values.chapter, values.note);
 				d.hide();
@@ -55,9 +96,9 @@ function assign_chapter_to_member(frm, chapter_name, note) {
 		args: {
 			member: frm.doc.name,
 			chapter: chapter_name,
-			note: note
+			note
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.success) {
 				// Refresh the form to get the updated values
 				frm.reload_doc();

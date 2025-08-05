@@ -54,23 +54,23 @@
 const IBANValidator = {
 	// IBAN length specifications by country
 	ibanLengths: {
-		'AD': 24, 'AT': 20, 'BE': 16, 'CH': 21, 'CZ': 24,
-		'DE': 22, 'DK': 18, 'ES': 24, 'FI': 18, 'FR': 27,
-		'GB': 22, 'IE': 22, 'IT': 27, 'LU': 20, 'NL': 18,
-		'NO': 15, 'PL': 28, 'PT': 25, 'SE': 24
+		AD: 24, AT: 20, BE: 16, CH: 21, CZ: 24,
+		DE: 22, DK: 18, ES: 24, FI: 18, FR: 27,
+		GB: 22, IE: 22, IT: 27, LU: 20, NL: 18,
+		NO: 15, PL: 28, PT: 25, SE: 24
 	},
 
 	// Country name mapping for better error messages
 	countryNames: {
-		'NL': 'Dutch',
-		'BE': 'Belgian',
-		'DE': 'German',
-		'FR': 'French',
-		'GB': 'British',
-		'IT': 'Italian',
-		'ES': 'Spanish',
-		'AT': 'Austrian',
-		'CH': 'Swiss'
+		NL: 'Dutch',
+		BE: 'Belgian',
+		DE: 'German',
+		FR: 'French',
+		GB: 'British',
+		IT: 'Italian',
+		ES: 'Spanish',
+		AT: 'Austrian',
+		CH: 'Swiss'
 	},
 
 	/**
@@ -162,7 +162,7 @@ const IBANValidator = {
      * @returns {string|null} - BIC code or null
      */
 	deriveBIC(iban) {
-		if (!iban) return null;
+		if (!iban) { return null; }
 
 		const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -172,16 +172,16 @@ const IBANValidator = {
 
 		const bankCode = cleanIBAN.substring(4, 8);
 		const nlBicCodes = {
-			'INGB': 'INGBNL2A',
-			'ABNA': 'ABNANL2A',
-			'RABO': 'RABONL2U',
-			'TRIO': 'TRIONL2U',
-			'SNSB': 'SNSBNL2A',
-			'ASNB': 'ASNBNL21',
-			'KNAB': 'KNABNL2H',
-			'BUNQ': 'BUNQNL2A',
-			'REVO': 'REVOLT21',
-			'RBRB': 'RBRBNL21'
+			INGB: 'INGBNL2A',
+			ABNA: 'ABNANL2A',
+			RABO: 'RABONL2U',
+			TRIO: 'TRIONL2U',
+			SNSB: 'SNSBNL2A',
+			ASNB: 'ASNBNL21',
+			KNAB: 'KNABNL2H',
+			BUNQ: 'BUNQNL2A',
+			REVO: 'REVOLT21',
+			RBRB: 'RBRBNL21'
 		};
 
 		return nlBicCodes[bankCode] || null;
@@ -193,7 +193,7 @@ const IBANValidator = {
      * @returns {string|null} - Bank name or null
      */
 	getBankName(iban) {
-		if (!iban) return null;
+		if (!iban) { return null; }
 
 		const cleanIBAN = iban.replace(/\s/g, '').toUpperCase();
 
@@ -203,15 +203,15 @@ const IBANValidator = {
 
 		const bankCode = cleanIBAN.substring(4, 8);
 		const bankNames = {
-			'INGB': 'ING',
-			'ABNA': 'ABN AMRO',
-			'RABO': 'Rabobank',
-			'TRIO': 'Triodos Bank',
-			'SNSB': 'SNS Bank',
-			'ASNB': 'ASN Bank',
-			'KNAB': 'Knab',
-			'BUNQ': 'Bunq',
-			'RBRB': 'RegioBank'
+			INGB: 'ING',
+			ABNA: 'ABN AMRO',
+			RABO: 'Rabobank',
+			TRIO: 'Triodos Bank',
+			SNSB: 'SNS Bank',
+			ASNB: 'ASN Bank',
+			KNAB: 'Knab',
+			BUNQ: 'Bunq',
+			RBRB: 'RegioBank'
 		};
 
 		return bankNames[bankCode] || null;

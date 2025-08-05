@@ -310,17 +310,17 @@ describe('Volunteer Form', () => {
 		it('should format timeline entries correctly', () => {
 			const formatTimelineEntry = (entry) => {
 				const icons = {
-					'activity_start': 'fa-play-circle',
-					'activity_end': 'fa-stop-circle',
-					'assignment_added': 'fa-user-plus',
-					'volunteer_created': 'fa-star'
+					activity_start: 'fa-play-circle',
+					activity_end: 'fa-stop-circle',
+					assignment_added: 'fa-user-plus',
+					volunteer_created: 'fa-star'
 				};
 
 				const colors = {
-					'activity_start': 'green',
-					'activity_end': 'blue',
-					'assignment_added': 'orange',
-					'volunteer_created': 'purple'
+					activity_start: 'green',
+					activity_end: 'blue',
+					assignment_added: 'orange',
+					volunteer_created: 'purple'
 				};
 
 				return {
@@ -458,37 +458,37 @@ describe('Volunteer Form', () => {
 
 // Mock implementation of volunteer form
 const VolunteerForm = {
-	add_activity: async function(frm) {
+	async add_activity(frm) {
 		// Implementation
 	},
 
-	end_activity: async function(frm, activityName) {
+	async end_activity(frm, activityName) {
 		// Implementation
 	},
 
-	render_assignment_summary: function(frm) {
+	render_assignment_summary(frm) {
 		// Implementation
 	},
 
-	render_timeline: async function(frm) {
+	async render_timeline(frm) {
 		// Implementation
 	},
 
-	generate_report: async function(frm) {
+	async generate_report(frm) {
 		// Implementation
 	},
 
-	export_volunteer_data: async function(frm) {
+	async export_volunteer_data(frm) {
 		// Implementation
 	}
 };
 
 const volunteerFormEvents = {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Add buttons based on status
 	},
 
-	member: async function(frm) {
+	async member(frm) {
 		// Fetch and inherit member data
 	}
 };

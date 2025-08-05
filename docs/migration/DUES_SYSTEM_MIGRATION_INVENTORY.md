@@ -385,9 +385,9 @@ CREATE INDEX idx_dues_schedule ON `tabSales Invoice` (membership_dues_schedule);
 
 ### 8.11 Documentation and Configuration (LOW PRIORITY)
 **Files requiring updates:**
-- `MEMBERSHIP_DUES_SYSTEM_DETAILED_PLAN_V2.md` - Update subscription references
-- `MEMBERSHIP_DUES_SYSTEM_DETAILED_PLAN.md` - Update subscription references
-- `MEMBERSHIP_DUES_SYSTEM_PLAN.md` - Update subscription references
+- `MEMBERSHIP_DUES_SYSTEM_DETAILED_PLAN.md` - Update subscription references (active plan)
+- `archived/superseded-versions/MEMBERSHIP_DUES_SYSTEM_DETAILED_PLAN_V2.md` - Update subscription references (archived)
+- `archived/superseded-versions/MEMBERSHIP_DUES_SYSTEM_PLAN.md` - Update subscription references (archived)
 - `SUBSCRIPTION_STARVATION_INVESTIGATION.md` - Archive as historical reference
 - `verenigingen/fixtures/subscription_plan.json` - Update for dues schedules
 - `verenigingen/fixtures/membership_type.json` - Update subscription plan references

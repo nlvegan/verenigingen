@@ -68,8 +68,8 @@
  *
  * @since 1.0.0
  */
-frappe.pages['membership-applicati'].on_page_load = function(wrapper) {
-	var page = frappe.ui.make_app_page({
+frappe.pages['membership-applicati'].on_page_load = function (wrapper) {
+	const page = frappe.ui.make_app_page({
 		parent: wrapper,
 		title: 'Membership Application Review',
 		single_column: true

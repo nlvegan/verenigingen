@@ -1,45 +1,87 @@
+/**
+ * @fileoverview Enhanced Member DocType JavaScript Tests
+ *
+ * Comprehensive frontend test suite for the Member DocType, covering advanced functionality
+ * including payment processing, chapter management, IBAN validation, volunteer integration,
+ * and error handling. This test suite validates complex business logic and user interface
+ * behaviors that are critical for member management operations.
+ *
+ * Key Test Coverage:
+ * - Payment processing workflows and button visibility
+ * - SEPA Direct Debit setup with mandatory fields
+ * - Chapter assignment and management interface
+ * - Full name generation from name components
+ * - Payment history tracking and calculations
+ * - IBAN validation and SEPA mandate integration
+ * - Form behavior and utility module loading
+ * - Volunteer profile creation and integration
+ * - Error handling and graceful degradation
+ *
+ * Business Context:
+ * Members are the fundamental entity in the association system, representing individuals
+ * who contribute to the organization through payments, volunteering, and participation.
+ * These enhanced tests ensure complex member management workflows function correctly
+ * across all scenarios including payment setup, geographic organization, and role transitions.
+ *
+ * Advanced Features Tested:
+ * - Dynamic UI behavior based on payment method selection
+ * - Automatic field calculations and dependencies
+ * - Integration with SEPA banking requirements
+ * - Chapter assignment based on geographic data
+ * - Volunteer role progression workflows
+ *
+ * Test Infrastructure:
+ * Uses QUnit framework with enhanced assertion patterns and realistic data scenarios.
+ * Tests include error conditions and edge cases to ensure robust functionality.
+ *
+ * @requires frappe.tests
+ * @requires QUnit
+ * @module MemberEnhancedTests
+ * @since 2024
+ */
+
 // Enhanced Member DocType JavaScript Tests
 // Comprehensive test suite for member.js functionality
 
 // ==================== PAYMENT PROCESSING TESTS ====================
 
-QUnit.test('test: Member - Payment Processing', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Payment Processing', (assert) => {
+	const done = assert.async();
 	assert.expect(4);
 
 	frappe.run_serially([
 		// Create member with unpaid status
 		() => frappe.tests.make('Member', [
-			{first_name: 'Payment'},
-			{last_name: 'Test'},
-			{email: 'payment.test@example.com'},
-			{payment_status: 'Unpaid'}
+			{ first_name: 'Payment' },
+			{ last_name: 'Test' },
+			{ email: 'payment.test@example.com' },
+			{ payment_status: 'Unpaid' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
 
 		() => {
 			// Check Process Payment button exists for unpaid members
-			let processBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Process Payment")');
+			const processBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Process Payment")');
 			assert.ok(processBtn.length, 'Process Payment button should exist for unpaid members');
 
 			// Check Mark as Paid button exists
-			let markPaidBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Mark as Paid")');
+			const markPaidBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Mark as Paid")');
 			assert.ok(markPaidBtn.length, 'Mark as Paid button should exist for unpaid members');
 		},
 
 		// Test payment method change
 		() => frappe.tests.set_form_values(cur_frm, [
-			{payment_method: 'SEPA Direct Debit'}
+			{ payment_method: 'SEPA Direct Debit' }
 		]),
 		() => frappe.timeout(1),
 		() => {
 			// Bank details section should be visible
-			let bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
+			const bankSection = $(cur_frm.fields_dict.bank_details_section.wrapper);
 			assert.ok(bankSection.is(':visible'), 'Bank details section should be visible for SEPA Direct Debit');
 
 			// IBAN should be required
-			let ibanField = cur_frm.get_field('iban');
+			const ibanField = cur_frm.get_field('iban');
 			assert.ok(ibanField.df.reqd, 'IBAN should be required for SEPA Direct Debit');
 		},
 
@@ -49,24 +91,24 @@ QUnit.test('test: Member - Payment Processing', function (assert) {
 
 // ==================== CHAPTER MANAGEMENT TESTS ====================
 
-QUnit.test('test: Member - Chapter Management', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Chapter Management', (assert) => {
+	const done = assert.async();
 	assert.expect(3);
 
 	frappe.run_serially([
 		// Create member without chapter
 		() => frappe.tests.make('Member', [
-			{first_name: 'Chapter'},
-			{last_name: 'Test'},
-			{email: 'chapter.test@example.com'},
-			{pincode: '1234AB'}
+			{ first_name: 'Chapter' },
+			{ last_name: 'Test' },
+			{ email: 'chapter.test@example.com' },
+			{ pincode: '1234AB' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
 
 		() => {
 			// Check Assign Chapter button exists
-			let assignBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Assign Chapter")');
+			const assignBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Assign Chapter")');
 			assert.ok(assignBtn.length, 'Assign Chapter button should exist');
 
 			// Check postal code notification
@@ -76,12 +118,12 @@ QUnit.test('test: Member - Chapter Management', function (assert) {
 
 		// Set a chapter and verify view button appears
 		() => frappe.tests.set_form_values(cur_frm, [
-			{current_chapter_display: 'Test Chapter'}
+			{ current_chapter_display: 'Test Chapter' }
 		]),
 		() => frappe.timeout(1),
 		() => {
 			// Check View Chapter button appears when chapter is assigned
-			let viewBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("View Chapter")');
+			const viewBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("View Chapter")');
 			assert.ok(viewBtn.length, 'View Chapter button should exist when chapter is assigned');
 		},
 
@@ -91,15 +133,15 @@ QUnit.test('test: Member - Chapter Management', function (assert) {
 
 // ==================== FULL NAME GENERATION TESTS ====================
 
-QUnit.test('test: Member - Full Name Generation', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Full Name Generation', (assert) => {
+	const done = assert.async();
 	assert.expect(4);
 
 	frappe.run_serially([
 		// Create member with first and last name
 		() => frappe.tests.make('Member', [
-			{first_name: 'John'},
-			{last_name: 'Doe'}
+			{ first_name: 'John' },
+			{ last_name: 'Doe' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -108,7 +150,7 @@ QUnit.test('test: Member - Full Name Generation', function (assert) {
 
 		// Add middle name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{middle_name: 'William'}
+			{ middle_name: 'William' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -117,7 +159,7 @@ QUnit.test('test: Member - Full Name Generation', function (assert) {
 
 		// Change last name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{last_name: 'Smith'}
+			{ last_name: 'Smith' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -126,7 +168,7 @@ QUnit.test('test: Member - Full Name Generation', function (assert) {
 
 		// Remove middle name
 		() => frappe.tests.set_form_values(cur_frm, [
-			{middle_name: ''}
+			{ middle_name: '' }
 		]),
 		() => frappe.timeout(1),
 		() => {
@@ -139,31 +181,31 @@ QUnit.test('test: Member - Full Name Generation', function (assert) {
 
 // ==================== PAYMENT HISTORY TESTS ====================
 
-QUnit.test('test: Member - Payment History', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Payment History', (assert) => {
+	const done = assert.async();
 	assert.expect(3);
 
 	frappe.run_serially([
 		// Create member
 		() => frappe.tests.make('Member', [
-			{first_name: 'Payment'},
-			{last_name: 'History'},
-			{email: 'payment.history@example.com'}
+			{ first_name: 'Payment' },
+			{ last_name: 'History' },
+			{ email: 'payment.history@example.com' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
 
 		// Add payment history entry
 		() => {
-			let payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
+			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, 'amount', 50.00);
 		},
 		() => frappe.timeout(1),
 		() => {
-			let payment_history = cur_frm.doc.payment_history;
+			const payment_history = cur_frm.doc.payment_history;
 			assert.ok(payment_history.length > 0, 'Payment history should have entries');
 
-			let latest_payment = payment_history[payment_history.length - 1];
+			const latest_payment = payment_history[payment_history.length - 1];
 			assert.equal(latest_payment.amount, 50.00, 'Payment amount should be set correctly');
 
 			// Outstanding amount should default to payment amount
@@ -176,24 +218,24 @@ QUnit.test('test: Member - Payment History', function (assert) {
 
 // ==================== IBAN VALIDATION TESTS ====================
 
-QUnit.test('test: Member - IBAN Validation', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - IBAN Validation', (assert) => {
+	const done = assert.async();
 	assert.expect(2);
 
 	frappe.run_serially([
 		// Create member with SEPA Direct Debit
 		() => frappe.tests.make('Member', [
-			{first_name: 'IBAN'},
-			{last_name: 'Test'},
-			{email: 'iban.test@example.com'},
-			{payment_method: 'SEPA Direct Debit'}
+			{ first_name: 'IBAN' },
+			{ last_name: 'Test' },
+			{ email: 'iban.test@example.com' },
+			{ payment_method: 'SEPA Direct Debit' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
 
 		// Set valid IBAN
 		() => frappe.tests.set_form_values(cur_frm, [
-			{iban: 'NL91ABNA0417164300'}
+			{ iban: 'NL91ABNA0417164300' }
 		]),
 		() => frappe.timeout(2),
 
@@ -211,16 +253,16 @@ QUnit.test('test: Member - IBAN Validation', function (assert) {
 
 // ==================== FORM BEHAVIOR TESTS ====================
 
-QUnit.test('test: Member - Form Behavior', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Form Behavior', (assert) => {
+	const done = assert.async();
 	assert.expect(5);
 
 	frappe.run_serially([
 		// Create member
 		() => frappe.tests.make('Member', [
-			{first_name: 'Behavior'},
-			{last_name: 'Test'},
-			{email: 'behavior.test@example.com'}
+			{ first_name: 'Behavior' },
+			{ last_name: 'Test' },
+			{ email: 'behavior.test@example.com' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
@@ -240,27 +282,27 @@ QUnit.test('test: Member - Form Behavior', function (assert) {
 
 // ==================== VOLUNTEER INTEGRATION TESTS ====================
 
-QUnit.test('test: Member - Volunteer Integration', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Volunteer Integration', (assert) => {
+	const done = assert.async();
 	assert.expect(2);
 
 	frappe.run_serially([
 		// Create member
 		() => frappe.tests.make('Member', [
-			{first_name: 'Volunteer'},
-			{last_name: 'Integration'},
-			{email: 'volunteer.integration@example.com'}
+			{ first_name: 'Volunteer' },
+			{ last_name: 'Integration' },
+			{ email: 'volunteer.integration@example.com' }
 		]),
 		() => cur_frm.save(),
 		() => frappe.timeout(1),
 
 		() => {
 			// Check Create Volunteer button
-			let volunteerBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Create Volunteer")');
+			const volunteerBtn = cur_frm.page.inner_toolbar.find('.custom-actions button:contains("Create Volunteer")');
 			assert.ok(volunteerBtn.length, 'Create Volunteer button should exist');
 
 			// Check volunteer details section
-			let volunteerSection = $(cur_frm.fields_dict.volunteer_details_html.wrapper);
+			const volunteerSection = $(cur_frm.fields_dict.volunteer_details_html.wrapper);
 			assert.ok(volunteerSection.length, 'Volunteer details section should exist');
 		},
 
@@ -270,8 +312,8 @@ QUnit.test('test: Member - Volunteer Integration', function (assert) {
 
 // ==================== ERROR HANDLING TESTS ====================
 
-QUnit.test('test: Member - Error Handling', function (assert) {
-	let done = assert.async();
+QUnit.test('test: Member - Error Handling', (assert) => {
+	const done = assert.async();
 	assert.expect(2);
 
 	frappe.run_serially([

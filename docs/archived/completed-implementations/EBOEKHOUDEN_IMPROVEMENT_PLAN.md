@@ -1,5 +1,9 @@
 # eBoekhouden Integration Improvement Plan
 
+> **Archive Status**: Moved from unimplemented-plans during Phase 1B consolidation (January 2025)
+> **Implementation Status**: ✅ **LARGELY COMPLETED** - Backend functionality implemented
+> **Note**: The core duplicate detection and merging functionality described in this plan has been implemented in `verenigingen/utils/migration/migration_duplicate_detection.py` with whitelisted functions `detect_migration_duplicates()` and `merge_duplicate_group()`. Only the web UI component remains unimplemented.
+
 ## Executive Summary
 
 This document outlines the improvement plan for the eBoekhouden integration system based on analysis of current capabilities and identified gaps. The plan focuses on enhancing data quality, system resilience, user experience, and maintainability.

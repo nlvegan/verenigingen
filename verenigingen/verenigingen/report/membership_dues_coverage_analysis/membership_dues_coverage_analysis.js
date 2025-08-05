@@ -139,7 +139,7 @@ frappe.query_reports['Membership Dues Coverage Analysis'] = {
 		value = default_formatter(value, row, column, data);
 
 		// Color-code coverage percentage
-		if (column.fieldname == 'coverage_percentage') {
+		if (column.fieldname === 'coverage_percentage') {
 			if (flt(data.coverage_percentage) < 50) {
 				value = `<span style="color: #d73502">${value}</span>`;
 			} else if (flt(data.coverage_percentage) < 80) {
@@ -152,7 +152,7 @@ frappe.query_reports['Membership Dues Coverage Analysis'] = {
 		}
 
 		// Color-code gap days
-		if (column.fieldname == 'gap_days') {
+		if (column.fieldname === 'gap_days') {
 			if (flt(data.gap_days) > 90) {
 				value = `<span style="color: #d73502; font-weight: bold">${value}</span>`;
 			} else if (flt(data.gap_days) > 30) {
@@ -163,7 +163,7 @@ frappe.query_reports['Membership Dues Coverage Analysis'] = {
 		}
 
 		// Color-code catch-up required
-		if (column.fieldname == 'catchup_required') {
+		if (column.fieldname === 'catchup_required') {
 			if (data.catchup_required) {
 				value = '<span style="color: #d73502">✓</span>';
 			} else {
@@ -172,14 +172,14 @@ frappe.query_reports['Membership Dues Coverage Analysis'] = {
 		}
 
 		// Highlight outstanding amounts
-		if (column.fieldname == 'outstanding_amount') {
+		if (column.fieldname === 'outstanding_amount') {
 			if (flt(data.outstanding_amount) > 0) {
 				value = `<span style="color: #d73502; font-weight: bold">${value}</span>`;
 			}
 		}
 
 		// Format current gaps with severity colors
-		if (column.fieldname == 'current_gaps') {
+		if (column.fieldname === 'current_gaps') {
 			if (data.current_gaps && data.current_gaps !== 'No gaps') {
 				if (data.current_gaps.includes('Critical')) {
 					value = `<span style="color: #d73502">${value}</span>`;
@@ -349,7 +349,7 @@ function show_timeline_dialog(member, timeline_data) {
 	dialog.show();
 }
 
-function generate_timeline_html(timeline_data) {
+function generate_timeline_html(_timeline_data) {
 	// Generate HTML for timeline visualization
 	let html = `
 		<div class="coverage-timeline">

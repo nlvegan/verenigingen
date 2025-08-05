@@ -1,3 +1,34 @@
+/**
+ * @fileoverview ESLint configuration for Verenigingen association management system
+ *
+ * Comprehensive ESLint configuration designed specifically for the Verenigingen Frappe app,
+ * providing consistent code quality enforcement across JavaScript files. This configuration
+ * balances modern JavaScript best practices with Frappe framework conventions.
+ *
+ * Configuration Features:
+ * - Frappe-specific globals and conventions (snake_case compliance)
+ * - Vue.js 3 support for frontend components
+ * - Jest/Mocha testing environment support
+ * - Custom rules for different file types (DocTypes, public JS, tests)
+ * - Security-focused linting rules
+ * - Association management utility globals
+ *
+ * Environment Support:
+ * - Browser, Node.js, and jQuery environments
+ * - ES2022 features and module syntax
+ * - Cypress, Jest, and Mocha testing frameworks
+ * - Frappe framework globals (frappe, frm, cur_frm, etc.)
+ *
+ * Business Context:
+ * Enforces code quality standards across the association management system,
+ * ensuring maintainable code for membership processing, financial operations,
+ * volunteer management, and SEPA payment handling.
+ *
+ * @author Verenigingen Development Team
+ * @version 2.0.0
+ * @since 2024-11-01
+ */
+
 module.exports = {
 	env: {
 		browser: true,
@@ -160,8 +191,8 @@ module.exports = {
 		'brace-style': ['error', '1tbs', { allowSingleLine: true }],
 		// Snake_case enforcement for Frappe/ERPNext framework compatibility
 		// Replaces camelcase rule to align with framework conventions and E-Boekhouden API
-		camelcase: ['error', { 
-			properties: 'never', 
+		camelcase: ['error', {
+			properties: 'never',
 			ignoreDestructuring: true,
 			ignoreImports: true,
 			ignoreGlobals: true,

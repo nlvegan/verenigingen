@@ -46,7 +46,7 @@
  */
 
 frappe.ui.form.on('Volunteer Expense', {
-	refresh: function(frm) {
+	refresh(frm) {
 		// Add custom buttons based on status
 		if (frm.doc.status === 'Submitted' && !frm.doc.__islocal) {
 			// Add approve/reject buttons for authorized users
@@ -55,13 +55,13 @@ frappe.ui.form.on('Volunteer Expense', {
 				args: {
 					expense: frm.doc
 				},
-				callback: function(r) {
+				callback(r) {
 					if (r.message) {
-						frm.add_custom_button(__('Approve'), function() {
+						frm.add_custom_button(__('Approve'), () => {
 							approve_expense(frm);
 						}, __('Actions'));
 
-						frm.add_custom_button(__('Reject'), function() {
+						frm.add_custom_button(__('Reject'), () => {
 							reject_expense(frm);
 						}, __('Actions'));
 					}
@@ -71,7 +71,7 @@ frappe.ui.form.on('Volunteer Expense', {
 
 		// Add reimbursed button for approved expenses
 		if (frm.doc.status === 'Approved' && frappe.user.has_role(['Verenigingen Administrator', 'Chapter Board Member'])) {
-			frm.add_custom_button(__('Mark as Reimbursed'), function() {
+			frm.add_custom_button(__('Mark as Reimbursed'), () => {
 				mark_reimbursed(frm);
 			}, __('Actions'));
 		}
@@ -82,14 +82,14 @@ frappe.ui.form.on('Volunteer Expense', {
 		}
 	},
 
-	volunteer: function(frm) {
+	volunteer(frm) {
 		if (frm.doc.volunteer) {
 			// Auto-set organization if volunteer has only one
 			auto_set_organization(frm);
 		}
 	},
 
-	organization_type: function(frm) {
+	organization_type(frm) {
 		// Clear opposite organization field when type changes
 		if (frm.doc.organization_type === 'Chapter') {
 			frm.set_value('team', '');
@@ -98,18 +98,18 @@ frappe.ui.form.on('Volunteer Expense', {
 		}
 	},
 
-	category: function(frm) {
+	category(frm) {
 		// Update currency based on company default if needed
 		if (frm.doc.category && !frm.doc.currency) {
 			frm.set_value('currency', 'EUR');
 		}
 	},
 
-	expense_date: function(frm) {
+	expense_date(frm) {
 		// Validate expense date
 		if (frm.doc.expense_date) {
-			let expense_date = new Date(frm.doc.expense_date);
-			let today = new Date();
+			const expense_date = new Date(frm.doc.expense_date);
+			const today = new Date();
 
 			if (expense_date > today) {
 				frappe.msgprint(__('Expense date cannot be in the future'));
@@ -155,7 +155,7 @@ function approve_expense(frm) {
 		args: {
 			expense_name: frm.doc.name
 		},
-		callback: function(r) {
+		callback(r) {
 			if (!r.exc) {
 				frm.reload_doc();
 			}
@@ -204,14 +204,14 @@ function reject_expense(frm) {
 		fieldname: 'reason',
 		fieldtype: 'Text',
 		reqd: 1
-	}, function(data) {
+	}, (data) => {
 		frappe.call({
 			method: 'verenigingen.verenigingen.doctype.volunteer_expense.volunteer_expense.reject_expense',
 			args: {
 				expense_name: frm.doc.name,
 				reason: data.reason
 			},
-			callback: function(r) {
+			callback(r) {
 				if (!r.exc) {
 					frm.reload_doc();
 				}
@@ -260,7 +260,7 @@ function mark_reimbursed(frm) {
 		fieldname: 'details',
 		fieldtype: 'Text',
 		reqd: 0
-	}, function(data) {
+	}, (data) => {
 		frm.set_value('status', 'Reimbursed');
 		if (data.details) {
 			frm.set_value('reimbursement_details', data.details);
@@ -308,7 +308,7 @@ function set_current_user_volunteer(frm) {
 			},
 			fieldname: 'name'
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.name) {
 				frm.set_value('volunteer', r.message.name);
 			}
@@ -361,7 +361,7 @@ function auto_set_organization(frm) {
 			doctype: 'Volunteer',
 			name: frm.doc.volunteer
 		},
-		callback: function(r) {
+		callback(r) {
 			if (r.message && r.message.member) {
 				// Check chapters first
 				frappe.call({
@@ -374,7 +374,7 @@ function auto_set_organization(frm) {
 						},
 						fields: ['parent']
 					},
-					callback: function(chapters) {
+					callback(chapters) {
 						if (chapters.message && chapters.message.length === 1) {
 							frm.set_value('organization_type', 'Chapter');
 							frm.set_value('chapter', chapters.message[0].parent);
@@ -390,7 +390,7 @@ function auto_set_organization(frm) {
 									},
 									fields: ['parent']
 								},
-								callback: function(teams) {
+								callback(teams) {
 									if (teams.message && teams.message.length === 1) {
 										frm.set_value('organization_type', 'Team');
 										frm.set_value('team', teams.message[0].parent);
