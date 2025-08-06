@@ -45,7 +45,7 @@ def reorganize_workspace():
         ("Link", "ANBI Donation Summary", "Report", "ANBI Donation Summary", 0, 0),
         # === VOLUNTEERS ===
         ("Card Break", "Volunteers", None, None, 0, 4),
-        ("Link", "Volunteer", "DocType", "Volunteer", 1, 0),
+        ("Link", "Verenigingen Volunteer", "DocType", "Volunteer", 1, 0),
         ("Link", "Volunteer Activity", "DocType", "Volunteer Activity", 0, 0),
         ("Link", "Volunteer Dashboard", "Page", "/volunteer/dashboard", 0, 0),
         ("Link", "Chapter Dashboard", "Page", "/chapter-dashboard", 0, 0),

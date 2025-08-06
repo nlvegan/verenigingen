@@ -111,7 +111,7 @@ def validate_approver_permissions(approver_user):
                 volunteer = frappe.get_value("Volunteer", {"member": member}, "name")
                 if volunteer:
                     board_membership = frappe.db.exists(
-                        "Chapter Board Member",
+                        "Verenigingen Chapter Board Member",
                         {"volunteer": volunteer, "parent": settings.national_board_chapter, "is_active": 1},
                     )
                     is_national_board = bool(board_membership)

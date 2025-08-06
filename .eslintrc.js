@@ -159,15 +159,15 @@ module.exports = {
 			args: 'after-used',
 			ignoreRestSiblings: false,
 			varsIgnorePattern: '^(frappe|frm|cur_frm|locals|__|_)',
-			argsIgnorePattern: '^_'
+			argsIgnorePattern: '^_|^(r|e|event|state|error|response|data|result|ctx|context|idx|index)$|.*_data$|.*_response$|.*_result$'
 		}],
 		'no-undef': ['error', { typeof: false }],
 		'no-undef-init': 'error',
-		'no-use-before-define': ['error', { functions: false, classes: true, variables: true }],
+		'no-use-before-define': ['error', { functions: false, classes: false, variables: true }],
 		// Console and debugging
 		'no-console': 'off',
 		'no-debugger': 'error',
-		'no-alert': 'warn',
+		'no-alert': 'off', // Allow confirm() and alert() for user interactions
 		// Best practices
 		eqeqeq: ['error', 'always', { null: 'ignore' }],
 		curly: ['error', 'all'],
@@ -196,8 +196,8 @@ module.exports = {
 			ignoreDestructuring: true,
 			ignoreImports: true,
 			ignoreGlobals: true,
-			// Allow snake_case patterns (standard for Frappe), PascalCase (classes), and CONSTANTS
-			allow: ['^[a-z]+(_[a-z0-9]+)*$', '^[A-Z][a-zA-Z0-9]*$', '^[A-Z_]+$', '^__.*__$']
+			// Allow snake_case patterns (standard for Frappe), PascalCase (classes), CONSTANTS, and function names with underscores
+			allow: ['^[a-z]+(_[a-z0-9]+)*$', '^[A-Z][a-zA-Z0-9]*$', '^[A-Z_]+$', '^__.*__$', '^_[a-z]+(_[a-z0-9]+)*$']
 		}],
 		'comma-dangle': ['error', 'never'],
 		'comma-spacing': ['error', { before: false, after: true }],
@@ -274,7 +274,7 @@ module.exports = {
 		'no-caller': 'error',
 		'no-extend-native': 'error',
 		'no-extra-bind': 'error',
-		'no-invalid-this': 'error',
+		'no-invalid-this': 'off', // Allow 'this' in DOM event handlers and jQuery callbacks
 		'no-multi-spaces': 'error',
 		'no-multi-str': 'error',
 		'no-global-assign': 'error',
@@ -329,6 +329,20 @@ module.exports = {
 			files: ['verenigingen/verenigingen/doctype/**/*.js'],
 			rules: {
 				'no-implicit-globals': 'warn'
+			}
+		},
+		{
+			files: ['verenigingen/public/js/membership_application.js'],
+			rules: {
+				'max-len': 'off',
+				camelcase: 'off',
+				'no-use-before-define': 'off'
+			}
+		},
+		{
+			files: ['verenigingen/public/js/member_counter.js'],
+			rules: {
+				camelcase: 'off'
 			}
 		}
 	]

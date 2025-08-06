@@ -225,7 +225,7 @@ def get_user_chapter_filter():
 
     for volunteer_record in volunteer_records:
         board_positions = frappe.get_all(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             filters={"volunteer": volunteer_record.name, "is_active": 1},
             fields=["parent", "chapter_role"],
         )
@@ -246,7 +246,7 @@ def get_user_chapter_filter():
         if hasattr(settings, "national_chapter") and settings.national_chapter:
             # Check if user has board access to national chapter
             national_board_positions = frappe.get_all(
-                "Chapter Board Member",
+                "Verenigingen Chapter Board Member",
                 filters={
                     "parent": settings.national_chapter,
                     "volunteer": ["in", [v.name for v in volunteer_records]],

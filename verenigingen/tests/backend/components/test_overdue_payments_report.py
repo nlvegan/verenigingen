@@ -221,7 +221,7 @@ class TestOverduePaymentsReport(VereningingenTestCase):
         self, mock_get_doc, mock_get_all, mock_get_value, mock_get_roles
     ):
         """Test chapter filtering for board members"""
-        mock_get_roles.return_value = ["Chapter Board Member"]
+        mock_get_roles.return_value = ["Verenigingen Chapter Board Member"]
         mock_get_value.return_value = "MEM-BOARD-001"
 
         # Mock volunteer records

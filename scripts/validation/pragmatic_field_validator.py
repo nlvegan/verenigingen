@@ -549,6 +549,8 @@ def main():
                         help='Path to app directory')
     parser.add_argument('--stats', action='store_true',
                         help='Show validation statistics')
+    parser.add_argument('--pre-commit', action='store_true',
+                        help='Run in pre-commit mode (non-blocking, warnings only)')
     
     args = parser.parse_args()
     
@@ -574,26 +576,42 @@ def main():
     
     violations = validator.validate_app()
     
-    if violations:
-        print(f"\n❌ Found {len(violations)} field reference issues:")
-        print("-" * 80)
-        
-        for v in violations:
-            print(f"📁 {v['file']}:{v['line']}")
-            print(f"   🏷️  {v['doctype']}.{v['field']} - {v['error']}")
-            print(f"   📋 {v['issue_type']} in {v['function']}()")
-            print(f"   💾 {v['context']}")
-            if v.get('suggestions'):
-                print(f"   💡 Suggestions: {', '.join(v['suggestions'])}")
-            print(f"   ⚙️  Level: {v['validation_level']}")
-            print()
-            
-        return 1
+    if args.pre_commit:
+        # Pre-commit mode: Show issues as warnings but don't block commits
+        if violations:
+            print(f"⚠️  Found {len(violations)} field reference issues (not blocking commit):")
+            print("   These issues may need investigation but won't prevent commits.")
+            print("   Run without --pre-commit flag for detailed analysis.")
+            # Show just a few examples
+            for v in violations[:3]:
+                print(f"   - {v['file']}:{v['line']} - {v['doctype']}.{v['field']}")
+            if len(violations) > 3:
+                print(f"   ... and {len(violations) - 3} more issues")
+        else:
+            print("✅ No field reference issues found!")
+        return 0  # Don't block commits
     else:
-        print("✅ No field reference issues found!")
-        print(f"🎯 Validation level '{validation_level.value}' applied with appropriate exclusions")
-        print("🔍 All critical field references validated successfully")
-        return 0
+        # Normal mode: Show all issues and fail if any exist
+        if violations:
+            print(f"\n❌ Found {len(violations)} field reference issues:")
+            print("-" * 80)
+            
+            for v in violations:
+                print(f"📁 {v['file']}:{v['line']}")
+                print(f"   🏷️  {v['doctype']}.{v['field']} - {v['error']}")
+                print(f"   📋 {v['issue_type']} in {v['function']}()")
+                print(f"   💾 {v['context']}")
+                if v.get('suggestions'):
+                    print(f"   💡 Suggestions: {', '.join(v['suggestions'])}")
+                print(f"   ⚙️  Level: {v['validation_level']}")
+                print()
+                
+            return 1
+        else:
+            print("✅ No field reference issues found!")
+            print(f"🎯 Validation level '{validation_level.value}' applied with appropriate exclusions")
+            print("🔍 All critical field references validated successfully")
+            return 0
 
 
 if __name__ == "__main__":

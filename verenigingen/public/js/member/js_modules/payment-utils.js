@@ -108,7 +108,7 @@ function refresh_membership_dues_info(frm) {
 	frappe.call({
 		method: 'refresh_financial_history',
 		doc: frm.doc,
-		callback(r) {
+		callback(_r) {
 			frm.refresh_field('payment_history');
 
 			// Updated to refresh dues schedule summary

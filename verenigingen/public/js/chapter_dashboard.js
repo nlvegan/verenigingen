@@ -159,7 +159,7 @@ function approveMember(memberId) {
 						});
 					}
 				},
-				error(r) {
+				error(_r) {
 					hideLoading();
 					frappe.msgprint({
 						title: __('Error'),
@@ -288,7 +288,7 @@ function refreshDashboardData(silent = false) {
 				}
 			}
 		},
-		error(r) {
+		error(_r) {
 			if (!silent) {
 				hideLoading();
 				frappe.msgprint({

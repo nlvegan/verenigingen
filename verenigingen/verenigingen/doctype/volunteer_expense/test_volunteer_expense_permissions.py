@@ -86,29 +86,37 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
         # Chapter board member
         cls.chapter_board_user = cls.create_test_user(
             "chapter.board@test.com",
-            "Chapter Board Member",
-            ["Chapter Board Member"],
+            "Verenigingen Chapter Board Member",
+            ["Verenigingen Chapter Board Member"],
             cls.test_chapter,
             is_board_member=True,
         )
 
         # Team lead
         cls.team_lead_user = cls.create_test_user(
-            "team.lead@test.com", "Team Lead User", ["Volunteer"], cls.test_team, is_team_lead=True
+            "team.lead@test.com",
+            "Team Lead User",
+            ["Verenigingen Volunteer"],
+            cls.test_team,
+            is_team_lead=True,
         )
 
         # Regular volunteer (chapter member)
         cls.chapter_volunteer_user = cls.create_test_user(
             "chapter.volunteer@test.com",
             "Chapter Volunteer User",
-            ["Volunteer"],
+            ["Verenigingen Volunteer"],
             cls.test_chapter,
             is_board_member=False,
         )
 
         # Regular volunteer (team member)
         cls.team_volunteer_user = cls.create_test_user(
-            "team.volunteer@test.com", "Team Volunteer User", ["Volunteer"], cls.test_team, is_team_lead=False
+            "team.volunteer@test.com",
+            "Team Volunteer User",
+            ["Verenigingen Volunteer"],
+            cls.test_team,
+            is_team_lead=False,
         )
 
         # Verenigingen manager
@@ -195,7 +203,8 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
 
                 # Create board membership if needed
                 if is_board_member and not frappe.db.exists(
-                    "Chapter Board Member", {"volunteer": volunteer.name, "chapter": organization.name}
+                    "Verenigingen Chapter Board Member",
+                    {"volunteer": volunteer.name, "chapter": organization.name},
                 ):
                     board_member = frappe.get_doc(
                         {
@@ -238,7 +247,7 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
 
         # Test with chapter board member user
         with patch("frappe.session.user", self.chapter_board_user["user"].email):
-            with patch("frappe.get_roles", return_value=["Chapter Board Member"]):
+            with patch("frappe.get_roles", return_value=["Verenigingen Chapter Board Member"]):
                 can_approve = can_approve_expense(expense)
                 self.assertTrue(can_approve)
 
@@ -256,7 +265,7 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
 
         # Test with team lead user
         with patch("frappe.session.user", self.team_lead_user["user"].email):
-            with patch("frappe.get_roles", return_value=["Volunteer"]):
+            with patch("frappe.get_roles", return_value=["Verenigingen Volunteer"]):
                 can_approve = can_approve_expense(expense)
                 self.assertTrue(can_approve)
 
@@ -292,7 +301,7 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
 
         # Test with team lead (should not be able to approve chapter expense)
         with patch("frappe.session.user", self.team_lead_user["user"].email):
-            with patch("frappe.get_roles", return_value=["Volunteer"]):
+            with patch("frappe.get_roles", return_value=["Verenigingen Volunteer"]):
                 can_approve = can_approve_expense(expense)
                 self.assertFalse(can_approve)
 
@@ -328,7 +337,7 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
 
         # Test with regular volunteer (not board member)
         with patch("frappe.session.user", self.chapter_volunteer_user["user"].email):
-            with patch("frappe.get_roles", return_value=["Volunteer"]):
+            with patch("frappe.get_roles", return_value=["Verenigingen Volunteer"]):
                 can_approve = can_approve_expense(expense)
                 self.assertFalse(can_approve)
 
@@ -492,10 +501,10 @@ class TestVolunteerExpensePermissions(unittest.TestCase):
         # Clean up test records
         test_docs = [
             ("Volunteer Expense", {}),
-            ("Chapter Board Member", {"chapter": cls.test_chapter.name}),
+            ("Verenigingen Chapter Board Member", {"chapter": cls.test_chapter.name}),
             ("Team Member", {"team": cls.test_team.name}),
             ("Chapter Member", {"chapter": cls.test_chapter.name}),
-            ("Volunteer", {"volunteer_name": ["like", "%Test%"]}),
+            ("Verenigingen Volunteer", {"volunteer_name": ["like", "%Test%"]}),
             ("Member", {"email": ["like", "%test.com"]}),
             ("User", {"email": ["like", "%test.com"]}),
             ("Team", {"team_name": ["like", "%Permission Test%"]}),

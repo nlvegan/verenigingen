@@ -65,7 +65,10 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
         if hasattr(self, "chapter_head_volunteer") and self.chapter_head_volunteer:
             try:
                 frappe.delete_doc(
-                    "Volunteer", self.chapter_head_volunteer.name, force=True, ignore_permissions=True
+                    "Verenigingen Volunteer",
+                    self.chapter_head_volunteer.name,
+                    force=True,
+                    ignore_permissions=True,
                 )
             except Exception as e:
                 print(f"Error deleting chapter head volunteer {self.chapter_head_volunteer.name}: {e}")
@@ -245,7 +248,9 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
             "board_members",
             {
                 "volunteer": self.test_volunteers[0],
-                "volunteer_name": frappe.get_value("Volunteer", self.test_volunteers[0], "volunteer_name"),
+                "volunteer_name": frappe.get_value(
+                    "Verenigingen Volunteer", self.test_volunteers[0], "volunteer_name"
+                ),
                 "email": frappe.get_value("Volunteer", self.test_volunteers[0], "email"),
                 "chapter_role": "Chair",  # Unique role
                 "from_date": today(),
@@ -262,7 +267,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                 {
                     "volunteer": self.test_volunteers[1],
                     "volunteer_name": frappe.get_value(
-                        "Volunteer", self.test_volunteers[1], "volunteer_name"
+                        "Verenigingen Volunteer", self.test_volunteers[1], "volunteer_name"
                     ),
                     "email": frappe.get_value("Volunteer", self.test_volunteers[1], "email"),
                     "chapter_role": "Chair",  # Same unique role
@@ -279,7 +284,9 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
             "board_members",
             {
                 "volunteer": self.test_volunteers[0],
-                "volunteer_name": frappe.get_value("Volunteer", self.test_volunteers[0], "volunteer_name"),
+                "volunteer_name": frappe.get_value(
+                    "Verenigingen Volunteer", self.test_volunteers[0], "volunteer_name"
+                ),
                 "email": frappe.get_value("Volunteer", self.test_volunteers[0], "email"),
                 "chapter_role": "New Role",  # Non-unique role
                 "from_date": today(),
@@ -296,7 +303,7 @@ class TestChapterVolunteerIntegration(unittest.TestCase):
                 {
                     "volunteer": self.test_volunteers[1],
                     "volunteer_name": frappe.get_value(
-                        "Volunteer", self.test_volunteers[1], "volunteer_name"
+                        "Verenigingen Volunteer", self.test_volunteers[1], "volunteer_name"
                     ),
                     "email": frappe.get_value("Volunteer", self.test_volunteers[1], "email"),
                     "chapter_role": "New Role",  # Same non-unique role

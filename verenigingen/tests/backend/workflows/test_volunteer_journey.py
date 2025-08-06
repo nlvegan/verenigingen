@@ -38,7 +38,7 @@ class TestVolunteerJourney(VereningingenTestCase):
 
         # Create base member for volunteer journey
         self.base_member = self.create_test_member(
-            first_name="Volunteer",
+            first_name="Verenigingen Volunteer",
             last_name="Journey",
             email="volunteer.journey@example.com"
         )
@@ -160,7 +160,7 @@ class TestVolunteerJourney(VereningingenTestCase):
             volunteer.insert(ignore_permissions=True)
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer.name, "Created")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer.name, "Created")
 
         return {"volunteer_name": volunteer.name, "member_name": member_name, "user_email": user_email}
 
@@ -202,7 +202,7 @@ class TestVolunteerJourney(VereningingenTestCase):
             volunteer.save()
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer_name, "Profile Completed")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer_name, "Profile Completed")
 
         return {"profile_completed": True}
 
@@ -277,7 +277,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                 teams_created.append({"team_name": team.name, "role": config["volunteer_role"]})
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer_name, "Teams Joined")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer_name, "Teams Joined")
 
         return {"teams_joined": teams_created}
 
@@ -343,7 +343,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                 expenses_created.append({"expense_name": expense.name, "amount": config["amount"]})
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer_name, "Expenses Submitted")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer_name, "Expenses Submitted")
 
         return {"expenses_submitted": expenses_created}
 
@@ -390,7 +390,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                 approved_expenses.append(expense_info)
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer_name, "Expenses Approved")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer_name, "Expenses Approved")
 
         return {"expenses_approved": approved_expenses}
 
@@ -451,7 +451,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                 activities_logged.append({"activity_name": activity.name, "hours": config["hours"]})
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer_name, "Hours Tracked")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer_name, "Hours Tracked")
 
         return {"activities_logged": activities_logged}
 
@@ -507,7 +507,7 @@ class TestVolunteerJourney(VereningingenTestCase):
             volunteer.save()
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer_name, "Reports Generated")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer_name, "Reports Generated")
 
         return {"total_hours": total_hours, "total_expenses": total_expenses, "report_generated": True}
 
@@ -556,7 +556,7 @@ class TestVolunteerJourney(VereningingenTestCase):
                 team.save(ignore_permissions=True)
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer_name, "Deactivated")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer_name, "Deactivated")
 
         return {"volunteer_deactivated": True}
 
@@ -584,7 +584,7 @@ class TestVolunteerJourney(VereningingenTestCase):
         transitions = self.state_manager.get_transitions()
 
         # Should have volunteer state transitions
-        volunteer_transitions = [t for t in transitions if t["entity_type"] == "Volunteer"]
+        volunteer_transitions = [t for t in transitions if t["entity_type"] == "Verenigingen Volunteer"]
         self.assertTrue(len(volunteer_transitions) > 0, "No volunteer transitions recorded")
 
         # Check progression through key states
@@ -592,7 +592,7 @@ class TestVolunteerJourney(VereningingenTestCase):
         volunteer_name = workflow_context.get("volunteer_name")
 
         if volunteer_name:
-            final_state = self.state_manager.get_state("Volunteer", volunteer_name)
+            final_state = self.state_manager.get_state("Verenigingen Volunteer", volunteer_name)
             self.assertEqual(final_state, "Deactivated", "Volunteer should be in final deactivated state")
 
             # Validate journey completeness

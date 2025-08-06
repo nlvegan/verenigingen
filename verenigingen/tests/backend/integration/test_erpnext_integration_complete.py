@@ -421,7 +421,7 @@ class TestERPNextIntegrationComplete(FrappeTestCase):
             employee = frappe.get_doc({
                 "doctype": "Employee",
                 "employee_name": self.test_volunteer.volunteer_name,
-                "first_name": "Volunteer",
+                "first_name": "Verenigingen Volunteer",
                 "last_name": self.test_member.last_name,
                 "company": self.company.name,
                 "date_of_joining": today(),

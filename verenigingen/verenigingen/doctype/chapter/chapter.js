@@ -664,7 +664,7 @@ function show_board_management_dialog(frm) {
 		title: __('Add Board Member'),
 		fields: [
 			{
-				label: __('Volunteer'),
+				label: __('Verenigingen Volunteer'),
 				fieldname: 'volunteer',
 				fieldtype: 'Link',
 				options: 'Volunteer',
@@ -778,7 +778,7 @@ function render_board_history_html(board_history) {
 	let html = '<div class="board-history">';
 	html += '<table class="table table-bordered">';
 	html += '<thead><tr>';
-	html += `<th>${__('Volunteer')}</th>`;
+	html += `<th>${__('Verenigingen Volunteer')}</th>`;
 	html += `<th>${__('Role')}</th>`;
 	html += `<th>${__('From')}</th>`;
 	html += `<th>${__('To')}</th>`;

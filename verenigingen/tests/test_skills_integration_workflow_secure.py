@@ -317,13 +317,13 @@ class TestSkillsIntegrationWorkflowSecure(unittest.TestCase):
             validate_field("Member", "nonexistent_field")
             
         with self.assertRaises(FieldValidationError):
-            validate_field("Volunteer", "fake_field")
+            validate_field_exists("Volunteer", "fake_field")
             
         # Test that valid fields pass
         validate_field("Member", "first_name")
         validate_field("Member", "email")
-        validate_field("Volunteer", "volunteer_name")
-        validate_field("Volunteer", "member")
+        validate_field_exists("Volunteer", "volunteer_name")
+        validate_field_exists("Volunteer", "member")
         
         print("✅ Field validation security test passed")
 

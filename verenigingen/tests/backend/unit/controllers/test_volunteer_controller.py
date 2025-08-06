@@ -323,7 +323,7 @@ class TestVolunteerWhitelistMethods(VereningingenUnitTestCase):
 
         # Create user for member
         user = self.create_test_user(
-            email=f"volunteer.user.{frappe.utils.random_string(8)}@test.com", roles=["Member", "Volunteer"]
+            email=f"volunteer.user.{frappe.utils.random_string(8)}@test.com", roles=["Member", "Verenigingen Volunteer"]
         )
 
         # Reload member to avoid timestamp issues

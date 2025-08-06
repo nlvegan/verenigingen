@@ -401,7 +401,7 @@ def _get_affected_operations(self, doctype: str) -> List[OperationType]:
         "Payment Entry": [OperationType.FINANCIAL, OperationType.REPORTING],
         "Sales Invoice": [OperationType.FINANCIAL, OperationType.REPORTING],
         "SEPA Mandate": [OperationType.FINANCIAL, OperationType.REPORTING],
-        "Volunteer": [OperationType.MEMBER_DATA, OperationType.REPORTING],
+        "Verenigingen Volunteer": [OperationType.MEMBER_DATA, OperationType.REPORTING],
         "Chapter": [OperationType.ADMIN, OperationType.REPORTING],
     }
     return doctype_operations.get(doctype, [])

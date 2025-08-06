@@ -205,7 +205,13 @@ def analyze_verenigingen_report(report_info):
             )
 
         # Issue 4: Member-related reports accessible to too many roles
-        member_related_doctypes = ["Member", "Volunteer", "Chapter Member", "Team Member", "Membership"]
+        member_related_doctypes = [
+            "Member",
+            "Volunteer",
+            "Chapter Member",
+            "Team Member",
+            "Membership",
+        ]
         if analysis["ref_doctype"] in member_related_doctypes:
             non_admin_roles = [
                 r

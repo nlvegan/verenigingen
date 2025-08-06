@@ -354,7 +354,7 @@ class MembershipDuesSchedule(Document):
 
         # Check if user is a board member of this chapter with finance permissions
         board_member = frappe.db.get_value(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             {
                 "parent": chapter,
                 "member": frappe.db.get_value("Member", {"user": user}, "name"),
@@ -2268,7 +2268,7 @@ def has_permission(doc, user=None, permission_type="read"):
                 if user_member:
                     # Check if user is board member with finance permissions
                     board_member = frappe.db.get_value(
-                        "Chapter Board Member",
+                        "Verenigingen Chapter Board Member",
                         {
                             "parent": chapter,
                             "member": user_member,

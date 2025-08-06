@@ -90,13 +90,19 @@ def debug_volunteer_access():
     if member:
         # Check for linked Volunteer
         volunteer = frappe.db.get_value(
-            "Volunteer", {"member": member.name}, ["name", "volunteer_name", "status"], as_dict=True
+            "Volunteer",
+            {"member": member.name},
+            ["name", "volunteer_name", "status"],
+            as_dict=True,
         )
         result["volunteer_via_member"] = volunteer
 
     # Check direct Volunteer record
     volunteer_direct = frappe.db.get_value(
-        "Volunteer", {"email": user_email}, ["name", "volunteer_name", "member", "status"], as_dict=True
+        "Volunteer",
+        {"email": user_email},
+        ["name", "volunteer_name", "member", "status"],
+        as_dict=True,
     )
     result["volunteer_direct"] = volunteer_direct
 
@@ -2368,7 +2374,10 @@ def test_expense_form_with_foppe():
 
     # Check if Foppe has a volunteer record
     foppe_volunteer = frappe.db.get_value(
-        "Volunteer", {"member": foppe_member.name}, ["name", "volunteer_name", "email"], as_dict=True
+        "Volunteer",
+        {"member": foppe_member.name},
+        ["name", "volunteer_name", "email"],
+        as_dict=True,
     )
 
     if not foppe_volunteer:

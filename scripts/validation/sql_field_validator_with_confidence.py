@@ -468,8 +468,11 @@ def main():
         violations = validator.validate_directory()
     
     if args.pre_commit:
-        # Pre-commit mode: Only show high confidence issues, concise output
+        # Pre-commit mode: Only fail on high confidence issues to avoid blocking commits
         high_conf = [v for v in violations if v.confidence == 'high']
+        med_conf = [v for v in violations if v.confidence == 'medium']
+        low_conf = [v for v in violations if v.confidence == 'low']
+        
         if high_conf:
             print(f"🚨 Found {len(high_conf)} critical SQL field reference issues:")
             for violation in high_conf:
@@ -477,8 +480,18 @@ def main():
                 if violation.suggested_fix:
                     print(f"   → Suggested: {violation.suggested_fix}")
             return len(high_conf)
-        else:
-            return 0
+        
+        # Show medium/low confidence issues as warnings but don't fail
+        if med_conf or low_conf:
+            print(f"⚠️  Found {len(med_conf)} medium confidence and {len(low_conf)} low confidence issues (not blocking commit)")
+            if med_conf:
+                print("   Medium confidence issues (may need investigation):")
+                for violation in med_conf[:3]:
+                    print(f"   - {violation.file}:{violation.line} - {violation.reference}")
+                if len(med_conf) > 3:
+                    print(f"   ... and {len(med_conf) - 3} more medium confidence issues")
+        
+        return 0  # Don't block commit for medium/low confidence issues
     else:
         # Regular mode: Full detailed output
         if violations:

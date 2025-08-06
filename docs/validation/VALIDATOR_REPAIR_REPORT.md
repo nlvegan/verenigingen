@@ -41,11 +41,11 @@ for doctype_name, doctype_info in self.doctypes.items():
 precise_mappings = {
     'member': 'Member',
     'membership': 'Membership',
-    'volunteer': 'Volunteer',
+    'volunteer': 'Verenigingen Volunteer',
     'chapter': 'Chapter',
     'application': 'Membership Application',
     'schedule': 'Membership Dues Schedule',
-    'board_member': 'Chapter Board Member',  # Key mapping!
+    'board_member': 'Verenigingen Chapter Board Member',  # Key mapping!
     'expense': 'Volunteer Expense',
     # ... more mappings
 }

@@ -45,7 +45,7 @@ class TestVolunteerAggregatedAssignments(VereningingenTestCase):
             }
         )
         self.test_volunteer.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Volunteer", self.test_volunteer.name))
+        self._docs_to_delete.append(("Verenigingen Volunteer", self.test_volunteer.name))
 
         # Create Chapter Role if it doesn't exist
         role_name = "Secretary"

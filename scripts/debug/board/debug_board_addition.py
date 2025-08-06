@@ -35,7 +35,7 @@ def debug_board_addition_flow():
             "Member", {"full_name": "Parko Janssen"}, ["name", "full_name"], as_dict=True
         )
         parko_volunteer = frappe.get_value(
-            "Volunteer",
+            "Verenigingen Volunteer",
             {"volunteer_name": "Parko Janssen"},
             ["name", "volunteer_name", "member"],
             as_dict=True,

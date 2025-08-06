@@ -26,7 +26,9 @@ def create_user_for_volunteer(volunteer_doc):
         user = frappe.new_doc("User")
         user.email = volunteer_doc.email
         user.first_name = (
-            volunteer_doc.volunteer_name.split()[0] if volunteer_doc.volunteer_name else "Volunteer"
+            volunteer_doc.volunteer_name.split()[0]
+            if volunteer_doc.volunteer_name
+            else "Verenigingen Volunteer"
         )
         user.last_name = (
             " ".join(volunteer_doc.volunteer_name.split()[1:])
@@ -38,7 +40,7 @@ def create_user_for_volunteer(volunteer_doc):
 
         # Add appropriate roles
         user.append("roles", {"role": "Employee"})
-        user.append("roles", {"role": "Volunteer"})
+        user.append("roles", {"role": "Verenigingen Volunteer"})
 
         user.insert(ignore_permissions=True)
         frappe.logger().info(f"Created user {user.name} for volunteer {volunteer_doc.name}")

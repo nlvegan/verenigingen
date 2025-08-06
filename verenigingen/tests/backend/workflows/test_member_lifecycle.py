@@ -435,7 +435,7 @@ class TestMemberLifecycle(VereningingenWorkflowTestCase):
             volunteer.insert()
 
         # Record state
-        self.state_manager.record_state("Volunteer", volunteer.name, "Active")
+        self.state_manager.record_state("Verenigingen Volunteer", volunteer.name, "Active")
 
         return {"volunteer_name": volunteer.name}
 

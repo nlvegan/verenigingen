@@ -55,12 +55,12 @@ class TestUserFactory:
                 "doctype": "User",
                 "email": email,
                 "first_name": "Test",
-                "last_name": "Volunteer",
+                "last_name": "Verenigingen Volunteer",
                 "enabled": 1,
                 "new_password": "test123"}
         )
 
-        user.append("roles", {"role": "Volunteer"})
+        user.append("roles", {"role": "Verenigingen Volunteer"})
         user.append("roles", {"role": "Member"})
         user.insert()
 
@@ -365,7 +365,7 @@ class TestDataBuilder:
 
         self._data["volunteer"] = volunteer
         self._cleanup_manager.register(
-            "Volunteer", volunteer.name, dependencies=[f"Member:{self._data['member'].name}"]
+            "Verenigingen Volunteer", volunteer.name, dependencies=[f"Member:{self._data['member'].name}"]
         )
 
         return self

@@ -144,7 +144,7 @@
           "user_permission_doctypes": null
         },
         {
-          "role": "Chapter Board Member",
+          "role": "Verenigingen Chapter Board Member",
           "read": 1,
           "write": 0,
           "create": 0,
@@ -272,7 +272,7 @@
       "issues_count": 4,
       "doctypes": [
         "Chapter",
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         "Chapter Member",
         "Chapter Membership History",
         "Chapter Role",
@@ -306,7 +306,7 @@
         "Team Role",
         "Termination Audit Entry",
         "Verenigingen Settings",
-        "Volunteer",
+        "Verenigingen Volunteer",
         "Volunteer Activity",
         "Volunteer Assignment",
         "Volunteer Development Goal",

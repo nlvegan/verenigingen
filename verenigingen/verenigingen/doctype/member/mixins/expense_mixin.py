@@ -122,7 +122,9 @@ class ExpenseMixin:
             if expense_doc.employee:
                 # First try to find volunteer by employee_id field and member link
                 volunteer_name = frappe.db.get_value(
-                    "Volunteer", {"employee_id": expense_doc.employee, "member": self.name}, "name"
+                    "Volunteer",
+                    {"employee_id": expense_doc.employee, "member": self.name},
+                    "name",
                 )
 
                 # Fallback: if not found, try without member filter (for backward compatibility)

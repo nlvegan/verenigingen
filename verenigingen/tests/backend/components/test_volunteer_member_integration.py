@@ -23,7 +23,7 @@ class TestVolunteerMemberIntegration(VereningingenTestCase):
     def create_test_member_with_volunteer_setup(self):
         """Create test member with volunteer capabilities using factory methods"""
         member = self.create_test_member(
-            first_name="Volunteer",
+            first_name="Verenigingen Volunteer",
             last_name="TestMember",
             email=f"volunteer.{frappe.generate_hash(length=6)}@example.com",
             address_line1="123 Volunteer Street",

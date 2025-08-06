@@ -38,7 +38,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
 
         for email, name, roles in [
             (self.volunteer_email, "Integration Volunteer", []),
-            (self.board_member_email, "Integration Board Member", ["Chapter Board Member"]),
+            (self.board_member_email, "Integration Board Member", ["Verenigingen Chapter Board Member"]),
             (self.admin_email, "Integration Admin", ["System Manager"]),
         ]:
             if not frappe.db.exists("User", email):
@@ -68,7 +68,7 @@ class TestVolunteerPortalIntegration(VereningingenTestCase):
         # Create test members and volunteers using factory methods
         self.volunteer_member = self.create_test_member(
             first_name="Integration",
-            last_name="Volunteer",
+            last_name="Verenigingen Volunteer",
             email=self.volunteer_email
         )
         self.board_member_member = self.create_test_member(

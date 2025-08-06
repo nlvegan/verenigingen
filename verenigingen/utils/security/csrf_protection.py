@@ -291,7 +291,7 @@ def require_csrf_token(func):
             CSRFProtection.validate_request()
 
             # Log successful CSRF validation
-            frappe.log_info(
+            frappe.logger().info(
                 {
                     "event": "csrf_validation_success",
                     "function": func.__name__,
@@ -455,6 +455,6 @@ def setup_csrf_protection():
     csrf_protect_sepa_endpoints()
 
     # Log setup completion
-    frappe.log_info(
+    frappe.logger().info(
         {"event": "csrf_protection_setup_complete", "timestamp": frappe.utils.now()}, "SEPA Security Setup"
     )

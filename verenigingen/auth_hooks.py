@@ -132,7 +132,11 @@ def has_volunteer_role(user):
     """Check if user has Volunteer-related roles"""
     try:
         user_roles = frappe.get_roles(user)
-        volunteer_roles = ["Verenigingen Volunteer", "Volunteer", "Chapter Board Member"]
+        volunteer_roles = [
+            "Volunteer",
+            "Volunteer",
+            "Chapter Board Member",
+        ]
         return any(role in user_roles for role in volunteer_roles)
     except Exception:
         return False
@@ -243,8 +247,7 @@ def has_system_access(user):
             "System Manager",
             "Verenigingen Administrator",
             "Verenigingen Manager",
-            "Chapter Manager",
-            "Governance Auditor",
+            "Verenigingen Governance Auditor",
         ]
         return any(role in user_roles for role in system_roles)
     except Exception:

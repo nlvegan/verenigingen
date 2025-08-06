@@ -336,7 +336,7 @@
    ```python
    # Patch file: enable_version_tracking.py
    doctypes_to_track = [
-       "Member", "Volunteer", "SEPA Mandate",
+       "Member", "Verenigingen Volunteer", "SEPA Mandate",
        "Direct Debit Batch", "Volunteer Expense"
    ]
 

@@ -12,7 +12,7 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 - **Financial Integration**: Full ERPNext integration with SEPA direct debit and invoice processing
 - **Chapter Organization**: Geographic chapters with postal code matching and board management
 - **Volunteer Coordination**: Assignment tracking, expense management, and team organization
-- **eBoekhouden Integration**: Comprehensive accounting system integration with REST/SOAP API support
+- **eBoekhouden Integration**: Comprehensive accounting system integration with REST API support
 - **Dutch Compliance**: ANBI qualification, GDPR compliance, and Belastingdienst reporting
 - **Portal Systems**: Member and volunteer self-service portals with responsive design
 - **Analytics & Reporting**: Real-time business intelligence with predictive analytics
@@ -34,7 +34,7 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 
 ### 💰 **Financial Operations**
 - **SEPA Direct Debit**: EU-compliant automated payment collection with mandate management
-- **eBoekhouden Integration**: Complete accounting system synchronization via REST/SOAP APIs
+- **eBoekhouden Integration**: Complete accounting system synchronization via REST API
 - **Invoice Processing**: Automated invoice generation and payment tracking
 - **Banking Integration**: MT940 import and bank reconciliation with Dutch banking standards
 - **Donation Management**: ANBI-compliant donation tracking with tax receipt generation
@@ -68,7 +68,7 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 - **Queue System**: Redis for background job processing and caching
 - **API**: RESTful APIs with comprehensive endpoint coverage
 - **Testing**: Enhanced testing framework with automatic cleanup and factory methods
-- **Integration**: Production-ready eBoekhouden REST/SOAP API integration
+- **Integration**: Production-ready eBoekhouden REST API integration
 
 ### Required Dependencies
 - **ERPNext v15+**: Core ERP functionality and financial modules
@@ -83,7 +83,7 @@ Verenigingen is a powerful Frappe application designed specifically for Dutch as
 - **Git**: Version control with organized commit structure
 
 ### Integration Capabilities
-- **eBoekhouden API**: Production-ready REST/SOAP integration with €324K+ successfully imported
+- **eBoekhouden API**: Production-ready REST API integration for financial data import
 - **SEPA Direct Debit**: EU payment processing compliance with automated mandate management
 - **Dutch Banking**: MT940, CAMT, and bank reconciliation with automated processing
 - **Email Systems**: SMTP, SendGrid, Mailgun integration with template management
@@ -109,7 +109,7 @@ bench --site your-site-name build --app verenigingen
 **Requirements Check**:
 ```bash
 # Verify dependencies
-bench version  # Should be v15.0.0+
+bench --version  # Should be v15.0.0+
 # Required apps: erpnext, payments, hrms, crm
 ```
 

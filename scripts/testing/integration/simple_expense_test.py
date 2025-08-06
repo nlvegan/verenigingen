@@ -134,7 +134,7 @@ def test_volunteer_expense_workflow():
     try:
         # Find a volunteer with employee record - modernized ORM approach
         volunteers = frappe.get_all(
-            "Volunteer",
+            "Verenigingen Volunteer",
             filters={
                 "employee_id": ["is", "set"],
                 "member": ["is", "set"]

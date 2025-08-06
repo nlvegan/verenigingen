@@ -296,5 +296,67 @@ def main():
             frappe.destroy()
 
 
+    def validate_doctype_api_calls(self, content: str, file_path: Path) -> List[ValidationIssue]:
+        """FIRST-LAYER CHECK: Validate DocType existence in API calls"""
+        violations = []
+        
+        # Patterns for Frappe API calls that use DocType names
+        api_patterns = [
+            r'frappe\.get_all\(\s*["']([^"']+)["']',
+            r'frappe\.get_doc\(\s*["']([^"']+)["']',
+            r'frappe\.new_doc\(\s*["']([^"']+)["']',
+            r'frappe\.delete_doc\(\s*["']([^"']+)["']',
+            r'frappe\.db\.get_value\(\s*["']([^"']+)["']',
+            r'frappe\.db\.exists\(\s*["']([^"']+)["']',
+            r'frappe\.db\.count\(\s*["']([^"']+)["']',
+            r'DocType\(\s*["']([^"']+)["']',
+        ]
+        
+        lines = content.splitlines()
+        
+        for line_num, line in enumerate(lines, 1):
+            for pattern in api_patterns:
+                matches = re.finditer(pattern, line)
+                for match in matches:
+                    doctype_name = match.group(1)
+                    
+                    # FIRST-LAYER CHECK: Does this DocType actually exist?
+                    available_doctypes = getattr(self, 'doctypes', getattr(self, 'schemas', {}).get('schemas', {}))
+                    if doctype_name not in available_doctypes:
+                        # Suggest similar DocType names
+                        suggestions = self._suggest_similar_doctype(doctype_name)
+                        
+                        violations.append(ValidationIssue(
+                            file=str(file_path.relative_to(self.app_path)),
+                            line=line_num,
+                            field="<doctype_reference>",
+                            doctype=doctype_name,
+                            reference=line.strip(),
+                            message=f"DocType '{doctype_name}' does not exist. {suggestions}",
+                            context=line.strip(),
+                            confidence="high",
+                            issue_type="missing_doctype",
+                            suggested_fix=suggestions
+                        ))
+        
+        return violations
+    
+    def _suggest_similar_doctype(self, invalid_name: str) -> str:
+        """Suggest similar DocType names for typos"""
+        available_doctypes = getattr(self, 'doctypes', getattr(self, 'schemas', {}).get('schemas', {}))
+        available = list(available_doctypes.keys())
+        
+        # Look for exact substring matches first
+        exact_matches = [dt for dt in available if invalid_name.replace('Verenigingen ', '') in dt]
+        if exact_matches:
+            return f"Did you mean '{exact_matches[0]}'?"
+        
+        # Look for partial matches
+        partial_matches = [dt for dt in available if any(word in dt for word in invalid_name.split())]
+        if partial_matches:
+            return f"Similar: {', '.join(partial_matches[:3])}"
+        
+        return f"Check {len(available)} available DocTypes"
+
 if __name__ == "__main__":
     main()

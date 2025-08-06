@@ -135,7 +135,7 @@ class Member:
 ## Integration Architecture
 
 ### eBoekhouden Integration (Production Ready)
-Comprehensive accounting system integration with dual API support:
+Comprehensive accounting system integration with REST API architecture:
 
 #### REST API (Primary - Recommended):
 - **Unlimited History**: Complete transaction and master data access
@@ -145,15 +145,12 @@ Comprehensive accounting system integration with dual API support:
 
 #### Features:
 - **Complete Chart of Accounts**: Intelligent mapping with Dutch accounting standards
-- **Opening Balance Import**: €324K+ successfully imported in production
+- **Opening Balance Import**: Comprehensive opening balance handling with validation
 - **Multi-Account Support**: Receivable, Payable, Stock, and Cash accounts
 - **Zero Amount Handling**: Imports ALL transactions including zero-amount invoices
 - **Party Management**: Automatic customer/supplier creation with proper relationships
 - **Smart Document Naming**: Meaningful names like `EBH-Payment-1234`, `EBH-Memoriaal-5678`
 
-#### SOAP API (Legacy):
-- **Limited History**: 500 most recent transactions only
-- **Backward Compatibility**: Maintained for legacy feature support
 
 ### ERPNext Integration
 Deep integration with ERPNext modules:

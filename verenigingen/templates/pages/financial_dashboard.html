@@ -1023,10 +1023,10 @@ function exportAllData() {
 function scheduleConsultation() {
     // Open consultation scheduling modal or redirect to booking page
     frappe.msgprint({
-        title: '{{ _("Schedule Consultation") }}',
-        message: '{{ _("This feature will allow you to schedule a consultation with our financial advisors.") }}',
+        title: __("Schedule Consultation"),
+        message: __("This feature will allow you to schedule a consultation with our financial advisors."),
         primary_action: {
-            label: '{{ _("Contact Support") }}',
+            label: __("Contact Support"),
             action: function() {
                 window.location.href = 'mailto:{{ member_contact_email }}';
             }

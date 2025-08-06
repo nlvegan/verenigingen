@@ -296,7 +296,7 @@ class FinalFieldValidator:
             if indicator in obj_lower:
                 # Try to map to common child DocTypes
                 child_doctype_mappings = {
-                    'board_member': 'Chapter Board Member',
+                    'board_member': 'Verenigingen Chapter Board Member',
                     'chapter_member': 'Chapter Member',
                     'member': 'Member',  # Could be various member child tables
                     'expense_item': 'Volunteer Expense Item',
@@ -427,7 +427,7 @@ class FinalFieldValidator:
         doctype_name_mappings = {
             'member': 'Member',
             'membership': 'Membership',
-            'volunteer': 'Volunteer', 
+            'volunteer': 'Verenigingen Volunteer', 
             'chapter': 'Chapter',
             'schedule': 'Membership Dues Schedule',
             'dues_schedule': 'Membership Dues Schedule',
@@ -677,7 +677,7 @@ class FinalFieldValidator:
                         'validate_verenigingen_settings': 'Verenigingen Settings',
                         'validate_member': 'Member',
                         'validate_membership': 'Membership',
-                        'validate_volunteer': 'Volunteer',
+                        'validate_volunteer': 'Verenigingen Volunteer',
                         'validate_chapter': 'Chapter',
                         'validate_volunteer_expense': 'Volunteer Expense',
                         'validate_sepa_mandate': 'SEPA Mandate',

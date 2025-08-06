@@ -332,7 +332,7 @@ class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):
         # Test with volunteer that has no skills using enhanced factory
         member_no_skills = self.create_test_member(
             first_name="NoSkills",
-            last_name="Volunteer"
+            last_name="Verenigingen Volunteer"
         )
         
         volunteer_no_skills = self.create_test_volunteer(
@@ -480,7 +480,7 @@ class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):
         with self.assertRaises(Exception) as cm:
             young_member = self.create_test_member(
                 first_name="Young",
-                last_name="Volunteer",
+                last_name="Verenigingen Volunteer",
                 birth_date="2010-01-01"  # Too young
             )
         
@@ -489,7 +489,7 @@ class TestVolunteerSkillsAPIEnhanced(EnhancedTestCase):
         # Create valid aged member for volunteer
         valid_member = self.create_test_member(
             first_name="Valid",
-            last_name="Volunteer",
+            last_name="Verenigingen Volunteer",
             birth_date="1990-01-01"
         )
         

@@ -630,7 +630,7 @@ class TestVolunteerExpenseEdgeCases(unittest.TestCase):
         test_docs = [
             ("Volunteer Expense", {}),
             ("Chapter Member", {"chapter": cls.test_chapter.name}),
-            ("Volunteer", {"volunteer_name": ["like", "%Edge Test%"]}),
+            ("Verenigingen Volunteer", {"volunteer_name": ["like", "%Edge Test%"]}),
             ("Member", {"email": ["like", "%edge.test%"]}),
             ("Team", {"team_name": ["like", "%Edge Test%"]}),
             ("Chapter", {"chapter_name": ["like", "%Edge Test%"]}),

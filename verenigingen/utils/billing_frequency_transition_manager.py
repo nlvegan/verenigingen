@@ -377,7 +377,7 @@ class BillingFrequencyTransitionManager:
 
                 # Would create a sales invoice or journal entry here
                 # For now, just log the requirement
-                frappe.log_info(
+                frappe.logger().info(
                     {
                         "member": member,
                         "adjustment_type": "additional_charge",
@@ -393,7 +393,7 @@ class BillingFrequencyTransitionManager:
                 adjustment_result["amount"] = abs(net_adjustment)
 
                 # Would create a credit note or refund entry here
-                frappe.log_info(
+                frappe.logger().info(
                     {
                         "member": member,
                         "adjustment_type": "refund",

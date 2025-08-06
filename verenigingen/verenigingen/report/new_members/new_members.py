@@ -140,7 +140,7 @@ def get_data(filters):
             member_doc = frappe.get_doc("Member", member.name)
             member_chapters = member_doc.get_current_chapters()
             primary_chapter = member_chapters[0]["chapter"] if member_chapters else None
-        except Exception as e:
+        except Exception:
             # Fallback: Try to get chapter from current_chapter_display field or Chapter Member records
             try:
                 chapter_member = frappe.get_value(
@@ -263,7 +263,7 @@ def get_user_accessible_chapters():
 
         for volunteer_record in volunteer_records:
             board_positions = frappe.get_all(
-                "Chapter Board Member",
+                "Verenigingen Chapter Board Member",
                 filters={"volunteer": volunteer_record.name, "is_active": 1},
                 fields=["parent", "chapter_role"],
             )
@@ -282,7 +282,7 @@ def get_user_accessible_chapters():
             settings = frappe.get_single("Verenigingen Settings")
             if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
                 national_board_positions = frappe.get_all(
-                    "Chapter Board Member",
+                    "Verenigingen Chapter Board Member",
                     filters={
                         "parent": settings.national_board_chapter,
                         "volunteer": [v.name for v in volunteer_records],

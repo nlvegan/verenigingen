@@ -118,16 +118,6 @@ Configure eBoekhouden API access in the **E-Boekhouden Settings** doctype (singl
 }
 ```
 
-#### Optional SOAP API Settings
-```python
-{
-    # Legacy SOAP API credentials (if needed)
-    "soap_username": "your_username",
-    "soap_security_code1": "your_security_code_1",
-    "soap_security_code2": "your_security_code_2_guid",
-    "soap_guid": "optional_administration_guid"
-}
-```
 
 #### Access the Settings
 ```python
@@ -157,17 +147,6 @@ class EBoekhoudenRESTClient:
     # Session tokens expire after 60 minutes
 ```
 
-#### SOAP API Authentication
-```python
-# Implemented in EBoekhoudenAPI (legacy)
-class EBoekhoudenAPI:
-    def __init__(self, settings):
-        self.soap_username = settings.soap_username
-        self.security_code1 = settings.get_password("soap_security_code1")
-        self.security_code2 = settings.get_password("soap_security_code2")
-
-    # Direct credential authentication for each request
-```
 
 ## Data Import Process
 

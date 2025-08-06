@@ -220,9 +220,9 @@ export const ChapterConfig = {
 		},
 		requiredPermissions: {
 			board_management: ['Verenigingen Administrator', 'System Manager'],
-			member_management: ['Verenigingen Administrator', 'System Manager', 'Chapter Board Member'],
-			communication: ['Verenigingen Administrator', 'System Manager', 'Chapter Board Member'],
-			statistics: ['Verenigingen Administrator', 'System Manager', 'Chapter Board Member'],
+			member_management: ['Verenigingen Administrator', 'System Manager', 'Verenigingen Chapter Board Member'],
+			communication: ['Verenigingen Administrator', 'System Manager', 'Verenigingen Chapter Board Member'],
+			statistics: ['Verenigingen Administrator', 'System Manager', 'Verenigingen Chapter Board Member'],
 			export_data: ['Verenigingen Administrator', 'System Manager']
 		}
 	},

@@ -270,9 +270,8 @@ class ValidationService {
 					// Custom validation function
 					if (rule.customValidation) {
 						result = await rule.customValidation(value, context);
-					}
+					} else {
 					// API validation
-					else {
 						result = await this._performAPIValidation(fieldName, value, context);
 					}
 

@@ -126,7 +126,7 @@ validated_data = validator.validate_data_dict("Member", data)
 validator.validate_query_fields("Member", ["name", "email", "status"])
 
 # Link field validation
-validator.validate_link_field_value("Volunteer", "member", "MEMBER-001")
+validator.validate_link_field_value("Verenigingen Volunteer", "member", "MEMBER-001")
 ```
 
 Migration and Maintenance

@@ -9,9 +9,116 @@ permissions, and monitoring setup.
 
 import os
 import json
+import re
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List, Tuple, Any
+from dataclasses import dataclass
 import frappe
+
+
+@dataclass
+class ValidationIssue:
+    """Represents a validation issue"""
+    file: str
+    line: int
+    field: str
+    doctype: str
+    reference: str
+    message: str
+    context: str
+    confidence: str
+    issue_type: str
+    suggested_fix: str
+
+
+class PrePhase1Validator:
+    """Pre-Phase 1 security prerequisites validator"""
+    
+    def __init__(self):
+        self.app_path = Path("/home/frappe/frappe-bench/apps/verenigingen")
+        self.doctypes = self._load_available_doctypes()
+    
+    def _load_available_doctypes(self) -> Dict[str, Any]:
+        """Load available DocTypes for first-layer validation"""
+        doctypes = {}
+        doctype_dir = self.app_path / "verenigingen" / "verenigingen" / "doctype"
+        
+        if not doctype_dir.exists():
+            return doctypes
+        
+        for doctype_path in doctype_dir.iterdir():
+            if doctype_path.is_dir():
+                json_file = doctype_path / f"{doctype_path.name}.json"
+                if json_file.exists():
+                    try:
+                        with open(json_file, 'r', encoding='utf-8') as f:
+                            data = json.load(f)
+                        doctypes[data.get('name', '')] = data
+                    except Exception:
+                        pass
+        
+        return doctypes
+    
+    def validate_doctype_api_calls(self, content: str, file_path: Path) -> List[ValidationIssue]:
+        """FIRST-LAYER CHECK: Validate DocType existence in API calls"""
+        violations = []
+        
+        # Patterns for Frappe API calls that use DocType names
+        api_patterns = [
+            r'frappe\.get_all\(\s*["\']([^"\']+)["\']',
+            r'frappe\.get_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.new_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.delete_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.get_value\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.exists\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.count\(\s*["\']([^"\']+)["\']',
+            r'DocType\(\s*["\']([^"\']+)["\']',
+        ]
+        
+        lines = content.splitlines()
+        
+        for line_num, line in enumerate(lines, 1):
+            for pattern in api_patterns:
+                matches = re.finditer(pattern, line)
+                for match in matches:
+                    doctype_name = match.group(1)
+                    
+                    # FIRST-LAYER CHECK: Does this DocType actually exist?
+                    if doctype_name not in self.doctypes:
+                        # Suggest similar DocType names
+                        suggestions = self._suggest_similar_doctype(doctype_name)
+                        
+                        violations.append(ValidationIssue(
+                            file=str(file_path.relative_to(self.app_path)),
+                            line=line_num,
+                            field="<doctype_reference>",
+                            doctype=doctype_name,
+                            reference=line.strip(),
+                            message=f"DocType '{doctype_name}' does not exist. {suggestions}",
+                            context=line.strip(),
+                            confidence="high",
+                            issue_type="missing_doctype",
+                            suggested_fix=suggestions
+                        ))
+        
+        return violations
+    
+    def _suggest_similar_doctype(self, invalid_name: str) -> str:
+        """Suggest similar DocType names for typos"""
+        available = list(self.doctypes.keys())
+        
+        # Look for exact substring matches first
+        exact_matches = [dt for dt in available if invalid_name.replace('Verenigingen ', '') in dt]
+        if exact_matches:
+            return f"Did you mean '{exact_matches[0]}'?"
+        
+        # Look for partial matches
+        partial_matches = [dt for dt in available if any(word in dt for word in invalid_name.split())]
+        if partial_matches:
+            return f"Similar: {', '.join(partial_matches[:3])}"
+        
+        return f"Check {len(available)} available DocTypes"
 
 
 def validate_security_prerequisites() -> Dict[str, Any]:

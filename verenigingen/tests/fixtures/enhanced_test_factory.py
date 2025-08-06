@@ -340,7 +340,7 @@ class EnhancedTestDataFactory:
             
         # Set intelligent defaults
         defaults = {
-            "volunteer_name": self.generate_test_name("Volunteer"),
+            "volunteer_name": self.generate_test_name("Verenigingen Volunteer"),
             "email": self.generate_test_email("volunteer"),
             "member": member_name,
             "status": "Active",
@@ -448,7 +448,7 @@ class EnhancedTestDataFactory:
             skill = frappe.get_doc({
                 "doctype": "Volunteer Skill",
                 "parent": volunteer_name,
-                "parenttype": "Volunteer",
+                "parenttype": "Verenigingen Volunteer",
                 "parentfield": "skills_and_qualifications",
                 **data
             })

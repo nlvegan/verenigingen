@@ -18,7 +18,7 @@ class TestVolunteerActivity(VereningingenTestCase):
         self._docs_to_delete.append(("Member", self.test_member.name))
 
         self.test_volunteer = self.create_test_volunteer(self.test_member)
-        self._docs_to_delete.append(("Volunteer", self.test_volunteer.name))
+        self._docs_to_delete.append(("Verenigingen Volunteer", self.test_volunteer.name))
 
     def tearDown(self):
         # Clean up test data

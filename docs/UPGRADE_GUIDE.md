@@ -31,7 +31,7 @@ The Verenigingen app follows semantic versioning and provides structured upgrade
 ### ✅ Compatibility Check
 ```bash
 # Check current versions
-bench version
+bench --version
 bench --site your-site execute "import frappe; print(frappe.__version__)"
 
 # Check Verenigingen version
@@ -295,7 +295,7 @@ tail -f ~/frappe-bench/logs/worker.error.log
 
 ### 📋 Information to Provide
 When seeking help, include:
-- **Current version**: `bench version`
+- **Current version**: `bench --version`
 - **Error messages**: Full error logs
 - **System information**: OS, RAM, storage
 - **Custom modifications**: Any code changes

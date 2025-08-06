@@ -46,7 +46,7 @@
 // rename this file from _test_[name] to test_[name] to activate
 // and remove above this line
 
-QUnit.module('Volunteer');
+QUnit.module('Verenigingen Volunteer');
 
 QUnit.test("test: Volunteer Creation", function (assert) {
     let done = assert.async();

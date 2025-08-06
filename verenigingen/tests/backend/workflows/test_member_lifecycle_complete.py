@@ -372,7 +372,7 @@ class TestMemberLifecycleComplete(FrappeTestCase):
             "skills": "Event Organization, Community Building, Fundraising"
         })
         volunteer.insert()
-        self.created_docs.append(("Volunteer", volunteer.name))
+        self.created_docs.append(("Verenigingen Volunteer", volunteer.name))
         
         # Verify volunteer
         self.assertEqual(volunteer.status, "Active")

@@ -58,19 +58,21 @@ class VereningingenConfigureSecurity(Document):
                         "title": _("Configure Chapter-Based Data Isolation"),
                         "steps": [
                             _("Go to: Setup > Users and Permissions > Role Permissions Manager"),
-                            _("Select Role: 'Chapter Manager'"),
+                            _("Select Role: 'Verenigingen Chapter Board Member'"),
                             _(
                                 "For DocType 'Member': Enable 'User Permission' and set condition: user.chapter == doc.chapter"
                             ),
-                            _("For DocType 'Volunteer': Enable 'User Permission' with chapter restriction"),
+                            _(
+                                "For DocType 'Verenigingen Volunteer': Enable 'User Permission' with chapter restriction"
+                            ),
                             _("Go to: Setup > Users and Permissions > User Permissions"),
                             _(
-                                "For each Chapter Manager user, add User Permission for their specific Chapter"
+                                "For each Chapter Board Member user, add User Permission for their specific Chapter"
                             ),
                             _("Test cross-chapter access is blocked"),
                         ],
                         "validation": _(
-                            "Chapter Manager should only see members from their assigned chapter"
+                            "Chapter Board Member should only see members from their assigned chapter"
                         ),
                     },
                 },

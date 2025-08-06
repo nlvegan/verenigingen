@@ -392,7 +392,7 @@ async function loadDashboardData(member) {
 
         // Update status cards
         document.getElementById('next-payment-date').textContent =
-            data.next_payment ? formatDate(data.next_payment.date) : '{{ _("No upcoming payments") }}';
+            data.next_payment ? formatDate(data.next_payment.date) : __("No upcoming payments");
         document.getElementById('next-payment-amount').textContent =
             data.next_payment ? `€${data.next_payment.amount.toFixed(2)}` : '€0.00';
 
@@ -402,17 +402,17 @@ async function loadDashboardData(member) {
         // Update status messages
         if (data.has_failed_payments) {
             showStatusMessage('warning',
-                '{{ _("You have failed payments. Please check your payment history.") }}');
+                __("You have failed payments. Please check your payment history."));
         }
 
         if (data.mandate_expiring_soon) {
             showStatusMessage('info',
-                '{{ _("Your SEPA mandate is expiring soon. Please update your bank details.") }}');
+                __("Your SEPA mandate is expiring soon. Please update your bank details."));
         }
 
     } catch (error) {
         console.error('Error loading dashboard data:', error);
-        showStatusMessage('error', '{{ _("Failed to load dashboard data") }}');
+        showStatusMessage('error', __("Failed to load dashboard data"));
     }
 }
 
@@ -438,7 +438,7 @@ async function loadPaymentMethod(member) {
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <p class="text-sm text-gray-600">{{ _("Account Holder") }}</p>
-                        <p class="font-medium">${data.mandate.account_holder || '{{ _("Not specified") }}'}</p>
+                        <p class="font-medium">${data.mandate.account_holder || __("Not specified")}</p>
                     </div>
                     <div>
                         <p class="text-sm text-gray-600">{{ _("IBAN") }}</p>
@@ -457,7 +457,7 @@ async function loadPaymentMethod(member) {
             document.getElementById('payment-method-info').innerHTML = detailsHtml;
 
         } else {
-            document.getElementById('active-payment-method').textContent = '{{ _("No active payment method") }}';
+            document.getElementById('active-payment-method').textContent = __("No active payment method");
             document.getElementById('mandate-status-icon').innerHTML =
                 '<i class="fas fa-exclamation-circle text-yellow-500"></i>';
 
@@ -745,7 +745,7 @@ function renderMandateTimeline(mandates) {
                             <p class="text-sm text-gray-600">${mandate.iban_formatted}</p>
                             <p class="text-sm text-gray-500">
                                 ${formatDate(mandate.sign_date)} -
-                                ${mandate.cancelled_date ? formatDate(mandate.cancelled_date) : '{{ _("Expired") }}'}
+                                ${mandate.cancelled_date ? formatDate(mandate.cancelled_date) : __("Expired")}
                             </p>
                         </div>
                         <span class="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded">

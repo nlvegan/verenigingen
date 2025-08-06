@@ -130,12 +130,12 @@ describe('Workflow Transitions', () => {
 
 			getRequiredRoles(fromState, toState) {
 				const roleMap = {
-					'Applied->Under Review': ['Chapter Coordinator', 'Chapter Manager'],
-					'Under Review->Approved': ['Chapter Manager', 'Chapter Board Member'],
-					'Under Review->Rejected': ['Chapter Manager', 'Chapter Board Member'],
+					'Applied->Under Review': ['Chapter Coordinator', 'Verenigingen Chapter Manager'],
+					'Under Review->Approved': ['Verenigingen Chapter Manager', 'Verenigingen Chapter Board Member'],
+					'Under Review->Rejected': ['Verenigingen Chapter Manager', 'Verenigingen Chapter Board Member'],
 					'Approved->Active': ['System', 'Chapter Coordinator'],
-					'Active->Inactive': ['Chapter Manager', 'System'],
-					'Inactive->Active': ['Chapter Manager']
+					'Active->Inactive': ['Verenigingen Chapter Manager', 'System'],
+					'Inactive->Active': ['Verenigingen Chapter Manager']
 				};
 
 				return roleMap[`${fromState}->${toState}`] || ['System Manager'];
@@ -156,7 +156,7 @@ describe('Workflow Transitions', () => {
 			expect(result1.allowed).toBe(false);
 			expect(result1.reason).toBe('Insufficient permissions');
 
-			const result2 = ChapterWorkflow.canTransition('Under Review', 'Approved', ['Chapter Manager']);
+			const result2 = ChapterWorkflow.canTransition('Under Review', 'Approved', ['Verenigingen Chapter Manager']);
 			expect(result2.allowed).toBe(true);
 		});
 
@@ -367,7 +367,7 @@ describe('Workflow Transitions', () => {
 					stages: [
 						{ name: 'Applied', approvers: [] },
 						{ name: 'Screening', approvers: ['Volunteer Coordinator'] },
-						{ name: 'Interview', approvers: ['Chapter Manager'] },
+						{ name: 'Interview', approvers: ['Verenigingen Chapter Manager'] },
 						{ name: 'Approved', approvers: ['Chapter Board'] }
 					]
 				}

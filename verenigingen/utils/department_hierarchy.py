@@ -90,7 +90,7 @@ class DepartmentHierarchyManager:
 
         # Priority 1: Board positions
         board_positions = frappe.get_all(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             filters={"volunteer": volunteer_name, "is_active": 1},
             fields=["parent", "chapter_role"],
             order_by="from_date desc",
@@ -203,7 +203,7 @@ class DepartmentHierarchyManager:
 
         for role in financial_roles:
             board_members = frappe.get_all(
-                "Chapter Board Member",
+                "Verenigingen Chapter Board Member",
                 filters={"parent": chapter_name, "chapter_role": role, "is_active": 1},
                 fields=["volunteer"],
             )

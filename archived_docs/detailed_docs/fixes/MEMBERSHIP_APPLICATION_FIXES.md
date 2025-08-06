@@ -23,7 +23,7 @@ if not volunteer_name:
     volunteer_name = member.email  # Fallback to email if no name available
 
 volunteer = frappe.get_doc({
-    "doctype": "Volunteer",
+    "doctype": "Verenigingen Volunteer",
     "volunteer_name": volunteer_name,  # Added this required field
     "member": member.name,
     "email": member.email,

@@ -678,6 +678,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
             if not mutation_id:
                 errors.append("Mutation missing ID, skipping")
                 debug_info.append("ERROR - Mutation missing ID")
+                failed += 1
                 continue
 
             # Check for existing documents
@@ -692,6 +693,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
 
             # Check if this mutation should be skipped (e.g., zero-amount system notifications)
             if should_skip_mutation(mutation, debug_info):
+                skipped += 1
                 continue
 
             mutation_type = mutation.get("type", 0)
@@ -706,6 +708,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
             # Skip if no amount and no rows (empty transaction)
             if amount == 0 and len(rows) == 0:
                 debug_info.append(f"Skipping empty mutation {mutation_id}")
+                skipped += 1
                 continue
 
             # Process using enhanced single mutation processor
@@ -725,6 +728,7 @@ def _import_rest_mutations_batch(migration_name, mutations, settings, opening_ba
                 error_msg = f"Error processing mutation {mutation_id}: {str(e)}"
                 errors.append(error_msg)
                 debug_info.append(f"ERROR - {error_msg}")
+                failed += 1
                 continue
 
         except Exception as e:
@@ -1250,7 +1254,7 @@ def debug_single_mutation(mutation_id):
                 break
 
         if not mutation:
-            return {"success": False, "error": f"Mutation {mutation_id} not found in cache"}
+            return {"success": False, "error": f"Mutation {mutation_id} not in cache"}
 
         # Process the single mutation
         debug_info = []
@@ -3476,7 +3480,6 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
 
             if existing_je or existing_pe or existing_si or existing_pi:
                 skipped += 1
-                skipped += 1
                 continue
 
             # Check if this mutation should be skipped (e.g., zero-amount system notifications)
@@ -3494,11 +3497,8 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
                     debug_info.append(
                         f"Successfully imported mutation {mutation_id} as {doc.doctype} {doc.name}"
                     )
-                elif doc is None:
-                    # None means it was skipped (duplicate), not failed
-                    skipped += 1
-                    debug_info.append(f"Skipped mutation {mutation_id} - duplicate detected")
                 else:
+                    # doc is False or None means it failed
                     failed += 1
                     debug_info.append(f"Failed to process mutation {mutation_id} - no document returned")
 

@@ -267,7 +267,7 @@ def end_board_positions_safe(member_name, end_date, reason):
         for volunteer_record in volunteer_records:
             # Get active board positions
             board_positions = frappe.get_all(
-                "Chapter Board Member",
+                "Verenigingen Chapter Board Member",
                 filters={"volunteer": volunteer_record.name, "is_active": 1},
                 fields=["name", "parent", "chapter_role", "from_date"],
             )
@@ -676,7 +676,9 @@ def terminate_volunteer_records_safe(member_name, termination_type, termination_
 
         # Get all volunteer records for this member
         volunteer_records = frappe.get_all(
-            "Volunteer", filters={"member": member_name}, fields=["name", "volunteer_name", "status"]
+            "Volunteer",
+            filters={"member": member_name},
+            fields=["name", "volunteer_name", "status"],
         )
 
         frappe.logger().info(f"Found {len(volunteer_records)} volunteer record(s) for member {member_name}")

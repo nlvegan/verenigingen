@@ -83,7 +83,9 @@ def get_context(context: Dict[str, Any]) -> Dict[str, Any]:
     if volunteer_ids:
         # Get volunteer email addresses
         volunteers = frappe.get_all(
-            "Volunteer", filters={"name": ["in", volunteer_ids]}, fields=["name", "email", "member"]
+            "Volunteer",
+            filters={"name": ["in", volunteer_ids]},
+            fields=["name", "email", "member"],
         )
         volunteer_data = {v.name: v for v in volunteers}
 

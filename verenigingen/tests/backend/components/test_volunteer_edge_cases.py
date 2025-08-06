@@ -39,7 +39,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
         self.test_member = frappe.get_doc(
             {
                 "doctype": "Member",
-                "first_name": "Volunteer",
+                "first_name": "Verenigingen Volunteer",
                 "last_name": f"Member {self.test_id}",
                 "email": f"volmember{self.test_id.lower()}@example.com",
                 "contact_number": "+31612345678",
@@ -82,7 +82,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
 
         volunteer = frappe.get_doc(defaults)
         volunteer.insert()
-        self.docs_to_cleanup.append(("Volunteer", volunteer.name))
+        self.docs_to_cleanup.append(("Verenigingen Volunteer", volunteer.name))
         return volunteer
 
     def test_volunteer_name_edge_cases(self):
@@ -471,7 +471,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "start_date": today()}
             )
             invalid_volunteer.insert()
-            self.docs_to_cleanup.append(("Volunteer", invalid_volunteer.name))
+            self.docs_to_cleanup.append(("Verenigingen Volunteer", invalid_volunteer.name))
             print("⚠️ Non-existent member was accepted")
         except Exception as e:
             print(f"✅ Non-existent member properly rejected: {str(e)}")
@@ -502,7 +502,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     "start_date": today()}
             )
             volunteer_no_member.insert()
-            self.docs_to_cleanup.append(("Volunteer", volunteer_no_member.name))
+            self.docs_to_cleanup.append(("Verenigingen Volunteer", volunteer_no_member.name))
             print("✅ Volunteer without member link allowed")
         except Exception as e:
             print(f"ℹ️ Volunteer without member link rejected: {str(e)}")
@@ -679,7 +679,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                 }
             )
             minimal_volunteer.insert()
-            self.docs_to_cleanup.append(("Volunteer", minimal_volunteer.name))
+            self.docs_to_cleanup.append(("Verenigingen Volunteer", minimal_volunteer.name))
 
             self.assertEqual(minimal_volunteer.volunteer_name, f"Minimal Volunteer {self.test_id}")
             print("✅ Minimal volunteer creation handled")
@@ -706,7 +706,7 @@ class TestVolunteerEdgeCases(FrappeTestCase):
                     scenario["field"]: scenario["value"]}
                 invalid_volunteer = frappe.get_doc(test_data)
                 invalid_volunteer.insert()
-                self.docs_to_cleanup.append(("Volunteer", invalid_volunteer.name))
+                self.docs_to_cleanup.append(("Verenigingen Volunteer", invalid_volunteer.name))
                 print(f"⚠️ {scenario['description']} was accepted (might be valid)")
             except Exception as e:
                 print(f"✅ {scenario['description']} properly rejected: {str(e)}")

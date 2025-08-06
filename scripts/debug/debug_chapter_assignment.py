@@ -19,7 +19,7 @@ def debug_jantje_chapter_assignment():
 
     # Check board memberships
     board_members = frappe.get_all(
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         filters={"member": member_name, "is_active": 1},
         fields=["parent as chapter", "chapter_role", "is_active"],
     )

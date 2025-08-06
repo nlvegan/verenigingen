@@ -538,7 +538,7 @@ class TestEnvironmentSetup:
             ("Team", {"team_name": ["like", "Test%"]}),
             ("Volunteer Assignment", {"role": ["like", "Test%"]}),
             ("Volunteer Expense", {"description": ["like", "Test%"]}),
-            ("Volunteer", {"volunteer_name": ["like", "Test%"]}),
+            ("Verenigingen Volunteer", {"volunteer_name": ["like", "Test%"]}),
             ("Membership", {"member": ["like", "Assoc-Member-Test%"]}),
             ("Chapter Member", {"member": ["like", "Assoc-Member-Test%"]}),
             ("Member", {"first_name": ["like", "Test%"]}),

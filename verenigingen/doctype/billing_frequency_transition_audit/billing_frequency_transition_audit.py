@@ -190,7 +190,7 @@ class BillingFrequencyTransitionAudit(Document):
         - Integrates with Frappe's logging infrastructure
         """
         if self.has_value_changed("transition_status"):
-            frappe.log_info(
+            frappe.logger().info(
                 {
                     "audit_record": self.name,
                     "member": self.member,

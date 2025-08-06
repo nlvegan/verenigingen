@@ -3011,7 +3011,7 @@ def get_chapter_board_access(member_name):
 
     # Get volunteer record
     volunteer = frappe.db.get_value(
-        "Volunteer",
+        "Verenigingen Volunteer",
         {"member": member_name},
         "name"
     )
@@ -3021,7 +3021,7 @@ def get_chapter_board_access(member_name):
 
     # Get active board positions
     board_positions = frappe.get_all(
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         filters={
             "volunteer": volunteer,
             "is_active": 1
@@ -3052,7 +3052,7 @@ def is_national_board_member(member_name):
         return False
 
     volunteer = frappe.db.get_value(
-        "Volunteer",
+        "Verenigingen Volunteer",
         {"member": member_name},
         "name"
     )
@@ -3062,7 +3062,7 @@ def is_national_board_member(member_name):
 
     # Check for national board position with appropriate permissions
     national_positions = frappe.get_all(
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         filters={
             "parent": settings.national_chapter,
             "volunteer": volunteer,

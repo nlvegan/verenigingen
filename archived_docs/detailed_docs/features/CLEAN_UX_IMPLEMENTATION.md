@@ -12,7 +12,7 @@ The implementation uses multiple layers to ensure a consistent, clean experience
 ```python
 standard_portal_menu_items = [
     {"title": "Member Portal", "route": "/member_portal", "reference_doctype": "", "role": "Verenigingen Member"},
-    {"title": "Volunteer Portal", "route": "/volunteer_portal", "reference_doctype": "", "role": "Volunteer"}
+    {"title": "Volunteer Portal", "route": "/volunteer_portal", "reference_doctype": "", "role": "Verenigingen Volunteer"}
 ]
 ```
 - Only shows association-relevant portal items

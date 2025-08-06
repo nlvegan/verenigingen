@@ -122,7 +122,7 @@ def run_decorator_compatibility_tests():
             "total_tests": total,
             "passed": passed,
             "failed": failed,
-            "success_rate": f"{(passed/total)*100:.1f}%",
+            "success_rate": f"{(passed / total) * 100:.1f}%",
         },
         "results": results,
         "analysis": analyze_results(results),

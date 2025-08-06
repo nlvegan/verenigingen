@@ -472,7 +472,7 @@ class TestMembershipDuesRealWorldScenarios(VereningingenTestCase):
         
         # Volunteer tier
         volunteer_tier = board_type.append("predefined_tiers", {})
-        volunteer_tier.tier_name = "Volunteer"
+        volunteer_tier.tier_name = "Verenigingen Volunteer"
         volunteer_tier.display_name = "Active Volunteer"
         volunteer_tier.amount = 50.0
         volunteer_tier.description = "Reduced rate for active volunteers"

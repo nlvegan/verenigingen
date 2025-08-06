@@ -35,7 +35,7 @@ def create_employee_for_volunteer(volunteer_name):
             "employee_name": volunteer_doc.volunteer_name,
             "first_name": volunteer_doc.volunteer_name.split(" ")[0]
             if volunteer_doc.volunteer_name and " " in volunteer_doc.volunteer_name
-            else volunteer_doc.volunteer_name or "Volunteer",
+            else volunteer_doc.volunteer_name or "Verenigingen Volunteer",
             "company": company,
             "status": "Active",
             "date_of_joining": today(),
@@ -54,7 +54,7 @@ def create_employee_for_volunteer(volunteer_name):
         employee_doc.insert(ignore_permissions=True)
 
         # Link to volunteer
-        frappe.db.set_value("Volunteer", volunteer_name, "employee_id", employee_doc.name)
+        frappe.db.set_value("Verenigingen Volunteer", volunteer_name, "employee_id", employee_doc.name)
 
         return {
             "success": True,

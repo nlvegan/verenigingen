@@ -304,7 +304,7 @@ def load_unpaid_invoices(date_range="overdue", membership_type=None, limit=100):
     start_time = time.time()
     # ... existing function code ...
     execution_time = time.time() - start_time
-    frappe.log_info(f"load_unpaid_invoices executed in {execution_time:.3f}s for {len(invoices)} invoices")
+    frappe.logger().info(f"load_unpaid_invoices executed in {execution_time:.3f}s for {len(invoices)} invoices")
     return invoices
 
 @performance_monitor
@@ -312,7 +312,7 @@ def get_invoice_mandate_info(invoice):
     start_time = time.time()
     # ... existing function code ...
     execution_time = time.time() - start_time
-    frappe.log_info(f"get_invoice_mandate_info executed in {execution_time:.3f}s")
+    frappe.logger().info(f"get_invoice_mandate_info executed in {execution_time:.3f}s")
     return result
 """
 

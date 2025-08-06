@@ -228,14 +228,14 @@
    "create": 1,
    "read": 1,
    "write": 1,
-   "role": "Chapter Board Member",
+   "role": "Verenigingen Chapter Board Member",
    "if_owner": 1
   },
   {
    "create": 1,
    "read": 1,
    "write": 1,
-   "role": "Volunteer",
+   "role": "Verenigingen Volunteer",
    "if_owner": 1
   }
  ],

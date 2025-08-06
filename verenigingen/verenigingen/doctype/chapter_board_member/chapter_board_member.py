@@ -3,15 +3,21 @@ import frappe
 import frappe.utils
 from frappe.model.document import Document
 
+from verenigingen.permissions import clear_permission_cache
+
 
 class ChapterBoardMember(Document):
     def after_insert(self):
         """Assign Chapter Board Member role when someone joins a board"""
         self.assign_board_member_role()
+        # Clear permission cache when board membership changes
+        clear_permission_cache()
 
     def on_trash(self):
         """Remove Chapter Board Member role if no longer on any board"""
         self.remove_board_member_role()
+        # Clear permission cache when board membership changes
+        clear_permission_cache()
 
     def on_update(self):
         """Handle role changes when board member status changes"""
@@ -21,6 +27,9 @@ class ChapterBoardMember(Document):
         else:
             # If reactivated, ensure they have the role
             self.assign_board_member_role()
+
+        # Clear permission cache when board member status changes
+        clear_permission_cache()
 
     def assign_board_member_role(self):
         """Assign the Chapter Board Member role to the volunteer's user"""
@@ -37,7 +46,9 @@ class ChapterBoardMember(Document):
             return
 
         # Check if user already has the role
-        existing_role = frappe.db.exists("Has Role", {"parent": user, "role": "Chapter Board Member"})
+        existing_role = frappe.db.exists(
+            "Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}
+        )
 
         if not existing_role:
             # Create the role assignment
@@ -47,7 +58,7 @@ class ChapterBoardMember(Document):
                     "parent": user,
                     "parenttype": "User",
                     "parentfield": "roles",
-                    "role": "Chapter Board Member",
+                    "role": "Verenigingen Chapter Board Member",
                 }
             ).insert(ignore_permissions=True)
 
@@ -69,7 +80,7 @@ class ChapterBoardMember(Document):
 
         # Check if this volunteer is on any other ACTIVE boards
         active_board_positions = frappe.db.count(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             {
                 "volunteer": self.volunteer,
                 "name": ["!=", self.name],
@@ -80,7 +91,7 @@ class ChapterBoardMember(Document):
 
         # Also check for positions with future end dates
         future_positions = frappe.db.count(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             {
                 "volunteer": self.volunteer,
                 "name": ["!=", self.name],
@@ -94,7 +105,9 @@ class ChapterBoardMember(Document):
         # Only remove role if they're not on any other active boards
         if total_active_positions == 0:
             # Remove the role assignment
-            role_assignment = frappe.db.exists("Has Role", {"parent": user, "role": "Chapter Board Member"})
+            role_assignment = frappe.db.exists(
+                "Has Role", {"parent": user, "role": "Verenigingen Chapter Board Member"}
+            )
 
             if role_assignment:
                 frappe.delete_doc("Has Role", role_assignment, ignore_permissions=True)

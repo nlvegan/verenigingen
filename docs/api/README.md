@@ -16,7 +16,7 @@ This directory contains comprehensive API documentation, assessments, and integr
 ### [EBOEKHOUDEN_API_GUIDE.md](EBOEKHOUDEN_API_GUIDE.md)
 **eBoekhouden Accounting Integration**
 - Complete integration guide for Dutch accounting system
-- REST and SOAP API documentation and best practices
+- REST API documentation and best practices
 - Data mapping, error handling, and troubleshooting
 - Authentication, rate limiting, and security considerations
 

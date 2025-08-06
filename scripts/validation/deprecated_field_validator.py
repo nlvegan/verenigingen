@@ -674,7 +674,7 @@ class EnhancedFieldValidator:
         precise_mappings = {
             'member': 'Member',
             'membership': 'Membership',
-            'volunteer': 'Volunteer',
+            'volunteer': 'Verenigingen Volunteer',
             'chapter': 'Chapter',
             'application': 'Membership Application',
             'schedule': 'Membership Dues Schedule',
@@ -704,7 +704,7 @@ class EnhancedFieldValidator:
                         'validate_verenigingen_settings': 'Verenigingen Settings',
                         'validate_member': 'Member',
                         'validate_membership': 'Membership',
-                        'validate_volunteer': 'Volunteer',
+                        'validate_volunteer': 'Verenigingen Volunteer',
                         'validate_chapter': 'Chapter',
                         'validate_volunteer_expense': 'Volunteer Expense',
                         'validate_sepa_mandate': 'SEPA Mandate',

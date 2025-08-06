@@ -21,7 +21,7 @@ def debug_employee_creation():
             "doctype": "Employee",
             "employee_name": "Test Volunteer Employee",
             "first_name": "Test",
-            "last_name": "Volunteer",
+            "last_name": "Verenigingen Volunteer",
             "company": company,
             "status": "Active",
             "date_of_joining": today(),
@@ -58,7 +58,7 @@ def test_volunteer_employee_creation():
 
     # Get a volunteer without employee_id
     volunteer = frappe.db.get_value(
-        "Volunteer",
+        "Verenigingen Volunteer",
         {"employee_id": ["is", "not set"]},
         ["name", "volunteer_name", "personal_email"],
         as_dict=True,

@@ -1,5 +1,43 @@
 # Verenigingen API Documentation
 
+## Security Requirements
+
+### Authentication
+All API endpoints require proper authentication via:
+- **Session Authentication**: Browser-based access with valid Frappe session
+- **API Key Authentication**: For programmatic access using API key and secret
+- **Token Authentication**: Using Frappe token-based authentication
+
+### CSRF Protection
+- **CSRF Tokens**: Required for all state-changing operations (POST, PUT, DELETE)
+- **Session Validation**: Browser sessions must include valid CSRF tokens
+- **API Exemptions**: API key and token authentication exempt from CSRF validation
+
+### Authorization Levels
+The API uses a multi-tier security model:
+
+#### Security Decorators
+- **@standard_api**: Basic permission validation, read/write operations
+- **@high_security_api**: Enhanced validation for sensitive data access
+- **@critical_api**: Maximum security for administrative operations
+- **@low_security_api**: Minimal validation for public data
+
+#### Operation Types
+- **OperationType.MEMBER_DATA**: Member personal information access
+- **OperationType.FINANCIAL**: Financial transactions and payment data
+- **OperationType.ADMIN**: Administrative and system configuration
+- **OperationType.REPORTING**: Data aggregation and reporting functions
+
+### Rate Limiting
+- Standard Frappe rate limiting applies
+- Enhanced limits for bulk operations
+- Special handling for batch processing endpoints
+
+### Data Access Restrictions
+- **Chapter-based filtering**: Users can only access data from their assigned chapters
+- **Role-based permissions**: Function access based on user roles and permissions
+- **Field-level security**: Sensitive fields require additional validation
+
 ## Available Endpoints
 
 
@@ -1627,3 +1665,135 @@
 **Endpoint:** `POST /api/method/verenigingen.api.update_prepare_system_button.analyze_eboekhouden_data`
 
 **Description:** Analyze E-Boekhouden data without making any system changes
+
+
+### customer_member_link.py
+
+#### get_member_from_customer
+
+**Endpoint:** `POST /api/method/verenigingen.api.customer_member_link.get_member_from_customer`
+
+**Description:** Retrieve the Member record associated with a Customer record
+
+#### create_customer_member_button
+
+**Endpoint:** `POST /api/method/verenigingen.api.customer_member_link.create_customer_member_button`
+
+**Description:** Add a custom button to Customer form to navigate to Member
+
+
+### volunteer_skills.py
+
+#### get_skills_overview
+
+**Endpoint:** `POST /api/method/verenigingen.api.volunteer_skills.get_skills_overview`
+
+**Description:** Get comprehensive skills overview for dashboards and reports
+
+#### search_volunteers_advanced
+
+**Endpoint:** `POST /api/method/verenigingen.api.volunteer_skills.search_volunteers_advanced`
+
+**Description:** Advanced volunteer search with multiple skill filters
+
+#### get_skill_recommendations
+
+**Endpoint:** `POST /api/method/verenigingen.api.volunteer_skills.get_skill_recommendations`
+
+**Description:** Get skill recommendations for a volunteer based on similar volunteers
+
+#### get_skill_gaps_analysis
+
+**Endpoint:** `POST /api/method/verenigingen.api.volunteer_skills.get_skill_gaps_analysis`
+
+**Description:** Analyze skill gaps in the organization
+
+#### export_skills_data
+
+**Endpoint:** `POST /api/method/verenigingen.api.volunteer_skills.export_skills_data`
+
+**Description:** Export skills data for external analysis
+
+
+### donor_customer_management.py
+
+#### get_donor_customer_info
+
+**Endpoint:** `POST /api/method/verenigingen.api.donor_customer_management.get_donor_customer_info`
+
+**Description:** Get donor customer information with security validation
+
+#### force_donor_customer_sync
+
+**Endpoint:** `POST /api/method/verenigingen.api.donor_customer_management.force_donor_customer_sync`
+
+**Description:** Force synchronization between donor and customer records
+
+#### unlink_donor_customer
+
+**Endpoint:** `POST /api/method/verenigingen.api.donor_customer_management.unlink_donor_customer`
+
+**Description:** Unlink donor from customer record with optional customer removal
+
+#### get_donor_sync_dashboard
+
+**Endpoint:** `POST /api/method/verenigingen.api.donor_customer_management.get_donor_sync_dashboard`
+
+**Description:** Get dashboard data for donor-customer synchronization status
+
+
+### workspace_debug.py
+
+#### check_workspace_status
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.check_workspace_status`
+
+**Description:** Check Verenigingen workspace status and links
+
+#### check_eboekhouden_workspace
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.check_eboekhouden_workspace`
+
+**Description:** Check if E-Boekhouden workspace exists and is valid
+
+#### check_dues_system_status
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.check_dues_system_status`
+
+**Description:** Check core dues invoice submission system status
+
+#### fix_eboekhouden_workspace_content
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.fix_eboekhouden_workspace_content`
+
+**Description:** Fix the E-Boekhouden workspace content structure
+
+#### check_eboekhouden_doctypes
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.check_eboekhouden_doctypes`
+
+**Description:** Check which E-Boekhouden doctypes exist in the database
+
+#### add_missing_eboekhouden_doctypes
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.add_missing_eboekhouden_doctypes`
+
+**Description:** Add the missing E-Boekhouden doctypes to the workspace
+
+#### force_reload_workspace
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.force_reload_workspace`
+
+**Description:** Force reload the workspace from JSON file
+
+#### create_minimal_workspace
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.create_minimal_workspace`
+
+**Description:** Create minimal workspace and add workflow demo link
+
+#### restore_full_workspace_structure
+
+**Endpoint:** `POST /api/method/verenigingen.api.workspace_debug.restore_full_workspace_structure`
+
+**Description:** Restore full workspace structure with all sections and links

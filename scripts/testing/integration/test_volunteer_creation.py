@@ -30,7 +30,7 @@ def test_volunteer_creation_with_user():
             {
                 "doctype": "Member",
                 "first_name": "Test",
-                "last_name": "Volunteer",
+                "last_name": "Verenigingen Volunteer",
                 "email": "test.volunteer@example.com",
                 "application_status": "Active",
                 "status": "Active"}

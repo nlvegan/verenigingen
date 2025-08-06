@@ -76,7 +76,7 @@ class TestMembershipApplicationSkillsSecure(unittest.TestCase):
         # Create test member using secure factory
         member = factory.create_member(
             first_name="Test", 
-            last_name="Volunteer",
+            last_name="Verenigingen Volunteer",
             email="test_vol_data@secure.test"
         )
         

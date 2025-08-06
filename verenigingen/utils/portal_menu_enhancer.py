@@ -76,15 +76,15 @@ def get_membership_portal_menu_items():
 
     # Check if user is a volunteer and add Volunteer Portal
     user_roles = frappe.get_roles(frappe.session.user)
-    if "Volunteer" in user_roles or frappe.db.exists(
-        "Volunteer", {"member": frappe.db.get_value("Member", {"email": frappe.session.user})}
+    if "Verenigingen Volunteer" in user_roles or frappe.db.exists(
+        "Verenigingen Volunteer", {"member": frappe.db.get_value("Member", {"email": frappe.session.user})}
     ):
         enhanced_menu.append(
             {
                 "title": "Volunteer Portal",
                 "route": "/volunteer/dashboard",
                 "reference_doctype": None,
-                "role": "Volunteer",
+                "role": "Verenigingen Volunteer",
                 "target": None,
                 "submenu": [
                     {

@@ -89,10 +89,10 @@ def get_context(context):
     context.settings = settings
 
     # Get member contact email and calculator settings from settings
+    from verenigingen.utils.email_utils import get_member_contact_email
+
     verenigingen_settings = frappe.get_single("Verenigingen Settings")
-    context.member_contact_email = getattr(
-        verenigingen_settings, "member_contact_email", "ledenadministratie@veganisme.org"
-    )
+    context.member_contact_email = get_member_contact_email()
 
     # Get calculator settings for the infobox
     context.enable_income_calculator = getattr(verenigingen_settings, "enable_income_calculator", 0)

@@ -218,7 +218,7 @@ def get_user_accessible_chapters():
 
         for volunteer_record in volunteer_records:
             board_positions = frappe.get_all(
-                "Chapter Board Member",
+                "Verenigingen Chapter Board Member",
                 filters={"volunteer": volunteer_record.name, "is_active": 1},
                 fields=["parent", "chapter_role"],
             )
@@ -237,7 +237,7 @@ def get_user_accessible_chapters():
             settings = frappe.get_single("Verenigingen Settings")
             if hasattr(settings, "national_board_chapter") and settings.national_board_chapter:
                 national_board_positions = frappe.get_all(
-                    "Chapter Board Member",
+                    "Verenigingen Chapter Board Member",
                     filters={
                         "parent": settings.national_board_chapter,
                         "volunteer": [v.name for v in volunteer_records],

@@ -38,6 +38,10 @@
   "campaign_image",
   "campaign_video_url",
   "thank_you_message",
+  "accounting_integration_section",
+  "accounting_dimension_value",
+  "column_break_accounting",
+  "project",
   "visibility_settings_section",
   "is_public",
   "show_on_website",
@@ -228,6 +232,31 @@
    "fieldname": "thank_you_message",
    "fieldtype": "Text Editor",
    "label": "Thank You Message"
+  },
+  {
+   "fieldname": "accounting_integration_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting Integration"
+  },
+  {
+   "description": "Unique code/value for this campaign when used as an accounting dimension. Leave blank to auto-generate from campaign name.",
+   "fieldname": "accounting_dimension_value",
+   "fieldtype": "Data",
+   "label": "Campaign Dimension Value",
+   "unique": 1,
+   "length": 50,
+   "translatable": 0
+  },
+  {
+   "fieldname": "column_break_accounting",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Link to a Project for tracking campaign activities, expenses, and tasks (optional)",
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "label": "Campaign Project",
+   "options": "Project"
   },
   {
    "fieldname": "visibility_settings_section",

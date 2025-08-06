@@ -13,7 +13,7 @@ This document summarizes the comprehensive documentation updates made to the Ver
 **Key Sections**:
 - **Enhanced Testing Framework**: Complete guide to VereningingenTestCase
 - **DocType Architecture**: Mixin patterns and document relationships
-- **Integration Architecture**: eBoekhouden REST/SOAP APIs, ERPNext integration
+- **Integration Architecture**: eBoekhouden REST API, ERPNext integration
 - **API Architecture**: RESTful endpoints and JavaScript integration
 - **Development Best Practices**: Frappe ORM compliance and permission standards
 - **Performance Optimizations**: Database optimization and API performance
@@ -84,7 +84,7 @@ This document summarizes the comprehensive documentation updates made to the Ver
 **Updates Made**:
 - **API Capabilities**: Enhanced with current features and real metrics
 - **Response Format**: Updated with actual response structure and error handling
-- **Integration Details**: Production-ready eBoekhouden integration with €324K+ imported
+- **Integration Details**: Production-ready eBoekhouden integration with comprehensive validation
 
 ## Documentation Metrics
 
@@ -95,7 +95,7 @@ This document summarizes the comprehensive documentation updates made to the Ver
 - **Practical Examples**: Working code examples and templates throughout
 
 ### Quality Improvements
-- **Real Metrics**: Production data (€324K+ imported, 186+ test files)
+- **Real Metrics**: Production data (comprehensive test coverage with 186+ test files)
 - **Working Examples**: Verified code examples from successful migrations
 - **Best Practices**: Based on actual codebase analysis and testing experience
 - **Current State**: Documentation reflects actual system capabilities, not aspirational features
@@ -119,7 +119,7 @@ The documentation captures the successful migration of the testing framework:
 ### Production-Ready Integration
 The documentation reflects actual production capabilities:
 
-- **eBoekhouden Integration**: €324K+ successfully imported via REST API
+- **eBoekhouden Integration**: Production-ready REST API integration
 - **SEPA Processing**: Production-grade direct debit with mandate management
 - **ERPNext Integration**: Deep financial module integration with automated processing
 - **Testing Infrastructure**: 186+ test files with modern framework

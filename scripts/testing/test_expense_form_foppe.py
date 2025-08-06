@@ -29,7 +29,7 @@ def test_expense_form_with_foppe():
 
     # Check if Foppe has a volunteer record
     foppe_volunteer = frappe.db.get_value(
-        "Volunteer", {"member": foppe_member.name}, ["name", "volunteer_name", "email"], as_dict=True
+        "Verenigingen Volunteer", {"member": foppe_member.name}, ["name", "volunteer_name", "email"], as_dict=True
     )
 
     if not foppe_volunteer:

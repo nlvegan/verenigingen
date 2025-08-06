@@ -140,7 +140,7 @@ const IBANValidator = {
 
 		// Calculate mod 97 using chunks to avoid JavaScript number precision issues
 		const remainder = numeric.match(/.{1,9}/g).reduce((acc, chunk) => {
-			return (parseInt(acc + chunk) % 97).toString();
+			return (parseInt(acc + chunk, 10) % 97).toString();
 		}, '');
 
 		return remainder === '1';

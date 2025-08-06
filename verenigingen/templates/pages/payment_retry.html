@@ -61,7 +61,7 @@
                     <div class="card-body">
                         <p>{{ _("If you're experiencing issues with payment, please contact our support team.") }}</p>
                         <p>
-                            <i class="fa fa-envelope"></i> support@example.com<br>
+                            <i class="fa fa-envelope"></i> {{ support_email|default("support@example.com") }}<br>
                             <i class="fa fa-phone"></i> +1 234 567 890
                         </p>
                     </div>

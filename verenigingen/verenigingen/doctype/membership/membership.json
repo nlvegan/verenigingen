@@ -49,11 +49,11 @@
    "read_only": 1
   },
   {
+   "default": "0",
    "fieldname": "allow_multiple_memberships",
    "fieldtype": "Check",
-   "label": "Allow Multiple Memberships",
-   "default": 0,
-   "hidden": 1
+   "hidden": 1,
+   "label": "Allow Multiple Memberships"
   },
   {
    "fetch_from": "member.email",
@@ -74,13 +74,13 @@
    "fieldtype": "Column Break"
   },
   {
+   "allow_on_submit": 1,
    "fieldname": "membership_type",
    "fieldtype": "Link",
    "in_list_view": 1,
    "label": "Membership Type",
    "options": "Membership Type",
-   "reqd": 1,
-   "allow_on_submit": 1
+   "reqd": 1
   },
   {
    "default": "Draft",
@@ -92,26 +92,26 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.status == 'Active'",
+   "description": "Additional status for membership grace periods and special statuses",
    "fieldname": "grace_period_status",
    "fieldtype": "Select",
    "label": "Grace Period Status",
-   "options": "\nGrace Period\nCurrent\nQuit\nExpelled\nHonorary",
-   "description": "Additional status for membership grace periods and special statuses",
-   "depends_on": "eval:doc.status == 'Active'"
+   "options": "\nGrace Period\nCurrent\nQuit\nExpelled\nHonorary"
   },
   {
+   "depends_on": "eval:doc.grace_period_status == 'Grace Period'",
+   "description": "Date when grace period expires",
    "fieldname": "grace_period_expiry_date",
    "fieldtype": "Date",
-   "label": "Grace Period Expiry Date",
-   "description": "Date when grace period expires",
-   "depends_on": "eval:doc.grace_period_status == 'Grace Period'"
+   "label": "Grace Period Expiry Date"
   },
   {
+   "depends_on": "eval:doc.grace_period_status",
+   "description": "Reason for grace period or special status",
    "fieldname": "grace_period_reason",
    "fieldtype": "Small Text",
-   "label": "Grace Period Reason",
-   "description": "Reason for grace period or special status",
-   "depends_on": "eval:doc.grace_period_status"
+   "label": "Grace Period Reason"
   },
   {
    "fieldname": "details_section",
@@ -126,11 +126,11 @@
    "reqd": 1
   },
   {
+   "description": "Calculated based on start date and membership type (minimum 1 year)",
    "fieldname": "renewal_date",
    "fieldtype": "Date",
    "label": "Renewal Date",
-   "read_only": 1,
-   "description": "Calculated based on start date and membership type (minimum 1 year)"
+   "read_only": 1
   },
   {
    "fieldname": "column_break_11",
@@ -147,11 +147,11 @@
    "label": "Cancellation Reason"
   },
   {
+   "depends_on": "eval:doc.cancellation_date",
    "fieldname": "cancellation_type",
    "fieldtype": "Select",
    "label": "Cancellation Type",
-   "options": "Immediate\nEnd of Period",
-   "depends_on": "eval:doc.cancellation_date"
+   "options": "Immediate\nEnd of Period"
   },
   {
    "fieldname": "amended_from",
@@ -175,7 +175,7 @@
    "link_fieldname": "member"
   }
  ],
- "modified": "2025-05-06 20:21:52.947759",
+ "modified": "2025-08-06 09:21:10.781868",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Membership",
@@ -235,6 +235,17 @@
    "if_owner": 1,
    "read": 1,
    "role": "Verenigingen Member"
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Chapter Board Member",
+   "share": 1,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",

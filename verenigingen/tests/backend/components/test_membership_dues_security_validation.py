@@ -30,7 +30,7 @@ class TestMembershipDuesSecurityValidation(VereningingenTestCase):
         
         self.volunteer_user = self.create_test_user(
             f"volunteer.{self.security_test_prefix}@example.com",
-            roles=["Volunteer"]
+            roles=["Verenigingen Volunteer"]
         )
         
         self.guest_user = self.create_test_user(

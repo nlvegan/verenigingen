@@ -386,15 +386,15 @@ class BalancedFieldValidator:
         precise_mappings = {
             'member': 'Member',
             'membership': 'Membership', 
-            'volunteer': 'Volunteer',
+            'volunteer': 'Verenigingen Volunteer',
             'chapter': 'Chapter',
             'application': 'Membership Application',
             'schedule': 'Membership Dues Schedule',
-            'board_member': 'Chapter Board Member',
+            'board_member': 'Verenigingen Chapter Board Member',
             'expense': 'Volunteer Expense',
             'mandate': 'SEPA Mandate',
             'batch': 'Direct Debit Batch',
-            'volunteer_doc': 'Volunteer'
+            'volunteer_doc': 'Verenigingen Volunteer'
         }
         
         if obj_name in precise_mappings:
@@ -420,7 +420,7 @@ class BalancedFieldValidator:
                         'validate_verenigingen_settings': 'Verenigingen Settings',  # CORRECT!
                         'validate_member': 'Member',
                         'validate_membership': 'Membership',
-                        'validate_volunteer': 'Volunteer',
+                        'validate_volunteer': 'Verenigingen Volunteer',
                         'validate_chapter': 'Chapter',
                         'validate_volunteer_expense': 'Volunteer Expense',
                         'validate_sepa_mandate': 'SEPA Mandate',

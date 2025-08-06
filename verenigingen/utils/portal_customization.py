@@ -69,14 +69,14 @@ def setup_member_portal_menu():
                 "title": "Volunteer Portal",
                 "route": "/volunteer_portal",
                 "reference_doctype": "",
-                "role": "Volunteer",
+                "role": "Verenigingen Volunteer",
                 "enabled": 1,
             },
             {
                 "title": "My Expenses",
                 "route": "/my_expenses",
                 "reference_doctype": "Volunteer Expense",
-                "role": "Volunteer",
+                "role": "Verenigingen Volunteer",
                 "enabled": 1,
             },
             {
@@ -162,7 +162,7 @@ def reset_portal_menu_to_member_only():
                 "title": "Volunteer Portal",
                 "route": "/volunteer_portal",
                 "reference_doctype": "",
-                "role": "Volunteer",
+                "role": "Verenigingen Volunteer",
                 "enabled": 1,
             },
         ]
@@ -371,7 +371,7 @@ def add_brand_body_classes(context):
         roles = frappe.get_roles(frappe.session.user)
         if "Verenigingen Member" in roles:
             portal_classes.append("member-portal")
-        if "Volunteer" in roles:
+        if "Verenigingen Volunteer" in roles:
             portal_classes.append("volunteer-portal")
 
     # Get active brand settings to add brand-specific class

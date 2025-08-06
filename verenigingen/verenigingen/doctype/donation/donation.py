@@ -266,12 +266,25 @@ class Donation(Document):
             if chapter_account:
                 credit_account = chapter_account
 
-        elif self.donation_purpose_type == "Campaign" and self.donation_campaign:
-            # For campaigns, use a campaign-specific account if configured
-            # This could be expanded to link to a Campaign doctype with accounts
-            pass
+        elif self.donation_purpose_type == "Campaign" and self.campaign:
+            # Use campaign donation account from settings
+            campaign_account = settings.campaign_donation_account
+            if campaign_account:
+                credit_account = campaign_account
 
         return debit_account, credit_account
+
+    def get_campaign_accounting_dimension(self):
+        """Get accounting dimension value from linked campaign"""
+        if self.campaign and self.donation_purpose_type == "Campaign":
+            return frappe.db.get_value("Donation Campaign", self.campaign, "accounting_dimension_value")
+        return None
+
+    def get_campaign_project(self):
+        """Get project from linked campaign"""
+        if self.campaign and self.donation_purpose_type == "Campaign":
+            return frappe.db.get_value("Donation Campaign", self.campaign, "project")
+        return None
 
     def create_earmarking_journal_entry(self, date=None):
         """Create journal entry to move earmarked donations to specific funds"""
@@ -292,6 +305,16 @@ class Donation(Document):
         je.company = self.company
         je.posting_date = date or getdate()
         je.user_remark = f"Earmarking donation {self.name} for {self.get_earmarking_summary()}"
+
+        # Add campaign dimension and project if available
+        campaign_dimension = self.get_campaign_accounting_dimension()
+        campaign_project = self.get_campaign_project()
+
+        if campaign_dimension:
+            je.custom_campaign_dimension = campaign_dimension
+
+        if campaign_project:
+            je.project = campaign_project
 
         # Credit general donation account
         je.append(
@@ -372,6 +395,16 @@ class Donation(Document):
 
         # Link back to donation
         sales_invoice.custom_source_donation = self.name
+
+        # Add campaign accounting dimension and project if available
+        campaign_dimension = self.get_campaign_accounting_dimension()
+        campaign_project = self.get_campaign_project()
+
+        if campaign_dimension:
+            sales_invoice.custom_campaign_dimension = campaign_dimension
+
+        if campaign_project:
+            sales_invoice.project = campaign_project
 
         sales_invoice.flags.ignore_mandatory = True
         sales_invoice.insert()

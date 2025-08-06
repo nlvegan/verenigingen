@@ -304,7 +304,7 @@ class TestMemberStatusTransitions(VereningingenTestCase):
     def test_volunteer_status_impact(self):
         """Test how member status changes affect volunteer records"""
         member = self.create_test_member(
-            first_name="Volunteer",
+            first_name="Verenigingen Volunteer",
             last_name="Impact",
             email="volunteer.test.status@test.com",
             status="Active"

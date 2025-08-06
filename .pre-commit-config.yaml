@@ -116,7 +116,7 @@ repos:
 
       - id: sql-field-validator
         name: SQL query field validation
-        entry: python scripts/validation/sql_field_validator_with_confidence.py
+        entry: python scripts/validation/sql_field_validator_with_confidence.py --pre-commit
         language: system
         pass_filenames: false
         files: \.py$
@@ -125,7 +125,7 @@ repos:
 
       - id: frappe-api-validator
         name: Pragmatic database field validation (balanced)
-        entry: python scripts/validation/pragmatic_field_validator.py --level balanced
+        entry: python scripts/validation/pragmatic_field_validator.py --level balanced --pre-commit
         language: system
         pass_filenames: false
         files: \.py$

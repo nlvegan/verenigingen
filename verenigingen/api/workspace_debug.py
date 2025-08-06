@@ -458,7 +458,7 @@ def restore_full_workspace_structure():
             ("Link", "ANBI Donation Summary", "Report", "ANBI Donation Summary", 0, 0),
             # Volunteers section
             ("Card Break", "Volunteers", None, None, 0, 2),
-            ("Link", "Volunteer", "DocType", "Volunteer", 1, 0),
+            ("Link", "Verenigingen Volunteer", "DocType", "Volunteer", 1, 0),
             ("Link", "Volunteer Activity", "DocType", "Volunteer Activity", 0, 0),
             # Chapters section
             ("Card Break", "Chapters", None, None, 0, 2),

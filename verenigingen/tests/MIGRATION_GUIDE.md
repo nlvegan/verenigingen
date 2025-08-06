@@ -51,7 +51,7 @@ class TestVolunteerSkills(EnhancedTestCase):
 ```python
 # Creating members with ignore_permissions
 volunteer = frappe.get_doc({
-    "doctype": "Volunteer",
+    "doctype": "Verenigingen Volunteer",
     "volunteer_name": "Test Volunteer",
     "email": "test@example.com",
     "status": "Active"
@@ -81,10 +81,10 @@ volunteer = self.create_test_volunteer(
 ```python
 def tearDown(self):
     # Manual cleanup
-    test_volunteers = frappe.get_all("Volunteer", 
+    test_volunteers = frappe.get_all("Verenigingen Volunteer", 
         filters={"volunteer_name": ["like", "Test%"]})
     for vol in test_volunteers:
-        frappe.delete_doc("Volunteer", vol.name, force=True)
+        frappe.delete_doc("Verenigingen Volunteer", vol.name, force=True)
     frappe.db.commit()
 ```
 

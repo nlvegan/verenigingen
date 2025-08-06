@@ -2,7 +2,7 @@
 
 ## Overview
 
-The eBoekhouden integration provides comprehensive REST API endpoints for importing financial data from eBoekhouden.nl. The implementation is modular with separate API endpoints for different functionality areas.
+The eBoekhouden integration provides comprehensive REST API endpoints for importing financial data from eBoekhouden.nl. The implementation uses modern REST architecture with comprehensive error handling.
 
 **Base URL**: Your ERPNext site URL
 **Authentication**: Session-based (must be logged in)
@@ -268,7 +268,7 @@ Tests API connection using current settings.
 ```json
 {
     "success": true,
-    "rest_api": "Connected",
+    "api_status": "Connected",
     "session_token": "Valid",
     "settings_valid": true
 }

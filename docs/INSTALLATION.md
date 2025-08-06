@@ -388,8 +388,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 
 2. **Configure User Roles Automatically**:
    ```bash
-   # Deploy comprehensive role profile system
-   bench --site your-association.com execute verenigingen.setup.role_profile_setup.deploy_role_profiles
+   # CLI-friendly method (recommended for installation)
+   bench --site your-association.com execute verenigingen.setup.role_profile_setup.setup_role_profiles_cli
+
+   # Alternative method
+   bench --site your-association.com execute verenigingen.setup.role_profile_setup.setup_role_profiles
    ```
 
 3. **Manual Role Configuration** (if needed):
@@ -443,8 +446,11 @@ The Verenigingen app has specific dependencies that must be installed in order:
 
 3. **Install and Configure Email Templates**:
    ```bash
-   # Install all standard email templates
-   bench --site your-association.com execute verenigingen.api.email_template_manager.create_all_email_templates
+   # CLI-friendly method (recommended for installation)
+   bench --site your-association.com execute verenigingen.api.email_template_manager.create_email_templates_cli
+
+   # Alternative standard method
+   bench --site your-association.com execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
 
    # Verify templates were created
    # Navigate to: Settings → Email Template
@@ -657,13 +663,13 @@ The Verenigingen app has specific dependencies that must be installed in order:
 1. **Generate Test Data**:
    ```bash
    # Create test members for system validation
-   bench --site your-association.com execute verenigingen.api.generate_test_members.create_test_members --args "{'count': 25}"
+   bench --site your-association.com execute verenigingen.api.generate_test_members.create_test_members --args '{"count": 25}'
 
    # Create test applications
-   bench --site your-association.com execute verenigingen.api.generate_test_applications.create_test_applications --args "{'count': 10}"
+   bench --site your-association.com execute verenigingen.api.generate_test_applications.create_test_applications --args '{"count": 10}'
 
    # Generate test volunteer data
-   bench --site your-association.com execute verenigingen.api.generate_test_volunteers.create_test_volunteers --args "{'count': 15}"
+   bench --site your-association.com execute verenigingen.api.generate_test_volunteers.create_test_volunteers --args '{"count": 15}'
    ```
 
 2. **Run Comprehensive System Tests**:
@@ -699,7 +705,7 @@ The Verenigingen app has specific dependencies that must be installed in order:
 2. **Integration Testing**:
    ```bash
    # Test email functionality
-   bench --site your-association.com execute verenigingen.api.email_test.send_test_email --args "{'recipient': 'admin@your-association.com'}"
+   bench --site your-association.com execute verenigingen.api.email_test.send_test_email --args '{"recipient": "admin@your-association.com"}'
 
    # Test SEPA mandate creation (if configured)
    bench --site your-association.com execute verenigingen.api.sepa_test.test_mandate_creation
@@ -997,7 +1003,8 @@ The Verenigingen app has specific dependencies that must be installed in order:
 
 1. **Security Validation**:
    ```bash
-   # Run security tests
+   # Run security tests (from app directory)
+   cd /home/frappe/frappe-bench/apps/verenigingen
    python verenigingen/tests/test_security_comprehensive.py
 
    # Test permission systems
@@ -1009,7 +1016,8 @@ The Verenigingen app has specific dependencies that must be installed in order:
 
 2. **Performance Testing**:
    ```bash
-   # Test database performance
+   # Test database performance (from app directory)
+   cd /home/frappe/frappe-bench/apps/verenigingen
    python verenigingen/tests/test_performance_edge_cases.py
 
    # Test system load handling

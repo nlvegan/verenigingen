@@ -298,7 +298,7 @@ class TestExpenseSubmissionIntegration(unittest.TestCase):
             for doc_type, name in [
                 ("Chapter", "INTEGRATION-CHAPTER"),
                 ("Expense Category", "INTEGRATION-CATEGORY"),
-                ("Volunteer", "INTEGRATION-VOLUNTEER"),
+                ("Verenigingen Volunteer", "INTEGRATION-VOLUNTEER"),
                 ("Member", "INTEGRATION-MEMBER"),
             ]:
                 if frappe.db.exists(doc_type, name):

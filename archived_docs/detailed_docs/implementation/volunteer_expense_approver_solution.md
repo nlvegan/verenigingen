@@ -142,7 +142,7 @@ def get_volunteer_department(self):
 
     # Check board positions first (highest priority)
     board_positions = frappe.get_all(
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         filters={"volunteer": self.name, "is_active": 1},
         fields=["parent", "chapter_role"]
     )
@@ -222,12 +222,12 @@ def update_department_approvers(department_name, approver_emails):
    def migrate_existing_employees():
        """Assign departments to existing volunteer employees"""
 
-       volunteers = frappe.get_all("Volunteer",
+       volunteers = frappe.get_all("Verenigingen Volunteer",
            filters={"employee_id": ["!=", ""]},
            fields=["name", "employee_id"])
 
        for volunteer in volunteers:
-           vol_doc = frappe.get_doc("Volunteer", volunteer.name)
+           vol_doc = frappe.get_doc("Verenigingen Volunteer", volunteer.name)
            department = vol_doc.get_volunteer_department()
 
            if frappe.db.exists("Employee", volunteer.employee_id):

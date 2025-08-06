@@ -94,7 +94,7 @@ def determine_user_profile(user_email):
         return "Verenigingen Manager"
 
     # 3. Audit roles
-    if "Governance Auditor" in user_roles or "Auditor" in user_roles:
+    if "Verenigingen Governance Auditor" in user_roles or "Auditor" in user_roles:
         return "Verenigingen Auditor"
 
     # 4. Staff roles
@@ -108,7 +108,7 @@ def determine_user_profile(user_email):
             return "Verenigingen Chapter Administrator"
 
     # 5. Board roles
-    if "Chapter Board Member" in user_roles:
+    if "Verenigingen Chapter Board Member" in user_roles:
         # Check if also treasurer
         if "Accounts User" in user_roles:
             return "Verenigingen Treasurer"

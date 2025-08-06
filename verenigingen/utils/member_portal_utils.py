@@ -210,7 +210,11 @@ def get_user_appropriate_home_page():
 
     # Check if user is a volunteer
     volunteer_record = frappe.db.get_value("Volunteer", {"user": user}, "name")
-    volunteer_roles = ["Verenigingen Volunteer", "Volunteer", "Chapter Board Member"]
+    volunteer_roles = [
+        "Verenigingen Volunteer",
+        "Verenigingen Volunteer",
+        "Verenigingen Chapter Board Member",
+    ]
 
     if volunteer_record or any(role in user_roles for role in volunteer_roles):
         return "/member_portal"  # Could be a volunteer-specific portal later

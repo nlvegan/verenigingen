@@ -13,7 +13,7 @@ def test_auto_employee_creation():
 
     # Find a volunteer without employee_id
     volunteer = frappe.db.get_value(
-        "Volunteer", {"employee_id": ["is", "not set"]}, ["name", "volunteer_name", "member"], as_dict=True
+        "Verenigingen Volunteer", {"employee_id": ["is", "not set"]}, ["name", "volunteer_name", "member"], as_dict=True
     )
 
     if not volunteer:
@@ -81,7 +81,7 @@ def test_expense_submission_workflow():
 
     # Find a volunteer without employee_id but with member record
     volunteer = frappe.db.get_value(
-        "Volunteer",
+        "Verenigingen Volunteer",
         {"employee_id": ["is", "not set"], "member": ["is", "set"]},
         ["name", "volunteer_name", "member"],
         as_dict=True,

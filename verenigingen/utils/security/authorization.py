@@ -102,7 +102,7 @@ class SEPAAuthorizationManager:
             SEPAPermissionLevel.PROCESS,
             SEPAPermissionLevel.AUDIT,
         ],
-        "Governance Auditor": [SEPAPermissionLevel.READ, SEPAPermissionLevel.AUDIT],
+        "Verenigingen Governance Auditor": [SEPAPermissionLevel.READ, SEPAPermissionLevel.AUDIT],
     }
 
     # Operation permission requirements
@@ -670,8 +670,9 @@ def setup_authorization():
 
     # Log setup completion
     log_security_event(
-        "authorization_system_initialized",
+        AuditEventType.CONFIGURATION_CHANGE.value,
         details={
+            "configuration_type": "authorization_system_initialized",
             "role_permissions": {k: [p.value for p in v] for k, v in _auth_manager.ROLE_PERMISSIONS.items()},
             "operation_requirements": {
                 k.value: v.value for k, v in _auth_manager.OPERATION_REQUIREMENTS.items()

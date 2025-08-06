@@ -164,7 +164,7 @@ def get_board_members(self, include_inactive=False, role=None):
     """Get board members using optimized batch queries"""
     # Batch query for volunteer-member mapping
     if volunteer_ids:
-        volunteer_data = frappe.get_all("Volunteer",
+        volunteer_data = frappe.get_all("Verenigingen Volunteer",
             filters={"name": ["in", volunteer_ids]},
             fields=["name", "member"]
         )

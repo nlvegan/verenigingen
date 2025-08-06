@@ -495,7 +495,7 @@ class RefinedFieldValidator:
         doctype_name_mappings = {
             'member': 'Member',
             'membership': 'Membership', 
-            'volunteer': 'Volunteer',
+            'volunteer': 'Verenigingen Volunteer',
             'chapter': 'Chapter',
             'schedule': 'Membership Dues Schedule',
             'dues_schedule': 'Membership Dues Schedule',
@@ -549,7 +549,7 @@ class RefinedFieldValidator:
                         'validate_verenigingen_settings': 'Verenigingen Settings',
                         'validate_member': 'Member',
                         'validate_membership': 'Membership',
-                        'validate_volunteer': 'Volunteer',
+                        'validate_volunteer': 'Verenigingen Volunteer',
                         'validate_chapter': 'Chapter',
                         'validate_volunteer_expense': 'Volunteer Expense',
                         'validate_sepa_mandate': 'SEPA Mandate',

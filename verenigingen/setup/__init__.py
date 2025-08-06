@@ -857,7 +857,7 @@ def create_application_email_templates():
                 <p>You can retry the payment at any time using this link:</p>
                 <p><a href="{{ retry_url }}" class="btn btn-primary">Retry Payment</a></p>
 
-                <p>If you continue to experience issues, please contact our support team at support@example.com</p>
+                <p>If you continue to experience issues, please contact our support team at {{ support_email|default("support@example.com") }}</p>
 
                 <p>Common reasons for payment failure:</p>
                 <ul>

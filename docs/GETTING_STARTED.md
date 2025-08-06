@@ -84,12 +84,12 @@ If you have ERPNext already running:
 
 ```bash
 # For new installation
-bench init --frappe-branch version-14 frappe-bench
+bench init --frappe-branch version-15 frappe-bench
 cd frappe-bench
 bench new-site your-site.com
-bench get-app --branch version-14 erpnext
+bench get-app --branch version-15 erpnext
 bench get-app --branch develop payments
-bench get-app --branch version-14 hrms
+bench get-app --branch version-15 hrms
 bench get-app verenigingen
 bench install-app erpnext
 bench install-app payments
@@ -130,12 +130,20 @@ bench install-app verenigingen
 
 2. **Install Email Templates**:
    ```bash
-   bench execute verenigingen.api.email_template_manager.create_all_email_templates
+   # CLI-friendly method (recommended)
+   bench execute verenigingen.api.email_template_manager.create_email_templates_cli
+
+   # Alternative method
+   bench execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
    ```
 
 3. **Deploy Role Profiles**:
    ```bash
-   bench execute verenigingen.setup.role_profile_setup.deploy_role_profiles
+   # CLI-friendly method (recommended)
+   bench execute verenigingen.setup.role_profile_setup.setup_role_profiles_cli
+
+   # Alternative method
+   bench execute verenigingen.setup.role_profile_setup.setup_role_profiles
    ```
 
 ### Step 3: Basic Data Setup

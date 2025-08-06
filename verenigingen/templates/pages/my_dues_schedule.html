@@ -584,9 +584,9 @@ $(document).ready(function() {
     // Render calendar for current month
     function renderCalendar() {
         const monthNames = [
-            '{{ _("January") }}', '{{ _("February") }}', '{{ _("March") }}', '{{ _("April") }}',
-            '{{ _("May") }}', '{{ _("June") }}', '{{ _("July") }}', '{{ _("August") }}',
-            '{{ _("September") }}', '{{ _("October") }}', '{{ _("November") }}', '{{ _("December") }}'
+            __("January"), __("February"), __("March"), __("April"),
+            __("May"), __("June"), __("July"), __("August"),
+            __("September"), __("October"), __("November"), __("December")
         ];
 
         $('#current-month').text(monthNames[currentMonth - 1] + ' ' + currentYear);

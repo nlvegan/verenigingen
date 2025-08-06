@@ -28,7 +28,8 @@ def execute(filters=None):
 
             if volunteer:
                 is_board_member = frappe.db.exists(
-                    "Chapter Board Member", {"parent": chapter, "volunteer": volunteer, "is_active": 1}
+                    "Verenigingen Chapter Board Member",
+                    {"parent": chapter, "volunteer": volunteer, "is_active": 1},
                 )
 
                 if not is_board_member:
@@ -71,7 +72,8 @@ def execute(filters=None):
             volunteer = frappe.db.get_value("Volunteer", {"member": member}, "name")
             if volunteer:
                 is_board_member = frappe.db.exists(
-                    "Chapter Board Member", {"parent": chapter, "volunteer": volunteer, "is_active": 1}
+                    "Verenigingen Chapter Board Member",
+                    {"parent": chapter, "volunteer": volunteer, "is_active": 1},
                 )
                 can_view_pending = bool(is_board_member)
 

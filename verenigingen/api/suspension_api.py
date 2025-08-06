@@ -468,7 +468,9 @@ def get_suspension_list(limit=100, offset=0, status=None, chapter=None):
             user_exists = frappe.db.exists("User", member["email"])
             if user_exists:
                 # Get volunteer linked to this user/member
-                volunteer_name = frappe.db.get_value("Volunteer", {"user": member["email"]}, "name")
+                volunteer_name = frappe.db.get_value(
+                    "Verenigingen Volunteer", {"user": member["email"]}, "name"
+                )
                 if volunteer_name:
                     team_count = frappe.db.count("Team Member", {"volunteer": volunteer_name, "docstatus": 1})
                     member["active_team_count"] = team_count

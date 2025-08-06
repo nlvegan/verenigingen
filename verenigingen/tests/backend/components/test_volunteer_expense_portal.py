@@ -130,7 +130,7 @@ class TestVolunteerExpensePortal(VereningingenTestCase):
                     "doctype": "Member",
                     "member_id": member_id,
                     "first_name": "Test",
-                    "last_name": "Volunteer",
+                    "last_name": "Verenigingen Volunteer",
                     "full_name": "Test Volunteer",
                     "email": cls.volunteer_user_email,
                     "user": cls.volunteer_user_email,
@@ -151,7 +151,7 @@ class TestVolunteerExpensePortal(VereningingenTestCase):
                     "doctype": "Member",
                     "member_id": member_id,
                     "first_name": "Non",
-                    "last_name": "Volunteer",
+                    "last_name": "Verenigingen Volunteer",
                     "full_name": "Non Volunteer",
                     "email": cls.non_volunteer_user_email,
                     "user": cls.non_volunteer_user_email,
@@ -747,7 +747,7 @@ class TestVolunteerExpensePortal(VereningingenTestCase):
                     "doctype": "User",
                     "email": isolated_email,
                     "first_name": "Isolated",
-                    "last_name": "Volunteer",
+                    "last_name": "Verenigingen Volunteer",
                     "full_name": "Isolated Volunteer",
                     "enabled": 1}
             )

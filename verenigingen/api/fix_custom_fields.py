@@ -140,7 +140,7 @@ def fix_custom_field_modules():
                 "Supplier",
                 "Member",
                 "Membership",
-                "Volunteer",
+                "Verenigingen Volunteer",
                 "Chapter",
                 "Team",
                 "Payment Entry",

@@ -151,14 +151,14 @@
    "print": 1,
    "read": 1,
    "report": 1,
-   "role": "Chapter Board Member",
+   "role": "Verenigingen Chapter Board Member",
    "share": 1,
    "write": 1
   },
   {
    "permlevel": 1,
    "read": 1,
-   "role": "Chapter Board Member"
+   "role": "Verenigingen Chapter Board Member"
   }
  ],
  "quick_entry": 1,

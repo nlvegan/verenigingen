@@ -15,9 +15,9 @@ class Roles:
     SYSTEM_MANAGER = "System Manager"
     VERENIGINGEN_ADMIN = "Verenigingen Administrator"
     VERENIGINGEN_MANAGER = "Verenigingen Manager"
-    VOLUNTEER_MANAGER = "Volunteer Manager"
+    VOLUNTEER_MANAGER = "Verenigingen Volunteer Manager"
     MEMBER = "Member"
-    VOLUNTEER = "Volunteer"
+    VOLUNTEER = "Verenigingen Volunteer"
     CHAPTER_ADMIN = "Chapter Administrator"
 
     # Role groups for common permission checks

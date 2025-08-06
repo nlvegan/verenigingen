@@ -318,7 +318,7 @@ class Team(Document):
                 return
 
             roles_placeholder = ", ".join(["%s"] * len(roles_list))
-            current_assignees = frappe.db.sql(
+            existing_assignments = frappe.db.sql(
                 f"""
                 SELECT tm.parent, tm.volunteer, tm.volunteer_name, tm.team_role, tr.role_name
                 FROM `tabTeam Member` tm
@@ -338,7 +338,7 @@ class Team(Document):
                 role_name = assignment.role_name
                 if role_name in role_assignments:
                     # We have a conflict - this unique role is already assigned elsewhere
-                    current_assignees = [a["volunteer_name"] for a in role_assignments[role_name]]
+                    # current_assignees = [a["volunteer_name"] for a in role_assignments[role_name]]
                     existing_assignee = assignment.volunteer_name or assignment.volunteer
                     existing_team = assignment.parent
 
@@ -552,7 +552,9 @@ def debug_team_assignments():
 
     # Get Foppe volunteers
     volunteers = frappe.get_all(
-        "Volunteer", filters={"volunteer_name": ["like", "%Foppe%"]}, fields=["name", "volunteer_name"]
+        "Volunteer",
+        filters={"volunteer_name": ["like", "%Foppe%"]},
+        fields=["name", "volunteer_name"],
     )
     result["foppe_volunteers"] = []
     for vol in volunteers:

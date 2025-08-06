@@ -34,7 +34,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
         """Test that applications with volunteer interest use valid volunteer status"""
 
         test_data = {
-            "first_name": "Volunteer",
+            "first_name": "Verenigingen Volunteer",
             "last_name": "Interest Test",
             "email": "volunteer.interest.test@example.com",
             "birth_date": "1990-01-01",
@@ -66,7 +66,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
 
             if volunteers:
                 volunteer = volunteers[0]
-                self.add_cleanup_record("Volunteer", volunteer["name"])
+                self.add_cleanup_record("Verenigingen Volunteer", volunteer["name"])
                 self.assertEqual(volunteer["status"], "New", "Volunteer should be created with 'New' status")
 
             # Check member record
@@ -123,7 +123,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
         volunteer = create_volunteer_record(member)
 
         if volunteer:
-            self.add_cleanup_record("Volunteer", volunteer.name)
+            self.add_cleanup_record("Verenigingen Volunteer", volunteer.name)
 
             # Verify correct status is used
             self.assertEqual(volunteer.status, "New", "create_volunteer_record should use 'New' status")
@@ -139,7 +139,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
         # Test case 1: Application without volunteer interest
         test_data_no_volunteer = {
             "first_name": "No",
-            "last_name": "Volunteer",
+            "last_name": "Verenigingen Volunteer",
             "email": "no.volunteer.test@example.com",
             "birth_date": "1990-01-01",
             "address_line1": "Test Street 123",
@@ -170,7 +170,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
         # Test case 2: Application with volunteer interest
         test_data_with_volunteer = {
             "first_name": "With",
-            "last_name": "Volunteer",
+            "last_name": "Verenigingen Volunteer",
             "email": "with.volunteer.test@example.com",
             "birth_date": "1990-01-01",
             "address_line1": "Test Street 456",
@@ -194,7 +194,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
             )
             self.assertEqual(len(volunteers), 1, "Exactly one volunteer record should be created")
             self.assertEqual(volunteers[0]["status"], "New", "Volunteer should have 'New' status")
-            self.add_cleanup_record("Volunteer", volunteers[0]["name"])
+            self.add_cleanup_record("Verenigingen Volunteer", volunteers[0]["name"])
 
             member = frappe.get_doc("Member", member_record)
             if member.primary_address:
@@ -255,7 +255,7 @@ class TestApplicationSubmissionValidation(unittest.TestCase):
 
             if volunteers:
                 volunteer = volunteers[0]
-                self.add_cleanup_record("Volunteer", volunteer["name"])
+                self.add_cleanup_record("Verenigingen Volunteer", volunteer["name"])
 
                 # Verify volunteer was created with correct status and name handling
                 self.assertEqual(volunteer["status"], "New")

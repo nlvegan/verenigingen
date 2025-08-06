@@ -361,7 +361,7 @@ class TestRecentCodeChanges(FrappeTestCase):
         member = frappe.get_doc(
             {
                 "doctype": "Member",
-                "first_name": "Volunteer",
+                "first_name": "Verenigingen Volunteer",
                 "last_name": "Creation Test",
                 "email": "volunteer.creation@example.com"}
         )

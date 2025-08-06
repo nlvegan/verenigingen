@@ -132,7 +132,7 @@ class TestEnvironmentValidator:
             "Membership",
             "Membership Type",
             "Chapter",
-            "Volunteer",
+            "Verenigingen Volunteer",
             "Volunteer Expense",
             "Team",
             "SEPA Mandate",

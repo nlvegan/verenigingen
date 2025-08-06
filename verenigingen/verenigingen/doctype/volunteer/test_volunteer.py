@@ -72,7 +72,7 @@ class TestVolunteer(VereningingenTestCase):
         )
 
         volunteer.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Volunteer", volunteer.name))
+        self._docs_to_delete.append(("Verenigingen Volunteer", volunteer.name))
         return volunteer
 
     def create_test_activity(self, volunteer):
@@ -239,7 +239,7 @@ class TestVolunteer(VereningingenTestCase):
             }
         )
         volunteer.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Volunteer", volunteer.name))
+        self._docs_to_delete.append(("Verenigingen Volunteer", volunteer.name))
 
         # Create an activity for this volunteer
         activity = frappe.get_doc(
@@ -344,7 +344,7 @@ class TestVolunteer(VereningingenTestCase):
         member = frappe.get_doc(
             {
                 "doctype": "Member",
-                "first_name": "Volunteer",
+                "first_name": "Verenigingen Volunteer",
                 "last_name": f"Applicant {unique_suffix}",
                 "email": f"vol.applicant{unique_suffix}@example.com",
                 "contact_number": "+31612345678",
@@ -371,7 +371,7 @@ class TestVolunteer(VereningingenTestCase):
             }
         )
         volunteer.insert(ignore_permissions=True)
-        self._docs_to_delete.append(("Volunteer", volunteer.name))
+        self._docs_to_delete.append(("Verenigingen Volunteer", volunteer.name))
 
         # Verify volunteer was created with member data
         self.assertEqual(volunteer.member, member.name)
@@ -608,7 +608,7 @@ class TestVolunteer(VereningingenTestCase):
         # Test volunteer access from member perspective
         # Find volunteers linked to this member
         member_volunteers = frappe.get_all(
-            "Volunteer",
+            "Verenigingen Volunteer",
             filters={"member": self.test_member.name},
             fields=["name", "volunteer_name", "status"],
         )
@@ -729,7 +729,7 @@ class TestVolunteer(VereningingenTestCase):
             )
             volunteer.insert(ignore_permissions=True)
             volunteers.append(volunteer)
-            self._docs_to_delete.append(("Volunteer", volunteer.name))
+            self._docs_to_delete.append(("Verenigingen Volunteer", volunteer.name))
 
         # Test bulk status update
         for volunteer in volunteers:

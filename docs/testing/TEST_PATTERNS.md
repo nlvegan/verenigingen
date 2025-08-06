@@ -309,7 +309,7 @@ def test_document_links(self):
     self.assertRaises(
         frappe.LinkExistsError,
         frappe.delete_doc,
-        "Volunteer",
+        "Verenigingen Volunteer",
         volunteer.name
     )
 ```

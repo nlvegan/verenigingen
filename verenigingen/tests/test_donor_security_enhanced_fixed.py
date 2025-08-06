@@ -498,7 +498,7 @@ class TestRealWorldUserScenarios(EnhancedTestCase):
             ("board.member@orgtest.invalid", ["Verenigingen Member"], "Board Member"),
             ("regular.member1@orgtest.invalid", ["Verenigingen Member"], "Regular Member 1"),
             ("regular.member2@orgtest.invalid", ["Verenigingen Member"], "Regular Member 2"),
-            ("volunteer@orgtest.invalid", ["Verenigingen Member"], "Volunteer"),
+            ("volunteer@orgtest.invalid", ["Verenigingen Member"], "Verenigingen Volunteer"),
             ("guest.user@orgtest.invalid", ["Guest"], "Guest User")
         ]
         

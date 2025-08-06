@@ -99,7 +99,7 @@ class TestChapterDashboard(FrappeTestCase):
             })
             
             # Add Chapter Board Member role
-            user.append("roles", {"role": "Chapter Board Member"})
+            user.append("roles", {"role": "Verenigingen Chapter Board Member"})
             user.insert(ignore_permissions=True)
             return user
         return frappe.get_doc("User", email)

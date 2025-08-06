@@ -167,7 +167,7 @@ def get_user_board_role(chapter_name: str) -> Optional[Dict[str, Any]]:
         return None
 
     board_role = frappe.db.get_value(
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         {"parent": chapter_name, "volunteer": volunteer, "is_active": 1},
         ["chapter_role", "from_date"],
         as_dict=True,

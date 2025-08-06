@@ -45,7 +45,7 @@ def test_board_member_addition():
 
             # Check if he has a volunteer record
             volunteers = frappe.get_all(
-                "Volunteer",
+                "Verenigingen Volunteer",
                 filters={"member": parko_member.name},
                 fields=["name", "volunteer_name", "member"],
             )

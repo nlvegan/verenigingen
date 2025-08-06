@@ -47,9 +47,9 @@ def get_context(context):
     next_payment = get_next_payment(member)
 
     # Get contact email
-    member_contact_email = (
-        frappe.db.get_single_value("Verenigingen Settings", "member_contact_email") or "info@vereniging.nl"
-    )
+    from verenigingen.utils.email_utils import get_member_contact_email
+
+    member_contact_email = get_member_contact_email()
 
     context.update(
         {

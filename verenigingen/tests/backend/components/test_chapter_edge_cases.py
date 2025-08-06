@@ -258,7 +258,7 @@ class TestChapterEdgeCases(FrappeTestCase):
                 "start_date": today()}
         )
         volunteer.insert()
-        self.docs_to_cleanup.append(("Volunteer", volunteer.name))
+        self.docs_to_cleanup.append(("Verenigingen Volunteer", volunteer.name))
 
         # Test adding board member
         chapter.append(

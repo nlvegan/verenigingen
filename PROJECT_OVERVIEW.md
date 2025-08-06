@@ -18,25 +18,20 @@ Verenigingen is a comprehensive association management system built on the Frapp
 
 ## E-Boekhouden API Integration
 
-**CRITICAL NOTE:** The system includes a comprehensive eBoekhouden integration with dual API support. **REST API is the primary and recommended approach**:
+**CRITICAL NOTE:** The system includes a comprehensive eBoekhouden integration using REST API architecture:
 
 **API Documentation:** https://api.e-boekhouden.nl/swagger/v1/swagger.json
 
 ### API Capabilities
-- **REST API (Primary)**:
-  - Unlimited transaction history access
-  - Complete account and master data import
+- **REST API Features**:
+  - Complete transaction history access
+  - Full account and master data import
   - Enhanced error handling and performance
   - Modern JSON-based communication
-  - Future-proof implementation
-
-- **SOAP API (Legacy)**:
-  - Limited to 500 most recent transactions
-  - Maintained for backward compatibility
-  - Used for specific legacy features
+  - Production-ready implementation
 
 ### Recent Integration Enhancements (2025)
-- **✅ Opening Balance Import**: Complete opening balance import system with €324K+ successfully imported
+- **✅ Opening Balance Import**: Complete opening balance import system with comprehensive validation
 - **✅ Zero Amount Handling**: Now imports ALL zero-amount invoices (ERPNext supports them)
 - **✅ Smart Document Naming**: Meaningful document names like `EBH-Payment-1234`, `EBH-Memoriaal-5678`
 - **✅ Multi-Account Type Support**: Proper handling of Receivable, Payable, and Stock accounts
@@ -55,7 +50,7 @@ The eBoekhouden integration is production-ready and handles:
 - VAT handling and Dutch tax compliance
 - Real-time migration monitoring with detailed progress reporting
 
-**Migration Priority**: Always use REST API for new development. The system gracefully handles both REST and SOAP but REST provides superior functionality.
+**Implementation Focus**: The system uses REST API architecture for reliable financial data integration and migration capabilities.
 
 ## Portal Pages and Administrative Tools
 

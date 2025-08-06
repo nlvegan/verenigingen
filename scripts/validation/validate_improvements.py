@@ -144,7 +144,7 @@ def test_overall_improvement_metrics():
     print(f"   Files with imports: {len(validator.file_imports)}")
     
     # Check for specific classes we care about
-    important_classes = ['Member', 'ChapterMembershipHistoryManager', 'Chapter', 'Volunteer']
+    important_classes = ['Member', 'ChapterMembershipHistoryManager', 'Chapter', 'Verenigingen Volunteer']
     
     print(f"\n🎯 Important Classes Check:")
     for class_name in important_classes:

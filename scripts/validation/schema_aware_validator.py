@@ -972,7 +972,7 @@ class ValidationEngine:
         naming_patterns = {
             'member': 'Member',
             'chapter': 'Chapter', 
-            'volunteer': 'Volunteer',
+            'volunteer': 'Verenigingen Volunteer',
             'contribution': 'Contribution',
             'payment': 'Payment',
             'invoice': 'Sales Invoice',

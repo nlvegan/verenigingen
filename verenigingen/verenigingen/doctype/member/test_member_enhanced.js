@@ -289,7 +289,7 @@ QUnit.test('test: Member - Volunteer Integration', (assert) => {
 	frappe.run_serially([
 		// Create member
 		() => frappe.tests.make('Member', [
-			{ first_name: 'Volunteer' },
+			{ first_name: 'Verenigingen Volunteer' },
 			{ last_name: 'Integration' },
 			{ email: 'volunteer.integration@example.com' }
 		]),

@@ -35,7 +35,7 @@ class TestMemberLifecycleComprehensive(VereningingenTestCase):
         
         self.chapter_leader = self.create_test_user(
             "chapter.leader@example.com", 
-            roles=["Chapter Leader", "Volunteer Manager"]
+            roles=["Chapter Leader", "Verenigingen Volunteer Manager"]
         )
 
     def test_complete_member_lifecycle_workflow(self):

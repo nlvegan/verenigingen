@@ -219,7 +219,7 @@ def metrics():
     """Prometheus metrics endpoint"""
     # Update metrics
     member_count.set(frappe.db.count("Member", {"status": "Active"}))
-    volunteer_count.set(frappe.db.count("Volunteer", {"is_active": 1}))
+    volunteer_count.set(frappe.db.count("Verenigingen Volunteer", {"is_active": 1}))
 
     total_donations = frappe.db.sql("""
         SELECT SUM(grand_total) FROM `tabDonation`

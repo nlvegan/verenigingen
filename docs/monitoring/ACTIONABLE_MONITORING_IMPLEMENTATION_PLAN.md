@@ -323,8 +323,8 @@ bench --site dev.veganisme.net execute "frappe.db.count('Error Log')"
                "terminated": frappe.db.count("Member", {"status": "Terminated"})
            },
            "volunteers": {
-               "active": frappe.db.count("Volunteer", {"is_active": 1}),
-               "total": frappe.db.count("Volunteer")
+               "active": frappe.db.count("Verenigingen Volunteer", {"is_active": 1}),
+               "total": frappe.db.count("Verenigingen Volunteer")
            },
            "sepa": {
                "active_mandates": frappe.db.count("SEPA Mandate", {"status": "Active"}),

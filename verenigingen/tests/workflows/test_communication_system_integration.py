@@ -20,7 +20,7 @@ class TestCommunicationSystemIntegration(VereningingenTestCase):
 
         # Create test roles for notification testing
         self.admin_user = self._create_test_user("admin@test.com", ["System Manager"])
-        self.chapter_manager = self._create_test_user("manager@test.com", ["Chapter Manager"])
+        self.chapter_manager = self._create_test_user("manager@test.com", ["Verenigingen Chapter Manager"])
         self.volunteer_coordinator = self._create_test_user("coordinator@test.com", ["Volunteer Coordinator"])
 
         # Create test chapter with communication settings

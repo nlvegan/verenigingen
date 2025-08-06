@@ -214,7 +214,7 @@ cp -r /etc/letsencrypt/ ~/manual-backups/$BACKUP_DATE/ssl/ 2>/dev/null || true
 cat > ~/manual-backups/$BACKUP_DATE/backup_manifest.txt << EOF
 Backup Created: $(date)
 Site: your-site
-Frappe Version: $(bench version)
+Frappe Version: $(bench --version)
 Verenigingen Version: $(bench --site your-site execute "frappe.get_installed_apps()[0]")
 Files Included:
 $(ls -la ~/manual-backups/$BACKUP_DATE/)

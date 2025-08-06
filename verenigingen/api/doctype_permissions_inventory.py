@@ -238,7 +238,7 @@ def identify_potential_issues(analysis, doctype_name):
         "Sales Invoice",
         "Purchase Invoice",
         "Membership Dues Schedule",
-        "Volunteer",
+        "Verenigingen Volunteer",
         "Donation",
     ]
     if doctype_name in sensitive_doctypes:

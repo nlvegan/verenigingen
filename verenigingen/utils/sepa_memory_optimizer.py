@@ -154,7 +154,7 @@ class SEPAMemoryMonitor:
         )
 
         # Also log to performance monitoring
-        frappe.log_info(alert_data, "SEPA Memory Monitoring")
+        frappe.logger().info(alert_data, "SEPA Memory Monitoring")
 
     def get_memory_trend(self, minutes: int = 10) -> Dict[str, Any]:
         """

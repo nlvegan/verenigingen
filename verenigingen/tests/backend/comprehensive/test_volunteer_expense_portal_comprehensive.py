@@ -59,7 +59,7 @@ class TestVolunteerExpensePortal(unittest.TestCase):
         # Clean up test documents
         test_docs = [
             ("Volunteer Expense", {"volunteer": cls.test_volunteer.name}),
-            ("Volunteer", {"name": cls.test_volunteer.name}),
+            ("Verenigingen Volunteer", {"name": cls.test_volunteer.name}),
             ("Expense Category", {"name": cls.test_category.name}),
             ("Chapter", {"name": cls.test_chapter.name}),
             ("Team", {"name": cls.test_team.name}),

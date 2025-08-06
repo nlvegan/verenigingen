@@ -60,7 +60,7 @@ class TestVolunteerPortalSecurity(FrappeTestCase):
                     "doctype": "Member",
                     "member_id": cls.test_member,
                     "first_name": "Security",
-                    "last_name": "Volunteer",
+                    "last_name": "Verenigingen Volunteer",
                     "full_name": "Security Volunteer",
                     "email": cls.volunteer_email,
                     "status": "Active"}

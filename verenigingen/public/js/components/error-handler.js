@@ -552,7 +552,7 @@ class ErrorHandler {
 		}
 	}
 
-	_reportError(error) {
+	_reportError(_error) {
 		// Open error reporting interface
 		// Error data would be sent to reporting service here
 		// const reportData = {

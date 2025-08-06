@@ -28,7 +28,7 @@ https://your-site.com/api/method/verenigingen.api.[module].[function]
 ### API Capabilities
 - **Member Management**: Complete lifecycle from application to termination with automated workflows
 - **Payment Processing**: SEPA direct debit, mandate management, and ERPNext financial integration
-- **eBoekhouden Integration**: Production-ready REST/SOAP integration with €324K+ imported successfully
+- **eBoekhouden Integration**: Production-ready REST API integration for financial data synchronization
 - **Volunteer Coordination**: Team assignments, expense management, and skills tracking
 - **Portal Systems**: Member and volunteer self-service portals with brand customization
 - **Communication**: Automated email templates and notification systems
@@ -301,7 +301,7 @@ POST /api/method/verenigingen.api.dd_batch_scheduler.create_dd_batch
 
 ## eBoekhouden Integration API
 
-The eBoekhouden integration provides comprehensive accounting system synchronization with support for both REST and SOAP APIs. This enables complete financial data management and compliance with Dutch accounting standards.
+The eBoekhouden integration provides comprehensive accounting system synchronization using REST API architecture. This enables complete financial data management and compliance with Dutch accounting standards.
 
 > **📖 Detailed Guide**: For complete implementation details, see [eBoekhouden API Integration Guide](api/EBOEKHOUDEN_API_GUIDE.md)
 

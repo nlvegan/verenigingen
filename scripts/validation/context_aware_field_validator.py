@@ -208,9 +208,72 @@ class AccurateFieldValidator:
             
         return False
         
+    def validate_doctype_api_calls(self, content: str, file_path: Path) -> List[ValidationIssue]:
+        """MISSING FIRST-LAYER CHECK: Validate DocType existence in API calls"""
+        violations = []
+        
+        # Patterns for Frappe API calls that use DocType names
+        api_patterns = [
+            r'frappe\.get_all\(\s*["\']([^"\']+)["\']',
+            r'frappe\.get_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.new_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.delete_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.get_value\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.exists\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.count\(\s*["\']([^"\']+)["\']',
+            r'DocType\(\s*["\']([^"\']+)["\']',
+        ]
+        
+        lines = content.splitlines()
+        
+        for line_num, line in enumerate(lines, 1):
+            for pattern in api_patterns:
+                matches = re.finditer(pattern, line)
+                for match in matches:
+                    doctype_name = match.group(1)
+                    
+                    # FIRST-LAYER CHECK: Does this DocType actually exist?
+                    if doctype_name not in self.doctypes:
+                        # Suggest similar DocType names
+                        suggestions = self.suggest_similar_doctype(doctype_name)
+                        
+                        violations.append(ValidationIssue(
+                            file=str(file_path.relative_to(self.app_path)),
+                            line=line_num,
+                            field="<doctype_reference>",
+                            doctype=doctype_name,
+                            reference=line.strip(),
+                            message=f"DocType '{doctype_name}' does not exist. {suggestions}",
+                            context=line.strip(),
+                            confidence="high",
+                            issue_type="missing_doctype",
+                            suggested_fix=suggestions
+                        ))
+        
+        return violations
+    
+    def suggest_similar_doctype(self, invalid_name: str) -> str:
+        """Suggest similar DocType names for typos"""
+        available = list(self.doctypes.keys())
+        
+        # Look for exact substring matches first
+        exact_matches = [dt for dt in available if invalid_name.replace('Verenigingen ', '') in dt]
+        if exact_matches:
+            return f"Did you mean '{exact_matches[0]}'?"
+        
+        # Look for partial matches
+        partial_matches = [dt for dt in available if any(word in dt for word in invalid_name.split())]
+        if partial_matches:
+            return f"Similar DocTypes: {', '.join(partial_matches[:3])}"
+        
+        return f"Available DocTypes: {len(available)} total"
+
     def parse_with_ast(self, content: str, file_path: Path) -> List[ValidationIssue]:
         """Parse file using AST with ultra-precise DocType context detection"""
         violations = []
+        
+        # FIRST: Check DocType existence in API calls
+        violations.extend(self.validate_doctype_api_calls(content, file_path))
         
         try:
             tree = ast.parse(content)
@@ -326,11 +389,11 @@ class AccurateFieldValidator:
         precise_mappings = {
             'member': 'Member',
             'membership': 'Membership', 
-            'volunteer': 'Volunteer',
+            'volunteer': 'Verenigingen Volunteer',
             'chapter': 'Chapter',
             'application': 'Membership Application',
             'schedule': 'Membership Dues Schedule',
-            'board_member': 'Chapter Board Member',  # Key mapping!
+            'board_member': 'Verenigingen Chapter Board Member',  # Key mapping!
             'expense': 'Volunteer Expense',
             'mandate': 'SEPA Mandate',
             'batch': 'Direct Debit Batch',
@@ -368,7 +431,7 @@ class AccurateFieldValidator:
                         'validate_verenigingen_settings': 'Verenigingen Settings',
                         'validate_member': 'Member',
                         'validate_membership': 'Membership',
-                        'validate_volunteer': 'Volunteer',
+                        'validate_volunteer': 'Verenigingen Volunteer',
                         'validate_chapter': 'Chapter',
                         'validate_volunteer_expense': 'Volunteer Expense',
                         'validate_sepa_mandate': 'SEPA Mandate',

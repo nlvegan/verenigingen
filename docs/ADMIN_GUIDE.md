@@ -78,9 +78,23 @@ The Verenigingen system includes pre-configured role profiles:
 ### Automated Role Profile Deployment
 
 Deploy all role profiles automatically:
+
+**CLI-Friendly Method (Recommended)**:
 ```bash
-bench execute verenigingen.setup.role_profile_setup.deploy_role_profiles
+bench --site [site_name] execute verenigingen.setup.role_profile_setup.setup_role_profiles_cli
 ```
+
+**Standard Method**:
+```bash
+bench --site [site_name] execute verenigingen.setup.role_profile_setup.setup_role_profiles
+```
+
+**Alternative Method**:
+```bash
+bench --site [site_name] execute verenigingen.setup.role_profile_setup.deploy_role_profiles
+```
+
+> **💡 Note**: The CLI-friendly method provides detailed progress output and better error handling for command-line execution.
 
 ### Managing User Permissions
 
@@ -152,9 +166,23 @@ Access brand management at `/brand_management` (System Manager role required):
 
 #### Email Templates
 Install comprehensive email template system:
+
+**CLI-Friendly Method (Recommended)**:
 ```bash
-bench execute verenigingen.api.email_template_manager.create_all_email_templates
+bench --site [site_name] execute verenigingen.api.email_template_manager.create_email_templates_cli
 ```
+
+**Standard Method**:
+```bash
+bench --site [site_name] execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
+```
+
+**Legacy Method (Backward Compatibility)**:
+```bash
+bench --site [site_name] execute verenigingen.api.email_template_manager.create_all_email_templates
+```
+
+> **⚠️ Security Note**: The CLI-friendly method bypasses CSRF validation that can cause issues when running via command line. Use the CLI method for automated deployment and the standard method for web-based execution.
 
 #### Available Templates
 - **Membership**: Application confirmations, welcome emails, renewals

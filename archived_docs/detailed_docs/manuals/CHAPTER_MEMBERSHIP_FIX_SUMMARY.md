@@ -9,7 +9,7 @@ The issue was in the `get_user_volunteer_record()` function in `/home/frappe/fra
 ### The Problem
 ```python
 # Before fix - missing 'member' field
-volunteer = frappe.db.get_value("Volunteer", {"member": member}, ["name", "volunteer_name"], as_dict=True)
+volunteer = frappe.db.get_value("Verenigingen Volunteer", {"member": member}, ["name", "volunteer_name"], as_dict=True)
 ```
 
 The function was only returning `["name", "volunteer_name"]` fields but **NOT** the critical `member` field. This meant:
@@ -39,12 +39,12 @@ def get_user_volunteer_record():
     # First try to find by linked member
     member = frappe.db.get_value("Member", {"email": user_email}, "name")
     if member:
-        volunteer = frappe.db.get_value("Volunteer", {"member": member}, ["name", "volunteer_name", "member"], as_dict=True)
+        volunteer = frappe.db.get_value("Verenigingen Volunteer", {"member": member}, ["name", "volunteer_name", "member"], as_dict=True)
         if volunteer:
             return volunteer
 
     # Try to find volunteer directly by email (if volunteer has direct email)
-    volunteer = frappe.db.get_value("Volunteer", {"email": user_email}, ["name", "volunteer_name", "member"], as_dict=True)
+    volunteer = frappe.db.get_value("Verenigingen Volunteer", {"email": user_email}, ["name", "volunteer_name", "member"], as_dict=True)
     if volunteer:
         return volunteer
 

@@ -29,7 +29,7 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
 
         self.chapter_manager = self._create_security_test_user(
             "manager@security.test",
-            ["Chapter Manager", "Volunteer Coordinator"],
+            ["Verenigingen Chapter Board Member", "Volunteer Coordinator"],
             "Manager"
         )
 
@@ -109,7 +109,7 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
                 "Payment Entry": "full",
                 "GL Entry": "read"
             },
-            "Chapter Manager": {
+            "Verenigingen Chapter Board Member": {
                 "Member": "chapter_only",
                 "Membership": "chapter_only",
                 "SEPA Mandate": "none",
@@ -138,7 +138,7 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
         # Test each user role against the access matrix
         test_users = [
             (self.admin_user, ["System Manager"]),
-            (self.chapter_manager, ["Chapter Manager"]),
+            (self.chapter_manager, ["Verenigingen Chapter Board Member"]),
             (self.member_user, ["Portal User"]),
             (self.restricted_user, ["Guest"])
         ]

@@ -27,7 +27,7 @@ class TestExpenseWorkflow(VereningingenTestCase):
         # Create test users for approval workflow
         self.approver_user = self.create_test_user(
             "expense.approver@example.com",
-            roles=["Volunteer Manager", "Chapter Leader"]
+            roles=["Verenigingen Volunteer Manager", "Chapter Leader"]
         )
         self.finance_user = self.create_test_user(
             "finance.manager@example.com", 
@@ -355,7 +355,7 @@ class TestExpenseWorkflowEdgeCases(VereningingenTestCase):
         self.test_volunteer = self.create_test_volunteer()
         self.approver_user = self.create_test_user(
             "edge.approver@example.com", 
-            roles=["Volunteer Manager"]
+            roles=["Verenigingen Volunteer Manager"]
         )
     
     def test_expense_workflow_concurrent_modifications(self):

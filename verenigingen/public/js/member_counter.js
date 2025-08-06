@@ -470,7 +470,7 @@ $(document).ready(() => {
 				field: 'last_member_id'
 			},
 			callback(r) {
-				if (r.message && parseInt(r.message) > 0) {
+				if (r.message && parseInt(r.message, 10) > 0) {
 					// Old system detected, suggest migration
 					frappe.show_alert({
 						message: __('Old member ID system detected. Consider running migration. Type migrate_member_id_system() in console.'),

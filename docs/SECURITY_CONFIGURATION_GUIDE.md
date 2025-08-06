@@ -56,11 +56,11 @@ The Verenigingen test infrastructure has identified legitimate security policy g
 
 **Solution Steps:**
 1. Navigate to: **Setup > Users and Permissions > Role Permissions Manager**
-2. Select Role: **"Chapter Manager"**
+2. Select Role: **"Verenigingen Chapter Manager"**
 3. For DocType **"Member"**:
    - Enable **"User Permission"**
    - Set condition ensuring users only see members from their assigned chapter
-4. For DocType **"Volunteer"**:
+4. For DocType **"Verenigingen Volunteer"**:
    - Enable **"User Permission"** with chapter restriction
 5. Navigate to: **Setup > Users and Permissions > User Permissions**
 6. For each Chapter Manager user:

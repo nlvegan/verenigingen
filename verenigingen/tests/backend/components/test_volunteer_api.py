@@ -17,7 +17,7 @@ class TestVolunteerAPI(BaseVereengingenTest):
 
         # Create test volunteer with member link
         self.test_member = self.factory.create_member(
-            membership_id="TEST-VOL-001", first_name="Test", last_name="Volunteer"
+            membership_id="TEST-VOL-001", first_name="Test", last_name="Verenigingen Volunteer"
         )
 
         self.test_volunteer = self.factory.create_volunteer(
@@ -26,7 +26,7 @@ class TestVolunteerAPI(BaseVereengingenTest):
 
         # Create a test user for API calls
         self.test_user = self.factory.create_user(
-            email="test.volunteer@example.com", first_name="Test", last_name="Volunteer"
+            email="test.volunteer@example.com", first_name="Test", last_name="Verenigingen Volunteer"
         )
 
     def tearDown(self):

@@ -239,7 +239,9 @@ class ExpenseNotificationManager:
 
     def _get_expense_details(self, expense_doc):
         """Get formatted expense details for templates"""
-        volunteer_name = frappe.db.get_value("Volunteer", expense_doc.volunteer, "volunteer_name")
+        volunteer_name = frappe.db.get_value(
+            "Verenigingen Volunteer", expense_doc.volunteer, "volunteer_name"
+        )
         category_name = (
             frappe.db.get_value("Expense Category", expense_doc.category, "category_name")
             if expense_doc.category

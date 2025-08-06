@@ -605,7 +605,7 @@ def get_user_chapter_access(**kwargs):
 
     for volunteer_record in volunteer_records:
         board_positions = frappe.get_all(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             filters={"volunteer": volunteer_record.name, "is_active": 1},
             fields=["parent", "chapter_role"],
         )

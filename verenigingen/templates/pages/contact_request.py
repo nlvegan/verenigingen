@@ -32,16 +32,9 @@ def get_context(context):
             context.support_email = frappe.db.get_single_value("Verenigingen Settings", "support_email")
         except Exception:
             # If field doesn't exist, try company email or use default
-            try:
-                company = frappe.db.get_single_value("Verenigingen Settings", "company")
-                if company:
-                    context.support_email = (
-                        frappe.db.get_value("Company", company, "email") or "support@example.com"
-                    )
-                else:
-                    context.support_email = "support@example.com"
-            except Exception:
-                context.support_email = "support@example.com"
+            from verenigingen.utils.email_utils import get_support_contact_email
+
+            context.support_email = get_support_contact_email()
         return context
 
     context.member = frappe.get_doc("Member", member)

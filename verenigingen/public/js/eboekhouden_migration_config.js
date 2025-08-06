@@ -667,7 +667,7 @@ frappe.ready(() => {
 	window.toggleAllMappings = function () {
 		const selectAll = document.getElementById('select-all-mappings');
 		const checkboxes = document.querySelectorAll('.mapping-checkbox');
-		checkboxes.forEach(cb => cb.checked = selectAll.checked);
+		checkboxes.forEach(cb => { cb.checked = selectAll.checked; });
 		updateBulkEditButton();
 	};
 
@@ -748,7 +748,7 @@ frappe.ready(() => {
 	// Bulk edit selected mappings
 	document.getElementById('bulk-edit-btn').addEventListener('click', () => {
 		const checkboxes = document.querySelectorAll('.mapping-checkbox:checked');
-		const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.value));
+		const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.value, 10));
 
 		if (selectedIndices.length === 0) {
 			frappe.show_alert({
@@ -850,12 +850,12 @@ frappe.ready(() => {
 						}
 
 						try {
-							const response = await frappe.call({
+							const applyResponse = await frappe.call({
 								method: 'verenigingen.e_boekhouden.api.apply_suggested_mappings',
 								args: { suggestions: selected }
 							});
 
-							if (response.message.success) {
+							if (applyResponse.message.success) {
 								frappe.show_alert({
 									message: __('Applied {0} mappings', [selected.length]),
 									indicator: 'green'
@@ -874,7 +874,7 @@ frappe.ready(() => {
 				html += `<div class="mb-2"><label><input type="checkbox" id="select-all-suggestions"> ${__('Select All')}</label></div>`;
 				html += `<table class="table table-sm"><thead><tr><th></th><th>${__('Account')}</th><th>${__('Suggested Type')}</th><th>${__('Confidence')}</th></tr></thead><tbody>`;
 
-				suggestions.forEach((sug, idx) => {
+				suggestions.forEach((sug, _idx) => {
 					const confidence = sug.confidence || 'medium';
 					const badgeClass = confidence === 'high' ? 'success' : confidence === 'medium' ? 'warning' : 'secondary';
 					html += `<tr>

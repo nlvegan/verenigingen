@@ -21,7 +21,7 @@ class TestTeamAssignmentHistory(unittest.TestCase):
                 {
                     "doctype": "Member",
                     "first_name": "Test",
-                    "last_name": "Volunteer",
+                    "last_name": "Verenigingen Volunteer",
                     "email": "test.volunteer@example.com"}
             ).insert()
 

@@ -168,6 +168,87 @@ Validation is integrated into the continuous integration pipeline:
 python scripts/validation/comprehensive_validator.py --quiet --field-only
 ```
 
+## Special DocType Field Access Patterns
+
+### Chapter DocType Field Access
+The Chapter DocType has unique field access patterns that developers need to understand:
+
+#### Document Name vs Display Name
+```python
+# Chapter DocType uses autoname: "prompt" and naming_rule: "Set by user"
+# This means the document name (ID) IS the chapter name - there's no separate "chapter_name" field
+
+# ✅ CORRECT - Use document name directly
+chapter_doc = frappe.get_doc("Chapter", "Amsterdam")
+chapter_name = chapter_doc.name  # "Amsterdam"
+
+# ❌ INCORRECT - There is no "chapter_name" field
+chapter_name = chapter_doc.chapter_name  # AttributeError!
+```
+
+#### Available Fields
+Based on the Chapter DocType JSON, the actual fields are:
+- `name` (document ID, acts as chapter name)
+- `chapter_head` (Link to Member)
+- `region` (Link to Region, required)
+- `cost_center` (Link to Cost Center)
+- `postal_codes` (Small Text)
+- `board_members` (Table: Chapter Board Member)
+- `introduction` (Text Editor, required)
+- `meetup_embed_html` (Code)
+- `address` (Text)
+- `route` (Data)
+- `published` (Check)
+- `members` (Table: Chapter Member)
+
+#### Correct Query Patterns
+```python
+# ✅ CORRECT - Query by document name
+chapters = frappe.get_all("Chapter",
+    fields=["name", "region", "chapter_head", "published"],
+    filters={"published": 1})
+
+# ✅ CORRECT - Access chapter data
+chapter = frappe.get_doc("Chapter", chapter_name)
+if chapter.published:
+    region = chapter.region
+    head = chapter.chapter_head
+
+# ❌ INCORRECT - Using non-existent fields
+chapter_data = frappe.db.get_value("Chapter", chapter_name,
+    ["chapter_name", "is_active"])  # These fields don't exist!
+```
+
+#### Navigation and Relationships
+```python
+# ✅ CORRECT - Find chapters by region
+chapters_in_region = frappe.get_all("Chapter",
+    filters={"region": "Noord-Holland"},
+    fields=["name", "chapter_head", "postal_codes"])
+
+# ✅ CORRECT - Find chapter members
+members = frappe.get_all("Chapter Member",
+    filters={"parent": chapter_name},
+    fields=["member", "role", "status"])
+```
+
+### Member DocType Common Patterns
+```python
+# Member DocType has both system fields and user-defined fields
+member = frappe.get_doc("Member", member_name)
+
+# ✅ Available system fields
+member.name          # Document ID
+member.first_name    # User data
+member.last_name     # User data
+member.email_address # User data
+member.status        # Member status
+
+# ❌ Common mistakes
+member.chapter_name  # Use member.chapter instead
+member.is_active     # Use member.status == "Active" instead
+```
+
 ## Common Validation Errors and Fixes
 
 ### Error: Field Not Found in DocType

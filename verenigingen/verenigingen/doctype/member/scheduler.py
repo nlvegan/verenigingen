@@ -628,7 +628,7 @@ def run_actual_chapter_assignment_test():
         )
 
         initial_board_memberships = frappe.get_all(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             filters={"volunteer": test_member.name, "is_active": 1},
             fields=["name", "parent"],
         )
@@ -644,7 +644,7 @@ def run_actual_chapter_assignment_test():
         )
 
         final_board_memberships = frappe.get_all(
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             filters={"volunteer": test_member.name, "is_active": 1},
             fields=["name", "parent"],
         )

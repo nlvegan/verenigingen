@@ -486,10 +486,10 @@ class ExtendedTestDataFactory(TestDataFactory):
         cleanup_order = [
             "Volunteer Expense",
             "Volunteer Assignment",
-            "Volunteer",
+            "Verenigingen Volunteer",
             "Membership Termination Request",
             "Sales Invoice",
-            "Chapter Board Member",
+            "Verenigingen Chapter Board Member",
             "Chapter Member",
             "Member",
             "Chapter",

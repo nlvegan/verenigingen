@@ -9,7 +9,7 @@ def fix_child_table_permissions():
 
     # List of child table DocTypes that need read permissions
     child_tables = [
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         "Chapter Member",
         "Chapter Membership History",
         "Communication History",
@@ -101,7 +101,7 @@ def verify_child_table_permissions():
     """Verify that child table permissions are working correctly"""
 
     child_tables = [
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         "Chapter Member",
         "Chapter Membership History",
         "Communication History",

@@ -176,6 +176,9 @@ class Volunteer(Document):
         # Automatically create employee record for expense functionality
         self.create_employee_if_needed()
 
+        # Assign Volunteer role to the user
+        self.assign_volunteer_role()
+
     def update_status(self):
         """Update volunteer status based on assignments"""
         if not self.status or self.status == "New":
@@ -215,7 +218,7 @@ class Volunteer(Document):
             """
             SELECT
                 'Board Position' as source_type,
-                'Chapter Board Member' as source_doctype,
+                'Verenigingen Chapter Board Member' as source_doctype,
                 cbm.parent as source_name,
                 'Chapter' as source_doctype_display,
                 c.name as source_name_display,
@@ -941,7 +944,7 @@ class Volunteer(Document):
             settings = frappe.get_single("Verenigingen Settings")
             if settings.national_board_chapter:
                 national_board_member = frappe.db.exists(
-                    "Chapter Board Member",
+                    "Verenigingen Chapter Board Member",
                     {"parent": settings.national_board_chapter, "volunteer": self.name, "is_active": 1},
                 )
 
@@ -1009,7 +1012,7 @@ class Volunteer(Document):
 
         for role in financial_roles:
             board_members = frappe.get_all(
-                "Chapter Board Member",
+                "Verenigingen Chapter Board Member",
                 filters={
                     "parent": chapter_name,
                     "chapter_role": role,
@@ -1079,6 +1082,35 @@ class Volunteer(Document):
         except Exception as e:
             frappe.log_error(
                 f"Error assigning employee role for volunteer {self.name}: {str(e)}", "Role Assignment Error"
+            )
+            # Don't throw here as this is not critical for volunteer creation
+
+    def assign_volunteer_role(self):
+        """Assign Volunteer role to the user when volunteer record is created"""
+        try:
+            if not self.email:
+                frappe.logger().warning(f"No email for volunteer {self.name}, cannot assign Volunteer role")
+                return
+
+            # Check if user exists
+            if not frappe.db.exists("User", self.email):
+                frappe.logger().warning(f"User {self.email} does not exist, cannot assign Volunteer role")
+                return
+
+            user_doc = frappe.get_doc("User", self.email)
+
+            # Check if user already has Volunteer role
+            if "Volunteer" not in [role.role for role in user_doc.roles]:
+                # Add Volunteer role
+                user_doc.append("roles", {"role": "Volunteer"})
+                user_doc.save(ignore_permissions=True)
+                frappe.logger().info(f"Assigned Volunteer role to {self.email}")
+            else:
+                frappe.logger().info(f"User {self.email} already has Volunteer role")
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error assigning Volunteer role for volunteer {self.name}: {str(e)}", "Role Assignment Error"
             )
             # Don't throw here as this is not critical for volunteer creation
 
@@ -1238,9 +1270,8 @@ def create_volunteer_from_member(member_name, volunteer_name=None, status="New",
             management_roles = [
                 "System Manager",
                 "Verenigingen Administrator",
-                "Volunteer Manager",
-                "Chapter Manager",
-                "Chapter Board Member",
+                "Verenigingen Volunteer Manager",
+                "Verenigingen Chapter Board Member",
                 "Volunteer Coordinator",
             ]
 

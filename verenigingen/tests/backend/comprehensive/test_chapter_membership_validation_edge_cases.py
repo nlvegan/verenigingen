@@ -341,7 +341,7 @@ class TestChapterMembershipValidationEdgeCases(unittest.TestCase):
             for doc_type, names in [
                 ("Chapter", ["EDGE-CHAPTER-1", "EDGE-CHAPTER-2", "EDGE-CHAPTER-DISABLED"]),
                 ("Expense Category", ["EDGE-CATEGORY"]),
-                ("Volunteer", ["Edge Case Volunteer 1", "Edge Case Volunteer 2", "Edge Case Empty Member"]),
+                ("Verenigingen Volunteer", ["Edge Case Volunteer 1", "Edge Case Volunteer 2", "Edge Case Empty Member"]),
                 ("Member", ["EDGE-MEMBER-1", "EDGE-MEMBER-3"]),
             ]:
                 for name in names:

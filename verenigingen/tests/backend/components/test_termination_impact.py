@@ -57,7 +57,7 @@ def test_termination_impact():
         total_board_positions = 0
         for volunteer in volunteers:
             board_positions = frappe.get_all(
-                "Chapter Board Member",
+                "Verenigingen Chapter Board Member",
                 filters={"volunteer": volunteer.name, "is_active": 1},
                 fields=["name", "role", "chapter"],
             )
@@ -69,7 +69,7 @@ def test_termination_impact():
         # Check direct board positions (if member field exists)
         try:
             direct_positions = frappe.get_all(
-                "Chapter Board Member",
+                "Verenigingen Chapter Board Member",
                 filters={"member": member_name, "is_active": 1},
                 fields=["name", "role", "chapter"],
             )

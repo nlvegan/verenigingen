@@ -21,7 +21,7 @@
    "fieldname": "volunteer",
    "fieldtype": "Link",
    "in_list_view": 1,
-   "label": "Volunteer",
+   "label": "Verenigingen Volunteer",
    "options": "Volunteer",
    "reqd": 1
   },

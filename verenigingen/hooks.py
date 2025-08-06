@@ -362,10 +362,6 @@ doc_events = {
         "after_insert": "verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry.notify_governance_team",
         "before_save": "verenigingen.verenigingen.doctype.expulsion_report_entry.expulsion_report_entry.update_status_based_on_appeals",
     },
-    "Member": {
-        "before_save": "verenigingen.verenigingen.doctype.member.member_utils.update_termination_status_display",
-        "after_save": "verenigingen.verenigingen.doctype.member.member.handle_fee_override_after_save",
-    },
     # Donation history tracking
     "Donation": {
         "after_insert": [
@@ -389,8 +385,6 @@ doc_events = {
         "after_save": "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
         "on_update": "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
     },
-    # Volunteer expense approver sync (native ERPNext system)
-    "Volunteer": {"on_update": "verenigingen.utils.native_expense_helpers.update_employee_approver"},
     # Brand Settings - regenerate CSS when colors change (Single doctype)
     "Brand Settings": {"on_update": "verenigingen.utils.brand_css_generator.generate_brand_css_file"},
     # Account Group Project Framework - validate and apply defaults
@@ -406,6 +400,33 @@ doc_events = {
     },
     "Purchase Invoice": {
         "validate": "verenigingen.utils.account_group_validation_hooks.validate_purchase_invoice"
+    },
+    # Chapter Board Member permission automation
+    "Verenigingen Chapter Board Member": {
+        "after_insert": "verenigingen.utils.chapter_role_events.on_chapter_board_member_after_insert",
+        "on_update": "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_update",
+        "on_trash": "verenigingen.utils.chapter_role_events.on_chapter_board_member_on_trash",
+    },
+    # Chapter Role changes affect board member permissions
+    "Chapter Role": {
+        "on_update": "verenigingen.utils.chapter_role_events.on_chapter_role_on_update",
+    },
+    # Volunteer updates can affect board member roles
+    "Verenigingen Volunteer": {
+        "on_update": [
+            "verenigingen.utils.native_expense_helpers.update_employee_approver",
+            "verenigingen.utils.chapter_role_events.on_volunteer_on_update",
+        ]
+    },
+    # Member updates can affect board member roles
+    "Member": {
+        "before_save": "verenigingen.verenigingen.doctype.member.member_utils.update_termination_status_display",
+        "after_save": "verenigingen.verenigingen.doctype.member.member.handle_fee_override_after_save",
+        "on_update": "verenigingen.utils.chapter_role_events.on_member_on_update",
+    },
+    # Volunteer Expense approval validation
+    "Volunteer Expense": {
+        "before_submit": "verenigingen.utils.chapter_role_events.before_volunteer_expense_submit",
     },
 }
 
@@ -510,6 +531,30 @@ after_migrate = [
     "verenigingen.utils.security.setup_all_security",
 ]
 
+# Permission Query Methods
+# ------------------------
+permission_query_conditions = {
+    "Member": "verenigingen.permissions.get_member_permission_query",
+    "Membership": "verenigingen.permissions.get_membership_permission_query",
+    "Membership Termination Request": "verenigingen.permissions.get_termination_permission_query",
+    "Volunteer Expense": "verenigingen.permissions.get_volunteer_expense_permission_query",
+    "Verenigingen Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
+    "Chapter Member": "verenigingen.permissions.get_chapter_member_permission_query",
+    "Team Member": "verenigingen.permissions.get_team_member_permission_query",
+    "Donor": "verenigingen.permissions.get_donor_permission_query",
+    "Address": "verenigingen.permissions.get_address_permission_query",
+}
+
+has_permission = {
+    "Member": "verenigingen.permissions.has_member_permission",
+    "Membership": "verenigingen.permissions.has_membership_permission",
+    "Membership Termination Request": "verenigingen.permissions.has_membership_termination_request_permission",
+    "Volunteer Expense": "verenigingen.permissions.has_volunteer_expense_permission",
+    "Verenigingen Volunteer": "verenigingen.permissions.has_volunteer_permission",
+    "Donor": "verenigingen.permissions.has_donor_permission",
+    "Address": "verenigingen.permissions.has_address_permission",
+}
+
 # Boot session hooks
 # ------------------
 boot_session = ["verenigingen.setup.document_links.setup_custom_document_links"]
@@ -524,7 +569,12 @@ standard_portal_menu_items = [
         "reference_doctype": "",
         "role": "Verenigingen Member",
     },
-    {"title": "Volunteer Portal", "route": "/volunteer_portal", "reference_doctype": "", "role": "Volunteer"},
+    {
+        "title": "Volunteer Portal",
+        "route": "/volunteer_portal",
+        "reference_doctype": "",
+        "role": "Verenigingen Volunteer",
+    },
 ]
 
 # Override functions removed - only affecting website/portal, not desk
@@ -549,10 +599,11 @@ permission_query_conditions = {
     "Team": "verenigingen.verenigingen.doctype.team.team.get_team_permission_query_conditions",
     "Team Member": "verenigingen.permissions.get_team_member_permission_query",
     "Membership Termination Request": "verenigingen.permissions.get_termination_permission_query",
-    "Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
+    "Verenigingen Volunteer": "verenigingen.permissions.get_volunteer_permission_query",
     "Address": "verenigingen.permissions.get_address_permission_query",
     "Donor": "verenigingen.permissions.get_donor_permission_query",
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.get_permission_query_conditions",
+    "Project": "verenigingen.utils.project_permissions.get_project_permission_query_conditions",
 }
 
 has_permission = {
@@ -560,8 +611,9 @@ has_permission = {
     "Membership": "verenigingen.permissions.has_membership_permission",
     "Address": "verenigingen.permissions.has_address_permission",
     "Donor": "verenigingen.permissions.has_donor_permission",
-    "Volunteer": "verenigingen.permissions.has_volunteer_permission",
+    "Verenigingen Volunteer": "verenigingen.permissions.has_volunteer_permission",
     "Membership Dues Schedule": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.has_permission",
+    "Project": "verenigingen.utils.project_permissions.has_project_permission_via_team",
 }
 
 # Workflow Action Handlers
@@ -655,10 +707,11 @@ fixtures = [
                     "Verenigingen Administrator",
                     "Verenigingen Manager",
                     "Verenigingen Staff",
-                    "Governance Auditor",
-                    "Chapter Board Member",
+                    "Verenigingen Governance Auditor",
+                    "Verenigingen Chapter Board Member",
                     "Verenigingen Member",
-                    "Volunteer",
+                    "Verenigingen Volunteer",
+                    "Verenigingen Volunteer Manager",
                 ],
             ]
         ],

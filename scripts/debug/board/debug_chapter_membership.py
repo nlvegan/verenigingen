@@ -94,7 +94,7 @@ def debug_chapter_membership():
 
         # Search volunteers
         volunteers_found = frappe.get_all(
-            "Volunteer",
+            "Verenigingen Volunteer",
             filters=[["volunteer_name", "like", "%Parko%"]],
             fields=["name", "volunteer_name", "member", "email", "status"],
         )

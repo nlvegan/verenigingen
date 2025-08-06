@@ -194,7 +194,7 @@ def update_member_profile(member_id, **profile_data):
 @api_security_framework(
     security_level=SecurityLevel.HIGH,
     operation_type=OperationType.MEMBER_DATA,
-    roles=["Verenigingen Administrator", "Chapter Manager"],
+    roles=["Verenigingen Administrator", "Verenigingen Chapter Manager"],
     audit_level="standard"
 )
 def manage_volunteer_assignment(**assignment_data):
@@ -252,7 +252,7 @@ def generate_payment_dashboard_data(date_range=None):
     if "Financial Controller" in user_roles:
         # Full financial data access
         return get_complete_payment_data(date_range)
-    elif "Chapter Manager" in user_roles:
+    elif "Verenigingen Chapter Manager" in user_roles:
         # Chapter-specific data only
         return get_chapter_payment_data(frappe.session.user, date_range)
     else:

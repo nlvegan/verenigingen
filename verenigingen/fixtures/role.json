@@ -20,9 +20,9 @@
   "home_page": null,
   "is_custom": 0,
   "modified": "2025-07-01 19:13:25.178165",
-  "name": "Chapter Board Member",
+  "name": "Verenigingen Chapter Board Member",
   "restrict_to_domain": null,
-  "role_name": "Chapter Board Member",
+  "role_name": "Verenigingen Chapter Board Member",
   "two_factor_auth": 0
  },
  {
@@ -33,9 +33,9 @@
   "home_page": null,
   "is_custom": 0,
   "modified": "2025-07-01 19:13:25.595203",
-  "name": "Volunteer",
+  "name": "Verenigingen Volunteer",
   "restrict_to_domain": null,
-  "role_name": "Volunteer",
+  "role_name": "Verenigingen Volunteer",
   "two_factor_auth": 0
  },
  {

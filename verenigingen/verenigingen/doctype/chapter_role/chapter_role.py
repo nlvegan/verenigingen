@@ -61,7 +61,7 @@ def update_chapters_with_role(role):
 
     # Find chapters that have board members with this role
     chapter_board_members = frappe.get_all(
-        "Chapter Board Member",
+        "Verenigingen Chapter Board Member",
         filters={"chapter_role": role, "is_active": 1},
         fields=["parent"],
         distinct=True,

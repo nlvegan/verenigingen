@@ -134,7 +134,7 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         expense_volunteer = frappe.new_doc("Volunteer")
         expense_volunteer.member = self.create_test_member(
             first_name="Tom",
-            last_name="Volunteer",
+            last_name="Verenigingen Volunteer",
             email="tom.volunteer@example.com",
             chapter=self.test_chapter.name
         ).name
@@ -313,7 +313,7 @@ class TestVolunteerBoardFinancePersona(VereningingenTestCase):
         other_volunteer = frappe.new_doc("Volunteer")
         other_volunteer.member = self.create_test_member(
             first_name="Other",
-            last_name="Volunteer",
+            last_name="Verenigingen Volunteer",
             email="other.volunteer@example.com",
             chapter=other_chapter.name
         ).name

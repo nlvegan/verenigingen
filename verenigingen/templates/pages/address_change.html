@@ -141,7 +141,7 @@
                                 <label for="address_line1">{{ _("Street Address") }} <span class="required-field">*</span></label>
                                 <input type="text" class="form-control" id="address_line1" name="address_line1"
                                        value="{{ address_data.address_line1 }}"
-                                       placeholder="{{ _('Enter your street address') }}" required>
+                                       placeholder="Enter your street address" required>
                             </div>
                         </div>
                     </div>
@@ -152,7 +152,7 @@
                                 <label for="address_line2">{{ _("Address Line 2") }}</label>
                                 <input type="text" class="form-control" id="address_line2" name="address_line2"
                                        value="{{ address_data.address_line2 }}"
-                                       placeholder="{{ _('Apartment, suite, etc. (optional)') }}">
+                                       placeholder="Apartment, suite, etc. (optional)">
                             </div>
                         </div>
                     </div>
@@ -163,7 +163,7 @@
                                 <label for="city">{{ _("City") }} <span class="required-field">*</span></label>
                                 <input type="text" class="form-control" id="city" name="city"
                                        value="{{ address_data.city }}"
-                                       placeholder="{{ _('Enter your city') }}" required>
+                                       placeholder="Enter your city" required>
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -171,7 +171,7 @@
                                 <label for="state">{{ _("State/Province") }}</label>
                                 <input type="text" class="form-control" id="state" name="state"
                                        value="{{ address_data.state }}"
-                                       placeholder="{{ _('Enter your state/province') }}">
+                                       placeholder="Enter your state/province">
                             </div>
                         </div>
                     </div>
@@ -182,7 +182,7 @@
                                 <label for="pincode">{{ _("Postal Code") }}</label>
                                 <input type="text" class="form-control" id="pincode" name="pincode"
                                        value="{{ address_data.pincode }}"
-                                       placeholder="{{ _('Enter your postal code') }}">
+                                       placeholder="Enter your postal code">
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -207,7 +207,7 @@
                                 <label for="phone">{{ _("Phone Number") }}</label>
                                 <input type="tel" class="form-control" id="phone" name="phone"
                                        value="{{ address_data.phone }}"
-                                       placeholder="{{ _('Enter your phone number') }}">
+                                       placeholder="Enter your phone number">
                             </div>
                         </div>
                         <div class="col-md-6">
@@ -215,7 +215,7 @@
                                 <label for="email_id">{{ _("Email Address") }}</label>
                                 <input type="email" class="form-control" id="email_id" name="email_id"
                                        value="{{ address_data.email_id }}"
-                                       placeholder="{{ _('Enter your email address') }}">
+                                       placeholder="Enter your email address">
                             </div>
                         </div>
                     </div>
@@ -304,7 +304,7 @@ $(document).ready(function() {
 
         // Basic validation
         if (!formData.address_line1 || !formData.city || !formData.country) {
-            showError('{{ _("Please fill in all required fields") }}');
+            showError(__("Please fill in all required fields"));
             return;
         }
 
@@ -318,7 +318,7 @@ $(document).ready(function() {
         }
 
         if (!hasChanges) {
-            showError('{{ _("No changes detected. Please modify your address information or cancel.") }}');
+            showError(__("No changes detected. Please modify your address information or cancel."));
             return;
         }
 

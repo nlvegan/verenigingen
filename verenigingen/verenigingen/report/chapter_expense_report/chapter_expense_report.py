@@ -28,7 +28,12 @@ def get_columns():
             "options": "Expense Claim",
             "width": 120,
         },
-        {"label": _("Volunteer"), "fieldname": "volunteer_name", "fieldtype": "Data", "width": 150},
+        {
+            "label": _("Verenigingen Volunteer"),
+            "fieldname": "volunteer_name",
+            "fieldtype": "Data",
+            "width": 150,
+        },
         {"label": _("Description"), "fieldname": "description", "fieldtype": "Data", "width": 200},
         {"label": _("Amount"), "fieldname": "amount", "fieldtype": "Currency", "width": 120},
         {"label": _("Currency"), "fieldname": "currency", "fieldtype": "Data", "width": 80},
@@ -129,7 +134,7 @@ def get_erpnext_expense_data(filters):
             # Try to find volunteer by employee_id
             try:
                 volunteer_record = frappe.db.get_value(
-                    "Volunteer",
+                    "Verenigingen Volunteer",
                     {"employee_id": claim.get("employee")},
                     ["name", "volunteer_name"],
                     as_dict=True,

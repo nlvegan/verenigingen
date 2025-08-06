@@ -104,14 +104,14 @@ def debug_parko_issue():
 
         # Search volunteers
         volunteers_found = frappe.get_all(
-            "Volunteer",
+            "Verenigingen Volunteer",
             filters=[["volunteer_name", "like", "%Parko%"]],
             fields=["name", "volunteer_name", "member", "email", "status"],
         )
 
         if not volunteers_found:
             volunteers_found = frappe.get_all(
-                "Volunteer",
+                "Verenigingen Volunteer",
                 filters=[["volunteer_name", "like", "%Janssen%"]],
                 fields=["name", "volunteer_name", "member", "email", "status"],
             )

@@ -45,9 +45,9 @@
 ### **Other Roles** (unchanged)
 - **"System Manager"**: Full system access (unchanged)
 - **"Membership Manager"**: Focused membership lifecycle management (unchanged)
-- **"Governance Auditor"**: Compliance and audit functions (unchanged)
-- **"Chapter Board Member"**: Chapter-specific board functions (unchanged)
-- **"Volunteer Manager"**: Volunteer-specific management (unchanged)
+- **"Verenigingen Governance Auditor"**: Compliance and audit functions (unchanged)
+- **"Verenigingen Chapter Board Member"**: Chapter-specific board functions (unchanged)
+- **"Verenigingen Volunteer Manager"**: Volunteer-specific management (unchanged)
 
 ## Files Updated (Comprehensive List)
 

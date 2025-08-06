@@ -91,7 +91,7 @@ Based on code review findings (Grade C+) and architectural analysis, Phase 4.1 S
    # NEEDED: Complete list of autoname doctypes requiring document names
    AUTONAME_DOCTYPES = [
        'Member',           # autoname: 'MEM-.####'
-       'Volunteer',        # autoname: 'VOL-.####'
+       'Verenigingen Volunteer',        # autoname: 'VOL-.####'
        'SEPA Mandate',     # autoname: 'SEPA-.####'
        # Complete inventory needed
    ]

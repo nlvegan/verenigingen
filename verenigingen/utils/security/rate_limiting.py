@@ -539,7 +539,7 @@ def setup_rate_limiting():
     _rate_limiter = RateLimiter()
 
     # Log setup completion
-    frappe.log_info(
+    frappe.logger().info(
         {
             "event": "rate_limiting_setup_complete",
             "backend": _rate_limiter.backend,

@@ -568,12 +568,12 @@ def get_default_account(transaction_type):
 
     This function now REJECTS imports instead of creating fake accounts.
     """
-    # Get the company for error reporting
-    company = (
-        frappe.defaults.get_user_default("Company")
-        or frappe.db.get_single_value("Global Defaults", "default_company")
-        or frappe.db.get_value("Company", {}, "name")
-    )
+    # Get the company for error reporting (currently unused but kept for future error handling)
+    # company = (
+    #     frappe.defaults.get_user_default("Company")
+    #     or frappe.db.get_single_value("Global Defaults", "default_company")
+    #     or frappe.db.get_value("Company", {}, "name")
+    # )
 
     # Log critical error and reject the import
     error_msg = (

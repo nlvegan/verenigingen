@@ -205,7 +205,7 @@ class StepManager {
 
 		// Step indicator clicks
 		$(document).on('click', '.step-item.accessible', (e) => {
-			const stepNumber = parseInt($(e.currentTarget).data('step'));
+			const stepNumber = parseInt($(e.currentTarget).data('step'), 10);
 			this.goToStep(stepNumber);
 		});
 

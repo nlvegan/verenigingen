@@ -352,7 +352,7 @@ self.assertDocumentStatus(doc, "Completed")
 
 # Relationship assertions
 self.assertDocumentLinked(member, volunteer, "member")
-self.assertRelationshipExists("Member", member.name, "Volunteer")
+self.assertRelationshipExists("Member", member.name, "Verenigingen Volunteer")
 
 # Validation assertions
 self.assertValidationError("Email already exists"):

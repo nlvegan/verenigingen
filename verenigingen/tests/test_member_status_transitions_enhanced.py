@@ -338,7 +338,7 @@ class TestMemberStatusTransitionsEnhanced(EnhancedTestCase):
         """Test how member status changes affect volunteer records"""
         # Create member and volunteer using factory
         member = self.create_test_member(
-            first_name="Volunteer",
+            first_name="Verenigingen Volunteer",
             last_name="Impact",
             status="Active",
             chapter=self.chapter.name

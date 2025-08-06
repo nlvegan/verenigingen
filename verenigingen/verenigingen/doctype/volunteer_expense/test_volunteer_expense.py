@@ -828,7 +828,7 @@ class TestVolunteerExpense(unittest.TestCase):
             ("Expense Category", {"category_name": ["like", "%Test%"]}),
             ("Team Member", {"team": cls.test_team.name}),
             ("Chapter Member", {"chapter": cls.test_chapter.name}),
-            ("Volunteer", {"volunteer_name": ["like", "%Test%"]}),
+            ("Verenigingen Volunteer", {"volunteer_name": ["like", "%Test%"]}),
             ("Member", {"email": ["like", "%test.com"]}),
             ("Team", {"team_name": ["like", "%Test%"]}),
             ("Chapter", {"chapter_name": ["like", "%Test%"]}),

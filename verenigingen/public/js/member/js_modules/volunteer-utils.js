@@ -111,9 +111,9 @@ function show_volunteer_info(frm) {
 						doctype: 'Volunteer',
 						name: volunteer.name
 					},
-					callback(r) {
-						if (r.message) {
-							const volunteerDoc = r.message;
+					callback(volunteerResponse) {
+						if (volunteerResponse.message) {
+							const volunteerDoc = volunteerResponse.message;
 							let skillsHtml = '';
 
 							if (volunteerDoc.volunteer_skills && volunteerDoc.volunteer_skills.length > 0) {

@@ -38,7 +38,7 @@ This directory contains comprehensive documentation for the eBoekhouden integrat
 ## System Status
 
 **Current Version**: 2025.1 (August 2025)
-- ✅ **Dual API Support** (REST primary, SOAP legacy fallback)
+- ✅ **REST API Integration** with comprehensive functionality
 - ✅ **Complete DocType Implementation** (E-Boekhouden Settings, Migration, Import Log, etc.)
 - ✅ **Enhanced migration orchestration** with progress tracking
 - ✅ **Intelligent account mapping** with type detection

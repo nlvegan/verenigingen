@@ -207,7 +207,7 @@ class SecureTestDataFactory:
         }
         
         data = {**defaults, **kwargs}
-        data = self.validate_required_fields("Volunteer", data)
+        data = self.validate_required_fields("Verenigingen Volunteer", data)
         
         try:
             volunteer = frappe.get_doc({
@@ -216,7 +216,7 @@ class SecureTestDataFactory:
             })
             
             volunteer.insert()
-            self.track_record("Volunteer", volunteer.name)
+            self.track_record("Verenigingen Volunteer", volunteer.name)
             
             return volunteer
         except Exception as e:
@@ -275,7 +275,7 @@ class SecureTestDataFactory:
             skill = frappe.get_doc({
                 "doctype": "Volunteer Skill",
                 "parent": volunteer_name,
-                "parenttype": "Volunteer",
+                "parenttype": "Verenigingen Volunteer",
                 "parentfield": "skills_and_qualifications",
                 **data
             })

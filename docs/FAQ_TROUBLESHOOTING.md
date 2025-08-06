@@ -2,6 +2,17 @@
 
 This comprehensive guide answers frequently asked questions and provides solutions to common issues in the Verenigingen system.
 
+## ⚡ Quick Reference
+
+**For comprehensive error recovery procedures, see:** [**Error Recovery Guide**](troubleshooting/ERROR_RECOVERY_GUIDE.md)
+
+The Error Recovery Guide provides detailed step-by-step procedures for:
+- **Payment Failures** - SEPA direct debit failures, mandate errors, reconciliation issues
+- **Portal Access Issues** - Login failures, permission errors, session timeouts
+- **Data Processing Errors** - Import failures, validation errors, duplicate entries
+- **Integration Failures** - eBoekhouden connectivity, API timeouts, webhook failures
+- **System-Level Issues** - Database problems, Redis/cache issues, background job failures
+
 ## Table of Contents
 - [General Questions](#general-questions)
 - [Installation and Setup](#installation-and-setup)
@@ -120,7 +131,7 @@ A: Email issues are usually configuration-related:
 
 2. **Check email templates**:
    ```bash
-   bench execute verenigingen.api.email_template_manager.create_all_email_templates
+   bench --site site_name execute verenigingen.api.email_template_manager.create_comprehensive_email_templates
    ```
 
 3. **Verify email queue**:
@@ -133,7 +144,7 @@ A: This is typically a permissions issue:
 
 1. **Deploy role profiles**:
    ```bash
-   bench execute verenigingen.setup.role_profile_setup.deploy_role_profiles
+   bench --site site_name execute verenigingen.setup.role_profile_setup.setup_role_profiles
    ```
 
 2. **Check user role assignments**:
@@ -165,6 +176,8 @@ A: Database issues can prevent proper installation:
    ```
 
 ## Member Portal Issues
+
+> **💡 For comprehensive portal access troubleshooting, see the [Error Recovery Guide - Portal Access Issues](troubleshooting/ERROR_RECOVERY_GUIDE.md#portal-access-issues)**
 
 ### Login and Access Issues
 
@@ -254,6 +267,8 @@ A: SEPA mandate issues often involve IBAN validation:
    - Contact bank about SEPA mandate restrictions
 
 ## Payment and SEPA Issues
+
+> **💡 For detailed payment failure recovery procedures, see the [Error Recovery Guide - Payment System Failures](troubleshooting/ERROR_RECOVERY_GUIDE.md#payment-system-failures)**
 
 ### SEPA Direct Debit Problems
 
@@ -399,7 +414,7 @@ A: Role assignment issues require systematic checking:
 
 1. **Role profile deployment**:
    ```bash
-   bench execute verenigingen.setup.role_profile_setup.deploy_role_profiles
+   bench --site site_name execute verenigingen.setup.role_profile_setup.setup_role_profiles
    ```
 
 2. **Permission cache**:
@@ -488,6 +503,8 @@ A: Performance problems require systematic diagnosis:
 
 ## Technical Troubleshooting
 
+> **💡 For system-level error recovery procedures, see the [Error Recovery Guide - System-Level Issues](troubleshooting/ERROR_RECOVERY_GUIDE.md#system-level-issues)**
+
 ### System Errors
 
 **Q: "Internal Server Error" messages**
@@ -572,7 +589,10 @@ A: Database problems require careful handling:
 
 1. **Database integrity check**:
    ```bash
+   # Connect to MariaDB console
    bench --site site_name mariadb
+
+   # In MariaDB console:
    CHECK TABLE tabMember;
    ```
 
@@ -618,19 +638,22 @@ A: Security incidents require immediate action:
 A: Database performance optimization:
 
 1. **Index optimization**:
-   ```sql
-   SHOW INDEX FROM tabMember;
-   CREATE INDEX idx_email ON tabMember(email);
+   ```bash
+   # Connect to MariaDB and run SQL commands
+   bench --site site_name mariadb --execute "SHOW INDEX FROM tabMember;"
+   bench --site site_name mariadb --execute "CREATE INDEX idx_email ON tabMember(email);"
    ```
 
 2. **Query analysis**:
-   ```sql
-   EXPLAIN SELECT * FROM tabMember WHERE email = 'test@example.com';
+   ```bash
+   # Analyze query performance
+   bench --site site_name mariadb --execute "EXPLAIN SELECT * FROM tabMember WHERE email = 'test@example.com';"
    ```
 
 3. **Database maintenance**:
    ```bash
-   bench execute frappe.utils.doctor.optimize_database
+   # Run database optimization
+   bench --site site_name execute frappe.utils.doctor.optimize_database
    ```
 
 ### System Performance

@@ -26,7 +26,9 @@ def test_missing_team_role_reference():
         test_team.insert()
 
         # Get a test volunteer
-        volunteer = frappe.db.get_value("Volunteer", {"volunteer_name": ["like", "%René%"]}, "name")
+        volunteer = frappe.db.get_value(
+            "Verenigingen Volunteer", {"volunteer_name": ["like", "%René%"]}, "name"
+        )
         if not volunteer:
             print("❌ No test volunteer found")
             return {"success": False, "error": "No test volunteer found"}
@@ -88,7 +90,10 @@ def test_unique_role_constraint():
 
         # Get test volunteers
         volunteers = frappe.db.get_all(
-            "Volunteer", {"volunteer_name": ["like", "%René%"]}, ["name", "volunteer_name"], limit=1
+            "Verenigingen Volunteer",
+            {"volunteer_name": ["like", "%René%"]},
+            ["name", "volunteer_name"],
+            limit=1,
         )
         if not volunteers:
             print("❌ No test volunteers found")
@@ -168,7 +173,9 @@ def test_backwards_compatibility():
         test_team.insert()
 
         # Get test volunteer
-        volunteer = frappe.db.get_value("Volunteer", {"volunteer_name": ["like", "%René%"]}, "name")
+        volunteer = frappe.db.get_value(
+            "Verenigingen Volunteer", {"volunteer_name": ["like", "%René%"]}, "name"
+        )
         if not volunteer:
             print("❌ No test volunteer found")
             return {"success": False, "error": "No test volunteer found"}
@@ -219,7 +226,7 @@ def test_team_leader_detection():
         # Find a volunteer with a user account
         volunteer_with_user = None
         volunteers = frappe.db.get_all(
-            "Volunteer", {"member": ["is", "set"]}, ["name", "member", "volunteer_name"], limit=5
+            "Verenigingen Volunteer", {"member": ["is", "set"]}, ["name", "member", "volunteer_name"], limit=5
         )
 
         for vol in volunteers:

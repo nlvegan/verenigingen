@@ -18,7 +18,7 @@ def execute(filters=None):
         or "System Manager" in frappe.get_roles()
         or "Verenigingen Administrator" in frappe.get_roles()
         or "Verenigingen Manager" in frappe.get_roles()
-        or "Volunteer Manager" in frappe.get_roles()
+        or "Verenigingen Volunteer Manager" in frappe.get_roles()
     ):
         # Check if user is a member of this team
         user_email = frappe.session.user
@@ -43,9 +43,9 @@ def execute(filters=None):
     columns = [
         {
             "fieldname": "volunteer",
-            "label": "Volunteer",
+            "label": "Verenigingen Volunteer",
             "fieldtype": "Link",
-            "options": "Volunteer",
+            "options": "Verenigingen Volunteer",
             "width": 200,
         },
         {"fieldname": "volunteer_name", "label": "Name", "fieldtype": "Data", "width": 200},

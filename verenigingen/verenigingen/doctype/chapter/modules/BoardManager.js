@@ -239,7 +239,7 @@ export class BoardManager {
 				{
 					fieldname: 'volunteer',
 					fieldtype: 'Link',
-					label: __('Volunteer'),
+					label: __('Verenigingen Volunteer'),
 					options: 'Volunteer',
 					reqd: 1,
 					get_query: () => ({
@@ -388,7 +388,7 @@ export class BoardManager {
 				{
 					fieldname: 'volunteer',
 					fieldtype: 'Link',
-					label: __('Volunteer'),
+					label: __('Verenigingen Volunteer'),
 					options: 'Volunteer',
 					reqd: 1,
 					get_query: () => ({

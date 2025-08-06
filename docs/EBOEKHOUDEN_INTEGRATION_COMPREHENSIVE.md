@@ -19,11 +19,11 @@ The eBoekhouden integration is a comprehensive financial data synchronization sy
 
 ### Key Features
 
-- **Dual API Support**: REST API (primary) and SOAP API (legacy) with automatic failover
+- **REST API Integration**: Comprehensive REST API implementation with robust error handling
 - **Complete Data Migration**: Chart of accounts, transactions, parties, and opening balances
 - **Intelligent Processing**: Automatic account mapping, party management, and balance validation
 - **Real-time Monitoring**: Progress tracking, error logging, and performance metrics
-- **Production Ready**: Used to import €324K+ in opening balances with comprehensive error recovery
+- **Production Ready**: Designed for large-scale financial data imports with comprehensive error recovery
 
 ### Business Value
 
@@ -39,23 +39,17 @@ The eBoekhouden integration is a comprehensive financial data synchronization sy
 ```
 eBoekhouden.nl (Source)
      │
-     ├── REST API (Primary)
-     │   ├── Unlimited transaction access
-     │   ├── Complete master data
-     │   └── Modern JSON format
-     │
-     └── SOAP API (Legacy)
-         ├── Limited to 500 transactions
-         ├── XML format
-         └── Backward compatibility
+     └── REST API
+         ├── Complete transaction access
+         ├── Full master data
+         └── Modern JSON format
 
      │
      ▼
 Migration Engine (Verenigingen)
      │
-     ├── API Clients
-     │   ├── EBoekhoudenRESTClient
-     │   └── EBoekhoudenAPI (Legacy)
+     ├── API Client
+     │   └── EBoekhoudenRESTClient
      │
      ├── Transaction Processors
      │   ├── BaseTransactionProcessor
@@ -111,9 +105,6 @@ class EBoekhoudenRESTClient:
     def get_mutations(self, limit=2000, offset=0) -> Dict[str, Any]:
         """REST API implementation with pagination"""
 
-class EBoekhoudenAPI:
-    def get_mutations(self, params=None) -> Dict[str, Any]:
-        """SOAP API implementation with limitations"""
 ```
 
 #### Factory Pattern
@@ -200,26 +191,25 @@ def get_all_mutations(self, date_from=None, date_to=None) -> Dict[str, Any]:
     return {"success": True, "mutations": all_mutations}
 ```
 
-### SOAP API (Legacy)
+### REST API Implementation
 
-**Base URL**: `https://soap.e-boekhouden.nl/soap`
-**Limitation**: Maximum 500 most recent transactions
+**Base URL**: `https://api.e-boekhouden.nl`
+**Features**: Complete data access with pagination support
 
-#### Key Differences
+#### Technical Features
 
-| Feature | REST API | SOAP API |
-|---------|----------|----------|
-| Transaction Limit | Unlimited | 500 records |
-| Data Format | JSON | XML |
-| Performance | High | Moderate |
-| Maintenance | Active | Legacy |
-| Error Handling | Detailed | Basic |
+| Feature | Implementation |
+|---------|----------------|
+| Transaction Limit | Unlimited with pagination |
+| Data Format | JSON |
+| Performance | Optimized for large datasets |
+| Maintenance | Active development |
+| Error Handling | Comprehensive logging |
 
 ### Current Implementation Status
 
 #### Verified API Implementation
 - **REST API Client**: `EBoekhoudenRESTClient` in `utils/eboekhouden_rest_client.py`
-- **Legacy SOAP API**: `EBoekhoudenAPI` in `utils/eboekhouden_api.py`
 - **Session Management**: Automatic token refresh with 60-minute expiry
 - **Pagination Support**: Handles large datasets with configurable batch sizes
 - **Error Recovery**: Comprehensive error handling and retry mechanisms
@@ -232,16 +222,15 @@ def get_all_mutations(self, date_from=None, date_to=None) -> Dict[str, Any]:
 - **E-Boekhouden Item Mapping**: Product/item synchronization
 - **EBoekhouden Payment Mapping**: Payment reconciliation mapping
 
-#### API Capabilities Comparison
+#### API Capabilities
 
-| Feature | REST API | SOAP API |
-|---------|----------|----------|
-| Transaction Limit | Unlimited | 500 records |
-| Data Format | JSON | XML |
-| Performance | High | Moderate |
-| Maintenance | Active | Legacy |
-| Error Handling | Detailed | Basic |
-| Session Management | Token-based | Direct credentials |
+The REST API implementation provides:
+- Unlimited transaction access with pagination
+- Modern JSON data format
+- High performance with optimized queries
+- Active maintenance and feature development
+- Detailed error handling and logging
+- Secure token-based session management
 
 ## Data Synchronization
 
@@ -512,11 +501,6 @@ The integration uses a single settings doctype with the following required field
 - **API Token**: Your eBoekhouden API token (stored encrypted)
 - **Source Application**: `VerenigingenERPNext` (API identifier)
 
-#### SOAP API Credentials (Optional)
-- **SOAP Username**: eBoekhouden username
-- **Security Code 1**: First authentication code
-- **Security Code 2 (GUID)**: Second authentication code in GUID format
-- **Administration GUID**: Optional specific administration identifier
 
 #### Default Mapping Settings (Required)
 - **Default Company**: ERPNext company for imports
@@ -1265,4 +1249,4 @@ The modular architecture allows for easy extension and customization, while the 
 4. **Testing**: Validate data integrity after each major import
 5. **Documentation**: Keep migration logs for audit and troubleshooting purposes
 
-This integration has successfully handled imports of €324K+ in opening balances and thousands of transactions, demonstrating its production readiness and reliability for association financial management.
+This integration is designed to handle large-scale financial data imports, demonstrating its production readiness and reliability for association financial management.

@@ -112,7 +112,7 @@ describe('Volunteer Management', () => {
   });
 
   it('should create new volunteer', () => {
-    cy.new_doc('Volunteer');
+    cy.new_doc('Verenigingen Volunteer');
     cy.fill_field('volunteer_name', 'Test Volunteer');
     cy.fill_field('email', 'volunteer@test.com');
     cy.save();

@@ -87,7 +87,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "doctype": "Member",
                     "member_id": cls.active_member,
                     "first_name": "Edge",
-                    "last_name": "Volunteer",
+                    "last_name": "Verenigingen Volunteer",
                     "full_name": "Edge Volunteer",
                     "email": cls.volunteer_email,
                     "status": "Active"}
@@ -115,7 +115,7 @@ class TestVolunteerPortalEdgeCases(FrappeTestCase):
                     "doctype": "Member",
                     "member_id": cls.disabled_member,
                     "first_name": "Disabled",
-                    "last_name": "Volunteer",
+                    "last_name": "Verenigingen Volunteer",
                     "full_name": "Disabled Volunteer",
                     "email": cls.disabled_volunteer_email,
                     "status": "Inactive"}

@@ -268,8 +268,8 @@ function create_organization_user(frm) {
 							last_name: values.last_name,
 							send_welcome_email: values.send_welcome_email
 						},
-						callback(r) {
-							if (r.message) {
+						callback(userResponse) {
+							if (userResponse.message) {
 								d.hide();
 								frm.refresh();
 								frappe.show_alert({

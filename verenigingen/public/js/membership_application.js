@@ -1124,7 +1124,7 @@ class _MembershipApplication {
 		const rearranged = cleanIBAN.substring(4) + cleanIBAN.substring(0, 4);
 		const numeric = rearranged.replace(/[A-Z]/g, char => char.charCodeAt(0) - 55);
 		const remainder = numeric.match(/.{1,9}/g).reduce((acc, chunk) => {
-			return (parseInt(acc + chunk) % 97).toString();
+			return (parseInt(acc + chunk, 10) % 97).toString();
 		}, '');
 
 		if (remainder !== '1') {
