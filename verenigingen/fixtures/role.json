@@ -76,5 +76,18 @@
   "restrict_to_domain": null,
   "role_name": "Verenigingen Staff",
   "two_factor_auth": 0
+ },
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": "/app/e-boekhouden",
+  "is_custom": 0,
+  "modified": "2025-08-07 17:30:00.000000",
+  "name": "E-Boekhouden Administrator",
+  "restrict_to_domain": null,
+  "role_name": "E-Boekhouden Administrator",
+  "two_factor_auth": 0
  }
 ]
