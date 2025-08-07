@@ -756,7 +756,7 @@ def _resolve_account_mapping(ledger_id, debug_info):
         return None
 
     mapping_result = frappe.db.sql(
-        """SELECT erpnext_account, account_name FROM `tabE-Boekhouden Ledger Mapping`
+        """SELECT erpnext_account FROM `tabE-Boekhouden Ledger Mapping`
            WHERE ledger_id = %s LIMIT 1""",
         ledger_id,
     )
@@ -764,7 +764,6 @@ def _resolve_account_mapping(ledger_id, debug_info):
     if mapping_result:
         return {
             "erpnext_account": mapping_result[0][0],
-            "account_name": mapping_result[0][1],
             "ledger_id": ledger_id,
         }
 
@@ -2230,6 +2229,50 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
             f"Detected credit note (negative amount: {total_amount}), will convert amounts to positive"
         )
 
+    # Set receivable account based on eBoekhouden ledgerID (proper SSoT approach)
+    ledger_id = mutation_detail.get("ledgerId")
+    if ledger_id:
+        # Check if description contains WooCommerce or FactuurSturen - these should use "Te Ontvangen Bedragen"
+        description_lower = description.lower()
+        if "woocommerce" in description_lower or "factuursturen" in description_lower:
+            debug_info.append(
+                "Found WooCommerce/FactuurSturen in description, using Te Ontvangen Bedragen account"
+            )
+            # Look for "Te Ontvangen Bedragen" account specifically
+            te_ontvangen_bedragen_account = frappe.db.get_value(
+                "Account",
+                {"account_name": ["like", "%Te Ontvangen Bedragen%"], "company": company, "is_group": 0},
+                "name",
+            )
+            if te_ontvangen_bedragen_account:
+                si.debit_to = te_ontvangen_bedragen_account
+                debug_info.append(f"Set receivable account to: {te_ontvangen_bedragen_account}")
+            else:
+                debug_info.append(
+                    "WARNING: Te Ontvangen Bedragen account not found, falling back to ledger mapping"
+                )
+                # Fallback to standard ledger mapping
+                account_mapping = _resolve_account_mapping(ledger_id, debug_info)
+                if account_mapping and account_mapping.get("erpnext_account"):
+                    si.debit_to = account_mapping["erpnext_account"]
+                    debug_info.append(
+                        f"Set receivable account from ledger mapping: {account_mapping['erpnext_account']}"
+                    )
+        else:
+            # Use standard ledger mapping for non-WooCommerce/FactuurSturen invoices
+            account_mapping = _resolve_account_mapping(ledger_id, debug_info)
+            if account_mapping and account_mapping.get("erpnext_account"):
+                si.debit_to = account_mapping["erpnext_account"]
+                debug_info.append(
+                    f"Set receivable account from ledger mapping: {account_mapping['erpnext_account']}"
+                )
+            else:
+                debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
+    else:
+        debug_info.append(
+            "WARNING: No ledgerID found in mutation data, ERPNext will use default receivable account selection"
+        )
+
     # Custom tracking fields
     si.eboekhouden_mutation_nr = str(mutation_id)
     if invoice_number:
@@ -2386,6 +2429,22 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     if is_credit_note:
         debug_info.append(
             f"Detected credit note (negative amount: {total_amount}), will convert amounts to positive"
+        )
+
+    # Set payable account based on eBoekhouden ledgerID (proper SSoT approach)
+    ledger_id = mutation_detail.get("ledgerId")
+    if ledger_id:
+        account_mapping = _resolve_account_mapping(ledger_id, debug_info)
+        if account_mapping and account_mapping.get("erpnext_account"):
+            pi.credit_to = account_mapping["erpnext_account"]
+            debug_info.append(
+                f"Set payable account from ledger mapping: {account_mapping['erpnext_account']}"
+            )
+        else:
+            debug_info.append(f"WARNING: No account mapping found for ledger ID {ledger_id}")
+    else:
+        debug_info.append(
+            "WARNING: No ledgerID found in mutation data, ERPNext will use default payable account selection"
         )
 
     # Custom tracking fields

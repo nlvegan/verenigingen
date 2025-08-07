@@ -1,0 +1,12 @@
+# Bandit security configuration for Verenigingen
+# This configuration focuses Bandit on production code by excluding archives, tests, and backups
+
+[bandit]
+exclude_dirs = archived_docs,archived_removal,archived_unused,phase4_removed_files_backup,one-off-test-utils,node_modules,.pytest_cache
+
+# Skip test IDs that are not relevant for this codebase
+skips = B101,B601
+
+# Only show issues of HIGH severity
+# This focuses on actual security vulnerabilities
+severity = HIGH

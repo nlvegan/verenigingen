@@ -305,7 +305,7 @@ class AddressFingerprintCollisionHandler:
         # Fallback to timestamp-based resolution if counter exhausted
         import time
 
-        timestamp_hash = hashlib.md5(str(time.time()).encode()).hexdigest()[:2]
+        timestamp_hash = hashlib.md5(str(time.time()).encode(), usedforsecurity=False).hexdigest()[:2]
         fallback_fingerprint = f"{base_fingerprint[:-2]}{timestamp_hash}"
 
         frappe.log_error(

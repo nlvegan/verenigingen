@@ -66,7 +66,7 @@ FILES_TO_CONSOLIDATE = {
 # Files that are candidates for major refactoring - Phase 3 (Higher Risk)
 MAJOR_REFACTOR_CANDIDATES = [
     "utils/eboekhouden_rest_full_migration.py",  # Main monolithic file
-    "utils/eboekhouden_unified_processor.py",  # Alternative implementation
+    # "utils/eboekhouden_unified_processor.py",  # Already moved to archived_unused/ due to SSoT violations
 ]
 
 

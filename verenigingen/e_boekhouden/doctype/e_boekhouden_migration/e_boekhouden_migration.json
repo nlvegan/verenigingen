@@ -29,7 +29,6 @@
   "dry_run",
   "clear_existing_accounts",
   "enhanced_migration_section",
-  "use_enhanced_migration",
   "skip_existing",
   "batch_size",
   "column_break_enhanced",
@@ -166,14 +165,7 @@
    "collapsible": 1,
    "fieldname": "enhanced_migration_section",
    "fieldtype": "Section Break",
-   "label": "Enhanced Migration Options"
-  },
-  {
-   "default": 1,
-   "fieldname": "use_enhanced_migration",
-   "fieldtype": "Check",
-   "label": "Use Enhanced Migration",
-   "description": "Enable all migration improvements including error recovery and performance optimization"
+   "label": "Migration Options"
   },
   {
    "default": 1,

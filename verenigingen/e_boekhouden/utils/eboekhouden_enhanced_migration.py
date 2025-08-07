@@ -20,9 +20,9 @@ Enterprise Features:
 
 Architecture Highlights:
     The framework follows a modular architecture where each enhancement component
-    is independently testable and configurable. It supports both REST and SOAP
-    API integration (with REST preferred for large datasets) and provides
-    intelligent fallback mechanisms for various failure scenarios.
+    is independently testable and configurable. It uses REST API exclusively
+    for comprehensive transaction processing and provides intelligent fallback
+    mechanisms for various failure scenarios.
 
 Migration Safety:
     All operations are wrapped in atomic transactions with automatic rollback
@@ -297,314 +297,9 @@ class EnhancedEBoekhoudenMigration:
         self.audit_trail.log_event("pre_validation_completed", validation_result)
         return validation_result
 
-    def _process_with_chunking(self):
-        """Process data using date range chunking"""
-        from .eboekhouden_soap_api import EBoekhoudenSOAPAPI
-
-        api = EBoekhoudenSOAPAPI(self.settings)
-
-        def fetch_chunk(from_date, to_date):
-            """Fetch data for a specific date range"""
-            # This would call the actual API with date filters
-            return api.get_mutations(from_date=from_date, to_date=to_date)
-
-        def process_chunk(data):
-            """Process a chunk of data"""
-            if self.dry_run:
-                return self._process_chunk_dry_run(data)
-            else:
-                return self._process_chunk_real(data)
-
-        # Use date chunking
-        chunker = DateRangeChunker(api_limit=500)
-
-        # First estimate optimal strategy
-        strategy = chunker.estimate_optimal_strategy(
-            self.migration_doc.date_from, self.migration_doc.date_to, fetch_chunk
-        )
-
-        self.audit_trail.log_event("chunking_strategy", strategy)
-
-        # Process with adaptive chunking
-        result = chunker.adaptive_chunk_processing(
-            self.migration_doc.date_from, self.migration_doc.date_to, fetch_chunk, process_chunk
-        )
-
-        return result
-
-    def _process_single_batch(self):
-        """Process data without chunking (legacy mode)"""
-        from .eboekhouden_soap_api import EBoekhoudenSOAPAPI
-
-        api = EBoekhoudenSOAPAPI(self.settings)
-
-        # Fetch all data at once
-        result = api.get_mutations()
-
-        if not result["success"]:
-            return {
-                "success": False,
-                "error": "Failed to fetch mutations: {result.get('error', 'Unknown error')}",
-            }
-
-        mutations = result.get("mutations", [])
-
-        if self.dry_run:
-            return self._process_chunk_dry_run({"mutations": mutations})
-        else:
-            return self._process_chunk_real({"mutations": mutations})
-
-    def _process_chunk_real(self, data):
-        """Process a chunk of data (real mode)"""
-        mutations = data.get("mutations", [])
-
-        # Use batch processor for performance
-        batch_processor = BatchProcessor(batch_size=self.batch_size, parallel=True, max_workers=4)
-
-        stats = {"processed": 0, "created": 0, "updated": 0, "skipped": 0, "errors": []}
-
-        # Process mutations in batches
-        for batch in batch_processor.process_in_batches(mutations):
-            with self.transaction_manager.atomic_operation(
-                "process_batch_{batch['batch_number']}"
-            ) as checkpoint:
-                batch_stats = self._process_mutation_batch(batch["items"], checkpoint)
-
-                # Update stats
-                stats["processed"] += batch_stats["processed"]
-                stats["created"] += batch_stats["created"]
-                stats["updated"] += batch_stats["updated"]
-                stats["skipped"] += batch_stats["skipped"]
-                stats["errors"].extend(batch_stats["errors"])
-
-                # Log batch completion
-                self.audit_trail.log_batch_processing(
-                    {
-                        "batch_number": batch["batch_number"],
-                        "batch_size": len(batch["items"]),
-                        "records_processed": batch_stats["processed"],
-                        "errors": len(batch_stats["errors"]),
-                        "duration": batch.get("duration"),
-                    }
-                )
-
-        return stats
-
-    def _process_chunk_dry_run(self, data):
-        """Process a chunk of data (dry-run mode)"""
-        mutations = data.get("mutations", [])
-
-        stats = {
-            "processed": 0,
-            "would_create": 0,
-            "would_update": 0,
-            "would_skip": 0,
-            "validation_errors": [],
-        }
-
-        for mutation in mutations:
-            # Determine what would be created
-            mutation_type = mutation.get("Soort", "")
-
-            # Simulate processing
-            if "Factuur" in mutation_type:
-                doctype = "Sales Invoice" if "klant" in mutation_type.lower() else "Purchase Invoice"
-                simulated_data = self._build_invoice_data(mutation)
-
-                result = self.dry_run_simulator.simulate_record_creation(doctype, simulated_data)
-
-                if result["success"]:
-                    stats["would_create"] += 1
-                else:
-                    stats["validation_errors"].append(result["errors"])
-
-            stats["processed"] += 1
-
-        return stats
-
-    def _process_mutation_batch(self, mutations, checkpoint):
-        """
-        Process a batch of eBoekhouden mutations with intelligent type classification.
-
-        Groups mutations by normalized type and processes each group using specialized
-        handlers. Maintains detailed statistics and error tracking for audit purposes.
-
-        Args:
-            mutations (list): List of eBoekhouden mutation records
-            checkpoint (dict): Transaction checkpoint for rollback capability
-
-        Returns:
-            dict: Batch processing statistics containing:
-                - processed (int): Total mutations processed
-                - created (int): New records created
-                - updated (int): Existing records updated
-                - skipped (int): Records skipped (duplicates, validation failures)
-                - errors (list): Detailed error information
-
-        Processing Logic:
-            1. Normalize mutation types using intelligent classification
-            2. Group mutations by type for specialized processing
-            3. Process each group with appropriate handler
-            4. Aggregate statistics and error information
-            5. Log detailed audit information for each batch
-        """
-        batch_stats = {"processed": 0, "created": 0, "updated": 0, "skipped": 0, "errors": []}
-
-        from .normalize_mutation_types import normalize_mutation_type
-
-        # Group mutations by type
-        mutations_by_type = defaultdict(list)
-        for mut in mutations:
-            soort = mut.get("Soort", "Unknown")
-            normalized_soort = normalize_mutation_type(soort)
-            mutations_by_type[normalized_soort].append(mut)
-
-        # Process each type
-        for mutation_type, type_mutations in mutations_by_type.items():
-            try:
-                if "sales_invoice" in mutation_type:
-                    result = self._process_sales_invoices(type_mutations, checkpoint)
-                elif "purchase_invoice" in mutation_type:
-                    result = self._process_purchase_invoices(type_mutations, checkpoint)
-                elif "payment" in mutation_type:
-                    result = self._process_payments(type_mutations, checkpoint)
-                elif "journal" in mutation_type:
-                    result = self._process_journal_entries(type_mutations, checkpoint)
-                else:
-                    result = {"processed": len(type_mutations), "skipped": len(type_mutations)}
-
-                # Update batch stats
-                for key in ["processed", "created", "updated", "skipped"]:
-                    batch_stats[key] += result.get(key, 0)
-                batch_stats["errors"].extend(result.get("errors", []))
-
-            except Exception as e:
-                self.audit_trail.log_event(
-                    "batch_processing_error",
-                    {"mutation_type": mutation_type, "error": str(e), "count": len(type_mutations)},
-                    severity="error",
-                )
-
-                batch_stats["errors"].append(
-                    {"type": mutation_type, "error": str(e), "count": len(type_mutations)}
-                )
-
-        return batch_stats
-
-    def _process_sales_invoices(self, mutations, checkpoint):
-        """Process sales invoice mutations"""
-        stats = {"processed": 0, "created": 0, "updated": 0, "skipped": 0, "errors": []}
-
-        for mutation in mutations:
-            try:
-                # Check for duplicates
-                duplicate_check = self.duplicate_detector.check_duplicate("Sales Invoice", mutation)
-
-                if duplicate_check["is_duplicate"] and self.skip_existing:
-                    self.audit_trail.log_record_skipped(
-                        "Sales Invoice", mutation.get("MutatieNr"), "duplicate_detected"
-                    )
-                    stats["skipped"] += 1
-                    continue
-
-                # Build invoice data
-                invoice_data = self._build_invoice_data(mutation)
-
-                # Pre-validate
-                validation_result = self.pre_validator.validate_record("Sales Invoice", invoice_data)
-                if validation_result["status"] == "failed":
-                    self.audit_trail.log_validation_error(
-                        "Sales Invoice", invoice_data, validation_result["errors"]
-                    )
-                    stats["errors"].append(
-                        {"mutation": mutation.get("MutatieNr"), "errors": validation_result["errors"]}
-                    )
-                    continue
-
-                # Create with retry mechanism
-                @with_retry(max_attempts=3)
-                def create_invoice():
-                    doc = frappe.get_doc(invoice_data)
-                    doc.insert(ignore_permissions=True)
-                    doc.submit()
-                    return doc.name
-
-                invoice_name = create_invoice()
-
-                # Track creation for rollback
-                self.transaction_manager.track_record_creation(
-                    checkpoint["id"], "Sales Invoice", invoice_name, invoice_data
-                )
-
-                self.audit_trail.log_record_creation("Sales Invoice", invoice_name, invoice_data)
-                stats["created"] += 1
-
-            except Exception as e:
-                self.error_recovery.log_error(str(e), mutation)
-                stats["errors"].append({"mutation": mutation.get("MutatieNr"), "error": str(e)})
-
-            stats["processed"] += 1
-
-        return stats
-
-    def _build_invoice_data(self, mutation):
-        """Build invoice data from mutation"""
-        # This is a simplified version - the actual implementation
-        # would use the full logic from the original migration
-
-        is_sales = "klant" in mutation.get("Soort", "").lower()
-
-        data = {
-            "doctype": "Sales Invoice" if is_sales else "Purchase Invoice",
-            "company": self.company,
-            "posting_date": mutation.get("Datum"),
-            "due_date": mutation.get("Datum"),
-            "cost_center": self.cost_center,
-            "eboekhouden_mutation_nr": mutation.get("MutatieNr"),
-            "items": [],
-        }
-
-        # Add customer/supplier
-        if is_sales:
-            customer_name = get_meaningful_customer_name(mutation, self.migration_doc.relations_data)
-            data["customer"] = customer_name
-            data["debit_to"] = self._get_receivable_account()
-        else:
-            supplier_name = get_meaningful_supplier_name(mutation, self.migration_doc.relations_data)
-            data["supplier"] = supplier_name
-            data["credit_to"] = self._get_payable_account()
-
-        # Add items (simplified)
-        data["items"].append(
-            {
-                "item_code": self._get_standard_item(),
-                "description": mutation.get("Omschrijving", "")[:140],
-                "qty": 1,
-                "rate": abs(float(mutation.get("Bedrag", 0) or 0)),
-            }
-        )
-
-        return data
-
-    def _get_receivable_account(self):
-        """Get receivable account from explicit mappings"""
-        if "receivable_account" in self.payment_mappings:
-            return self.payment_mappings["receivable_account"]
-
-        frappe.throw(
-            "Receivable account must be explicitly configured in payment mappings. "
-            "Implicit account lookup by type has been disabled for data safety."
-        )
-
-    def _get_payable_account(self):
-        """Get payable account from explicit mappings"""
-        if "payable_account" in self.payment_mappings:
-            return self.payment_mappings["payable_account"]
-
-        frappe.throw(
-            "Payable account must be explicitly configured in payment mappings. "
-            "Implicit account lookup by type has been disabled for data safety."
-        )
+    # Removed _get_receivable_account and _get_payable_account methods
+    # These are no longer needed since we now use proper ledgerID mapping
+    # from the main migration file which follows SSoT principles
 
     def _get_standard_item(self):
         """Get standard item from explicit configuration"""
@@ -622,29 +317,6 @@ class EnhancedEBoekhoudenMigration:
             "Please configure 'standaard_item' field for migration processing. "
             "Implicit item fallbacks have been disabled for data safety."
         )
-
-    def _process_purchase_invoices(self, mutations, checkpoint):
-        """Process purchase invoice mutations"""
-        # Similar to _process_sales_invoices but for purchases
-        return self._process_sales_invoices(mutations, checkpoint)
-
-    def _process_payments(self, mutations, checkpoint):
-        """Process payment mutations"""
-        stats = {"processed": 0, "created": 0, "updated": 0, "skipped": 0, "errors": []}
-
-        # Implementation would be similar to invoices
-        # Using payment entry creation logic
-
-        return stats
-
-    def _process_journal_entries(self, mutations, checkpoint):
-        """Process journal entry mutations"""
-        stats = {"processed": 0, "created": 0, "updated": 0, "skipped": 0, "errors": []}
-
-        # Implementation would be similar to invoices
-        # Using journal entry creation logic
-
-        return stats
 
     def _attempt_rollback(self):
         """Attempt to rollback on failure"""
@@ -667,38 +339,33 @@ class EnhancedEBoekhoudenMigration:
 @frappe.whitelist()
 def execute_enhanced_migration(migration_name):
     """
-    Execute enhanced migration with enterprise features or fall back to REST API.
+    Execute eBoekhouden migration with comprehensive enterprise features.
 
-    This function serves as the primary entry point for eBoekhouden migration operations.
-    It automatically determines whether to use the enhanced migration framework or
-    fall back to the simpler REST API migration based on configuration.
+    This is the single entry point for all eBoekhouden migration operations,
+    providing enterprise-grade features including audit trails, error recovery,
+    progress tracking, and data integrity verification.
 
     Args:
         migration_name (str): Name of the E-Boekhouden Migration document
 
     Returns:
-        dict: Migration result from the selected migration method
+        dict: Comprehensive migration result with enterprise features
 
-    Migration Selection Logic:
-        - Enhanced migration: Full enterprise features with audit trails
-        - REST API migration: Simpler approach for basic migrations
-        - SOAP API is not used due to 500-record limitation
+    Enterprise Features:
+        - Pre-migration validation and backup creation
+        - Real-time progress tracking and audit trails
+        - Automatic error recovery and rollback capabilities
+        - Post-migration data integrity verification
+        - Comprehensive reporting and dry-run simulation
 
     Note:
         This function is exposed via Frappe's whitelist for API access.
-        Enhanced migration is preferred for production environments.
+        All migrations now use the enhanced framework for consistency.
     """
     migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     settings = frappe.get_single("E-Boekhouden Settings")
 
-    # Check if enhanced mode is enabled
-    if not migration_doc.get("use_enhanced_migration", True):
-        # Fall back to REST API migration (not SOAP - SOAP is limited to 500 transactions)
-        from .eboekhouden_rest_full_migration import start_full_rest_import
-
-        return start_full_rest_import(migration_name)
-
-    # Run enhanced migration
+    # Always use enhanced migration - no fallback options
     enhanced_migration = EnhancedEBoekhoudenMigration(migration_doc, settings)
     return enhanced_migration.execute_migration()
 

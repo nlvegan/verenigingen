@@ -44,14 +44,31 @@ class VersionGenerator:
     def analyze_commits_since_tag(self):
         """Analyze commits since last tag to determine version bump"""
         try:
-            # Get commits since last tag
-            result = subprocess.run(
-                ["git", "log", "--pretty=format:%s", "HEAD...$(git describe --tags --abbrev=0 2>/dev/null || echo '')"],
+            # First get the last tag safely
+            tag_result = subprocess.run(
+                ["git", "describe", "--tags", "--abbrev=0"],
                 capture_output=True,
                 text=True,
-                shell=True,
                 cwd=self.app_path
             )
+            
+            # Get commits since last tag
+            if tag_result.returncode == 0:
+                last_tag = tag_result.stdout.strip()
+                result = subprocess.run(
+                    ["git", "log", "--pretty=format:%s", f"HEAD...{last_tag}"],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.app_path
+                )
+            else:
+                # No previous tag, get all commits
+                result = subprocess.run(
+                    ["git", "log", "--pretty=format:%s"],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.app_path
+                )
             
             if result.returncode != 0:
                 # No previous tag, get all commits
@@ -95,13 +112,30 @@ class VersionGenerator:
     def get_commit_count_since_tag(self):
         """Get number of commits since last tag"""
         try:
-            result = subprocess.run(
-                ["git", "rev-list", "--count", "HEAD", "^$(git describe --tags --abbrev=0 2>/dev/null || echo '')"],
+            # First get the last tag safely
+            tag_result = subprocess.run(
+                ["git", "describe", "--tags", "--abbrev=0"],
                 capture_output=True,
                 text=True,
-                shell=True,
                 cwd=self.app_path
             )
+            
+            if tag_result.returncode == 0:
+                last_tag = tag_result.stdout.strip()
+                result = subprocess.run(
+                    ["git", "rev-list", "--count", "HEAD", f"^{last_tag}"],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.app_path
+                )
+            else:
+                # No previous tag, count all commits
+                result = subprocess.run(
+                    ["git", "rev-list", "--count", "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.app_path
+                )
             
             if result.returncode == 0:
                 return int(result.stdout.strip())

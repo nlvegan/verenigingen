@@ -233,9 +233,15 @@ class Phase4ComprehensiveValidator:
             results['tests_attempted'] += 1
             
             try:
+                # Split command properly to avoid shell=True
+                if isinstance(command, str):
+                    import shlex
+                    command_list = shlex.split(command)
+                else:
+                    command_list = command
+                    
                 result = subprocess.run(
-                    command, 
-                    shell=True, 
+                    command_list, 
                     cwd=self.app_path, 
                     capture_output=True, 
                     text=True, 

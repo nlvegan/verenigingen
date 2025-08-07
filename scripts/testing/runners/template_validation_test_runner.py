@@ -25,7 +25,14 @@ def run_command(cmd, description):
     print(f"   Command: {cmd}")
     
     try:
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, cwd=os.getcwd())
+        # Split command properly to avoid shell=True security issue
+        import shlex
+        if isinstance(cmd, str):
+            cmd_list = shlex.split(cmd)
+        else:
+            cmd_list = cmd
+            
+        result = subprocess.run(cmd_list, capture_output=True, text=True, cwd=os.getcwd())
         
         if result.returncode == 0:
             print(f"   ✅ PASSED")

@@ -878,14 +878,13 @@ def get_ledger_info_for_analysis(ledger_id):
 
 
 @frappe.whitelist()
-def compare_api_relation_data():
-    """Compare SOAP vs REST API for relation data quality"""
+def check_api_relation_data():
+    """Check REST API for relation data quality"""
     results = {
         "rest_api": {"status": "unknown", "relations": [], "error": None},
-        "soap_api": {"status": "unknown", "relations": [], "error": None},
     }
 
-    # Test REST API
+    # Test REST API (the only supported API)
     try:
         settings = frappe.get_single("E-Boekhouden Settings")
         rest_api = EBoekhoudenAPI(settings)
@@ -921,68 +920,16 @@ def compare_api_relation_data():
         results["rest_api"]["status"] = "error"
         results["rest_api"]["error"] = str(e)
 
-    # Test SOAP API
-    try:
-        from verenigingen.e_boekhouden.utils.eboekhouden_soap_api import EBoekhoudenSOAPAPI
-
-        soap_api = EBoekhoudenSOAPAPI(settings)
-
-        # Try to get relations via SOAP
-        soap_result = soap_api.get_relaties()
-        if soap_result["success"]:
-            relations = soap_result.get("relations", [])
-
-            results["soap_api"]["status"] = "success"
-            results["soap_api"]["total_count"] = len(relations)
-            results["soap_api"]["relations"] = relations[:3]  # First 3 for comparison
-
-            # Analyze data quality - SOAP uses different field names
-            meaningful_names = 0
-            for relation in relations:
-                # Common SOAP fields: Bedrijf, Contactpersoon, etc.
-                company = relation.get("Bedrijf", "").strip()
-                contact = relation.get("Contactpersoon", "").strip()
-                name = relation.get("Naam", "").strip()
-                if name or company or contact:
-                    meaningful_names += 1
-
-            results["soap_api"]["meaningful_names"] = meaningful_names
-            results["soap_api"]["meaningful_percentage"] = (
-                (meaningful_names / len(relations) * 100) if relations else 0
-            )
-        else:
-            results["soap_api"]["status"] = "failed"
-            results["soap_api"]["error"] = soap_result.get("error")
-
-    except Exception as e:
-        results["soap_api"]["status"] = "error"
-        results["soap_api"]["error"] = str(e)
-
-    # Generate comparison summary
+    # Generate summary
     summary = {
         "rest_api_working": results["rest_api"]["status"] == "success",
-        "soap_api_working": results["soap_api"]["status"] == "success",
         "recommendation": "Unknown",
     }
 
-    if results["rest_api"]["status"] == "success" and results["soap_api"]["status"] == "success":
-        rest_percentage = results["rest_api"]["meaningful_percentage"]
-        soap_percentage = results["soap_api"]["meaningful_percentage"]
-
-        if soap_percentage > rest_percentage + 10:  # 10% threshold
-            summary["recommendation"] = "SOAP API has significantly better data quality"
-        elif rest_percentage > soap_percentage + 10:
-            summary["recommendation"] = "REST API has significantly better data quality"
-        else:
-            summary[
-                "recommendation"
-            ] = "Both APIs have similar data quality, prefer REST API (not deprecated)"
-    elif results["soap_api"]["status"] == "success":
-        summary["recommendation"] = "Only SOAP API works, but it's deprecated"
-    elif results["rest_api"]["status"] == "success":
-        summary["recommendation"] = "Only REST API works (preferred)"
+    if results["rest_api"]["status"] == "success":
+        summary["recommendation"] = "REST API working with good data quality"
     else:
-        summary["recommendation"] = "Neither API is working properly"
+        summary["recommendation"] = "REST API connection failed - check credentials"
 
     results["summary"] = summary
     return results

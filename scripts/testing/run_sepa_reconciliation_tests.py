@@ -17,8 +17,15 @@ sys.path.insert(0, "/home/frappe/frappe-bench/apps/verenigingen")
 def run_command(cmd, capture_output=True):
     """Run shell command and return result"""
     try:
+        # Split command properly to avoid shell=True security issue
+        import shlex
+        if isinstance(cmd, str):
+            cmd_list = shlex.split(cmd)
+        else:
+            cmd_list = cmd
+            
         result = subprocess.run(
-            cmd, shell=True, capture_output=capture_output, text=True, cwd="/home/frappe/frappe-bench"
+            cmd_list, capture_output=capture_output, text=True, cwd="/home/frappe/frappe-bench"
         )
         return result.returncode == 0, result.stdout, result.stderr
     except Exception as e:

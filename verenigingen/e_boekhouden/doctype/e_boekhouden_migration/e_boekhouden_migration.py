@@ -748,67 +748,43 @@ class EBoekhoudenMigration(Document):
         The SOAP API was limited to 500 transactions and is considered deprecated.
         """
         try:
-            # Always use REST API - SOAP is deprecated
-            # Check if we should use enhanced migration
-            use_enhanced = getattr(self, "use_enhanced_migration", True)
+            # Always use enhanced migration - single unified approach
+            from verenigingen.e_boekhouden.utils.eboekhouden_enhanced_migration import (
+                execute_enhanced_migration,
+            )
 
-            if use_enhanced:
-                # Use the enhanced migration with all improvements
-                from verenigingen.e_boekhouden.utils.eboekhouden_enhanced_migration import (
-                    execute_enhanced_migration,
-                )
+            result = execute_enhanced_migration(self.name)
 
-                result = execute_enhanced_migration(self.name)
+            # Extract stats from enhanced migration result
+            if result.get("success", False) or "total_processed" in result:
+                # Enhanced migration returns different structure
+                stats = {
+                    "success": True,
+                    "total_mutations": result.get("total_processed", 0),
+                    "invoices_created": result.get("created", 0),
+                    "payments_processed": 0,  # Enhanced migration combines these
+                    "journal_entries_created": 0,
+                    "errors": result.get("errors", []),
+                }
 
-                # Extract stats from enhanced migration result
-                if result.get("success", False) or "total_processed" in result:
-                    # Enhanced migration returns different structure
-                    stats = {
-                        "success": True,
-                        "total_mutations": result.get("total_processed", 0),
-                        "invoices_created": result.get("created", 0),
-                        "payments_processed": 0,  # Enhanced migration combines these
-                        "journal_entries_created": 0,
-                        "errors": result.get("errors", []),
-                    }
+                # If we have audit summary, extract more detailed stats
+                if "audit_summary" in result:
+                    audit = result["audit_summary"]
+                    if "overall_statistics" in audit:
+                        overall = audit["overall_statistics"]
+                        stats["invoices_created"] = overall.get("records_created", {}).get(
+                            "Sales Invoice", 0
+                        ) + overall.get("records_created", {}).get("Purchase Invoice", 0)
+                        stats["payments_processed"] = overall.get("records_created", {}).get(
+                            "Payment Entry", 0
+                        )
+                        stats["journal_entries_created"] = overall.get("records_created", {}).get(
+                            "Journal Entry", 0
+                        )
 
-                    # If we have audit summary, extract more detailed stats
-                    if "audit_summary" in result:
-                        audit = result["audit_summary"]
-                        if "overall_statistics" in audit:
-                            overall = audit["overall_statistics"]
-                            stats["invoices_created"] = overall.get("records_created", {}).get(
-                                "Sales Invoice", 0
-                            ) + overall.get("records_created", {}).get("Purchase Invoice", 0)
-                            stats["payments_processed"] = overall.get("records_created", {}).get(
-                                "Payment Entry", 0
-                            )
-                            stats["journal_entries_created"] = overall.get("records_created", {}).get(
-                                "Journal Entry", 0
-                            )
-
-                    result = {"success": True, "stats": stats}
-                else:
-                    result = {"success": False, "error": result.get("error", "Migration failed")}
+                result = {"success": True, "stats": stats}
             else:
-                # DEPRECATED: SOAP API is no longer used - always use REST API
-                # The old use_soap_api flag is ignored
-
-                # Use REST API migration
-                from verenigingen.e_boekhouden.utils.eboekhouden_rest_full_migration import (
-                    start_full_rest_import,
-                )
-
-                # Start the REST import synchronously for this context
-                result = start_full_rest_import(self.name)
-
-                # If REST import returns a different structure, adapt it
-                if isinstance(result, dict) and "success" in result:
-                    # Already in correct format
-                    pass
-                else:
-                    # Wrap in expected format
-                    result = {"success": True, "stats": result if isinstance(result, dict) else {}}
+                result = {"success": False, "error": result.get("error", "Migration failed")}
 
             # Process result regardless of which method was used
             if result.get("success"):
