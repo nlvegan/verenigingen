@@ -115,6 +115,11 @@ demo_iban = generate_test_iban("DEMO")  # NL93DEMO0123456789
 - **Direct Debit Batch**: SEPA file generation and processing
 - **Payment Entry**: ERPNext integration for payment tracking
 
+#### eBoekhouden Integration:
+- **E-Boekhouden Settings**: Configuration management for API connections and mapping
+- **EBoekhouden Cost Center Mapping**: Child table for intelligent cost center configuration
+- **E-Boekhouden Account Mapping**: Chart of accounts synchronization and mapping
+
 #### Organizational Structure:
 - **Chapter**: Geographic organization with postal code validation
 - **Team**: Project-based volunteer organization
@@ -150,6 +155,52 @@ Comprehensive accounting system integration with REST API architecture:
 - **Zero Amount Handling**: Imports ALL transactions including zero-amount invoices
 - **Party Management**: Automatic customer/supplier creation with proper relationships
 - **Smart Document Naming**: Meaningful names like `EBH-Payment-1234`, `EBH-Memoriaal-5678`
+
+#### Enhanced Cost Center Integration (New):
+**Intelligent Cost Center Creation from eBoekhouden Account Groups**
+
+The system now provides intelligent cost center mapping that converts eBoekhouden rekeninggroepen (account groups) into ERPNext cost centers for advanced departmental and project tracking:
+
+**Key Features:**
+- **Backward Compatible**: Preserves existing text-based account group input workflow
+- **Intelligent Analysis**: Dutch accounting logic automatically identifies suitable cost centers
+- **Smart Suggestions**: Analyzes account codes and names using RGS (Reference Code System) patterns
+- **User Control**: Toggle suggestions on/off with clear reasoning for each recommendation
+
+**Business Logic:**
+```python
+# Expense groups (codes 5*, 6*) - Personnel costs, other expenses
+if code.startswith(('5', '6')):
+    if 'personeel' or 'salaris' or 'kosten' in name:
+        → Suggest cost center (good for cost tracking)
+
+# Revenue groups (codes 3*) - Departmental income analysis
+if code.startswith('3'):
+    if 'opbrengst' or 'omzet' or 'verkoop' in name:
+        → Suggest cost center (departmental income tracking)
+
+# Operational keywords
+if 'afdeling' or 'team' or 'project' in name:
+    → Suggest cost center (operational tracking)
+```
+
+**DocType Architecture:**
+- **EBoekhouden Cost Center Mapping**: Child table with configurable mappings
+- **Fields**: `group_code`, `group_name`, `create_cost_center`, `cost_center_name`, `is_group`, `suggestion_reason`
+- **Workflow**: Parse → Analyze → Suggest → Configure → Create (Phase 2)
+
+**User Experience:**
+1. **Input**: Users continue pasting account groups exactly as before
+2. **Parse**: Click "Parse Groups & Configure Cost Centers" button
+3. **Review**: Intelligent suggestions with toggle controls and reasoning
+4. **Customize**: Edit cost center names and hierarchies as needed
+5. **Deploy**: Future enhancement will create actual ERPNext cost centers
+
+**Technical Implementation:**
+- **Parser**: Text-to-structured data with robust error handling
+- **Analyzer**: Dutch accounting intelligence using keyword matching
+- **UI Integration**: JavaScript handlers with real-time feedback
+- **API Design**: RESTful endpoints with comprehensive validation
 
 
 ### ERPNext Integration
@@ -201,6 +252,37 @@ Modern JavaScript with ES6+ features:
 - **IBAN Validation**: Client-side validation with MOD-97 checksum
 - **SEPA Utilities**: Mandate creation and BIC derivation
 - **Form Enhancements**: Dynamic field validation and UI improvements
+
+#### Advanced Form Controllers:
+**E-Boekhouden Settings Controller** (`e_boekhouden_settings.js`):
+- **Real-time API Testing**: Connection validation with status feedback
+- **Chart of Accounts Preview**: Live data preview with formatted display
+- **Cost Center Parsing**: Intelligent account group analysis with UI integration
+- **Dynamic Form Updates**: Child table population and section visibility control
+
+```javascript
+// Cost center parsing with UI feedback
+parse_groups_button(frm) {
+    frappe.call({
+        method: 'parse_groups_and_suggest_cost_centers',
+        args: {
+            group_mappings_text: frm.doc.account_group_mappings,
+            company: frm.doc.default_company
+        },
+        callback(r) {
+            if (r.message.success) {
+                // Populate child table with intelligent suggestions
+                r.message.suggestions.forEach(function(suggestion) {
+                    let row = frm.add_child('cost_center_mappings');
+                    row.create_cost_center = suggestion.create_cost_center;
+                    row.suggestion_reason = suggestion.reason;
+                });
+                frm.refresh_field('cost_center_mappings');
+            }
+        }
+    });
+}
+```
 
 ## Development Best Practices
 
@@ -309,6 +391,24 @@ python test_file.py  # ❌ Fails with "ModuleNotFoundError: No module named 'fra
 - **Mobile Apps**: Native mobile applications for members and volunteers
 - **API Extensions**: Extended API capabilities for third-party integrations
 - **Multi-Language Support**: Internationalization for non-Dutch organizations
+
+### eBoekhouden Integration Roadmap:
+**Phase 2: Cost Center Creation Engine** ✅ **COMPLETE**
+- ✅ **Automatic Cost Center Creation**: Convert configured mappings into actual ERPNext cost centers
+- ✅ **Hierarchical Structure**: Support parent-child cost center relationships
+- ✅ **Validation Engine**: Prevent duplicate creation and naming conflicts
+- ✅ **Migration Support**: Handle existing cost centers and merge intelligently
+- ✅ **Preview Functionality**: Safe preview before actual creation
+- ✅ **Batch Processing**: Efficient handling of multiple cost centers
+- ✅ **Comprehensive Reporting**: Detailed success/skip/failure reporting with UI integration
+
+**Phase 3: Advanced Cost Center Features** 🔄 **PLANNED**
+- **Budget Integration**: Link cost centers to ERPNext budgeting system
+- **Reporting Enhancement**: Cost center-based financial reports and dashboards
+- **Multi-Company Support**: Cost center mapping across multiple ERPNext companies
+- **API Extensions**: RESTful endpoints for cost center management and reporting
+- **Advanced Analytics**: Cost center performance tracking and KPI dashboards
+- **Automated Reconciliation**: Sync cost center usage with eBoekhouden transactions
 
 ### Technical Roadmap:
 - **Microservices Architecture**: Gradual migration to microservices

@@ -48,9 +48,12 @@ def handle_expense_claim_updated(event_name=None, event_data=None):
 
 def handle_expense_claim_approved(event_name=None, event_data=None):
     """
-    Handle expense claim approval - add to member expense history.
+    Handle expense claim approval - specialized handler for approval state changes.
 
-    This is called when an expense claim approval_status changes to 'Approved'.
+    This handler focuses on approval-specific actions that the general
+    update handler doesn't cover. It avoids duplicate history updates
+    by only handling rejected claims (removal) since approved claims
+    are already handled by handle_expense_claim_updated.
     """
     if not event_data:
         return
@@ -68,16 +71,8 @@ def handle_expense_claim_approved(event_name=None, event_data=None):
         # Get member document
         member_doc = frappe.get_doc("Member", member)
 
-        if action == "approved":
-            # Add expense to history when approved
-            if hasattr(member_doc, "add_expense_to_history"):
-                member_doc.add_expense_to_history(expense_claim)
-
-            frappe.logger("expense_history").info(
-                f"Added approved expense claim {expense_claim} to history for member {member} (volunteer {volunteer})"
-            )
-
-        elif action == "rejected":
+        if action == "rejected":
+            # Only handle rejected claims here - approved claims are handled by general update handler
             # Remove expense from history if rejected (in case it was added before)
             if hasattr(member_doc, "remove_expense_from_history"):
                 member_doc.remove_expense_from_history(expense_claim)
@@ -85,10 +80,16 @@ def handle_expense_claim_approved(event_name=None, event_data=None):
             frappe.logger("expense_history").info(
                 f"Removed rejected expense claim {expense_claim} from history for member {member}"
             )
+        else:
+            # For approved claims, let handle_expense_claim_updated handle the history update
+            # to avoid duplicate entries. Just log that we're deferring to the general handler.
+            frappe.logger("expense_history").debug(
+                f"Deferring approved expense claim {expense_claim} history update to general handler for member {member}"
+            )
 
     except Exception as e:
         frappe.log_error(
-            f"Failed to handle expense claim {expense_claim} for member {member}: {str(e)}",
+            f"Failed to handle expense claim approval {expense_claim} for member {member}: {str(e)}",
             "Expense History Update Error",
         )
 

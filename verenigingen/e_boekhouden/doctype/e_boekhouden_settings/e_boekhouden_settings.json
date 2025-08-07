@@ -26,7 +26,10 @@
   "default_currency",
   "fiscal_year_start_month",
   "account_groups_section",
-  "account_group_mappings"
+  "account_group_mappings",
+  "cost_center_section",
+  "parse_groups_button",
+  "cost_center_mappings"
  ],
  "fields": [
   {
@@ -154,6 +157,27 @@
    "fieldtype": "Long Text",
    "label": "Account Group Mappings",
    "description": "Paste account group codes and names in format: 'code <space> name' (one per line). Example:\n001 Vaste activa\n002 Liquide middelen\n055 Opbrengsten\n056 Personeelskosten"
+  },
+  {
+   "fieldname": "cost_center_section",
+   "fieldtype": "Section Break",
+   "label": "Cost Center Configuration",
+   "description": "Configure which account groups should be created as cost centers in ERPNext",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "parse_groups_button",
+   "fieldtype": "Button",
+   "label": "Parse Groups & Configure Cost Centers",
+   "description": "Click to analyze the account groups above and configure cost center creation"
+  },
+  {
+   "fieldname": "cost_center_mappings",
+   "fieldtype": "Table",
+   "label": "Cost Center Mappings",
+   "options": "EBoekhouden Cost Center Mapping",
+   "description": "Configure which account groups should become cost centers",
+   "read_only": 1
   }
  ],
  "index_web_pages_for_search": 1,

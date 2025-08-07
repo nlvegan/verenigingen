@@ -756,18 +756,23 @@ class EBoekhoudenMigration(Document):
             result = execute_enhanced_migration(self.name)
 
             # Extract stats from enhanced migration result
-            if result.get("success", False) or "total_processed" in result:
-                # Enhanced migration returns different structure
-                stats = {
-                    "success": True,
-                    "total_mutations": result.get("total_processed", 0),
-                    "invoices_created": result.get("created", 0),
-                    "payments_processed": 0,  # Enhanced migration combines these
-                    "journal_entries_created": 0,
-                    "errors": result.get("errors", []),
-                }
+            if result.get("success", False):
+                # Enhanced migration returns stats from start_full_rest_import
+                if "stats" in result:
+                    # Direct stats from start_full_rest_import
+                    stats = result["stats"].copy()
+                else:
+                    # Fallback structure (backwards compatibility)
+                    stats = {
+                        "success": True,
+                        "total_mutations": result.get("total_processed", 0),
+                        "invoices_created": result.get("created", 0),
+                        "payments_processed": 0,
+                        "journal_entries_created": 0,
+                        "errors": result.get("errors", []),
+                    }
 
-                # If we have audit summary, extract more detailed stats
+                # If we have audit summary, extract more detailed stats to override
                 if "audit_summary" in result:
                     audit = result["audit_summary"]
                     if "overall_statistics" in audit:
@@ -3471,3 +3476,163 @@ def run_migration_background(migration_name):
         )
         frappe.db.commit()
         return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def get_account_type_recommendations(company, show_all=False):
+    """Get recommended account types for E-Boekhouden imported accounts
+
+    Args:
+        company: Company name
+        show_all: If True, show all accounts (not just those without types)
+    """
+    try:
+        # Build the query based on whether we want all accounts or just untyped ones
+        if show_all:
+            # Get ALL imported accounts with parent information
+            accounts = frappe.db.sql(
+                """
+                SELECT
+                    a.name as account, a.account_name, a.eboekhouden_grootboek_nummer as account_code,
+                    a.account_type as current_type, a.is_group, a.parent_account, a.root_type,
+                    p.eboekhouden_grootboek_nummer as parent_group_number
+                FROM `tabAccount` a
+                LEFT JOIN `tabAccount` p ON a.parent_account = p.name
+                WHERE a.company = %s
+                AND a.eboekhouden_grootboek_nummer IS NOT NULL
+                AND a.eboekhouden_grootboek_nummer != ''
+                ORDER BY a.eboekhouden_grootboek_nummer
+            """,
+                company,
+                as_dict=True,
+            )
+        else:
+            # Get only accounts without proper types set
+            accounts = frappe.db.sql(
+                """
+                SELECT
+                    a.name as account, a.account_name, a.eboekhouden_grootboek_nummer as account_code,
+                    a.account_type as current_type, a.is_group, a.parent_account, a.root_type,
+                    p.eboekhouden_grootboek_nummer as parent_group_number
+                FROM `tabAccount` a
+                LEFT JOIN `tabAccount` p ON a.parent_account = p.name
+                WHERE a.company = %s
+                AND a.eboekhouden_grootboek_nummer IS NOT NULL
+                AND a.eboekhouden_grootboek_nummer != ''
+                AND (a.account_type IS NULL OR a.account_type = '' OR a.account_type = 'Not Set')
+                ORDER BY a.eboekhouden_grootboek_nummer
+            """,
+                company,
+                as_dict=True,
+            )
+
+        # Add recommended types for each account
+        recommendations = []
+        for account in accounts:
+            if not account.account_code:
+                continue
+
+            recommended_type = get_recommended_account_type(account.account_code, account.account_name)
+
+            recommendations.append(
+                {
+                    "account": account.account,
+                    "account_code": account.account_code,
+                    "account_name": account.account_name,
+                    "current_type": account.current_type or "Not Set",
+                    "recommended_type": recommended_type,
+                    "is_group": account.is_group,
+                    "parent_account": account.parent_account,
+                    "root_type": account.root_type,
+                }
+            )
+
+        return {"success": True, "recommendations": recommendations}
+
+    except Exception as e:
+        frappe.log_error(f"Error getting account type recommendations: {str(e)}")
+        return {"success": False, "error": str(e)}
+
+
+def get_recommended_account_type(account_code, account_name):
+    """Get recommended account type based on E-Boekhouden account code patterns"""
+    try:
+        code = str(account_code).strip()
+        name = account_name.lower() if account_name else ""
+
+        # Dutch account code patterns based on RGS (Reference Code System)
+        if code.startswith("1"):
+            # Balance sheet - Assets
+            if code.startswith("10"):
+                return "Fixed Asset"
+            elif code.startswith("11") or code.startswith("12"):
+                return "Current Asset"
+            elif code.startswith("13"):
+                if "bank" in name or "kas" in name or "giro" in name:
+                    return "Bank"
+                elif "debiteuren" in name or "vorderingen" in name:
+                    return "Receivable"
+                else:
+                    return "Current Asset"
+            elif code.startswith("14"):
+                return "Stock"
+            elif code.startswith("15"):
+                if "btw" in name or "belasting" in name:
+                    return "Tax"
+                else:
+                    return "Current Liability"
+            elif code.startswith("16") or code.startswith("17"):
+                return "Current Liability"
+            elif code.startswith("18") or code.startswith("19"):
+                return "Current Liability"
+            else:
+                return "Current Asset"
+
+        elif code.startswith("2"):
+            # Balance sheet - Liabilities & Equity
+            if code.startswith("20") or code.startswith("21"):
+                return "Payable"
+            elif code.startswith("22") or code.startswith("23"):
+                return "Current Liability"
+            elif code.startswith("24") or code.startswith("25"):
+                return "Equity"
+            elif code.startswith("26") or code.startswith("27"):
+                return "Equity"
+            else:
+                return "Current Liability"
+
+        elif code.startswith("3"):
+            # Profit & Loss - Revenue
+            return "Income"
+
+        elif code.startswith("4"):
+            # Profit & Loss - Cost of Sales
+            return "Cost of Goods Sold"
+
+        elif code.startswith("5"):
+            # Profit & Loss - Personnel costs
+            return "Expense"
+
+        elif code.startswith("6"):
+            # Profit & Loss - Depreciation & other costs
+            return "Expense"
+
+        elif code.startswith("7"):
+            # Profit & Loss - Financial income/costs
+            if "rente" in name and ("ontvangen" in name or "baten" in name):
+                return "Income"
+            else:
+                return "Expense"
+
+        elif code.startswith("8"):
+            # Profit & Loss - Extraordinary income/costs
+            if any(word in name for word in ["opbrengst", "baten", "winst", "ontvangen"]):
+                return "Income"
+            else:
+                return "Expense"
+        else:
+            return "Not Sure"
+
+    except Exception as e:
+        frappe.log_error(f"Error determining account type for {account_code}: {str(e)}")
+        return "Not Sure"

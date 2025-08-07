@@ -2219,14 +2219,13 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     # Description
     si.remarks = description
 
-    # Check for credit notes and handle negative amounts
-    total_amount = frappe.utils.flt(mutation_detail.get("amount", 0))
-    is_credit_note = total_amount < 0
+    # Check for credit notes and handle negative amounts (improved detection)
+    is_credit_note, effective_total_amount = _detect_credit_note_improved(mutation_detail, debug_info)
     si.is_return = is_credit_note
 
     if is_credit_note:
         debug_info.append(
-            f"Detected credit note (negative amount: {total_amount}), will convert amounts to positive"
+            f"Processing as credit note (effective amount: {effective_total_amount}), will convert amounts to positive"
         )
 
     # Set receivable account based on eBoekhouden ledgerID (proper SSoT approach)
@@ -2281,9 +2280,9 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     # CRITICAL: Process line items from Regels or rows
     regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
     if regels:
-        # For credit notes, we need to process amounts as positive values
+        # For credit notes, we need to process amounts as positive values and quantities as negative
         if is_credit_note:
-            regels = _convert_negative_amounts_to_positive(regels, debug_info)
+            regels = _convert_regels_for_sales_credit_note(regels, debug_info)
 
         success = process_line_items(si, regels, "sales", cost_center, debug_info)
         if success:
@@ -2305,8 +2304,92 @@ def _create_sales_invoice(mutation_detail, company, cost_center, debug_info):
     return si
 
 
+def _detect_credit_note_improved(mutation_detail, debug_info):
+    """
+    Improved credit note detection that checks both main amount and line item amounts.
+
+    Returns tuple: (is_credit_note, effective_total_amount)
+    """
+    # First check main amount field
+    main_amount = frappe.utils.flt(mutation_detail.get("amount", 0))
+
+    # If main amount is negative, it's definitely a credit note
+    if main_amount < 0:
+        debug_info.append(f"Credit note detected from main amount: {main_amount}")
+        return True, main_amount
+
+    # If main amount is positive and non-zero, it's definitely not a credit note
+    if main_amount > 0:
+        debug_info.append(f"Not a credit note - main amount is positive: {main_amount}")
+        return False, main_amount
+
+    # Main amount is 0 or None - check line items
+    regels = mutation_detail.get("Regels", []) or mutation_detail.get("rows", [])
+    if not regels:
+        debug_info.append("No line items to check for credit note detection")
+        return False, main_amount
+
+    # Calculate total from line items
+    line_item_total = 0
+    negative_items = 0
+    positive_items = 0
+
+    for regel in regels:
+        # Handle both Dutch (SOAP) and English (REST) field names
+        amount_field = "amount" if "amount" in regel else "Prijs"
+        quantity_field = "quantity" if "quantity" in regel else "Aantal"
+
+        item_amount = frappe.utils.flt(regel.get(amount_field, 0))
+        item_quantity = frappe.utils.flt(regel.get(quantity_field, 1))
+
+        # Calculate total amount for this line item
+        total_item_amount = item_amount * item_quantity
+        line_item_total += total_item_amount
+
+        if total_item_amount < 0:
+            negative_items += 1
+        elif total_item_amount > 0:
+            positive_items += 1
+
+    debug_info.append(
+        f"Line item analysis: total={line_item_total}, negative_items={negative_items}, positive_items={positive_items}"
+    )
+
+    # Determine if it's a credit note based on line item analysis
+    if line_item_total < 0:
+        debug_info.append(f"Credit note detected from line item total: {line_item_total}")
+        return True, line_item_total
+    elif negative_items > 0 and positive_items == 0:
+        # All items are negative (even if total rounds to 0)
+        debug_info.append(f"Credit note detected - all {negative_items} line items are negative")
+        return True, line_item_total
+    else:
+        debug_info.append("Not a credit note based on line item analysis")
+        return False, line_item_total
+
+
 def _convert_negative_amounts_to_positive(regels, debug_info):
-    """Convert negative amounts in line items to positive values for credit notes"""
+    """Convert negative amounts in line items to positive values for credit notes (Purchase Invoices)"""
+    return _convert_regels_for_credit_note(regels, "purchase", debug_info)
+
+
+def _convert_regels_for_sales_credit_note(regels, debug_info):
+    """Convert line items for Sales Invoice credit notes - amounts positive, quantities negative"""
+    return _convert_regels_for_credit_note(regels, "sales", debug_info)
+
+
+def _convert_regels_for_credit_note(regels, invoice_type, debug_info):
+    """
+    Convert line items for credit notes with proper quantity/amount handling.
+
+    For Sales Returns (Sales Invoices with is_return=True):
+    - Amounts: Convert to positive (ERPNext handles the math)
+    - Quantities: Keep negative (ERPNext requirement)
+
+    For Purchase Returns (Purchase Invoices with is_return=True):
+    - Amounts: Convert to positive
+    - Quantities: Convert to positive
+    """
     if not regels:
         return regels
 
@@ -2318,7 +2401,7 @@ def _convert_negative_amounts_to_positive(regels, debug_info):
         amount_field = "amount" if "amount" in regel else "Prijs"
         quantity_field = "quantity" if "quantity" in regel else "Aantal"
 
-        # Convert amounts to positive
+        # Convert amounts to positive (both sales and purchase)
         if amount_field in regel:
             original_amount = frappe.utils.flt(regel[amount_field])
             if original_amount < 0:
@@ -2327,14 +2410,36 @@ def _convert_negative_amounts_to_positive(regels, debug_info):
                     f"Converted negative amount {original_amount} to positive {abs(original_amount)}"
                 )
 
-        # Convert quantities to positive if negative
+        # Handle quantities based on invoice type
+        # For eBoekhouden data, quantity field might not exist, defaulting to 1
         if quantity_field in regel:
             original_quantity = frappe.utils.flt(regel[quantity_field])
-            if original_quantity < 0:
-                converted_regel[quantity_field] = abs(original_quantity)
-                debug_info.append(
-                    f"Converted negative quantity {original_quantity} to positive {abs(original_quantity)}"
-                )
+        else:
+            # Default quantity when field doesn't exist
+            original_quantity = 1.0
+
+        if original_quantity != 0:
+            if invoice_type == "sales":
+                # For Sales Returns, quantities must be negative
+                if original_quantity > 0:
+                    converted_regel[quantity_field] = -abs(original_quantity)
+                    debug_info.append(
+                        f"Sales credit note: converted positive quantity {original_quantity} to negative {-abs(original_quantity)}"
+                    )
+                else:
+                    # Already negative, keep it
+                    converted_regel[quantity_field] = original_quantity
+                    debug_info.append(f"Sales credit note: kept negative quantity {original_quantity}")
+            else:
+                # For Purchase Returns, quantities should be positive
+                if original_quantity < 0:
+                    converted_regel[quantity_field] = abs(original_quantity)
+                    debug_info.append(
+                        f"Purchase credit note: converted negative quantity {original_quantity} to positive {abs(original_quantity)}"
+                    )
+                else:
+                    # Set positive quantity
+                    converted_regel[quantity_field] = abs(original_quantity)
 
         converted_regels.append(converted_regel)
 
@@ -2421,14 +2526,13 @@ def _create_purchase_invoice(mutation_detail, company, cost_center, debug_info):
     # Description
     pi.remarks = description
 
-    # Check for credit notes and handle negative amounts
-    total_amount = frappe.utils.flt(mutation_detail.get("amount", 0))
-    is_credit_note = total_amount < 0
+    # Check for credit notes and handle negative amounts (improved detection)
+    is_credit_note, effective_total_amount = _detect_credit_note_improved(mutation_detail, debug_info)
     pi.is_return = is_credit_note
 
     if is_credit_note:
         debug_info.append(
-            f"Detected credit note (negative amount: {total_amount}), will convert amounts to positive"
+            f"Processing as credit note (effective amount: {effective_total_amount}), will convert amounts to positive"
         )
 
     # Set payable account based on eBoekhouden ledgerID (proper SSoT approach)
@@ -3315,8 +3419,8 @@ def start_full_rest_import(migration_name):
                 # Get descriptive type name
                 type_names = {
                     0: "Opening Balances",
-                    1: "Sales Invoices",
-                    2: "Purchase Invoices",
+                    1: "Purchase Invoices",
+                    2: "Sales Invoices",
                     3: "Customer Payments",
                     4: "Supplier Payments",
                     5: "Money Received",
@@ -3409,8 +3513,8 @@ def start_full_rest_import(migration_name):
                     # Create summary log even when no mutations found
                     type_names = {
                         0: "Opening Balances",
-                        1: "Sales Invoices",
-                        2: "Purchase Invoices",
+                        1: "Purchase Invoices",
+                        2: "Sales Invoices",
                         3: "Customer Payments",
                         4: "Supplier Payments",
                         5: "Money Received",
@@ -3479,8 +3583,8 @@ def _import_rest_mutations_batch_enhanced(migration_name, mutations, settings, m
     # Get descriptive mutation type name
     mutation_type_names = {
         0: "Opening Balances",
-        1: "Sales Invoices",
-        2: "Purchase Invoices",
+        1: "Purchase Invoices",
+        2: "Sales Invoices",
         3: "Customer Payments",
         4: "Supplier Payments",
         5: "Money Received",

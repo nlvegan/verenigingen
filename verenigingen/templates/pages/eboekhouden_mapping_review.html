@@ -406,9 +406,9 @@ frappe.ready(function() {
             args: {
                 doctype: 'E-Boekhouden Account Mapping',
                 fields: ['name', 'account_code', 'account_name', 'document_type',
-                        'transaction_category', 'priority', 'usage_count'],
+                        'category', 'usage_count'],
                 filters: { is_active: 1 },
-                order_by: 'priority desc',
+                order_by: 'account_code',
                 limit_page_length: 100
             },
             callback: function(r) {
@@ -436,7 +436,6 @@ frappe.ready(function() {
                             <th>Account</th>
                             <th>Document Type</th>
                             <th>Category</th>
-                            <th>Priority</th>
                             <th>Usage</th>
                             <th>Action</th>
                         </tr>
@@ -451,8 +450,7 @@ frappe.ready(function() {
             const row = $('<tr>');
             row.append(`<td><strong>${mapping.account_code || 'N/A'}</strong><br><small>${mapping.account_name}</small></td>`);
             row.append(`<td><span class="mapping-tag ${mapping.document_type.toLowerCase().replace(' ', '-')}">${mapping.document_type}</span></td>`);
-            row.append(`<td>${mapping.transaction_category || '-'}</td>`);
-            row.append(`<td>${mapping.priority}</td>`);
+            row.append(`<td>${mapping.category || '-'}</td>`);
             row.append(`<td>${mapping.usage_count || 0}</td>`);
             row.append(`
                 <td>

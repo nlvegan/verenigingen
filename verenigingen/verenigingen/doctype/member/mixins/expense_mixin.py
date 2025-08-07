@@ -32,11 +32,31 @@ class ExpenseMixin:
 
             if existing_idx is not None:
                 # Update existing entry
+                existing_row = self.volunteer_expenses[existing_idx]
+                # Check if any meaningful data changed to avoid unnecessary saves
+                data_changed = False
                 for key, value in entry_data.items():
-                    setattr(self.volunteer_expenses[existing_idx], key, value)
+                    if getattr(existing_row, key, None) != value:
+                        setattr(existing_row, key, value)
+                        data_changed = True
+
+                if not data_changed:
+                    # No meaningful changes, skip save to prevent duplicate entries
+                    frappe.logger("expense_history").debug(
+                        f"No changes detected for expense claim {expense_claim_name} in member {self.name} history, skipping update"
+                    )
+                    return
+
+                frappe.logger("expense_history").info(
+                    f"Updated existing expense claim {expense_claim_name} in member {self.name} history"
+                )
             else:
                 # Add new entry using Frappe's append method to create proper child document
                 self.append("volunteer_expenses", entry_data)
+
+                frappe.logger("expense_history").info(
+                    f"Added new expense claim {expense_claim_name} to member {self.name} history"
+                )
 
                 # Keep only 20 most recent expense entries (remove from the end)
                 if len(self.volunteer_expenses) > 20:

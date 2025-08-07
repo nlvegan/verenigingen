@@ -178,9 +178,14 @@ def process_line_items(invoice, regels, invoice_type, cost_center, debug_info):
         )
 
         # Handle quantities and prices with correction line item support
-        # Only convert to absolute if this was processed as a credit note (amounts already converted)
-        # Otherwise preserve negative amounts for correction entries within positive invoices
-        quantity = abs(quantity)  # Quantities should always be positive
+        # For Sales Returns, quantities should remain negative (ERPNext requirement)
+        # For Purchase Returns and normal invoices, quantities should be positive
+        if invoice_type == "sales" and getattr(invoice, "is_return", False):
+            # Sales Return: keep negative quantities as they are (already processed by conversion function)
+            debug_info.append(f"Sales Return: preserving quantity {quantity} (negative required)")
+        else:
+            # Normal invoices or Purchase Returns: quantities should be positive
+            quantity = abs(quantity)
 
         # For prices/amounts: preserve negatives for correction entries, unless already processed for credit notes
         # The regels will have been preprocessed by _convert_negative_amounts_to_positive() if it's a credit note

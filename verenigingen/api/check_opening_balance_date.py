@@ -84,8 +84,8 @@ def check_earliest_mutation_date():
                         earliest_dates[mutation_type] = {
                             "type_name": {
                                 0: "Opening Balances",
-                                1: "Sales Invoices",
-                                2: "Purchase Invoices",
+                                1: "Purchase Invoices",
+                                2: "Sales Invoices",
                                 3: "Customer Payments",
                                 4: "Supplier Payments",
                                 5: "Money Received",
