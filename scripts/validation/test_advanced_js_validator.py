@@ -309,14 +309,14 @@ def main():
         
         # Patterns for Frappe API calls that use DocType names
         api_patterns = [
-            r'frappe\.get_all\(\s*["']([^"']+)["']',
-            r'frappe\.get_doc\(\s*["']([^"']+)["']',
-            r'frappe\.new_doc\(\s*["']([^"']+)["']',
-            r'frappe\.delete_doc\(\s*["']([^"']+)["']',
-            r'frappe\.db\.get_value\(\s*["']([^"']+)["']',
-            r'frappe\.db\.exists\(\s*["']([^"']+)["']',
-            r'frappe\.db\.count\(\s*["']([^"']+)["']',
-            r'DocType\(\s*["']([^"']+)["']',
+            r'frappe\.get_all\(\s*["\']([^"\']+)["\']',
+            r'frappe\.get_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.new_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.delete_doc\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.get_value\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.exists\(\s*["\']([^"\']+)["\']',
+            r'frappe\.db\.count\(\s*["\']([^"\']+)["\']',
+            r'DocType\(\s*["\']([^"\']+)["\']',
         ]
         
         lines = content.splitlines()
