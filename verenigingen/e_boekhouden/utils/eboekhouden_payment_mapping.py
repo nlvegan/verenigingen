@@ -32,7 +32,7 @@ def get_payment_account_mappings(company):
                 key = f"{mapping.account_type.lower()}_account"
                 mappings[key] = mapping.erpnext_account
             elif mapping.mapping_type == "Specific Account":
-                key = f"eboekhouden_{mapping.eboekhouden_account}"
+                key = f"eboekhouden_{mapping.eboekhouden_account_code}"
                 mappings[key] = mapping.erpnext_account
             elif mapping.mapping_type == "Account Number Pattern":
                 key = f"pattern_{mapping.account_pattern}"

@@ -836,11 +836,20 @@ def get_membership_types_for_application():
                 mt_doc = frappe.get_doc("Membership Type", mt.name)
                 contribution_options = mt_doc.get_contribution_options()
 
+                # Get amount from dues schedule template if available
+                dues_amount = mt.minimum_amount  # Use minimum as fallback
+                if mt.dues_schedule_template:
+                    try:
+                        schedule = frappe.get_doc("Membership Dues Schedule", mt.dues_schedule_template)
+                        dues_amount = schedule.dues_rate or schedule.suggested_amount or mt.minimum_amount
+                    except:
+                        pass
+
                 enhanced_mt = {
                     "name": mt.name,
                     "membership_type_name": mt.membership_type_name,
                     "description": mt.description,
-                    "amount": mt.amount,
+                    "amount": dues_amount,
                     "billing_frequency": "Annual",  # Default, actual value comes from dues schedule
                     "contribution_options": contribution_options,
                 }
@@ -849,17 +858,26 @@ def get_membership_types_for_application():
 
             except Exception:
                 # Fallback for membership types without new fields
+                # Get amount from dues schedule template if available
+                dues_amount = mt.minimum_amount  # Use minimum as fallback
+                if mt.dues_schedule_template:
+                    try:
+                        schedule = frappe.get_doc("Membership Dues Schedule", mt.dues_schedule_template)
+                        dues_amount = schedule.dues_rate or schedule.suggested_amount or mt.minimum_amount
+                    except:
+                        pass
+
                 enhanced_mt = {
                     "name": mt.name,
                     "membership_type_name": mt.membership_type_name,
                     "description": mt.description,
-                    "amount": mt.amount,
+                    "amount": dues_amount,
                     "billing_frequency": "Annual",  # Default, actual value comes from dues schedule
                     "contribution_options": {
                         "mode": "Calculator",
-                        "minimum": mt.amount * 0.5 if mt.amount else 5.0,
-                        "suggested": mt.amount or 15.0,
-                        "maximum": (mt.amount or 15.0) * 10,
+                        "minimum": mt.minimum_amount,  # Use minimum_amount for validation
+                        "suggested": dues_amount,
+                        "maximum": dues_amount * 10 if dues_amount else 150.0,
                         "calculator": {
                             "enabled": True,
                             "percentage": 0.5,

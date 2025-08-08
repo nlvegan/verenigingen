@@ -1005,7 +1005,7 @@ def get_upcoming_dues_collections(days_ahead=30):
             }
 
         collections_by_date[date_key]["schedules"].append(schedule)
-        collections_by_date[date_key]["total_amount"] += flt(schedule.dues_rate)
+        collections_by_date[date_key]["total_amount"] += flt(schedule.amount)
         collections_by_date[date_key]["count"] += 1
 
     return list(collections_by_date.values())

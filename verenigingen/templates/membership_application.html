@@ -186,6 +186,35 @@
             </div>
         </div>
 
+        <!-- Communication Preferences -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h4>{{ _("Communication Preferences") }}</h4>
+            </div>
+            <div class="card-body">
+                <!-- Legal Notice -->
+                <div class="alert alert-info">
+                    <strong>{{ _("Legal Notice") }}</strong>:
+                    {{ _("AGM invitations and other statutory communications must be sent to all members by law and cannot be opted out of.") }}
+                </div>
+
+                <!-- Opt-Out Checkbox -->
+                <div class="form-check mb-3">
+                    <input type="checkbox"
+                           class="form-check-input"
+                           id="opt_out_optional_emails"
+                           name="opt_out_optional_emails">
+                    <label class="form-check-label" for="opt_out_optional_emails">
+                        {{ _("I do NOT wish to receive optional newsletters and organizational updates") }}
+                        <br>
+                        <small class="text-muted">
+                            {{ _("You will still receive legally required communications such as AGM notices, voting information, and membership dues notices.") }}
+                        </small>
+                    </label>
+                </div>
+            </div>
+        </div>
+
         <!-- Motivation -->
         <div class="card mb-4">
             <div class="card-header">

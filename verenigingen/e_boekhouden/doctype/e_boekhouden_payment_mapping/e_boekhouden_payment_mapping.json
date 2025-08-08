@@ -7,9 +7,14 @@
   "editable_grid": 1,
   "engine": "InnoDB",
   "field_order": [
+    "mapping_type",
+    "priority",
+    "column_break_0",
     "company",
+    "section_break_1",
     "eboekhouden_account_code",
     "account_name",
+    "account_pattern",
     "column_break_1",
     "erpnext_account",
     "account_type",
@@ -17,6 +22,25 @@
     "active"
   ],
   "fields": [
+    {
+      "fieldname": "mapping_type",
+      "fieldtype": "Select",
+      "in_list_view": 1,
+      "label": "Mapping Type",
+      "options": "Account Type\nSpecific Account\nAccount Number Pattern",
+      "reqd": 1
+    },
+    {
+      "fieldname": "priority",
+      "fieldtype": "Int",
+      "label": "Priority",
+      "default": 0,
+      "description": "Higher number = higher priority"
+    },
+    {
+      "fieldname": "column_break_0",
+      "fieldtype": "Column Break"
+    },
     {
       "fieldname": "company",
       "fieldtype": "Link",
@@ -34,10 +58,22 @@
       "unique": 0
     },
     {
+      "fieldname": "section_break_1",
+      "fieldtype": "Section Break",
+      "label": "Account Details"
+    },
+    {
       "fieldname": "account_name",
       "fieldtype": "Data",
       "label": "Account Name",
       "reqd": 1
+    },
+    {
+      "fieldname": "account_pattern",
+      "fieldtype": "Data",
+      "label": "Account Pattern",
+      "description": "For Account Number Pattern mapping type",
+      "depends_on": "eval:doc.mapping_type == 'Account Number Pattern'"
     },
     {
       "fieldname": "column_break_1",
@@ -79,7 +115,7 @@
   "modified": "2025-01-07 10:00:00.000000",
   "modified_by": "Administrator",
   "module": "E-Boekhouden",
-  "name": "EBoekhouden Payment Mapping",
+  "name": "E-Boekhouden Payment Mapping",
   "owner": "Administrator",
   "permissions": [
     {

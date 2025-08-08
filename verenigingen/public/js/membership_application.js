@@ -155,7 +155,7 @@ class BaseStep {
 class _MembershipApplication {
 	constructor(config = {}) {
 		this.config = {
-			maxSteps: 6,
+			maxSteps: 7,
 			autoSaveInterval: 30000,
 			enableErrorHandling: true,
 			enableAutoSave: true,
@@ -395,7 +395,7 @@ class _MembershipApplication {
 	bindStepNavigation() {
 		// Initialize step navigation
 		this.currentStep = 1;
-		this.maxSteps = 6; // Fixed: Match template which has 6 steps
+		this.maxSteps = 7; // Fixed: Match template which has 7 steps
 
 		// Show first step
 		this.showStep(1);
@@ -587,8 +587,13 @@ class _MembershipApplication {
 				// No required fields
 				break;
 			}
-			case 5: { // Payment
-				console.log('Validating step 5 - Payment');
+			case 5: { // Communication Preferences
+				console.log('Validating step 5 - Communication Preferences');
+				// No required fields for communication preferences
+				break;
+			}
+			case 6: { // Payment
+				console.log('Validating step 6 - Payment');
 
 				// Check payment method selection
 				const paymentMethod = $('input[name="payment_method"]:checked').val();
@@ -643,10 +648,10 @@ class _MembershipApplication {
 					isValid = false;
 				}
 
-				console.log('Step 5 validation result:', isValid);
+				console.log('Step 6 validation result:', isValid);
 				break;
 			}
-			case 6: { // Confirmation
+			case 7: { // Confirmation
 				// Check terms and privacy checkboxes
 				if (!$('input[name="terms_accepted"]').is(':checked')) {
 					if (typeof frappe !== 'undefined' && frappe.msgprint) {
@@ -698,9 +703,12 @@ class _MembershipApplication {
 				this.setupVolunteerStep();
 				break;
 			case 5:
-				this.setupPaymentStep();
+				this.setupCommunicationPreferencesStep();
 				break;
 			case 6:
+				this.setupPaymentStep();
+				break;
+			case 7:
 				this.setupConfirmationStep();
 				break;
 		}
@@ -773,7 +781,10 @@ class _MembershipApplication {
 			application_source: $('#application_source').val() || '',
 			application_source_details: $('#application_source_details').val() || '',
 
-			// Step 5: Payment Details
+			// Step 5: Communication Preferences
+			opt_out_optional_emails: $('#opt_out_optional_emails').is(':checked') ? 1 : 0,
+
+			// Step 6: Payment Details
 			payment_method: $('input[name="payment_method"]:checked').val() || $('#payment_method').val() || '',
 
 
@@ -786,7 +797,7 @@ class _MembershipApplication {
 			transfer_iban: $('#transfer_iban').val() || '',
 			transfer_account_name: $('#transfer_account_name').val() || '',
 
-			// Step 6: Final Confirmation
+			// Step 7: Final Confirmation
 			additional_notes: $('#additional_notes').val() || '',
 			terms: $('#terms').is(':checked'),
 			gdpr_consent: $('#gdpr_consent').is(':checked'),
@@ -1477,6 +1488,12 @@ class _MembershipApplication {
 		this.setupVolunteerSkills();
 	}
 
+	setupCommunicationPreferencesStep() {
+		console.log('Setting up communication preferences step');
+		// No special setup needed for communication preferences
+		// The checkbox is handled by standard form submission
+	}
+
 	setupVolunteerSkills() {
 		// Add event handler for the add skill button
 		$(document).off('click', '.add-skill').on('click', '.add-skill', (e) => {
@@ -2151,6 +2168,11 @@ class _MembershipApplication {
 		// Volunteering Information
 		const volunteering = $('#interested_in_volunteering').is(':checked') ? 'Yes, interested in volunteering' : 'Not interested in volunteering';
 		$('#confirm-volunteering').text(volunteering);
+
+		// Communication Preferences
+		const optOut = $('#opt_out_optional_emails').is(':checked');
+		const communicationPref = optOut ? 'Opted out of optional communications' : 'Will receive newsletters and updates';
+		$('#confirm-communications').text(communicationPref);
 	}
 
 	updateFinalApplicationSummary() {
@@ -2678,7 +2700,7 @@ class ApplicationState {
 	}
 
 	incrementStep() {
-		if (this.data.currentStep < 5) {
+		if (this.data.currentStep < 6) {
 			this.set('currentStep', this.data.currentStep + 1);
 		}
 	}
@@ -3803,7 +3825,7 @@ window.debugAge = (birthDate) => {
 // - debugMembershipSelection() - Check membership selection
 // - debugAge(birthDate) - Test age validation
 
-// ConfirmationStep class for step 6
+// ConfirmationStep class for step 7
 class ConfirmationStep extends BaseStep {
 	constructor() {
 		super('confirmation');

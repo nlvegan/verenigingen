@@ -115,6 +115,7 @@ def get_data(filters):
             "previous_chapter",
             "chapter_assigned_by",
             "chapter_change_reason",
+            "modified",
         ],
         order_by="modified desc",
     )

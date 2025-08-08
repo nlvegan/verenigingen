@@ -2,7 +2,7 @@
 # This configuration focuses Bandit on production code by excluding archives, tests, and backups
 
 [bandit]
-exclude_dirs = archived_docs,archived_removal,archived_unused,phase4_removed_files_backup,one-off-test-utils,node_modules,.pytest_cache
+exclude = archived_docs,archived_removal,archived_unused,phase4_removed_files_backup,one-off-test-utils,node_modules,.pytest_cache
 
 # Skip test IDs that are not relevant for this codebase
 skips = B101,B601

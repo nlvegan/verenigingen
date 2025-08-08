@@ -201,10 +201,11 @@ def generate_direct_debit_batch():
         return 0
 
     # Create batch header
+    # Note: This is placeholder code - actual amounts would come from dues schedules
     batch = {
         "creation_date": today(),
-        "total_amount": sum(m.fee_amount for m in pending_memberships),
-        "currency": pending_memberships[0].currency if pending_memberships else "EUR",
+        "total_amount": 0,  # Would be calculated from dues schedules
+        "currency": "EUR",  # Default currency
         "entry_count": len(pending_memberships),
         "entries": [],
     }
@@ -224,7 +225,7 @@ def generate_direct_debit_batch():
                 "member": member.name,
                 "member_name": member.full_name,
                 "bank_account": member.bank_account,
-                "amount": membership.fee_amount,
+                "amount": 0,  # Would be fetched from dues schedule
             }
         )
 

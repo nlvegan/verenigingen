@@ -228,7 +228,7 @@ def generate_anbi_report(from_date, to_date, include_bsn=False):
             # Basic donor info
             donor_data = {
                 "donation_id": donation.name,
-                "date": donation.date,
+                "date": donation.donation_date,
                 "amount": donation.amount,
                 "donor_name": donor_doc.donor_name,
                 "donor_type": donor_doc.donor_type,

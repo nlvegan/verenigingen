@@ -1315,7 +1315,7 @@ def suggest_chapters_for_postal_code(postal_code):
         chapters = frappe.get_all(
             "Chapter",
             filters={"published": 1},
-            fields=["name", "region", "postal_codes", "introduction"],
+            fields=["name", "region", "postal_codes", "introduction", "address"],
         )
 
         suggestions = []
@@ -1359,22 +1359,19 @@ def suggest_chapters_for_postal_code(postal_code):
             if relevance_score == 0:
                 # This is a simplified approach - in practice you might want
                 # to use a proper geocoding service or postal code database
+                chapter_name_lower = chapter.name.lower() if chapter.name else ""
+                region_lower = chapter.region.lower() if chapter.region else ""
+
                 if postal_numeric < 2000:
-                    if (
-                        "amsterdam" in chapter.chapter_name.lower()
-                        or "noord-holland" in chapter.region.lower()
-                    ):
+                    if "amsterdam" in chapter_name_lower or "noord-holland" in region_lower:
                         relevance_score = 30
                         match_type = "region_guess"
                 elif postal_numeric < 3000:
-                    if "den haag" in chapter.chapter_name.lower() or "zuid-holland" in chapter.region.lower():
+                    if "den haag" in chapter_name_lower or "zuid-holland" in region_lower:
                         relevance_score = 30
                         match_type = "region_guess"
                 elif postal_numeric < 4000:
-                    if (
-                        "rotterdam" in chapter.chapter_name.lower()
-                        or "zuid-holland" in chapter.region.lower()
-                    ):
+                    if "rotterdam" in chapter_name_lower or "zuid-holland" in region_lower:
                         relevance_score = 30
                         match_type = "region_guess"
                 # Add more regional logic as needed
@@ -1384,10 +1381,10 @@ def suggest_chapters_for_postal_code(postal_code):
                 suggestions.append(
                     {
                         "name": chapter.name,
-                        "chapter_name": chapter.chapter_name,
+                        "chapter_name": chapter.name,  # Using name as chapter_name
                         "region": chapter.region,
-                        "city": chapter.city,
-                        "description": chapter.description,
+                        "address": chapter.address,
+                        "introduction": chapter.introduction,
                         "relevance_score": relevance_score,
                         "match_type": match_type,
                         "postal_code_ranges": chapter.postal_codes,

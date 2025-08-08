@@ -1013,20 +1013,28 @@ def get_pending_applications(chapter=None, days_overdue=None):
             if not billing_amount:
                 billing_amount = mt.minimum_amount
 
-            mt.billing_amount = billing_amount
-
-        membership_type_data = {mt.name: mt for mt in type_data}
+            # Store the membership type data with calculated billing_amount
+            membership_type_data[mt.name] = {
+                "name": mt.name,
+                "minimum_amount": mt.minimum_amount,
+                "dues_schedule_template": mt.dues_schedule_template,
+                "billing_amount": billing_amount,
+            }
 
     # Add additional info and apply chapter filtering
     filtered_applications = []
     for app in applications:
         app["days_pending"] = (getdate(today()) - getdate(app.application_date)).days
 
-        # Get membership type amount from cached data
+        # Get membership type amount from cached data or application
         if app.selected_membership_type and app.selected_membership_type in membership_type_data:
             mt = membership_type_data[app.selected_membership_type]
-            app["membership_amount"] = mt.billing_amount
-            app["membership_currency"] = mt.currency
+            # Amount should come from the application itself
+            app["membership_amount"] = (
+                app.get("payment_amount") or app.get("membership_fee") or mt["billing_amount"]
+            )
+            # Currency should come from application or default to EUR
+            app["membership_currency"] = app.get("currency") or "EUR"
 
         # Get chapter information from pre-loaded data
         app["current_chapter_display"] = chapter_memberships.get(app.name, "Unassigned")
@@ -1499,8 +1507,8 @@ def debug_membership_dues_schedule(membership_name):
                 "dues_rate": schedule.dues_rate,
                 "billing_frequency": schedule.billing_frequency,
                 "status": schedule.status,
-                "start_date": schedule.start_date,
-                "end_date": schedule.end_date,
+                "next_invoice_date": schedule.next_invoice_date,
+                "last_invoice_date": schedule.last_invoice_date,
             }
             result["dues_schedules"].append(schedule_data)
 

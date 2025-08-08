@@ -71,7 +71,7 @@ def is_payment_account(account_code, company=None):
     # First check database mappings if company is provided
     if company:
         mapping = frappe.db.exists(
-            "EBoekhouden Payment Mapping",
+            "E-Boekhouden Payment Mapping",
             {"company": company, "eboekhouden_account_code": account_code, "active": 1},
         )
         if mapping:

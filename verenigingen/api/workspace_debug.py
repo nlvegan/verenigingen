@@ -213,7 +213,7 @@ def check_eboekhouden_doctypes():
             "E-Boekhouden Ledger Mapping",
             "E-Boekhouden Item Mapping",
             "E-Boekhouden Account Map",
-            "EBoekhouden Payment Mapping",
+            "E-Boekhouden Payment Mapping",
             "E-Boekhouden Import Log",
         ]
 
@@ -284,7 +284,7 @@ def add_missing_eboekhouden_doctypes():
                     },
                 )
                 added_count += 1
-            elif doctype == "EBoekhouden Payment Mapping":
+            elif doctype == "E-Boekhouden Payment Mapping":
                 workspace.append(
                     "links",
                     {

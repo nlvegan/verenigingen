@@ -207,7 +207,7 @@ class TestValidationRegression(FrappeTestCase):
             "Membership": {"member", "membership_type", "status"},
             "Membership Type": {"membership_type_name", "minimum_amount", "is_active"},
             "Chapter": {"region"},
-            "Verenigingen Volunteer": {"member", "volunteer_name", "status"}
+            "Volunteer": {"member", "volunteer_name", "status"}
         }
         
         missing_structures = []

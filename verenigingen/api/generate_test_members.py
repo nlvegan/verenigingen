@@ -322,7 +322,7 @@ def get_test_members_status():
     # Group by chapter
     chapter_summary = {}
     for member in test_members:
-        chapter = member.primary_chapter or "No Chapter"
+        chapter = member.current_chapter_display or "No Chapter"
         if chapter not in chapter_summary:
             chapter_summary[chapter] = 0
         chapter_summary[chapter] += 1

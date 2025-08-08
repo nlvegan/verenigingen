@@ -53,10 +53,10 @@ class DonationHistoryManager:
                         "donor_history",
                         {
                             "donation_reference": donation.name,
-                            "donation_date": donation.date,
+                            "donation_date": donation.donation_date,
                             "donation_amount": donation.amount,
                             "payment_method": donation.payment_method,
-                            "donation_status": donation.donation_status,
+                            "donation_status": donation.status,
                             "fund_designation": donation.fund_designation,
                             "donation_purpose": donation.donation_purpose,
                             "paid": donation.paid,

@@ -576,11 +576,12 @@ class CommunicationManager(BaseManager):
 
         try:
             if filter_type == "all":
-                # All chapter members
+                # All chapter members who haven't opted out
                 for member in self.chapter_doc.members or []:
                     if member.enabled:
                         member_doc = frappe.get_doc("Member", member.member)
-                        if member_doc.email:
+                        # Check opt-out preference
+                        if member_doc.email and not member_doc.get("opt_out_optional_emails", False):
                             recipients.append(member_doc.email)
 
                 # All board members
@@ -595,11 +596,12 @@ class CommunicationManager(BaseManager):
                         recipients.append(board_member.email)
 
             elif filter_type == "members":
-                # Only regular members
+                # Only regular members who haven't opted out
                 for member in self.chapter_doc.members or []:
                     if member.enabled:
                         member_doc = frappe.get_doc("Member", member.member)
-                        if member_doc.email:
+                        # Check opt-out preference for optional communications
+                        if member_doc.email and not member_doc.get("opt_out_optional_emails", False):
                             recipients.append(member_doc.email)
 
             # Remove duplicates
@@ -620,3 +622,76 @@ class CommunicationManager(BaseManager):
     def _validate_email_settings(self) -> bool:
         """Validate email settings are properly configured"""
         return bool(self.email_settings.get("smtp_server") and self.email_settings.get("email_id"))
+
+    def send_statutory_communication(
+        self, subject: str, content: str, communication_type: str = "agm"
+    ) -> Dict:
+        """
+        Send legally required communications to ALL members regardless of preferences
+
+        Args:
+            subject: Email subject
+            content: Email content
+            communication_type: Type of statutory communication (agm, egm, voting, dues)
+
+        Returns:
+            Dict with send results
+        """
+        # Get ALL members with email addresses (ignoring opt-out preferences)
+        all_recipients = []
+
+        # Get all chapter members
+        for member in self.chapter_doc.members or []:
+            if member.enabled:
+                member_doc = frappe.get_doc("Member", member.member)
+                if member_doc.email:
+                    all_recipients.append(member_doc.email)
+
+        # Get all board members
+        for board_member in self.chapter_doc.board_members or []:
+            if board_member.is_active and board_member.email:
+                all_recipients.append(board_member.email)
+
+        # Remove duplicates
+        all_recipients = list(set(all_recipients))
+
+        if not all_recipients:
+            return {"success": False, "error": "No recipients found"}
+
+        # Log this as a statutory communication
+        self.log_action(
+            "Statutory communication sent",
+            {"type": communication_type, "recipient_count": len(all_recipients), "subject": subject},
+        )
+
+        # Prepare context with statutory flag
+        context = {
+            "is_statutory": True,
+            "communication_type": communication_type,
+            "content": content,
+            "chapter": self.chapter_doc,
+            "chapter_name": self.chapter_name,
+        }
+
+        # Send with special subject prefix indicating statutory nature
+        statutory_subject = f"[STATUTORY] {subject}"
+
+        # Use template if available, otherwise send directly
+        template_name = f"statutory_{communication_type}"
+        template = self._get_email_template(template_name)
+
+        if template:
+            return self.send_bulk_notification(
+                template_name=template_name,
+                recipients=all_recipients,
+                subject=statutory_subject,
+                context=context,
+            )
+        else:
+            # Send without template
+            return self.send_bulk_notification(
+                template_name="default_statutory",
+                recipients=all_recipients,
+                subject=statutory_subject,
+                context=context,
+            )

@@ -266,6 +266,20 @@ entry: python scripts/testing/integration/simple_test.py
 - Update exception lists as needed
 - Review and validate new DocType fields
 
+## Recent Additions
+
+### Loop Context Field Validator (2025-08-08)
+**Purpose**: Catches invalid field references on objects from `frappe.get_all` loops
+
+**What it catches**:
+- ✅ `chapter.chapter_name` when `chapter_name` not in fields list
+- ✅ Field access on loop variables that don't exist in DocType
+- ✅ Missing fields that should be in the `frappe.get_all` fields parameter
+
+**Why it was needed**: Existing validators couldn't track that loop variables inherit DocType context from their source `frappe.get_all` call. This caused runtime `AttributeError` exceptions.
+
+**Documentation**: See [LOOP_CONTEXT_VALIDATOR.md](LOOP_CONTEXT_VALIDATOR.md) for details.
+
 ## Future Enhancements
 
 1. **Parallel Processing**: Run validators concurrently
@@ -273,3 +287,4 @@ entry: python scripts/testing/integration/simple_test.py
 3. **IDE Integration**: VS Code extension for real-time validation
 4. **Custom Rules**: User-defined validation patterns
 5. **Metrics Dashboard**: Track validation trends over time
+6. **Loop Context Integration**: Add loop context validator to pre-commit hooks after reducing false positives

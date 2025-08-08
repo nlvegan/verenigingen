@@ -108,6 +108,9 @@ def submit_membership_application(data):
                 # Mark this as an application-created member
                 "application_id": f"APP-{now_datetime().strftime('%Y%m%d%H%M%S')}-{data.get('email', '').split('@')[0][:5]}",
                 "interested_in_volunteering": data.get("interested_in_volunteering", False),
+                "opt_out_optional_emails": data.get(
+                    "opt_out_optional_emails", False
+                ),  # Handle opt-out preference
             }
         )
 

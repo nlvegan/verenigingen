@@ -349,8 +349,9 @@
                 <span class="progress-step" data-step="2">{{ _("Address") }}</span>
                 <span class="progress-step" data-step="3">{{ _("Contribution") }}</span>
                 <span class="progress-step" data-step="4">{{ _("Verenigingen Volunteer") }}</span>
-                <span class="progress-step" data-step="5">{{ _("Payment") }}</span>
-                <span class="progress-step" data-step="6">{{ _("Confirm") }}</span>
+                <span class="progress-step" data-step="5">{{ _("Communication") }}</span>
+                <span class="progress-step" data-step="6">{{ _("Payment") }}</span>
+                <span class="progress-step" data-step="7">{{ _("Confirm") }}</span>
             </div>
         </div>
 
@@ -600,8 +601,64 @@
                 </div>
             </div>
 
-            <!-- Step 5: Payment Information -->
+            <!-- Step 5: Communication Preferences -->
             <div class="form-step" data-step="5">
+                <div class="form-card">
+                    <div class="form-header">
+                        <h3>{{ _("Communication Preferences") }}</h3>
+                    </div>
+                    <div class="form-body">
+                        <!-- Legal Notice -->
+                        <div class="alert alert-info mb-4" style="background-color: #e3f2fd; border-left: 4px solid #2196F3;">
+                            <h4 class="alert-heading">{{ _("Important Legal Notice") }}</h4>
+                            <p class="mb-2">
+                                {{ _("As a member, you will receive certain legally required communications that cannot be opted out of, including:") }}
+                            </p>
+                            <ul class="mb-0">
+                                <li>{{ _("Annual General Meeting (AGM) invitations and notices") }}</li>
+                                <li>{{ _("Extraordinary General Meeting notices") }}</li>
+                                <li>{{ _("Statutory voting communications") }}</li>
+                                <li>{{ _("Membership dues and payment notices") }}</li>
+                            </ul>
+                        </div>
+
+                        <!-- Optional Communications Opt-Out -->
+                        <div class="input-group">
+                            <div class="form-check p-3" style="background-color: #f8f9fa; border-radius: 8px;">
+                                <input type="checkbox"
+                                       id="opt_out_optional_emails"
+                                       name="opt_out_optional_emails"
+                                       class="form-check-input"
+                                       style="width: 20px; height: 20px; margin-top: 4px;">
+                                <label for="opt_out_optional_emails" class="form-check-label ml-3">
+                                    <strong style="font-size: 1.1em;">{{ _("Opt-out of optional organizational emails") }}</strong>
+                                    <p class="text-muted mt-2 mb-2">
+                                        {{ _("If you check this box, you will NOT receive:") }}
+                                    </p>
+                                    <ul class="text-muted" style="margin-left: 20px;">
+                                        <li>{{ _("Monthly/quarterly newsletters") }}</li>
+                                        <li>{{ _("Event announcements (non-statutory)") }}</li>
+                                        <li>{{ _("Volunteer opportunities") }}</li>
+                                        <li>{{ _("General organizational updates") }}</li>
+                                        <li>{{ _("Fundraising campaigns") }}</li>
+                                    </ul>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Update Preferences Note -->
+                        <div class="mt-4 p-3" style="background-color: #fff3cd; border-left: 4px solid #ffc107;">
+                            <p class="mb-0 text-muted">
+                                <i class="fas fa-info-circle"></i>
+                                {{ _("You can update your communication preferences at any time through your member portal after your membership is approved.") }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 6: Payment Information -->
+            <div class="form-step" data-step="6">
                 <div class="form-card">
                     <div class="form-header">
                         <h3>{{ _("Payment Information") }}</h3>
@@ -640,8 +697,8 @@
                 </div>
             </div>
 
-            <!-- Step 6: Confirmation -->
-            <div class="form-step" data-step="6">
+            <!-- Step 7: Confirmation -->
+            <div class="form-step" data-step="7">
                 <div class="form-card">
                     <div class="form-header">
                         <h3>{{ _("Confirm Your Application") }}</h3>

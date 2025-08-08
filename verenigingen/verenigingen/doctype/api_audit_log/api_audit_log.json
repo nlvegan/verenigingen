@@ -50,7 +50,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Event Type",
-   "options": "api_call_success\napi_call_failed\ncsrf_validation_success\ncsrf_validation_failed\nrate_limit_exceeded\nunauthorized_access_attempt\npermission_denied\nsuspicious_activity\nuser_login\nuser_logout\nsession_expired\nfailed_login_attempt\nsensitive_data_access\ndata_export\ndata_import\ndata_modification\nconfiguration_change\nsystem_error\nperformance_alert\nother",
+   "options": "api_call_success\napi_call_failed\ncsrf_validation_success\ncsrf_validation_failed\nrate_limit_exceeded\nunauthorized_access_attempt\npermission_denied\nsuspicious_activity\nuser_login\nuser_logout\nsession_expired\nfailed_login_attempt\nsensitive_data_access\ndata_export\ndata_import\ndata_modification\nconfiguration_change\nsystem_error\nperformance_alert\naudit_system_initialized\nsecurity_system_initialized\nother",
    "read_only": 1,
    "reqd": 1
   },

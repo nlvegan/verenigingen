@@ -82,7 +82,7 @@ class DonationCampaign(Document):
             # Count unique donors
             unique_donors = set()
             for d in donations:
-                if not d.anonymous:
+                if d.donor:  # Only count if donor is specified
                     unique_donors.add(d.donor)
             self.total_donors = len(unique_donors)
 
@@ -120,12 +120,8 @@ class DonationCampaign(Document):
             limit=limit,
         )
 
-        # Anonymize donor names if needed
-        for donation in donations:
-            if donation.anonymous:
-                donation.donor_name = _("Anonymous")
-                donation.donor = None
-
+        # Note: Anonymity is handled at the donor level
+        # Donations with anonymous donors will have donor = None or "Anonymous"
         return donations
 
     @frappe.whitelist()

@@ -13,7 +13,7 @@ class EBoekhoudenPaymentMapping(Document):
     def validate_duplicate(self):
         """Ensure no duplicate mappings for same company and account code"""
         existing = frappe.db.exists(
-            "EBoekhouden Payment Mapping",
+            "E-Boekhouden Payment Mapping",
             {
                 "company": self.company,
                 "eboekhouden_account_code": self.eboekhouden_account_code,
@@ -37,7 +37,7 @@ class EBoekhoudenPaymentMapping(Document):
 def get_payment_account_mapping(company, account_code):
     """Get payment account mapping for a company and account code"""
     mapping = frappe.db.get_value(
-        "EBoekhouden Payment Mapping",
+        "E-Boekhouden Payment Mapping",
         {"company": company, "eboekhouden_account_code": account_code, "active": 1},
         ["erpnext_account", "account_type", "mode_of_payment", "account_name"],
         as_dict=True,
@@ -59,9 +59,9 @@ def import_default_mappings(company):
         account = frappe.db.get_value("Account", {"account_name": config["name"], "company": company})
 
         if account and not frappe.db.exists(
-            "EBoekhouden Payment Mapping", {"company": company, "eboekhouden_account_code": code}
+            "E-Boekhouden Payment Mapping", {"company": company, "eboekhouden_account_code": code}
         ):
-            mapping = frappe.new_doc("EBoekhouden Payment Mapping")
+            mapping = frappe.new_doc("E-Boekhouden Payment Mapping")
             mapping.company = company
             mapping.eboekhouden_account_code = code
             mapping.account_name = config["name"]
@@ -77,9 +77,9 @@ def import_default_mappings(company):
         account = frappe.db.get_value("Account", {"account_name": config["name"], "company": company})
 
         if account and not frappe.db.exists(
-            "EBoekhouden Payment Mapping", {"company": company, "eboekhouden_account_code": code}
+            "E-Boekhouden Payment Mapping", {"company": company, "eboekhouden_account_code": code}
         ):
-            mapping = frappe.new_doc("EBoekhouden Payment Mapping")
+            mapping = frappe.new_doc("E-Boekhouden Payment Mapping")
             mapping.company = company
             mapping.eboekhouden_account_code = code
             mapping.account_name = config["name"]

@@ -311,7 +311,7 @@ def test_fee_override_integration():
         )
         print(f"   History entries: {len(dues_history)}")
         for entry in dues_history:
-            print(f"     - {entry.name}: {entry.status} - €{entry.amount} ({entry.contribution_mode})")
+            print(f"     - {entry.name}: {entry.status} - €{entry.dues_rate} ({entry.contribution_mode})")
 
         # Test dues schedule integration
         print("\n6. Testing dues schedule integration:")

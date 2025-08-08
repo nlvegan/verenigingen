@@ -166,7 +166,7 @@ def auto_assign_role_profiles():
                     # Assign the recommended profile
                     assign_role_profile_to_user(user, recommended_profile)
                     users_updated += 1
-                    print(f"✓ Assigned {recommended_profile} to {user} ({member.member_name})")
+                    print(f"✓ Assigned {recommended_profile} to {user} ({member.full_name})")
 
         except Exception as e:
             error_msg = f"Error processing user {member.user}: {str(e)}"
