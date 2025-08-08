@@ -745,7 +745,10 @@ class APIClassifier:
         if endpoint.operation_type == OperationType.FINANCIAL:
             decorator_params.append('audit_level="detailed"')
 
-        decorator_code = f"@api_security_framework(\n    {',\n    '.join(decorator_params)}\n)"
+        newline = "\n"
+        decorator_code = (
+            f"@api_security_framework({newline}    {f',{newline}    '.join(decorator_params)}{newline})"
+        )
 
         # Generate schema validation if applicable
         schema_code = ""

@@ -339,7 +339,7 @@ class FinalFieldValidator:
                 f'doctype: "{doctype}"',  # Doctype field pattern
                 f"doctype: '{doctype}'",  # Doctype field pattern
                 f'"{doctype.lower().replace(" ", "_")}"',  # Snake case variant
-                f"'{doctype.lower().replace(" ", "_")}'"   # Snake case variant
+                f"'{doctype.lower().replace(' ', '_')}'"   # Snake case variant - fixed quotes
             ]
             
             # Only detect if we find explicit doctype references, not just substrings

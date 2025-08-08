@@ -147,26 +147,40 @@ class LoopContextFieldValidator(ast.NodeVisitor):
                 
                 # Check if the field was in the fields list
                 if available_fields and field_name not in available_fields:
-                    # Also check if it's a valid field for the DocType
+                    # Check if we have DocType definition loaded
                     valid_fields = self.doctypes.get(doctype, [])
-                    if field_name in valid_fields:
-                        self.errors.append({
-                            'file': self.current_file,
-                            'line': node.lineno,
-                            'error': f"Field '{field_name}' accessed on '{var_name}' but not included in frappe.get_all fields list",
-                            'doctype': doctype,
-                            'available_fields': available_fields,
-                            'suggestion': f"Add '{field_name}' to the fields list in frappe.get_all"
-                        })
+                    if valid_fields:  # We have the DocType loaded
+                        if field_name in valid_fields:
+                            self.errors.append({
+                                'file': self.current_file,
+                                'line': node.lineno,
+                                'error': f"Field '{field_name}' accessed on '{var_name}' but not included in frappe.get_all fields list",
+                                'doctype': doctype,
+                                'available_fields': available_fields,
+                                'suggestion': f"Add '{field_name}' to the fields list in frappe.get_all"
+                            })
+                        else:
+                            self.errors.append({
+                                'file': self.current_file,
+                                'line': node.lineno,
+                                'error': f"Field '{field_name}' does not exist in DocType '{doctype}'",
+                                'doctype': doctype,
+                                'available_fields': available_fields,
+                                'valid_fields': valid_fields[:10]  # Show first 10 valid fields
+                            })
                     else:
-                        self.errors.append({
-                            'file': self.current_file,
-                            'line': node.lineno,
-                            'error': f"Field '{field_name}' does not exist in DocType '{doctype}'",
-                            'doctype': doctype,
-                            'available_fields': available_fields,
-                            'valid_fields': valid_fields[:10]  # Show first 10 valid fields
-                        })
+                        # DocType not loaded (probably ERPNext or another app) - skip validation to avoid false positives
+                        # Only warn if it seems suspicious (not a standard ERPNext DocType)
+                        standard_doctypes = {'Account', 'Company', 'Customer', 'Supplier', 'Item', 'User', 'Employee'}
+                        if doctype not in standard_doctypes:
+                            self.errors.append({
+                                'file': self.current_file,
+                                'line': node.lineno,
+                                'error': f"Field '{field_name}' accessed on '{var_name}' but not included in frappe.get_all fields list (DocType '{doctype}' not loaded for validation)",
+                                'doctype': doctype,
+                                'available_fields': available_fields,
+                                'suggestion': f"Add '{field_name}' to the fields list in frappe.get_all"
+                            })
         
         self.generic_visit(node)
     

@@ -46,10 +46,10 @@ def get_migration_statistics():
                 stats["failed_migrations"] += 1
 
             # Parse summary if available
-            if migration.import_summary:
+            if migration.migration_summary:
                 try:
                     # Extract counts from summary
-                    summary = migration.import_summary
+                    summary = migration.migration_summary
 
                     # Sales invoices
                     match = re.search(r"sales.*?invoices.*?created.*?(\d+)", summary, re.IGNORECASE)
