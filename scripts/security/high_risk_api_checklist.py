@@ -17,8 +17,9 @@ HIGH_RISK_APIS = {
             {
                 'name': 'create_missing_sepa_mandates',
                 'line': 17,
-                'current_decorator': '@critical_api(operation_type=OperationType.FINANCIAL)',
-                'add_decorator': 'Already secured',
+                'applied_decorator': '@critical_api(operation_type=OperationType.FINANCIAL)',
+                'decorator_required': False,
+                'decorator_status': 'already_secured',
                 'risk_level': 'CRITICAL',
                 'reason': 'Creates financial instruments - already secured',
                 'validation_requirements': [
@@ -31,8 +32,9 @@ HIGH_RISK_APIS = {
             {
                 'name': 'fix_specific_member_sepa_mandate', 
                 'line': 152,
-                'current_decorator': '@critical_api(operation_type=OperationType.FINANCIAL)',
-                'add_decorator': 'Already secured',
+                'applied_decorator': '@critical_api(operation_type=OperationType.FINANCIAL)',
+                'decorator_required': False,
+                'decorator_status': 'already_secured',
                 'risk_level': 'HIGH',
                 'reason': 'Individual mandate creation - already secured',
                 'validation_requirements': [
@@ -51,8 +53,9 @@ HIGH_RISK_APIS = {
             {
                 'name': 'send_overdue_payment_reminders',
                 'line': 43,
-                'current_decorator': '@critical_api(operation_type=OperationType.FINANCIAL)',
-                'add_decorator': 'Already secured',
+                'applied_decorator': '@critical_api(operation_type=OperationType.FINANCIAL)',
+                'decorator_required': False,
+                'decorator_status': 'already_secured',
                 'risk_level': 'CRITICAL',
                 'reason': 'Financial communication operations - already secured',
                 'validation_requirements': [
@@ -72,8 +75,9 @@ HIGH_RISK_APIS = {
             {
                 'name': 'toggle_auto_batch_creation',
                 'line': 463,
-                'current_decorator': '@critical_api(operation_type=OperationType.ADMIN)',
-                'add_decorator': 'Already secured',
+                'applied_decorator': '@critical_api(operation_type=OperationType.ADMIN)',
+                'decorator_required': False,
+                'decorator_status': 'already_secured',
                 'risk_level': 'HIGH',
                 'reason': 'Administrative batch toggle operations - already secured',
                 'validation_requirements': [
@@ -85,8 +89,9 @@ HIGH_RISK_APIS = {
             {
                 'name': 'run_batch_creation_now',
                 'line': 480,
-                'current_decorator': '@critical_api(operation_type=OperationType.FINANCIAL)',
-                'add_decorator': 'Already secured', 
+                'applied_decorator': '@critical_api(operation_type=OperationType.FINANCIAL)',
+                'decorator_required': False,
+                'decorator_status': 'already_secured', 
                 'risk_level': 'CRITICAL',
                 'reason': 'Manual batch creation operations - already secured',
                 'validation_requirements': [
@@ -105,8 +110,9 @@ HIGH_RISK_APIS = {
             {
                 'name': 'assign_member_to_chapter',
                 'line': 33,
-                'current_decorator': '@critical_api(operation_type=OperationType.MEMBER_DATA)',
-                'add_decorator': 'Already secured',
+                'applied_decorator': '@critical_api(operation_type=OperationType.MEMBER_DATA)',
+                'decorator_required': False,
+                'decorator_status': 'already_secured',
                 'risk_level': 'HIGH',
                 'reason': 'Member data operations - already secured',
                 'validation_requirements': [
@@ -130,8 +136,9 @@ def get_high_risk_api_list() -> List[Dict[str, Any]]:
                 'function_name': func['name'],
                 'line_number': func['line'],
                 'risk_level': func['risk_level'],
-                'current_decorator': func['current_decorator'],
-                'required_decorator': func['add_decorator'],
+                'applied_decorator': func['applied_decorator'],
+                'decorator_required': func['decorator_required'],
+                'decorator_status': func['decorator_status'],
                 'reason': func['reason']
             })
     return api_list
@@ -165,15 +172,15 @@ if __name__ == "__main__":
     
     print(f"\nCRITICAL Risk APIs: {len(critical_apis)}")
     for api in critical_apis:
-        status = "✅ SECURED" if api.get('current_decorator', '').startswith('@critical_api') else "⚠️ NEEDS SECURITY"
+        status = "✅ SECURED" if api.get('applied_decorator', '').startswith('@critical_api') else "⚠️ NEEDS SECURITY"
         print(f"  {status} - {api['file_path']}::{api['function_name']} (line {api['line_number']})")
     
     print(f"\nHIGH Risk APIs: {len(high_apis)}")
     for api in high_apis:
-        status = "✅ SECURED" if api.get('current_decorator', '').startswith('@critical_api') else "⚠️ NEEDS SECURITY"
+        status = "✅ SECURED" if api.get('applied_decorator', '').startswith('@critical_api') else "⚠️ NEEDS SECURITY"
         print(f"  {status} - {api['file_path']}::{api['function_name']} (line {api['line_number']})")
     
     print(f"\nSECURITY STATUS:")
-    print(f"  ✅ Total secured APIs: {len([a for a in get_high_risk_api_list() if a.get('current_decorator', '').startswith('@critical_api')])}")
-    print(f"  ⚠️  APIs needing security: {len([a for a in get_high_risk_api_list() if not a.get('current_decorator', '').startswith('@critical_api')])}")
+    print(f"  ✅ Total secured APIs: {len([a for a in get_high_risk_api_list() if a.get('applied_decorator', '').startswith('@critical_api')])}")
+    print(f"  ⚠️  APIs needing security: {len([a for a in get_high_risk_api_list() if not a.get('applied_decorator', '').startswith('@critical_api')])}")
     print(f"\n🎉 CONCLUSION: Most high-risk APIs are already secured with @critical_api decorators!")

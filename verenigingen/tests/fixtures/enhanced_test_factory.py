@@ -526,21 +526,38 @@ class EnhancedTestDataFactory:
         if frappe.db.exists("Chapter", chapter_name):
             return frappe.get_doc("Chapter", chapter_name)
         
-        # Check if region exists, if not use a default one
-        region = attributes.get("region") if attributes else None
-        if not region:
+        # Handle region requirement properly
+        region_name = attributes.get("region") if attributes else None
+        if region_name:
+            # Check if the specified region exists, create if not
+            if not frappe.db.exists("Region", region_name):
+                try:
+                    test_region = frappe.get_doc({
+                        "doctype": "Region",
+                        "region_name": region_name
+                    })
+                    test_region.insert()
+                except Exception as e:
+                    frappe.log_error(f"Failed to create region {region_name}: {e}", "EnhancedTestFactory")
+            region = region_name
+        else:
             # Try to find an existing region
             existing_regions = frappe.get_all("Region", limit=1)
             if existing_regions:
                 region = existing_regions[0].name
             else:
-                # Create a test region if none exist
-                test_region = frappe.get_doc({
-                    "doctype": "Region",
-                    "region_name": "Test Region"
-                })
-                test_region.insert()
-                region = test_region.name
+                # Create a default test region if none exist
+                default_region_name = "Default Test Region"
+                if not frappe.db.exists("Region", default_region_name):
+                    try:
+                        test_region = frappe.get_doc({
+                            "doctype": "Region",
+                            "region_name": default_region_name
+                        })
+                        test_region.insert()
+                    except Exception as e:
+                        frappe.log_error(f"Failed to create default region: {e}", "EnhancedTestFactory")
+                region = default_region_name
         
         chapter_data = {
             "doctype": "Chapter",

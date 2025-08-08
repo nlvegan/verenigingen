@@ -85,14 +85,18 @@ def test_api_security(api_info: Dict[str, Any]) -> Dict[str, Any]:
     for check_name, check_function in security_checks.items():
         try:
             check_result = check_function(api_info)
+            
+            # Process warnings at API level and remove from check result to avoid duplication
+            if check_result.get('warning'):
+                test_results['warnings'].append(f"{check_name}: {check_result['warning']}")
+                # Remove warning from individual check result to avoid duplication
+                del check_result['warning']
+            
             test_results['checks'][check_name] = check_result
             
             if not check_result['passed']:
                 test_results['overall_pass'] = False
                 test_results['failed_checks'].append(f"{check_name}: {check_result['message']}")
-            
-            if check_result.get('warning'):
-                test_results['warnings'].append(f"{check_name}: {check_result['warning']}")
                 
         except Exception as e:
             test_results['checks'][check_name] = {
@@ -455,6 +459,13 @@ def assess_security_compliance(results: Dict[str, Any]) -> Dict[str, Any]:
     """Assess overall security compliance"""
     summary = results['validation_summary']
     
+    # Count critical API failures specifically
+    critical_api_failures = 0
+    for api_result in results['api_validations'].values():
+        if not api_result['overall_pass'] and api_result['api_info']['risk_level'] == 'CRITICAL':
+            critical_api_failures += 1
+    
+    # Determine compliance level based on pass rate
     compliance_level = 'UNKNOWN'
     if summary['pass_rate'] >= 90:
         compliance_level = 'EXCELLENT'
@@ -465,11 +476,28 @@ def assess_security_compliance(results: Dict[str, Any]) -> Dict[str, Any]:
     else:
         compliance_level = 'POOR'
     
+    # Downgrade compliance if there are critical API failures
+    if critical_api_failures > 0:
+        if compliance_level in ['EXCELLENT', 'GOOD']:
+            compliance_level = 'ACCEPTABLE'
+        elif compliance_level == 'ACCEPTABLE':
+            compliance_level = 'POOR'
+    
+    # Gate readiness: fail if ANY of these conditions are true:
+    # 1. Pass rate < 75%
+    # 2. Any critical API failures
+    # 3. Any API failures at all (apis_failed > 0)
+    ready_for_production = (
+        summary['pass_rate'] >= 75 and 
+        critical_api_failures == 0 and 
+        summary['apis_failed'] == 0
+    )
+    
     return {
         'compliance_level': compliance_level,
-        'pass_rate': summary['pass_rate'],
-        'ready_for_production': summary['pass_rate'] >= 75,
-        'critical_issues': summary['apis_failed'],
+        'ready_for_production': ready_for_production,
+        'critical_api_failures': critical_api_failures,
+        'total_api_failures': summary['apis_failed'],
         'total_warnings': sum(len(v.get('warnings', [])) for v in results['api_validations'].values())
     }
 
@@ -480,6 +508,10 @@ def generate_security_recommendations(results: Dict[str, Any]) -> List[str]:
     
     compliance = results['security_compliance']
     summary = results['validation_summary']
+    
+    # Priority recommendations for critical issues
+    if compliance.get('critical_api_failures', 0) > 0:
+        recommendations.append(f"🚨 CRITICAL: {compliance['critical_api_failures']} critical-risk APIs failed validation - immediate action required!")
     
     if compliance['compliance_level'] == 'EXCELLENT':
         recommendations.append("✅ Security compliance is excellent. Continue regular security reviews.")

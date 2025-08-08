@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-08-08T08:31:11.745729",
+  "timestamp": "2025-08-08T14:42:08.426935",
   "validation_summary": {
     "total_apis_tested": 6,
     "apis_passed": 5,
@@ -39,9 +39,9 @@
         "function_name": "create_missing_sepa_mandates",
         "line_number": 17,
         "risk_level": "CRITICAL",
-        "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
-        "required_decorator": "@critical_api",
-        "requirement_met": true,
+        "applied_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
+        "decorator_required": false,
+        "decorator_status": "already_secured",
         "reason": "Creates financial instruments - already secured"
       },
       "checks": {
@@ -63,8 +63,7 @@
         },
         "error_handling": {
           "passed": true,
-          "message": "Basic error handling: try/except blocks",
-          "warning": "Consider adding more comprehensive error handling"
+          "message": "Basic error handling: try/except blocks"
         },
         "audit_logging": {
           "passed": true,
@@ -83,9 +82,9 @@
         "function_name": "fix_specific_member_sepa_mandate",
         "line_number": 152,
         "risk_level": "HIGH",
-        "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
-        "required_decorator": "@critical_api",
-        "requirement_met": true,
+        "applied_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
+        "decorator_required": false,
+        "decorator_status": "already_secured",
         "reason": "Individual mandate creation - already secured"
       },
       "checks": {
@@ -124,9 +123,9 @@
         "function_name": "send_overdue_payment_reminders",
         "line_number": 43,
         "risk_level": "CRITICAL",
-        "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
-        "required_decorator": "@critical_api",
-        "requirement_met": true,
+        "applied_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
+        "decorator_required": false,
+        "decorator_status": "already_secured",
         "reason": "Financial communication operations - already secured"
       },
       "checks": {
@@ -165,9 +164,9 @@
         "function_name": "toggle_auto_batch_creation",
         "line_number": 463,
         "risk_level": "HIGH",
-        "current_decorator": "@critical_api(operation_type=OperationType.ADMIN)",
-        "required_decorator": "@critical_api",
-        "requirement_met": true,
+        "applied_decorator": "@critical_api(operation_type=OperationType.ADMIN)",
+        "decorator_required": false,
+        "decorator_status": "already_secured",
         "reason": "Administrative batch toggle operations - already secured"
       },
       "checks": {
@@ -206,9 +205,9 @@
         "function_name": "run_batch_creation_now",
         "line_number": 480,
         "risk_level": "CRITICAL",
-        "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
-        "required_decorator": "@critical_api",
-        "requirement_met": true,
+        "applied_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
+        "decorator_required": false,
+        "decorator_status": "already_secured",
         "reason": "Manual batch creation operations - already secured"
       },
       "checks": {
@@ -226,8 +225,7 @@
         },
         "input_validation": {
           "passed": false,
-          "message": "No explicit input validation found",
-          "warning": "Basic validation may be handled by Frappe framework"
+          "message": "No explicit input validation found"
         },
         "error_handling": {
           "passed": true,
@@ -252,9 +250,9 @@
         "function_name": "assign_member_to_chapter",
         "line_number": 33,
         "risk_level": "HIGH",
-        "current_decorator": "@critical_api(operation_type=OperationType.MEMBER_DATA)",
-        "required_decorator": "@critical_api",
-        "requirement_met": true,
+        "applied_decorator": "@critical_api(operation_type=OperationType.MEMBER_DATA)",
+        "decorator_required": false,
+        "decorator_status": "already_secured",
         "reason": "Member data operations - already secured"
       },
       "checks": {
@@ -276,8 +274,7 @@
         },
         "error_handling": {
           "passed": true,
-          "message": "Basic error handling: @handle_api_error decorator",
-          "warning": "Consider adding more comprehensive error handling"
+          "message": "Basic error handling: @handle_api_error decorator"
         },
         "audit_logging": {
           "passed": true,
@@ -292,14 +289,15 @@
     }
   },
   "security_compliance": {
-    "compliance_level": "GOOD",
-    "pass_rate": 83.33333333333334,
+    "compliance_level": "ACCEPTABLE",
     "ready_for_production": false,
-    "critical_issues": 1,
+    "critical_api_failures": 1,
+    "total_api_failures": 1,
     "total_warnings": 3
   },
   "recommendations": [
-    "\ud83d\udfe1 Good security compliance. Address remaining issues for optimal security.",
+    "\ud83d\udea8 CRITICAL: 1 critical-risk APIs failed validation - immediate action required!",
+    "\ud83d\udd34 Security compliance needs improvement. Address failed validations immediately.",
     "Add input validation to 1 APIs",
     "Review 3 warnings for potential improvements"
   ]

@@ -386,7 +386,7 @@ class MigrationErrorRecovery:
 @frappe.whitelist()
 def retry_failed_migration_records(migration_name):
     """Retry all failed records from a migration"""
-    # migration_doc = frappe.get_doc("E Boekhouden Migration", migration_name)
+    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
 
     # Load recovery data
     recovery = MigrationErrorRecovery(migration_doc)
@@ -396,7 +396,7 @@ def retry_failed_migration_records(migration_name):
         "File",
         filters={
             "file_name": ["like", "%recovery_{migration_name}%"],
-            "attached_to_doctype": "E Boekhouden Migration",
+            "attached_to_doctype": "E-Boekhouden Migration",
         },
         order_by="creation desc",
         limit=1,
@@ -426,7 +426,7 @@ def retry_failed_migration_records(migration_name):
 @frappe.whitelist()
 def get_migration_recovery_report(migration_name):
     """Get recovery report for a migration"""
-    # migration_doc = frappe.get_doc("E Boekhouden Migration", migration_name)
+    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     recovery = MigrationErrorRecovery(migration_doc)
 
     # Load error data

@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-08-08T08:31:11.745729",
+  "timestamp": "2025-08-08T14:39:06.149072",
   "validation_summary": {
     "total_apis_tested": 6,
     "apis_passed": 5,
@@ -63,8 +63,7 @@
         },
         "error_handling": {
           "passed": true,
-          "message": "Basic error handling: try/except blocks",
-          "warning": "Consider adding more comprehensive error handling"
+          "message": "Basic error handling: try/except blocks"
         },
         "audit_logging": {
           "passed": true,
@@ -226,8 +225,7 @@
         },
         "input_validation": {
           "passed": false,
-          "message": "No explicit input validation found",
-          "warning": "Basic validation may be handled by Frappe framework"
+          "message": "No explicit input validation found"
         },
         "error_handling": {
           "passed": true,
@@ -276,8 +274,7 @@
         },
         "error_handling": {
           "passed": true,
-          "message": "Basic error handling: @handle_api_error decorator",
-          "warning": "Consider adding more comprehensive error handling"
+          "message": "Basic error handling: @handle_api_error decorator"
         },
         "audit_logging": {
           "passed": true,
@@ -292,14 +289,15 @@
     }
   },
   "security_compliance": {
-    "compliance_level": "GOOD",
-    "pass_rate": 83.33333333333334,
+    "compliance_level": "ACCEPTABLE",
     "ready_for_production": false,
-    "critical_issues": 1,
+    "critical_api_failures": 1,
+    "total_api_failures": 1,
     "total_warnings": 3
   },
   "recommendations": [
-    "\ud83d\udfe1 Good security compliance. Address remaining issues for optimal security.",
+    "\ud83d\udea8 CRITICAL: 1 critical-risk APIs failed validation - immediate action required!",
+    "\ud83d\udd34 Security compliance needs improvement. Address failed validations immediately.",
     "Add input validation to 1 APIs",
     "Review 3 warnings for potential improvements"
   ]

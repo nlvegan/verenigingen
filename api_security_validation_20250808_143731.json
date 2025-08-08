@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-08-08T08:31:11.745729",
+  "timestamp": "2025-08-08T14:37:31.485268",
   "validation_summary": {
     "total_apis_tested": 6,
     "apis_passed": 5,
@@ -63,8 +63,7 @@
         },
         "error_handling": {
           "passed": true,
-          "message": "Basic error handling: try/except blocks",
-          "warning": "Consider adding more comprehensive error handling"
+          "message": "Basic error handling: try/except blocks"
         },
         "audit_logging": {
           "passed": true,
@@ -226,8 +225,7 @@
         },
         "input_validation": {
           "passed": false,
-          "message": "No explicit input validation found",
-          "warning": "Basic validation may be handled by Frappe framework"
+          "message": "No explicit input validation found"
         },
         "error_handling": {
           "passed": true,
@@ -276,8 +274,7 @@
         },
         "error_handling": {
           "passed": true,
-          "message": "Basic error handling: @handle_api_error decorator",
-          "warning": "Consider adding more comprehensive error handling"
+          "message": "Basic error handling: @handle_api_error decorator"
         },
         "audit_logging": {
           "passed": true,

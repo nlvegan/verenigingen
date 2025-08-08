@@ -1,25 +1,39 @@
 #!/usr/bin/env python3
 """
-Enhanced DocType Field Validator - Focused on Accuracy
+Enhanced DocType Field Validator - FIXED VERSION with Proper DocType Loading
 
-Key Improvements:
-1. Manager pattern detection (@property methods)
-2. Custom field recognition
-3. Child table context awareness
-4. Confidence scoring system
-5. Pre-commit mode filtering
+MAJOR IMPROVEMENTS:
+1. Uses comprehensive DocType loader for ALL apps (frappe, erpnext, payments, verenigingen)
+2. Loads ALL fields including custom fields and proper metadata
+3. Manager pattern detection (@property methods)
+4. Custom field recognition
+5. Child table context awareness
+6. Confidence scoring system
+7. Pre-commit mode filtering
+8. Eliminates false positives from incomplete DocType definitions
 
-Designed for future consolidation while solving immediate false positive issues.
+Key Features:
+- Comprehensive multi-app DocType loading
+- Custom field support
+- Child table relationship mapping
+- Property method detection
+- Confidence scoring
+- Performance optimized
 """
 
 import ast
 import json
 import re
 import time
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, NamedTuple
 from dataclasses import dataclass
 import argparse
+
+# Import our comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -277,7 +291,7 @@ class FieldAccessVisitor(ast.NodeVisitor):
         return None
 
 class EnhancedFieldValidator:
-    """Main validator with improved accuracy"""
+    """Main validator with improved accuracy and comprehensive DocType loading"""
     
     def __init__(self, app_path: str, verbose: bool = False, pre_commit_mode: bool = False):
         self.app_path = Path(app_path)
@@ -285,8 +299,11 @@ class EnhancedFieldValidator:
         self.verbose = verbose
         self.pre_commit_mode = pre_commit_mode
         
-        # Load components
-        self.doctypes = self.load_all_doctypes()
+        # Use comprehensive DocType loader
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=verbose)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        
+        # Load other components
         self.property_detector = PropertyDetector(self.app_path)
         self.child_table_detector = ChildTableDetector(self.doctypes)
         self.confidence_scorer = ConfidenceScorer()
@@ -300,52 +317,32 @@ class EnhancedFieldValidator:
             'low_confidence': 0
         }
         
-    def load_all_doctypes(self) -> Dict[str, Dict]:
-        """Load all DocType definitions"""
-        doctypes = {}
+        if self.verbose:
+            loading_stats = self.doctype_loader.get_loading_stats()
+            print(f"🔍 Loaded {loading_stats.total_doctypes} DocTypes with {loading_stats.total_fields} fields")
+    
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Dict]:
+        """Convert DocType loader format to legacy format for compatibility"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-        # Standard Frappe fields
-        standard_fields = {
-            'name', 'creation', 'modified', 'modified_by', 'owner',
-            'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-            'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-        }
-        
-        # Load from all apps
-        for app_dir in self.bench_path.glob("apps/*"):
-            if not app_dir.is_dir():
-                continue
-                
-            for json_file in app_dir.rglob("**/doctype/*/*.json"):
-                if json_file.name == json_file.parent.name + ".json":
-                    try:
-                        with open(json_file, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            
-                        doctype_name = data.get('name', json_file.stem)
-                        fields = {}
-                        
-                        # Add standard fields
-                        for field in standard_fields:
-                            fields[field] = {'fieldtype': 'Data'}
-                            
-                        # Add defined fields
-                        for field in data.get('fields', []):
-                            fieldname = field.get('fieldname')
-                            if fieldname:
-                                fields[fieldname] = field
-                                
-                        doctypes[doctype_name] = {
-                            'fields': fields,
-                            'app': app_dir.name,
-                            'path': str(json_file)
-                        }
-                        
-                    except Exception as e:
-                        if self.verbose:
-                            print(f"Error loading {json_file}: {e}")
-                            
-        return doctypes
+        for doctype_name, doctype_meta in doctype_metas.items():
+            all_fields = {}
+            field_metas = self.doctype_loader.get_fields(doctype_name)
+            
+            for field_name, field_meta in field_metas.items():
+                all_fields[field_name] = {
+                    'fieldtype': field_meta.fieldtype,
+                    'options': field_meta.options
+                }
+            
+            legacy_format[doctype_name] = {
+                'fields': all_fields,
+                'app': doctype_meta.app,
+                'path': doctype_meta.json_file_path
+            }
+            
+        return legacy_format
         
     def validate_file(self, file_path: Path) -> List[ValidationIssue]:
         """Validate a single Python file"""

@@ -47,7 +47,7 @@ class TestEBoekhoudenIntegration(FrappeTestCase):
         """Test creating e-boekhouden account mappings"""
         # Create test mapping
         mapping = frappe.get_doc({
-            "doctype": "E Boekhouden Account Mapping",
+            "doctype": "E-Boekhouden Account Mapping",
             "eboekhouden_account_code": "1000",
             "eboekhouden_account_name": "Test Bank Account",
             "erpnext_account": "Test Bank - TC",
@@ -62,7 +62,7 @@ class TestEBoekhoudenIntegration(FrappeTestCase):
         
         # Test duplicate prevention
         duplicate = frappe.get_doc({
-            "doctype": "E Boekhouden Account Mapping",
+            "doctype": "E-Boekhouden Account Mapping",
             "eboekhouden_account_code": "1000",
             "eboekhouden_account_name": "Duplicate Account",
             "erpnext_account": "Test Bank 2 - TC",

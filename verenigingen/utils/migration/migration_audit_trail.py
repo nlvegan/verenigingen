@@ -531,7 +531,7 @@ class AuditedMigrationOperation:
 @frappe.whitelist()
 def get_migration_audit_summary(migration_name):
     """Get audit summary for a migration"""
-    # migration_doc = frappe.get_doc("E Boekhouden Migration", migration_name)
+    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     audit_trail = MigrationAuditTrail(migration_doc)
 
     return audit_trail.generate_summary_report()

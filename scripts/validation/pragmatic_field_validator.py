@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """
-Pragmatic Database Query Field Validator
+Pragmatic Database Query Field Validator - FIXED VERSION
+
+MAJOR IMPROVEMENTS:
+1. Uses comprehensive DocType loader for ALL apps (frappe, erpnext, payments, verenigingen)
+2. Loads ALL fields including custom fields and proper metadata
+3. Eliminates false positives from incomplete DocType definitions
+4. Proper child table relationship mapping
+5. Accurate field reference validation
 
 A production-ready field validator that builds on the improved validator with 
 selective exclusions for common false positive patterns while maintaining 
 high-value validation for critical field references.
 
 Key Features:
-1. Builds on existing improved validator that already fixed genuine issues
+1. Comprehensive multi-app DocType loading (FIXED)
 2. Adds selective exclusions for common false positive patterns:
    - Child table field access patterns (item.field in loops)
    - Wildcard selections ("*" in frappe.db.get_value)
@@ -34,10 +41,15 @@ import ast
 import json
 import re
 import argparse
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Union, Tuple
 from dataclasses import dataclass
 from enum import Enum
+
+# Import our comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 
 class ValidationLevel(Enum):
@@ -94,16 +106,33 @@ class ValidationConfig:
 
 
 class PragmaticDatabaseQueryValidator:
-    """Enhanced validator with selective exclusions for false positives"""
+    """Enhanced validator with comprehensive DocType loading and selective exclusions for false positives"""
     
     def __init__(self, app_path: str, config: ValidationConfig = None):
         self.app_path = Path(app_path)
+        self.bench_path = self.app_path.parent.parent
         self.config = config or ValidationConfig.for_level(ValidationLevel.BALANCED)
-        self.doctypes = self.load_doctypes()
+        
+        # Use comprehensive DocType loader
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_compatibility()
         self.violations = []
         
         # Exclusion patterns based on configuration
         self.exclusion_patterns = self._build_exclusion_patterns()
+        
+        print(f"🔍 Loaded {len(self.doctypes)} DocTypes from comprehensive loader")
+    
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Set[str]]:
+        """Convert DocType loader format to legacy format for compatibility"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
+        
+        for doctype_name, doctype_meta in doctype_metas.items():
+            all_field_names = self.doctype_loader.get_field_names(doctype_name)
+            legacy_format[doctype_name] = all_field_names
+            
+        return legacy_format
         
     def _build_exclusion_patterns(self) -> Dict[str, List[re.Pattern]]:
         """Build regex patterns for exclusions based on configuration"""
@@ -154,37 +183,6 @@ class PragmaticDatabaseQueryValidator:
             
         return patterns
         
-    def load_doctypes(self) -> Dict[str, Set[str]]:
-        """Load doctype field definitions (same as improved validator)"""
-        doctypes = {}
-        
-        for json_file in self.app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name')
-                    if not doctype_name:
-                        continue
-                        
-                    fields = set()
-                    for field in data.get('fields', []):
-                        if 'fieldname' in field:
-                            fields.add(field['fieldname'])
-                    
-                    # Add standard fields that exist on all doctypes
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx'
-                    ])
-                    
-                    doctypes[doctype_name] = fields
-                    
-                except Exception as e:
-                    print(f"Error loading {json_file}: {e}")
-                    
-        return doctypes
     
     def is_valid_frappe_pattern(self, field: str) -> bool:
         """Check if field reference uses valid Frappe patterns (enhanced from improved validator)"""

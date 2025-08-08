@@ -1,16 +1,34 @@
 #!/usr/bin/env python3
 """
-Ultimate Field Validator - Precisely target <130 issues
-Analyzes specific false positive patterns from 881 -> <130 issues
-Focuses on the exact patterns causing remaining false positives
+Ultimate Field Validator - FIXED VERSION with Proper DocType Loading
+
+MAJOR IMPROVEMENTS:
+1. Uses comprehensive DocType loader for ALL apps (frappe, erpnext, payments, verenigingen)
+2. Loads ALL fields including custom fields and proper metadata
+3. Correctly handles child table relationships
+4. Eliminates false positives from incomplete DocType definitions
+5. Provides accurate field reference validation
+
+Key Features:
+- Comprehensive multi-app DocType loading
+- Custom field support
+- Child table relationship mapping
+- Proper field metadata
+- Performance optimized caching
+- Reduced false positives through complete field definitions
 """
 
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
+
+# Import our comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -27,20 +45,51 @@ class ValidationIssue:
     suggested_fix: Optional[str] = None
 
 class UltimateFieldValidator:
-    """Ultimate precision field validator targeting specific false positive patterns"""
+    """Ultimate precision field validator with comprehensive DocType loading"""
     
     def __init__(self, app_path: str, verbose: bool = False):
         self.app_path = Path(app_path)
         self.bench_path = self.app_path.parent.parent
         self.verbose = verbose
-        self.doctypes = self.load_all_doctypes()
-        self.child_table_mapping = self._build_child_table_mapping()
+        
+        # Use comprehensive DocType loader
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=verbose)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        self.child_table_mapping = self.doctype_loader.get_child_table_mapping()
         self.issues = []
         
         # Build ultra-specific exclusion patterns based on analysis
         self.excluded_patterns = self._build_ultimate_exclusions()
         self.sql_patterns = self._build_sql_patterns()
         self.child_table_patterns = self._build_child_table_patterns()
+        
+        if self.verbose:
+            stats = self.doctype_loader.get_loading_stats()
+            print(f"🔍 Loaded {stats.total_doctypes} DocTypes with {stats.total_fields} fields from {len(stats.apps_scanned)} apps")
+            print(f"🔗 Built {len(self.child_table_mapping)} child table relationships")
+    
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Dict]:
+        """Convert DocType loader format to legacy format for compatibility"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
+        
+        for doctype_name, doctype_meta in doctype_metas.items():
+            all_fields = self.doctype_loader.get_field_names(doctype_name)
+            
+            legacy_format[doctype_name] = {
+                'fields': all_fields,
+                'data': {
+                    'name': doctype_name,
+                    'app': doctype_meta.app,
+                    'istable': doctype_meta.istable,
+                    'issingle': doctype_meta.issingle
+                },
+                'app': doctype_meta.app,
+                'child_tables': doctype_meta.child_tables,
+                'file': doctype_meta.json_file_path
+            }
+            
+        return legacy_format
         
     def _build_ultimate_exclusions(self) -> Dict[str, Set[str]]:
         """Build ultimate exclusions targeting specific false positive patterns"""
@@ -114,82 +163,6 @@ class UltimateFieldValidator:
             r'\w+\s+in\s+.*\.(team_members|board_members|chapter_members):'
         ]
     
-    def load_all_doctypes(self) -> Dict[str, Dict]:
-        """Load doctypes from all installed apps"""
-        doctypes = {}
-        
-        app_paths = [
-            self.bench_path / "apps" / "frappe",
-            self.bench_path / "apps" / "erpnext", 
-            self.bench_path / "apps" / "payments",
-            self.app_path,
-        ]
-        
-        for app_path in app_paths:
-            if app_path.exists():
-                if self.verbose:
-                    print(f"Loading doctypes from {app_path.name}...")
-                app_doctypes = self._load_doctypes_from_app(app_path)
-                doctypes.update(app_doctypes)
-                
-        if self.verbose:
-            print(f"📋 Loaded {len(doctypes)} doctypes from all apps")
-        return doctypes
-    
-    def _load_doctypes_from_app(self, app_path: Path) -> Dict[str, Dict]:
-        """Load doctypes from a specific app"""
-        doctypes = {}
-        
-        for json_file in app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract field names
-                    fields = set()
-                    child_tables = []
-                    
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                            if field.get('fieldtype') == 'Table':
-                                child_table_options = field.get('options')
-                                if child_table_options:
-                                    child_tables.append((fieldname, child_table_options))
-                            
-                    # Add standard Frappe fields
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-                    ])
-                    
-                    doctypes[doctype_name] = {
-                        'fields': fields,
-                        'data': data,
-                        'app': app_path.name,
-                        'child_tables': child_tables,
-                        'file': str(json_file)
-                    }
-                    
-                except Exception as e:
-                    continue
-                    
-        return doctypes
-    
-    def _build_child_table_mapping(self) -> Dict[str, str]:
-        """Build mapping of parent.field -> child DocType"""
-        mapping = {}
-        
-        for doctype_name, doctype_info in self.doctypes.items():
-            for field_name, child_doctype in doctype_info.get('child_tables', []):
-                mapping[f"{doctype_name}.{field_name}"] = child_doctype
-                
-        return mapping
     
     def is_sql_result_access(self, obj_name: str, field_name: str, context: str, 
                            source_lines: List[str], line_num: int) -> bool:

@@ -564,7 +564,7 @@ class MigrationTransaction:
 @frappe.whitelist()
 def create_migration_backup(migration_name):
     """Create a backup before starting migration"""
-    migration_doc = frappe.get_doc("E Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     transaction = MigrationTransaction(migration_doc)
 
     backup_path = transaction.create_pre_migration_backup()
@@ -575,7 +575,7 @@ def create_migration_backup(migration_name):
 @frappe.whitelist()
 def verify_migration_integrity(migration_name):
     """Verify data integrity after migration"""
-    migration_doc = frappe.get_doc("E Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     transaction = MigrationTransaction(migration_doc)
 
     return transaction.verify_data_integrity()
@@ -584,7 +584,7 @@ def verify_migration_integrity(migration_name):
 @frappe.whitelist()
 def rollback_migration_checkpoint(migration_name, checkpoint_id):
     """Rollback to a specific checkpoint"""
-    migration_doc = frappe.get_doc("E Boekhouden Migration", migration_name)
+    migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     transaction = MigrationTransaction(migration_doc)
 
     # Load checkpoint data

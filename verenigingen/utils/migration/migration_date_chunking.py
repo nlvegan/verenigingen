@@ -347,7 +347,7 @@ def process_with_date_chunks(
 @frappe.whitelist()
 def estimate_migration_chunks(migration_name):
     """Estimate optimal chunking strategy for a migration"""
-    # migration_doc = frappe.get_doc("E Boekhouden Migration", migration_name)
+    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
 
     # Create sample fetch function
     def sample_fetch(from_date, to_date):

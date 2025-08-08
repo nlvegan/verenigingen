@@ -477,7 +477,7 @@ def run_migration_dry_run(migration_name, sample_size=None):
     """Run a dry-run simulation of the migration"""
     from .eboekhouden_soap_migration import fetch_eboekhouden_data
 
-    # migration_doc = frappe.get_doc("E Boekhouden Migration", migration_name)
+    # migration_doc = frappe.get_doc("E-Boekhouden Migration", migration_name)
     simulator = DryRunSimulator()
 
     # Fetch data (limited sample for dry-run)

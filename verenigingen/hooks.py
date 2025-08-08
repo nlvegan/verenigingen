@@ -301,6 +301,7 @@ doctype_js = {
     "Member": "verenigingen/doctype/member/member.js",
     "Membership": "public/js/membership.js",
     "Membership Type": "public/js/membership_type.js",
+    "Chapter": "public/js/chapter_email_integration.js",
     "SEPA Direct Debit Batch": "public/js/direct_debit_batch.js",
     "Membership Termination Request": "public/js/membership_termination_request.js",
     "Expense Claim": "public/js/expense_claim_custom.js",
@@ -418,10 +419,13 @@ doc_events = {
             "verenigingen.utils.chapter_role_events.on_volunteer_on_update",
         ]
     },
-    # Member updates can affect board member roles
+    # Member updates can affect board member roles and email groups
     "Member": {
         "before_save": "verenigingen.verenigingen.doctype.member.member_utils.update_termination_status_display",
-        "after_save": "verenigingen.verenigingen.doctype.member.member.handle_fee_override_after_save",
+        "after_save": [
+            "verenigingen.verenigingen.doctype.member.member.handle_fee_override_after_save",
+            "verenigingen.email.email_group_sync.sync_member_on_change",
+        ],
         "on_update": "verenigingen.utils.chapter_role_events.on_member_on_update",
     },
     # Volunteer Expense approval validation
@@ -438,6 +442,10 @@ scheduler_events = {
         "verenigingen.verenigingen.doctype.member.scheduler.refresh_all_member_financial_histories",
         # Membership duration updates - runs once daily
         "verenigingen.verenigingen.doctype.member.scheduler.update_all_membership_durations",
+        # EMAIL SYSTEM INTEGRATION - Daily email system maintenance
+        "verenigingen.email.email_group_sync.scheduled_email_group_sync",
+        "verenigingen.email.analytics_tracker.cleanup_old_email_analytics",
+        "verenigingen.email.automated_campaigns.process_scheduled_campaigns",
         # Core membership system
         "verenigingen.verenigingen.doctype.membership.scheduler.process_expired_memberships",
         "verenigingen.verenigingen.doctype.membership.scheduler.send_renewal_reminders",

@@ -40,7 +40,8 @@
         "line_number": 17,
         "risk_level": "CRITICAL",
         "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
-        "required_decorator": "Already secured",
+        "required_decorator": "@critical_api",
+        "requirement_met": true,
         "reason": "Creates financial instruments - already secured"
       },
       "checks": {
@@ -83,7 +84,8 @@
         "line_number": 152,
         "risk_level": "HIGH",
         "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
-        "required_decorator": "Already secured",
+        "required_decorator": "@critical_api",
+        "requirement_met": true,
         "reason": "Individual mandate creation - already secured"
       },
       "checks": {
@@ -123,7 +125,8 @@
         "line_number": 43,
         "risk_level": "CRITICAL",
         "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
-        "required_decorator": "Already secured",
+        "required_decorator": "@critical_api",
+        "requirement_met": true,
         "reason": "Financial communication operations - already secured"
       },
       "checks": {
@@ -163,7 +166,8 @@
         "line_number": 463,
         "risk_level": "HIGH",
         "current_decorator": "@critical_api(operation_type=OperationType.ADMIN)",
-        "required_decorator": "Already secured",
+        "required_decorator": "@critical_api",
+        "requirement_met": true,
         "reason": "Administrative batch toggle operations - already secured"
       },
       "checks": {
@@ -203,7 +207,8 @@
         "line_number": 480,
         "risk_level": "CRITICAL",
         "current_decorator": "@critical_api(operation_type=OperationType.FINANCIAL)",
-        "required_decorator": "Already secured",
+        "required_decorator": "@critical_api",
+        "requirement_met": true,
         "reason": "Manual batch creation operations - already secured"
       },
       "checks": {
@@ -248,7 +253,8 @@
         "line_number": 33,
         "risk_level": "HIGH",
         "current_decorator": "@critical_api(operation_type=OperationType.MEMBER_DATA)",
-        "required_decorator": "Already secured",
+        "required_decorator": "@critical_api",
+        "requirement_met": true,
         "reason": "Member data operations - already secured"
       },
       "checks": {
@@ -288,7 +294,7 @@
   "security_compliance": {
     "compliance_level": "GOOD",
     "pass_rate": 83.33333333333334,
-    "ready_for_production": true,
+    "ready_for_production": false,
     "critical_issues": 1,
     "total_warnings": 3
   },
