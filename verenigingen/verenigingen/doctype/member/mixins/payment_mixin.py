@@ -844,6 +844,12 @@ class PaymentMixin:
             batch.batch_type = "RCUR"
             batch.currency = "EUR"
 
+        # Get mandate reference from default SEPA mandate
+        mandate_reference = None
+        default_mandate = self.get_default_sepa_mandate()
+        if default_mandate:
+            mandate_reference = default_mandate.mandate_id
+
         batch.append(
             "invoices",
             {
@@ -853,7 +859,7 @@ class PaymentMixin:
                 "amount": self.payment_amount,
                 "currency": "EUR",
                 "iban": self.iban,
-                "mandate_reference": self.mandate_reference or self.sepa_mandate,
+                "mandate_reference": mandate_reference,
                 "status": "Pending",
             },
         )

@@ -391,23 +391,61 @@ class NewsletterTemplateManager:
 
         # Render subject with safe formatting
         try:
-            rendered_subject = template["subject_template"].format(**variables)
+            # Sanitize variables before formatting
+            sanitized_variables = {k: self._sanitize_template_value(str(v)) for k, v in variables.items()}
+            rendered_subject = template["subject_template"].format(**sanitized_variables)
         except KeyError as e:
             # Handle missing variables gracefully - missing variable: {e}
             rendered_subject = template["subject_template"]
             for var, value in variables.items():
-                rendered_subject = rendered_subject.replace(f"{{{var}}}", str(value))
+                # Sanitize subject variables too
+                sanitized_value = self._sanitize_template_value(str(value))
+                rendered_subject = rendered_subject.replace(f"{{{var}}}", sanitized_value)
             # Replace any remaining placeholders with empty strings
             import re
 
             rendered_subject = re.sub(r"\{[^}]+\}", "", rendered_subject)
 
-        # Render content
+        # Render content with sanitization
         rendered_content = template["content_template"]
         for var, value in variables.items():
-            rendered_content = rendered_content.replace(f"{{{var}}}", str(value))
+            # Sanitize input to prevent XSS attacks
+            sanitized_value = self._sanitize_template_value(str(value))
+            rendered_content = rendered_content.replace(f"{{{var}}}", sanitized_value)
 
         return {"subject": rendered_subject, "content": rendered_content, "template_name": template["name"]}
+
+    def _sanitize_template_value(self, value: str) -> str:
+        """
+        Sanitize template values to prevent XSS attacks
+
+        Args:
+            value: Raw input value
+
+        Returns:
+            Sanitized value safe for HTML rendering
+        """
+        import html
+
+        # HTML escape dangerous characters
+        sanitized = html.escape(value, quote=True)
+
+        # Additional sanitization for common attack vectors
+        dangerous_patterns = [
+            ("<script", "&lt;script"),
+            ("</script>", "&lt;/script&gt;"),
+            ("javascript:", "javascript-blocked:"),
+            ("vbscript:", "vbscript-blocked:"),
+            ("onload=", "onload-blocked="),
+            ("onerror=", "onerror-blocked="),
+            ("onclick=", "onclick-blocked="),
+        ]
+
+        for pattern, replacement in dangerous_patterns:
+            sanitized = sanitized.replace(pattern.lower(), replacement)
+            sanitized = sanitized.replace(pattern.upper(), replacement)
+
+        return sanitized
 
 
 # API Functions

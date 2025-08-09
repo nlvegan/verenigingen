@@ -498,99 +498,122 @@ def get_expense_categories():
 
 
 def get_volunteer_expenses(volunteer_name, limit=None):
-    """Get volunteer's recent expenses from ERPNext Expense Claims and Volunteer Expense records"""
+    """Get volunteer's recent expenses from Member's stored expense history (updated when claims are modified)"""
     try:
         expenses = []
 
-        # Get volunteer's employee ID
+        # Get volunteer's member to access stored expense history
         volunteer_doc = frappe.get_doc("Volunteer", volunteer_name)
+        if not volunteer_doc.member:
+            return expenses
 
-        # First, try to get from ERPNext if employee_id exists
-        if volunteer_doc.employee_id:
-            # Get ERPNext Expense Claims for this employee
-            expense_claims = frappe.get_all(
-                "Expense Claim",
-                filters={"employee": volunteer_doc.employee_id},
-                fields=[
-                    "name",
-                    "employee_name",
-                    "total_claimed_amount",
-                    "status",
-                    "posting_date",
-                    "creation",
-                    "approval_status",
-                    "company",
-                    "cost_center",
-                ],
-                order_by="creation desc",
-                limit=limit,
+        # Get member document to access stored expense history
+        member_doc = frappe.get_doc("Member", volunteer_doc.member)
+
+        # Get expenses from Member's volunteer_expenses child table (properly tracks updates)
+        if hasattr(member_doc, "volunteer_expenses") and member_doc.volunteer_expenses:
+            stored_expenses = (
+                member_doc.volunteer_expenses[:limit] if limit else member_doc.volunteer_expenses
             )
 
-            for claim in expense_claims:
-                # Get expense details from the claim's expense table
-                claim_details = frappe.get_all(
-                    "Expense Claim Detail",
-                    filters={"parent": claim.name},
-                    fields=["expense_type", "description", "amount", "expense_date"],
-                    order_by="idx",
+            for stored_expense in stored_expenses:
+                # Get additional details from ERPNext Expense Claim if available
+                claim_details = []
+                description = f"Expense Claim {stored_expense.expense_claim}"
+                organization_info = {"type": "Unknown", "name": "Unknown"}
+                category = None
+
+                if stored_expense.expense_claim:
+                    try:
+                        # Get expense claim details for description and organization info
+                        claim_details = frappe.get_all(
+                            "Expense Claim Detail",
+                            filters={"parent": stored_expense.expense_claim},
+                            fields=["expense_type", "description", "amount", "expense_date"],
+                            order_by="idx",
+                            limit=1,  # Get first detail for description
+                        )
+
+                        if claim_details:
+                            description = claim_details[0].description or description
+                            category = claim_details[0].expense_type
+
+                        # Try to get organization info from associated Volunteer Expense record
+                        volunteer_expense = frappe.get_all(
+                            "Volunteer Expense",
+                            filters={
+                                "volunteer": volunteer_name,
+                                "expense_claim_id": stored_expense.expense_claim,
+                            },
+                            fields=["organization_type", "chapter", "team", "category"],
+                            limit=1,
+                        )
+
+                        if volunteer_expense:
+                            org_data = volunteer_expense[0]
+                            organization_info = {
+                                "type": org_data.organization_type or "Unknown",
+                                "name": org_data.chapter or org_data.team or "Unknown",
+                            }
+                            category = org_data.category or category
+
+                    except Exception as e:
+                        frappe.log_error(
+                            f"Error getting expense details for {stored_expense.expense_claim}: {str(e)}"
+                        )
+
+                expense = frappe._dict(
+                    {
+                        "name": stored_expense.expense_claim,  # Use expense claim name as unique identifier
+                        "expense_claim_id": stored_expense.expense_claim,
+                        "description": description,
+                        "amount": stored_expense.total_sanctioned_amount
+                        or stored_expense.total_claimed_amount,
+                        "currency": "EUR",  # Default currency
+                        "expense_date": stored_expense.posting_date,
+                        "status": stored_expense.status,
+                        "creation": stored_expense.posting_date,  # Use posting date as creation proxy
+                        "approved_on": stored_expense.payment_date
+                        if stored_expense.payment_status == "Paid"
+                        else None,
+                        "organization_type": organization_info["type"],
+                        "organization_name": organization_info["name"],
+                        "category": category,
+                        "payment_status": stored_expense.payment_status,
+                        "payment_date": stored_expense.payment_date,
+                        "paid_amount": stored_expense.paid_amount,
+                    }
                 )
 
-                # Get linked Volunteer Expense record for organization info if it exists
-                # Note: expense_claim_id field doesn't exist, so this will always return None
-                volunteer_expense = None
-
-                for detail in claim_details:
-                    expense = frappe._dict(
-                        {
-                            "name": f"{claim.name}-{detail.get('idx', 1)}",
-                            "expense_claim_id": claim.name,
-                            "description": detail.description or f"Expense Claim {claim.name}",
-                            "amount": detail.amount,
-                            "currency": "EUR",  # Default currency
-                            "expense_date": detail.expense_date or claim.posting_date,
-                            "status": map_erpnext_status_to_volunteer_status(
-                                claim.status, claim.approval_status
-                            ),
-                            "creation": claim.creation,
-                            "approved_on": None,  # ERPNext doesn't track approval date directly
-                            # Organization info from linked Volunteer Expense if available
-                            "organization_type": volunteer_expense.organization_type
-                            if volunteer_expense
-                            else "Unknown",
-                            "chapter": volunteer_expense.chapter if volunteer_expense else None,
-                            "team": volunteer_expense.team if volunteer_expense else None,
-                            "category": volunteer_expense.category
-                            if volunteer_expense
-                            else detail.expense_type,
-                        }
+                # Get category name
+                if expense.category:
+                    expense.category_name = (
+                        frappe.db.get_value("Expense Category", expense.category, "category_name")
+                        or frappe.db.get_value("Expense Claim Type", expense.category, "expense_type")
+                        or expense.category
                     )
+                else:
+                    expense.category_name = "Uncategorized"
 
-                    # Get category name
-                    if expense.category:
-                        expense.category_name = (
-                            frappe.db.get_value("Expense Category", expense.category, "category_name")
-                            or frappe.db.get_value("Expense Claim Type", expense.category, "expense_type")
-                            or expense.category
-                        )
-                    else:
-                        expense.category_name = "Uncategorized"
+                # Format dates
+                expense.formatted_date = formatdate(expense.expense_date)
+                expense.formatted_creation = formatdate(expense.creation)
+                if expense.approved_on:
+                    expense.formatted_approved_on = formatdate(expense.approved_on)
 
-                    # Get organization name
-                    expense.organization_name = expense.chapter or expense.team or "Unknown"
+                # Add status styling
+                expense.status_class = get_status_class(expense.status)
 
-                    # Format dates
-                    expense.formatted_date = formatdate(expense.expense_date)
-                    expense.formatted_creation = formatdate(expense.creation)
+                expenses.append(expense)
 
-                    # Add status styling
-                    expense.status_class = get_status_class(expense.status)
-
-                    expenses.append(expense)
-
-        # Also get direct Volunteer Expense records (only those not represented in ERPNext)
+        # Also get direct Volunteer Expense records that are NOT linked to ERPNext claims
+        # These are standalone Volunteer Expenses that haven't been converted to ERPNext
         volunteer_expenses = frappe.get_all(
             "Volunteer Expense",
-            filters={"volunteer": volunteer_name},
+            filters={
+                "volunteer": volunteer_name,
+                "expense_claim_id": ["is", "not set"],  # Only get non-ERPNext expenses
+            },
             fields=[
                 "name",
                 "description",
@@ -609,48 +632,31 @@ def get_volunteer_expenses(volunteer_name, limit=None):
             limit=limit or 10,
         )
 
-        # Process Volunteer Expense records, but avoid duplicates with ERPNext
-        erpnext_expense_keys = set()
-        for exp in expenses:
-            if exp.get("expense_claim_id"):
-                # Create a key to identify potential duplicates
-                key = (exp.get("description", ""), float(exp.get("amount", 0)), exp.get("expense_date"))
-                erpnext_expense_keys.add(key)
-
+        # Add standalone volunteer expenses that haven't been converted to ERPNext
         for vol_expense in volunteer_expenses:
-            # Check if this expense is already represented in ERPNext
-            expense_key = (
-                vol_expense.description or "",
-                float(vol_expense.amount or 0),
-                vol_expense.expense_date,
-            )
+            # Get category name
+            if vol_expense.category:
+                vol_expense.category_name = frappe.db.get_value(
+                    "Expense Category", vol_expense.category, "category_name"
+                )
+            else:
+                vol_expense.category_name = "Uncategorized"
 
-            if expense_key not in erpnext_expense_keys:
-                # Only add if not duplicated in ERPNext
+            # Get organization name
+            vol_expense.organization_name = vol_expense.chapter or vol_expense.team or "Unknown"
 
-                # Get category name
-                if vol_expense.category:
-                    vol_expense.category_name = frappe.db.get_value(
-                        "Expense Category", vol_expense.category, "category_name"
-                    )
-                else:
-                    vol_expense.category_name = "Uncategorized"
+            # Format dates
+            vol_expense.formatted_date = formatdate(vol_expense.expense_date)
+            vol_expense.formatted_creation = formatdate(vol_expense.creation)
+            if vol_expense.approved_on:
+                vol_expense.formatted_approved_on = formatdate(vol_expense.approved_on)
 
-                # Get organization name
-                vol_expense.organization_name = vol_expense.chapter or vol_expense.team or "Unknown"
+            # Add status styling
+            vol_expense.status_class = get_status_class(vol_expense.status)
 
-                # Format dates
-                vol_expense.formatted_date = formatdate(vol_expense.expense_date)
-                vol_expense.formatted_creation = formatdate(vol_expense.creation)
-                if vol_expense.approved_on:
-                    vol_expense.formatted_approved_on = formatdate(vol_expense.approved_on)
+            expenses.append(vol_expense)
 
-                # Add status styling
-                vol_expense.status_class = get_status_class(vol_expense.status)
-
-                expenses.append(vol_expense)
-
-        # Sort by creation date and limit
+        # Sort by creation date (most recent first) and limit
         expenses.sort(key=lambda x: x.get("creation", ""), reverse=True)
         if limit:
             expenses = expenses[:limit]
