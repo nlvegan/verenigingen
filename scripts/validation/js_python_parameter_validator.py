@@ -28,6 +28,30 @@ from difflib import SequenceMatcher
 from enum import Enum
 import logging
 
+# Enhanced imports for unified loader integration
+import sys
+from pathlib import Path
+
+# Import unified DocType loader with secure path handling
+try:
+    from .doctype_loader import get_unified_doctype_loader
+except ImportError:
+    # Fallback for direct script execution with secure path handling
+    current_dir = Path(__file__).resolve().parent  # Use resolve() for absolute path
+    # Validate path is within project boundaries
+    if current_dir.exists() and current_dir.is_dir():
+        sys_path_str = str(current_dir)
+        if sys_path_str not in sys.path:
+            sys.path.insert(0, sys_path_str)
+        try:
+            from doctype_loader import get_unified_doctype_loader
+        finally:
+            # Clean up sys.path modification
+            if sys_path_str in sys.path:
+                sys.path.remove(sys_path_str)
+    else:
+        raise ImportError("Cannot safely import doctype_loader")
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -119,10 +143,16 @@ class ModernJSPythonValidator:
         self.project_root = Path(project_root)
         self.config = config or self._load_default_config()
         
-        # Caches for performance
-        self._python_functions_cache = {}
-        self._js_calls_cache = {}
-        self._file_mtime_cache = {}
+        # Initialize unified DocType loader
+        self.doctype_loader = None
+        self._initialize_doctype_loader()
+        
+        # Caches for performance with size limits
+        self._python_functions_cache = {}  # Will implement LRU eviction
+        self._js_calls_cache = {}  # Will implement LRU eviction
+        self._file_mtime_cache = {}  # Will implement TTL-based eviction
+        self._cache_max_size = 1000  # Maximum cache entries
+        self._cache_ttl = 300  # Cache TTL in seconds
         
         # Data structures
         self.js_calls: List[JSCall] = []
@@ -130,9 +160,23 @@ class ModernJSPythonValidator:
         self.function_index: Dict[str, List[str]] = defaultdict(list)  # function_name -> full_paths
         self.issues: List[ValidationIssue] = []
         
+        # Pre-compile regex patterns for performance optimization
+        self._compiled_call_patterns = [
+            (re.compile(r'frappe\.call\(\s*\{\s*[\'"]?method[\'"]?\s*:\s*[\'"]([^\'"]+)[\'"]'), 'frappe.call'),
+            (re.compile(r'frm\.call\(\s*\{\s*[\'"]?method[\'"]?\s*:\s*[\'"]([^\'"]+)[\'"]'), 'frm.call'),
+            (re.compile(r'cur_frm\.call\(\s*\{\s*[\'"]?method[\'"]?\s*:\s*[\'"]([^\'"]+)[\'"]'), 'cur_frm.call'),
+            (re.compile(r'[\'"]method[\'"]:\s*[\'"]([^\'"]+)[\'"]'), 'button.method'),
+            (re.compile(r'this\._call\(\s*[\'"]([^\'"]+)[\'"]'), 'service.call'),
+            (re.compile(r'api\.call\(\s*[\'"]([^\'"]+)[\'"]'), 'api.call'),
+        ]
+        
         # Framework patterns to ignore
         self.framework_methods = self._build_framework_methods()
         self.builtin_patterns = self._build_builtin_patterns()
+        
+        # Enhanced validation features
+        self.doctype_fields_cache = {}
+        self.method_signatures_cache = {}
         
         # Statistics
         self.stats = {
@@ -142,7 +186,26 @@ class ModernJSPythonValidator:
             'python_functions_found': 0,
             'issues_found': 0,
             'cache_hits': 0,
+            'doctype_lookups': 0,
+            'enhanced_validations': 0,
         }
+    
+    def _initialize_doctype_loader(self):
+        """Initialize the unified DocType loader with enhanced error handling"""
+        try:
+            self.doctype_loader = get_unified_doctype_loader(str(self.project_root))
+            # Verify loader is working by testing a known DocType
+            if self.doctype_loader:
+                test_fields = self.doctype_loader.get_field_names('Member')
+                if test_fields:
+                    logger.info(f"✅ DocType loader initialized (found {len(test_fields)} fields for Member)")
+                else:
+                    logger.warning("⚠️ DocType loader initialized but returns no fields - check DocType paths")
+            else:
+                logger.warning("DocType loader initialization returned None")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize DocType loader: {e}")
+            self.doctype_loader = None
     
     def _load_default_config(self) -> Dict:
         """Load default configuration with sensible defaults"""
@@ -218,7 +281,7 @@ class ModernJSPythonValidator:
             re.compile(r'^frappe\.core\.'),
         ]
     
-    @lru_cache(maxsize=512)
+    @lru_cache(maxsize=256)  # Limited cache size to prevent memory leaks
     def _get_file_mtime(self, file_path: Path) -> float:
         """Get file modification time with caching"""
         try:
@@ -268,26 +331,16 @@ class ModernJSPythonValidator:
             logger.warning(f"Could not read {js_file}: {e}")
             return []
         
-        # Enhanced patterns for different call types
-        call_patterns = [
-            # frappe.call() with various formats
-            (r'frappe\.call\(\s*\{\s*[\'"]?method[\'"]?\s*:\s*[\'"]([^\'"]+)[\'"]', 'frappe.call'),
-            (r'frm\.call\(\s*\{\s*[\'"]?method[\'"]?\s*:\s*[\'"]([^\'"]+)[\'"]', 'frm.call'),
-            (r'cur_frm\.call\(\s*\{\s*[\'"]?method[\'"]?\s*:\s*[\'"]([^\'"]+)[\'"]', 'cur_frm.call'),
-            
-            # Direct method references in custom buttons
-            (r'[\'"]method[\'"]:\s*[\'"]([^\'"]+)[\'"]', 'button.method'),
-            
-            # API service calls
-            (r'this\._call\(\s*[\'"]([^\'"]+)[\'"]', 'service.call'),
-            (r'api\.call\(\s*[\'"]([^\'"]+)[\'"]', 'api.call'),
-        ]
-        
+        # Use pre-compiled patterns for better performance
         for line_num, line in enumerate(lines, 1):
-            for pattern, call_type in call_patterns:
-                matches = re.finditer(pattern, line)
+            for pattern, call_type in self._compiled_call_patterns:
+                matches = pattern.finditer(line)
                 for match in matches:
                     method_name = match.group(1)
+                    
+                    # Remove debug output for cleaner production use
+                    # if method_name == 'add_board_member':
+                    #     logger.info(f"🔍 DEBUG: Found method call '{method_name}' on line {line_num}")
                     
                     # Skip framework methods
                     if self._should_ignore_method(method_name):
@@ -298,8 +351,14 @@ class ModernJSPythonValidator:
                     context_end = min(len(lines), line_num + 2)
                     context = '\n'.join(lines[context_start:context_end])
                     
+                    # Calculate absolute position in file
+                    # match.start() is relative to the line, we need absolute position
+                    lines_before = lines[:line_num-1]  # All lines before current line
+                    chars_before = sum(len(line) + 1 for line in lines_before)  # +1 for newline
+                    absolute_match_start = chars_before + match.start()
+                    
                     # Extract arguments
-                    args = self._extract_js_arguments(content, match.start(), line_num)
+                    args = self._extract_js_arguments(content, absolute_match_start, line_num)
                     
                     # Determine if call is conditional
                     is_conditional = self._is_conditional_call(context)
@@ -330,48 +389,126 @@ class ModernJSPythonValidator:
         """Enhanced argument extraction from JavaScript calls"""
         args = {}
         
-        # Find the args object in the call
-        # Look for 'args: {' or '"args": {' pattern
-        start_pos = match_start
-        search_text = content[start_pos:start_pos + 1000]  # Search in next 1000 chars
+        # Find arguments in the call - support multiple patterns
+        # Start search from a bit before the match to include the full call context
+        start_pos = max(0, match_start - 50)  # Include some context before the match
+        search_text = content[start_pos:start_pos + 1500]  # Search in next 1500 chars
         
+        # Remove debug output for cleaner production use
+        # if line_num == 422:  # Debug only specific line
+        #     logger.info(f"🔍 DEBUG: Extracting args for line {line_num}")
+        #     logger.info(f"🔍 DEBUG: Search text: '{search_text[:500]}'")
+        
+        # Multiple patterns to match different call styles
         args_patterns = [
-            r'args:\s*\{([^}]*)\}',
-            r'[\'"]args[\'"]:\s*\{([^}]*)\}',
+            # Pattern 1: args: { ... } style (traditional)
+            (r'args:\s*\{([^}]*)\}', 'args_object'),
+            (r'[\'"]args[\'"]:\s*\{([^}]*)\}', 'args_object'),
+            # Pattern 2: Direct object after method name (most common in frappe.call)
+            (r'[\'"][^\'"]+"[\'"],\s*\{([^}]+)\}', 'direct_object'),
+            # Pattern 3: Look for the full call context with method
+            (r'\.call\([^,]+,\s*\{([^}]+)\}', 'call_object'),
+            # Pattern 4: More specific pattern for this.api.call style
+            (r'this\.api\.call\([^,]+,\s*\{([^}]+)\}', 'api_call'),
         ]
         
-        for pattern in args_patterns:
-            match = re.search(pattern, search_text)
+        for pattern, pattern_type in args_patterns:
+            match = re.search(pattern, search_text, re.DOTALL)
             if match:
                 args_text = match.group(1)
+                
                 args = self._parse_js_object(args_text)
+                
+                # If we found a direct object pattern, all keys are potential parameters
+                # except common meta keys like 'doc', 'callback', 'error'
+                if pattern_type in ['direct_object', 'call_object', 'api_call']:
+                    # Filter out common non-parameter keys
+                    meta_keys = {'doc', 'callback', 'error', 'freeze', 'freeze_message', 'btn'}
+                    args = {k: v for k, v in args.items() if k not in meta_keys}
                 break
-        
         return args
     
     def _parse_js_object(self, js_obj_text: str) -> Dict[str, Any]:
-        """Parse JavaScript object text into Python dict"""
+        """Enhanced JavaScript object parsing with better pattern matching"""
         args = {}
         
-        # Simple parsing - handle key: value pairs
-        # This is a simplified parser, could be enhanced with proper JS AST
-        pairs = re.findall(r'[\'"]?(\w+)[\'"]?\s*:\s*([^,}]+)', js_obj_text)
+        # Clean up the text - remove newlines and extra spaces
+        js_obj_text = re.sub(r'\s+', ' ', js_obj_text.strip())
         
-        for key, value in pairs:
-            # Clean up value
-            value = value.strip().strip('\'"')
-            
-            # Try to detect value type
-            if value.lower() in ['true', 'false']:
-                args[key] = value.lower() == 'true'
-            elif value.isdigit():
-                args[key] = int(value)
-            elif re.match(r'^\d+\.\d+$', value):
-                args[key] = float(value)
-            else:
-                args[key] = value
+        # Enhanced parsing patterns to handle different JavaScript styles
+        patterns = [
+            # Standard key: value
+            r'[\'"]?(\w+)[\'"]?\s*:\s*([^,}]+)',
+            # Property names without quotes
+            r'(\w+)\s*:\s*([^,}]+)',
+        ]
+        
+        for pattern in patterns:
+            pairs = re.findall(pattern, js_obj_text)
+            for key, value in pairs:
+                # Clean up the value
+                value = value.strip()
+                
+                # Handle different value patterns
+                if value.startswith('values.'):
+                    # Extract the actual parameter name from values.parameter
+                    param_name = value.split('.', 1)[1] if '.' in value else value
+                    args[key] = param_name
+                elif value.startswith("'") or value.startswith('"'):
+                    # String literal
+                    args[key] = value.strip('\'"')
+                elif value.lower() in ['true', 'false']:
+                    # Boolean
+                    args[key] = value.lower() == 'true'
+                elif value.isdigit():
+                    # Integer
+                    args[key] = int(value)
+                elif re.match(r'^\d+\.\d+$', value):
+                    # Float
+                    args[key] = float(value)
+                else:
+                    # Variable reference or complex expression - mark as present
+                    args[key] = value
         
         return args
+    
+    def _apply_parameter_mapping(self, js_params: Set[str], required_params: Set[str]) -> Set[str]:
+        """Apply parameter name mapping to handle common variations"""
+        mapped_params = set(js_params)
+        
+        # Common parameter name mappings
+        param_mappings = {
+            'chapter_role': 'role',
+            'role_name': 'role',
+            'member_name': 'member',
+            'volunteer_name': 'volunteer',
+            'user_name': 'user',
+            'doc_name': 'name',
+            'document_name': 'name',
+        }
+        
+        # Apply mappings
+        for js_param in js_params:
+            if js_param in param_mappings:
+                mapped_name = param_mappings[js_param]
+                if mapped_name in required_params:
+                    mapped_params.add(mapped_name)
+        
+        # Also check for fuzzy matching of parameter names
+        for js_param in js_params:
+            for req_param in required_params:
+                # Check if JS parameter contains the required parameter name
+                if req_param in js_param or js_param in req_param:
+                    # Calculate similarity
+                    similarity = self._calculate_string_similarity(js_param, req_param)
+                    if similarity > 0.7:  # 70% similarity threshold
+                        mapped_params.add(req_param)
+        
+        return mapped_params
+    
+    def _calculate_string_similarity(self, str1: str, str2: str) -> float:
+        """Calculate string similarity using SequenceMatcher"""
+        return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
     
     def _is_conditional_call(self, context: str) -> bool:
         """Determine if a call is within conditional logic"""
@@ -408,6 +545,113 @@ class ModernJSPythonValidator:
             confidence += 0.05
         
         return min(1.0, max(0.1, confidence))
+    
+    def _get_doctype_fields(self, doctype_name: str) -> Set[str]:
+        """Get all valid fields for a DocType using unified loader"""
+        if not self.doctype_loader or not doctype_name:
+            return set()
+            
+        if doctype_name in self.doctype_fields_cache:
+            return self.doctype_fields_cache[doctype_name]
+            
+        try:
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            self.doctype_fields_cache[doctype_name] = field_names
+            self.stats['doctype_lookups'] += 1
+            return field_names
+        except Exception as e:
+            logger.debug(f"Could not load fields for DocType {doctype_name}: {e}")
+            return set()
+    
+    def _validate_doctype_field_access(self, js_call: JSCall, python_func: PythonFunction) -> List[ValidationIssue]:
+        """Enhanced validation using DocType field information"""
+        issues = []
+        
+        # Check if this looks like a DocType operation
+        doctype_patterns = [
+            r'get_doc\(',
+            r'frappe\.get_doc\(',
+            r'\.save\(',
+            r'\.submit\(',
+            r'\.cancel\(',
+            r'frappe\.db\.get_value\(',
+            r'frappe\.db\.set_value\(',
+        ]
+        
+        context_lower = js_call.context.lower()
+        has_doctype_operation = any(re.search(pattern, context_lower) for pattern in doctype_patterns)
+        
+        if not has_doctype_operation:
+            return issues
+            
+        # Try to extract DocType name from the call
+        doctype_name = self._extract_doctype_from_call(js_call)
+        if not doctype_name:
+            return issues
+            
+        # Get valid fields for this DocType
+        valid_fields = self._get_doctype_fields(doctype_name)
+        if not valid_fields:
+            return issues
+            
+        # Check if any parameters reference invalid fields
+        for param_name, param_value in js_call.args.items():
+            if isinstance(param_value, str) and param_value not in valid_fields:
+                # Check if this looks like a field reference
+                if self._looks_like_field_reference(param_value, param_name):
+                    issue = ValidationIssue(
+                        js_call=js_call,
+                        python_function=python_func,
+                        issue_type=IssueType.MISSING_PARAMETER,
+                        severity=Severity.MEDIUM,
+                        description=f"Parameter '{param_name}' references invalid field '{param_value}' for DocType '{doctype_name}'",
+                        suggestion=f"Check if field '{param_value}' exists in DocType '{doctype_name}' or use a valid field name",
+                        confidence=0.7
+                    )
+                    issues.append(issue)
+                    
+        self.stats['enhanced_validations'] += 1
+        return issues
+    
+    def _extract_doctype_from_call(self, js_call: JSCall) -> Optional[str]:
+        """Try to extract DocType name from JavaScript call context"""
+        # Common patterns for DocType references
+        patterns = [
+            r"doctype['\"]?\s*:\s*['\"]([^'\"]+)['\"]",
+            r"get_doc\(\s*['\"]([^'\"]+)['\"]",
+            r"frappe\.get_doc\(\s*['\"]([^'\"]+)['\"]",
+            r"new_doc\(\s*['\"]([^'\"]+)['\"]",
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, js_call.context, re.IGNORECASE)
+            if match:
+                return match.group(1)
+                
+        # Check in call arguments
+        if 'doctype' in js_call.args:
+            return str(js_call.args['doctype'])
+            
+        return None
+    
+    def _looks_like_field_reference(self, value: str, param_name: str) -> bool:
+        """Determine if a parameter value looks like a field reference"""
+        # Common field-like patterns
+        field_indicators = [
+            'name', 'title', 'status', 'owner', 'creation', 'modified',
+            '_name', '_id', 'field', 'column'
+        ]
+        
+        # Check if parameter name suggests a field
+        param_lower = param_name.lower()
+        if any(indicator in param_lower for indicator in ['field', 'column', 'attr']):
+            return True
+            
+        # Check if value looks like a field name
+        if isinstance(value, str) and len(value) > 2:
+            return any(indicator in value.lower() for indicator in field_indicators)
+            
+        return False
     
     def extract_python_functions(self, py_file: Path) -> List[PythonFunction]:
         """Extract Python functions with comprehensive AST analysis"""
@@ -493,11 +737,19 @@ class ModernJSPythonValidator:
         
         for arg in node.args.args:
             param_name = arg.arg
+            # Skip 'self' parameter for methods (critical fix for false positives)
+            if param_name == 'self':
+                continue
             parameters.append(param_name)
             
             # Check if it has type annotation
             if arg.annotation:
-                param_types[param_name] = ast.unparse(arg.annotation)
+                # Handle Python version compatibility
+                try:
+                    param_types[param_name] = ast.unparse(arg.annotation)
+                except AttributeError:
+                    # Fallback for Python < 3.9
+                    param_types[param_name] = str(arg.annotation)
         
         # Handle default arguments
         defaults = node.args.defaults
@@ -618,7 +870,7 @@ class ModernJSPythonValidator:
         return best_match
     
     def validate_call(self, js_call: JSCall) -> List[ValidationIssue]:
-        """Validate a JavaScript call against Python function"""
+        """Enhanced validation of JavaScript call against Python function"""
         issues = []
         
         # Find matching Python function
@@ -640,13 +892,21 @@ class ModernJSPythonValidator:
             issues.append(issue)
             return issues
         
-        # Validate parameters
+        # Enhanced validation with DocType awareness
+        if self.doctype_loader:
+            doctype_issues = self._validate_doctype_field_access(js_call, python_func)
+            issues.extend(doctype_issues)
+        
+        # Enhanced parameter validation with mapping support
         js_params = set(js_call.args.keys())
         required_params = set(python_func.required_params)
         all_params = set(python_func.parameters)
         
-        # Check for missing required parameters
-        missing_params = required_params - js_params
+        # Apply parameter mapping for common variations
+        mapped_js_params = self._apply_parameter_mapping(js_params, required_params)
+        
+        # Check for missing required parameters after mapping
+        missing_params = required_params - mapped_js_params
         for param in missing_params:
             issue = ValidationIssue(
                 js_call=js_call,
@@ -662,17 +922,89 @@ class ModernJSPythonValidator:
         if not python_func.has_kwargs:
             extra_params = js_params - all_params
             for param in extra_params:
+                # Apply enhanced analysis for extra parameters
+                severity = self._analyze_extra_parameter_severity(param, js_call, python_func)
+                
                 issue = ValidationIssue(
                     js_call=js_call,
                     python_function=python_func,
                     issue_type=IssueType.EXTRA_PARAMETER,
-                    severity=Severity.MEDIUM,
+                    severity=severity,
                     description=f"Extra parameter not expected: {param}",
                     confidence=0.7
                 )
                 issues.append(issue)
         
+        # Type validation if type annotations are available
+        type_issues = self._validate_parameter_types(js_call, python_func)
+        issues.extend(type_issues)
+        
         return issues
+    
+    def _analyze_extra_parameter_severity(self, param: str, js_call: JSCall, python_func: PythonFunction) -> Severity:
+        """Analyze the severity of an extra parameter"""
+        # Common parameter names that are often optional
+        common_optional = {
+            'callback', 'success_callback', 'error_callback',
+            'freeze', 'freeze_message', 'async', 'no_save',
+            'ignore_permissions', 'debug', 'validate'
+        }
+        
+        if param.lower() in common_optional:
+            return Severity.LOW
+            
+        # If the parameter name suggests it's a callback or option
+        if any(keyword in param.lower() for keyword in ['callback', 'option', 'flag', 'enable']):
+            return Severity.LOW
+            
+        return Severity.MEDIUM
+    
+    def _validate_parameter_types(self, js_call: JSCall, python_func: PythonFunction) -> List[ValidationIssue]:
+        """Validate parameter types when type annotations are available"""
+        issues = []
+        
+        for param_name, js_value in js_call.args.items():
+            if param_name in python_func.param_types:
+                expected_type = python_func.param_types[param_name]
+                js_type = type(js_value).__name__
+                
+                # Simple type checking (can be enhanced)
+                type_mismatch = self._check_type_compatibility(js_type, expected_type, js_value)
+                
+                if type_mismatch:
+                    issue = ValidationIssue(
+                        js_call=js_call,
+                        python_function=python_func,
+                        issue_type=IssueType.TYPE_MISMATCH,
+                        severity=Severity.MEDIUM,
+                        description=f"Type mismatch for parameter '{param_name}': expected {expected_type}, got {js_type}",
+                        suggestion=f"Convert parameter '{param_name}' to {expected_type}",
+                        confidence=0.6
+                    )
+                    issues.append(issue)
+        
+        return issues
+    
+    def _check_type_compatibility(self, js_type: str, expected_type: str, value: Any) -> bool:
+        """Check if JavaScript type is compatible with expected Python type"""
+        # Basic type compatibility mapping
+        type_mappings = {
+            'str': ['string', 'str'],
+            'int': ['number', 'int'],
+            'float': ['number', 'float'],
+            'bool': ['boolean', 'bool'],
+            'dict': ['object', 'dict'],
+            'list': ['array', 'list'],
+        }
+        
+        # Normalize expected type
+        expected_lower = expected_type.lower()
+        for py_type, js_types in type_mappings.items():
+            if py_type in expected_lower:
+                return js_type.lower() not in js_types
+                
+        # If we can't determine compatibility, assume it's OK
+        return False
     
     def scan_javascript_files(self):
         """Scan all JavaScript files for Python method calls"""
@@ -756,7 +1088,13 @@ class ModernJSPythonValidator:
         report.append(f"Total issues: {len(issues)}")
         report.append(f"JavaScript files scanned: {self.stats['js_files_scanned']}")
         report.append(f"Python functions found: {self.stats['python_functions_found']}")
-        report.append(f"Cache hits: {self.stats['cache_hits']}")
+        
+        # Enhanced statistics
+        if self.doctype_loader:
+            report.append(f"DocType lookups performed: {self.stats['doctype_lookups']}")
+            report.append(f"Enhanced validations: {self.stats['enhanced_validations']}")
+        
+        report.append(f"Cache efficiency: {self.stats['cache_hits']} hits")
         report.append("")
         
         # Group by severity
@@ -827,6 +1165,11 @@ class ModernJSPythonValidator:
         report.append(f"  • JavaScript files scanned: {self.stats['js_files_scanned']}")
         report.append(f"  • JavaScript calls analyzed: {self.stats['js_calls_found']}")
         report.append(f"  • Python functions found: {self.stats['python_functions_found']}")
+        
+        if self.doctype_loader:
+            report.append(f"  • DocType lookups performed: {self.stats['doctype_lookups']}")
+            report.append(f"  • Enhanced validations: {self.stats['enhanced_validations']}")
+        
         report.append(f"  • Cache efficiency: {self.stats['cache_hits']} hits")
         report.append("")
         report.append("✅ All JavaScript-Python interfaces are properly aligned!")

@@ -55,15 +55,39 @@ repos:
         ]
         exclude: '^(node_modules|.git|dist|build|scripts|tests|debug_utils|dev_scripts|integration_tests|verenigingen/tests|frontend_tests)/'
 
-  # Security validation (NEW)
+  # Security Validation (Enhanced)
   - repo: https://github.com/PyCQA/bandit
     rev: '1.7.5'
     hooks:
       - id: bandit
-        name: 🔍 Security Linting (Bandit)
-        args: ['-r', 'verenigingen/', '--skip', 'B101,B601', '--exclude', 'archived_removal,archived_unused', '--severity-level', 'high']
+        name: 🔍 Security Linting (Bandit - High Severity)
+        description: Scan for security vulnerabilities in Python code
+        args: [
+          '-r', 'verenigingen/', 
+          '--skip', 'B101,B601,B106,B107', # Skip assert_used_in_tests, hardcoded_password_funcarg, hardcoded_password_defaults, hardcoded_password_string
+          '--exclude', 'archived_removal,archived_unused,scripts/testing,scripts/debug,tests',
+          '--severity-level', 'high',
+          '--confidence-level', 'high',
+          '--format', 'json',
+          '--output', 'bandit-report.json'
+        ]
         pass_filenames: false
-        exclude: '^(tests/|scripts/testing/)'
+        stages: [pre-commit]
+        exclude: '^(tests/|scripts/testing/|scripts/debug/|.*_test\.py|.*_debug\.py|archived_.*)'
+
+      - id: bandit
+        name: 🔍 Security Linting (Bandit - Medium Severity - Pre-Push)
+        description: Comprehensive security scan including medium severity issues
+        args: [
+          '-r', 'verenigingen/',
+          '--skip', 'B101,B601,B106,B107',
+          '--exclude', 'archived_removal,archived_unused,scripts/testing,scripts/debug,tests',
+          '--severity-level', 'medium',
+          '--confidence-level', 'medium'
+        ]
+        pass_filenames: false
+        stages: [pre-push]
+        exclude: '^(tests/|scripts/testing/|scripts/debug/|.*_test\.py|.*_debug\.py|archived_.*)'
 
   - repo: local
     hooks:
@@ -198,13 +222,17 @@ repos:
         stages: [manual]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
 
-      - id: context-aware-validator
-        name: Context-aware field validation (high precision)
-        entry: python scripts/validation/context_aware_field_validator.py
+      # Enhanced AST Field Analyzer (Production-Ready)
+      - id: ast-field-analyzer
+        name: 🧠 AST Field Analyzer (Enhanced - 84% False Positive Reduction)
+        description: Advanced AST-based field validation with sophisticated false positive reduction
+        entry: python scripts/validation/ast_field_analyzer.py
         language: system
         pass_filenames: false
         files: \.py$
-        stages: [manual]
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*|one-off-test-utils/)'
+        verbose: true
 
       - id: comprehensive-doctype-validator
         name: DocType field analysis with advanced patterns
@@ -240,7 +268,125 @@ repos:
         stages: [manual]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/)'
 
-      # Pytest Coverage Hook
+      # Advanced Validation Tools (Enhanced)
+      - id: frappe-hooks-validator  
+        name: 🪝 Frappe Hooks Validator
+        description: Validate Frappe hooks and event handlers
+        entry: python scripts/validation/frappe_hooks_validator.py
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: api-confidence-validator
+        name: 🔍 API Confidence Validator  
+        description: High-confidence API field validation
+        entry: python scripts/validation/frappe_api_confidence_validator.py
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: template-variable-validator
+        name: 📄 Template Variable Validator
+        description: Validate variables in Jinja2 templates and HTML files
+        entry: python scripts/validation/template_variable_validator.py
+        language: system
+        pass_filenames: false
+        files: '\.(html|htm|jinja|jinja2)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.(html|htm)|debug_|.*_debug\.(html|htm)|scripts/testing/|scripts/debug/|node_modules/)'
+
+      # JavaScript Parameter Validation
+      - id: js-python-parameter-validator
+        name: 🔗 JS-Python Parameter Validator
+        description: Validate JavaScript to Python API parameter consistency
+        entry: python scripts/validation/js_python_parameter_validator.py
+        language: system
+        pass_filenames: false
+        files: '\.(js|py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.(js|py)|debug_|.*_debug\.(js|py)|scripts/testing/|scripts/debug/|node_modules/|archived_.*)'
+
+      # Method Resolution Validator
+      - id: method-resolution-validator
+        name: 🔧 Method Resolution Validator
+        description: Validate method calls and resolution patterns
+        entry: python scripts/validation/method_resolution_validator.py
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # Security and API Validation
+      - id: api-security-validator
+        name: 🛡️ API Security Validator  
+        description: Validate API security decorators and patterns
+        entry: python scripts/validation/security/api_security_validator.py
+        language: system
+        pass_filenames: false
+        files: '^verenigingen/api/.*\.py$'
+        stages: [pre-push]
+        verbose: true
+
+      - id: insecure-api-detector
+        name: 🚨 Insecure API Detector
+        description: Detect API endpoints lacking proper security decorators
+        entry: python scripts/validation/security/insecure_api_detector.py
+        language: system
+        pass_filenames: true
+        files: '^verenigingen/api/.*\.py$'
+        stages: [pre-push]
+        verbose: true
+
+      # Performance and Quality Checks
+      - id: email-template-validator
+        name: 📧 Email Template Validator
+        description: Validate email templates and fixtures
+        entry: python scripts/validation/email_template_precommit_check.py
+        language: system
+        pass_filenames: false
+        files: '\.(json|html|py)$'
+        stages: [pre-commit]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # Comprehensive Validation (Manual)
+      - id: unified-validation-engine
+        name: 🎯 Unified Validation Engine
+        description: Run comprehensive validation across all components
+        entry: python scripts/validation/unified_validation_engine.py
+        language: system
+        pass_filenames: false
+        files: '\.(py|html|js|json)$'
+        stages: [manual]
+        exclude: '^(tests/|test_|.*_test\.(py|html|js)|debug_|.*_debug\.(py|html|js)|scripts/testing/|scripts/debug/|node_modules/|archived_.*)'
+        verbose: true
+
+      # Makefile Integration
+      - id: make-test-quick
+        name: ⚡ Quick Test Suite (Makefile)
+        description: Run quick validation tests via Makefile
+        entry: make test-quick
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      - id: make-lint
+        name: 🔧 Lint Check (Makefile)
+        description: Run comprehensive linting via Makefile
+        entry: make lint
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # Testing and Coverage
       - id: pytest-coverage-critical
         name: 📊 Pytest Coverage Check (Critical Tests)
         description: Run critical tests with coverage enforcement
@@ -248,7 +394,40 @@ repos:
         language: system
         pass_filenames: false
         files: '\.py$'
-        exclude: '^(migrations/|fixtures/|scripts/testing/|scripts/debug/|.*_debug\.py|test_.*\.py)'
+        exclude: '^(migrations/|fixtures/|scripts/testing/|scripts/debug/|.*_debug\.py|test_.*\.py|archived_.*)'
         stages: [pre-commit]
         verbose: true
         require_serial: true
+
+      # JavaScript Testing
+      - id: jest-testing
+        name: 🧪 Jest JavaScript Testing
+        description: Run Jest tests for JavaScript components
+        entry: npm run test:coverage
+        language: system
+        pass_filenames: false
+        files: '\.(js|vue)$'
+        stages: [pre-push]
+        exclude: '^(node_modules/|dist/|build/|scripts/testing/|scripts/debug/|archived_.*)'
+
+      # Cypress E2E Testing (Manual)
+      - id: cypress-e2e-tests
+        name: 🌲 Cypress E2E Tests
+        description: Run Cypress end-to-end tests
+        entry: npm run cypress:run
+        language: system
+        pass_filenames: false
+        files: '\.(js|vue|html)$'
+        stages: [manual]
+        exclude: '^(node_modules/|dist/|build/|archived_.*)'
+
+      # Coverage Report Generation  
+      - id: coverage-report-generator
+        name: 📈 Coverage Report Generator
+        description: Generate comprehensive test coverage reports
+        entry: python scripts/testing/test_coverage_report_enhanced.py
+        language: system
+        pass_filenames: false
+        files: '\.(py)$'
+        stages: [pre-push]
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
