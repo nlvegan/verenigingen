@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Optimized Field Validator
-Improved version with reduced false positives and better accuracy
+Field Reference Validator
+Validates field references in Python code to prevent runtime errors
 """
 
 import ast
@@ -25,8 +25,8 @@ class ValidationIssue:
     issue_type: str
     suggested_fix: Optional[str] = None
 
-class OptimizedFieldValidator:
-    """Optimized field validator with reduced false positives"""
+class FieldReferenceValidator:
+    """Validates field references in Python code to prevent runtime errors"""
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
@@ -84,6 +84,16 @@ class OptimizedFieldValidator:
         }
         
     def load_doctypes(self) -> Dict[str, Set[str]]:
+        """Load DocTypes using unified loader"""
+        # Import unified DocType loader
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent))
+        from doctype_loader import load_doctypes_simple
+        
+        return load_doctypes_simple(str(self.app_path), verbose=False)
+    
+    def load_doctypes_legacy(self) -> Dict[str, Set[str]]:
         """Load doctype field definitions"""
         doctypes = {}
         
@@ -518,7 +528,7 @@ def main():
     args = parser.parse_args()
     
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
-    validator = OptimizedFieldValidator(app_path)
+    validator = FieldReferenceValidator(app_path)
     
     success = validator.run_validation(pre_commit_mode=args.pre_commit)
     return 0 if success else 1

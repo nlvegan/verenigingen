@@ -287,6 +287,88 @@ class DocTypeLoader:
         
         return stats
     
+    # Convenience methods for legacy validator compatibility
+    
+    def get_doctypes_simple(self) -> Dict[str, Set[str]]:
+        """
+        Get DocTypes in simple format for legacy validators
+        
+        Returns:
+            Dictionary of DocType name -> Set of field names
+        """
+        result = {}
+        doctypes = self.get_doctypes()
+        
+        for doctype_name, doctype_meta in doctypes.items():
+            field_names = self.get_field_names(doctype_name)
+            result[doctype_name] = field_names
+        
+        return result
+    
+    def get_doctypes_detailed(self) -> Dict[str, Dict]:
+        """
+        Get DocTypes in detailed format for advanced validators
+        
+        Returns:
+            Dictionary with detailed DocType information including metadata
+        """
+        result = {}
+        doctypes = self.get_doctypes()
+        
+        for doctype_name, doctype_meta in doctypes.items():
+            field_names = self.get_field_names(doctype_name)
+            
+            result[doctype_name] = {
+                'fields': field_names,
+                'data': {
+                    'name': doctype_name,
+                    'app': doctype_meta.app,
+                    'istable': doctype_meta.istable,
+                    'issingle': doctype_meta.issingle,
+                    'is_submittable': doctype_meta.is_submittable,
+                    'is_tree': doctype_meta.is_tree,
+                    'autoname': doctype_meta.autoname,
+                    'module': doctype_meta.module,
+                    'permissions': doctype_meta.permissions
+                },
+                'app': doctype_meta.app,
+                'child_tables': doctype_meta.child_tables,
+                'parent_doctypes': list(doctype_meta.parent_doctypes),
+                'file': doctype_meta.json_file_path,
+                'custom_fields_count': len(doctype_meta.custom_fields)
+            }
+        
+        return result
+    
+    def load_from_single_app(self, app_name: str) -> Dict[str, Set[str]]:
+        """
+        Load DocTypes from a single app only (for specific validators)
+        
+        Args:
+            app_name: Name of the app to load from
+            
+        Returns:
+            Dictionary of DocType name -> Set of field names
+        """
+        app_path = self.apps_path / app_name
+        if not app_path.exists():
+            if self.verbose:
+                logger.warning(f"App '{app_name}' not found at {app_path}")
+            return {}
+        
+        app_doctypes = self._load_doctypes_from_app(app_path, app_name)
+        
+        # Convert to simple format
+        result = {}
+        for doctype_name, doctype_meta in app_doctypes.items():
+            # Add standard fields
+            fields = set(self.standard_fields.keys())
+            # Add defined fields
+            fields.update(doctype_meta.fields.keys())
+            result[doctype_name] = fields
+        
+        return result
+    
     def validate_doctype_completeness(self, doctype_name: str) -> List[str]:
         """Validate that a DocType is properly loaded with all expected fields"""
         issues = []
@@ -572,6 +654,58 @@ class DocTypeLoader:
                 field_index[field_name].add(doctype_name)
         
         return field_index
+
+
+# Convenience factory functions for easy validator integration
+
+def get_unified_doctype_loader(app_path: str, verbose: bool = False) -> DocTypeLoader:
+    """
+    Factory function to create a unified DocType loader for validation tools
+    
+    Args:
+        app_path: Path to the app (will derive bench_path automatically)
+        verbose: Enable verbose logging
+        
+    Returns:
+        Configured DocTypeLoader instance
+    """
+    if isinstance(app_path, str):
+        app_path = Path(app_path)
+    
+    # Derive bench path from app path
+    bench_path = app_path.parent.parent
+    
+    return DocTypeLoader(str(bench_path), verbose=verbose)
+
+
+def load_doctypes_simple(app_path: str, verbose: bool = False) -> Dict[str, Set[str]]:
+    """
+    Quick convenience function for validators that need simple DocType -> fields mapping
+    
+    Args:
+        app_path: Path to the app
+        verbose: Enable verbose logging
+        
+    Returns:
+        Dictionary of DocType name -> Set of field names
+    """
+    loader = get_unified_doctype_loader(app_path, verbose)
+    return loader.get_doctypes_simple()
+
+
+def load_doctypes_detailed(app_path: str, verbose: bool = False) -> Dict[str, Dict]:
+    """
+    Quick convenience function for validators that need detailed DocType information
+    
+    Args:
+        app_path: Path to the app
+        verbose: Enable verbose logging
+        
+    Returns:
+        Dictionary with detailed DocType information
+    """
+    loader = get_unified_doctype_loader(app_path, verbose)
+    return loader.get_doctypes_detailed()
 
 
 def main():

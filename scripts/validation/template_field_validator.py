@@ -23,47 +23,27 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Set
 
 
+# Import unified DocType loader
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import load_doctypes_simple
+
+
 def load_doctype_fields() -> Dict[str, Set[str]]:
-    """Load all valid fields for each doctype from JSON files"""
-    doctypes = {}
-    
-    # Load from all apps (same logic as enhanced validator)
-    for app in ['frappe', 'erpnext', 'payments', 'verenigingen']:
-        app_path = f"/home/frappe/frappe-bench/apps/{app}"
-        if os.path.exists(app_path):
-            doctypes.update(load_doctypes_from_app(app_path))
-    
-    return doctypes
+    """Load all valid fields for each doctype using unified loader"""
+    # Use current app path to derive the unified loader
+    current_app_path = "/home/frappe/frappe-bench/apps/verenigingen"
+    return load_doctypes_simple(current_app_path, verbose=False)
 
 
+# Legacy function for backward compatibility (now redirects to unified loader)
 def load_doctypes_from_app(app_path: str) -> Dict[str, Set[str]]:
-    """Load doctypes from a specific app"""
-    doctypes = {}
-    
-    for root, dirs, files in os.walk(app_path):
-        if 'doctype' in root and any(f.endswith('.json') for f in files):
-            for file in files:
-                if file.endswith('.json') and not file.startswith('.'):
-                    json_path = os.path.join(root, file)
-                    
-                    try:
-                        with open(json_path, 'r') as f:
-                            doctype_def = json.load(f)
-                            
-                        if isinstance(doctype_def, dict) and 'fields' in doctype_def:
-                            fields = set()
-                            for field in doctype_def['fields']:
-                                if isinstance(field, dict) and 'fieldname' in field:
-                                    fields.add(field['fieldname'])
-                            
-                            if fields:
-                                actual_name = doctype_def.get('name', file.replace('.json', '').replace('_', ' ').title())
-                                doctypes[actual_name] = fields
-                                
-                    except Exception:
-                        pass  # Skip invalid JSON files
-    
-    return doctypes
+    """Load doctypes from a specific app (legacy compatibility)"""
+    # This now uses the unified loader but filters to specific app if needed
+    # For now, return full multi-app results since most validators expect this
+    current_app_path = "/home/frappe/frappe-bench/apps/verenigingen"
+    return load_doctypes_simple(current_app_path, verbose=False)
 
 
 def scan_all_files(base_path: str, doctypes: Dict[str, Set[str]]) -> Dict[str, List[Dict]]:

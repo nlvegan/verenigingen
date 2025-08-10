@@ -1,353 +1,715 @@
 #!/usr/bin/env python3
 """
-Template Variable Validator
-Validates that Jinja template variables are properly provided by Python context
+Modernized Template Variable Validator
+Enhanced critical issue detection for Jinja template variables with sophisticated context matching
 """
 
 import ast
 import re
 import json
 from pathlib import Path
-from typing import Dict, List, Set, Optional, Tuple
+from typing import Dict, List, Set, Optional, Tuple, Any
+from dataclasses import dataclass, field
+from enum import Enum
+import difflib
 
+class Severity(Enum):
+    """Severity levels for template issues"""
+    CRITICAL = "critical"  # Will break page rendering
+    HIGH = "high"         # Will cause functionality issues
+    MEDIUM = "medium"     # May cause display issues
+    LOW = "low"           # Minor issues
+    INFO = "info"         # Informational
 
-class TemplateVariableValidator:
-    """Validates template variables across HTML templates and Python context providers"""
+class IssueCategory(Enum):
+    """Categories of template issues"""
+    MISSING_VARIABLE = "missing_variable"
+    TYPE_MISMATCH = "type_mismatch"
+    NULL_REFERENCE = "null_reference"
+    SECURITY_RISK = "security_risk"
+    PERFORMANCE = "performance"
+    BEST_PRACTICE = "best_practice"
+
+@dataclass
+class TemplateIssue:
+    """Represents a template validation issue"""
+    severity: Severity
+    category: IssueCategory
+    template_file: str
+    context_file: Optional[str]
+    line_number: Optional[int]
+    variable_name: Optional[str]
+    message: str
+    suggestion: Optional[str] = None
+    code_snippet: Optional[str] = None
+    confidence: float = 0.8  # 0.0 to 1.0
+
+@dataclass
+class TemplateContext:
+    """Enhanced context information for templates"""
+    template_path: Path
+    template_type: str  # portal, email, print, web
+    variables_used: Set[str]
+    filters_used: Set[str]
+    includes: Set[str]
+    extends: Optional[str] = None
+    blocks: Set[str] = field(default_factory=set)
+    macros: Set[str] = field(default_factory=set)
+    is_base_template: bool = False
+
+class ModernTemplateValidator:
+    """Modernized template variable validator with enhanced detection"""
     
-    def __init__(self, app_path: str):
+    def __init__(self, app_path: str, verbose: bool = False):
         self.app_path = Path(app_path)
-        self.template_variables = {}  # {template_file: {variables}}
-        self.context_providers = {}   # {py_file: {context_variables}}
-        self.violations = []
+        self.verbose = verbose
+        self.template_contexts = {}  # {template_path: TemplateContext}
+        self.context_providers = {}  # {py_file: {variables, methods}}
+        self.issues = []
         
-    def extract_template_variables(self, template_file: Path) -> Set[str]:
-        """Extract Jinja variables from HTML template files"""
+        # Critical variables that must be present for portal pages
+        self.critical_portal_vars = {
+            'user', 'member', 'support_email', 'site_name', 
+            'navbar', 'footer', 'csrf_token'
+        }
+        
+        # Critical variables for email templates
+        self.critical_email_vars = {
+            'recipient_name', 'site_name', 'support_email'
+        }
+        
+        # Known template variable patterns
+        self.builtin_vars = self._build_builtin_vars()
+        self.frappe_methods = self._build_frappe_methods()
+        
+    def _build_builtin_vars(self) -> Set[str]:
+        """Build set of built-in Jinja and Frappe variables"""
+        return {
+            # Jinja built-ins
+            '_', 'loop', 'super', 'self', 'varargs', 'kwargs',
+            'range', 'dict', 'list', 'tuple', 'set', 'bool', 'int', 'float', 'str',
+            'abs', 'all', 'any', 'attr', 'batch', 'capitalize', 'center',
+            
+            # Frappe built-ins
+            'frappe', 'request', 'session', 'user', 'lang', 'direction',
+            'base_template_path', 'csrf_token', 'boot', 'site_name',
+            'developer_mode', 'main_content', 'page_container', 'page_content',
+            'head_include', 'body_include', 'navbar', 'sidebar', 'footer',
+            'no_cache', 'sitemap', 'route', 'website_settings', 'theme',
+            
+            # Common utility functions
+            'get_url', 'get_formatted_html', 'scrub_urls', 'guess_mimetype',
+            'now', 'today', 'nowdate', 'nowtime', 'get_datetime', 'format_date',
+            'format_datetime', 'format_time', 'format_duration', 'format_currency',
+            'flt', 'cint', 'cstr', 'encode', 'decode', 'strip_html'
+        }
+    
+    def _build_frappe_methods(self) -> Set[str]:
+        """Build set of Frappe methods available in templates"""
+        return {
+            'get_all', 'get_list', 'get_doc', 'get_value', 'get_single_value',
+            'db', 'session', 'utils', 'throw', 'msgprint', 'get_hooks',
+            'get_meta', 'get_field', 'has_permission', 'get_roles',
+            'get_user', 'get_fullname', 'get_user_info', 'get_system_settings'
+        }
+    
+    def detect_template_type(self, template_path: Path) -> str:
+        """Detect the type of template based on path and content"""
+        path_str = str(template_path)
+        
+        if 'email' in path_str or 'notification' in path_str:
+            return 'email'
+        elif 'print' in path_str or 'format' in path_str:
+            return 'print'
+        elif 'portal' in path_str or 'member' in path_str:
+            return 'portal'
+        elif 'www' in path_str or 'web' in path_str:
+            return 'web'
+        else:
+            # Check content for hints
+            try:
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    content = f.read(500)  # Read first 500 chars
+                    
+                if 'email-template' in content or 'message-body' in content:
+                    return 'email'
+                elif 'print-format' in content or 'page-break' in content:
+                    return 'print'
+                elif 'portal' in content or 'member-' in content:
+                    return 'portal'
+            except:
+                pass
+            
+            return 'web'
+    
+    def extract_template_context(self, template_file: Path) -> TemplateContext:
+        """Extract comprehensive context from template file"""
         try:
             with open(template_file, 'r', encoding='utf-8') as f:
                 content = f.read()
         except Exception:
-            return set()
+            return None
         
+        context = TemplateContext(
+            template_path=template_file,
+            template_type=self.detect_template_type(template_file),
+            variables_used=set(),
+            filters_used=set(),
+            includes=set()
+        )
+        
+        # Extract extends
+        extends_match = re.search(r'\{\%\s*extends\s+["\']([^"\']+)["\']', content)
+        if extends_match:
+            context.extends = extends_match.group(1)
+            context.is_base_template = False
+        
+        # Extract blocks
+        block_pattern = r'\{\%\s*block\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+        context.blocks = set(re.findall(block_pattern, content))
+        if context.blocks and not context.extends:
+            context.is_base_template = True
+        
+        # Extract macros
+        macro_pattern = r'\{\%\s*macro\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\('
+        context.macros = set(re.findall(macro_pattern, content))
+        
+        # Extract includes
+        include_pattern = r'\{\%\s*include\s+["\']([^"\']+)["\']'
+        context.includes = set(re.findall(include_pattern, content))
+        
+        # Extract variables with improved patterns
+        variables = self._extract_variables_advanced(content)
+        context.variables_used = variables
+        
+        # Extract filters
+        filter_pattern = r'\|\s*([a-zA-Z_][a-zA-Z0-9_]*)'
+        context.filters_used = set(re.findall(filter_pattern, content))
+        
+        return context
+    
+    def _extract_variables_advanced(self, content: str) -> Set[str]:
+        """Advanced variable extraction with better accuracy"""
         variables = set()
-        loop_variables = set()
-        template_set_variables = set()
-        macro_parameters = set()
         
-        # First, identify loop variables that are locally defined
-        # Pattern: {% for item in variable %} or {% for item in complex.expression %}
-        for_loop_pattern = r'\{\%\s*for\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+([^%]+)\s*\%\}'
-        for match in re.finditer(for_loop_pattern, content):
-            loop_var = match.group(1)  # The iteration variable (e.g., 'payment')
-            source_expr = match.group(2).strip()  # The source expression
-            loop_variables.add(loop_var)
+        # Remove comments first
+        content = re.sub(r'\{#.*?#\}', '', content, flags=re.DOTALL)
+        
+        # Track loop variables and set variables to exclude them
+        local_vars = set()
+        
+        # Extract for loop variables
+        for_pattern = r'\{\%\s*for\s+([a-zA-Z_][a-zA-Z0-9_,\s]*)\s+in\s+([^%]+)\s*\%\}'
+        for match in re.finditer(for_pattern, content):
+            loop_vars = match.group(1)
+            source_expr = match.group(2).strip()
             
-            # Extract the root variable from complex expressions
-            # e.g., dashboard_data.member_overview.recent_members -> dashboard_data
-            # e.g., payment_timeline -> payment_timeline
-            root_var = source_expr.split('.')[0].split('[')[0].strip()
-            if root_var and root_var.replace('_', '').isalnum():
-                variables.add(root_var)
+            # Handle tuple unpacking: for key, value in items
+            for var in loop_vars.split(','):
+                var = var.strip()
+                if var:
+                    local_vars.add(var)
+            
+            # Extract source variable
+            source_var = re.match(r'([a-zA-Z_][a-zA-Z0-9_]*)', source_expr)
+            if source_var:
+                variables.add(source_var.group(1))
         
-        # Second, identify template-set variables
-        # Pattern: {% set variable = ... %}
+        # Extract set variables
         set_pattern = r'\{\%\s*set\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*='
-        for match in re.finditer(set_pattern, content):
-            set_var = match.group(1)
-            template_set_variables.add(set_var)
+        local_vars.update(re.findall(set_pattern, content))
         
-        # Third, identify macro parameters
-        # Pattern: {% macro name(param1, param2) %}
+        # Extract with variables
+        with_pattern = r'\{\%\s*with\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*='
+        local_vars.update(re.findall(with_pattern, content))
+        
+        # Extract macro parameters
         macro_pattern = r'\{\%\s*macro\s+[a-zA-Z_][a-zA-Z0-9_]*\s*\(([^)]*)\)'
         for match in re.finditer(macro_pattern, content):
             params = match.group(1)
-            if params.strip():
-                # Parse comma-separated parameters
-                for param in params.split(','):
-                    param = param.strip()
-                    # Handle parameter with default: param=default
-                    if '=' in param:
-                        param = param.split('=')[0].strip()
-                    # Remove quotes if it's a string default
-                    param = param.strip('\'"')
-                    if param and param.replace('_', '').isalnum():
-                        macro_parameters.add(param)
+            for param in params.split(','):
+                param = param.strip().split('=')[0].strip()
+                if param:
+                    local_vars.add(param)
         
-        # Pattern 1: {{ variable }}
-        simple_vars = re.findall(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}', content)
-        variables.update(simple_vars)
+        # Main variable extraction patterns
+        patterns = [
+            # {{ variable }}
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}',
+            # {{ variable.property }} - capture base variable
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\.',
+            # {{ variable|filter }}
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\|',
+            # {{ variable[key] }}
+            r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\[',
+            # {% if variable %}
+            r'\{\%\s*if\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[%\s!=<>]',
+            # {% elif variable %}
+            r'\{\%\s*elif\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[%\s!=<>]',
+            # {{ func(variable) }}
+            r'\{\{[^}]*\(\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*[,)]',
+        ]
         
-        # Pattern 2: {{ variable.property }}
-        object_vars = re.findall(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\.[a-zA-Z0-9_]+', content)
-        variables.update(object_vars)
+        for pattern in patterns:
+            matches = re.findall(pattern, content)
+            variables.update(matches)
         
-        # Pattern 3: {{ variable|filter }}
-        filter_vars = re.findall(r'\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\|', content)
-        variables.update(filter_vars)
+        # Remove local variables and built-ins
+        variables = variables - local_vars - self.builtin_vars
         
-        # Pattern 4: {% if variable %}
-        if_vars = re.findall(r'\{\%\s*if\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\%\}', content)
-        variables.update(if_vars)
+        # Filter out method calls (variables followed by parentheses)
+        filtered_vars = set()
+        for var in variables:
+            # Check if it's a method call
+            if not re.search(rf'\b{var}\s*\(', content):
+                filtered_vars.add(var)
+            elif re.search(rf'\b{var}\s*\[', content):  # Array access is valid
+                filtered_vars.add(var)
         
-        # Remove locally defined variables from required context variables
-        locally_defined = loop_variables | template_set_variables | macro_parameters
-        variables = variables - locally_defined
-        
-        # Filter out common Jinja/Frappe built-ins
-        builtin_vars = {
-            '_', 'frappe', 'request', 'session', 'user', 'lang', 'direction',
-            'base_template_path', 'csrf_token', 'boot', 'site_name',
-            'developer_mode', 'main_content', 'page_container', 'page_content',
-            'head_include', 'body_include', 'navbar', 'sidebar', 'footer'
-        }
-        
-        variables = variables - builtin_vars
-        return variables
+        return filtered_vars
     
-    def extract_context_variables(self, py_file: Path) -> Dict[str, List[str]]:
-        """Extract context variables provided by Python files"""
+    def extract_python_context(self, py_file: Path) -> Dict[str, Any]:
+        """Extract context variables from Python files with AST analysis"""
         try:
             with open(py_file, 'r', encoding='utf-8') as f:
                 content = f.read()
         except Exception:
             return {}
         
-        context_vars = {}
+        context_data = {
+            'variables': set(),
+            'methods': set(),
+            'dynamic_vars': False,
+            'has_get_context': False
+        }
         
-        # Pattern 1: return {"key": value, ...}
-        return_dict_pattern = r'return\s*\{([^}]+)\}'
-        for match in re.finditer(return_dict_pattern, content, re.MULTILINE | re.DOTALL):
-            dict_content = match.group(1)
-            keys = re.findall(r'["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']:', dict_content)
-            context_vars['return_dict'] = keys
-        
-        # Pattern 2: context["key"] = value or context.key = value
-        context_assign_pattern = r'context\[["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']]\s*='
-        context_keys = re.findall(context_assign_pattern, content)
-        
-        # Pattern 2b: context.key = value
-        context_dot_pattern = r'context\.([a-zA-Z_][a-zA-Z0-9_]*)\s*='
-        context_dot_keys = re.findall(context_dot_pattern, content)
-        
-        all_context_keys = context_keys + context_dot_keys
-        if all_context_keys:
-            context_vars['context_assignment'] = all_context_keys
-        
-        # Pattern 3: context.update({"key": value})
-        context_update_pattern = r'context\.update\s*\(\s*\{([^}]+)\}'
-        for match in re.finditer(context_update_pattern, content, re.MULTILINE | re.DOTALL):
-            dict_content = match.group(1)
-            keys = re.findall(r'["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']:', dict_content)
-            if keys:
-                context_vars['context_update'] = keys
-        
-        return context_vars
-    
-    def find_risky_patterns(self, py_file: Path) -> List[Dict]:
-        """Find patterns that might cause template variable issues"""
         try:
-            with open(py_file, 'r', encoding='utf-8') as f:
+            tree = ast.parse(content)
+            
+            # Find get_context function
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FunctionDef):
+                    if node.name == 'get_context':
+                        context_data['has_get_context'] = True
+                        context_data['variables'].update(
+                            self._extract_context_from_function(node)
+                        )
+                    elif node.name.startswith('get_'):
+                        context_data['methods'].add(node.name)
+            
+        except SyntaxError:
+            # Fallback to regex if AST parsing fails
+            context_data['variables'].update(self._extract_context_regex(content))
+        
+        return context_data
+    
+    def _extract_context_from_function(self, func_node: ast.FunctionDef) -> Set[str]:
+        """Extract context variables from a function AST node"""
+        variables = set()
+        
+        for node in ast.walk(func_node):
+            # context["key"] = value
+            if isinstance(node, ast.Subscript):
+                if isinstance(node.value, ast.Name) and node.value.id == 'context':
+                    if isinstance(node.slice, ast.Constant):
+                        variables.add(node.slice.value)
+            
+            # context.key = value
+            elif isinstance(node, ast.Attribute):
+                if isinstance(node.value, ast.Name) and node.value.id == 'context':
+                    variables.add(node.attr)
+            
+            # context.update({...})
+            elif isinstance(node, ast.Call):
+                if (hasattr(node.func, 'attr') and node.func.attr == 'update' and
+                    hasattr(node.func, 'value') and 
+                    isinstance(node.func.value, ast.Name) and 
+                    node.func.value.id == 'context'):
+                    
+                    for arg in node.args:
+                        if isinstance(arg, ast.Dict):
+                            for key in arg.keys:
+                                if isinstance(key, ast.Constant):
+                                    variables.add(key.value)
+            
+            # return {...}
+            elif isinstance(node, ast.Return):
+                if isinstance(node.value, ast.Dict):
+                    for key in node.value.keys:
+                        if isinstance(key, ast.Constant):
+                            variables.add(key.value)
+        
+        return variables
+    
+    def _extract_context_regex(self, content: str) -> Set[str]:
+        """Fallback regex extraction for context variables"""
+        variables = set()
+        
+        patterns = [
+            r'context\[["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']]\s*=',
+            r'context\.([a-zA-Z_][a-zA-Z0-9_]*)\s*=',
+            r'return\s*\{[^}]*["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']:\s*',
+            r'context\.update\s*\([^)]*["\']([a-zA-Z_][a-zA-Z0-9_]*)["\']:\s*'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, content)
+            variables.update(matches)
+        
+        return variables
+    
+    def validate_critical_variables(self, context: TemplateContext, 
+                                   provided_vars: Set[str]) -> List[TemplateIssue]:
+        """Check for critical missing variables based on template type"""
+        issues = []
+        
+        if context.template_type == 'portal':
+            missing_critical = self.critical_portal_vars - provided_vars
+            for var in missing_critical:
+                if var in context.variables_used:
+                    issues.append(TemplateIssue(
+                        severity=Severity.CRITICAL,
+                        category=IssueCategory.MISSING_VARIABLE,
+                        template_file=str(context.template_path.relative_to(self.app_path)),
+                        context_file=None,
+                        line_number=None,
+                        variable_name=var,
+                        message=f"Critical portal variable '{var}' is not provided",
+                        suggestion=f"Add 'context[\"{var}\"] = ...' in get_context()",
+                        confidence=0.95
+                    ))
+        
+        elif context.template_type == 'email':
+            missing_critical = self.critical_email_vars - provided_vars
+            for var in missing_critical:
+                if var in context.variables_used:
+                    issues.append(TemplateIssue(
+                        severity=Severity.HIGH,
+                        category=IssueCategory.MISSING_VARIABLE,
+                        template_file=str(context.template_path.relative_to(self.app_path)),
+                        context_file=None,
+                        line_number=None,
+                        variable_name=var,
+                        message=f"Critical email variable '{var}' is not provided",
+                        suggestion=f"Ensure '{var}' is set in email context",
+                        confidence=0.9
+                    ))
+        
+        return issues
+    
+    def check_null_reference_risks(self, template_path: Path) -> List[TemplateIssue]:
+        """Check for potential null reference issues in templates"""
+        issues = []
+        
+        try:
+            with open(template_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+                lines = content.splitlines()
         except Exception:
-            return []
+            return issues
         
-        risks = []
-        lines = content.splitlines()
+        # Patterns that might cause null reference errors
+        risky_patterns = [
+            (r'{{[^}]*?([a-zA-Z_][a-zA-Z0-9_]*)\.[a-zA-Z_][a-zA-Z0-9_]*(?!\s*\||\s*or\s+)', 
+             'Object property access without null check'),
+            (r'{{[^}]*?([a-zA-Z_][a-zA-Z0-9_]*)\[[^\]]+\](?!\s*\||\s*or\s+)',
+             'Array/dict access without null check'),
+            (r'{%\s*for\s+\w+\s+in\s+([a-zA-Z_][a-zA-Z0-9_]*)(?!\s*\||\s*or\s+)',
+             'Loop over potentially null variable')
+        ]
         
-        for i, line in enumerate(lines, 1):
-            # Pattern 1: field or 0 (risky for templates expecting string formatting)
-            if re.search(r'\w+\.\w+\s+or\s+0(?!\.|[a-zA-Z])', line):
-                risks.append({
-                    'type': 'numeric_fallback',
-                    'line': i,
-                    'content': line.strip(),
-                    'risk': 'Template may expect string-formattable value but gets 0'
-                })
-            
-            # Pattern 2: template.field (without fallback)
-            if re.search(r'template\.\w+(?!\s+or)', line) and '=' in line:
-                risks.append({
-                    'type': 'no_fallback',
-                    'line': i,
-                    'content': line.strip(),
-                    'risk': 'Field may return None without fallback handling'
-                })
-            
-            # Pattern 3: getattr without default
-            if re.search(r'getattr\([^,]+,[^,)]+\)(?!\s*,)', line):
-                risks.append({
-                    'type': 'getattr_no_default',
-                    'line': i,
-                    'content': line.strip(),
-                    'risk': 'getattr may return None without default value'
-                })
+        for line_num, line in enumerate(lines, 1):
+            for pattern, risk_desc in risky_patterns:
+                matches = re.finditer(pattern, line)
+                for match in matches:
+                    var_name = match.group(1)
+                    if var_name not in self.builtin_vars:
+                        issues.append(TemplateIssue(
+                            severity=Severity.MEDIUM,
+                            category=IssueCategory.NULL_REFERENCE,
+                            template_file=str(template_path.relative_to(self.app_path)),
+                            context_file=None,
+                            line_number=line_num,
+                            variable_name=var_name,
+                            message=f"{risk_desc}: '{var_name}' might be null",
+                            suggestion=f"Use '{{{{ {var_name} | default(...) }}}}' or check with '{{% if {var_name} %}}'",
+                            code_snippet=line.strip(),
+                            confidence=0.7
+                        ))
         
-        return risks
+        return issues
     
-    def match_templates_to_context_providers(self) -> Dict[str, str]:
-        """Match template files to their likely context provider Python files"""
-        matches = {}
+    def check_security_issues(self, template_path: Path) -> List[TemplateIssue]:
+        """Check for security issues in templates"""
+        issues = []
         
-        for template_file in self.template_variables.keys():
-            # Try to find corresponding Python file
-            template_stem = template_file.stem
-            
-            # Look for exact match: template.html → template.py
-            py_candidates = [
-                template_file.parent / f"{template_stem}.py",
-                template_file.parent / f"get_{template_stem}.py",
-            ]
-            
-            # Look in parent directories
-            current = template_file.parent
-            while current != self.app_path and current.name != "templates":
-                py_candidates.extend([
-                    current / f"{template_stem}.py",
-                    current / f"get_{template_stem}.py",
-                ])
-                current = current.parent
-            
-            # Find the first existing candidate
-            for candidate in py_candidates:
-                if candidate.exists() and candidate in self.context_providers:
-                    matches[str(template_file)] = str(candidate)
-                    break
+        try:
+            with open(template_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                lines = content.splitlines()
+        except Exception:
+            return issues
         
-        return matches
+        # Security risk patterns
+        security_patterns = [
+            (r'{{[^}]*?\|\s*safe(?:\s|}})', 'XSS Risk', 
+             'Using |safe filter disables HTML escaping'),
+            (r'{%\s*autoescape\s+false', 'XSS Risk',
+             'Disabling autoescape can lead to XSS vulnerabilities'),
+            (r'{{[^}]*?request\.args[^}]*?}}', 'Input Validation',
+             'Direct use of request args without validation'),
+            (r'{{[^}]*?\.innerHTML\s*=', 'DOM XSS',
+             'Direct innerHTML assignment can lead to XSS')
+        ]
+        
+        for line_num, line in enumerate(lines, 1):
+            for pattern, risk_type, description in security_patterns:
+                if re.search(pattern, line):
+                    issues.append(TemplateIssue(
+                        severity=Severity.HIGH,
+                        category=IssueCategory.SECURITY_RISK,
+                        template_file=str(template_path.relative_to(self.app_path)),
+                        context_file=None,
+                        line_number=line_num,
+                        variable_name=None,
+                        message=f"{risk_type}: {description}",
+                        suggestion="Ensure data is properly sanitized and validated",
+                        code_snippet=line.strip(),
+                        confidence=0.85
+                    ))
+        
+        return issues
     
-    def validate_template_context_match(self) -> List[Dict]:
-        """Validate that templates have required variables provided by context"""
-        violations = []
-        template_matches = self.match_templates_to_context_providers()
+    def match_template_to_context(self, template_path: Path) -> Optional[Path]:
+        """Intelligently match template to its context provider"""
+        # Strategy 1: Direct mapping (template.html -> template.py)
+        py_path = template_path.with_suffix('.py')
+        if py_path.exists():
+            return py_path
         
-        for template_file, py_file in template_matches.items():
-            template_vars = self.template_variables[Path(template_file)]
-            context_data = self.context_providers[Path(py_file)]
-            
-            # Get all provided context variables
-            provided_vars = set()
-            for var_list in context_data.values():
-                provided_vars.update(var_list)
+        # Strategy 2: Check parent directory
+        parent_py = template_path.parent / f"{template_path.stem}.py"
+        if parent_py.exists():
+            return parent_py
+        
+        # Strategy 3: Look for get_[name].py pattern
+        get_py = template_path.parent / f"get_{template_path.stem}.py"
+        if get_py.exists():
+            return get_py
+        
+        # Strategy 4: Check __init__.py in same directory
+        init_py = template_path.parent / "__init__.py"
+        if init_py.exists():
+            # Check if it has relevant context
+            with open(init_py, 'r') as f:
+                if 'get_context' in f.read():
+                    return init_py
+        
+        return None
+    
+    def validate_template(self, template_path: Path) -> List[TemplateIssue]:
+        """Comprehensive validation of a single template"""
+        issues = []
+        
+        # Extract template context
+        context = self.extract_template_context(template_path)
+        if not context:
+            return issues
+        
+        # Find matching Python context provider
+        py_file = self.match_template_to_context(template_path)
+        provided_vars = set()
+        
+        if py_file:
+            py_context = self.extract_python_context(py_file)
+            provided_vars = py_context.get('variables', set())
             
             # Check for missing variables
-            missing_vars = template_vars - provided_vars
+            missing_vars = context.variables_used - provided_vars - self.builtin_vars
             
-            if missing_vars:
-                violations.append({
-                    'type': 'missing_context_variables',
-                    'template': str(Path(template_file).relative_to(self.app_path)),
-                    'context_provider': str(Path(py_file).relative_to(self.app_path)),
-                    'missing_variables': list(missing_vars),
-                    'provided_variables': list(provided_vars),
-                    'confidence': 'high' if len(missing_vars) <= 2 else 'medium'
-                })
-        
-        return violations
-    
-    def scan_templates(self):
-        """Scan all template files for variables"""
-        template_files = []
-        template_files.extend(self.app_path.rglob("templates/**/*.html"))
-        template_files.extend(self.app_path.rglob("www/**/*.html"))
-        
-        for template_file in template_files:
-            variables = self.extract_template_variables(template_file)
-            if variables:
-                self.template_variables[template_file] = variables
-    
-    def scan_context_providers(self):
-        """Scan Python files that might provide template context"""
-        py_files = []
-        py_files.extend(self.app_path.rglob("templates/**/*.py"))
-        py_files.extend(self.app_path.rglob("www/**/*.py"))
-        py_files.extend(self.app_path.rglob("api/**/*.py"))
-        
-        for py_file in py_files:
-            context_vars = self.extract_context_variables(py_file)
-            if context_vars:
-                self.context_providers[py_file] = context_vars
-    
-    def run_validation(self) -> bool:
-        """Run comprehensive template variable validation"""
-        print("🔍 Running Template Variable Validation...")
-        
-        # Scan templates and context providers
-        self.scan_templates()
-        self.scan_context_providers()
-        
-        print(f"📋 Found {len(self.template_variables)} templates with variables")
-        print(f"📋 Found {len(self.context_providers)} Python context providers")
-        
-        # Validate template-context matching
-        context_violations = self.validate_template_context_match()
-        
-        # Find risky patterns
-        risk_violations = []
-        for py_file in self.context_providers.keys():
-            risks = self.find_risky_patterns(py_file)
-            for risk in risks:
-                risk_violations.append({
-                    'file': str(py_file.relative_to(self.app_path)),
-                    **risk
-                })
-        
-        all_violations = context_violations + risk_violations
-        
-        if all_violations:
-            print(f"\n❌ Found {len(all_violations)} template variable issues:")
-            print("=" * 80)
-            
-            # Group by type
-            by_type = {}
-            for violation in all_violations:
-                vtype = violation['type']
-                if vtype not in by_type:
-                    by_type[vtype] = []
-                by_type[vtype].append(violation)
-            
-            for vtype, violations in by_type.items():
-                print(f"\n🏷️  {vtype.replace('_', ' ').title()} ({len(violations)} issues):")
+            for var in missing_vars:
+                # Try to find similar variable names
+                similar = difflib.get_close_matches(var, provided_vars, n=2, cutoff=0.7)
+                suggestion = f"Did you mean: {', '.join(similar)}?" if similar else None
                 
-                for violation in violations:
-                    if vtype == 'missing_context_variables':
-                        confidence_icon = "🔴" if violation['confidence'] == 'high' else "🟡"
-                        print(f"  {confidence_icon} {violation['template']}")
-                        print(f"     Context: {violation['context_provider']}")
-                        print(f"     Missing: {', '.join(violation['missing_variables'])}")
-                        print(f"     Provided: {', '.join(violation['provided_variables'][:5])}{'...' if len(violation['provided_variables']) > 5 else ''}")
-                    else:
-                        print(f"  🟡 {violation['file']}:{violation['line']}")
-                        print(f"     Risk: {violation['risk']}")
-                        print(f"     Code: {violation['content']}")
-                    print()
-            
-            print("=" * 80)
-            print("💡 High confidence issues should be fixed immediately")
-            print("💡 Medium confidence issues should be reviewed manually")
-            return False
-        else:
-            print("\n✅ No template variable issues found!")
-            print("✅ All template variables properly provided by context!")
-            return True
+                issues.append(TemplateIssue(
+                    severity=Severity.HIGH if var in self.critical_portal_vars else Severity.MEDIUM,
+                    category=IssueCategory.MISSING_VARIABLE,
+                    template_file=str(template_path.relative_to(self.app_path)),
+                    context_file=str(py_file.relative_to(self.app_path)) if py_file else None,
+                    line_number=None,
+                    variable_name=var,
+                    message=f"Variable '{var}' used in template but not provided in context",
+                    suggestion=suggestion,
+                    confidence=0.8
+                ))
+        
+        # Check critical variables
+        issues.extend(self.validate_critical_variables(context, provided_vars))
+        
+        # Check null reference risks
+        issues.extend(self.check_null_reference_risks(template_path))
+        
+        # Check security issues
+        issues.extend(self.check_security_issues(template_path))
+        
+        return issues
+    
+    def run_validation(self) -> Tuple[List[TemplateIssue], bool]:
+        """Run comprehensive template validation"""
+        print("🔍 Running Modernized Template Variable Validation...")
+        
+        # Find all templates
+        template_patterns = [
+            "templates/**/*.html",
+            "www/**/*.html",
+            "email/**/*.html",
+            "print_format/**/*.html"
+        ]
+        
+        all_templates = []
+        for pattern in template_patterns:
+            all_templates.extend(self.app_path.rglob(pattern))
+        
+        print(f"📋 Found {len(all_templates)} templates to validate")
+        
+        # Validate each template
+        all_issues = []
+        for template in all_templates:
+            issues = self.validate_template(template)
+            all_issues.extend(issues)
+        
+        # Sort issues by severity
+        severity_order = {
+            Severity.CRITICAL: 0,
+            Severity.HIGH: 1,
+            Severity.MEDIUM: 2,
+            Severity.LOW: 3,
+            Severity.INFO: 4
+        }
+        
+        all_issues.sort(key=lambda x: (severity_order[x.severity], x.template_file))
+        
+        return all_issues, len(all_issues) == 0
+    
+    def generate_report(self, issues: List[TemplateIssue]) -> str:
+        """Generate detailed validation report"""
+        if not issues:
+            return "✅ No template validation issues found!"
+        
+        report = []
+        report.append("📊 Template Validation Report")
+        report.append("=" * 80)
+        report.append(f"Total issues: {len(issues)}\n")
+        
+        # Group by severity
+        by_severity = {}
+        for issue in issues:
+            by_severity.setdefault(issue.severity, []).append(issue)
+        
+        # Report by severity
+        for severity in [Severity.CRITICAL, Severity.HIGH, Severity.MEDIUM, 
+                        Severity.LOW, Severity.INFO]:
+            if severity in by_severity:
+                severity_issues = by_severity[severity]
+                
+                icon = {
+                    Severity.CRITICAL: "🔴",
+                    Severity.HIGH: "🟠",
+                    Severity.MEDIUM: "🟡",
+                    Severity.LOW: "🔵",
+                    Severity.INFO: "⚪"
+                }[severity]
+                
+                report.append(f"\n{icon} {severity.value.upper()} ({len(severity_issues)} issues)")
+                report.append("-" * 60)
+                
+                # Group by template file
+                by_template = {}
+                for issue in severity_issues:
+                    by_template.setdefault(issue.template_file, []).append(issue)
+                
+                for template_file, template_issues in by_template.items():
+                    report.append(f"\n  📄 {template_file}")
+                    
+                    for issue in template_issues[:5]:  # Show first 5 issues per file
+                        if issue.line_number:
+                            report.append(f"     Line {issue.line_number}: {issue.message}")
+                        else:
+                            report.append(f"     {issue.message}")
+                        
+                        if issue.variable_name:
+                            report.append(f"     Variable: {issue.variable_name}")
+                        
+                        if issue.suggestion:
+                            report.append(f"     💡 {issue.suggestion}")
+                        
+                        if issue.code_snippet:
+                            report.append(f"     Code: {issue.code_snippet[:80]}...")
+                        
+                        report.append("")
+                    
+                    if len(template_issues) > 5:
+                        report.append(f"     ... and {len(template_issues) - 5} more issues")
+        
+        # Summary statistics
+        report.append("\n" + "=" * 80)
+        report.append("📈 Summary:")
+        
+        critical_count = len(by_severity.get(Severity.CRITICAL, []))
+        high_count = len(by_severity.get(Severity.HIGH, []))
+        
+        if critical_count > 0:
+            report.append(f"⚠️  {critical_count} CRITICAL issues require immediate attention!")
+        if high_count > 0:
+            report.append(f"⚠️  {high_count} HIGH severity issues should be fixed soon")
+        
+        # Most affected templates
+        template_counts = {}
+        for issue in issues:
+            template_counts[issue.template_file] = template_counts.get(issue.template_file, 0) + 1
+        
+        top_templates = sorted(template_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        if top_templates:
+            report.append("\n🎯 Most affected templates:")
+            for template, count in top_templates:
+                report.append(f"   - {template}: {count} issues")
+        
+        return '\n'.join(report)
 
 
 def main():
-    """Main entry point"""
+    """Main entry point with modern validation"""
     import sys
     
-    # Get app path
-    script_path = Path(__file__).resolve()
-    app_path = script_path.parent.parent.parent
+    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
     
-    # Verify this is the app root
-    if not (app_path / 'verenigingen' / 'hooks.py').exists():
-        print(f"Error: hooks.py not found at {app_path}")
-        sys.exit(1)
+    # Parse arguments
+    verbose = '--verbose' in sys.argv
     
-    validator = TemplateVariableValidator(str(app_path))
-    success = validator.run_validation()
+    print("🚀 Modernized Template Variable Validator")
+    print("   Enhanced critical issue detection")
+    print("   Security and null-reference checking")
+    print("")
     
-    sys.exit(0 if success else 1)
+    validator = ModernTemplateValidator(app_path, verbose=verbose)
+    issues, success = validator.run_validation()
+    
+    print("\n" + "=" * 80)
+    report = validator.generate_report(issues)
+    print(report)
+    
+    # Return appropriate exit code
+    critical_count = sum(1 for i in issues if i.severity == Severity.CRITICAL)
+    high_count = sum(1 for i in issues if i.severity == Severity.HIGH)
+    
+    if critical_count > 0:
+        return 2  # Critical issues
+    elif high_count > 0:
+        return 1  # High severity issues
+    else:
+        return 0  # Success or only minor issues
 
 
 if __name__ == "__main__":
-    main()
+    exit(main())

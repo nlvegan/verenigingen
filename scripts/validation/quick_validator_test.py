@@ -11,7 +11,7 @@ from pathlib import Path
 # Add the current directory to Python path
 sys.path.append(str(Path(__file__).parent))
 
-from method_call_validator import MethodCallValidator
+from method_resolution_validator import MethodResolutionValidator
 
 
 def test_specific_improvements():
@@ -44,7 +44,7 @@ class TestClass:
     
     # Create validator and test on the content directly
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
-    validator = MethodCallValidator(app_path)
+    validator = MethodResolutionValidator(app_path)
     
     # Create a temporary test file
     test_file = Path("/tmp/quick_test.py")
@@ -125,7 +125,7 @@ def test_real_patterns():
     print("=" * 40)
     
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
-    validator = MethodCallValidator(app_path)
+    validator = MethodResolutionValidator(app_path)
     
     # Test a simple member.py file section
     member_file = Path(app_path) / "verenigingen" / "verenigingen" / "doctype" / "member" / "member.py"

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-SQL Field Validator - ENHANCED VERSION with Comprehensive DocType Loading
+SQL Field Validator - Comprehensive SQL Query Field Validation
 
-MAJOR IMPROVEMENTS:
-1. Uses comprehensive DocType loader for ALL apps (frappe, erpnext, payments, verenigingen)
-2. Loads ALL fields including custom fields and proper metadata
-3. Eliminates false positives from incomplete DocType definitions
-4. Better SQL parsing with proper table alias resolution
-5. Accurate field reference validation
+This validator analyzes SQL queries for field reference accuracy:
+1. Multi-app DocType loading (frappe, erpnext, payments, verenigingen)
+2. Complete field metadata including custom fields
+3. SQL parsing with table alias resolution
+4. Database schema validation
+5. Prevention of SQL runtime errors
 
 Validates field references in SQL string literals to prevent database errors
 caused by referencing non-existent columns.

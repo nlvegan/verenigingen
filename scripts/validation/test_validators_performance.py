@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent))
 
 try:
-    from enhanced_field_validator import EnhancedFieldValidator
+    from doctype_field_validator import DocTypeFieldValidator
     from unified_field_validator import UnifiedFieldValidator
 except ImportError as e:
     print(f"Error importing validators: {e}")
@@ -25,30 +25,30 @@ def test_validator_performance():
     print("🔍 Testing Field Validators Performance and Accuracy")
     print("=" * 60)
     
-    # Test Enhanced Field Validator
-    print("\n1. Testing Enhanced Field Validator...")
+    # Test DocType Field Validator
+    print("\n1. Testing DocType Field Validator...")
     start_time = time.time()
     
     try:
-        enhanced_validator = EnhancedFieldValidator(app_path)
-        enhanced_issues = enhanced_validator.validate_all_files()
-        enhanced_time = time.time() - start_time
+        doctype_validator = DocTypeFieldValidator(app_path)
+        doctype_issues = doctype_validator.validate_all_files()
+        doctype_time = time.time() - start_time
         
         # Categorize issues
-        enhanced_high = [i for i in enhanced_issues if i.confidence == "high"]
-        enhanced_medium = [i for i in enhanced_issues if i.confidence == "medium"]
-        enhanced_low = [i for i in enhanced_issues if i.confidence == "low"]
+        doctype_high = [i for i in doctype_issues if i.confidence == "high"]
+        doctype_medium = [i for i in doctype_issues if i.confidence == "medium"]
+        doctype_low = [i for i in doctype_issues if i.confidence == "low"]
         
-        print(f"✅ Enhanced Validator completed in {enhanced_time:.2f} seconds")
-        print(f"   📊 Total issues: {len(enhanced_issues)}")
-        print(f"   🔴 High confidence: {len(enhanced_high)}")
-        print(f"   🟡 Medium confidence: {len(enhanced_medium)}")
-        print(f"   🟢 Low confidence: {len(enhanced_low)}")
+        print(f"✅ DocType Field Validator completed in {doctype_time:.2f} seconds")
+        print(f"   📊 Total issues: {len(doctype_issues)}")
+        print(f"   🔴 High confidence: {len(doctype_high)}")
+        print(f"   🟡 Medium confidence: {len(doctype_medium)}")
+        print(f"   🟢 Low confidence: {len(doctype_low)}")
         
     except Exception as e:
-        print(f"❌ Enhanced Validator failed: {e}")
-        enhanced_issues = []
-        enhanced_time = 0
+        print(f"❌ DocType Field Validator failed: {e}")
+        doctype_issues = []
+        doctype_time = 0
     
     # Test Unified Field Validator
     print("\n2. Testing Unified Field Validator...")
@@ -99,12 +99,12 @@ def test_validator_performance():
     # Performance Comparison
     print("\n3. Performance Comparison")
     print("-" * 30)
-    if enhanced_time > 0 and unified_time > 0:
-        if unified_time < enhanced_time:
-            speedup = enhanced_time / unified_time
+    if doctype_time > 0 and unified_time > 0:
+        if unified_time < doctype_time:
+            speedup = doctype_time / unified_time
             print(f"🚀 Unified Validator is {speedup:.1f}x faster")
         else:
-            slowdown = unified_time / enhanced_time
+            slowdown = unified_time / doctype_time
             print(f"⚠️  Unified Validator is {slowdown:.1f}x slower")
     
     # Issue Quality Analysis
@@ -114,14 +114,14 @@ def test_validator_performance():
     # Common issue types to check for false positives
     common_false_positives = ['in', 'like', 'and', 'or', 'not', 'is', 'as', 'Active', 'Draft', 'Cancelled']
     
-    if enhanced_issues:
-        enhanced_fps = [i for i in enhanced_issues if i.field in common_false_positives]
-        print(f"Enhanced Validator - Potential false positives: {len(enhanced_fps)}/{len(enhanced_issues)} ({len(enhanced_fps)/len(enhanced_issues)*100:.1f}%)")
+    if doctype_issues:
+        doctype_fps = [i for i in doctype_issues if i.field in common_false_positives]
+        print(f"DocType Field Validator - Potential false positives: {len(doctype_fps)}/{len(doctype_issues)} ({len(doctype_fps)/len(doctype_issues)*100:.1f}%)")
         
         # Show examples of potential false positives
-        if enhanced_fps:
+        if doctype_fps:
             print("   Examples:")
-            for fp in enhanced_fps[:3]:
+            for fp in doctype_fps[:3]:
                 print(f"     - '{fp.field}' in {fp.doctype} ({fp.issue_type})")
     
     if all_violations:
@@ -138,17 +138,17 @@ def test_validator_performance():
     print("\n5. Pattern Analysis")
     print("-" * 20)
     
-    if enhanced_issues:
+    if doctype_issues:
         # Group by issue type
-        enhanced_types = {}
-        for issue in enhanced_issues:
+        doctype_types = {}
+        for issue in doctype_issues:
             issue_type = issue.issue_type
-            if issue_type not in enhanced_types:
-                enhanced_types[issue_type] = 0
-            enhanced_types[issue_type] += 1
+            if issue_type not in doctype_types:
+                doctype_types[issue_type] = 0
+            doctype_types[issue_type] += 1
         
-        print("Enhanced Validator issue types:")
-        for issue_type, count in sorted(enhanced_types.items(), key=lambda x: x[1], reverse=True):
+        print("DocType Field Validator issue types:")
+        for issue_type, count in sorted(doctype_types.items(), key=lambda x: x[1], reverse=True):
             print(f"   {issue_type}: {count}")
     
     if all_violations:
@@ -170,18 +170,18 @@ def test_validator_performance():
     
     print("Based on the analysis:")
     
-    if enhanced_time > 0 and unified_time > 0:
-        if unified_time < enhanced_time:
-            print(f"✅ Unified Validator is more efficient ({unified_time:.1f}s vs {enhanced_time:.1f}s)")
+    if doctype_time > 0 and unified_time > 0:
+        if unified_time < doctype_time:
+            print(f"✅ Unified Validator is more efficient ({unified_time:.1f}s vs {doctype_time:.1f}s)")
         
-    if enhanced_issues and all_violations:
-        enhanced_fp_rate = len([i for i in enhanced_issues if i.field in common_false_positives]) / len(enhanced_issues)
+    if doctype_issues and all_violations:
+        doctype_fp_rate = len([i for i in doctype_issues if i.field in common_false_positives]) / len(doctype_issues)
         unified_fp_rate = len([v for v in all_violations if v.field in common_false_positives]) / len(all_violations)
         
-        if unified_fp_rate < enhanced_fp_rate:
-            print(f"✅ Unified Validator has lower false positive rate ({unified_fp_rate:.1%} vs {enhanced_fp_rate:.1%})")
+        if unified_fp_rate < doctype_fp_rate:
+            print(f"✅ Unified Validator has lower false positive rate ({unified_fp_rate:.1%} vs {doctype_fp_rate:.1%})")
         else:
-            print(f"⚠️  Enhanced Validator has lower false positive rate ({enhanced_fp_rate:.1%} vs {unified_fp_rate:.1%})")
+            print(f"⚠️  DocType Field Validator has lower false positive rate ({doctype_fp_rate:.1%} vs {unified_fp_rate:.1%})")
     
     # Suggested optimizations
     print("\n7. Suggested Optimizations")
@@ -194,10 +194,10 @@ def test_validator_performance():
     print("- Consider field aliases and virtual fields")
     
     return {
-        'enhanced': {
-            'time': enhanced_time,
-            'issues': len(enhanced_issues) if enhanced_issues else 0,
-            'high_confidence': len(enhanced_high) if enhanced_issues else 0
+        'doctype': {
+            'time': doctype_time,
+            'issues': len(doctype_issues) if doctype_issues else 0,
+            'high_confidence': len(doctype_high) if doctype_issues else 0
         },
         'unified': {
             'time': unified_time,

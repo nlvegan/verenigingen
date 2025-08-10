@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
 """
-Enhanced DocType Field Validator - FIXED VERSION with Proper DocType Loading
+Comprehensive Field Validator - Complete Field Reference Analysis
 
-MAJOR IMPROVEMENTS:
-1. Uses comprehensive DocType loader for ALL apps (frappe, erpnext, payments, verenigingen)
-2. Loads ALL fields including custom fields and proper metadata
-3. Manager pattern detection (@property methods)
-4. Custom field recognition
-5. Child table context awareness
-6. Confidence scoring system
-7. Pre-commit mode filtering
-8. Eliminates false positives from incomplete DocType definitions
+This validator provides thorough analysis of field references across all apps:
+1. Multi-app DocType loading (frappe, erpnext, payments, verenigingen)
+2. Custom field support and proper metadata handling
+3. Property method detection (@property decorators)
+4. Child table context awareness
+5. Confidence scoring system
+6. Pre-commit mode filtering
+7. Comprehensive validation coverage
 
 Key Features:
-- Comprehensive multi-app DocType loading
+- Complete multi-app DocType loading
 - Custom field support
 - Child table relationship mapping
 - Property method detection
 - Confidence scoring
-- Performance optimized
+- Thorough analysis coverage
 """
 
 import ast
@@ -290,7 +289,7 @@ class FieldAccessVisitor(ast.NodeVisitor):
         # This is a simplified version - in practice, we'd track parent during traversal
         return None
 
-class EnhancedFieldValidator:
+class ComprehensiveFieldValidator:
     """Main validator with improved accuracy and comprehensive DocType loading"""
     
     def __init__(self, app_path: str, verbose: bool = False, pre_commit_mode: bool = False):
@@ -498,7 +497,7 @@ def main():
     
     args = parser.parse_args()
     
-    validator = EnhancedFieldValidator(
+    validator = ComprehensiveFieldValidator(
         app_path=args.path,
         verbose=args.verbose,
         pre_commit_mode=args.pre_commit

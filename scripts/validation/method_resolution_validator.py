@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Fast Method Call Validator
+Method Resolution Validator
 
-A lightweight validator focused on catching the most common method call issues
-without building a comprehensive method database.
+A validator focused on resolving and validating method calls,
+identifying deprecated methods and common call patterns.
 
 Features:
 - Fast execution (< 30 seconds)
@@ -31,7 +31,7 @@ class CallIssue:
     suggestion: Optional[str] = None
 
 
-class FastMethodValidator:
+class MethodResolutionValidator:
     """Fast method call validator focused on common issues"""
     
     def __init__(self, app_path: str):
@@ -330,7 +330,7 @@ def main():
     import sys
     
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
-    validator = FastMethodValidator(app_path)
+    validator = MethodResolutionValidator(app_path)
     
     # Validate files
     if len(sys.argv) > 1 and not sys.argv[1].startswith('--'):

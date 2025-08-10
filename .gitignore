@@ -1,6 +1,6 @@
 .DS_Store
 bandit*.*
-one-off-test-utils
+one-off-test-debug-folder
 *.pyc
 *.egg-info
 *.swp

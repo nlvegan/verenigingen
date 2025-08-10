@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-Ultimate Field Validator - FIXED VERSION with Proper DocType Loading
+DocType Field Analyzer - Advanced Field Analysis and Validation
 
-MAJOR IMPROVEMENTS:
-1. Uses comprehensive DocType loader for ALL apps (frappe, erpnext, payments, verenigingen)
-2. Loads ALL fields including custom fields and proper metadata
-3. Correctly handles child table relationships
-4. Eliminates false positives from incomplete DocType definitions
-5. Provides accurate field reference validation
+This analyzer provides deep analysis of DocType field usage patterns:
+1. Multi-app DocType loading (frappe, erpnext, payments, verenigingen)
+2. Complete field metadata including custom fields
+3. Child table relationship analysis
+4. Field usage pattern detection
+5. Advanced validation with context awareness
 
 Key Features:
-- Comprehensive multi-app DocType loading
+- Complete multi-app DocType loading
 - Custom field support
 - Child table relationship mapping
-- Proper field metadata
-- Performance optimized caching
-- Reduced false positives through complete field definitions
+- Field usage pattern analysis
+- Context-aware validation
+- Comprehensive field analysis
 """
 
 import ast
@@ -44,8 +44,8 @@ class ValidationIssue:
     issue_type: str
     suggested_fix: Optional[str] = None
 
-class UltimateFieldValidator:
-    """Ultimate precision field validator with comprehensive DocType loading"""
+class DocTypeFieldAnalyzer:
+    """Advanced analyzer for DocType field usage patterns and validation"""
     
     def __init__(self, app_path: str, verbose: bool = False):
         self.app_path = Path(app_path)
@@ -640,7 +640,7 @@ def main():
             single_file = Path(app_path) / arg
             break
     
-    validator = UltimateFieldValidator(app_path, verbose=verbose)
+    validator = DocTypeFieldAnalyzer(app_path, verbose=verbose)
     
     if not verbose:
         print(f"📋 Loaded {len(validator.doctypes)} doctypes with field definitions")

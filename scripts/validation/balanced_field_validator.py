@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """
-Pragmatic Database Query Field Validator - FIXED VERSION
+Balanced Field Validator - Practical Field Reference Validation
 
-MAJOR IMPROVEMENTS:
-1. Uses comprehensive DocType loader for ALL apps (frappe, erpnext, payments, verenigingen)
-2. Loads ALL fields including custom fields and proper metadata
-3. Eliminates false positives from incomplete DocType definitions
-4. Proper child table relationship mapping
-5. Accurate field reference validation
-
-A production-ready field validator that builds on the improved validator with 
-selective exclusions for common false positive patterns while maintaining 
-high-value validation for critical field references.
+A production-ready field validator that balances thoroughness with practicality:
+1. Multi-app DocType loading (frappe, erpnext, payments, verenigingen)
+2. Complete field metadata including custom fields
+3. Smart exclusions to reduce false positives
+4. Child table relationship mapping
+5. Configurable validation levels
 
 Key Features:
-1. Comprehensive multi-app DocType loading (FIXED)
-2. Adds selective exclusions for common false positive patterns:
+1. Complete multi-app DocType loading
+2. Smart exclusions for common false positive patterns:
    - Child table field access patterns (item.field in loops)
    - Wildcard selections ("*" in frappe.db.get_value)
    - Field aliases with "as" keyword
@@ -27,8 +23,8 @@ Key Features:
    - Critical business logic field access
    - API endpoint field usage
 4. Configurable validation levels (strict/balanced/permissive)
-5. Performance suitable for pre-commit hooks
-6. Clear documentation on what is and isn't validated
+5. Suitable for daily development use
+6. Clear error messages with context
 
 Validation Strategy:
 - Pattern-based exclusion rules rather than complex parsing
@@ -105,7 +101,7 @@ class ValidationConfig:
             )
 
 
-class PragmaticDatabaseQueryValidator:
+class BalancedFieldValidator:
     """Enhanced validator with comprehensive DocType loading and selective exclusions for false positives"""
     
     def __init__(self, app_path: str, config: ValidationConfig = None):
@@ -543,7 +539,7 @@ def main():
                         default='balanced',
                         help='Validation level (default: balanced)')
     parser.add_argument('--app-path',
-                        default="/home/frappe/frappe-bench/apps/verenigingen/verenigingen",
+                        default="/home/frappe/frappe-bench/apps/verenigingen",
                         help='Path to app directory')
     parser.add_argument('--stats', action='store_true',
                         help='Show validation statistics')
@@ -559,7 +555,7 @@ def main():
     print(f"🔍 Running pragmatic database query field validation...")
     print(f"📊 Validation Level: {validation_level.value.upper()}")
     
-    validator = PragmaticDatabaseQueryValidator(args.app_path, config)
+    validator = BalancedFieldValidator(args.app_path, config)
     
     if args.stats:
         stats = validator.get_validation_stats()

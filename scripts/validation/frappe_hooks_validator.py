@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Hooks and Event Handler Validator
+Frappe Hooks Validator
 
 Validates that all event handlers and scheduled tasks defined in hooks.py
 actually exist and are callable.
@@ -32,7 +32,7 @@ class HookIssue:
     line_number: Optional[int] = None
 
 
-class HooksEventValidator:
+class FrappeHooksValidator:
     """Validates hooks.py event handlers and scheduled tasks"""
     
     def __init__(self, app_path: str):
@@ -358,7 +358,7 @@ def main():
     
     args = parser.parse_args()
     
-    validator = HooksEventValidator(args.app_path)
+    validator = FrappeHooksValidator(args.app_path)
     issues = validator.validate()
     validator.print_summary()
     

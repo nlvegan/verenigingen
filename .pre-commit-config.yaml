@@ -124,8 +124,8 @@ repos:
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
 
       - id: frappe-api-validator
-        name: Pragmatic database field validation (balanced)
-        entry: python scripts/validation/pragmatic_field_validator.py --level balanced --pre-commit
+        name: Balanced field validation (practical mode)
+        entry: python scripts/validation/balanced_field_validator.py --level balanced --pre-commit
         language: system
         pass_filenames: false
         files: \.py$
@@ -207,16 +207,16 @@ repos:
         stages: [manual]
 
       - id: comprehensive-doctype-validator
-        name: Comprehensive DocType validation with SQL patterns
-        entry: python scripts/validation/comprehensive_doctype_validator.py
+        name: DocType field analysis with advanced patterns
+        entry: python scripts/validation/doctype_field_analyzer.py
         language: system
         pass_filenames: false
         files: \.py$
         stages: [manual]
 
       - id: performance-validator
-        name: Performance-optimized validation (large codebases)
-        entry: python scripts/validation/performance_optimized_validator.py
+        name: Field reference validation
+        entry: python scripts/validation/field_reference_validator.py
         language: system
         pass_filenames: false
         files: \.py$
@@ -232,8 +232,8 @@ repos:
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
 
       - id: pragmatic-field-validator-strict
-        name: Pragmatic database field validation (strict mode)
-        entry: python scripts/validation/pragmatic_field_validator.py --level strict
+        name: Balanced field validation (strict mode)
+        entry: python scripts/validation/balanced_field_validator.py --level strict
         language: system
         pass_filenames: false
         files: \.py$

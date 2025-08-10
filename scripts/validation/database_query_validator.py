@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Quick Database Field Validator
+Database Query Validator
 
-Focuses on the most common and critical database query field issues.
-Designed to be fast enough for pre-commit hooks.
+Validates field references in database queries and SQL statements.
+Focuses on preventing database runtime errors from invalid field references.
 """
 
 import ast
@@ -13,15 +13,25 @@ from pathlib import Path
 from typing import Dict, List, Set, Optional
 
 
-class QuickDBFieldValidator:
-    """Quick validation for critical database field issues"""
+class DatabaseQueryValidator:
+    """Validates field references in database queries and SQL statements"""
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
         self.doctypes = self.load_doctypes()
         
     def load_doctypes(self) -> Dict[str, Set[str]]:
-        """Load doctype field definitions"""
+        """Load DocTypes using unified loader"""
+        # Import unified DocType loader
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).parent))
+        from doctype_loader import load_doctypes_simple
+        
+        return load_doctypes_simple(str(self.app_path), verbose=False)
+    
+    def load_doctypes_legacy(self) -> Dict[str, Set[str]]:
+        """Load doctype field definitions (legacy method)"""
         doctypes = {}
         
         for json_file in self.app_path.rglob("**/doctype/*/*.json"):
@@ -155,11 +165,11 @@ class QuickDBFieldValidator:
 
 def main():
     """Run quick database field validation"""
-    app_path = "/home/frappe/frappe-bench/apps/verenigingen/verenigingen"
+    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
     
     print("🔍 Running quick database field validation...")
     
-    validator = QuickDBFieldValidator(app_path)
+    validator = DatabaseQueryValidator(app_path)
     print(f"📋 Loaded {len(validator.doctypes)} doctypes")
     
     violations = validator.validate_app()
