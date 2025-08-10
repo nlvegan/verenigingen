@@ -394,8 +394,8 @@ class NewsletterTemplateManager:
             # Sanitize variables before formatting
             sanitized_variables = {k: self._sanitize_template_value(str(v)) for k, v in variables.items()}
             rendered_subject = template["subject_template"].format(**sanitized_variables)
-        except KeyError as e:
-            # Handle missing variables gracefully - missing variable: {e}
+        except KeyError:
+            # Handle missing variables gracefully
             rendered_subject = template["subject_template"]
             for var, value in variables.items():
                 # Sanitize subject variables too

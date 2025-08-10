@@ -9,8 +9,8 @@ import time
 import argparse
 import ast
 from pathlib import Path
-from deprecated_field_validator import EnhancedFieldValidator
-from template_variable_validator import TemplateVariableValidator
+from enhanced_doctype_validator import EnhancedFieldValidator
+from template_variable_validator import ModernTemplateValidator
 from loop_context_field_validator import LoopContextFieldValidator, load_doctypes
 
 
@@ -38,7 +38,11 @@ class ValidationSuite:
         
         try:
             field_validator = EnhancedFieldValidator(str(self.app_path))
-            field_passed = field_validator.run_validation()
+            issues = field_validator.validate_directory(pre_commit=True)
+            field_passed = len(issues) == 0
+            
+            if not field_passed and not self.quiet:
+                self.log(f"⚠️ Found {len(issues)} field reference issues")
             
             duration = time.time() - start_time
             self.results['field_validation'] = {
@@ -80,8 +84,8 @@ class ValidationSuite:
         self.log("-" * 40)
         
         try:
-            template_validator = TemplateVariableValidator(str(self.app_path))
-            template_passed = template_validator.run_validation()
+            template_validator = ModernTemplateValidator(str(self.app_path))
+            issues, template_passed = template_validator.run_validation()
             
             duration = time.time() - start_time
             self.results['template_validation'] = {

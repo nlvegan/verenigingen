@@ -419,8 +419,8 @@ export class BoardManager {
 			primary_action_label: __('Add Board Member'),
 			primary_action: async (values) => {
 				try {
-					const result = await this.api.call('add_board_member', {
-						doc: this.frm.doc,
+					const result = await this.api.call('verenigingen.verenigingen.doctype.chapter.chapter.add_board_member', {
+						doc: this.frm.doc.name,
 						volunteer: values.volunteer,
 						role: values.chapter_role,
 						from_date: values.from_date,
@@ -476,8 +476,8 @@ export class BoardManager {
 				const volunteer = values.current_volunteer.split(' | ')[0];
 
 				try {
-					const result = await this.api.call('transition_board_role', {
-						doc: this.frm.doc,
+					const result = await this.api.call('verenigingen.verenigingen.doctype.chapter.chapter.transition_board_role', {
+						doc: this.frm.doc.name,
 						volunteer,
 						new_role: values.new_role,
 						transition_date: values.transition_date
@@ -924,9 +924,8 @@ export class BoardManager {
 
 	async updateVolunteerHistory(boardMember) {
 		try {
-			const result = await this.api.call('verenigingen.verenigingen.doctype.chapter.chapter.update_volunteer_assignment_history', {
+			const result = await this.api.call('vereinigingen.verenigingen.doctype.chapter.chapter.update_volunteer_assignment_history', {
 				volunteer_id: boardMember.volunteer,
-				chapter_name: this.frm.doc.name,
 				role: boardMember.chapter_role,
 				start_date: boardMember.from_date,
 				end_date: boardMember.to_date || frappe.datetime.get_today()

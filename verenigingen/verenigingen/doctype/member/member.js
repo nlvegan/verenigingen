@@ -661,8 +661,8 @@ function setup_sales_invoice_link_filter(frm) {
 frappe.ui.form.on('Member Payment History', {
 	payment_history_add(frm, cdt, cdn) {
 		const row = locals[cdt][cdn];
-		if (!row.transaction_date) {
-			frappe.model.set_value(cdt, cdn, 'transaction_date', frappe.datetime.get_today());
+		if (!row.posting_date) {
+			frappe.model.set_value(cdt, cdn, 'posting_date', frappe.datetime.get_today());
 		}
 	},
 

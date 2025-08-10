@@ -32,11 +32,11 @@
  */
 
 frappe.ui.form.on('Chapter Member', {
-	onsubmit: function (frm) {
-		console.log("here" + frappe.session.user)
+	onsubmit(_frm) {
+		console.log(`here${frappe.session.user}`);
 		// body...
-	}
-	refresh: function(frm) {
+	},
+	refresh(_frm) {
 
 	}
 });

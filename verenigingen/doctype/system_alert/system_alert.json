@@ -10,6 +10,7 @@
   "alert_type",
   "severity",
   "message",
+  "source",
   "column_break_3",
   "status",
   "timestamp",
@@ -41,6 +42,12 @@
    "fieldtype": "Text",
    "label": "Message",
    "reqd": 1
+  },
+  {
+   "fieldname": "source",
+   "fieldtype": "Data",
+   "label": "Source",
+   "description": "Source system or module that generated this alert"
   },
   {
    "fieldname": "column_break_3",

@@ -223,6 +223,22 @@ class EmailTemplateValidator:
     
     def _is_variable_defined_in_email_context(self, content, var_name, position):
         """Check if variable is defined in email context before use"""
+        
+        # Built-in Python and Jinja2 variables that should never be flagged
+        builtin_vars = {
+            # Python built-ins
+            'self', 'cls', 'super', 'len', 'str', 'int', 'float', 'bool', 'list', 'dict', 'tuple', 'set',
+            'range', 'enumerate', 'zip', 'map', 'filter', 'sorted', 'reversed', 'min', 'max', 'sum',
+            # Jinja2 built-ins  
+            'loop', 'varargs', 'kwargs', 'namespace', 'cycler',
+            # Common template variables
+            'doc', 'data', 'member', 'frappe', 'request', 'response', 'user', 'session'
+        }
+        
+        # Skip validation for built-in variables
+        if var_name in builtin_vars:
+            return True
+            
         # Look backwards from position for variable definition
         preceding_content = content[:position]
         

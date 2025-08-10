@@ -215,6 +215,7 @@ class ModernJSPythonValidator:
                 r'.*\.test\.js$',
                 r'.*\.spec\.js$',
                 r'.*/node_modules/.*',
+                r'.*/eslint-plugins/.*',
             ],
             'framework_methods_to_ignore': [
                 'frappe.db.get_value',
@@ -293,7 +294,7 @@ class ModernJSPythonValidator:
         """Check if file should be ignored based on patterns"""
         path_str = str(file_path)
         for pattern in self.config.get('ignore_patterns', []):
-            if re.match(pattern, path_str):
+            if re.search(pattern, path_str):
                 return True
         return False
     
@@ -1012,6 +1013,8 @@ class ModernJSPythonValidator:
         
         for pattern in js_patterns:
             for js_file in self.project_root.rglob(pattern):
+                if not js_file.is_file() or self._should_ignore_file(js_file):
+                    continue
                 calls = self.extract_js_calls(js_file)
                 self.js_calls.extend(calls)
                 if calls:
@@ -1026,6 +1029,8 @@ class ModernJSPythonValidator:
         
         for pattern in py_patterns:
             for py_file in self.project_root.rglob(pattern):
+                if not py_file.is_file() or self._should_ignore_file(py_file):
+                    continue
                 functions = self.extract_python_functions(py_file)
                 for func in functions:
                     self.python_functions[func.full_method_path] = func
@@ -1198,18 +1203,20 @@ def main():
     if verbose:
         logging.getLogger().setLevel(logging.DEBUG)
     
-    config = {
+    # Create validator first to get default config
+    validator = ModernJSPythonValidator(project_root)
+    
+    # Update config with command line options
+    validator.config.update({
         'severity_threshold': severity,
         'cache_enabled': True,
         'fuzzy_match_threshold': 0.6,
-    }
+    })
     
     print("🚀 Modernized JavaScript-Python Parameter Validator")
     print(f"   Severity threshold: {severity}")
-    print(f"   Caching enabled: {config['cache_enabled']}")
+    print(f"   Caching enabled: {validator.config['cache_enabled']}")
     print("")
-    
-    validator = ModernJSPythonValidator(project_root, config)
     issues = validator.run_validation()
     
     print("\n" + "=" * 80)

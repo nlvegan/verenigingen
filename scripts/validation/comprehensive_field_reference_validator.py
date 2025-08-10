@@ -374,6 +374,10 @@ from collections import defaultdict
 import sys
 import os
 
+# Import comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
+
 
 @dataclass
 class ValidationIssue:
@@ -424,76 +428,55 @@ class DatabaseSchemaReader:
         self._load_schemas()
     
     def _load_schemas(self):
-        """Load all DocType schemas including custom fields"""
-        # Load static DocType definitions
-        doctype_dir = self.app_path / "verenigingen" / "verenigingen" / "doctype"
+        """Load all DocType schemas using comprehensive DocType loader"""
+        # Get bench path from app path
+        bench_path = self.app_path.parent.parent
         
-        for doctype_path in doctype_dir.iterdir():
-            if doctype_path.is_dir():
-                json_file = doctype_path / f"{doctype_path.name}.json"
-                if json_file.exists():
-                    schema = self._load_doctype_schema(json_file)
-                    if schema:
-                        self.doctypes[schema.name] = schema
+        # Initialize comprehensive DocType loader
+        loader = DocTypeLoader(str(bench_path), verbose=False)
+        doctype_metas = loader.get_doctypes()
         
-        # Load custom fields from fixtures if available
-        self._load_custom_fields()
-        
-        print(f"📋 Loaded {len(self.doctypes)} DocType schemas")
-    
-    def _load_doctype_schema(self, json_file: Path) -> Optional[DocTypeSchema]:
-        """Load a single DocType schema"""
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
+        # Convert comprehensive DocTypeMetadata to simplified DocTypeSchema format
+        for doctype_name, doctype_meta in doctype_metas.items():
             schema = DocTypeSchema(
-                name=data.get('name', ''),
+                name=doctype_name,
                 fields={},
                 custom_fields={},
                 child_tables={},
-                is_child_table=data.get('istable', 0) == 1
+                is_child_table=doctype_meta.istable
             )
             
-            # Process fields
-            for field_data in data.get('fields', []):
-                field_name = field_data.get('fieldname')
-                if field_name:
-                    schema.fields[field_name] = field_data
-                    
-                    # Track child table relationships
-                    if field_data.get('fieldtype') == 'Table':
-                        options = field_data.get('options')
-                        if options:
-                            schema.child_tables[field_name] = options
-            
-            return schema
-            
-        except Exception as e:
-            print(f"⚠️  Error loading {json_file}: {e}")
-            return None
-    
-    def _load_custom_fields(self):
-        """Load custom field definitions from fixtures"""
-        fixtures_dir = self.app_path / "verenigingen" / "fixtures"
-        
-        # Look for custom field fixtures
-        for fixture_file in fixtures_dir.glob("*.json"):
-            try:
-                with open(fixture_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
+            # Convert fields
+            for field_name, field_meta in doctype_meta.fields.items():
+                schema.fields[field_name] = {
+                    'fieldname': field_meta.fieldname,
+                    'fieldtype': field_meta.fieldtype,
+                    'label': field_meta.label,
+                    'options': field_meta.options,
+                    'reqd': field_meta.reqd,
+                    'unique': field_meta.unique,
+                    'read_only': field_meta.read_only,
+                    'hidden': field_meta.hidden,
+                }
                 
-                # Process custom field data
-                if isinstance(data, list):
-                    for item in data:
-                        if item.get('doctype') == 'Custom Field':
-                            dt = item.get('dt')
-                            fieldname = item.get('fieldname')
-                            if dt and fieldname and dt in self.doctypes:
-                                self.doctypes[dt].custom_fields[fieldname] = item
-                                
-            except Exception:
-                continue
+                # Track child table relationships  
+                if field_meta.fieldtype == 'Table' and field_meta.options:
+                    schema.child_tables[field_name] = field_meta.options
+            
+            # Convert custom fields
+            for field_name, field_meta in doctype_meta.custom_fields.items():
+                schema.custom_fields[field_name] = {
+                    'fieldname': field_meta.fieldname,
+                    'fieldtype': field_meta.fieldtype,
+                    'label': field_meta.label,
+                    'options': field_meta.options,
+                    'is_custom': True
+                }
+            
+            self.doctypes[doctype_name] = schema
+        
+        print(f"📋 Loaded {len(self.doctypes)} DocType schemas")
+    
     
     def get_field_info(self, doctype: str, field_name: str) -> Optional[Dict[str, Any]]:
         """Get field information including custom fields"""
@@ -751,6 +734,19 @@ class FrappePatternHandler:
                 r'frappe\.db\.get_value\([^)]*fieldname\s*=',
                 r'frappe\.db\.get_list\([^)]*fields\s*=',
             ],
+            'frappe_document_methods': [
+                # Common Frappe Document methods that are not fields
+                'get', 'set', 'insert', 'save', 'submit', 'cancel', 'delete',
+                'reload', 'load_from_db', 'check_permission', 'validate',
+                'before_insert', 'after_insert', 'before_save', 'after_save',
+                'before_submit', 'after_submit', 'before_cancel', 'after_cancel',
+                'append', 'extend', 'remove', 'clear', 'copy', 'update',
+                'get_doc', 'get_value', 'set_value', 'has_permission',
+                'run_method', 'get_formatted', 'get_title', 'get_url',
+                'add_comment', 'add_tag', 'remove_tag', 'get_tags',
+                'flags', 'meta', 'permissions', 'precision', 'queue_action',
+                'lock', 'unlock', 'add_child', 'remove_child', 'get_all_children'
+            ],
             'meta_field_access': [
                 r'\w+\.meta\.\w+',  # DocType meta access
                 r'frappe\.get_meta\([^)]*\)\.\w+',
@@ -760,9 +756,16 @@ class FrappePatternHandler:
     def is_valid_frappe_pattern(self, field_access: str, context: str) -> Tuple[bool, Optional[str]]:
         """Check if field access matches a valid Frappe pattern"""
         for pattern_type, patterns in self.valid_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, context, re.IGNORECASE):
+            # Special handling for frappe_document_methods - these are field names, not context patterns
+            if pattern_type == 'frappe_document_methods':
+                field_name = field_access.split('.')[-1]  # Extract field name from obj.field
+                if field_name in patterns:
                     return True, pattern_type
+            else:
+                # For other pattern types, search in context as before
+                for pattern in patterns:
+                    if re.search(pattern, context, re.IGNORECASE):
+                        return True, pattern_type
         
         return False, None
     
@@ -856,14 +859,34 @@ class ValidationEngine:
         accesses = []
         
         class FieldAccessVisitor(ast.NodeVisitor):
+            def __init__(self):
+                self.parent_map = {}
+                self.current_parent = None
+                
+            def visit(self, node):
+                # More efficient parent tracking
+                old_parent = self.current_parent
+                self.current_parent = node
+                for child in ast.iter_child_nodes(node):
+                    self.parent_map[child] = node
+                super().visit(node)
+                self.current_parent = old_parent
+                
             def visit_Attribute(self, node):
                 if isinstance(node.value, ast.Name):
-                    accesses.append({
-                        'obj_name': node.value.id,
-                        'field_name': node.attr,
-                        'line': node.lineno,
-                        'col': node.col_offset
-                    })
+                    # Check if this attribute is being called as a method
+                    parent = self.parent_map.get(node)
+                    is_method_call = isinstance(parent, ast.Call) and parent.func == node
+                    
+                    # Skip if this is a method call
+                    if not is_method_call:
+                        accesses.append({
+                            'obj_name': node.value.id,
+                            'field_name': node.attr,
+                            'line': node.lineno,
+                            'col': node.col_offset,
+                            'is_method': is_method_call
+                        })
                 self.generic_visit(node)
         
         visitor = FieldAccessVisitor()
@@ -906,6 +929,10 @@ class ValidationEngine:
             return None
         
         if obj_name in self.context_analyzer.builtin_patterns['frappe_objects']:
+            return None
+        
+        # Skip if this is a Frappe Document method (not a field)
+        if field_name in self.pattern_handler.valid_patterns.get('frappe_document_methods', []):
             return None
         
         # Check if this is a valid Frappe pattern

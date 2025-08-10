@@ -1,132 +1,1260 @@
-📋 Loaded 851 doctypes with field definitions
-📋 Built child table mapping with 390 entries
-🚨 Running in pre-commit mode (production files only)...
-🔍 Scanning Python files in /home/frappe/frappe-bench/apps/verenigingen...
-  - Found 6 issues in verenigingen/validations.py
-  - Found 1 issues in api/simple_payment_history_check.py
-  - Found 1 issues in scripts/membership_dues_poc.py
-  - Found 5 issues in verenigingen/api/sepa_batch_ui_secure.py
-  - Found 2 issues in verenigingen/api/membership_application_review.py
-  - Found 6 issues in verenigingen/api/chapter_dashboard_api.py
-  - Found 3 issues in verenigingen/api/membership_application.py
-  - Found 1 issues in verenigingen/api/chapter_join.py
-  - Found 2 issues in verenigingen/api/sepa_duplicate_prevention.py
-  - Found 7 issues in verenigingen/api/payment_dashboard.py
-  - Found 5 issues in verenigingen/api/sepa_batch_ui.py
-  - Found 8 issues in verenigingen/api/donor_auto_creation_management.py
-  - Found 1 issues in verenigingen/api/member_management.py
-  - Found 3 issues in verenigingen/api/fix_today_payment_history.py
-  - Found 1 issues in verenigingen/api/dd_batch_workflow_controller.py
-  - Found 3 issues in verenigingen/api/fix_payment_history_today.py
-  - Found 3 issues in verenigingen/api/check_past_imports.py
-  - Found 1 issues in verenigingen/api/generate_test_membership_types.py
-  - Found 2 issues in verenigingen/api/generate_test_members.py
-  - Found 5 issues in verenigingen/utils/dues_schedule_auto_creator.py
-  - Found 1 issues in verenigingen/utils/sepa_rollback_manager.py
-  - Found 13 issues in verenigingen/utils/sepa_xml_enhanced_generator.py
-  - Found 4 issues in verenigingen/utils/sepa_conflict_detector.py
-  - Found 4 issues in verenigingen/utils/sepa_mandate_service.py
-  - Found 1 issues in verenigingen/utils/department_hierarchy.py
-  - Found 7 issues in verenigingen/utils/background_jobs.py
-  - Found 3 issues in verenigingen/utils/chapter_membership_manager.py
-  - Found 2 issues in verenigingen/utils/payment_retry.py
-  - Found 2 issues in verenigingen/utils/sepa_reconciliation.py
-  - Found 2 issues in verenigingen/utils/donor_auto_creation.py
-  - Found 3 issues in verenigingen/utils/account_group_validation_hooks.py
-  - Found 1 issues in verenigingen/utils/member_portal_utils.py
-  - Found 1 issues in verenigingen/utils/application_helpers.py
-  - Found 2 issues in verenigingen/utils/termination_integration.py
-  - Found 5 issues in verenigingen/utils/__init__.py
-  - Found 1 issues in verenigingen/utils/native_expense_helpers.py
-  - Found 4 issues in verenigingen/utils/dues_invoice_tracking.py
-  - Found 2 issues in verenigingen/utils/application_payments.py
-  - Found 3 issues in verenigingen/setup/__init__.py
-  - Found 2 issues in verenigingen/setup/role_profile_setup.py
-  - Found 4 issues in verenigingen/verenigingen/web_form/membership_application.py
-  - Found 2 issues in verenigingen/verenigingen/page/membership_analytics/predictive_analytics.py
-  - Found 1 issues in verenigingen/verenigingen/doctype/donor/donor.py
-  - Found 2 issues in verenigingen/verenigingen/doctype/chapter/chapter.py
-  - Found 14 issues in verenigingen/verenigingen/doctype/direct_debit_batch/direct_debit_batch.py
-  - Found 5 issues in verenigingen/verenigingen/doctype/direct_debit_batch/sepa_processor.py
-  - Found 3 issues in verenigingen/verenigingen/doctype/member_contact_request/member_contact_request.py
-  - Found 2 issues in verenigingen/verenigingen/doctype/member_contact_request/contact_request_automation.py
-  - Found 2 issues in verenigingen/verenigingen/doctype/account_group_project_mapping/account_group_project_mapping.py
-  - Found 49 issues in verenigingen/verenigingen/doctype/team/team.py
-  - Found 2 issues in verenigingen/verenigingen/doctype/membership/membership.py
-  - Found 4 issues in verenigingen/verenigingen/doctype/membership/scheduler.py
-  - Found 1 issues in verenigingen/verenigingen/doctype/membership/dues_schedule_manager.py
-  - Found 2 issues in verenigingen/verenigingen/doctype/sepa_retry_batch/sepa_retry_batch.py
-  - Found 1 issues in verenigingen/verenigingen/doctype/periodic_donation_agreement/periodic_donation_agreement.py
-  - Found 1 issues in verenigingen/verenigingen/doctype/member/member_utils.py
-  - Found 13 issues in verenigingen/verenigingen/doctype/volunteer/volunteer.py
-  - Found 22 issues in verenigingen/verenigingen/doctype/chapter/managers/member_manager.py
-  - Found 2 issues in verenigingen/verenigingen/doctype/chapter/managers/communication_manager.py
-  - Found 9 issues in verenigingen/verenigingen/doctype/chapter/managers/board_manager.py
-  - Found 8 issues in verenigingen/verenigingen/doctype/member/mixins/payment_mixin.py
-  - Found 1 issues in verenigingen/utils/migration/migration_transaction_safety.py
-  - Found 2 issues in verenigingen/utils/debug/check_memorial_import_logic.py
-  - Found 2 issues in verenigingen/e_boekhouden/utils/migration_api.py
-  - Found 1 issues in verenigingen/e_boekhouden/utils/eboekhouden_payment_import.py
-  - Found 1 issues in verenigingen/templates/pages/donate.py
-  - Found 4 issues in verenigingen/templates/pages/team_members.py
-  - Found 2 issues in verenigingen/templates/pages/member_portal_new.py
-  - Found 2 issues in verenigingen/templates/pages/member_portal.py
-  - Found 2 issues in verenigingen/templates/pages/my_dues_schedule.py
-  - Found 4 issues in verenigingen/templates/pages/financial_dashboard.py
-  - Found 3 issues in verenigingen/templates/pages/workflow_demo.py
-  - Found 2 issues in verenigingen/templates/pages/membership_fee_adjustment.py
-  - Found 2 issues in verenigingen/templates/pages/member_dashboard.py
-  - Found 1 issues in verenigingen/templates/pages/volunteer/dashboard.py
-  - Found 1 issues in scripts/migration/migrate_to_native_expense_system.py
-  - Found 11 issues in scripts/migration/fix_team_assignment_history.py
-  - Found 1 issues in scripts/setup/deploy_role_profiles.py
-  - Found 1 issues in scripts/setup/auto_assign_profiles.py
-📊 Checked 869 Python files
+<unknown>:2: SyntaxWarning: invalid escape sequence '\|'
+🔍 Running database field reference validation...
+📊 Validation Level: BALANCED
+🔍 Loaded 1049 DocTypes from comprehensive loader
 
-==================================================
-❌ Found 321 field reference issues:
+❌ Found 179 field reference issues:
+--------------------------------------------------------------------------------
+📁 scripts/debug_css_issue.py:42
+   🏷️  Brand Settings.is_active - Field 'is_active' does not exist in Brand Settings
+   📋 filter_field in frappe.get_all()
+   💾 active_settings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accent_color
+   ⚙️  Level: balanced
 
-❌ verenigingen/validations.py:47 - default_grace_period_days not in Membership Termination Request
-   → Field 'default_grace_period_days' does not exist in Membership Termination Request
-   Context: if doc.default_grace_period_days:
+📁 verenigingen/fixes/correct_implementation_example.py:276
+   🏷️  Customer.custom_eboekhouden_relation_id - Field 'custom_eboekhouden_relation_id' does not exist in Customer
+   📋 filter_field in frappe.db.get_value()
+   💾 existing = frappe.db.get_value("Customer", {"custom_eboekhouden_relation_id": relation_id}, "name")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_manager
+   ⚙️  Level: balanced
 
-❌ verenigingen/validations.py:51 - grace_period_notification_days not in Membership Termination Request
-   → Field 'grace_period_notification_days' does not exist in Membership Termination Request (similar: grace_period_end)
-   Context: if doc.grace_period_notification_days:
+📁 verenigingen/fixes/correct_implementation_example.py:301
+   🏷️  Supplier.custom_eboekhouden_relation_id - Field 'custom_eboekhouden_relation_id' does not exist in Supplier
+   📋 filter_field in frappe.db.get_value()
+   💾 existing = frappe.db.get_value("Supplier", {"custom_eboekhouden_relation_id": relation_id}, "name")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_tab
+   ⚙️  Level: balanced
 
-❌ verenigingen/validations.py:48 - default_grace_period_days not in Membership Termination Request
-   → Field 'default_grace_period_days' does not exist in Membership Termination Request
-   Context: if doc.default_grace_period_days < 1 or doc.default_grace_period_days > 180:
+📁 verenigingen/fixes/step1_fix_data_fetching.py:310
+   🏷️  Customer.custom_eboekhouden_relation_id - Field 'custom_eboekhouden_relation_id' does not exist in Customer
+   📋 filter_field in frappe.db.get_value()
+   💾 existing = frappe.db.get_value("Customer", {"custom_eboekhouden_relation_id": relation_id}, "name")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_manager
+   ⚙️  Level: balanced
 
-❌ verenigingen/validations.py:48 - default_grace_period_days not in Membership Termination Request
-   → Field 'default_grace_period_days' does not exist in Membership Termination Request
-   Context: if doc.default_grace_period_days < 1 or doc.default_grace_period_days > 180:
+📁 verenigingen/fixes/step1_fix_data_fetching.py:324
+   🏷️  Supplier.custom_eboekhouden_relation_id - Field 'custom_eboekhouden_relation_id' does not exist in Supplier
+   📋 filter_field in frappe.db.get_value()
+   💾 existing = frappe.db.get_value("Supplier", {"custom_eboekhouden_relation_id": relation_id}, "name")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_tab
+   ⚙️  Level: balanced
 
-❌ verenigingen/validations.py:52 - grace_period_notification_days not in Membership Termination Request
-   → Field 'grace_period_notification_days' does not exist in Membership Termination Request (similar: grace_period_end)
-   Context: if doc.grace_period_notification_days < 1 or doc.grace_period_notification_days > 30:
+📁 verenigingen/api/check_roles.py:345
+   🏷️  RQ Job.started - Field 'started' does not exist in RQ Job
+   📋 select_field in frappe.get_all()
+   💾 frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, arguments
+   ⚙️  Level: balanced
 
-❌ verenigingen/validations.py:52 - grace_period_notification_days not in Membership Termination Request
-   → Field 'grace_period_notification_days' does not exist in Membership Termination Request (similar: grace_period_end)
-   Context: if doc.grace_period_notification_days < 1 or doc.grace_period_notification_days > 30:
+📁 verenigingen/api/check_roles.py:345
+   🏷️  RQ Job.ended - Field 'ended' does not exist in RQ Job
+   📋 select_field in frappe.get_all()
+   💾 frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, arguments
+   ⚙️  Level: balanced
 
-❌ api/simple_payment_history_check.py:58 - invoice_name not in Sales Invoice
-   → Field 'invoice_name' does not exist in Sales Invoice (similar: shipping_address_name, dispatch_address_name, tc_name)
-   Context: "invoice": invoice.invoice_name,
+📁 verenigingen/api/performance_profiling_api.py:660
+   🏷️  Member.chapter - Field 'chapter' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 _ = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
 
-❌ scripts/membership_dues_poc.py:76 - membership_type not in Member
-   → Field 'membership_type' does not exist in Member (similar: membership_status, member_details_section, membership_analytics_section)
-   Context: membership.membership_type = member.membership_type
+📁 verenigingen/api/test_monitoring.py:394
+   🏷️  System Alert.source - Field 'source' does not exist in System Alert
+   📋 filter_field in frappe.get_all()
+   💾 test_alerts = frappe.get_all("System Alert", filters={"source": ["in", test_sources]}, pluck="name")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, acknowledged_at
+   ⚙️  Level: balanced
 
-❌ verenigingen/api/sepa_batch_ui_secure.py:148 - membership not in Sales Invoice
-   → Field 'membership' does not exist in Sales Invoice
-   Context: if invoice.membership and invoice.membership in member_data_lookup:
+📁 verenigingen/api/test_incremental_edge_cases.py:20
+   🏷️  Member.donor - Field 'donor' does not exist in Member
+   📋 filter_field in frappe.get_all()
+   💾 members_without_links = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
 
-❌ verenigingen/api/sepa_batch_ui_secure.py:392 - invoice not in Discounted Invoice
-   → Field 'invoice' does not exist in Discounted Invoice (similar: sales_invoice)
-   Context: {"invoice": inv.invoice, "member": inv.member_name, "issue": "Missing IBAN"}
+📁 verenigingen/api/sepa_reconciliation.py:834
+   🏷️  Bank Transaction.custom_processing_status - Field 'custom_processing_status' does not exist in Bank Transaction
+   📋 select_field in frappe.get_all()
+   💾 linked_transactions = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allocated_amount
+   ⚙️  Level: balanced
 
+📁 verenigingen/api/sepa_duplicate_prevention.py:129
+   🏷️  Payment Entry.custom_sepa_batch - Field 'custom_sepa_batch' does not exist in Payment Entry
+   📋 filter_field in frappe.get_all()
+   💾 existing_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_dimensions_section
+   ⚙️  Level: balanced
 
-💡 Summary:
-   - Total issues found: 321
-   - Accuracy improvement: Reduced from 4374 to 321 issues
+📁 verenigingen/api/sepa_duplicate_prevention.py:129
+   🏷️  Payment Entry.custom_bank_transaction - Field 'custom_bank_transaction' does not exist in Payment Entry
+   📋 select_field in frappe.get_all()
+   💾 existing_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_dimensions_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_duplicate_prevention.py:447
+   🏷️  Payment Entry.custom_sepa_batch - Field 'custom_sepa_batch' does not exist in Payment Entry
+   📋 filter_field in frappe.get_all()
+   💾 sepa_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_dimensions_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_duplicate_prevention.py:447
+   🏷️  Payment Entry.custom_bank_transaction - Field 'custom_bank_transaction' does not exist in Payment Entry
+   📋 select_field in frappe.get_all()
+   💾 sepa_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_dimensions_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_duplicate_prevention.py:447
+   🏷️  Payment Entry.custom_sepa_batch - Field 'custom_sepa_batch' does not exist in Payment Entry
+   📋 select_field in frappe.get_all()
+   💾 sepa_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_dimensions_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_duplicate_prevention.py:498
+   🏷️  Payment Entry.custom_original_payment - Field 'custom_original_payment' does not exist in Payment Entry
+   📋 filter_field in frappe.get_all()
+   💾 reversal_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_dimensions_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/member_management.py:1626
+   🏷️  Member.current_chapter - Field 'current_chapter' does not exist in Member
+   📋 filter_field in frappe.get_all()
+   💾 members = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/monitoring_test_corrected.py:579
+   🏷️  SEPA Audit Log.entity_name - Field 'entity_name' does not exist in SEPA Audit Log
+   📋 filter_field in frappe.get_all()
+   💾 test_audits = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, action
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/newsletter_demo.py:76
+   🏷️  Member.opt_out_optional_emails - Field 'opt_out_optional_emails' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 members = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/newsletter_demo.py:238
+   🏷️  Email Group Member.email_group_member_name - Field 'email_group_member_name' does not exist in Email Group Member
+   📋 select_field in frappe.get_all()
+   💾 recipients = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, creation
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_period_duplicate_prevention.py:501
+   🏷️  Sales Invoice.custom_period_start - Field 'custom_period_start' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 membership_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_period_duplicate_prevention.py:501
+   🏷️  Sales Invoice.custom_period_end - Field 'custom_period_end' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 membership_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_period_duplicate_prevention.py:501
+   🏷️  Sales Invoice.custom_membership_type - Field 'custom_membership_type' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 membership_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_period_duplicate_prevention.py:52
+   🏷️  Sales Invoice.custom_period_start - Field 'custom_period_start' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 existing_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_period_duplicate_prevention.py:52
+   🏷️  Sales Invoice.custom_period_end - Field 'custom_period_end' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 existing_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_period_duplicate_prevention.py:52
+   🏷️  Sales Invoice.custom_membership_type - Field 'custom_membership_type' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 existing_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_period_duplicate_prevention.py:166
+   🏷️  Sales Invoice.custom_period_start - Field 'custom_period_start' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 member_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/api/sepa_period_duplicate_prevention.py:166
+   🏷️  Sales Invoice.custom_period_end - Field 'custom_period_end' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 member_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/create_test_member.py:47
+   🏷️  Membership Type.amount - Field 'amount' does not exist in Membership Type
+   📋 select_field in frappe.get_all()
+   💾 membership_types = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, billing_period
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/sepa_reconciliation.py:32
+   🏷️  Bank Transaction.credit - Field 'credit' does not exist in Bank Transaction
+   📋 select_field in frappe.get_all()
+   💾 transactions = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allocated_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/sepa_reconciliation.py:32
+   🏷️  Bank Transaction.debit - Field 'debit' does not exist in Bank Transaction
+   📋 select_field in frappe.get_all()
+   💾 transactions = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allocated_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/sepa_reconciliation.py:32
+   🏷️  Bank Transaction.party_iban - Field 'party_iban' does not exist in Bank Transaction
+   📋 select_field in frappe.get_all()
+   💾 transactions = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allocated_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/__init__.py:491
+   🏷️  Sales Invoice.btw_exemption_type - Field 'btw_exemption_type' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/__init__.py:491
+   🏷️  Sales Invoice.btw_reporting_category - Field 'btw_reporting_category' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/__init__.py:413
+   🏷️  Membership.btw_exemption_type - Field 'btw_exemption_type' does not exist in Membership
+   📋 select_field in frappe.db.get_value()
+   💾 exemption_type = frappe.db.get_value("Membership", invoice.membership, "btw_exemption_type")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allow_multiple_memberships
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/__init__.py:584
+   🏷️  Membership.btw_exemption_type - Field 'btw_exemption_type' does not exist in Membership
+   📋 select_field in frappe.db.get_value()
+   💾 frappe.db.get_value("Membership", doc.membership, "btw_exemption_type") or "EXEMPT_MEMBERSHIP"
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allow_multiple_memberships
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/__init__.py:415
+   🏷️  Donation.btw_exemption_type - Field 'btw_exemption_type' does not exist in Donation
+   📋 select_field in frappe.db.get_value()
+   💾 exemption_type = frappe.db.get_value("Donation", invoice.donation, "btw_exemption_type")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/__init__.py:591
+   🏷️  Donation.btw_exemption_type - Field 'btw_exemption_type' does not exist in Donation
+   📋 select_field in frappe.db.get_value()
+   💾 frappe.db.get_value("Donation", doc.donation, "btw_exemption_type") or "EXEMPT_FUNDRAISING"
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/project_permissions.py:128
+   🏷️  Team Member.responsibility - Field 'responsibility' does not exist in Team Member
+   📋 select_field in frappe.db.get_value()
+   💾 team_member = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, column_break_5
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:489
+   🏷️  Email Campaign.campaign_type - Field 'campaign_type' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:489
+   🏷️  Email Campaign.description - Field 'description' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:489
+   🏷️  Email Campaign.frequency - Field 'frequency' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:489
+   🏷️  Email Campaign.next_run_date - Field 'next_run_date' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:489
+   🏷️  Email Campaign.last_run_date - Field 'last_run_date' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:489
+   🏷️  Email Campaign.created_by - Field 'created_by' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.is_active - Field 'is_active' does not exist in Email Campaign
+   📋 filter_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.next_run_date - Field 'next_run_date' does not exist in Email Campaign
+   📋 filter_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.frequency - Field 'frequency' does not exist in Email Campaign
+   📋 filter_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.campaign_type - Field 'campaign_type' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.chapter - Field 'chapter' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.template_id - Field 'template_id' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.segment - Field 'segment' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.content_config - Field 'content_config' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:172
+   🏷️  Email Campaign.schedule_config - Field 'schedule_config' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 due_campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:364
+   🏷️  Email Campaign.is_active - Field 'is_active' does not exist in Email Campaign
+   📋 filter_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:364
+   🏷️  Email Campaign.frequency - Field 'frequency' does not exist in Email Campaign
+   📋 filter_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:364
+   🏷️  Email Campaign.trigger_event - Field 'trigger_event' does not exist in Email Campaign
+   📋 filter_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:364
+   🏷️  Email Campaign.template_id - Field 'template_id' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:364
+   🏷️  Email Campaign.chapter - Field 'chapter' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/email/automated_campaigns.py:364
+   🏷️  Email Campaign.segment - Field 'segment' does not exist in Email Campaign
+   📋 select_field in frappe.get_all()
+   💾 campaigns = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, campaign_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/utils/assertions.py:44
+   🏷️  Email Queue.subject - Field 'subject' does not exist in Email Queue
+   📋 select_field in frappe.get_all()
+   💾 emails = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, add_unsubscribe_link
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/utils/assertions.py:197
+   🏷️  Termination Audit Entry.member - Field 'member' does not exist in Termination Audit Entry
+   📋 filter_field in frappe.get_all()
+   💾 audit_entries = frappe.get_all("Termination Audit Entry", filters={"member": member_name})
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, action
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_financial_workflows_complete.py:258
+   🏷️  Member Payment History.batch_reference - Field 'batch_reference' does not exist in Member Payment History
+   📋 filter_field in frappe.get_all()
+   💾 payment_histories = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_financial_workflows_complete.py:372
+   🏷️  Donation.currency - Field 'currency' does not exist in Donation
+   📋 select_field in frappe.get_all()
+   💾 donation_summary = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_financial_workflows_complete.py:372
+   🏷️  Donation.base_amount - Field 'base_amount' does not exist in Donation
+   📋 select_field in frappe.get_all()
+   💾 donation_summary = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accounting_section
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_financial_workflows_complete.py:479
+   🏷️  Member Payment History.member - Field 'member' does not exist in Member Payment History
+   📋 filter_field in frappe.get_all()
+   💾 all_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_financial_workflows_complete.py:479
+   🏷️  Member Payment History.payment_type - Field 'payment_type' does not exist in Member Payment History
+   📋 filter_field in frappe.get_all()
+   💾 all_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_financial_workflows_complete.py:479
+   🏷️  Member Payment History.retry_count - Field 'retry_count' does not exist in Member Payment History
+   📋 select_field in frappe.get_all()
+   💾 all_payments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_security_comprehensive_advanced.py:332
+   🏷️  Membership.to_date - Field 'to_date' does not exist in Membership
+   📋 select_field in frappe.get_all()
+   💾 memberships = frappe.get_all("Membership",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allow_multiple_memberships
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_security_comprehensive_advanced.py:168
+   🏷️  Member.chapter - Field 'chapter' does not exist in Member
+   📋 filter_field in frappe.get_all()
+   💾 members = frappe.get_all("Member",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_performance_comprehensive.py:366
+   🏷️  Member Payment History.member - Field 'member' does not exist in Member Payment History
+   📋 filter_field in frappe.get_all()
+   💾 frappe.get_all("Member Payment History", filters={"member": member.name}, limit=10)
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_performance_comprehensive.py:189
+   🏷️  Member.chapter - Field 'chapter' does not exist in Member
+   📋 filter_field in frappe.get_all()
+   💾 frappe.get_all("Member",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_performance_comprehensive.py:197
+   🏷️  Member.chapter - Field 'chapter' does not exist in Member
+   📋 filter_field in frappe.get_all()
+   💾 frappe.get_all("Member",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_performance_comprehensive.py:130
+   🏷️  Member.chapter - Field 'chapter' does not exist in Member
+   📋 filter_field in frappe.get_all()
+   💾 "complex_filter": lambda: frappe.get_all("Member",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_member_lifecycle_complete.py:166
+   🏷️  Chapter Membership History.member - Field 'member' does not exist in Chapter Membership History
+   📋 filter_field in frappe.get_all()
+   💾 history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, assignment_type
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_member_lifecycle_complete.py:166
+   🏷️  Chapter Membership History.chapter - Field 'chapter' does not exist in Chapter Membership History
+   📋 select_field in frappe.get_all()
+   💾 history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, assignment_type
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_member_lifecycle_complete.py:166
+   🏷️  Chapter Membership History.role - Field 'role' does not exist in Chapter Membership History
+   📋 select_field in frappe.get_all()
+   💾 history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, assignment_type
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_member_lifecycle_complete.py:258
+   🏷️  Member Payment History.member - Field 'member' does not exist in Member Payment History
+   📋 filter_field in frappe.get_all()
+   💾 saved_history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_member_lifecycle_complete.py:258
+   🏷️  Member Payment History.payment_type - Field 'payment_type' does not exist in Member Payment History
+   📋 select_field in frappe.get_all()
+   💾 saved_history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_member_lifecycle_complete.py:385
+   🏷️  Member IBAN History.member - Field 'member' does not exist in Member IBAN History
+   📋 filter_field in frappe.get_all()
+   💾 history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, bank_account_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_member_lifecycle_complete.py:385
+   🏷️  Member IBAN History.old_iban - Field 'old_iban' does not exist in Member IBAN History
+   📋 select_field in frappe.get_all()
+   💾 history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, bank_account_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_member_lifecycle_complete.py:385
+   🏷️  Member IBAN History.new_iban - Field 'new_iban' does not exist in Member IBAN History
+   📋 select_field in frappe.get_all()
+   💾 history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, bank_account_name
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:154
+   🏷️  Membership.to_date - Field 'to_date' does not exist in Membership
+   📋 select_field in frappe.get_all()
+   💾 return frappe.get_all("Membership",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allow_multiple_memberships
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:160
+   🏷️  Member Payment History.member - Field 'member' does not exist in Member Payment History
+   📋 filter_field in frappe.get_all()
+   💾 return frappe.get_all("Member Payment History",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:160
+   🏷️  Member Payment History.payment_type - Field 'payment_type' does not exist in Member Payment History
+   📋 select_field in frappe.get_all()
+   💾 return frappe.get_all("Member Payment History",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:259
+   🏷️  Volunteer Assignment.volunteer - Field 'volunteer' does not exist in Volunteer Assignment
+   📋 filter_field in frappe.get_all()
+   💾 active_assignments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accomplishments
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:259
+   🏷️  Volunteer Assignment.team - Field 'team' does not exist in Volunteer Assignment
+   📋 select_field in frappe.get_all()
+   💾 active_assignments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accomplishments
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:259
+   🏷️  Volunteer Assignment.hours_per_week - Field 'hours_per_week' does not exist in Volunteer Assignment
+   📋 select_field in frappe.get_all()
+   💾 active_assignments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accomplishments
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:394
+   🏷️  Volunteer Assignment.team - Field 'team' does not exist in Volunteer Assignment
+   📋 filter_field in frappe.get_all()
+   💾 team_assignments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accomplishments
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:394
+   🏷️  Volunteer Assignment.volunteer - Field 'volunteer' does not exist in Volunteer Assignment
+   📋 select_field in frappe.get_all()
+   💾 team_assignments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accomplishments
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:394
+   🏷️  Volunteer Assignment.hours_per_week - Field 'hours_per_week' does not exist in Volunteer Assignment
+   📋 select_field in frappe.get_all()
+   💾 team_assignments = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, accomplishments
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/workflows/test_portal_functionality_integration.py:179
+   🏷️  Member Payment History.member - Field 'member' does not exist in Member Payment History
+   📋 filter_field in frappe.get_all()
+   💾 return frappe.get_all("Member Payment History", filters={"member": member_name})
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/comprehensive/test_chapter_assignment_comprehensive.py:83
+   🏷️  Chapter Board Member.member - Field 'member' does not exist in Chapter Board Member
+   📋 filter_field in frappe.get_all()
+   💾 board_members = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_role
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/comprehensive/test_chapter_assignment_comprehensive.py:83
+   🏷️  Chapter Board Member.status - Field 'status' does not exist in Chapter Board Member
+   📋 filter_field in frappe.get_all()
+   💾 board_members = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_role
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/comprehensive/test_financial_integration_edge_cases.py:476
+   🏷️  Member Fee Change History.membership - Field 'membership' does not exist in Member Fee Change History
+   📋 filter_field in frappe.get_all()
+   💾 audit_entries = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amendment_request
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/comprehensive/test_termination_workflow_edge_cases.py:665
+   🏷️  Termination Audit Entry.termination_request - Field 'termination_request' does not exist in Termination Audit Entry
+   📋 filter_field in frappe.get_all()
+   💾 audit_entries = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, action
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/performance/test_performance_edge_cases.py:553
+   🏷️  Member.member_name - Field 'member_name' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 result = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:133
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 filter_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:133
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 select_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:183
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 filter_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:183
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 select_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:237
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 filter_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:237
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 select_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:281
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 filter_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:281
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 select_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:470
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 filter_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:470
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 select_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:532
+   🏷️  Chapter.is_active - Field 'is_active' does not exist in Chapter
+   📋 filter_field in frappe.get_all()
+   💾 chapters = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, address
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py:532
+   🏷️  Chapter.postal_code_ranges - Field 'postal_code_ranges' does not exist in Chapter
+   📋 select_field in frappe.get_all()
+   💾 chapters = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, address
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_membership_application.py:795
+   🏷️  Membership Dues Schedule.effective_date - Field 'effective_date' does not exist in Membership Dues Schedule
+   📋 select_field in frappe.get_all()
+   💾 dues_schedules = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, auto_generate
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_membership_utilities.py:329
+   🏷️  Membership Type.subscription_plan - Field 'subscription_plan' does not exist in Membership Type
+   📋 select_field in frappe.get_all()
+   💾 test_types = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, billing_period
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_member_status_transitions.py:439
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 select_field in frappe.get_all()
+   💾 chapter_memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_member_status_transitions.py:361
+   🏷️  Communication History.reference_doctype - Field 'reference_doctype' does not exist in Communication History
+   📋 filter_field in frappe.get_all()
+   💾 audit_entries = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, comm_description
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_member_status_transitions.py:361
+   🏷️  Communication History.reference_name - Field 'reference_name' does not exist in Communication History
+   📋 filter_field in frappe.get_all()
+   💾 audit_entries = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, comm_description
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_member_status_transitions.py:361
+   🏷️  Communication History.communication_type - Field 'communication_type' does not exist in Communication History
+   📋 filter_field in frappe.get_all()
+   💾 audit_entries = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, comm_description
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_fee_override_integration.py:306
+   🏷️  Membership Dues Schedule.effective_date - Field 'effective_date' does not exist in Membership Dues Schedule
+   📋 select_field in frappe.get_all()
+   💾 dues_history = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, auto_generate
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_approval_workflow.py:36
+   🏷️  Membership Type.amount - Field 'amount' does not exist in Membership Type
+   📋 select_field in frappe.get_all()
+   💾 membership_types = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, billing_period
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_payment_interval_fix.py:13
+   🏷️  Membership Type.subscription_period - Field 'subscription_period' does not exist in Membership Type
+   📋 select_field in frappe.get_all()
+   💾 membership_types = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, billing_period
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/components/test_payment_interval_fix.py:13
+   🏷️  Membership Type.amount - Field 'amount' does not exist in Membership Type
+   📋 select_field in frappe.get_all()
+   💾 membership_types = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, billing_period
+   ⚙️  Level: balanced
+
+📁 verenigingen/tests/backend/workflows/test_volunteer_journey.py:486
+   🏷️  Volunteer Activity.hours - Field 'hours' does not exist in Volunteer Activity
+   📋 select_field in frappe.get_all()
+   💾 activity_hours = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, activity_type
+   ⚙️  Level: balanced
+
+📁 verenigingen/verenigingen/doctype/donation/donation.py:265
+   🏷️  Chapter.donation_account - Field 'donation_account' does not exist in Chapter
+   📋 select_field in frappe.db.get_value()
+   💾 chapter_account = frappe.db.get_value("Chapter", self.chapter_reference, "donation_account")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, address
+   ⚙️  Level: balanced
+
+📁 verenigingen/verenigingen/doctype/donation/donation.py:353
+   🏷️  Chapter.donation_account - Field 'donation_account' does not exist in Chapter
+   📋 select_field in frappe.db.get_value()
+   💾 to_account = frappe.db.get_value("Chapter", self.chapter_reference, "donation_account")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, address
+   ⚙️  Level: balanced
+
+📁 verenigingen/verenigingen/doctype/volunteer_expense/test_volunteer_expense_minimal.py:426
+   🏷️  Chapter Member.chapter - Field 'chapter' does not exist in Chapter Member
+   📋 filter_field in frappe.get_all()
+   💾 chapter_members = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, chapter_join_date
+   ⚙️  Level: balanced
+
+📁 verenigingen/verenigingen/doctype/membership_goal/membership_goal.py:114
+   🏷️  Membership Type.amount - Field 'amount' does not exist in Membership Type
+   📋 select_field in frappe.db.get_value()
+   💾 frappe.db.get_value("Membership Type", membership.membership_type, "amount") or 0
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, billing_period
+   ⚙️  Level: balanced
+
+📁 verenigingen/verenigingen/doctype/direct_debit_batch/sepa_processor.py:974
+   🏷️  Membership Dues Schedule.amount - Field 'amount' does not exist in Membership Dues Schedule
+   📋 select_field in frappe.get_all()
+   💾 schedules = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, auto_generate
+   ⚙️  Level: balanced
+
+📁 verenigingen/verenigingen/doctype/member/mixins/payment_mixin.py:624
+   🏷️  Membership.payment_method - Field 'payment_method' does not exist in Membership
+   📋 select_field in frappe.get_all()
+   💾 memberships = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, allow_multiple_memberships
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/debug/fix_membership_type_templates.py:124
+   🏷️  Membership Type.amount - Field 'amount' does not exist in Membership Type
+   📋 select_field in frappe.get_all()
+   💾 all_membership_types = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, billing_period
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/debug/debug_minimum_contribution.py:69
+   🏷️  Membership Tier.minimum_amount - Field 'minimum_amount' does not exist in Membership Tier
+   📋 select_field in frappe.get_all()
+   💾 tiers = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/debug/debug_minimum_contribution.py:69
+   🏷️  Membership Tier.suggested_amount - Field 'suggested_amount' does not exist in Membership Tier
+   📋 select_field in frappe.get_all()
+   💾 tiers = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, amount
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/debug/debug_mutation_6427.py:168
+   🏷️  E-Boekhouden Ledger Mapping.account_name - Field 'account_name' does not exist in E-Boekhouden Ledger Mapping
+   📋 select_field in frappe.db.get_value()
+   💾 main_ledger = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, creation
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/debug/debug_mutation_6427.py:182
+   🏷️  E-Boekhouden Ledger Mapping.account_name - Field 'account_name' does not exist in E-Boekhouden Ledger Mapping
+   📋 select_field in frappe.db.get_value()
+   💾 row_ledger = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, creation
+   ⚙️  Level: balanced
+
+📁 verenigingen/utils/debug/membership_fee_adjustment_debugger.py:357
+   🏷️  Membership Type.amount - Field 'amount' does not exist in Membership Type
+   📋 select_field in frappe.get_all()
+   💾 membership_types = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, billing_period
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/utils/eboekhouden_migration_enhancements.py:219
+   🏷️  Account.eboekhouden_group - Field 'eboekhouden_group' does not exist in Account
+   📋 filter_field in frappe.db.get_value()
+   💾 group_account = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_currency
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/utils/cleanup_utils.py:39
+   🏷️  Account.custom_eboekhouden_code - Field 'custom_eboekhouden_code' does not exist in Account
+   📋 filter_field in frappe.get_all()
+   💾 accounts = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_currency
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/utils/transaction_utils.py:352
+   🏷️  E-Boekhouden Ledger Mapping.eboekhouden_code - Field 'eboekhouden_code' does not exist in E-Boekhouden Ledger Mapping
+   📋 filter_field in frappe.db.get_value()
+   💾 mapping = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, creation
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/utils/transaction_utils.py:360
+   🏷️  Account.custom_eboekhouden_code - Field 'custom_eboekhouden_code' does not exist in Account
+   📋 filter_field in frappe.db.get_value()
+   💾 account = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_currency
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py:6564
+   🏷️  E-Boekhouden Migration.migration_log - Field 'migration_log' does not exist in E-Boekhouden Migration
+   📋 select_field in frappe.get_all()
+   💾 migrations = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, batch_size
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:23
+   🏷️  E-Boekhouden Account Mapping.target_account_type - Field 'target_account_type' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:23
+   🏷️  E-Boekhouden Account Mapping.transaction_category - Field 'transaction_category' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:23
+   🏷️  E-Boekhouden Account Mapping.priority - Field 'priority' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:23
+   🏷️  E-Boekhouden Account Mapping.description - Field 'description' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:253
+   🏷️  E-Boekhouden Account Mapping.target_document_type - Field 'target_document_type' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 for mapping in frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:253
+   🏷️  E-Boekhouden Account Mapping.target_account_type - Field 'target_account_type' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 for mapping in frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:350
+   🏷️  E-Boekhouden Account Mapping.target_account_type - Field 'target_account_type' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:350
+   🏷️  E-Boekhouden Account Mapping.target_document_type - Field 'target_document_type' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:350
+   🏷️  E-Boekhouden Account Mapping.transaction_category - Field 'transaction_category' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:350
+   🏷️  E-Boekhouden Account Mapping.priority - Field 'priority' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:350
+   🏷️  E-Boekhouden Account Mapping.description - Field 'description' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:350
+   🏷️  E-Boekhouden Account Mapping.account_code_start - Field 'account_code_start' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:350
+   🏷️  E-Boekhouden Account Mapping.account_code_end - Field 'account_code_end' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/api.py:350
+   🏷️  E-Boekhouden Account Mapping.description_pattern - Field 'description_pattern' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py:208
+   🏷️  E-Boekhouden Account Mapping.account_type - Field 'account_type' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py:208
+   🏷️  E-Boekhouden Account Mapping.confidence_level - Field 'confidence_level' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py:208
+   🏷️  E-Boekhouden Account Mapping.notes - Field 'notes' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py:344
+   🏷️  E-Boekhouden Account Mapping.account_type - Field 'account_type' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py:344
+   🏷️  E-Boekhouden Account Mapping.confidence_level - Field 'confidence_level' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py:344
+   🏷️  E-Boekhouden Account Mapping.notes - Field 'notes' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 verenigingen/templates/pages/donate.py:859
+   🏷️  DocType.app - Field 'app' does not exist in DocType
+   📋 select_field in frappe.db.get_value()
+   💾 dt_info = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, actions
+   ⚙️  Level: balanced
+
+📁 verenigingen/templates/pages/donate.py:1079
+   🏷️  DocType.published - Field 'published' does not exist in DocType
+   📋 select_field in frappe.db.get_value()
+   💾 dt_info = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, actions
+   ⚙️  Level: balanced
+
+📁 verenigingen/templates/pages/volunteer/expenses.py:1495
+   🏷️  Company.default_expense_claim_payable_account - Field 'default_expense_claim_payable_account' does not exist in Company
+   📋 select_field in frappe.db.get_value()
+   💾 payable_account = frappe.db.get_value(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, abbr
+   ⚙️  Level: balanced
+
+📁 scripts/migration/migrate_fee_overrides_to_dues_schedules.py:27
+   🏷️  Member.membership_fee_override - Field 'membership_fee_override' does not exist in Member
+   📋 filter_field in frappe.get_all()
+   💾 members_with_overrides = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/migration/migrate_fee_overrides_to_dues_schedules.py:27
+   🏷️  Member.membership_fee_override - Field 'membership_fee_override' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 members_with_overrides = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/migration/migrate_fee_overrides_to_dues_schedules.py:27
+   🏷️  Member.fee_override_reason - Field 'fee_override_reason' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 members_with_overrides = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/migration/migrate_fee_overrides_to_dues_schedules.py:27
+   🏷️  Member.fee_override_date - Field 'fee_override_date' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 members_with_overrides = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/migration/migrate_fee_overrides_to_dues_schedules.py:27
+   🏷️  Member.fee_override_by - Field 'fee_override_by' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 members_with_overrides = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/migration/migrate_fee_overrides_to_dues_schedules.py:182
+   🏷️  Member.membership_fee_override - Field 'membership_fee_override' does not exist in Member
+   📋 filter_field in frappe.get_all()
+   💾 members_with_overrides = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/migration/migrate_fee_overrides_to_dues_schedules.py:182
+   🏷️  Member.membership_fee_override - Field 'membership_fee_override' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 members_with_overrides = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/debug/check_scheduler_status.py:46
+   🏷️  Sales Invoice.custom_dues_schedule - Field 'custom_dues_schedule' does not exist in Sales Invoice
+   📋 filter_field in frappe.get_all()
+   💾 recent_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 scripts/debug/check_scheduler_status.py:46
+   🏷️  Sales Invoice.custom_dues_schedule - Field 'custom_dues_schedule' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 recent_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 scripts/debug/check_scheduler_status.py:58
+   🏷️  Sales Invoice.custom_dues_schedule - Field 'custom_dues_schedule' does not exist in Sales Invoice
+   📋 filter_field in frappe.get_all()
+   💾 dues_schedule_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 scripts/debug/check_scheduler_status.py:58
+   🏷️  Sales Invoice.custom_dues_schedule - Field 'custom_dues_schedule' does not exist in Sales Invoice
+   📋 select_field in frappe.get_all()
+   💾 dues_schedule_invoices = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_for_change_amount
+   ⚙️  Level: balanced
+
+📁 scripts/performance/performance_profiler.py:197
+   🏷️  Member.chapter - Field 'chapter' does not exist in Member
+   📋 select_field in frappe.get_all()
+   💾 member = frappe.get_all("Member",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/api_maintenance/eboekhouden_mapping_setup.py:64
+   🏷️  E-Boekhouden Account Mapping.transaction_category - Field 'transaction_category' does not exist in E-Boekhouden Account Mapping
+   📋 select_field in frappe.get_all()
+   💾 sample_mappings = frappe.get_all(
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, account_code
+   ⚙️  Level: balanced
+
+📁 scripts/testing/integration/test_expense_functionality.py:128
+   🏷️  Member.email_address - Field 'email_address' does not exist in Member
+   📋 select_field in frappe.db.get_value()
+   💾 member_email = frappe.db.get_value("Member", volunteer_doc.member, "email_address")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, aanhef
+   ⚙️  Level: balanced
+
+📁 scripts/testing/monitoring/test_monitoring_system.py:114
+   🏷️  SEPA Audit Log.entity_name - Field 'entity_name' does not exist in SEPA Audit Log
+   📋 filter_field in frappe.get_all()
+   💾 audit_logs = frappe.get_all("SEPA Audit Log",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, action
+   ⚙️  Level: balanced
+
+📁 scripts/testing/monitoring/generate_test_data.py:152
+   🏷️  System Alert.title - Field 'title' does not exist in System Alert
+   📋 filter_field in frappe.get_all()
+   💾 test_alerts = frappe.get_all("System Alert",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, acknowledged_at
+   ⚙️  Level: balanced
+
+📁 scripts/testing/monitoring/generate_test_data.py:161
+   🏷️  SEPA Audit Log.entity_name - Field 'entity_name' does not exist in SEPA Audit Log
+   📋 filter_field in frappe.get_all()
+   💾 test_audits = frappe.get_all("SEPA Audit Log",
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, action
+   ⚙️  Level: balanced
+
+📁 scripts/testing/unit/employee/test_auto_employee_creation.py:97
+   🏷️  Chapter.status - Field 'status' does not exist in Chapter
+   📋 filter_field in frappe.db.get_value()
+   💾 chapter = frappe.db.get_value("Chapter", {"status": "Active"}, "name")
+   💡 Suggestions: _assign, _comments, _liked_by, _user_tags, address
+   ⚙️  Level: balanced
+

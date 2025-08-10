@@ -125,7 +125,7 @@ def test_volunteer_expense_submission():
         from verenigingen.templates.pages.volunteer.expenses import submit_expense
 
         # Mock the session user to be the volunteer's member
-        member_email = frappe.db.get_value("Member", volunteer_doc.member, "email_address")
+        member_email = frappe.db.get_value("Member", volunteer_doc.member, "email")
         if member_email:
             original_user = frappe.session.user
             frappe.set_user(member_email)

@@ -660,7 +660,7 @@ def process_payment_batch_simulation(batch_size: int):
                 _ = frappe.get_all(
                     "Member",
                     filters={"customer": payment_doc.party},
-                    fields=["name", "full_name", "chapter"],
+                    fields=["name", "full_name", "current_chapter_display"],
                     limit=1,
                 )
 

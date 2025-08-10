@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Balanced Field Validator - Practical Field Reference Validation
+Database Field Reference Validator - Validates Field References in Database Queries
 
-A production-ready field validator that balances thoroughness with practicality:
+A production-ready validator that ensures field references in database operations are valid:
 1. Multi-app DocType loading (frappe, erpnext, payments, verenigingen)
 2. Complete field metadata including custom fields
 3. Smart exclusions to reduce false positives
@@ -101,8 +101,8 @@ class ValidationConfig:
             )
 
 
-class BalancedFieldValidator:
-    """Enhanced validator with comprehensive DocType loading and selective exclusions for false positives"""
+class DatabaseFieldReferenceValidator:
+    """Validates field references in database queries against actual DocType schemas"""
     
     def __init__(self, app_path: str, config: ValidationConfig = None):
         self.app_path = Path(app_path)
@@ -506,8 +506,16 @@ class BalancedFieldValidator:
         
         # Check Python files throughout the app
         for py_file in self.app_path.rglob("**/*.py"):
-            # Skip test files and __pycache__
-            if '__pycache__' in str(py_file) or '.git' in str(py_file):
+            # Skip test files, __pycache__, and archived folders
+            file_str = str(py_file)
+            if (
+                '__pycache__' in file_str 
+                or '.git' in file_str
+                or '/archived_unused/' in file_str
+                or '/archived_deleted/' in file_str
+                or '/archived_removal/' in file_str
+                or file_str.startswith(str(self.app_path / 'archived_'))
+            ):
                 continue
                 
             file_violations = self.validate_file(py_file)
@@ -532,8 +540,8 @@ class BalancedFieldValidator:
 
 
 def main():
-    """Run the pragmatic database query field validator"""
-    parser = argparse.ArgumentParser(description='Pragmatic Field Validator with Selective Exclusions')
+    """Run the database field reference validator"""
+    parser = argparse.ArgumentParser(description='Database Field Reference Validator - Validates field references in database queries')
     parser.add_argument('--level', 
                         choices=['strict', 'balanced', 'permissive'], 
                         default='balanced',
@@ -552,10 +560,10 @@ def main():
     validation_level = ValidationLevel(args.level)
     config = ValidationConfig.for_level(validation_level)
     
-    print(f"🔍 Running pragmatic database query field validation...")
+    print(f"🔍 Running database field reference validation...")
     print(f"📊 Validation Level: {validation_level.value.upper()}")
     
-    validator = BalancedFieldValidator(args.app_path, config)
+    validator = DatabaseFieldReferenceValidator(args.app_path, config)
     
     if args.stats:
         stats = validator.get_validation_stats()

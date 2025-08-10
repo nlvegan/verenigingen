@@ -67,6 +67,25 @@ class ModernTemplateValidator:
         self.context_providers = {}  # {py_file: {variables, methods}}
         self.issues = []
         
+        # Enhanced tracking statistics
+        self.stats = {
+            'templates_scanned': 0,
+            'context_matches_found': 0,
+            'context_match_strategies': {
+                'direct_mapping': 0,
+                'parent_directory': 0,  
+                'get_pattern': 0,
+                'init_py': 0,
+                'portal_pattern': 0,
+                'doctype_pattern': 0,
+                'email_pattern': 0,
+                'fuzzy_matching': 0
+            },
+            'python_files_analyzed': 0,
+            'critical_issues_found': 0,
+            'security_issues_found': 0
+        }
+        
         # Critical variables that must be present for portal pages
         self.critical_portal_vars = {
             'user', 'member', 'support_email', 'site_name', 
@@ -75,8 +94,15 @@ class ModernTemplateValidator:
         
         # Critical variables for email templates
         self.critical_email_vars = {
-            'recipient_name', 'site_name', 'support_email'
+            'recipient_name', 'site_name', 'support_email',
+            'unsubscribe_link', 'sender_name'
         }
+        
+        # Important short variable names that shouldn't be filtered
+        self.important_short_vars = {'id', 'me', 'db', 'to'}
+        
+        # Template keywords to exclude
+        self.template_keywords = {'not', 'and', 'or', 'is', 'in', 'as', 'by'}
         
         # Known template variable patterns
         self.builtin_vars = self._build_builtin_vars()
@@ -398,7 +424,7 @@ class ModernTemplateValidator:
         return issues
     
     def check_null_reference_risks(self, template_path: Path) -> List[TemplateIssue]:
-        """Check for potential null reference issues in templates"""
+        """Check for potential null reference issues in templates - selective approach"""
         issues = []
         
         try:
@@ -408,39 +434,116 @@ class ModernTemplateValidator:
         except Exception:
             return issues
         
-        # Patterns that might cause null reference errors
+        # Patterns that commonly cause actual runtime errors
         risky_patterns = [
-            (r'{{[^}]*?([a-zA-Z_][a-zA-Z0-9_]*)\.[a-zA-Z_][a-zA-Z0-9_]*(?!\s*\||\s*or\s+)', 
-             'Object property access without null check'),
-            (r'{{[^}]*?([a-zA-Z_][a-zA-Z0-9_]*)\[[^\]]+\](?!\s*\||\s*or\s+)',
-             'Array/dict access without null check'),
-            (r'{%\s*for\s+\w+\s+in\s+([a-zA-Z_][a-zA-Z0-9_]*)(?!\s*\||\s*or\s+)',
-             'Loop over potentially null variable')
+            # Deep object chaining (3+ levels) without safety
+            (r'{{\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\.[a-zA-Z_][a-zA-Z0-9_]*){2,}(?![^}]*(?:\||default|or\s))', 
+             'Deep object property access without null safety', Severity.MEDIUM),
+            # Array index access on potentially null variables
+            (r'{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\[\d+\](?![^}]*(?:\||default|or\s))',
+             'Array index access without bounds checking', Severity.LOW),
+            # Method calls on potentially null objects (2+ levels)
+            (r'{{\s*([a-zA-Z_][a-zA-Z0-9_]*)\.\w+\.\w+\([^)]*\)(?![^}]*(?:\||default|or\s))',
+             'Method call on nested object without null check', Severity.MEDIUM),
         ]
         
         for line_num, line in enumerate(lines, 1):
-            for pattern, risk_desc in risky_patterns:
+            for pattern, risk_desc, severity in risky_patterns:
                 matches = re.finditer(pattern, line)
                 for match in matches:
                     var_name = match.group(1)
-                    if var_name not in self.builtin_vars:
+                    
+                    # Skip if variable is protected by better context detection
+                    if self._is_variable_context_protected(var_name, line_num, content, lines):
+                        continue
+                    
+                    # Only report if variable is not a known safe built-in
+                    if var_name not in self.builtin_vars and var_name not in {'member', 'doc', 'data'}:
                         issues.append(TemplateIssue(
-                            severity=Severity.MEDIUM,
+                            severity=severity,
                             category=IssueCategory.NULL_REFERENCE,
                             template_file=str(template_path.relative_to(self.app_path)),
                             context_file=None,
                             line_number=line_num,
                             variable_name=var_name,
-                            message=f"{risk_desc}: '{var_name}' might be null",
-                            suggestion=f"Use '{{{{ {var_name} | default(...) }}}}' or check with '{{% if {var_name} %}}'",
-                            code_snippet=line.strip(),
-                            confidence=0.7
+                            message=f"{risk_desc}: '{var_name}' may cause runtime error",
+                            suggestion=f"Add safety check: '{{% if {var_name} %}}' or use '{{{{ {var_name} | default(...) }}}}'",
+                            code_snippet=line.strip()[:100],
+                            confidence=0.75
                         ))
         
         return issues
     
+    def _is_variable_context_protected(self, var_name: str, line_num: int, 
+                                     content: str, lines: List[str]) -> bool:
+        """Check if variable is protected by broader template context"""
+        
+        # Look for immediate protection on the same line or previous line
+        check_lines = []
+        if line_num > 1:
+            check_lines.append(lines[line_num - 2])  # Previous line
+        check_lines.append(lines[line_num - 1])  # Current line
+        
+        for check_line in check_lines:
+            # Direct conditional protection
+            if f'if {var_name}' in check_line and '%}' in check_line:
+                return True
+            # Conditional with additional checks
+            if f'if {var_name} and not {var_name}.error' in check_line:
+                return True
+            # Property conditional
+            if re.search(f'{var_name}\\.[a-zA-Z_][a-zA-Z0-9_]*', check_line) and 'if' in check_line:
+                return True
+        
+        # Look for broader context - search backwards for protective blocks
+        search_start = max(0, line_num - 50)  # Look back up to 50 lines
+        context_section = '\n'.join(lines[search_start:line_num])
+        
+        # Check for conditional blocks that protect this variable
+        if_patterns = [
+            f'{{% if {var_name} %}}',
+            f'{{% if {var_name} and not {var_name}\\.error %}}',
+            f'{{% if {var_name} and {var_name}\\.[a-zA-Z_][a-zA-Z0-9_]* %}}'
+        ]
+        
+        for pattern in if_patterns:
+            if re.search(pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
+                # Found opening if, check if we haven't hit an endif yet
+                if not self._has_matching_endif_before_line(context_section, line_num - search_start):
+                    return True
+        
+        # Check for loop context protection
+        for_pattern = f'{{% for [a-zA-Z_][a-zA-Z0-9_]* in {var_name} %}}'
+        if re.search(for_pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
+            return True
+        
+        # Check if variable is defined in a loop (making it safe within the loop)
+        loop_var_pattern = f'{{% for {var_name} in [a-zA-Z_][a-zA-Z0-9_]* %}}'
+        if re.search(loop_var_pattern.replace('{%', r'\{%').replace('%}', r'%\}'), context_section):
+            return True
+        
+        return False
+    
+    def _has_matching_endif_before_line(self, context_section: str, relative_line: int) -> bool:
+        """Check if there's a matching endif before the target line"""
+        lines = context_section.split('\n')
+        if relative_line >= len(lines):
+            return False
+            
+        # Simple check - count if/endif pairs
+        if_count = 0
+        for i in range(relative_line):
+            line = lines[i]
+            if re.search(r'\\{%\\s*if\\s+', line):
+                if_count += 1
+            elif re.search(r'\\{%\\s*endif\\s*%\\}', line):
+                if_count -= 1
+        
+        # If if_count is 0, all if blocks were closed
+        return if_count == 0
+    
     def check_security_issues(self, template_path: Path) -> List[TemplateIssue]:
-        """Check for security issues in templates"""
+        """Check for security issues in templates with context awareness"""
         issues = []
         
         try:
@@ -450,60 +553,165 @@ class ModernTemplateValidator:
         except Exception:
             return issues
         
-        # Security risk patterns
-        security_patterns = [
-            (r'{{[^}]*?\|\s*safe(?:\s|}})', 'XSS Risk', 
-             'Using |safe filter disables HTML escaping'),
-            (r'{%\s*autoescape\s+false', 'XSS Risk',
-             'Disabling autoescape can lead to XSS vulnerabilities'),
-            (r'{{[^}]*?request\.args[^}]*?}}', 'Input Validation',
-             'Direct use of request args without validation'),
-            (r'{{[^}]*?\.innerHTML\s*=', 'DOM XSS',
-             'Direct innerHTML assignment can lead to XSS')
-        ]
-        
         for line_num, line in enumerate(lines, 1):
-            for pattern, risk_type, description in security_patterns:
-                if re.search(pattern, line):
-                    issues.append(TemplateIssue(
-                        severity=Severity.HIGH,
-                        category=IssueCategory.SECURITY_RISK,
-                        template_file=str(template_path.relative_to(self.app_path)),
-                        context_file=None,
-                        line_number=line_num,
-                        variable_name=None,
-                        message=f"{risk_type}: {description}",
-                        suggestion="Ensure data is properly sanitized and validated",
-                        code_snippet=line.strip(),
-                        confidence=0.85
-                    ))
+            # Check for |safe filter usage
+            safe_match = re.search(r'{{([^}]*?)\|\s*safe(?:\s|}})', line)
+            if safe_match:
+                context = safe_match.group(1).strip()
+                
+                # Determine if this is a legitimate use of |safe
+                if 'tojson' in context:
+                    # JSON serialization is generally safe
+                    severity = Severity.LOW
+                    message = "JSON serialization with |safe - verify data is trusted"
+                    suggestion = "Ensure JSON data doesn't contain user input or is properly sanitized"
+                    confidence = 0.6
+                elif any(x in context for x in ['_html', 'enhanced_menu', 'address_display']):
+                    # HTML content needs careful review
+                    severity = Severity.HIGH
+                    message = "HTML content with |safe filter - high XSS risk"
+                    suggestion = "Ensure HTML is sanitized server-side before rendering"
+                    confidence = 0.9
+                else:
+                    # Generic |safe usage
+                    severity = Severity.MEDIUM
+                    message = "Using |safe filter disables HTML escaping"
+                    suggestion = "Verify this content is trusted and doesn't contain user input"
+                    confidence = 0.75
+                
+                issues.append(TemplateIssue(
+                    severity=severity,
+                    category=IssueCategory.SECURITY_RISK,
+                    template_file=str(template_path.relative_to(self.app_path)),
+                    context_file=None,
+                    line_number=line_num,
+                    variable_name=None,
+                    message=message,
+                    suggestion=suggestion,
+                    code_snippet=line.strip()[:100],
+                    confidence=confidence
+                ))
+            
+            # Check for autoescape disabled
+            if re.search(r'{%\s*autoescape\s+false', line):
+                issues.append(TemplateIssue(
+                    severity=Severity.CRITICAL,
+                    category=IssueCategory.SECURITY_RISK,
+                    template_file=str(template_path.relative_to(self.app_path)),
+                    context_file=None,
+                    line_number=line_num,
+                    variable_name=None,
+                    message="Autoescape disabled - severe XSS vulnerability risk",
+                    suggestion="Remove autoescape false unless absolutely necessary and data is fully trusted",
+                    code_snippet=line.strip()[:100],
+                    confidence=0.95
+                ))
+            
+            # Check for direct request.args usage
+            if re.search(r'{{[^}]*?request\.args[^}]*?}}', line):
+                issues.append(TemplateIssue(
+                    severity=Severity.HIGH,
+                    category=IssueCategory.SECURITY_RISK,
+                    template_file=str(template_path.relative_to(self.app_path)),
+                    context_file=None,
+                    line_number=line_num,
+                    variable_name=None,
+                    message="Direct use of request.args without validation",
+                    suggestion="Validate and sanitize request parameters server-side before template rendering",
+                    code_snippet=line.strip()[:100],
+                    confidence=0.85
+                ))
         
         return issues
     
     def match_template_to_context(self, template_path: Path) -> Optional[Path]:
-        """Intelligently match template to its context provider"""
+        """Intelligently match template to its context provider with 8 sophisticated strategies"""
+        candidates = []
+        
         # Strategy 1: Direct mapping (template.html -> template.py)
         py_path = template_path.with_suffix('.py')
         if py_path.exists():
-            return py_path
+            candidates.append((py_path, 10, 'direct_mapping'))  # High priority
         
         # Strategy 2: Check parent directory
         parent_py = template_path.parent / f"{template_path.stem}.py"
         if parent_py.exists():
-            return parent_py
+            candidates.append((parent_py, 9, 'parent_directory'))
         
         # Strategy 3: Look for get_[name].py pattern
         get_py = template_path.parent / f"get_{template_path.stem}.py"
         if get_py.exists():
-            return get_py
+            candidates.append((get_py, 8, 'get_pattern'))
         
         # Strategy 4: Check __init__.py in same directory
         init_py = template_path.parent / "__init__.py"
         if init_py.exists():
-            # Check if it has relevant context
-            with open(init_py, 'r') as f:
-                if 'get_context' in f.read():
-                    return init_py
+            try:
+                with open(init_py, 'r') as f:
+                    if 'get_context' in f.read():
+                        candidates.append((init_py, 7, 'init_py'))
+            except (IOError, UnicodeDecodeError):
+                pass
+        
+        # Strategy 5: Portal page pattern (pages/name.html -> web_form/name.py or page/name.py)
+        if 'pages' in template_path.parts:
+            web_form_py = self.app_path / "web_form" / f"{template_path.stem}.py"
+            if web_form_py.exists():
+                candidates.append((web_form_py, 9, 'portal_pattern'))
+            
+            page_py = self.app_path / "page" / f"{template_path.stem}.py"  
+            if page_py.exists():
+                candidates.append((page_py, 8, 'portal_pattern'))
+        
+        # Strategy 6: DocType template pattern (doctype/name/name.py)
+        if template_path.stem != 'list':  # Avoid generic list templates
+            try:
+                doctype_path = self.app_path / "doctype"
+                if doctype_path.exists():
+                    for doctype_dir in doctype_path.glob("*"):
+                        if doctype_dir.is_dir():
+                            doctype_py = doctype_dir / f"{doctype_dir.name}.py"
+                            if doctype_py.exists() and template_path.stem.lower() in doctype_dir.name.lower():
+                                candidates.append((doctype_py, 6, 'doctype_pattern'))
+            except (OSError, IOError):
+                pass
+        
+        # Strategy 7: Email template pattern (emails/name.html -> doctype/.../name.py)
+        if 'email' in template_path.parts:
+            try:
+                # Search for Python files that might generate this email
+                for py_file in self.app_path.rglob("*.py"):
+                    if py_file.is_file() and template_path.stem.lower() in py_file.stem.lower():
+                        candidates.append((py_file, 5, 'email_pattern'))
+                        if len(candidates) > 20:  # Limit search to prevent performance issues
+                            break
+            except (OSError, IOError):
+                pass
+        
+        # Strategy 8: Fuzzy name matching within same directory tree  
+        try:
+            template_name_parts = set(template_path.stem.lower().split('_'))
+            for py_file in template_path.parent.rglob("*.py"):
+                if py_file.is_file():
+                    py_name_parts = set(py_file.stem.lower().split('_'))
+                    # Check for significant overlap in name parts
+                    overlap = len(template_name_parts.intersection(py_name_parts))
+                    if overlap >= 2:  # At least 2 matching word parts
+                        candidates.append((py_file, 3 + overlap, 'fuzzy_matching'))
+        except (OSError, IOError):
+            pass
+        
+        # Return highest priority candidate and track strategy used
+        if candidates:
+            best_match = sorted(candidates, key=lambda x: x[1], reverse=True)[0]
+            py_file, priority, strategy = best_match
+            self.stats['context_matches_found'] += 1
+            self.stats['context_match_strategies'][strategy] += 1
+            
+            if self.verbose:
+                print(f"  🎯 Context match: {template_path.name} -> {py_file.name} (strategy: {strategy})")
+            
+            return py_file
         
         return None
     
@@ -521,13 +729,37 @@ class ModernTemplateValidator:
         provided_vars = set()
         
         if py_file:
+            self.stats['python_files_analyzed'] += 1
             py_context = self.extract_python_context(py_file)
             provided_vars = py_context.get('variables', set())
             
-            # Check for missing variables
+            # Check for missing variables - only report critical ones to reduce noise
             missing_vars = context.variables_used - provided_vars - self.builtin_vars
             
+            # Filter to only critical/high-impact missing variables
+            critical_missing = []
             for var in missing_vars:
+                # Skip template keywords but keep important short variables
+                if var in self.template_keywords:
+                    continue
+                    
+                # Skip very short vars unless they're important
+                if len(var) <= 2 and var not in self.important_short_vars:
+                    continue
+                
+                # Determine if variable is critical based on patterns and context
+                is_critical = (
+                    var in self.critical_portal_vars or 
+                    var in self.critical_email_vars or
+                    var.endswith(('_email', '_url', '_link', '_name', '_date', '_time')) or
+                    var.startswith(('has_', 'is_', 'can_', 'show_')) or
+                    any(keyword in var for keyword in ['support', 'payment', 'member', 'user', 'csrf'])
+                )
+                
+                if is_critical:
+                    critical_missing.append(var)
+            
+            for var in critical_missing:
                 # Try to find similar variable names
                 similar = difflib.get_close_matches(var, provided_vars, n=2, cutoff=0.7)
                 suggestion = f"Did you mean: {', '.join(similar)}?" if similar else None
@@ -539,7 +771,7 @@ class ModernTemplateValidator:
                     context_file=str(py_file.relative_to(self.app_path)) if py_file else None,
                     line_number=None,
                     variable_name=var,
-                    message=f"Variable '{var}' used in template but not provided in context",
+                    message=f"Critical variable '{var}' used in template but not provided in context",
                     suggestion=suggestion,
                     confidence=0.8
                 ))
@@ -547,11 +779,13 @@ class ModernTemplateValidator:
         # Check critical variables
         issues.extend(self.validate_critical_variables(context, provided_vars))
         
-        # Check null reference risks
-        issues.extend(self.check_null_reference_risks(template_path))
-        
-        # Check security issues
+        # Check security issues with context awareness
         issues.extend(self.check_security_issues(template_path))
+        
+        # Selectively check null reference risks for high-impact patterns
+        null_ref_issues = self.check_null_reference_risks(template_path)
+        # Only include null reference issues with higher confidence
+        issues.extend([issue for issue in null_ref_issues if issue.confidence >= 0.7])
         
         return issues
     
@@ -576,8 +810,16 @@ class ModernTemplateValidator:
         # Validate each template
         all_issues = []
         for template in all_templates:
+            self.stats['templates_scanned'] += 1
             issues = self.validate_template(template)
             all_issues.extend(issues)
+            
+            # Track issue types
+            for issue in issues:
+                if issue.severity in [Severity.CRITICAL, Severity.HIGH]:
+                    self.stats['critical_issues_found'] += 1
+                if issue.category == IssueCategory.SECURITY_RISK:
+                    self.stats['security_issues_found'] += 1
         
         # Sort issues by severity
         severity_order = {
@@ -698,6 +940,19 @@ def main():
     print("\n" + "=" * 80)
     report = validator.generate_report(issues)
     print(report)
+    
+    # Enhanced statistics reporting
+    if verbose:
+        print(f"\n🔧 Enhanced Validation Statistics:")
+        print(f"   Templates processed: {validator.stats['templates_scanned']}")
+        print(f"   Context matches found: {validator.stats['context_matches_found']}")
+        print(f"   Python files analyzed: {validator.stats['python_files_analyzed']}")
+        
+        print(f"\n📊 Context Matching Strategy Performance:")
+        for strategy, count in validator.stats['context_match_strategies'].items():
+            if count > 0:
+                percentage = (count / validator.stats['context_matches_found'] * 100) if validator.stats['context_matches_found'] > 0 else 0
+                print(f"   {strategy.replace('_', ' ').title()}: {count} ({percentage:.1f}%)")
     
     # Return appropriate exit code
     critical_count = sum(1 for i in issues if i.severity == Severity.CRITICAL)

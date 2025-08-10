@@ -169,10 +169,14 @@ class DatabaseFieldInventory:
     
     def extract_string_value(self, node: ast.AST) -> Optional[str]:
         """Extract string value from an AST node"""
-        if hasattr(ast, 'Str') and isinstance(node, ast.Str):
-            return node.s
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
+        # Python < 3.8 compatibility - fallback for older AST nodes
+        try:
+            if hasattr(node, 's') and isinstance(getattr(node, 's', None), str):
+                return node.s
+        except (AttributeError, TypeError):
+            pass
         return None
     
     def extract_filter_fields(self, node: ast.AST) -> List[str]:

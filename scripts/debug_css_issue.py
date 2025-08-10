@@ -40,11 +40,11 @@ def check_css_loading():
     print("\n4. Active Brand Settings:")
     try:
         active_settings = frappe.get_all(
-            "Brand Settings", filters={"is_active": 1}, fields=["name", "settings_name"], limit=1
+            "Brand Settings", filters={"is_active": 1}, fields=["name"], limit=1
         )
 
         if active_settings:
-            print(f"   - Active: {active_settings[0]['settings_name']} ({active_settings[0]['name']})")
+            print(f"   - Active: {active_settings[0]['name']}")
         else:
             print("   - No active brand settings found")
     except Exception as e:

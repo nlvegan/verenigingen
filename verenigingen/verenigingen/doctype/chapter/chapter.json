@@ -12,6 +12,7 @@
  "is_published_field": "published",
  "field_order": [
   "chapter_head",
+  "status",
   "column_break_3",
   "region",
   "cost_center",
@@ -34,6 +35,15 @@
    "label": "Chapter Head",
    "options": "Member",
    "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Active\nInactive\nDissolved",
+   "default": "Active",
+   "in_list_view": 1,
+   "reqd": 1
   },
   {
    "fieldname": "column_break_3",

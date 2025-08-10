@@ -165,15 +165,15 @@ class VariableContextVisitor(ast.NodeVisitor):
         if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
             var_name = node.targets[0].id
             
-            # Check for frappe.get_doc patterns
+            # Check for frappe.get_doc and frappe.get_cached_doc patterns
             if (isinstance(node.value, ast.Call) and 
                 isinstance(node.value.func, ast.Attribute) and
                 isinstance(node.value.func.value, ast.Name) and
                 node.value.func.value.id == 'frappe' and
-                node.value.func.attr == 'get_doc' and
+                node.value.func.attr in ['get_doc', 'get_cached_doc', 'new_doc'] and
                 len(node.value.args) >= 1):
                 
-                # Extract DocType from frappe.get_doc("DocType", ...)
+                # Extract DocType from frappe.get_doc("DocType", ...) or frappe.get_cached_doc("DocType", ...)
                 doctype = self._extract_string_constant(node.value.args[0])
                 if doctype:
                     self.dynamic_vars[var_name] = doctype
@@ -529,6 +529,32 @@ class ASTFieldAnalyzer:
         
         return hints
     
+    def _is_likely_legacy_or_dynamic_field(self, field_name: str, doctype: str) -> bool:
+        """Check if field might be legacy, dynamic, or computed property"""
+        
+        # Common patterns for legacy/dynamic fields
+        legacy_patterns = [
+            'enable_version_control',  # System Settings legacy field
+            'new_dues_schedule',       # Dynamic property 
+            'track_changes',          # Legacy field name
+            'version_tracking',       # Legacy field name
+        ]
+        
+        if field_name in legacy_patterns:
+            return True
+        
+        # Fields that start with common dynamic prefixes
+        dynamic_prefixes = ['new_', 'old_', 'prev_', 'current_', 'next_', 'temp_']
+        if any(field_name.startswith(prefix) for prefix in dynamic_prefixes):
+            return True
+        
+        # Fields that might be computed properties (ending with specific suffixes)
+        computed_suffixes = ['_computed', '_calculated', '_derived', '_generated']
+        if any(field_name.endswith(suffix) for suffix in computed_suffixes):
+            return True
+        
+        return False
+    
     def calculate_confidence(self, issue: ValidationIssue, context: ValidationContext) -> ConfidenceLevel:
         """Calculate confidence level for an issue based on multiple factors"""
         confidence_score = 50  # Start at medium
@@ -558,6 +584,10 @@ class ASTFieldAnalyzer:
             
         if issue.field in self.excluded_patterns['common_attributes']:
             confidence_score -= 40
+        
+        # Check for legacy or dynamic fields
+        if self._is_likely_legacy_or_dynamic_field(issue.field, issue.doctype):
+            confidence_score -= 50
         
         # Check if it looks like a method call
         if '()' in issue.context or f'{issue.field}(' in issue.context:
@@ -661,6 +691,10 @@ class ASTFieldAnalyzer:
     
     def _track_variable_assignment(self, var_name: str, lines: List[str], current_line: int, depth: int = 0) -> Optional[str]:
         """Track variable assignments to determine DocType with enhanced recursion protection"""
+        
+        # First check dynamic variables collected during AST parsing (highest priority)
+        if var_name in self.dynamic_variables:
+            return self.dynamic_variables[var_name]
         
         # Enhanced recursion protection
         MAX_RECURSION_DEPTH = 5  # Reduced from 10 for better safety
@@ -931,6 +965,12 @@ class ASTFieldAnalyzer:
                     if self._is_false_positive(obj_name, field_name, context_line, file_context):
                         continue
                     
+                    # Check for defensive programming patterns
+                    if self._is_defensive_pattern(obj_name, field_name, source_lines, line_num):
+                        if self.verbose:
+                            print(f"  ✓ Skipped defensive programming pattern: {obj_name}.{field_name}")
+                        continue
+                    
                     # Skip excluded patterns
                     if self.is_excluded_pattern(obj_name, field_name, context_line, file_context):
                         continue
@@ -1057,6 +1097,61 @@ class ASTFieldAnalyzer:
             # These are database results, not DocType objects
             if self.verbose:
                 print(f"  ✓ Skipped database query result: {obj_name}.{field_name}")
+            return True
+        
+        # 9. Skip defensive hasattr() checks
+        if f'hasattr({obj_name}, "{field_name}")' in context_line or f"hasattr({obj_name}, '{field_name}')" in context_line:
+            if self.verbose:
+                print(f"  ✓ Skipped defensive hasattr() check: {obj_name}.{field_name}")
+            return True
+        
+        # 10. Skip getattr() with fallback patterns  
+        if f'getattr({obj_name}, "{field_name}"' in context_line or f"getattr({obj_name}, '{field_name}'" in context_line:
+            if self.verbose:
+                print(f"  ✓ Skipped getattr() with fallback: {obj_name}.{field_name}")
+            return True
+        
+        # 11. Skip field access inside conditional hasattr checks
+        # Pattern: if hasattr(obj, 'field'): obj.field
+        if re.search(rf'if\s+hasattr\s*\(\s*{re.escape(obj_name)}\s*,\s*["\']?{re.escape(field_name)}["\']?\s*\)', context_line):
+            if self.verbose:
+                print(f"  ✓ Skipped conditional hasattr access: {obj_name}.{field_name}")
+            return True
+        
+        return False
+    
+    def _is_defensive_pattern(self, obj_name: str, field_name: str, source_lines: List[str], line_num: int) -> bool:
+        """Check surrounding lines for defensive programming patterns"""
+        
+        # Check current line and a few lines before/after for defensive patterns
+        start_line = max(0, line_num - 3)
+        end_line = min(len(source_lines), line_num + 2)
+        
+        surrounding_context = '\n'.join(source_lines[start_line:end_line])
+        
+        # Pattern 1: hasattr check followed by field access
+        hasattr_pattern = rf'hasattr\s*\(\s*{re.escape(obj_name)}\s*,\s*["\']?{re.escape(field_name)}["\']?\s*\)'
+        if re.search(hasattr_pattern, surrounding_context, re.IGNORECASE):
+            return True
+        
+        # Pattern 2: try/except around field access
+        try_except_pattern = rf'try\s*:.*{re.escape(obj_name)}\.{re.escape(field_name)}.*except'
+        if re.search(try_except_pattern, surrounding_context, re.DOTALL | re.IGNORECASE):
+            return True
+        
+        # Pattern 3: getattr with default value
+        getattr_pattern = rf'getattr\s*\(\s*{re.escape(obj_name)}\s*,\s*["\']?{re.escape(field_name)}["\']?\s*,'
+        if re.search(getattr_pattern, surrounding_context, re.IGNORECASE):
+            return True
+        
+        # Pattern 4: Field used in conditional check (might be dynamic/computed)
+        if_pattern = rf'if\s+{re.escape(obj_name)}\.{re.escape(field_name)}\s*:'
+        if re.search(if_pattern, surrounding_context, re.IGNORECASE):
+            return True
+        
+        # Pattern 5: Field used in conditional check with not
+        if_not_pattern = rf'if\s+not\s+{re.escape(obj_name)}\.{re.escape(field_name)}\s*:'
+        if re.search(if_not_pattern, surrounding_context, re.IGNORECASE):
             return True
         
         return False

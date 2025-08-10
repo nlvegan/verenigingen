@@ -46,7 +46,7 @@
 frappe.ui.form.on('Brand Settings', {
 	refresh(frm) {
 		// Add Owl Theme integration buttons
-		if (frm.doc.is_active) {
+		if (frm.doc.name && frm.doc.primary_color) {
 			frm.add_custom_button(__('Sync to Owl Theme'), () => {
 				sync_to_owl_theme(frm);
 			}, __('Owl Theme'));

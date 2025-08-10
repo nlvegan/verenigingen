@@ -6,17 +6,17 @@ repos:
     rev: v4.4.0
     hooks:
       - id: trailing-whitespace
-        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/)'
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
       - id: end-of-file-fixer
-        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/)'
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
       - id: check-yaml
       - id: check-added-large-files
       - id: check-json
       - id: check-merge-conflict
       - id: debug-statements
-        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/)'
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
       - id: check-docstring-first
-        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/)'
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
 
   - repo: https://github.com/psf/black
     rev: 23.3.0
@@ -24,7 +24,7 @@ repos:
       - id: black
         language_version: python3
         args: ['--line-length=110']
-        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/)'
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
 
   - repo: https://github.com/PyCQA/flake8
     rev: 6.0.0
@@ -42,7 +42,7 @@ repos:
     hooks:
       - id: isort
         args: ['--profile', 'black', '--line-length', '110']
-        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/)'
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|archived_unused/|archived_deleted/)'
 
   - repo: https://github.com/PyCQA/pylint
     rev: v3.0.3
@@ -63,9 +63,9 @@ repos:
         name: 🔍 Security Linting (Bandit - High Severity)
         description: Scan for security vulnerabilities in Python code
         args: [
-          '-r', 'verenigingen/', 
+          '-r', 'verenigingen/',
           '--skip', 'B101,B601,B106,B107', # Skip assert_used_in_tests, hardcoded_password_funcarg, hardcoded_password_defaults, hardcoded_password_string
-          '--exclude', 'archived_removal,archived_unused,scripts/testing,scripts/debug,tests',
+          '--exclude', 'archived_removal,archived_unused,archived_deleted,scripts/testing,scripts/debug,tests',
           '--severity-level', 'high',
           '--confidence-level', 'high',
           '--format', 'json',
@@ -73,7 +73,7 @@ repos:
         ]
         pass_filenames: false
         stages: [pre-commit]
-        exclude: '^(tests/|scripts/testing/|scripts/debug/|.*_test\.py|.*_debug\.py|archived_.*)'
+        exclude: '^(tests/|scripts/testing/|scripts/debug/|.*_test\.py|.*_debug\.py|archived_.*|archived_unused/|archived_deleted/)'
 
       - id: bandit
         name: 🔍 Security Linting (Bandit - Medium Severity - Pre-Push)
@@ -81,13 +81,13 @@ repos:
         args: [
           '-r', 'verenigingen/',
           '--skip', 'B101,B601,B106,B107',
-          '--exclude', 'archived_removal,archived_unused,scripts/testing,scripts/debug,tests',
+          '--exclude', 'archived_removal,archived_unused,archived_deleted,scripts/testing,scripts/debug,tests',
           '--severity-level', 'medium',
           '--confidence-level', 'medium'
         ]
         pass_filenames: false
         stages: [pre-push]
-        exclude: '^(tests/|scripts/testing/|scripts/debug/|.*_test\.py|.*_debug\.py|archived_.*)'
+        exclude: '^(tests/|scripts/testing/|scripts/debug/|.*_test\.py|.*_debug\.py|archived_.*|archived_unused/|archived_deleted/)'
 
   - repo: local
     hooks:
@@ -136,7 +136,7 @@ repos:
         pass_filenames: false
         files: \.py$
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
 
       - id: sql-field-validator
         name: SQL query field validation
@@ -149,12 +149,12 @@ repos:
 
       - id: frappe-api-validator
         name: Balanced field validation (practical mode)
-        entry: python scripts/validation/balanced_field_validator.py --level balanced --pre-commit
+        entry: python scripts/validation/database_field_reference_validator.py --level balanced --pre-commit
         language: system
         pass_filenames: false
         files: \.py$
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
 
       - id: enhanced-field-validator
         name: Deprecated field validation (pre-push)
@@ -163,7 +163,7 @@ repos:
         pass_filenames: false
         files: '\.(py|html|js)$'
         stages: [pre-push]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
 
       - id: template-field-validator
         name: HTML/JavaScript template field validation
@@ -194,16 +194,16 @@ repos:
           - eslint@^8.57.0
           - eslint-plugin-security@^1.7.1
           - eslint-plugin-no-unsanitized@^4.0.2
-        exclude: '^(node_modules/|archived_unused/|scripts/analysis/|scripts/monitoring/|scripts/performance/|scripts/rollback/|scripts/security/|debug_utils/|dev_scripts/)|\.min\.js$|\.bundle\.js$'
+        exclude: '^(node_modules/|archived_unused/|archived_deleted/|scripts/analysis/|scripts/monitoring/|scripts/performance/|scripts/rollback/|scripts/security/|debug_utils/|dev_scripts/)|\.min\.js$|\.bundle\.js$'
 
       - id: fast-method-validator
         name: Method call validation
-        entry: python scripts/validation/method_call_validator.py
+        entry: python scripts/validation/method_resolution_validator.py
         language: system
         pass_filenames: false
         files: '\.py$'
         stages: [pre-commit]
-        exclude: '^(archived_unused/|archived_removal/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
+        exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
 
       - id: workspace-validator
         name: Workspace integrity validation
@@ -261,15 +261,15 @@ repos:
 
       - id: pragmatic-field-validator-strict
         name: Balanced field validation (strict mode)
-        entry: python scripts/validation/balanced_field_validator.py --level strict
+        entry: python scripts/validation/database_field_reference_validator.py --level strict
         language: system
         pass_filenames: false
         files: \.py$
         stages: [manual]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
 
       # Advanced Validation Tools (Enhanced)
-      - id: frappe-hooks-validator  
+      - id: frappe-hooks-validator
         name: 🪝 Frappe Hooks Validator
         description: Validate Frappe hooks and event handlers
         entry: python scripts/validation/frappe_hooks_validator.py
@@ -280,7 +280,7 @@ repos:
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
       - id: api-confidence-validator
-        name: 🔍 API Confidence Validator  
+        name: 🔍 API Confidence Validator
         description: High-confidence API field validation
         entry: python scripts/validation/frappe_api_confidence_validator.py
         language: system
@@ -323,7 +323,7 @@ repos:
 
       # Security and API Validation
       - id: api-security-validator
-        name: 🛡️ API Security Validator  
+        name: 🛡️ API Security Validator
         description: Validate API security decorators and patterns
         entry: python scripts/validation/security/api_security_validator.py
         language: system
@@ -421,7 +421,7 @@ repos:
         stages: [manual]
         exclude: '^(node_modules/|dist/|build/|archived_.*)'
 
-      # Coverage Report Generation  
+      # Coverage Report Generation
       - id: coverage-report-generator
         name: 📈 Coverage Report Generator
         description: Generate comprehensive test coverage reports

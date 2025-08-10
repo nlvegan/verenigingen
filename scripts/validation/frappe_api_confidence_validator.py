@@ -571,8 +571,12 @@ class FrappeAPIConfidenceValidator:
         """Extract string value from AST node"""
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             return node.value
-        elif isinstance(node, ast.Str):  # Python < 3.8 compatibility
-            return node.s
+        # Python < 3.8 compatibility - fallback for older AST nodes
+        try:
+            if hasattr(node, 's') and isinstance(getattr(node, 's', None), str):
+                return node.s
+        except (AttributeError, TypeError):
+            pass
         return None
     
     def _extract_field_list(self, node: ast.AST) -> List[str]:

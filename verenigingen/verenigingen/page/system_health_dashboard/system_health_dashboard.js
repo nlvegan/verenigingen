@@ -361,16 +361,16 @@ class SystemHealthDashboard {
 
 	render_health_status(data) {
 		const status_color = data.status === 'healthy' ? 'green'
-						   : data.status === 'degraded' ? 'orange' : 'red';
+			: data.status === 'degraded' ? 'orange' : 'red';
 
 		const status_icon = data.status === 'healthy' ? 'fa-check-circle'
-						   : data.status === 'degraded' ? 'fa-exclamation-triangle' : 'fa-times-circle';
+			: data.status === 'degraded' ? 'fa-exclamation-triangle' : 'fa-times-circle';
 
 		let checks_html = '';
 		for (const [check, result] of Object.entries(data.checks || {})) {
 			const check_color = result.status === 'ok' ? 'green'
-							   : result.status === 'warning' ? 'orange'
-							   : result.status === 'slow' ? 'orange' : 'red';
+				: result.status === 'warning' ? 'orange'
+					: result.status === 'slow' ? 'orange' : 'red';
 
 			let details = '';
 			if (result.response_time_ms !== undefined) {
@@ -439,7 +439,7 @@ class SystemHealthDashboard {
 		if (data.api_performance && data.api_performance.endpoints) {
 			for (const [endpoint, stats] of Object.entries(data.api_performance.endpoints)) {
 				const perf_color = stats.avg_time_ms < 500 ? 'green'
-								  : stats.avg_time_ms < 1000 ? 'orange' : 'red';
+					: stats.avg_time_ms < 1000 ? 'orange' : 'red';
 				metrics_html += `
 					<tr>
 						<td>${endpoint}</td>
