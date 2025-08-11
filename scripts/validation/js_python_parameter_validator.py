@@ -140,19 +140,32 @@ class ModernJSPythonValidator:
     """Modernized validator with enhanced accuracy and performance"""
     
     def __init__(self, project_root: str, config: Optional[Dict] = None):
+        # Input validation
+        if not project_root or not isinstance(project_root, (str, Path)):
+            raise ValueError("project_root must be a valid string or Path")
+        
         self.project_root = Path(project_root)
+        if not self.project_root.exists():
+            raise ValueError(f"Project root does not exist: {project_root}")
+        if not self.project_root.is_dir():
+            raise ValueError(f"Project root is not a directory: {project_root}")
+            
         self.config = config or self._load_default_config()
+        if not isinstance(self.config, dict):
+            raise ValueError("Config must be a dictionary")
         
         # Initialize unified DocType loader
         self.doctype_loader = None
         self._initialize_doctype_loader()
         
-        # Caches for performance with size limits
-        self._python_functions_cache = {}  # Will implement LRU eviction
-        self._js_calls_cache = {}  # Will implement LRU eviction
-        self._file_mtime_cache = {}  # Will implement TTL-based eviction
-        self._cache_max_size = 1000  # Maximum cache entries
+        # Caches for performance with size limits and proper eviction
+        from collections import OrderedDict
+        self._python_functions_cache = OrderedDict()  # LRU cache
+        self._js_calls_cache = OrderedDict()  # LRU cache
+        self._file_mtime_cache = {}  # Simple cache for file times
+        self._cache_max_size = 500  # Reduced maximum cache entries
         self._cache_ttl = 300  # Cache TTL in seconds
+        self._cache_creation_time = {}
         
         # Data structures
         self.js_calls: List[JSCall] = []
@@ -320,6 +333,8 @@ class ModernJSPythonValidator:
             cache_key = f"{js_file}:{mtime}"
             if cache_key in self._js_calls_cache:
                 self.stats['cache_hits'] += 1
+                # Move to end for LRU
+                self._js_calls_cache.move_to_end(cache_key)
                 return self._js_calls_cache[cache_key]
         
         calls = []
@@ -380,8 +395,9 @@ class ModernJSPythonValidator:
                     
                     calls.append(call)
         
-        # Cache results
+        # Cache results with proper size management
         if self.config.get('cache_enabled', True):
+            self._manage_cache_size(self._js_calls_cache, cache_key)
             self._js_calls_cache[cache_key] = calls
         
         return calls
@@ -665,6 +681,8 @@ class ModernJSPythonValidator:
             cache_key = f"{py_file}:{mtime}"
             if cache_key in self._python_functions_cache:
                 self.stats['cache_hits'] += 1
+                # Move to end for LRU
+                self._python_functions_cache.move_to_end(cache_key)
                 return self._python_functions_cache[cache_key]
         
         functions = []
@@ -698,8 +716,9 @@ class ModernJSPythonValidator:
                     if function_info:
                         functions.append(function_info)
         
-        # Cache results
+        # Cache results with proper size management
         if self.config.get('cache_enabled', True):
+            self._manage_cache_size(self._python_functions_cache, cache_key)
             self._python_functions_cache[cache_key] = functions
         
         return functions
@@ -1042,6 +1061,40 @@ class ModernJSPythonValidator:
         
         # Build function index for fast lookup
         self.build_function_index()
+    
+    def _manage_cache_size(self, cache: 'OrderedDict', cache_key: str) -> None:
+        """Manage cache size with LRU eviction"""
+        import time
+        current_time = time.time()
+        
+        # Remove expired entries first
+        expired_keys = [
+            k for k, creation_time in self._cache_creation_time.items()
+            if current_time - creation_time > self._cache_ttl and k in cache
+        ]
+        for k in expired_keys:
+            cache.pop(k, None)
+            self._cache_creation_time.pop(k, None)
+        
+        # If still too large, remove oldest entries
+        while len(cache) >= self._cache_max_size:
+            oldest_key = next(iter(cache))
+            cache.pop(oldest_key, None)
+            self._cache_creation_time.pop(oldest_key, None)
+        
+        # Track creation time for new entry
+        self._cache_creation_time[cache_key] = current_time
+    
+    def cleanup_resources(self) -> None:
+        """Clean up resources and caches"""
+        self._python_functions_cache.clear()
+        self._js_calls_cache.clear()
+        self._file_mtime_cache.clear()
+        self._cache_creation_time.clear()
+        
+        # Clear DocType loader cache if available
+        if hasattr(self.doctype_loader, 'clear_cache'):
+            self.doctype_loader.clear_cache()
     
     def run_validation(self) -> List[ValidationIssue]:
         """Run complete validation process"""

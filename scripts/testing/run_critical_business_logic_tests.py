@@ -134,7 +134,7 @@ test_critical_business_logic:
 ./scripts/testing/run_critical_business_logic_tests.py
 
 # Review detailed output for any concerns
-grep -i "failed\|error" test_output.log
+grep -i "failed\\|error" test_output.log
 ```
 
 Error Handling and Recovery

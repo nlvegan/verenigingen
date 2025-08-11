@@ -61,8 +61,17 @@ class ModernTemplateValidator:
     """Modernized template variable validator with enhanced detection"""
     
     def __init__(self, app_path: str, verbose: bool = False):
+        # Input validation
+        if not app_path or not isinstance(app_path, (str, Path)):
+            raise ValueError("app_path must be a valid string or Path")
+        
         self.app_path = Path(app_path)
-        self.verbose = verbose
+        if not self.app_path.exists():
+            raise ValueError(f"App path does not exist: {app_path}")
+        if not self.app_path.is_dir():
+            raise ValueError(f"App path is not a directory: {app_path}")
+            
+        self.verbose = bool(verbose)  # Ensure boolean
         self.template_contexts = {}  # {template_path: TemplateContext}
         self.context_providers = {}  # {py_file: {variables, methods}}
         self.issues = []
@@ -92,6 +101,9 @@ class ModernTemplateValidator:
             'navbar', 'footer', 'csrf_token'
         }
         
+        # Security: Normalize app_path to prevent traversal attacks
+        self.app_path = self.app_path.resolve()
+        
         # Critical variables for email templates
         self.critical_email_vars = {
             'recipient_name', 'site_name', 'support_email',
@@ -107,6 +119,20 @@ class ModernTemplateValidator:
         # Known template variable patterns
         self.builtin_vars = self._build_builtin_vars()
         self.frappe_methods = self._build_frappe_methods()
+    
+    def _is_safe_path(self, file_path: Path) -> bool:
+        """Security check: Ensure file path is within app directory and safe"""
+        try:
+            # Resolve path and check it's within app directory
+            resolved_path = file_path.resolve()
+            return (
+                resolved_path.is_relative_to(self.app_path) and
+                resolved_path.is_file() and
+                not any(part.startswith('.') for part in resolved_path.parts) and
+                resolved_path.suffix in {'.py', '.html', '.htm', '.txt', '.json'}
+            )
+        except (OSError, ValueError):
+            return False
         
     def _build_builtin_vars(self) -> Set[str]:
         """Build set of built-in Jinja and Frappe variables"""
@@ -297,9 +323,21 @@ class ModernTemplateValidator:
     def extract_python_context(self, py_file: Path) -> Dict[str, Any]:
         """Extract context variables from Python files with AST analysis"""
         try:
+            # Security check first
+            if not self._is_safe_path(py_file):
+                if self.verbose:
+                    print(f"⚠️  Skipping unsafe path: {py_file}")
+                return {}
+                
             with open(py_file, 'r', encoding='utf-8') as f:
                 content = f.read()
-        except Exception:
+        except (IOError, OSError) as e:
+            if self.verbose:
+                print(f"❌ Failed to read file {py_file}: {e}")
+            return {}
+        except UnicodeDecodeError as e:
+            if self.verbose:
+                print(f"❌ Unicode decode error in {py_file}: {e}")
             return {}
         
         context_data = {
@@ -680,10 +718,12 @@ class ModernTemplateValidator:
         if 'email' in template_path.parts:
             try:
                 # Search for Python files that might generate this email
+                search_count = 0
                 for py_file in self.app_path.rglob("*.py"):
-                    if py_file.is_file() and template_path.stem.lower() in py_file.stem.lower():
+                    if self._is_safe_path(py_file) and template_path.stem.lower() in py_file.stem.lower():
                         candidates.append((py_file, 5, 'email_pattern'))
-                        if len(candidates) > 20:  # Limit search to prevent performance issues
+                        search_count += 1
+                        if search_count > 20:  # Limit search to prevent performance issues
                             break
             except (OSError, IOError):
                 pass
@@ -691,13 +731,17 @@ class ModernTemplateValidator:
         # Strategy 8: Fuzzy name matching within same directory tree  
         try:
             template_name_parts = set(template_path.stem.lower().split('_'))
+            search_count = 0
             for py_file in template_path.parent.rglob("*.py"):
-                if py_file.is_file():
+                if self._is_safe_path(py_file):
                     py_name_parts = set(py_file.stem.lower().split('_'))
                     # Check for significant overlap in name parts
                     overlap = len(template_name_parts.intersection(py_name_parts))
                     if overlap >= 2:  # At least 2 matching word parts
                         candidates.append((py_file, 3 + overlap, 'fuzzy_matching'))
+                        search_count += 1
+                        if search_count > 50:  # Limit fuzzy search scope
+                            break
         except (OSError, IOError):
             pass
         
@@ -719,9 +763,22 @@ class ModernTemplateValidator:
         """Comprehensive validation of a single template"""
         issues = []
         
-        # Extract template context
-        context = self.extract_template_context(template_path)
-        if not context:
+        try:
+            # Security validation
+            if not self._is_safe_path(template_path):
+                if self.verbose:
+                    print(f"⚠️  Skipping unsafe template path: {template_path}")
+                return issues
+            
+            # Extract template context
+            context = self.extract_template_context(template_path)
+            if not context:
+                if self.verbose:
+                    print(f"⚠️  No context extracted for template: {template_path}")
+                return issues
+        except Exception as e:
+            if self.verbose:
+                print(f"❌ Error validating template {template_path}: {e}")
             return issues
         
         # Find matching Python context provider
@@ -809,17 +866,33 @@ class ModernTemplateValidator:
         
         # Validate each template
         all_issues = []
+        failed_templates = 0
+        
         for template in all_templates:
-            self.stats['templates_scanned'] += 1
-            issues = self.validate_template(template)
-            all_issues.extend(issues)
+            try:
+                self.stats['templates_scanned'] += 1
+                issues = self.validate_template(template)
+                all_issues.extend(issues)
+                
+                # Track issue types
+                for issue in issues:
+                    if issue.severity in [Severity.CRITICAL, Severity.HIGH]:
+                        self.stats['critical_issues_found'] += 1
+                    if issue.category == IssueCategory.SECURITY_RISK:
+                        self.stats['security_issues_found'] += 1
+                        
+            except Exception as e:
+                failed_templates += 1
+                if self.verbose:
+                    print(f"❌ Failed to process template {template}: {e}")
+                continue
+        
+        if failed_templates > 0:
+            print(f"⚠️  Warning: {failed_templates} templates failed to process")
             
-            # Track issue types
-            for issue in issues:
-                if issue.severity in [Severity.CRITICAL, Severity.HIGH]:
-                    self.stats['critical_issues_found'] += 1
-                if issue.category == IssueCategory.SECURITY_RISK:
-                    self.stats['security_issues_found'] += 1
+        if self.verbose:
+            success_rate = (len(all_templates) - failed_templates) / len(all_templates) * 100
+            print(f"📊 Template processing success rate: {success_rate:.1f}%")
         
         # Sort issues by severity
         severity_order = {
