@@ -31,7 +31,7 @@ def validate_batch_for_approval(batch_name):
         Dict with validation results and recommended next state
     """
     try:
-        batch = frappe.get_doc("SEPA Direct Debit Batch", batch_name)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
         validation_result = {
             "valid": True,
@@ -214,7 +214,7 @@ def approve_batch(batch_name, approval_notes=None):
         Success status and next state
     """
     try:
-        batch = frappe.get_doc("SEPA Direct Debit Batch", batch_name)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
         # Validate user has permission to approve
         if not can_user_approve_batch(batch):
@@ -276,7 +276,7 @@ def reject_batch(batch_name, rejection_reason):
         Success status
     """
     try:
-        batch = frappe.get_doc("SEPA Direct Debit Batch", batch_name)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
         # Add rejection notes
         timestamp = now_datetime().strftime("%Y-%m-%d %H:%M:%S")
@@ -324,7 +324,7 @@ def can_user_approve_batch(batch):
 def get_batch_approval_history(batch_name):
     """Get approval history for a batch"""
     try:
-        batch = frappe.get_doc("SEPA Direct Debit Batch", batch_name)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
         # Parse approval notes into structured history
         history = []
@@ -372,7 +372,7 @@ def trigger_sepa_generation(batch_name):
         Generation result
     """
     try:
-        batch = frappe.get_doc("SEPA Direct Debit Batch", batch_name)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
         # Check batch is in approved state
         if batch.approval_status != "Approved":
@@ -419,20 +419,20 @@ def get_batches_pending_approval():
         filters = {"docstatus": 0}
 
         if "System Manager" in user_roles:
-            # System Manager can see all pending approvals
-            filters["approval_status"] = ["in", ["Pending Approval", "Pending Senior Approval"]]
+            # System Manager can see all draft batches (equivalent to pending approval)
+            filters["status"] = ["in", ["Draft", "Generated"]]
         elif "Finance Manager" in user_roles:
-            # Finance Manager can see all pending approvals
-            filters["approval_status"] = ["in", ["Pending Approval", "Pending Senior Approval"]]
+            # Finance Manager can see all draft batches
+            filters["status"] = ["in", ["Draft", "Generated"]]
         elif "Verenigingen Manager" in user_roles:
-            # Membership Manager can only see regular approvals
-            filters["approval_status"] = "Pending Approval"
+            # Membership Manager can only see draft batches
+            filters["status"] = "Draft"
         else:
             # No approval permissions
             return {"success": True, "batches": []}
 
         batches = frappe.get_all(
-            "SEPA Direct Debit Batch",
+            "Direct Debit Batch",
             filters=filters,
             fields=[
                 "name",
@@ -440,8 +440,7 @@ def get_batches_pending_approval():
                 "batch_description",
                 "total_amount",
                 "entry_count",
-                "approval_status",
-                "risk_level",
+                "status",
                 "creation",
             ],
             order_by="creation desc",

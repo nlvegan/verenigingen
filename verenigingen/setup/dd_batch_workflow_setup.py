@@ -20,7 +20,7 @@ def create_dd_batch_workflow():
     try:
         workflow_doc = frappe.new_doc("Workflow")
         workflow_doc.workflow_name = workflow_name
-        workflow_doc.document_type = "SEPA Direct Debit Batch"
+        workflow_doc.document_type = "Direct Debit Batch"
         workflow_doc.is_active = 1
         workflow_doc.workflow_state_field = "approval_status"  # New field needed
         workflow_doc.send_email_alert = 1
@@ -247,21 +247,21 @@ def create_workflow_conditions():
     # Condition 1: High-value batch (>€5000)
     high_value_condition = {
         "condition_name": "High Value Batch",
-        "document_type": "SEPA Direct Debit Batch",
+        "document_type": "Direct Debit Batch",
         "condition": "doc.total_amount > 5000",
     }
 
     # Condition 2: Large batch (>50 invoices)
     large_batch_condition = {
         "condition_name": "Large Batch",
-        "document_type": "SEPA Direct Debit Batch",
+        "document_type": "Direct Debit Batch",
         "condition": "doc.entry_count > 50",
     }
 
     # Condition 3: First-time SEPA batch
     first_time_condition = {
         "condition_name": "First Time Batch",
-        "document_type": "SEPA Direct Debit Batch",
+        "document_type": "Direct Debit Batch",
         "condition": "doc.batch_type == 'FRST'",
     }
 
@@ -278,7 +278,7 @@ def add_custom_fields_for_workflow():
         approval_status_field = frappe.get_doc(
             {
                 "doctype": "Custom Field",
-                "dt": "SEPA Direct Debit Batch",
+                "dt": "Direct Debit Batch",
                 "fieldname": "approval_status",
                 "label": "Approval Status",
                 "fieldtype": "Data",
@@ -295,7 +295,7 @@ def add_custom_fields_for_workflow():
         risk_level_field = frappe.get_doc(
             {
                 "doctype": "Custom Field",
-                "dt": "SEPA Direct Debit Batch",
+                "dt": "Direct Debit Batch",
                 "fieldname": "risk_level",
                 "label": "Risk Level",
                 "fieldtype": "Select",
@@ -312,7 +312,7 @@ def add_custom_fields_for_workflow():
         approval_notes_field = frappe.get_doc(
             {
                 "doctype": "Custom Field",
-                "dt": "SEPA Direct Debit Batch",
+                "dt": "Direct Debit Batch",
                 "fieldname": "approval_notes",
                 "label": "Approval Notes",
                 "fieldtype": "Text",

@@ -109,9 +109,10 @@ class MembershipGoal(Document):
                 if fee_override:
                     total_revenue += fee_override
                 else:
-                    # Get standard fee from membership type
+                    # Get minimum fee from membership type
                     membership_fee = (
-                        frappe.db.get_value("Membership Type", membership.membership_type, "amount") or 0
+                        frappe.db.get_value("Membership Type", membership.membership_type, "minimum_amount")
+                        or 0
                     )
                     total_revenue += membership_fee
 

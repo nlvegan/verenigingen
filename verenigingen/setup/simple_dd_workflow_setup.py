@@ -38,7 +38,7 @@ def create_simple_dd_batch_workflow():
 
         workflow_doc = frappe.new_doc("Workflow")
         workflow_doc.workflow_name = workflow_name
-        workflow_doc.document_type = "SEPA Direct Debit Batch"
+        workflow_doc.document_type = "Direct Debit Batch"
         workflow_doc.is_active = 1
         workflow_doc.workflow_state_field = "approval_status"
         workflow_doc.send_email_alert = 1
@@ -159,7 +159,7 @@ def add_workflow_custom_fields():
         approval_status_field = frappe.get_doc(
             {
                 "doctype": "Custom Field",
-                "dt": "SEPA Direct Debit Batch",
+                "dt": "Direct Debit Batch",
                 "fieldname": "approval_status",
                 "label": "Approval Status",
                 "fieldtype": "Data",
@@ -177,7 +177,7 @@ def add_workflow_custom_fields():
         workflow_state_field = frappe.get_doc(
             {
                 "doctype": "Custom Field",
-                "dt": "SEPA Direct Debit Batch",
+                "dt": "Direct Debit Batch",
                 "fieldname": "workflow_state",
                 "label": "Workflow State",
                 "fieldtype": "Data",
@@ -194,7 +194,7 @@ def add_workflow_custom_fields():
         risk_level_field = frappe.get_doc(
             {
                 "doctype": "Custom Field",
-                "dt": "SEPA Direct Debit Batch",
+                "dt": "Direct Debit Batch",
                 "fieldname": "risk_level",
                 "label": "Risk Level",
                 "fieldtype": "Select",

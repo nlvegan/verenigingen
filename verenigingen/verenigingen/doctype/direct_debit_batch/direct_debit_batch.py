@@ -726,7 +726,7 @@ def generate_direct_debit_batch(date=None):
 def process_batch(batch_name):
     """Process a direct debit batch"""
     try:
-        batch = frappe.get_doc("SEPA Direct Debit Batch", batch_name)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
         if batch.docstatus != 1:
             frappe.throw(_("Batch must be submitted before processing"))
@@ -748,7 +748,7 @@ def process_batch(batch_name):
 def mark_invoices_as_paid(batch_name):
     """Mark all invoices in a batch as paid"""
     try:
-        batch = frappe.get_doc("SEPA Direct Debit Batch", batch_name)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
         if batch.docstatus != 1:
             frappe.throw(_("Batch must be submitted before marking invoices as paid"))
@@ -783,7 +783,7 @@ def create_direct_debit_batch_for_unpaid_memberships():
             return None
 
         # Create a new batch
-        batch = frappe.new_doc("SEPA Direct Debit Batch")
+        batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = frappe.utils.today()
         batch.batch_description = f"Membership payments batch - {frappe.utils.today()}"
         batch.batch_type = "RCUR"  # Recurring direct debit

@@ -302,7 +302,7 @@ doctype_js = {
     "Membership": "public/js/membership.js",
     "Membership Type": "public/js/membership_type.js",
     "Chapter": "public/js/chapter_email_integration.js",
-    "SEPA Direct Debit Batch": "public/js/direct_debit_batch.js",
+    "Direct Debit Batch": "public/js/direct_debit_batch.js",
     "Membership Termination Request": "public/js/membership_termination_request.js",
     "Expense Claim": "public/js/expense_claim_custom.js",
     "Customer": "public/js/customer_member_link.js",

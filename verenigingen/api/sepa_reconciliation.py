@@ -220,7 +220,7 @@ def find_matching_sepa_batches(bank_transaction):
     date_range_end = add_days(bank_transaction.date, 3)
 
     potential_batches = frappe.get_all(
-        "SEPA Direct Debit Batch",
+        "Direct Debit Batch",
         filters={
             "batch_date": ["between", [date_range_start, date_range_end]],
             "docstatus": 1,  # Submitted batches only
@@ -337,21 +337,26 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch):
 
     # Get all batch items
     batch_items = frappe.get_all(
-        "SEPA Direct Debit Batch Item",
+        "Direct Debit Batch Invoice",
         filters={"parent": sepa_batch.name},
-        fields=["name", "sales_invoice", "amount", "customer", "idx"],
+        fields=["name", "invoice", "amount", "member", "member_name", "idx"],
     )
 
     reconciled_items = []
 
     for item in batch_items:
         try:
+            # Get customer from member
+            customer = frappe.db.get_value("Member", item.member, "customer")
+            if not customer:
+                frappe.throw(f"No customer found for member {item.member}")
+
             # Create payment entry with duplicate prevention
             payment_data = {
                 "doctype": "Payment Entry",
                 "payment_type": "Receive",
                 "party_type": "Customer",
-                "party": item.customer,
+                "party": customer,
                 "posting_date": bank_transaction.date,
                 "paid_amount": item.amount,
                 "received_amount": item.amount,
@@ -366,7 +371,7 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch):
                 "references": [
                     {
                         "reference_doctype": "Sales Invoice",
-                        "reference_name": item.sales_invoice,
+                        "reference_name": item.invoice,
                         "total_amount": item.amount,
                         "outstanding_amount": item.amount,
                         "allocated_amount": item.amount,
@@ -375,12 +380,12 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch):
             }
 
             payment_result = create_payment_entry_with_duplicate_check(
-                item.sales_invoice, item.amount, payment_data
+                item.invoice, item.amount, payment_data
             )
 
             reconciled_items.append(
                 {
-                    "invoice": item.sales_invoice,
+                    "invoice": item.invoice,
                     "amount": item.amount,
                     "payment_entry": payment_result.get("payment_entry"),
                     "status": "success",
@@ -389,7 +394,7 @@ def reconcile_full_sepa_batch(bank_transaction, sepa_batch):
 
         except Exception as e:
             reconciled_items.append(
-                {"invoice": item.sales_invoice, "amount": item.amount, "status": "failed", "error": str(e)}
+                {"invoice": item.invoice, "amount": item.amount, "status": "failed", "error": str(e)}
             )
 
     return {
@@ -789,7 +794,7 @@ def find_original_sepa_batch_for_return(return_transaction):
     search_end = add_days(return_transaction.date, -1)
 
     potential_batches = frappe.get_all(
-        "SEPA Direct Debit Batch",
+        "Direct Debit Batch",
         filters={"batch_date": ["between", [search_start, search_end]], "docstatus": 1},
         fields=["name", "batch_date", "total_amount", "entry_count"],
     )
@@ -797,9 +802,9 @@ def find_original_sepa_batch_for_return(return_transaction):
     # Look for amount matches within the batch items
     for batch in potential_batches:
         batch_items = frappe.get_all(
-            "SEPA Direct Debit Batch Item",
+            "Direct Debit Batch Invoice",
             filters={"parent": batch.name},
-            fields=["amount", "customer", "sales_invoice"],
+            fields=["amount", "member", "invoice"],
         )
 
         # Check if any batch item amount matches the return amount
@@ -825,7 +830,7 @@ def get_sepa_reconciliation_dashboard():
     try:
         # Recent SEPA batches
         recent_batches = frappe.get_all(
-            "SEPA Direct Debit Batch",
+            "Direct Debit Batch",
             filters={"batch_date": [">=", add_days(getdate(), -30)], "docstatus": 1},
             fields=["name", "batch_date", "total_amount", "status", "entry_count"],
         )
@@ -899,12 +904,17 @@ def manual_sepa_reconciliation(bank_transaction_name, batch_items_json):
 def create_manual_payment_entry(bank_transaction, batch_item):
     """Create payment entry for manually selected batch item"""
 
+    # Get customer from member
+    customer = frappe.db.get_value("Member", batch_item["member"], "customer")
+    if not customer:
+        frappe.throw(f"No customer found for member {batch_item['member']}")
+
     payment_entry = frappe.get_doc(
         {
             "doctype": "Payment Entry",
             "payment_type": "Receive",
             "party_type": "Customer",
-            "party": batch_item["customer"],
+            "party": customer,
             "posting_date": bank_transaction.date,
             "paid_amount": batch_item["amount"],
             "received_amount": batch_item["amount"],
@@ -916,7 +926,7 @@ def create_manual_payment_entry(bank_transaction, batch_item):
             "references": [
                 {
                     "reference_doctype": "Sales Invoice",
-                    "reference_name": batch_item["sales_invoice"],
+                    "reference_name": batch_item["invoice"],
                     "total_amount": batch_item["amount"],
                     "outstanding_amount": batch_item["amount"],
                     "allocated_amount": batch_item["amount"],
@@ -929,7 +939,7 @@ def create_manual_payment_entry(bank_transaction, batch_item):
     payment_entry.submit()
 
     return {
-        "invoice": batch_item["sales_invoice"],
+        "invoice": batch_item["invoice"],
         "amount": batch_item["amount"],
         "payment_entry": payment_entry.name,
         "status": "success",

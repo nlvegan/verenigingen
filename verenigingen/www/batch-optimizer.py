@@ -14,7 +14,7 @@ def get_context(context):
     context.parents = [{"title": _("Financial Management"), "name": "financial-management"}]
 
     # Check permissions
-    if not frappe.has_permission("SEPA Direct Debit Batch", "create"):
+    if not frappe.has_permission("Direct Debit Batch", "create"):
         frappe.throw(_("You don't have permission to create SEPA Direct Debit Batches"))
 
     # Get current settings

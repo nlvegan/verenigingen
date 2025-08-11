@@ -832,13 +832,13 @@ class PaymentMixin:
     def add_to_direct_debit_batch(self):
         """Add this membership to a direct debit batch"""
         open_batch = frappe.get_all(
-            "SEPA Direct Debit Batch", filters={"status": "Draft", "docstatus": 0}, limit=1
+            "Direct Debit Batch", filters={"status": "Draft", "docstatus": 0}, limit=1
         )
 
         if open_batch:
-            batch = frappe.get_doc("SEPA Direct Debit Batch", open_batch[0].name)
+            batch = frappe.get_doc("Direct Debit Batch", open_batch[0].name)
         else:
-            batch = frappe.new_doc("SEPA Direct Debit Batch")
+            batch = frappe.new_doc("Direct Debit Batch")
             batch.batch_date = today()
             batch.batch_description = f"Membership payments - {today()}"
             batch.batch_type = "RCUR"

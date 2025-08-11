@@ -66,9 +66,7 @@ def check_contribution_validation_rules():
     """Check where the 5€ minimum might be coming from"""
 
     # Check if there are any contribution tiers or rules
-    tiers = frappe.get_all(
-        "Membership Tier", fields=["name", "tier_name", "minimum_amount", "suggested_amount"], limit=10
-    )
+    tiers = frappe.get_all("Membership Tier", fields=["name", "tier_name", "amount"], limit=10)
 
     # Check contribution settings
     try:

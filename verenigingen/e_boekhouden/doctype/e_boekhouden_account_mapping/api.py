@@ -26,10 +26,10 @@ def get_migration_config_status():
                 "name",
                 "account_code",
                 "account_name",
-                "target_account_type",
-                "transaction_category",
-                "priority",
-                "description",
+                "document_type",
+                "category",
+                "confidence",
+                "is_active",
             ],
         )
 
@@ -252,7 +252,7 @@ def preview_migration_impact():
         mappings = {}
         for mapping in frappe.get_all(
             "E-Boekhouden Account Mapping",
-            fields=["account_code", "target_document_type", "target_account_type"],
+            fields=["account_code", "document_type", "category"],
         ):
             mappings[mapping["account_code"]] = mapping
 
@@ -352,14 +352,11 @@ def export_migration_config():
             fields=[
                 "account_code",
                 "account_name",
-                "target_account_type",
-                "target_document_type",
-                "transaction_category",
-                "priority",
-                "description",
-                "account_code_start",
-                "account_code_end",
-                "description_pattern",
+                "document_type",
+                "category",
+                "confidence",
+                "is_active",
+                "usage_count",
             ],
         )
 

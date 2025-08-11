@@ -21,7 +21,7 @@ def complete_sepa_integration_setup():
                     "fieldname": "custom_sepa_batch",
                     "label": "SEPA Batch",
                     "fieldtype": "Link",
-                    "options": "SEPA Direct Debit Batch",
+                    "options": "Direct Debit Batch",
                     "insert_after": "bank_account",
                 }
             ]
@@ -107,7 +107,7 @@ def test_sepa_workflow_step_by_step():
         workflow_steps = []
 
         # Step 1: Check existing data
-        existing_batches = frappe.get_all("SEPA Direct Debit Batch", limit=5)
+        existing_batches = frappe.get_all("Direct Debit Batch", limit=5)
         existing_transactions = frappe.get_all("Bank Transaction", limit=5)
 
         workflow_steps.append(
@@ -184,7 +184,7 @@ def quick_sepa_demo():
 
         # 1. Show current state
         recent_batches = frappe.get_all(
-            "SEPA Direct Debit Batch",
+            "Direct Debit Batch",
             filters={"creation": [">=", "2024-01-01"]},
             fields=["name", "total_amount", "status"],
             limit=3,

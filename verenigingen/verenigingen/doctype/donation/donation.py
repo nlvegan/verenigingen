@@ -261,10 +261,9 @@ class Donation(Document):
 
         # Override based on donation purpose
         if self.donation_purpose_type == "Chapter" and self.chapter_reference:
-            # Check if chapter has specific accounts
-            chapter_account = frappe.db.get_value("Chapter", self.chapter_reference, "donation_account")
-            if chapter_account:
-                credit_account = chapter_account
+            # Use the same credit_account but will assign to chapter's cost center
+            # Chapter accounting is handled via cost centers, not separate accounts
+            pass
 
         elif self.donation_purpose_type == "Campaign" and self.campaign:
             # Use campaign donation account from settings
@@ -316,27 +315,32 @@ class Donation(Document):
         if campaign_project:
             je.project = campaign_project
 
+        # Get cost center for chapter donations
+        cost_center = None
+        if self.donation_purpose_type == "Chapter" and self.chapter_reference:
+            cost_center = frappe.db.get_value("Chapter", self.chapter_reference, "cost_center")
+
         # Credit general donation account
-        je.append(
-            "accounts",
-            {
-                "account": from_account,
-                "credit_in_account_currency": self.amount,
-                "reference_type": "Donation",
-                "reference_name": self.name,
-            },
-        )
+        credit_entry = {
+            "account": from_account,
+            "credit_in_account_currency": self.amount,
+            "reference_type": "Donation",
+            "reference_name": self.name,
+        }
+        if cost_center:
+            credit_entry["cost_center"] = cost_center
+        je.append("accounts", credit_entry)
 
         # Debit specific purpose account
-        je.append(
-            "accounts",
-            {
-                "account": to_account,
-                "debit_in_account_currency": self.amount,
-                "reference_type": "Donation",
-                "reference_name": self.name,
-            },
-        )
+        debit_entry = {
+            "account": to_account,
+            "debit_in_account_currency": self.amount,
+            "reference_type": "Donation",
+            "reference_name": self.name,
+        }
+        if cost_center:
+            debit_entry["cost_center"] = cost_center
+        je.append("accounts", debit_entry)
 
         je.insert(ignore_permissions=True)
         je.submit()
@@ -350,7 +354,8 @@ class Donation(Document):
         to_account = None
 
         if self.donation_purpose_type == "Chapter" and self.chapter_reference:
-            to_account = frappe.db.get_value("Chapter", self.chapter_reference, "donation_account")
+            # Use default account - chapter tracking is handled via cost center
+            to_account = None
 
         elif self.donation_purpose_type == "Campaign":
             # Could be expanded to use campaign-specific accounts

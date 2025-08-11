@@ -130,12 +130,12 @@ def run_dd_validation_tests():
         print("\n5️⃣  Testing SEPA Direct Debit Batch DocType")
 
         # Check if SEPA Direct Debit Batch doctype exists
-        dd_batch_exists = frappe.db.exists("DocType", "SEPA Direct Debit Batch")
+        dd_batch_exists = frappe.db.exists("DocType", "Direct Debit Batch")
         if dd_batch_exists:
             print("   ✅ SEPA Direct Debit Batch DocType exists")
 
             # Try to get batch meta
-            batch_meta = frappe.get_meta("SEPA Direct Debit Batch")
+            batch_meta = frappe.get_meta("Direct Debit Batch")
             print(f"   ✅ SEPA Direct Debit Batch has {len(batch_meta.fields)} fields")
 
             # Check for key fields

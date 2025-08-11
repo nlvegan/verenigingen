@@ -408,13 +408,13 @@ class DutchTaxExemptionHandler:
             exemption_type: BTW exemption type (use default if None)
         """
         if not exemption_type:
-            # Get default from related document or use membership exemption
+            # Use default exemption based on invoice type
             if invoice.membership:
-                exemption_type = frappe.db.get_value("Membership", invoice.membership, "btw_exemption_type")
+                exemption_type = "EXEMPT_MEMBERSHIP"  # Default for membership invoices
             elif invoice.donation:
-                exemption_type = frappe.db.get_value("Donation", invoice.donation, "btw_exemption_type")
+                exemption_type = "EXEMPT_DONATION"  # Default for donation invoices
             else:
-                exemption_type = "EXEMPT_MEMBERSHIP"  # Default
+                exemption_type = "EXEMPT_MEMBERSHIP"  # General default
 
         # Set BTW exemption fields
         invoice.btw_exemption_type = exemption_type
@@ -580,16 +580,12 @@ def apply_tax_exemption_from_source(doc, method=None):
 
         # For membership-related invoices
         if hasattr(doc, "membership") and doc.membership:
-            exemption_type = (
-                frappe.db.get_value("Membership", doc.membership, "btw_exemption_type") or "EXEMPT_MEMBERSHIP"
-            )
+            exemption_type = "EXEMPT_MEMBERSHIP"  # Default for membership invoices
             handler.apply_exemption_to_invoice(doc, exemption_type)
 
         # For donation-related invoices
         elif hasattr(doc, "donation") and doc.donation:
-            exemption_type = (
-                frappe.db.get_value("Donation", doc.donation, "btw_exemption_type") or "EXEMPT_FUNDRAISING"
-            )
+            exemption_type = "EXEMPT_FUNDRAISING"  # Default for donation invoices
             handler.apply_exemption_to_invoice(doc, exemption_type)
 
         # Use default exemption for verenigingen-created invoices if tax exempt is enabled

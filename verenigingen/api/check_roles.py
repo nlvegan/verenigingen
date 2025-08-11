@@ -345,7 +345,7 @@ def investigate_duplicate_invoices(member_name):
             frappe.get_all(
                 "RQ Job",
                 filters={"job_name": ["like", "%dues%"], "creation": [">=", "2025-07-23"]},
-                fields=["name", "job_name", "status", "creation", "started", "ended"],
+                fields=["name", "job_name", "status", "creation", "started_at", "ended_at"],
                 order_by="creation desc",
                 limit=10,
             )

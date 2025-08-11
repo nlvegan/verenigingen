@@ -51,13 +51,20 @@ def map_grootboek_to_erpnext_account(grootboek_nr: str, transaction_type: str, c
     if not grootboek_nr:
         return None
 
-    # Check if we have a mapping
-    mapped_account = frappe.db.get_value(
-        "E-Boekhouden Account Map", {"eboekhouden_grootboek": grootboek_nr}, "erpnext_account"
+    # Check if we have account mapping info (current DocType stores processing instructions, not direct mappings)
+    account_mapping = frappe.db.get_value(
+        "E-Boekhouden Account Mapping",
+        {"account_code": grootboek_nr, "is_active": 1},
+        ["document_type", "account_name"],
     )
 
-    if mapped_account:
-        return mapped_account
+    if account_mapping and account_mapping[1]:  # account_name exists
+        # Try to find the ERPNext account by name
+        erpnext_account = frappe.db.get_value(
+            "Account", {"company": company, "account_name": account_mapping[1]}, "name"
+        )
+        if erpnext_account:
+            return erpnext_account
 
     # Try to find account by number in account name
     account = frappe.db.get_value(

@@ -6,8 +6,8 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 
 @high_security_api(operation_type=OperationType.ADMIN)
 @frappe.whitelist()
-def fix_membership_types_billing_frequency():
-    """Fix membership types to have appropriate billing frequencies"""
+def fix_membership_types_billing_period():
+    """Fix membership types to have appropriate billing periods"""
 
     # Define the correct billing frequencies for each membership type
     billing_fixes = {
@@ -24,9 +24,9 @@ def fix_membership_types_billing_frequency():
     for membership_type, correct_frequency in billing_fixes.items():
         if frappe.db.exists("Membership Type", membership_type):
             try:
-                # Update the billing frequency
+                # Update the billing period
                 frappe.db.set_value(
-                    "Membership Type", membership_type, "billing_frequency", correct_frequency
+                    "Membership Type", membership_type, "billing_period", correct_frequency
                 )
                 results.append(
                     {"membership_type": membership_type, "updated_to": correct_frequency, "success": True}
@@ -63,7 +63,7 @@ def verify_membership_types_fixed():
     results = []
     for mt_name in membership_types:
         if frappe.db.exists("Membership Type", mt_name):
-            billing_frequency = frappe.db.get_value("Membership Type", mt_name, "billing_frequency")
-            results.append({"name": mt_name, "billing_frequency": billing_frequency})
+            billing_period = frappe.db.get_value("Membership Type", mt_name, "billing_period")
+            results.append({"name": mt_name, "billing_period": billing_period})
 
     return results

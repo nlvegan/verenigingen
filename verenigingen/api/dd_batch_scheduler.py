@@ -386,7 +386,7 @@ def create_system_notification(result):
                 "doctype": "Notification Log",
                 "subject": f"Auto-created {result['batches_created']} DD batches",
                 "type": "Alert",
-                "document_type": "SEPA Direct Debit Batch",
+                "document_type": "Direct Debit Batch",
                 "document_name": result.get("batch_names", [None])[0] if result.get("batch_names") else None,
                 "from_user": "Administrator",
                 "for_user": "",  # Will be set per user below
@@ -509,7 +509,7 @@ def run_batch_creation_now():
             return {"success": False, "error": "Anonymous access not permitted for batch operations"}
 
         # 2. Enhanced permission validation
-        if not frappe.has_permission("SEPA Direct Debit Batch", "create"):
+        if not frappe.has_permission("Direct Debit Batch", "create"):
             return {"success": False, "error": "You don't have permission to create batches"}
 
         # 3. Validate user has required roles (not just permissions)
@@ -537,7 +537,7 @@ def run_batch_creation_now():
 
         # 7. Rate limiting check - prevent abuse
         recent_runs = frappe.db.count(
-            "SEPA Direct Debit Batch",
+            "Direct Debit Batch",
             {"creation": [">", add_days(now_datetime(), hours=-1)], "owner": frappe.session.user},
         )
         if recent_runs > 5:  # Max 5 manual runs per hour per user
@@ -646,12 +646,12 @@ def get_batch_optimization_stats():
     try:
         # Get batches created in last 30 days
         recent_batches = frappe.get_all(
-            "SEPA Direct Debit Batch",
+            "Direct Debit Batch",
             filters={
                 "creation": [">=", add_days(getdate(), -30)],
                 "batch_description": ["like", "%Auto-optimized%"],
             },
-            fields=["name", "total_amount", "entry_count", "creation", "workflow_state"],
+            fields=["name", "total_amount", "entry_count", "creation", "status"],
         )
 
         if not recent_batches:

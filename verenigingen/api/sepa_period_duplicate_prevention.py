@@ -58,9 +58,7 @@ def check_period_invoicing_duplicates(
                 "grand_total",
                 "status",
                 "docstatus",
-                "custom_period_start",
-                "custom_period_end",
-                "custom_membership_type",
+                "remarks",
             ],
         )
 
@@ -84,22 +82,25 @@ def check_period_invoicing_duplicates(
         # Check for exact period overlaps
         period_duplicates = []
         for invoice in membership_invoices:
+            # Calculate period from posting_date (monthly period)
+            invoice_period_start, invoice_period_end = _calculate_monthly_period_from_posting_date(
+                invoice.posting_date
+            )
+
             # Check if periods overlap
-            if _periods_overlap(
-                period_start, period_end, invoice.get("custom_period_start"), invoice.get("custom_period_end")
-            ):
+            if _periods_overlap(period_start, period_end, invoice_period_start, invoice_period_end):
                 period_duplicates.append(
                     {
                         "invoice": invoice.name,
                         "posting_date": invoice.posting_date,
                         "amount": invoice.grand_total,
-                        "period_start": invoice.get("custom_period_start"),
-                        "period_end": invoice.get("custom_period_end"),
+                        "period_start": invoice_period_start,
+                        "period_end": invoice_period_end,
                         "overlap_type": _get_overlap_type(
                             period_start,
                             period_end,
-                            invoice.get("custom_period_start"),
-                            invoice.get("custom_period_end"),
+                            invoice_period_start,
+                            invoice_period_end,
                         ),
                     }
                 )
@@ -173,19 +174,18 @@ def check_dues_schedule_period_duplicates(
             fields=[
                 "name",
                 "posting_date",
-                "custom_period_start",
-                "custom_period_end",
                 "grand_total",
                 "status",
                 "docstatus",
+                "remarks",
             ],
         )
 
         # Check for period overlaps
         overlapping_invoices = []
         for invoice in member_invoices:
-            invoice_start = invoice.get("custom_period_start") or invoice.posting_date
-            invoice_end = invoice.get("custom_period_end") or invoice.posting_date
+            # Calculate monthly period from posting date
+            invoice_start, invoice_end = _calculate_monthly_period_from_posting_date(invoice.posting_date)
 
             if _periods_overlap(period_start, period_end, invoice_start, invoice_end):
                 overlapping_invoices.append(
@@ -229,7 +229,7 @@ def prevent_sepa_batch_period_duplicates(batch_name: str) -> Dict:
     """
     try:
         # Get SEPA batch
-        batch = frappe.get_doc("SEPA Direct Debit Batch", batch_name)
+        batch = frappe.get_doc("Direct Debit Batch", batch_name)
 
         conflicts = []
         validated_items = []
@@ -238,9 +238,8 @@ def prevent_sepa_batch_period_duplicates(batch_name: str) -> Dict:
             # Get invoice details
             invoice = frappe.get_doc("Sales Invoice", item.sales_invoice)
 
-            # Determine billing period from invoice
-            period_start = invoice.get("custom_period_start") or invoice.posting_date
-            period_end = invoice.get("custom_period_end") or invoice.posting_date
+            # Determine billing period from invoice (calculate monthly period)
+            period_start, period_end = _calculate_monthly_period_from_posting_date(invoice.posting_date)
 
             # Check for period duplicates
             duplicate_check = check_period_invoicing_duplicates(
@@ -427,6 +426,27 @@ def generate_membership_billing_periods(
     return periods
 
 
+def _calculate_monthly_period_from_posting_date(posting_date):
+    """
+    Calculate monthly billing period from posting date
+
+    Args:
+        posting_date: Date string or date object
+
+    Returns:
+        tuple: (period_start, period_end) as date strings
+    """
+    try:
+        posting_date = getdate(posting_date)
+        period_start = get_first_day(posting_date)
+        period_end = get_last_day(posting_date)
+        return period_start.strftime("%Y-%m-%d"), period_end.strftime("%Y-%m-%d")
+    except Exception:
+        # Fallback to using posting_date as both start and end
+        date_str = str(posting_date) if posting_date else str(getdate())
+        return date_str, date_str
+
+
 def validate_invoice_period_fields(invoice_doc) -> None:
     """
     Validate and auto-populate period fields on invoice
@@ -446,15 +466,8 @@ def validate_invoice_period_fields(invoice_doc) -> None:
     if not has_membership_items:
         return
 
-    # Auto-populate period fields if not set
-    if not invoice_doc.get("custom_period_start") or not invoice_doc.get("custom_period_end"):
-        # Default to monthly period starting from posting date
-        period_start = get_first_day(invoice_doc.posting_date)
-        period_end = get_last_day(invoice_doc.posting_date)
-
-        invoice_doc.custom_period_start = period_start
-        invoice_doc.custom_period_end = period_end
-        invoice_doc.custom_membership_type = "Standard"  # Default
+    # Calculate billing period from posting date (monthly period)
+    period_start, period_end = _calculate_monthly_period_from_posting_date(invoice_doc.posting_date)
 
     # Check for period duplicates if strict mode enabled
     if _is_strict_mode_enabled():
@@ -462,8 +475,8 @@ def validate_invoice_period_fields(invoice_doc) -> None:
         if member_name:
             check_period_invoicing_duplicates(
                 member_name=member_name,
-                period_start=invoice_doc.custom_period_start,
-                period_end=invoice_doc.custom_period_end,
+                period_start=period_start,
+                period_end=period_end,
             )
             # Note: This will raise ValidationError if duplicates found
 
@@ -506,9 +519,7 @@ def generate_period_duplicate_report(date_range: str = "Last 3 Months") -> Dict:
             "customer",
             "posting_date",
             "grand_total",
-            "custom_period_start",
-            "custom_period_end",
-            "custom_membership_type",
+            "remarks",
         ],
     )
 
@@ -536,12 +547,10 @@ def generate_period_duplicate_report(date_range: str = "Last 3 Months") -> Dict:
         customer_analysis[customer]["invoices"].append(invoice)
 
         # Check for period overlaps with other invoices
-        period_start = invoice.get("custom_period_start") or invoice.posting_date
-        period_end = invoice.get("custom_period_end") or invoice.posting_date
+        period_start, period_end = _calculate_monthly_period_from_posting_date(invoice.posting_date)
 
         for other_invoice in customer_analysis[customer]["invoices"][:-1]:
-            other_start = other_invoice.get("custom_period_start") or other_invoice.posting_date
-            other_end = other_invoice.get("custom_period_end") or other_invoice.posting_date
+            other_start, other_end = _calculate_monthly_period_from_posting_date(other_invoice.posting_date)
 
             if _periods_overlap(period_start, period_end, other_start, other_end):
                 duplicate_entry = {

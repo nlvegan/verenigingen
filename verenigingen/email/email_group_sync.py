@@ -302,7 +302,7 @@ def get_email_group_stats():
     stats = []
 
     # Get all email groups
-    groups = frappe.get_all("Email Group", fields=["name", "title", "description"])
+    groups = frappe.get_all("Email Group", fields=["name", "title"])
 
     for group in groups:
         # Count members

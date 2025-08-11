@@ -107,7 +107,7 @@ verenigingen_fields = [
         "name": "Bank Transaction-custom_sepa_batch",
         "no_copy": 0,
         "non_negative": 0,
-        "options": "SEPA Direct Debit Batch",
+        "options": "Direct Debit Batch",
         "permlevel": 0,
         "placeholder": None,
         "precision": "",

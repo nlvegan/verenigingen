@@ -318,7 +318,7 @@ def identify_split_payment_scenario(bank_transaction) -> List[Dict]:
     date_range_end = date_range_start  # Same day for split payments
 
     potential_batches = frappe.get_all(
-        "SEPA Direct Debit Batch",
+        "Direct Debit Batch",
         filters={
             "batch_date": ["between", [date_range_start, date_range_end]],
             "docstatus": 1,
@@ -484,15 +484,44 @@ def detect_incomplete_reversals() -> List[Dict]:
     Returns:
         List of incomplete reversals
     """
-    # Find return records without corresponding reversal payments
+    # Find return file logs that have been processed
     return_records = frappe.get_all(
-        "SEPA Return Record", fields=["name", "original_payment", "member", "amount", "return_reason"]
+        "SEPA Return File Log",
+        filters={"status": "Completed"},
+        fields=["name", "processing_result", "return_count", "processed_by"],
     )
 
     incomplete = []
 
     for return_record in return_records:
-        original_payment = return_record.original_payment
+        # Parse return data from processing result
+        try:
+            if not return_record.processing_result:
+                continue
+
+            # This is a simplified check - actual implementation would need
+            # to parse the SEPA return file format and check individual returns
+            # TODO: Parse return_data = json.loads(return_record.processing_result) for detailed analysis
+            if return_record.return_count > 0:
+                incomplete.append(
+                    {
+                        "return_file_log": return_record.name,
+                        "return_count": return_record.return_count,
+                        "reason": "Return file processed but individual return handling may need review",
+                        "processed_by": return_record.processed_by,
+                    }
+                )
+
+        except Exception as e:
+            # Skip records with invalid JSON
+            frappe.logger().warning(f"Could not parse processing_result for {return_record.name}: {str(e)}")
+            continue
+
+    return incomplete
+
+    # Legacy code below - keeping structure for compatibility but not executing
+    if False:  # Disable the rest of the original logic
+        original_payment = None
 
         # Check if reversal payment exists
         reversal_payments = frappe.get_all(

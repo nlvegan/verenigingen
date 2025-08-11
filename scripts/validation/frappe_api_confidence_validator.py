@@ -12,6 +12,7 @@ Key Features:
 - Support for modern Frappe query patterns
 - Performance optimization with caching
 - Integration with existing validation infrastructure
+- Uses unified DocType loader with custom field support
 """
 
 import ast
@@ -23,6 +24,13 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from enum import Enum
 import logging
+
+# Import unified DocType loader
+try:
+    from .doctype_loader import get_unified_doctype_loader, DocTypeLoader
+except ImportError:
+    # Fallback for direct execution
+    from doctype_loader import get_unified_doctype_loader, DocTypeLoader
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -82,19 +90,23 @@ class FrappeAPIConfidenceValidator:
         self.app_path = Path(app_path)
         self.config = config or self._default_config()
         
-        # Load DocType schemas with caching
-        self.doctypes = self._load_doctypes_cached()
-        
-        # Field mapping cache for performance
-        self._field_cache = {}
-        
-        # Statistics
+        # Initialize statistics first
         self.stats = {
             'files_scanned': 0,
             'queries_analyzed': 0,
             'issues_found': 0,
             'cache_hits': 0,
+            'custom_fields_loaded': 0,
         }
+        
+        # Field mapping cache for performance
+        self._field_cache = {}
+        
+        # Initialize unified DocType loader with custom field support
+        self.doctype_loader = get_unified_doctype_loader(str(self.app_path), verbose=False)
+        
+        # Load DocType schemas with comprehensive field data (including custom fields)
+        self.doctypes = self._load_doctypes_with_unified_loader()
         
         # Frappe API patterns to validate
         self.query_patterns = {
@@ -125,74 +137,38 @@ class FrappeAPIConfidenceValidator:
             'ignore_test_files': True,
         }
     
-    @lru_cache(maxsize=1024)
-    def _load_doctypes_cached(self) -> Dict[str, Dict]:
-        """Load DocType schemas with comprehensive caching"""
+    def _load_doctypes_with_unified_loader(self) -> Dict[str, Dict]:
+        """Load DocType schemas using unified loader with custom field support"""
+        
+        # Get detailed DocType information including custom fields
+        detailed_doctypes = self.doctype_loader.get_doctypes_detailed()
+        
+        # Convert to format expected by validator
         doctypes = {}
+        custom_fields_count = 0
         
-        # Load from current app
-        doctypes.update(self._load_doctypes_from_path(self.app_path))
+        for doctype_name, doctype_info in detailed_doctypes.items():
+            # Get all field names (including custom fields)
+            field_names = doctype_info['fields']
+            
+            # Count custom fields for statistics
+            custom_fields_count += doctype_info.get('custom_fields_count', 0)
+            
+            doctypes[doctype_name] = {
+                'fields': field_names,
+                'field_details': {},  # Could be populated if needed
+                'app': doctype_info.get('app', 'unknown'),
+                'is_single': doctype_info.get('data', {}).get('issingle', False),
+                'is_child': doctype_info.get('data', {}).get('istable', False),
+                'custom_fields_count': doctype_info.get('custom_fields_count', 0)
+            }
         
-        # Load from other Frappe apps if available
-        bench_path = self.app_path.parent.parent
-        for app_name in ['frappe', 'erpnext', 'hrms', 'payments', 'crm']:
-            app_path = bench_path / 'apps' / app_name
-            if app_path.exists():
-                doctypes.update(self._load_doctypes_from_path(app_path))
+        # Update statistics
+        self.stats['custom_fields_loaded'] = custom_fields_count
         
-        logger.info(f"Loaded {len(doctypes)} DocType schemas")
+        logger.info(f"Loaded {len(doctypes)} DocType schemas with {custom_fields_count} custom fields using unified loader")
         return doctypes
     
-    def _load_doctypes_from_path(self, path: Path) -> Dict[str, Dict]:
-        """Load DocTypes from a specific app path"""
-        doctypes = {}
-        
-        for json_file in path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    
-                    doctype_name = data.get('name')
-                    if not doctype_name:
-                        continue
-                    
-                    # Extract field information
-                    fields = {}
-                    field_names = set()
-                    
-                    for field_data in data.get('fields', []):
-                        fieldname = field_data.get('fieldname')
-                        if fieldname:
-                            field_names.add(fieldname)
-                            fields[fieldname] = {
-                                'fieldtype': field_data.get('fieldtype'),
-                                'options': field_data.get('options'),
-                                'label': field_data.get('label'),
-                                'is_table': field_data.get('fieldtype') == 'Table'
-                            }
-                    
-                    # Add standard Frappe fields
-                    standard_fields = {
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        '_user_tags', '_comments', '_assign', '_liked_by'
-                    }
-                    field_names.update(standard_fields)
-                    
-                    doctypes[doctype_name] = {
-                        'fields': field_names,
-                        'field_details': fields,
-                        'app': path.name,
-                        'is_single': data.get('issingle', False),
-                        'is_child': data.get('istable', False),
-                    }
-                    
-                except Exception as e:
-                    logger.debug(f"Error loading {json_file}: {e}")
-                    continue
-        
-        return doctypes
     
     def _build_valid_patterns(self) -> Set[str]:
         """Build patterns that are always valid in Frappe queries"""
@@ -668,7 +644,7 @@ class FrappeAPIConfidenceValidator:
         
         # Scan Python files
         for py_file in self.app_path.rglob("**/*.py"):
-            if any(skip in str(py_file) for skip in ['__pycache__', '.git', 'node_modules']):
+            if any(skip in str(py_file) for skip in ['__pycache__', '.git', 'node_modules', 'archived_unused/', 'archived_docs/', 'archived_removal/']):
                 continue
             
             file_issues = self.validate_file(py_file)
@@ -700,6 +676,7 @@ class FrappeAPIConfidenceValidator:
         report.append(f"Total issues: {len(issues)}")
         report.append(f"Files scanned: {self.stats['files_scanned']}")
         report.append(f"Queries analyzed: {self.stats['queries_analyzed']}")
+        report.append(f"Custom fields loaded: {self.stats.get('custom_fields_loaded', 0)}")
         report.append("")
         
         # Group by confidence level

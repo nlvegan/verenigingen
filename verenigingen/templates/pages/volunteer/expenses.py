@@ -319,8 +319,8 @@ def update_workspace_links():
             {"label": "Payment Processing", "link_count": 2, "link_type": "DocType", "type": "Card Break"},
             {"label": "SEPA Mandate", "link_to": "SEPA Mandate", "link_type": "DocType", "type": "Link"},
             {
-                "label": "SEPA Direct Debit Batch",
-                "link_to": "SEPA Direct Debit Batch",
+                "label": "Direct Debit Batch",
+                "link_to": "Direct Debit Batch",
                 "link_type": "DocType",
                 "type": "Link",
             },

@@ -146,9 +146,12 @@ def analyze_chapter_patterns(terminations):
     disciplinary_types = ["Policy Violation", "Disciplinary Action", "Expulsion"]
 
     for termination in terminations:
-        # Get member's chapter
+        # Get member's primary chapter through Chapter Member relationship
         try:
-            member_chapter = frappe.db.get_value("Member", termination.member, "primary_chapter")
+            # Get the member's current active chapter membership
+            member_chapter = frappe.db.get_value(
+                "Chapter Member", {"member": termination.member, "enabled": 1}, "parent"
+            )
             if member_chapter:
                 chapter_key = member_chapter
             else:

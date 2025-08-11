@@ -136,7 +136,7 @@ class TestSecurityComprehensive(VereningingenTestCase):
             frappe.get_all("Membership", fields=["membership_type", "member"])  # annual_fee field doesn't exist
 
         with self.assertRaises(frappe.PermissionError):
-            frappe.get_all("SEPA Direct Debit Batch")
+            frappe.get_all("Direct Debit Batch")
 
         with self.assertRaises(frappe.PermissionError):
             frappe.get_all("SEPA Mandate")

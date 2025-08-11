@@ -303,7 +303,7 @@ def generate_duplicate_prevention_report() -> dict:
     )
 
     total_batches_processed = frappe.db.count(
-        "SEPA Direct Debit Batch",
+        "Direct Debit Batch",
         filters={
             "custom_reconciliation_status": ["in", ["Fully Reconciled", "Partially Reconciled"]],
             "modified": [">=", getdate()],

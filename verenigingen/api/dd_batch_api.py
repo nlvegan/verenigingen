@@ -137,7 +137,7 @@ def get_batch_list_with_security(filters=None):
         - Provides comprehensive batch metadata
 
     Database Access:
-        - Reads from: tabDirect Debit Batch, tabDirect Debit Batch Entry
+        - Reads from: tabDirect Debit Batch, tabDirect Debit Batch Invoice
         - Indexes used: batch_date, status, docstatus
         - Query optimization: Selective field retrieval, count aggregation
     """
@@ -188,15 +188,15 @@ def get_batch_list_with_security(filters=None):
     for batch in batches:
         # Add summary counts
         batch["pending_count"] = frappe.db.count(
-            "Direct Debit Batch Entry", {"parent": batch.name, "status": "Pending"}
+            "Direct Debit Batch Invoice", {"parent": batch.name, "status": "Pending"}
         )
 
         batch["processed_count"] = frappe.db.count(
-            "Direct Debit Batch Entry", {"parent": batch.name, "status": "Processed"}
+            "Direct Debit Batch Invoice", {"parent": batch.name, "status": "Processed"}
         )
 
         batch["failed_count"] = frappe.db.count(
-            "Direct Debit Batch Entry", {"parent": batch.name, "status": "Failed"}
+            "Direct Debit Batch Invoice", {"parent": batch.name, "status": "Failed"}
         )
 
     return {"success": True, "batches": batches, "total_batches": len(batches)}
@@ -232,7 +232,7 @@ def get_batch_details_with_security(batch_id):
 
     # Get batch entries
     entries = frappe.get_all(
-        "Direct Debit Batch Entry",
+        "Direct Debit Batch Invoice",
         filters={"parent": batch_id},
         fields=[
             "name",
@@ -240,10 +240,9 @@ def get_batch_details_with_security(batch_id):
             "member_name",
             "amount",
             "status",
-            "error_message",
+            "result_message",
             "mandate_reference",
             "iban",
-            "description",
         ],
         order_by="idx",
     )
@@ -292,9 +291,9 @@ def get_batch_conflicts(batch_id):
 
     # Get entries with errors
     failed_entries = frappe.get_all(
-        "Direct Debit Batch Entry",
+        "Direct Debit Batch Invoice",
         filters={"parent": batch_id, "status": "Failed"},
-        fields=["name", "member", "member_name", "amount", "error_message", "mandate_reference", "iban"],
+        fields=["name", "member", "member_name", "amount", "result_message", "mandate_reference", "iban"],
     )
 
     for entry in failed_entries:
@@ -303,13 +302,13 @@ def get_batch_conflicts(batch_id):
             "member": entry.member,
             "member_name": entry.member_name,
             "amount": entry.amount,
-            "error": entry.error_message,
+            "error": entry.result_message,
             "type": "processing_error",
             "resolution_options": [],
         }
 
         # Suggest resolution options based on error type
-        if "mandate" in (entry.error_message or "").lower():
+        if "mandate" in (entry.result_message or "").lower():
             conflict["resolution_options"].extend(
                 [
                     {"action": "update_mandate", "label": "Update SEPA mandate"},
@@ -334,7 +333,7 @@ def get_batch_conflicts(batch_id):
     duplicate_mandates = frappe.db.sql(
         """
         SELECT mandate_reference, COUNT(*) as count
-        FROM `tabDirect Debit Batch Entry`
+        FROM `tabDirect Debit Batch Invoice`
         WHERE parent = %s AND mandate_reference IS NOT NULL
         GROUP BY mandate_reference
         HAVING count > 1
@@ -436,7 +435,7 @@ def get_eligible_invoices(filters=None):
     for invoice in eligible_invoices:
         # Check if invoice is already in a pending batch
         existing_entry = frappe.db.exists(
-            "Direct Debit Batch Entry",
+            "Direct Debit Batch Invoice",
             {
                 "invoice": invoice.name,
                 "docstatus": ["!=", 2],  # Not cancelled
@@ -492,7 +491,7 @@ def apply_conflict_resolutions(batch_id, resolutions):
         try:
             if resolution["action"] == "update_mandate":
                 # Update mandate information
-                entry = frappe.get_doc("Direct Debit Batch Entry", resolution["entry_id"])
+                entry = frappe.get_doc("Direct Debit Batch Invoice", resolution["entry_id"])
                 if resolution.get("new_mandate_reference"):
                     entry.mandate_reference = resolution["new_mandate_reference"]
                 if resolution.get("new_iban"):
@@ -505,7 +504,7 @@ def apply_conflict_resolutions(batch_id, resolutions):
 
             elif resolution["action"] == "exclude_entry":
                 # Remove entry from batch
-                entry = frappe.get_doc("Direct Debit Batch Entry", resolution["entry_id"])
+                entry = frappe.get_doc("Direct Debit Batch Invoice", resolution["entry_id"])
                 entry.status = "Excluded"
                 entry.save()
                 result["success"] = True
@@ -515,7 +514,7 @@ def apply_conflict_resolutions(batch_id, resolutions):
                 # Consolidate duplicate entries
                 mandate_ref = resolution["mandate_reference"]
                 entries = frappe.get_all(
-                    "Direct Debit Batch Entry",
+                    "Direct Debit Batch Invoice",
                     filters={"parent": batch_id, "mandate_reference": mandate_ref},
                     fields=["name", "amount"],
                 )
@@ -523,13 +522,13 @@ def apply_conflict_resolutions(batch_id, resolutions):
                 if len(entries) > 1:
                     # Keep first entry, sum amounts, remove others
                     total_amount = sum(flt(e.amount) for e in entries)
-                    first_entry = frappe.get_doc("Direct Debit Batch Entry", entries[0].name)
+                    first_entry = frappe.get_doc("Direct Debit Batch Invoice", entries[0].name)
                     first_entry.amount = total_amount
                     first_entry.save()
 
                     # Remove other entries
                     for i in range(1, len(entries)):
-                        frappe.delete_doc("Direct Debit Batch Entry", entries[i].name)
+                        frappe.delete_doc("Direct Debit Batch Invoice", entries[i].name)
 
                     result["success"] = True
                     result["message"] = f"Consolidated {len(entries)} entries into one"

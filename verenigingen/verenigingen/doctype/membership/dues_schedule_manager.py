@@ -193,7 +193,7 @@ def create_direct_debit_batch(date=None):
         return None
 
     # Create a batch entry
-    batch = frappe.new_doc("SEPA Direct Debit Batch")
+    batch = frappe.new_doc("Direct Debit Batch")
     batch.batch_date = date
     batch.batch_description = f"Membership payments batch - {date}"
     batch.batch_type = "CORE"  # Dutch direct debit type
@@ -400,17 +400,17 @@ def add_to_direct_debit_batch(membership_name):
     # Check for existing draft batch
     batch = None
     existing_batches = frappe.get_all(
-        "SEPA Direct Debit Batch",
+        "Direct Debit Batch",
         filters={"docstatus": 0, "status": "Draft"},
         order_by="creation desc",
         limit=1,
     )
 
     if existing_batches:
-        batch = frappe.get_doc("SEPA Direct Debit Batch", existing_batches[0].name)
+        batch = frappe.get_doc("Direct Debit Batch", existing_batches[0].name)
     else:
         # Create new batch
-        batch = frappe.new_doc("SEPA Direct Debit Batch")
+        batch = frappe.new_doc("Direct Debit Batch")
         batch.batch_date = today()
         batch.batch_description = f"Membership payments batch - {today()}"
         batch.batch_type = "RCUR"

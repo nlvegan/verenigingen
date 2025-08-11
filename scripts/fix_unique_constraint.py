@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+
+import frappe
+
+def fix_unique_constraints():
+    """Remove unique constraints from eboekhouden_invoice_number fields"""
+    
+    # Connect to site
+    frappe.init(site='dev.veganisme.net')
+    frappe.connect()
+    
+    try:
+        # Remove unique constraint from Purchase Invoice field
+        frappe.db.sql("""
+            UPDATE `tabCustom Field` 
+            SET unique = 0 
+            WHERE fieldname = 'eboekhouden_invoice_number' 
+            AND dt = 'Purchase Invoice'
+        """)
+        
+        # Remove unique constraint from Sales Invoice field  
+        frappe.db.sql("""
+            UPDATE `tabCustom Field` 
+            SET unique = 0 
+            WHERE fieldname = 'eboekhouden_invoice_number' 
+            AND dt = 'Sales Invoice'
+        """)
+        
+        # Commit changes
+        frappe.db.commit()
+        
+        print("✅ Successfully removed unique constraints from eboekhouden_invoice_number fields")
+        
+        # Verify the changes
+        results = frappe.db.sql("""
+            SELECT dt, fieldname, unique 
+            FROM `tabCustom Field` 
+            WHERE fieldname = 'eboekhouden_invoice_number'
+        """, as_dict=True)
+        
+        for result in results:
+            print(f"   {result.dt}: {result.fieldname} unique = {result.unique}")
+            
+    except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        frappe.db.rollback()
+    finally:
+        frappe.destroy()
+
+if __name__ == "__main__":
+    fix_unique_constraints()

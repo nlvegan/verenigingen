@@ -75,18 +75,22 @@ def analyze_import_issues():
         mutation_nr = sinv_with_mutation[0].eboekhouden_mutation_nr
         print(f"Checking mutation {mutation_nr}")
         
-        # Get mutation data from cache
-        cached_data = frappe.db.get_value(
-            'EBoekhouden REST Mutation Cache',
-            {'mutation_id': mutation_nr},
-            'mutation_data'
+        # Check if there are any E-Boekhouden migrations that might contain this data
+        migration_records = frappe.get_all(
+            'E-Boekhouden Migration',
+            filters={'migration_status': 'Completed'},
+            fields=['name', 'migration_summary']
         )
         
-        if cached_data:
-            import json
-            mutation_data = json.loads(cached_data)
-            print(f"  Description: {mutation_data.get('description', 'N/A')}")
-            print(f"  Relation ID: {mutation_data.get('relationId', 'N/A')}")
+        found_migration = False
+        for migration in migration_records:
+            if migration.migration_summary and mutation_nr in str(migration.migration_summary):
+                print(f"  Found in migration: {migration.name}")
+                found_migration = True
+                break
+        
+        if not found_migration:
+            print("  No migration data found for this mutation")
             
     # 8. Check cost centers
     print("\n=== COST CENTERS ===")

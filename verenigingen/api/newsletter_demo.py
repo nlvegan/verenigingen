@@ -76,7 +76,7 @@ def populate_email_groups():
     members = frappe.get_all(
         "Member",
         filters={"status": "Active"},
-        fields=["name", "email", "first_name", "last_name", "opt_out_optional_emails"],
+        fields=["name", "email", "first_name", "last_name"],
     )
 
     for member in members:
@@ -238,7 +238,7 @@ def send_test_newsletter(email_group=None):
     recipients = frappe.get_all(
         "Email Group Member",
         filters={"email_group": email_group, "unsubscribed": 0},
-        fields=["email", "email_group_member_name"],
+        fields=["email", "name"],  # Use 'name' field instead of non-existent 'email_group_member_name'
         limit=5,
     )
 

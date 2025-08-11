@@ -197,7 +197,7 @@ def can_view_members_without_chapter():
 
         for volunteer_record in volunteer_records:
             board_positions = frappe.get_all(
-                "Verenigingen Chapter Board Member",
+                "Chapter Board Member",
                 filters={"volunteer": volunteer_record.name, "is_active": 1},
                 fields=["chapter_role"],
             )

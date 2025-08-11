@@ -5,6 +5,13 @@ import frappe
 from frappe import _
 from frappe.utils import flt
 
+from verenigingen.utils.security.api_security_framework import OperationType, standard_api
+from verenigingen.utils.security.authorization import (
+    SEPAOperation,
+    SEPAPermissionLevel,
+    require_sepa_permission,
+)
+
 
 class SEPAReconciliationManager:
     """Manages automatic reconciliation of SEPA payments with bank transactions"""
@@ -12,8 +19,47 @@ class SEPAReconciliationManager:
     def __init__(self):
         self.settings = frappe.get_single("Verenigingen Settings")
         self.match_threshold = 0.85  # 85% similarity required for auto-match
+        self._validate_bank_transaction_fields()
+
+    def _validate_bank_transaction_fields(self):
+        """Validate that required Bank Transaction fields exist"""
+        try:
+            meta = frappe.get_meta("Bank Transaction")
+            existing_fields = {f.fieldname: f.fieldtype for f in meta.fields}
+
+            required_fields = {
+                "deposit": "Currency",
+                "withdrawal": "Currency",
+                "reference_number": "Data",
+                "description": "Text Editor",
+                "date": "Date",
+                "bank_account": "Link",
+                "status": "Select",
+            }
+
+            missing_fields = []
+            for field_name, expected_type in required_fields.items():
+                if field_name not in existing_fields:
+                    missing_fields.append(field_name)
+
+            if missing_fields:
+                frappe.log_error(
+                    f"Missing Bank Transaction fields: {missing_fields}",
+                    "SEPA Reconciliation Field Validation",
+                )
+                frappe.throw(
+                    _(
+                        "Required Bank Transaction fields not found: {0}. Please check ERPNext version compatibility."
+                    ).format(", ".join(missing_fields))
+                )
+
+        except Exception as e:
+            frappe.log_error(f"Error validating Bank Transaction fields: {str(e)}")
+            frappe.throw(_("Unable to validate Bank Transaction fields. Please check system configuration."))
 
     @frappe.whitelist()
+    @standard_api(operation_type=OperationType.FINANCIAL)
+    @require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
     def reconcile_bank_transactions(self, bank_account=None, from_date=None, to_date=None):
         """Reconcile imported bank transactions with SEPA batches"""
 
@@ -35,12 +81,11 @@ class SEPAReconciliationManager:
             fields=[
                 "name",
                 "date",
-                "credit",
-                "debit",
+                "deposit",  # Standard ERPNext field for credit amounts
+                "withdrawal",  # Standard ERPNext field for debit amounts
                 "description",
                 "bank_account",
                 "reference_number",
-                "party_iban",
             ],
         )
 
@@ -67,11 +112,11 @@ class SEPAReconciliationManager:
             if batch_match:
                 matches.append(batch_match)
 
-        # Strategy 2: Match by amount and IBAN
-        if transaction.get("party_iban"):
-            amount_match = self.match_by_amount_and_iban(transaction)
-            if amount_match:
-                matches.append(amount_match)
+        # Strategy 2: Match by amount and reference
+        # (IBAN matching removed since field doesn't exist in standard Bank Transaction)
+        amount_match = self.match_by_amount_and_reference(transaction)
+        if amount_match:
+            matches.append(amount_match)
 
         # Strategy 3: Match by description patterns
         desc_match = self.match_by_description(transaction)
@@ -103,7 +148,7 @@ class SEPAReconciliationManager:
                 batch_doc = frappe.get_doc("Direct Debit Batch", batch)
 
                 # Verify amount matches
-                if flt(transaction["credit"]) == flt(batch_doc.total_amount):
+                if flt(transaction["deposit"]) == flt(batch_doc.total_amount):
                     return {
                         "type": "batch",
                         "reference": batch,
@@ -113,35 +158,47 @@ class SEPAReconciliationManager:
 
         return None
 
-    def match_by_amount_and_iban(self, transaction):
-        """Match transaction by amount and IBAN"""
+    def match_by_amount_and_reference(self, transaction):
+        """Match transaction by amount and reference number"""
 
-        amount = flt(transaction.get("credit", 0))
-        iban = transaction.get("party_iban", "").replace(" ", "").upper()
+        amount = flt(transaction.get("deposit", 0))
+        reference = transaction.get("reference_number", "").strip()
 
-        if not amount or not iban:
+        if not amount or not reference:
             return None
 
-        # Find invoices with matching amount and IBAN
-        matching_invoices = frappe.db.sql(
-            """
-            SELECT
-                ddi.parent as batch,
-                ddi.invoice,
-                ddi.amount,
-                ddi.iban,
-                ddi.member_name
-            FROM `tabDirect Debit Invoice` ddi
-            JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
-            WHERE
-                ddi.amount = %s
-                AND REPLACE(UPPER(ddi.iban), ' ', '') = %s
-                AND ddb.status IN ('Submitted', 'Processed')
-                AND ddb.batch_date BETWEEN DATE_SUB(%s, INTERVAL 7 DAY) AND DATE_ADD(%s, INTERVAL 7 DAY)
-        """,
-            (amount, iban, transaction["date"], transaction["date"]),
-            as_dict=True,
-        )
+        # Find invoices with matching amount and reference using safe SQL
+        try:
+            matching_invoices = frappe.db.sql(
+                """
+                SELECT
+                    ddi.parent as batch,
+                    ddi.invoice,
+                    ddi.amount,
+                    ddi.member_name,
+                    si.customer
+                FROM `tabDirect Debit Invoice` ddi
+                JOIN `tabDirect Debit Batch` ddb ON ddi.parent = ddb.name
+                LEFT JOIN `tabSales Invoice` si ON si.name = ddi.invoice
+                WHERE
+                    ddi.amount = %(amount)s
+                    AND (ddi.invoice = %(reference)s OR ddb.name LIKE %(batch_ref)s)
+                    AND ddb.status IN ('Submitted', 'Processed')
+                    AND ddb.batch_date BETWEEN DATE_SUB(%(date)s, INTERVAL 7 DAY) AND DATE_ADD(%(date)s, INTERVAL 7 DAY)
+                ORDER BY ddb.batch_date DESC
+                LIMIT 10
+            """,
+                {
+                    "amount": amount,
+                    "reference": reference,
+                    "batch_ref": f"%{reference}%",
+                    "date": transaction["date"],
+                },
+                as_dict=True,
+            )
+        except frappe.db.DatabaseError as e:
+            frappe.log_error(f"Database error in amount/reference matching: {str(e)}")
+            return None
 
         if matching_invoices:
             # If single match, high confidence
@@ -151,7 +208,7 @@ class SEPAReconciliationManager:
                     "reference": matching_invoices[0]["invoice"],
                     "batch": matching_invoices[0]["batch"],
                     "confidence": 0.95,
-                    "match_reason": f'Amount and IBAN match for {matching_invoices[0]["member_name"]}',
+                    "match_reason": f'Amount and reference match for {matching_invoices[0]["member_name"]}',
                 }
             else:
                 # Multiple matches, need more context
@@ -159,7 +216,7 @@ class SEPAReconciliationManager:
                     "type": "multiple",
                     "matches": matching_invoices,
                     "confidence": 0.7,
-                    "match_reason": f"Multiple invoices match amount {amount}",
+                    "match_reason": f"Multiple invoices match amount {amount} and reference {reference}",
                 }
 
         return None
@@ -209,7 +266,7 @@ class SEPAReconciliationManager:
 
                 elif match_type == "member":
                     # Find unpaid invoices for member
-                    member_invoices = self.get_member_unpaid_invoices(reference, transaction["credit"])
+                    member_invoices = self.get_member_unpaid_invoices(reference, transaction["deposit"])
                     if member_invoices:
                         return {
                             "type": "member",
@@ -219,28 +276,35 @@ class SEPAReconciliationManager:
                         }
 
         # Fuzzy matching on member names
-        return self.fuzzy_match_member_name(description, transaction["credit"])
+        return self.fuzzy_match_member_name(description, transaction["deposit"])
 
     def fuzzy_match_member_name(self, description, amount):
         """Try to match based on member name in description"""
 
-        # Get members with unpaid invoices of matching amount
-        members_with_invoices = frappe.db.sql(
-            """
-            SELECT DISTINCT
-                m.name as member_id,
-                m.full_name,
-                si.name as invoice
-            FROM `tabMember` m
-            JOIN `tabMembership` ms ON ms.member = m.name
-            JOIN `tabSales Invoice` si ON si.membership = ms.name
-            WHERE
-                si.outstanding_amount = %s
-                AND si.status IN ('Unpaid', 'Overdue')
-        """,
-            (amount,),
-            as_dict=True,
-        )
+        # Get members with unpaid invoices of matching amount using safe SQL
+        try:
+            members_with_invoices = frappe.db.sql(
+                """
+                SELECT DISTINCT
+                    m.name as member_id,
+                    m.full_name,
+                    si.name as invoice,
+                    si.customer
+                FROM `tabMember` m
+                JOIN `tabMembership` ms ON ms.member = m.name
+                JOIN `tabSales Invoice` si ON si.membership = ms.name
+                WHERE
+                    si.outstanding_amount = %(amount)s
+                    AND si.status IN ('Unpaid', 'Overdue')
+                ORDER BY si.due_date DESC
+                LIMIT 50
+            """,
+                {"amount": amount},
+                as_dict=True,
+            )
+        except frappe.db.DatabaseError as e:
+            frappe.log_error(f"Database error in fuzzy matching: {str(e)}")
+            return None
 
         best_match = None
         best_score = 0
@@ -266,49 +330,69 @@ class SEPAReconciliationManager:
     def get_member_unpaid_invoices(self, member_id, amount):
         """Get unpaid invoices for a member with matching amount"""
 
-        return frappe.db.sql_list(
-            """
-            SELECT si.name
-            FROM `tabSales Invoice` si
-            JOIN `tabMembership` ms ON si.membership = ms.name
-            WHERE
-                ms.member = %s
-                AND si.outstanding_amount = %s
-                AND si.status IN ('Unpaid', 'Overdue')
-            ORDER BY si.due_date DESC
-        """,
-            (member_id, amount),
-        )
+        try:
+            return frappe.db.sql_list(
+                """
+                SELECT si.name
+                FROM `tabSales Invoice` si
+                JOIN `tabMembership` ms ON si.membership = ms.name
+                WHERE
+                    ms.member = %(member_id)s
+                    AND si.outstanding_amount = %(amount)s
+                    AND si.status IN ('Unpaid', 'Overdue')
+                ORDER BY si.due_date DESC
+                LIMIT 5
+            """,
+                {"member_id": member_id, "amount": amount},
+            )
+        except frappe.db.DatabaseError as e:
+            frappe.log_error(f"Database error getting unpaid invoices: {str(e)}")
+            return []
 
     def create_reconciliation(self, transaction, match):
         """Create reconciliation entry for matched transaction"""
 
         try:
+            # Validate permissions before proceeding
+            if not frappe.has_permission("Bank Transaction", "write"):
+                frappe.throw(_("Insufficient permissions to update bank transactions"))
+
+            if not frappe.has_permission("Payment Entry", "create"):
+                frappe.throw(_("Insufficient permissions to create payment entries"))
+
             bank_trans = frappe.get_doc("Bank Transaction", transaction["name"])
 
             if match["type"] in ["invoice", "batch"]:
-                # Create payment entry
-                payment_entry = self.create_payment_entry_from_transaction(
-                    bank_trans, match["reference"], match.get("batch")
-                )
+                # Create payment entry with proper validation
+                try:
+                    payment_entry = self.create_payment_entry_from_transaction(
+                        bank_trans, match["reference"], match.get("batch")
+                    )
 
-                # Update bank transaction
-                bank_trans.status = "Reconciled"
-                bank_trans.reference_type = "Payment Entry"
-                bank_trans.reference_name = payment_entry.name
-                bank_trans.add_comment(
-                    "Comment",
-                    f'Auto-reconciled: {match["match_reason"]} (Confidence: {match["confidence"]:.0%})',
-                )
-                bank_trans.save()
+                    # Update bank transaction
+                    bank_trans.status = "Reconciled"
+                    bank_trans.reference_type = "Payment Entry"
+                    bank_trans.reference_name = payment_entry.name
+                    bank_trans.add_comment(
+                        "Comment",
+                        f'Auto-reconciled: {match["match_reason"]} (Confidence: {match["confidence"]:.0%})',
+                    )
+                    bank_trans.save()
 
-                return True
+                    return True
+
+                except frappe.ValidationError as ve:
+                    frappe.log_error(f"Validation error in reconciliation: {str(ve)}")
+                    return False
+                except Exception as pe:
+                    frappe.log_error(f"Payment creation error: {str(pe)}")
+                    return False
 
             elif match["type"] == "multiple":
                 # Flag for manual review
                 bank_trans.add_comment(
                     "Comment",
-                    f'Multiple matches found: {len(match["matches"])} invoices with amount {transaction["credit"]}',
+                    f'Multiple matches found: {len(match["matches"])} invoices with amount {transaction["deposit"]}',
                 )
                 return False
 
@@ -325,7 +409,9 @@ class SEPAReconciliationManager:
         invoice = frappe.get_doc("Sales Invoice", invoice_name)
 
         # Create payment entry
-        payment_entry = get_payment_entry(dt="Sales Invoice", dn=invoice.name, party_amount=bank_trans.credit)
+        payment_entry = get_payment_entry(
+            dt="Sales Invoice", dn=invoice.name, party_amount=bank_trans.deposit
+        )
 
         # Set payment details
         payment_entry.posting_date = bank_trans.date
@@ -336,22 +422,58 @@ class SEPAReconciliationManager:
         # Link to bank transaction
         payment_entry.bank_transaction = bank_trans.name
 
-        # Save and submit
-        payment_entry.insert(ignore_permissions=True)
-        payment_entry.submit()
+        # Validate and save with proper permissions
+        try:
+            payment_entry.insert()
 
-        # Update membership payment status
+            # Only submit if user has submit permissions
+            if frappe.has_permission("Payment Entry", "submit"):
+                payment_entry.submit()
+            else:
+                frappe.log_error(
+                    f"User {frappe.session.user} cannot submit payment entry {payment_entry.name}",
+                    "SEPA Reconciliation Permission",
+                )
+                # Return draft payment entry for manual review
+
+        except frappe.ValidationError as e:
+            frappe.log_error(f"Payment entry validation failed: {str(e)}")
+            frappe.throw(_("Failed to create payment entry: {0}").format(str(e)))
+        except Exception as e:
+            frappe.log_error(f"Unexpected error creating payment entry: {str(e)}")
+            frappe.throw(_("Unexpected error in payment creation. Please check logs."))
+
+        # Update membership payment status with proper validation
         if invoice.membership:
-            membership = frappe.get_doc("Membership", invoice.membership)
-            membership.payment_status = "Paid"
-            membership.payment_date = bank_trans.date
-            membership.flags.ignore_validate_update_after_submit = True
-            membership.save()
+            try:
+                if frappe.has_permission("Membership", "write"):
+                    membership = frappe.get_doc("Membership", invoice.membership)
+                    membership.payment_status = "Paid"
+                    membership.payment_date = bank_trans.date
+                    # Only ignore validation if absolutely necessary and user has proper permissions
+                    if frappe.has_permission("Membership", "submit"):
+                        membership.flags.ignore_validate_update_after_submit = True
+                        membership.save()
+                    else:
+                        frappe.log_error(
+                            f"Cannot update membership {invoice.membership} - insufficient permissions",
+                            "SEPA Reconciliation Permission",
+                        )
+                else:
+                    frappe.log_error(
+                        f"Cannot update membership {invoice.membership} - no write permission",
+                        "SEPA Reconciliation Permission",
+                    )
+            except Exception as e:
+                frappe.log_error(f"Error updating membership status: {str(e)}")
+                # Don't fail the entire reconciliation for membership update errors
 
         return payment_entry
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.FINANCIAL)
+@require_sepa_permission(SEPAPermissionLevel.CREATE, SEPAOperation.BATCH_VALIDATE)
 def process_sepa_return_file(file_content, file_type="pain.002"):
     """Process SEPA return/status file from bank"""
 
@@ -423,6 +545,8 @@ def mark_payment_successful(end_to_end_id):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.REPORTING)
+@require_sepa_permission(SEPAPermissionLevel.READ, SEPAOperation.BATCH_VALIDATE)
 def get_reconciliation_summary(from_date=None, to_date=None):
     """Get summary of reconciliation status"""
 

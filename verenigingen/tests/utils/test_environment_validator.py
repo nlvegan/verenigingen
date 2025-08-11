@@ -136,7 +136,7 @@ class TestEnvironmentValidator:
             "Volunteer Expense",
             "Team",
             "SEPA Mandate",
-            "SEPA Direct Debit Batch",
+            "Direct Debit Batch",
             "Donation",
             "Donor",
             "Membership Termination Request",
