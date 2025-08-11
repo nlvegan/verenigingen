@@ -1,0 +1,123 @@
+# Validation Configuration
+# Configuration file for all validation scripts in the verenigingen app
+
+# Environment settings
+environment:
+  # Default Frappe site for validation
+  site: "dev.veganisme.net"
+  
+  # Bench directory path
+  bench_path: "/home/frappe/frappe-bench"
+  
+  # Application name
+  app_name: "verenigingen"
+  
+  # Python version for virtual environment
+  python_version: "3.12"
+
+# Validation settings
+validation:
+  # Default validation level (strict/balanced/permissive)
+  default_level: "balanced"
+  
+  # File patterns to exclude from validation
+  exclude_patterns:
+    - "**/test_*.py"
+    - "**/tests/**"
+    - "**/migrations/**"
+    - "**/archived/**"
+    - "**/node_modules/**"
+    - "**/__pycache__/**"
+    
+  # DocTypes to preload for validation
+  preload_doctypes:
+    - "Member"
+    - "Membership" 
+    - "Chapter"
+    - "Volunteer"
+    - "SEPA Mandate"
+    - "Sales Invoice"
+    - "Payment Entry"
+    - "Chapter Member"
+    - "Member Payment History"
+    
+  # Field validation settings
+  field_validation:
+    # Skip validation for these field patterns
+    ignore_fields:
+      - "custom_*"  # Custom fields
+      - "*_html"    # HTML content fields
+      - "old_*"     # Legacy fields
+      
+    # DocTypes to skip validation
+    skip_doctypes:
+      - "Custom Field"
+      - "Property Setter"
+      
+  # Template validation settings
+  template_validation:
+    # Required template variables
+    required_variables:
+      email_templates:
+        - "doc"
+        - "frappe"
+        - "support_email"
+      web_templates:
+        - "doc"
+        - "frappe"
+        
+# Reporting settings
+reporting:
+  # Output format (json/text/markdown)
+  default_format: "text"
+  
+  # Report output directory
+  output_directory: "validation_reports"
+  
+  # Maximum issues to display per file
+  max_issues_per_file: 20
+  
+  # Group issues by type
+  group_by_type: true
+  
+  # Include code snippets in reports
+  include_snippets: true
+  
+# Performance settings
+performance:
+  # Maximum files to process in parallel
+  max_parallel_files: 4
+  
+  # Cache DocType metadata
+  cache_doctypes: true
+  
+  # Cache expiry in seconds
+  cache_expiry: 3600
+  
+# Pre-commit hook settings
+precommit:
+  # Enable pre-commit validation
+  enabled: false
+  
+  # Fail commit on validation errors
+  fail_on_error: false
+  
+  # Maximum allowed new issues
+  max_new_issues: 10
+  
+  # Validation types to run
+  validators:
+    - "field_reference"
+    - "template_variable"
+    - "javascript_field"
+    
+# Development settings
+development:
+  # Enable debug logging
+  debug: false
+  
+  # Save validation cache
+  save_cache: true
+  
+  # Cache directory
+  cache_directory: ".validation_cache"

@@ -73,7 +73,7 @@ from verenigingen.utils.security.api_security_framework import (
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.SEPA_BATCH)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
 def get_batch_list_with_security(filters=None):
@@ -203,7 +203,7 @@ def get_batch_list_with_security(filters=None):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.SEPA_BATCH)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=500)
 def get_batch_details_with_security(batch_id):
@@ -263,7 +263,7 @@ def get_batch_details_with_security(batch_id):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.SEPA_BATCH)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=500)
 def get_batch_conflicts(batch_id):
@@ -360,7 +360,7 @@ def get_batch_conflicts(batch_id):
 
 
 @frappe.whitelist()
-@high_security_api(operation_type=OperationType.SEPA_BATCH)
+@high_security_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=2000)
 def get_eligible_invoices(filters=None):
@@ -416,14 +416,14 @@ def get_eligible_invoices(filters=None):
             si.grand_total,
             mem.name as member_id,
             mem.full_name as member_name,
-            sm.mandate_reference,
+            sm.mandate_id as mandate_reference,
             sm.iban,
             sm.status as mandate_status
         FROM `tabSales Invoice` si
         LEFT JOIN `tabMember` mem ON si.customer = mem.name
         LEFT JOIN `tabSEPA Mandate` sm ON mem.name = sm.member AND sm.status = 'Active'
         WHERE {' AND '.join(conditions)}
-        AND sm.mandate_reference IS NOT NULL
+        AND sm.mandate_id IS NOT NULL
         ORDER BY si.due_date ASC, si.outstanding_amount DESC
         LIMIT 500
     """
@@ -458,7 +458,7 @@ def get_eligible_invoices(filters=None):
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.SEPA_BATCH)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=3000)
 def apply_conflict_resolutions(batch_id, resolutions):
@@ -546,7 +546,7 @@ def apply_conflict_resolutions(batch_id, resolutions):
 
 
 @frappe.whitelist()
-@critical_api(operation_type=OperationType.SEPA_BATCH)
+@critical_api(operation_type=OperationType.FINANCIAL)
 @handle_api_error
 @performance_monitor(threshold_ms=1000)
 def escalate_conflicts(batch_id, conflicts):
