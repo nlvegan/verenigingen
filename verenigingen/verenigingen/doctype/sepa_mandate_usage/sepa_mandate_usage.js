@@ -45,17 +45,17 @@ frappe.ui.form.on('SEPA Mandate Usage', {
 		}
 
 		// Add navigation buttons to related records
-		if (frm.doc.mandate) {
+		if (frm.doc.reference_doctype === 'SEPA Mandate' && frm.doc.reference_name) {
 			frm.add_custom_button(__('View Mandate'), () => {
-				frappe.set_route('Form', 'SEPA Mandate', frm.doc.mandate);
+				frappe.set_route('Form', 'SEPA Mandate', frm.doc.reference_name);
 			}, __('Related Records'));
 		}
 
-		if (frm.doc.transaction_reference) {
+		if (frm.doc.batch_reference) {
 			frm.add_custom_button(__('View Transaction'), () => {
 				// Navigate to related payment or batch record
 				frappe.db.get_value('Direct Debit Batch',
-					{ transaction_references: ['like', `%${frm.doc.transaction_reference}%`] },
+					{ name: frm.doc.batch_reference },
 					'name')
 					.then(r => {
 						if (r.message && r.message.name) {
@@ -68,12 +68,15 @@ frappe.ui.form.on('SEPA Mandate Usage', {
 		}
 
 		// Show usage statistics
-		if (frm.doc.mandate) {
+		if (frm.doc.reference_doctype === 'SEPA Mandate' && frm.doc.reference_name) {
 			frappe.call({
 				method: 'frappe.client.get_list',
 				args: {
 					doctype: 'SEPA Mandate Usage',
-					filters: { mandate: frm.doc.mandate },
+					filters: {
+						reference_doctype: 'SEPA Mandate',
+						reference_name: frm.doc.reference_name
+					},
 					fields: ['usage_date', 'amount', 'status'],
 					order_by: 'usage_date desc',
 					limit: 10
@@ -87,15 +90,16 @@ frappe.ui.form.on('SEPA Mandate Usage', {
 		}
 	},
 
-	mandate(frm) {
-		// Auto-populate mandate details when mandate is selected
-		if (frm.doc.mandate) {
-			frappe.db.get_value('SEPA Mandate', frm.doc.mandate,
+	reference_name(frm) {
+		// Auto-populate mandate details when SEPA Mandate is selected
+		if (frm.doc.reference_doctype === 'SEPA Mandate' && frm.doc.reference_name) {
+			frappe.db.get_value('SEPA Mandate', frm.doc.reference_name,
 				['mandate_id', 'member', 'status', 'first_use_date'],
 				(r) => {
 					if (r) {
-						frm.set_value('mandate_reference', r.mandate_id);
-						frm.set_value('member', r.member);
+						// Store mandate reference details in notes or other appropriate field
+						const details = `Mandate ID: ${r.mandate_id}, Member: ${r.member}, Status: ${r.status}`;
+						frm.set_value('notes', details);
 
 						// Determine if this is first use
 						if (!r.first_use_date) {

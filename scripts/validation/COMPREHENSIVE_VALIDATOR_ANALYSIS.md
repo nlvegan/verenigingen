@@ -4,7 +4,7 @@
 
 ### SQL-Specific Validators
 
-#### 1. `enhanced_sql_field_validator.py` → **`sql_field_validator_with_confidence.py`**
+#### 1. `enhanced_sql_field_validator.py` → **`sql_field_reference_validator.py`**
 **Purpose**: SQL string literal validation with confidence scoring
 **Key Features**:
 - Table alias extraction from SQL queries

@@ -35,7 +35,7 @@ repos:
           '--max-complexity=20',
           '--extend-ignore=E501,W503,E203,F401,E722,F821,C901,E225'
         ]
-        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|.*test.*\.py|.*debug.*\.py)'
+        exclude: '^(scripts/|tests/|debug_utils/|dev_scripts/|integration_tests/|verenigingen/tests/|frontend_tests/|.*test.*\.py|.*debug.*\.py|archived_.*)'
 
   - repo: https://github.com/PyCQA/isort
     rev: 5.12.0
@@ -51,9 +51,10 @@ repos:
         args: [
           '--rcfile=.pylintrc',
           '--fail-under=7.0',
-          '--jobs=0'
+          '--jobs=0',
+          '--ignore-paths=archived_unused/.*,archived_deleted/.*,archived_removal/.*,archived_docs/.*'
         ]
-        exclude: '^(node_modules|.git|dist|build|scripts|tests|debug_utils|dev_scripts|integration_tests|verenigingen/tests|frontend_tests)/'
+        exclude: '^(node_modules|.git|dist|build|scripts|tests|debug_utils|dev_scripts|integration_tests|verenigingen/tests|frontend_tests|archived_unused|archived_deleted|archived_removal|archived_docs)/'
 
   # Security Validation (Enhanced)
   - repo: https://github.com/PyCQA/bandit
@@ -140,12 +141,12 @@ repos:
 
       - id: sql-field-validator
         name: SQL query field validation
-        entry: python scripts/validation/sql_field_validator_with_confidence.py --pre-commit
+        entry: python scripts/validation/sql_field_reference_validator.py --pre-commit
         language: system
         pass_filenames: false
         files: \.py$
         stages: [pre-commit]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
       - id: frappe-api-validator
         name: Balanced field validation (practical mode)
@@ -220,7 +221,7 @@ repos:
         pass_filenames: false
         files: '\.(py|html)$'
         stages: [manual]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
       # Enhanced AST Field Analyzer (Production-Ready)
       - id: ast-field-analyzer
@@ -257,7 +258,7 @@ repos:
         pass_filenames: false
         files: '\.py$'
         stages: [manual]
-        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/)'
+        exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
       - id: pragmatic-field-validator-strict
         name: Balanced field validation (strict mode)

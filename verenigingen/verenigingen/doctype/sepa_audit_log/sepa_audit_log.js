@@ -46,29 +46,15 @@ frappe.ui.form.on('SEPA Audit Log', {
 		}
 
 		// Add navigation to related records
-		if (frm.doc.mandate_reference) {
+		if (frm.doc.reference_doctype === 'SEPA Mandate' && frm.doc.reference_name) {
 			frm.add_custom_button(__('View Mandate'), () => {
-				frappe.db.get_value('SEPA Mandate', { mandate_id: frm.doc.mandate_reference }, 'name')
-					.then(r => {
-						if (r.message && r.message.name) {
-							frappe.set_route('Form', 'SEPA Mandate', r.message.name);
-						} else {
-							frappe.msgprint(__('Related mandate not found'));
-						}
-					});
+				frappe.set_route('Form', 'SEPA Mandate', frm.doc.reference_name);
 			}, __('Related Records'));
 		}
 
-		if (frm.doc.batch_reference) {
+		if (frm.doc.reference_doctype === 'Direct Debit Batch' && frm.doc.reference_name) {
 			frm.add_custom_button(__('View Batch'), () => {
-				frappe.db.get_value('Direct Debit Batch', { batch_id: frm.doc.batch_reference }, 'name')
-					.then(r => {
-						if (r.message && r.message.name) {
-							frappe.set_route('Form', 'Direct Debit Batch', r.message.name);
-						} else {
-							frappe.msgprint(__('Related batch not found'));
-						}
-					});
+				frappe.set_route('Form', 'Direct Debit Batch', frm.doc.reference_name);
 			}, __('Related Records'));
 		}
 

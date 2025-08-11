@@ -14,7 +14,7 @@ After systematic analysis of each validator's actual implementation, all validat
   - **Purpose**: Primary Python DocType field validation (`obj.field` patterns)
 
 #### SQL Query Validation  
-- **`sql_field_validator_with_confidence.py`** - SQL string literal validation with confidence scoring
+- **`sql_field_reference_validator.py`** - SQL string literal validation with confidence scoring
   - **Hook**: `sql-field-validator` (pre-commit)
   - **Purpose**: SQL query field validation with alias handling and confidence scoring
 

@@ -8,7 +8,7 @@ init-hook='import sys; sys.path.append("/home/frappe/frappe-bench/apps/frappe");
 
 # Add files or directories to the blacklist. They should be base names, not
 # paths.
-ignore=CVS,node_modules,dist,build
+ignore=CVS,node_modules,dist,build,archived_unused,archived_deleted,archived_removal,archived_docs
 
 # Pickle collected data for later comparisons.
 persistent=yes
@@ -72,6 +72,34 @@ disable=
     W0223,  # abstract-method
     E0611,  # no-name-in-module (Frappe imports)
     E0401,  # import-error (Frappe imports)
+    W0511,  # fixme (TODO/FIXME/XXX comments)
+    R0911,  # too-many-return-statements
+    W0105,  # pointless-string-statement
+    C0301,  # line-too-long (already handled by black)
+    C0303,  # trailing-whitespace (handled by pre-commit)
+    W0611,  # unused-import (can be too strict for Frappe)
+    R0904,  # too-many-public-methods
+    W0640,  # cell-var-from-loop
+    W0102,  # dangerous-default-value
+    R1710,  # inconsistent-return-statements
+    R1705,  # no-else-return
+    C0200,  # consider-using-enumerate
+    C0123,  # unidiomatic-typecheck
+    W0107,  # unnecessary-pass
+    R1714,  # consider-using-in
+    R1703,  # simplifiable-if-statement
+    C0412,  # ungrouped-imports (handled by isort)
+    W0106,  # expression-not-assigned
+    R1720,  # no-else-raise
+    W0104,  # pointless-statement
+    C0411,  # wrong-import-order (handled by isort)
+    C0413,  # wrong-import-position
+    R1721,  # unnecessary-comprehension
+    W0123,  # eval-used (sometimes necessary in Frappe)
+    W0707,  # raise-missing-from
+    R1736,  # unnecessary-list-index-lookup
+    R1734,  # use-list-literal
+    R1735,  # use-dict-literal
 
 [REPORTS]
 

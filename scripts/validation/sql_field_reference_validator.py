@@ -12,9 +12,14 @@ caused by referencing non-existent columns. Enhanced version with:
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, NamedTuple
 from dataclasses import dataclass
+
+# Import our comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 
 @dataclass
@@ -36,9 +41,16 @@ class EnhancedSQLFieldValidator:
     """Enhanced validator for SQL string literals with confidence scoring"""
     
     def __init__(self, app_path: str):
-        self.app_path = Path(app_path)
+        self.app_path = Path(app_path).resolve()
+        self.bench_path = self.app_path.parent.parent
         
-        # Extended standard Frappe fields (initialize before load_doctypes)
+        # Use comprehensive DocType loader (like basic SQL validator)
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        
+        print(f"🔍 Enhanced SQL Validator loaded {len(self.doctypes)} DocTypes from comprehensive loader")
+        
+        # Extended standard Frappe fields (kept for reference but now loaded via DocType loader)
         self.standard_frappe_fields = {
             'name', 'creation', 'modified', 'modified_by', 'owner',
             'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
@@ -49,8 +61,6 @@ class EnhancedSQLFieldValidator:
             # Common computed fields that might appear in views/queries
             'full_name', 'status', 'total', 'amount', 'count'
         }
-        
-        self.doctypes = self.load_doctypes()
         
         # Known field mappings from SEPA fixes and common patterns
         self.field_mappings = {
@@ -101,36 +111,18 @@ class EnhancedSQLFieldValidator:
             'else', 'end', 'null', 'count', 'sum', 'avg', 'min', 'max', 'coalesce',
             'cast', 'convert', 'date', 'year', 'month', 'day', 'now', 'today'
         }
+    
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Set[str]]:
+        """Convert DocType loader format to legacy format for compatibility"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-    def load_doctypes(self) -> Dict[str, Set[str]]:
-        """Load doctype field definitions with better error handling"""
-        doctypes = {}
+        for doctype_name, doctype_meta in doctype_metas.items():
+            all_field_names = self.doctype_loader.get_field_names(doctype_name)
+            legacy_format[doctype_name] = all_field_names
+            
+        return legacy_format
         
-        for json_file in self.app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract actual field names
-                    fields = set()
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                    
-                    # Add standard Frappe document fields
-                    fields.update(self.standard_frappe_fields)
-                    
-                    doctypes[doctype_name] = fields
-                    
-                except Exception as e:
-                    print(f"Warning: Could not parse {json_file}: {e}")
-                    continue
-                    
-        return doctypes
     
     def extract_sql_queries(self, content: str) -> List[Tuple[str, int]]:
         """Extract SQL queries from string literals with better filtering"""

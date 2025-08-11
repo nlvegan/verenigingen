@@ -15,7 +15,7 @@ The schema-aware validator has been successfully debugged and a critical pattern
 
 ### **Root Cause: Pattern Matching Logic Error**
 
-**Location**: `/scripts/validation/schema_aware_validator.py`, lines 756-763
+**Location**: `/scripts/validation/comprehensive_field_reference_validator.py`, lines 756-763
 
 **Problem**: The `is_valid_frappe_pattern()` method was incorrectly using `re.search(pattern, context)` for Frappe document method names, causing ANY context containing method names like "get" to match field accesses.
 

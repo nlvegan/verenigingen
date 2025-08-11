@@ -19,10 +19,15 @@ analyzer that understands JavaScript code structure and context.
 import os
 import re
 import json
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Any
 from dataclasses import dataclass
 from enum import Enum
+
+# Import comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 
 class JavaScriptContext(Enum):
@@ -67,7 +72,11 @@ class AdvancedJavaScriptFieldValidator:
     """
     
     def __init__(self):
-        self.doctypes = self._load_doctype_fields()
+        # Use comprehensive DocType loader (standardized)
+        # Navigate from script to bench: scripts/validation -> apps/verenigingen -> apps -> bench
+        bench_path = Path(__file__).parent.parent.parent.parent
+        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_js_validation()
         
         # Patterns for different types of field references
         self.doctype_field_patterns = [
@@ -116,45 +125,16 @@ class AdvancedJavaScriptFieldValidator:
             r'options\.([a-zA-Z_][a-zA-Z0-9_]*)'
         ]
     
-    def _load_doctype_fields(self) -> Dict[str, Set[str]]:
-        """Load all valid fields for each doctype from JSON files"""
+    def _convert_doctypes_for_js_validation(self) -> Dict[str, Set[str]]:
+        """Convert comprehensive DocType loader format for JavaScript validation"""
         doctypes = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-        # Load from all apps
-        for app in ['frappe', 'erpnext', 'payments', 'verenigingen']:
-            app_path = f"/home/frappe/frappe-bench/apps/{app}"
-            if os.path.exists(app_path):
-                doctypes.update(self._load_doctypes_from_app(app_path))
-        
-        return doctypes
-    
-    def _load_doctypes_from_app(self, app_path: str) -> Dict[str, Set[str]]:
-        """Load doctypes from a specific app"""
-        doctypes = {}
-        
-        for root, dirs, files in os.walk(app_path):
-            if 'doctype' in root and any(f.endswith('.json') for f in files):
-                for file in files:
-                    if file.endswith('.json') and not file.startswith('.'):
-                        json_path = os.path.join(root, file)
-                        
-                        try:
-                            with open(json_path, 'r') as f:
-                                doctype_def = json.load(f)
-                                
-                            if isinstance(doctype_def, dict) and 'fields' in doctype_def:
-                                fields = set()
-                                for field in doctype_def['fields']:
-                                    if isinstance(field, dict) and 'fieldname' in field:
-                                        fields.add(field['fieldname'])
-                                
-                                if fields:
-                                    actual_name = doctype_def.get('name', file.replace('.json', '').replace('_', ' ').title())
-                                    doctypes[actual_name] = fields
-                                    
-                        except Exception:
-                            pass  # Skip invalid JSON files
-        
+        for doctype_name, doctype_meta in doctype_metas.items():
+            # Get all field names as a set for fast lookup
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            doctypes[doctype_name] = field_names
+            
         return doctypes
     
     def validate_javascript_file(self, file_path: str) -> List[ValidationIssue]:

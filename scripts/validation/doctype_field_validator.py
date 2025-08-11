@@ -7,9 +7,14 @@ Addresses the core issues in DocType context detection
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
+
+# Import comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -32,7 +37,11 @@ class AccurateFieldValidator:
         self.app_path = Path(app_path)
         self.bench_path = self.app_path.parent.parent
         self.verbose = verbose
-        self.doctypes = self.load_all_doctypes()
+        
+        # Use comprehensive DocType loader (standardized)
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=verbose)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        
         self.custom_fields = self._load_custom_fields()
         self._apply_custom_fields_to_doctypes()
         self.child_table_mapping = self._build_child_table_mapping()
@@ -48,6 +57,33 @@ class AccurateFieldValidator:
     def enable_reduced_fp_mode(self):
         """Enable reduced false positive mode with additional exclusions"""
         self.reduced_fp_mode = True
+    
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Dict]:
+        """Convert comprehensive DocType loader format to legacy format for compatibility"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
+        
+        if self.verbose:
+            print(f"🔍 DocType Field Validator using comprehensive loader - loaded {len(doctype_metas)} DocTypes")
+        
+        for doctype_name, doctype_meta in doctype_metas.items():
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            
+            # Extract child table relationships
+            child_tables = []
+            for field_name, field_info in doctype_meta.fields.items():
+                if field_info.fieldtype == 'Table' and field_info.options:
+                    child_tables.append((field_name, field_info.options))
+            
+            legacy_format[doctype_name] = {
+                'fields': field_names,
+                'data': {'name': doctype_name},  # Minimal data structure
+                'app': doctype_meta.app,
+                'child_tables': child_tables,
+                'file': doctype_meta.json_file_path or 'unknown'
+            }
+            
+        return legacy_format
         
         # Add query alias patterns to exclusions
         self.excluded_patterns['query_aliases'] = {
@@ -205,76 +241,6 @@ class AccurateFieldValidator:
         """Convert snake_case to Title Case"""
         return ' '.join(word.capitalize() for word in snake_case.split('_'))
     
-    def load_all_doctypes(self) -> Dict[str, Dict]:
-        """Load doctypes from all installed apps with enhanced accuracy"""
-        doctypes = {}
-        
-        # Standard apps to check
-        app_paths = [
-            self.bench_path / "apps" / "frappe",  # Core Frappe
-            self.bench_path / "apps" / "erpnext",  # ERPNext if available
-            self.bench_path / "apps" / "payments",  # Payments app if available
-            self.app_path,  # Current app (verenigingen)
-        ]
-        
-        for app_path in app_paths:
-            if app_path.exists():
-                if self.verbose:
-                    print(f"Loading doctypes from {app_path.name}...")
-                app_doctypes = self._load_doctypes_from_app(app_path)
-                doctypes.update(app_doctypes)
-                
-        if self.verbose:
-            print(f"📋 Loaded {len(doctypes)} doctypes from all apps")
-        return doctypes
-    
-    def _load_doctypes_from_app(self, app_path: Path) -> Dict[str, Dict]:
-        """Load doctypes from a specific app with field validation"""
-        doctypes = {}
-        
-        # Find all doctype JSON files
-        for json_file in app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract actual field names with validation
-                    fields = set()
-                    child_tables = []
-                    
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                            # Track child table fields
-                            if field.get('fieldtype') == 'Table':
-                                child_table_options = field.get('options')
-                                if child_table_options:
-                                    child_tables.append((fieldname, child_table_options))
-                            
-                    # Add standard Frappe document fields
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-                    ])
-                    
-                    doctypes[doctype_name] = {
-                        'fields': fields,
-                        'data': data,
-                        'app': app_path.name,
-                        'child_tables': child_tables,
-                        'file': str(json_file)
-                    }
-                    
-                except Exception as e:
-                    # Skip problematic files silently
-                    continue
-                    
-        return doctypes
     
     def _build_child_table_mapping(self) -> Dict[str, str]:
         """Build precise mapping of parent.field -> child DocType"""

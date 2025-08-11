@@ -183,7 +183,7 @@ class UnifiedFieldValidator:
         # Low confidence for complex patterns or unclear context
         return 'low'
     
-    # SQL Validation Methods (from sql_field_validator_with_confidence.py)
+    # SQL Validation Methods (from sql_field_reference_validator.py)
     
     def extract_sql_queries(self, content: str) -> List[Tuple[str, int]]:
         """Extract SQL queries from string literals"""
@@ -607,7 +607,7 @@ class UnifiedFieldValidator:
         violations = []
         
         # Skip certain files to reduce noise
-        skip_patterns = ['test_', 'debug_', '__pycache__', '/archived_unused/', '/tests/']
+        skip_patterns = ['test_', 'debug_', '__pycache__', '/archived_unused/', '/archived_', '/tests/']
         if any(pattern in str(file_path) for pattern in skip_patterns):
             return violations
         
@@ -963,8 +963,8 @@ class UnifiedFieldValidator:
         
         # Validate all Python files
         for py_file in self.app_path.rglob("*.py"):
-            # Skip test files and cache files
-            if any(skip in str(py_file) for skip in ['__pycache__', '.pyc', 'test_', '_test.py', '/tests/']):
+            # Skip test files, cache files, and archived folders
+            if any(skip in str(py_file) for skip in ['__pycache__', '.pyc', 'test_', '_test.py', '/tests/', '/archived_']):
                 continue
             
             violations = self.validate_file(py_file)
@@ -973,7 +973,7 @@ class UnifiedFieldValidator:
         
         # Validate HTML files for template variables
         for html_file in self.app_path.rglob("*.html"):
-            if any(skip in str(html_file) for skip in ['__pycache__', '/tests/']):
+            if any(skip in str(html_file) for skip in ['__pycache__', '/tests/', '/archived_']):
                 continue
             
             violations = self.validate_html_file(html_file)
