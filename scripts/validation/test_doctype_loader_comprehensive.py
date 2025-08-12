@@ -548,12 +548,14 @@ def run_comprehensive_tests():
     if failures > 0:
         print("\n🔴 Failures:")
         for test, traceback in result.failures:
-            print(f"  - {test}: {traceback.split('\\n')[-2] if traceback else 'Unknown failure'}")
+            traceback_line = traceback.split('\n')[-2] if traceback else 'Unknown failure'
+            print(f"  - {test}: {traceback_line}")
     
     if errors > 0:
         print("\n🚫 Errors:")
         for test, traceback in result.errors:
-            print(f"  - {test}: {traceback.split('\\n')[-2] if traceback else 'Unknown error'}")
+            traceback_line = traceback.split('\n')[-2] if traceback else 'Unknown error'
+            print(f"  - {test}: {traceback_line}")
     
     success_rate = (passed / total_tests) * 100 if total_tests > 0 else 0
     print(f"\n📊 Success Rate: {success_rate:.1f}%")
