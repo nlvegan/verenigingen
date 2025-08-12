@@ -548,8 +548,8 @@ def get_organization_logo():
 @frappe.whitelist()
 def create_default_brand_settings():
     """Create default brand settings if none exist"""
-    existing = frappe.get_all("Brand Settings", limit=1)
-    if existing:
+    # Brand Settings is a Single DocType, check if it exists properly
+    if frappe.db.exists("Brand Settings", "Brand Settings"):
         return False
 
     default_settings = frappe.get_doc(
