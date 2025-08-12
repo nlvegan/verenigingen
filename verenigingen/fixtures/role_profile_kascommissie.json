@@ -1,0 +1,25 @@
+[
+ {
+  "doctype": "Role Profile",
+  "docstatus": 0,
+  "name": "Verenigingen Kascommissie",
+  "role_profile": "Verenigingen Kascommissie",
+  "roles": [
+   {
+    "role": "Verenigingen Member"
+   },
+   {
+    "role": "Employee"
+   },
+   {
+    "role": "Auditor"
+   },
+   {
+    "role": "Accounts User"
+   },
+   {
+    "role": "Verenigingen Kascommissie"
+   }
+  ]
+ }
+]

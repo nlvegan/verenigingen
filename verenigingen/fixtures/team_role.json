@@ -48,5 +48,15 @@
   "is_team_leader": 0,
   "is_unique": 1,
   "is_active": 1
+ },
+ {
+  "doctype": "Team Role",
+  "name": "Kascommissie Auditor",
+  "role_name": "Kascommissie Auditor",
+  "description": "Audit committee member with read-only access to all financial records, accounting transactions, and compliance reports. Responsible for financial oversight and audit functions.",
+  "permissions_level": "Coordinator",
+  "is_team_leader": 0,
+  "is_unique": 0,
+  "is_active": 1
  }
 ]

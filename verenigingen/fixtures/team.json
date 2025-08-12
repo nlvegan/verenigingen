@@ -1,0 +1,40 @@
+[
+ {
+  "doctype": "Team",
+  "name": "Kascommissie",
+  "team_name": "Kascommissie",
+  "description": "Audit committee responsible for financial oversight, reviewing accounting practices, ensuring compliance with financial regulations, and providing independent financial audit services for the association.",
+  "status": "Active",
+  "team_type": "Committee",
+  "is_association_wide": 1,
+  "start_date": "2024-01-01",
+  "objectives": "<p>The Kascommissie (Audit Committee) provides independent oversight of the association's financial operations, ensuring:</p><ul><li>Accuracy and completeness of financial records</li><li>Compliance with accounting standards and regulations</li><li>Proper internal controls and risk management</li><li>Independent review of financial statements</li><li>Oversight of external audit processes</li><li>Detection and prevention of financial irregularities</li></ul>",
+  "team_members": [],
+  "key_responsibilities": [
+   {
+    "responsibility": "Review monthly financial statements and accounting records"
+   },
+   {
+    "responsibility": "Audit SEPA direct debit processes and mandate compliance"
+   },
+   {
+    "responsibility": "Verify membership dues collection and payment processing"
+   },
+   {
+    "responsibility": "Review expense claims and volunteer expense reimbursements"
+   },
+   {
+    "responsibility": "Monitor banking transactions and reconciliation processes"
+   },
+   {
+    "responsibility": "Assess compliance with financial regulations and internal policies"
+   },
+   {
+    "responsibility": "Prepare audit reports and recommendations for board review"
+   },
+   {
+    "responsibility": "Coordinate with external auditors when required"
+   }
+  ]
+ }
+]
