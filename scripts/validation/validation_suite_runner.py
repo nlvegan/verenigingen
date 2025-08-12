@@ -9,7 +9,7 @@ import time
 import argparse
 import ast
 from pathlib import Path
-from enhanced_doctype_validator import EnhancedFieldValidator
+from enhanced_field_reference_validator import ContextAwareFieldValidator
 from template_variable_validator import ModernTemplateValidator
 from loop_context_field_validator import LoopContextFieldValidator, load_doctypes
 
@@ -37,7 +37,7 @@ class ValidationSuite:
         self.log("-" * 40)
         
         try:
-            field_validator = EnhancedFieldValidator(str(self.app_path))
+            field_validator = ContextAwareFieldValidator(str(self.app_path))
             issues = field_validator.validate_directory(pre_commit=True)
             field_passed = len(issues) == 0
             

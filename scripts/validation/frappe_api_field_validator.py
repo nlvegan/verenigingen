@@ -13,6 +13,7 @@ import json
 import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Union
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 
 class DatabaseQueryFieldValidator:
@@ -20,40 +21,26 @@ class DatabaseQueryFieldValidator:
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
-        self.doctypes = self.load_doctypes()
+        
+        # Initialize comprehensive DocType loader
+        # Calculate bench path correctly from app path
+        bench_path = self.app_path.parent.parent  # From apps/verenigingen to bench root
+        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        print(f"🔗 Database query validator loaded {len(self.doctypes)} DocTypes")
+        
         self.violations = []
         
-    def load_doctypes(self) -> Dict[str, Set[str]]:
-        """Load doctype field definitions"""
-        doctypes = {}
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Set[str]]:
+        """Convert doctype_loader format to simple dict for compatibility"""
+        simple_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-        for json_file in self.app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name')
-                    if not doctype_name:
-                        continue
-                        
-                    fields = set()
-                    for field in data.get('fields', []):
-                        if 'fieldname' in field:
-                            fields.add(field['fieldname'])
-                    
-                    # Add standard fields that exist on all doctypes
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx'
-                    ])
-                    
-                    doctypes[doctype_name] = fields
-                    
-                except Exception as e:
-                    print(f"Error loading {json_file}: {e}")
-                    
-        return doctypes
+        for doctype_name, doctype_meta in doctype_metas.items():
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            simple_format[doctype_name] = set(field_names)
+        
+        return simple_format
     
     def extract_query_calls(self, content: str) -> List[Dict]:
         """Extract database query calls from Python content"""
@@ -290,7 +277,7 @@ class DatabaseQueryFieldValidator:
 
 def main():
     """Run the database query field validator"""
-    app_path = "/home/frappe/frappe-bench/apps/verenigingen/verenigingen"
+    app_path = "/home/frappe/frappe-bench/apps/verenigingen"
     
     print("🔍 Running database query field validation...")
     

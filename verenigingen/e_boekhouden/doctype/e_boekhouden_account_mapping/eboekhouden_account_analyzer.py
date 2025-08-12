@@ -164,11 +164,9 @@ def get_existing_mappings():
             "account_code",
             "account_name",
             "document_type",
-            "transaction_category",
-            "account_range_start",
-            "account_range_end",
-            "description_patterns",
-            "priority",
+            "category",
+            "sample_description",
+            "usage_count",
         ],
     )
 
@@ -182,8 +180,8 @@ def get_existing_mappings():
 
     for m in mappings:
         summary["by_type"][m["document_type"]] += 1
-        if m["transaction_category"]:
-            summary["by_category"][m["transaction_category"]] += 1
+        if m["category"]:
+            summary["by_category"][m["category"]] += 1
         if m["account_code"]:
             summary["mapped_accounts"].add(m["account_code"])
 
@@ -212,15 +210,15 @@ def create_mapping_from_suggestion(suggestion):
     mapping.account_code = suggestion["account_code"]
     mapping.account_name = suggestion["account_name"]
     mapping.document_type = suggestion["suggested_type"]
-    mapping.transaction_category = suggestion["category"]
+    mapping.category = suggestion["category"]
 
-    # Set priority based on confidence
+    # Set priority based on confidence (field removed, logic preserved for reference)
     if suggestion["confidence"] == "high":
-        mapping.priority = 100
+        pass  # Previously: mapping.priority = 100
     elif suggestion["confidence"] == "medium":
-        mapping.priority = 50
+        pass  # Previously: mapping.priority = 50
     else:
-        mapping.priority = 10
+        pass  # Previously: mapping.priority = 10
 
     mapping.insert(ignore_permissions=True)
 
@@ -259,15 +257,15 @@ def bulk_create_mappings(suggestions):
             mapping.account_code = suggestion["account_code"]
             mapping.account_name = suggestion["account_name"]
             mapping.document_type = suggestion["suggested_type"]
-            mapping.transaction_category = suggestion["category"]
+            mapping.category = suggestion["category"]
 
-            # Set priority based on confidence
+            # Set priority based on confidence (field removed, logic preserved for reference)
             if suggestion.get("confidence") == "high":
-                mapping.priority = 100
+                pass  # Previously: mapping.priority = 100
             elif suggestion.get("confidence") == "medium":
-                mapping.priority = 50
+                pass  # Previously: mapping.priority = 50
             else:
-                mapping.priority = 10
+                pass  # Previously: mapping.priority = 10
 
             mapping.insert(ignore_permissions=True)
             created += 1
@@ -288,28 +286,25 @@ def create_default_range_mappings():
     """Create default mappings based on account ranges"""
     default_ranges = [
         {
-            "account_range_start": "40000",
-            "account_range_end": "40999",
+            # "account_range_start": "40000",
+            # "account_range_end": "40999",
             "account_name": "Wages and Salaries (4000x range)",
             "document_type": "Journal Entry",
-            "transaction_category": "Wages and Salaries",
-            "priority": 50,
+            "category": "Wages and Salaries",
         },
         {
-            "account_range_start": "41000",
-            "account_range_end": "41999",
+            # "account_range_start": "41000",
+            # "account_range_end": "41999",
             "account_name": "Social Charges (4100x range)",
             "document_type": "Journal Entry",
-            "transaction_category": "Social Charges",
-            "priority": 50,
+            "category": "Social Charges",
         },
         {
-            "account_range_start": "42000",
-            "account_range_end": "42999",
+            # "account_range_start": "42000",
+            # "account_range_end": "42999",
             "account_name": "Pension Costs (4200x range)",
             "document_type": "Journal Entry",
-            "transaction_category": "Pension Contributions",
-            "priority": 50,
+            "category": "Pension Contributions",
         },
     ]
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Enhanced SQL Field Validator with Confidence Scoring
+SQL Field Validator with Confidence Scoring
 
 Validates field references in SQL string literals to prevent database errors
-caused by referencing non-existent columns. Enhanced version with:
-- Confidence scoring to reduce false positives
+caused by referencing non-existent columns. Features:
+- Confidence scoring system
 - Common field mapping patterns
-- Better filtering of archived/test files
-- Improved standard field detection
+- Filtering of archived/test files
+- Standard field detection
 """
 
 import json
@@ -37,8 +37,8 @@ class ValidationIssue:
     suggested_fix: Optional[str] = None
 
 
-class EnhancedSQLFieldValidator:
-    """Enhanced validator for SQL string literals with confidence scoring"""
+class SQLFieldValidator:
+    """Validator for SQL string literals with confidence scoring"""
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path).resolve()
@@ -48,7 +48,7 @@ class EnhancedSQLFieldValidator:
         self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
         self.doctypes = self._convert_doctypes_for_compatibility()
         
-        print(f"🔍 Enhanced SQL Validator loaded {len(self.doctypes)} DocTypes from comprehensive loader")
+        print(f"🔍 SQL Validator loaded {len(self.doctypes)} DocTypes from comprehensive loader")
         
         # Extended standard Frappe fields (kept for reference but now loaded via DocType loader)
         self.standard_frappe_fields = {
@@ -128,7 +128,7 @@ class EnhancedSQLFieldValidator:
         """Extract SQL queries from string literals with better filtering"""
         queries = []
         
-        # Enhanced SQL patterns
+        # SQL patterns
         sql_patterns = [
             # Triple quoted strings containing SQL keywords
             r'"""([^"]*(?:SELECT|FROM|JOIN|WHERE|INSERT|UPDATE|DELETE)[^"]*)"""',
@@ -449,7 +449,7 @@ def main():
     args = parser.parse_args()
     
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
-    validator = EnhancedSQLFieldValidator(app_path)
+    validator = SQLFieldValidator(app_path)
     
     # Validate specific file if provided
     if args.file:
@@ -492,11 +492,11 @@ def main():
             med_conf = [v for v in violations if v.confidence == 'medium']
             low_conf = [v for v in violations if v.confidence == 'low']
             
-            print(f"🔍 Enhanced SQL Field Validation Results:")
+            print(f"🔍 SQL Field Validation Results:")
             print(f"📊 Total issues: {len(violations)}")
             print(f"🔴 High confidence (likely real issues): {len(high_conf)}")
             print(f"🟡 Medium confidence (needs investigation): {len(med_conf)}")
-            print(f"🟢 Low confidence (likely false positives): {len(low_conf)}")
+            print(f"🟢 Low confidence: {len(low_conf)}")
             print()
             
             # Show high confidence issues first
@@ -519,7 +519,7 @@ def main():
                 print()
             
             if low_conf:
-                print(f"🟢 LOW CONFIDENCE ISSUES ({len(low_conf)} total) - Likely false positives")
+                print(f"🟢 LOW CONFIDENCE ISSUES ({len(low_conf)} total)")
                 for violation in low_conf[:3]:  # Show first 3
                     print(f"   {violation.file}:{violation.line} - {violation.reference}")
                 if len(low_conf) > 3:

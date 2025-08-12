@@ -1622,11 +1622,23 @@ def get_chapter_member_emails(chapter_name):
     if not frappe.db.exists("Chapter", chapter_name):
         raise ValidationError(f"Chapter '{chapter_name}' does not exist")
 
-    # Get chapter members with email addresses
+    # Get chapter members through Chapter Member relationship
+    chapter_members = frappe.get_all(
+        "Chapter Member",
+        filters={
+            "parent": chapter_name,
+            "enabled": 1,
+            "status": ["in", ["Active", "Pending"]],
+        },
+        fields=["member"],
+    )
+
+    # Get member details for active chapter members
+    member_names = [cm.member for cm in chapter_members]
     members = frappe.get_all(
         "Member",
         filters={
-            "current_chapter": chapter_name,
+            "name": ["in", member_names],
             "membership_status": ["in", ["Active", "Pending"]],
             "email": ["is", "set"],  # Only members with email addresses
         },

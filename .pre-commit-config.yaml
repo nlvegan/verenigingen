@@ -56,7 +56,7 @@ repos:
         ]
         exclude: '^(node_modules|.git|dist|build|scripts|tests|debug_utils|dev_scripts|integration_tests|verenigingen/tests|frontend_tests|archived_unused|archived_deleted|archived_removal|archived_docs)/'
 
-  # Security Validation (Enhanced)
+  # Security Validation
   - repo: https://github.com/PyCQA/bandit
     rev: '1.7.5'
     hooks:
@@ -131,7 +131,7 @@ repos:
         stages: [manual]
 
       - id: doctype-field-validator
-        name: DocType attribute access validation
+        name: DocType field attribute access validator
         entry: python scripts/validation/doctype_field_validator.py --pre-commit --reduced-fp-mode
         language: system
         pass_filenames: false
@@ -158,8 +158,8 @@ repos:
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
 
       - id: enhanced-field-validator
-        name: Deprecated field validation (pre-push)
-        entry: python scripts/validation/deprecated_field_validator.py
+        name: Context-aware field reference validator
+        entry: python scripts/validation/enhanced_field_reference_validator.py
         language: system
         pass_filenames: false
         files: '\.(py|html|js)$'
@@ -223,10 +223,10 @@ repos:
         stages: [manual]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
-      # Enhanced AST Field Analyzer (Production-Ready)
+      # AST Field Analyzer
       - id: ast-field-analyzer
-        name: 🧠 AST Field Analyzer (Enhanced - 84% False Positive Reduction)
-        description: Advanced AST-based field validation with sophisticated false positive reduction
+        name: AST-based field reference analyzer
+        description: AST-based field validation using abstract syntax tree analysis
         entry: python scripts/validation/ast_field_analyzer.py
         language: system
         pass_filenames: false
@@ -236,7 +236,7 @@ repos:
         verbose: true
 
       - id: comprehensive-doctype-validator
-        name: DocType field analysis with advanced patterns
+        name: DocType field analysis with pattern matching
         entry: python scripts/validation/doctype_field_analyzer.py
         language: system
         pass_filenames: false
@@ -269,7 +269,7 @@ repos:
         stages: [manual]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
 
-      # Advanced Validation Tools (Enhanced)
+      # Validation Tools
       - id: frappe-hooks-validator
         name: 🪝 Frappe Hooks Validator
         description: Validate Frappe hooks and event handlers
@@ -354,10 +354,10 @@ repos:
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
 
-      # Comprehensive Validation (Manual)
+      # Specialized Pattern Validation (Manual)
       - id: unified-validation-engine
-        name: 🎯 Unified Validation Engine
-        description: Run comprehensive validation across all components
+        name: 🎯 Specialized Pattern Validator
+        description: Validate SQL queries, template variables, API patterns, and database operations
         entry: python scripts/validation/unified_validation_engine.py
         language: system
         pass_filenames: false
@@ -426,7 +426,7 @@ repos:
       - id: coverage-report-generator
         name: 📈 Coverage Report Generator
         description: Generate comprehensive test coverage reports
-        entry: python scripts/testing/test_coverage_report_enhanced.py
+        entry: python scripts/testing/test_coverage_report.py
         language: system
         pass_filenames: false
         files: '\.(py)$'

@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from typing import List, Dict, Set, Optional
 from dataclasses import dataclass
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 
 @dataclass
@@ -36,6 +37,16 @@ class MethodResolutionValidator:
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
+        
+        # Initialize comprehensive DocType loader
+        # Calculate bench path from app path
+        bench_path = self.app_path.parent.parent  # Go up from apps/verenigingen to bench root
+        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        
+        # Load DocTypes for validation (1,049 DocTypes + custom fields)
+        print("🔄 Loading comprehensive DocType information...")
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        print(f"✅ Loaded {len(self.doctypes)} DocTypes for method resolution validation")
         
         # Known deprecated methods to check for
         self.deprecated_methods = {
@@ -280,6 +291,17 @@ class MethodResolutionValidator:
                         ))
         
         return issues
+        
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Set[str]]:
+        """Convert doctype_loader format to simple dict for compatibility"""
+        simple_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
+        
+        for doctype_name, doctype_meta in doctype_metas.items():
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            simple_format[doctype_name] = set(field_names)
+        
+        return simple_format
 
     def print_report(self, issues: List[CallIssue]) -> None:
         """Print validation report"""
@@ -388,8 +410,7 @@ def main():
                     doctype_name = match.group(1)
                     
                     # FIRST-LAYER CHECK: Does this DocType actually exist?
-                    available_doctypes = getattr(self, 'doctypes', getattr(self, 'schemas', {}).get('schemas', {}))
-                    if doctype_name not in available_doctypes:
+                    if doctype_name not in self.doctypes:
                         # Suggest similar DocType names
                         suggestions = self._suggest_similar_doctype(doctype_name)
                         
@@ -410,8 +431,7 @@ def main():
     
     def _suggest_similar_doctype(self, invalid_name: str) -> str:
         """Suggest similar DocType names for typos"""
-        available_doctypes = getattr(self, 'doctypes', getattr(self, 'schemas', {}).get('schemas', {}))
-        available = list(available_doctypes.keys())
+        available = list(self.doctypes.keys())
         
         # Look for exact substring matches first
         exact_matches = [dt for dt in available if invalid_name.replace('Verenigingen ', '') in dt]

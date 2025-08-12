@@ -487,7 +487,7 @@ class ComprehensiveFieldValidator:
 
 def main():
     """Main entry point"""
-    parser = argparse.ArgumentParser(description='Enhanced DocType Field Validator')
+    parser = argparse.ArgumentParser(description='DocType Field Validator')
     parser.add_argument('--pre-commit', action='store_true',
                        help='Run in pre-commit mode (only high confidence issues)')
     parser.add_argument('--verbose', action='store_true',
@@ -503,7 +503,7 @@ def main():
         pre_commit_mode=args.pre_commit
     )
     
-    print("🔍 Enhanced DocType Field Validator")
+    print("🔍 DocType Field Validator")
     print("=" * 50)
     
     start_time = time.time()

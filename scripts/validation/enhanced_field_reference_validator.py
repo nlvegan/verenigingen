@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
 """
-Enhanced Field Validator - Addresses False Positive Issues
-Implements advanced pattern recognition to eliminate false positives while maintaining accuracy
+Context-Aware Field Reference Validator
+
+This validator provides field reference validation with:
+- Context analysis (CodeContext class)
+- Property registry system (981 classes, 65 properties)  
+- SQL result variable tracking
+- Child table iteration detection
+- Manager pattern recognition
 """
 
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Any
 from dataclasses import dataclass
 import textwrap
+
+# Import comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -36,14 +47,18 @@ class CodeContext:
     current_function: Optional[str] = None
     current_class: Optional[str] = None
 
-class EnhancedFieldValidator:
-    """Enhanced field validator with advanced false positive detection"""
+class ContextAwareFieldValidator:
+    """Context-aware field validator with pattern detection"""
     
     def __init__(self, app_path: str, verbose: bool = False):
         self.app_path = Path(app_path)
         self.bench_path = self.app_path.parent.parent
         self.verbose = verbose
-        self.doctypes = self.load_all_doctypes()
+        
+        # Use comprehensive DocType loader (standardized)
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=verbose)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        
         self.child_table_mapping = self._build_child_table_mapping()
         self.property_registry = self._build_property_registry()
         self.issues = []
@@ -51,6 +66,33 @@ class EnhancedFieldValidator:
         # Enhanced exclusion patterns
         self.excluded_patterns = self._build_enhanced_exclusions()
         self.sql_patterns = self._build_enhanced_sql_patterns()
+    
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Dict]:
+        """Convert comprehensive DocType loader format to legacy format for compatibility"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
+        
+        if self.verbose:
+            print(f"🔍 Deprecated Field Validator using comprehensive loader - loaded {len(doctype_metas)} DocTypes")
+        
+        for doctype_name, doctype_meta in doctype_metas.items():
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            
+            # Extract child table relationships
+            child_tables = []
+            for field_name, field_info in doctype_meta.fields.items():
+                if field_info.fieldtype == 'Table' and field_info.options:
+                    child_tables.append((field_name, field_info.options))
+            
+            legacy_format[doctype_name] = {
+                'fields': field_names,
+                'data': {'name': doctype_name},  # Minimal data structure
+                'app': doctype_meta.app,
+                'child_tables': child_tables,
+                'file': doctype_meta.json_file_path or 'unknown'
+            }
+            
+        return legacy_format
         self.child_table_patterns = self._build_enhanced_child_table_patterns()
         self.property_patterns = self._build_property_patterns()
         
@@ -170,7 +212,7 @@ class EnhancedFieldValidator:
             r'GROUP BY.*COUNT\(',
             r'SUM\(.*\)\s+as\s+\w+',
             r'frappe\.db\.count\(',
-            # Enhanced patterns for SQL aliases
+            # Patterns for SQL aliases
             r'SELECT.*\w+\s+as\s+\w+',
             r'LEFT JOIN.*\w+\s+as\s+\w+',
             r'FROM.*\w+\s+\w+\s*$',  # Table aliases
@@ -186,7 +228,7 @@ class EnhancedFieldValidator:
             r'for\s+\w+\s+in\s+self\.\w+:',
             r'for\s+\w+\s+in\s+.*\.(roles|cards|charts|members|items|lines|entries):',
             r'\w+\s+in\s+.*\.(team_members|board_members|chapter_members):',
-            # Enhanced patterns
+            # Patterns
             r'for\s+\w+\s+in\s+.*\.get\(\w+,\s*\[\]\):',
             r'for\s+\w+\s+in\s+doc\.\w+:',
             r'for\s+\w+\s+in\s+.*_list:',
@@ -203,72 +245,6 @@ class EnhancedFieldValidator:
             r'doc\.(payment_manager|termination_manager)',
         ]
     
-    def load_all_doctypes(self) -> Dict[str, Dict]:
-        """Load doctypes from all installed apps"""
-        doctypes = {}
-        
-        app_paths = [
-            self.bench_path / "apps" / "frappe",
-            self.bench_path / "apps" / "erpnext", 
-            self.bench_path / "apps" / "payments",
-            self.app_path,
-        ]
-        
-        for app_path in app_paths:
-            if app_path.exists():
-                if self.verbose:
-                    print(f"Loading doctypes from {app_path.name}...")
-                app_doctypes = self._load_doctypes_from_app(app_path)
-                doctypes.update(app_doctypes)
-                
-        if self.verbose:
-            print(f"📋 Loaded {len(doctypes)} doctypes from all apps")
-        return doctypes
-    
-    def _load_doctypes_from_app(self, app_path: Path) -> Dict[str, Dict]:
-        """Load doctypes from a specific app"""
-        doctypes = {}
-        
-        for json_file in app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract field names
-                    fields = set()
-                    child_tables = []
-                    
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                            if field.get('fieldtype') == 'Table':
-                                child_table_options = field.get('options')
-                                if child_table_options:
-                                    child_tables.append((fieldname, child_table_options))
-                            
-                    # Add standard Frappe fields
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-                    ])
-                    
-                    doctypes[doctype_name] = {
-                        'fields': fields,
-                        'data': data,
-                        'app': app_path.name,
-                        'child_tables': child_tables,
-                        'file': str(json_file)
-                    }
-                    
-                except Exception as e:
-                    continue
-                    
-        return doctypes
     
     def _build_child_table_mapping(self) -> Dict[str, str]:
         """Build mapping of parent.field -> child DocType"""
@@ -839,7 +815,7 @@ class EnhancedFieldValidator:
         violations = []
         files_checked = 0
         
-        print(f"🔍 Enhanced scanning Python files in {self.app_path}...")
+        print(f"🔍 Scanning Python files in {self.app_path}...")
         
         for py_file in self.app_path.rglob("**/*.py"):
             if any(skip in str(py_file) for skip in [
@@ -914,7 +890,7 @@ def main():
             single_file = Path(app_path) / arg
             break
     
-    validator = EnhancedFieldValidator(app_path, verbose=verbose)
+    validator = ContextAwareFieldValidator(app_path, verbose=verbose)
     
     if not verbose:
         print(f"📋 Loaded {len(validator.doctypes)} doctypes with field definitions")
@@ -929,7 +905,7 @@ def main():
         print("🚨 Running in pre-commit mode (production files only)...")
         violations = validator.validate_app(pre_commit=pre_commit)
     else:
-        print("🔍 Running enhanced comprehensive validation...")
+        print("🔍 Running comprehensive validation...")
         violations = validator.validate_app(pre_commit=pre_commit)
         
     print("\n" + "="*60)
@@ -937,21 +913,21 @@ def main():
     print(report)
     
     if violations:
-        print(f"\n💡 Enhanced Analysis Summary:")
+        print(f"\n💡 Analysis Summary:")
         print(f"   - Total issues found: {len(violations)}")
-        print(f"   - Enhanced progress: 881 -> 350 -> {len(violations)} issues")
+        print(f"   - Issues found: {len(violations)}")
         
         if len(violations) < 30:
             print("🎯 ENHANCED TARGET ACHIEVED: <30 issues!")
             print("🏆 Production-ready validation achieved!")
         elif len(violations) < 100:
-            print("✅ Excellent progress with enhanced validation!")
+            print("✅ Good progress with validation!")
         elif len(violations) < 200:
-            print("✅ Good progress toward enhanced target!")
+            print("✅ Good progress with validation!")
         
         return 1 if violations else 0
     else:
-        print("✅ All field references validated successfully with enhanced analysis!")
+        print("✅ All field references validated successfully!")
         
     return 0
 

@@ -215,10 +215,11 @@ class EnhancedAccountMigration:
         if group in self.group_mapping:
             return self.group_mapping[group]
 
-        # Try to find existing group account
+        # Try to find existing group account by naming convention
+        # Look for group accounts that might have been created for this eBoekhouden group
         group_account = frappe.db.get_value(
             "Account",
-            {"company": self.migration_doc.company, "eboekhouden_group": group, "is_group": 1},
+            {"company": self.migration_doc.company, "account_name": ["like", f"%{group}%"], "is_group": 1},
             "name",
         )
 

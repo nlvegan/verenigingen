@@ -355,7 +355,9 @@ def test_membership_type_change():
     try:
         # Get available membership types
         membership_types = frappe.get_all(
-            "Membership Type", filters={"is_active": 1}, fields=["name", "membership_type_name", "amount"]
+            "Membership Type",
+            filters={"is_active": 1},
+            fields=["name", "membership_type_name", "minimum_amount"],
         )
 
         test_results["details"]["available_types"] = len(membership_types)

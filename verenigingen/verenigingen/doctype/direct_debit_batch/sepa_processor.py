@@ -981,8 +981,9 @@ def get_upcoming_dues_collections(days_ahead=30):
         fields=[
             "name",
             "member",
-            "member.full_name as member_name",
-            "amount",
+            "minimum_amount",
+            "suggested_amount",
+            "uses_custom_amount",
             "billing_frequency",
             "next_invoice_date",
             "contribution_mode",
@@ -1005,7 +1006,9 @@ def get_upcoming_dues_collections(days_ahead=30):
             }
 
         collections_by_date[date_key]["schedules"].append(schedule)
-        collections_by_date[date_key]["total_amount"] += flt(schedule.amount)
+        # Use suggested_amount if available, otherwise minimum_amount
+        amount = schedule.suggested_amount if schedule.suggested_amount else schedule.minimum_amount
+        collections_by_date[date_key]["total_amount"] += flt(amount)
         collections_by_date[date_key]["count"] += 1
 
     return list(collections_by_date.values())

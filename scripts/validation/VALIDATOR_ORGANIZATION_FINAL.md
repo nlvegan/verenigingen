@@ -30,7 +30,7 @@ After systematic analysis of each validator's actual implementation, all validat
 
 ### Pre-push Validators (Run Before Push)
 
-- **`deprecated_field_validator.py`** - Advanced field validation for pre-push
+- **`enhanced_field_reference_validator.py`** - Advanced field validation for pre-push
   - **Hook**: `enhanced-field-validator` (pre-push)
   - **Purpose**: Comprehensive validation before pushing changes
 

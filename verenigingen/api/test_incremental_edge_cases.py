@@ -17,9 +17,7 @@ def test_edge_cases():
 
     try:
         # Test 1: Member with no employee link
-        members_without_links = frappe.get_all(
-            "Member", filters={"employee": ["is", "not set"]}, limit=1
-        )
+        members_without_links = frappe.get_all("Member", filters={"employee": ["is", "not set"]}, limit=1)
 
         if members_without_links:
             member_doc = frappe.get_doc("Member", members_without_links[0].name)

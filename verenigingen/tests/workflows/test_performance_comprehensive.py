@@ -118,6 +118,22 @@ class TestPerformanceComprehensive(VereningingenTestCase):
 
         return batch_members
 
+    def _get_chapter_members_with_complex_filter(self):
+        """Helper method to get chapter members with complex filter through proper relationship"""
+        chapter_members = frappe.get_all("Chapter Member",
+                                        filters={"parent": self.baseline_chapter.name, "enabled": 1},
+                                        fields=["member"], limit=50)
+        member_names = [cm.member for cm in chapter_members]
+        if member_names:
+            return frappe.get_all("Member",
+                                filters={
+                                    "name": ["in", member_names],
+                                    "status": "Active",
+                                    "first_name": ["like", "PerfTest%"]
+                                },
+                                limit=50)
+        return []
+
     def _test_large_dataset_queries(self, created_members):
         """Test various queries against large dataset"""
         member_names = [member.name for member in created_members[:100]]  # Test subset
@@ -127,13 +143,7 @@ class TestPerformanceComprehensive(VereningingenTestCase):
                                                    filters={"status": "Active"},
                                                    limit=50),
 
-            "complex_filter": lambda: frappe.get_all("Member",
-                                                    filters={
-                                                        "status": "Active",
-                                                        "chapter": self.baseline_chapter.name,
-                                                        "first_name": ["like", "PerfTest%"]
-                                                    },
-                                                    limit=50),
+            "complex_filter": lambda: self._get_chapter_members_with_complex_filter(),
 
             "join_query": lambda: frappe.db.sql("""
                 SELECT m.name, m.first_name, mb.membership_type
@@ -185,18 +195,25 @@ class TestPerformanceComprehensive(VereningingenTestCase):
         for page_size in page_sizes:
             start_time = time.time()
 
-            # Test first page
-            frappe.get_all("Member",
-                          filters={"chapter": self.baseline_chapter.name},
-                          fields=["name", "first_name", "email"],
-                          limit=page_size,
-                          start=0)
+            # Test first page - get through Chapter Member relationship
+            chapter_members = frappe.get_all("Chapter Member",
+                                            filters={"parent": self.baseline_chapter.name, "enabled": 1},
+                                            fields=["member"], limit=page_size)
+            member_names = [cm.member for cm in chapter_members]
+            if member_names:
+                frappe.get_all("Member",
+                              filters={"name": ["in", member_names]},
+                              fields=["name", "first_name", "email"],
+                              limit=page_size,
+                              start=0)
 
             # Test middle page
             middle_start = min(total_records // 2, total_records - page_size)
-            frappe.get_all("Member",
-                          filters={"chapter": self.baseline_chapter.name},
-                          fields=["name", "first_name", "email"],
+            # Use the same member list but different pagination
+            if member_names:
+                frappe.get_all("Member",
+                              filters={"name": ["in", member_names]},
+                              fields=["name", "first_name", "email"],
                           limit=page_size,
                           start=middle_start)
 
@@ -363,7 +380,7 @@ class TestPerformanceComprehensive(VereningingenTestCase):
 
         # Simulate portal activities
         frappe.get_all("Membership", filters={"member": member.name}, limit=5)
-        frappe.get_all("Member Payment History", filters={"member": member.name}, limit=10)
+        frappe.get_all("Member Payment History", filters={"reference_doctype": "Member", "reference_name": member.name}, limit=10)
 
     def _scenario_volunteer_dashboard(self, user_id):
         """Simulate volunteer dashboard access scenario"""

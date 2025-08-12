@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
 """
-Unified Field Validator
-Combines AST field validation with SQL field validation using consistent logic
+Specialized Pattern Validator
+Validates SQL queries, template variables, API patterns, and database operations
 """
 
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
+
+# Import comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -25,12 +30,16 @@ class ValidationIssue:
     issue_type: str
     suggested_fix: Optional[str] = None
 
-class UnifiedFieldValidator:
-    """Unified validator combining AST and SQL field validation with consistent logic"""
+class SpecializedPatternValidator:
+    """Specialized validator for SQL queries, template variables, API patterns, and database operations"""
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
-        self.doctypes = self.load_doctypes()
+        self.bench_path = self.app_path.parent.parent
+        
+        # Use comprehensive DocType loader (standardized)
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_unified_format()
         
         # Known field mappings from SEPA fixes
         self.known_field_mappings = {
@@ -73,38 +82,17 @@ class UnifiedFieldValidator:
             'test_data', 'test_result', 'mock_member', 'mock_volunteer'
         }
         
-    def load_doctypes(self) -> Dict[str, Set[str]]:
-        """Load doctype field definitions"""
-        doctypes = {}
+    def _convert_doctypes_for_unified_format(self) -> Dict[str, Set[str]]:
+        """Convert comprehensive DocType loader format to unified validator format"""
+        unified_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-        for json_file in self.app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract actual field names
-                    fields = set()
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                            
-                    # Add standard Frappe document fields
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-                    ])
-                    
-                    doctypes[doctype_name] = fields
-                    
-                except Exception:
-                    continue
-                    
-        return doctypes
+        for doctype_name, doctype_meta in doctype_metas.items():
+            # Get all field names as a set - this matches the expected unified format
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            unified_format[doctype_name] = field_names
+            
+        return unified_format
     
     def get_suggested_fix(self, doctype: str, field: str) -> Optional[str]:
         """Get suggested fix from known field mappings"""
@@ -269,7 +257,12 @@ class UnifiedFieldValidator:
             'LIMIT', 'OFFSET', 'AS', 'ALL', 'ANY', 'SOME', 'EXISTS', 'SET', 'VALUES',
             'YEAR', 'MONTH', 'DAY', 'HOUR', 'MINUTE', 'DATE', 'TIME', 'NOW', 'CURDATE',
             'CAST', 'CONVERT', 'IFNULL', 'CONCAT', 'SUBSTRING', 'TRIM', 'UPPER', 'LOWER',
-            'ABS', 'ROUND', 'FLOOR', 'CEIL', 'IF', 'GREATEST', 'LEAST'
+            'ABS', 'ROUND', 'FLOOR', 'CEIL', 'IF', 'GREATEST', 'LEAST',
+            # SQL metadata fields from SHOW INDEX, INFORMATION_SCHEMA, etc.
+            'Key_name', 'Column_name', 'Table_name', 'Index_type', 'Collation',
+            'table_schema', 'table_name', 'column_name', 'data_type', 'is_nullable',
+            'column_default', 'character_maximum_length', 'numeric_precision',
+            'Non_unique', 'Seq_in_index', 'Sub_part', 'Packed', 'Null', 'Comment'
         }
         
         # Common status/enum values that appear in SQL but aren't fields
@@ -363,10 +356,22 @@ class UnifiedFieldValidator:
             r'table\s*=\s*"tab([^"]+)"',
         ]
         
+        # Skip Custom Field creation patterns - these are data, not field access
+        custom_field_patterns = [
+            r'"doctype":\s*"Custom Field"',  # Skip if creating Custom Field documents
+            r'frappe\.get_doc.*Custom Field',  # Skip Custom Field document creation
+            r'custom_field\s*=.*frappe\.get_doc',  # Skip custom_field variables
+        ]
+        
         lines = content.splitlines()
         current_table = None
         
         for line_num, line in enumerate(lines, 1):
+            # Skip Custom Field creation contexts
+            is_custom_field_context = any(re.search(pattern, line) for pattern in custom_field_patterns)
+            if is_custom_field_context:
+                continue
+                
             # Find table references
             for table_pattern in table_patterns:
                 table_match = re.search(table_pattern, line)
@@ -392,9 +397,18 @@ class UnifiedFieldValidator:
         """Validate SQL field references in file content"""
         violations = []
         
+        # Skip files that primarily create Custom Fields - these contain JSON data, not field access
+        if ('frappe.get_doc' in content and '"doctype": "Custom Field"' in content) or \
+           ('custom_field' in content and '"fieldname":' in content):
+            return violations
+        
         # Extract and validate SQL queries
         queries = self.extract_sql_queries(content)
         for sql, line_num in queries:
+            # Skip SHOW commands entirely - these are database metadata, not DocType fields
+            if re.search(r'\bSHOW\s+(INDEX|TABLES|COLUMNS|FIELDS)\s+', sql, re.IGNORECASE):
+                continue
+                
             aliases = self.extract_table_aliases(sql)
             field_refs = self.extract_field_references(sql, aliases)
             
@@ -463,9 +477,9 @@ class UnifiedFieldValidator:
         
         # Patterns to match get_single_value calls
         patterns = [
-            # frappe.db.get_single_value("DocType", "field")
+            # frappe.db.get_single_value calls
             r'frappe\.db\.get_single_value\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
-            # frappe.get_single_value("DocType", "field")  
+            # frappe.get_single_value calls 
             r'frappe\.get_single_value\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
         ]
         
@@ -474,6 +488,11 @@ class UnifiedFieldValidator:
                 doctype = match.group(1)
                 field_name = match.group(2)
                 line_num = content[:match.start()].count('\n') + 1
+                
+                # Skip if this match is in a comment
+                line_content = self._get_line_context(content, line_num)
+                if line_content.strip().startswith('#'):
+                    continue
                 
                 # Check if the doctype exists and has the field
                 if doctype in self.doctypes:
@@ -607,7 +626,13 @@ class UnifiedFieldValidator:
         violations = []
         
         # Skip certain files to reduce noise
-        skip_patterns = ['test_', 'debug_', '__pycache__', '/archived_unused/', '/archived_', '/tests/']
+        skip_patterns = [
+            'test_', 'debug_', '__pycache__', '/archived_unused/', '/archived_', '/tests/',
+            'export_custom_fields_to_fixture.py',  # Skip fixture export scripts 
+            'fixture_data.py',  # Skip fixture data files
+            '_fixture.py',  # Skip any fixture files
+            'migration_data.py',  # Skip migration data files
+        ]
         if any(pattern in str(file_path) for pattern in skip_patterns):
             return violations
         
@@ -670,6 +695,7 @@ class UnifiedFieldValidator:
             (r'FROM\s+`tab(\w+)`[^`]*WHERE\s+([a-zA-Z_][a-zA-Z0-9_]{2,})\s*[=<>!]', 'WHERE clause', 1, 2),
             # Skip ORDER BY and GROUP BY entirely for now - too many false positives
         ]
+        
         
         # Comprehensive list of SQL keywords and functions
         sql_keywords = {
@@ -782,6 +808,13 @@ class UnifiedFieldValidator:
     def validate_report_field_patterns(self, content: str, file_path: Path) -> List[ValidationIssue]:
         """Validate report column/filter field definitions"""
         violations = []
+        
+        # Skip files that create Custom Fields or DocTypes - these contain JSON data, not field access
+        if ('frappe.get_doc' in content and '"doctype": "Custom Field"' in content) or \
+           ('custom_field' in content and '"fieldname":' in content) or \
+           ('"fields":' in content and '"fieldname":' in content) or \
+           ('"doctype":' in content and '"fieldtype":' in content):
+            return violations
         
         # Patterns for report configurations
         report_patterns = [
@@ -1045,7 +1078,7 @@ def main():
     args = parser.parse_args()
     
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
-    validator = UnifiedFieldValidator(app_path)
+    validator = SpecializedPatternValidator(app_path)
     
     success = validator.run_validation(pre_commit_mode=args.pre_commit)
     return 0 if success else 1

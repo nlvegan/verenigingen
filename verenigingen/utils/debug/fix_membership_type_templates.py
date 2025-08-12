@@ -31,7 +31,7 @@ def check_membership_types_missing_templates():
             {
                 "membership_type": mt.name,
                 "membership_type_name": mt.membership_type_name,
-                "amount": mt.amount,
+                "amount": mt.minimum_amount,
                 "billing_period": mt.billing_period,
                 "matching_templates": matching_templates,
                 "recommended_action": (
@@ -124,7 +124,7 @@ def create_missing_templates():
     all_membership_types = frappe.get_all(
         "Membership Type",
         filters={"is_active": 1},
-        fields=["name", "membership_type_name", "amount", "billing_period"],
+        fields=["name", "membership_type_name", "minimum_amount", "billing_period"],
     )
 
     for mt in all_membership_types:
@@ -147,9 +147,9 @@ def create_missing_templates():
                     "schedule_name": f"Template-{mt.membership_type_name}",
                     "is_template": 1,
                     "membership_type": mt.name,
-                    "minimum_amount": mt.amount,
-                    "suggested_amount": mt.amount,
-                    "dues_rate": mt.amount,
+                    "minimum_amount": mt.minimum_amount,
+                    "suggested_amount": mt.minimum_amount,
+                    "dues_rate": mt.minimum_amount,
                     "billing_frequency": (
                         "Daily"
                         if mt.billing_period == "Daily"
@@ -178,7 +178,7 @@ def create_missing_templates():
                     "membership_type": mt.name,
                     "membership_type_name": mt.membership_type_name,
                     "template_name": template.name,
-                    "amount": mt.amount,
+                    "amount": mt.minimum_amount,
                 }
             )
             results["created_count"] += 1

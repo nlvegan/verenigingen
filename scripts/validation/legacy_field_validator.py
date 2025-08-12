@@ -7,8 +7,13 @@ Ultra-precise validation focusing only on clear field access patterns
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Union
+
+# Import comprehensive DocType loader
+sys.path.insert(0, str(Path(__file__).parent))
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 
 class FinalFieldValidator:
@@ -16,40 +21,23 @@ class FinalFieldValidator:
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
-        self.doctypes = self.load_doctypes()
+        self.bench_path = self.app_path.parent.parent
         
-    def load_doctypes(self) -> Dict[str, Set[str]]:
-        """Load doctype field definitions"""
-        doctypes = {}
+        # Use comprehensive DocType loader (standardized)
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_legacy_format()
+    
+    def _convert_doctypes_for_legacy_format(self) -> Dict[str, Set[str]]:
+        """Convert comprehensive DocType loader format to legacy Set[str] format"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-        for json_file in self.app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract actual field names only
-                    fields = set()
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                            
-                    # Add standard Frappe document fields
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-                    ])
-                    
-                    doctypes[doctype_name] = fields
-                    
-                except Exception:
-                    continue
-                    
-        return doctypes
+        for doctype_name, doctype_meta in doctype_metas.items():
+            # Get all field names as a set - this matches the expected legacy format
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            legacy_format[doctype_name] = field_names
+            
+        return legacy_format
     
     def get_doctype_from_file_path(self, file_path: Path) -> Optional[str]:
         """Extract doctype name from file path"""
@@ -1094,7 +1082,7 @@ def main():
         print("🔍 Running comprehensive validation (production + tests)...")
         violations = validator.validate_all_including_tests()
     else:
-        print("🏭 Running enhanced field validation (production only)...")
+        print("🏭 Running field validation (production only)...")
         violations = validator.validate_app()
     
     print("\n" + "="*50)

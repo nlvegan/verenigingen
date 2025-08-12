@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple, Union
 from dataclasses import dataclass
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -32,7 +33,15 @@ class EnhancedFieldValidator:
         self.app_path = Path(app_path)
         self.bench_path = self.app_path.parent.parent
         self.verbose = verbose
-        self.doctypes = self.load_all_doctypes()
+        
+        # Initialize comprehensive DocType loader
+        if self.verbose:
+            print("🔄 Loading comprehensive DocType information...")
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        if self.verbose:
+            print(f"✅ Loaded {len(self.doctypes)} DocTypes for enhanced V2 validation")
+        
         self.child_table_mapping = self._build_child_table_mapping()
         self.issues = []
         
@@ -110,76 +119,29 @@ class EnhancedFieldValidator:
             r'for\s+\w+\s+in\s+members:'
         ]
     
-    def load_all_doctypes(self) -> Dict[str, Dict]:
-        """Load doctypes from all installed apps with enhanced accuracy"""
-        doctypes = {}
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Dict]:
+        """Convert doctype_loader format to legacy format for compatibility"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-        # Standard apps to check
-        app_paths = [
-            self.bench_path / "apps" / "frappe",  # Core Frappe
-            self.bench_path / "apps" / "erpnext",  # ERPNext if available
-            self.bench_path / "apps" / "payments",  # Payments app if available
-            self.app_path,  # Current app (verenigingen)
-        ]
+        for doctype_name, doctype_meta in doctype_metas.items():
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            
+            # Build legacy format structure
+            legacy_format[doctype_name] = {
+                'data': {
+                    'name': doctype_name,
+                    'fields': [
+                        {'fieldname': field_name}
+                        for field_name in field_names
+                    ]
+                },
+                'fields': set(field_names),
+                'link_fields': {}  # Could be populated if needed
+            }
         
-        for app_path in app_paths:
-            if app_path.exists():
-                if self.verbose:
-                    print(f"Loading doctypes from {app_path.name}...")
-                app_doctypes = self._load_doctypes_from_app(app_path)
-                doctypes.update(app_doctypes)
-                
-        if self.verbose:
-            print(f"📋 Loaded {len(doctypes)} doctypes from all apps")
-        return doctypes
+        return legacy_format
     
-    def _load_doctypes_from_app(self, app_path: Path) -> Dict[str, Dict]:
-        """Load doctypes from a specific app with field validation"""
-        doctypes = {}
-        
-        # Find all doctype JSON files
-        for json_file in app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract actual field names with validation
-                    fields = set()
-                    child_tables = []
-                    
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                            # Track child table fields
-                            if field.get('fieldtype') == 'Table':
-                                child_table_options = field.get('options')
-                                if child_table_options:
-                                    child_tables.append((fieldname, child_table_options))
-                            
-                    # Add standard Frappe document fields
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-                    ])
-                    
-                    doctypes[doctype_name] = {
-                        'fields': fields,
-                        'data': data,
-                        'app': app_path.name,
-                        'child_tables': child_tables,
-                        'file': str(json_file)
-                    }
-                    
-                except Exception as e:
-                    # Skip problematic files silently
-                    continue
-                    
-        return doctypes
     
     def _build_child_table_mapping(self) -> Dict[str, str]:
         """Build precise mapping of parent.field -> child DocType"""

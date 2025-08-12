@@ -159,7 +159,7 @@ def get_staging_data():
 
 
 @frappe.whitelist()
-def create_account_mapping(account_code, account_type, confidence_level="manual", notes=""):
+def create_account_mapping(account_code, document_type, confidence="manual", reason=""):
     """
     Create a manual account mapping override
     """
@@ -170,18 +170,18 @@ def create_account_mapping(account_code, account_type, confidence_level="manual"
         if existing:
             # Update existing mapping
             mapping = frappe.get_doc("E-Boekhouden Account Mapping", existing)
-            mapping.account_type = account_type
-            mapping.confidence_level = confidence_level
-            mapping.notes = notes
+            mapping.document_type = document_type
+            mapping.confidence = confidence
+            mapping.reason = reason
             mapping.save(ignore_permissions=True)
             action = "updated"
         else:
             # Create new mapping
             mapping = frappe.new_doc("E-Boekhouden Account Mapping")
             mapping.account_code = account_code
-            mapping.account_type = account_type
-            mapping.confidence_level = confidence_level
-            mapping.notes = notes
+            mapping.document_type = document_type
+            mapping.confidence = confidence
+            mapping.reason = reason
             mapping.insert(ignore_permissions=True)
             action = "created"
 
@@ -211,9 +211,9 @@ def get_account_mappings():
                 "name",
                 "account_code",
                 "account_name",
-                "account_type",
-                "confidence_level",
-                "notes",
+                "document_type",
+                "confidence",
+                "reason",
                 "creation",
                 "modified",
             ],
@@ -343,7 +343,7 @@ def export_configuration():
     try:
         mappings = frappe.get_all(
             "E-Boekhouden Account Mapping",
-            fields=["account_code", "account_name", "account_type", "confidence_level", "notes"],
+            fields=["account_code", "account_name", "document_type", "confidence", "reason"],
         )
 
         config = {"export_date": frappe.utils.now(), "mappings": mappings, "total_mappings": len(mappings)}
@@ -374,9 +374,9 @@ def import_configuration(config_json):
             try:
                 result = create_account_mapping(
                     mapping_data["account_code"],
-                    mapping_data["account_type"],
-                    mapping_data.get("confidence_level", "imported"),
-                    mapping_data.get("notes", ""),
+                    mapping_data["document_type"],
+                    mapping_data.get("confidence", "imported"),
+                    mapping_data.get("reason", ""),
                 )
 
                 if result["success"]:

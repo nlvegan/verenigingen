@@ -12,7 +12,7 @@ sys.path.append(str(Path(__file__).parent))
 
 try:
     from doctype_field_validator import DocTypeFieldValidator
-    from unified_field_validator import UnifiedFieldValidator
+    from unified_field_validator import SpecializedPatternValidator
 except ImportError as e:
     print(f"Error importing validators: {e}")
     sys.exit(1)
@@ -55,7 +55,7 @@ def test_validator_performance():
     start_time = time.time()
     
     try:
-        unified_validator = UnifiedFieldValidator(app_path)
+        unified_validator = SpecializedPatternValidator(app_path)
         
         # Manually run validation to get issues
         all_violations = []

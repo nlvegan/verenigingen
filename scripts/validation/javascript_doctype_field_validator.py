@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Advanced JavaScript Field Validator
+JavaScript Field Validator
 =====================================
 
 Context-aware JavaScript field validation that eliminates false positives by using
@@ -65,7 +65,7 @@ class ValidationIssue:
 
 class AdvancedJavaScriptFieldValidator:
     """
-    Advanced JavaScript field validator with context awareness
+    JavaScript field validator with context awareness
     
     Uses sophisticated pattern analysis to distinguish between legitimate
     JavaScript property access and actual DocType field references.
@@ -74,7 +74,8 @@ class AdvancedJavaScriptFieldValidator:
     def __init__(self):
         # Use comprehensive DocType loader (standardized)
         # Navigate from script to bench: scripts/validation -> apps/verenigingen -> apps -> bench
-        bench_path = Path(__file__).parent.parent.parent.parent
+        script_path = Path(__file__)
+        bench_path = script_path.parent.parent.parent.parent.parent
         self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
         self.doctypes = self._convert_doctypes_for_js_validation()
         
@@ -516,7 +517,7 @@ class AdvancedJavaScriptFieldValidator:
             Formatted report string
         """
         report = []
-        report.append("🔍 Advanced JavaScript Field Validation Report")
+        report.append("🔍 JavaScript Field Validation Report")
         report.append("=" * 55)
         
         total_files = len(validation_results)
@@ -528,7 +529,7 @@ class AdvancedJavaScriptFieldValidator:
         
         if total_issues == 0:
             report.append("✅ No JavaScript field reference issues found!")
-            report.append("🎉 All JavaScript files pass advanced validation!")
+            report.append("🎉 All JavaScript files pass validation!")
             return "\n".join(report)
         
         # Group issues by severity
@@ -566,7 +567,7 @@ def main():
         current_dir = Path(__file__).parent
         directory = str(current_dir.parent.parent)  # verenigingen app root
     
-    print("🔍 Advanced JavaScript Field Validator")
+    print("🔍 JavaScript Field Validator")
     print("=" * 45)
     print(f"Validating directory: {directory}")
     print()

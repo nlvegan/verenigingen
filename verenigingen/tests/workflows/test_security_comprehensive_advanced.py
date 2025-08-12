@@ -164,9 +164,14 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
                     members = frappe.get_all("Member", limit=5)
                     actual_access = "full" if len(members) >= 0 else "none"
                 elif expected_access == "chapter_only":
-                    # Should only see members from user's chapter
+                    # Should only see members from user's chapter  
+                    # Get through Chapter Member relationship
+                    chapter_members = frappe.get_all("Chapter Member",
+                                                    filters={"parent": self.public_chapter.name, "enabled": 1},
+                                                    fields=["member"], limit=5)
+                    member_names = [cm.member for cm in chapter_members]
                     members = frappe.get_all("Member",
-                                           filters={"chapter": self.public_chapter.name},
+                                           filters={"name": ["in", member_names]},
                                            limit=5)
                     actual_access = "chapter_only" if len(members) >= 0 else "none"
                 elif expected_access == "own_only":
@@ -331,7 +336,7 @@ class TestSecurityComprehensiveAdvanced(VereningingenTestCase):
         # Get membership data
         memberships = frappe.get_all("Membership",
                                    filters={"member": member_name},
-                                   fields=["name", "membership_type", "start_date", "to_date", "status"])
+                                   fields=["name", "membership_type", "start_date", "cancellation_date", "status"])
 
         # Get financial data (with privacy protection)
         sepa_mandates = frappe.get_all("SEPA Mandate",

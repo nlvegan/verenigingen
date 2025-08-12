@@ -9,6 +9,7 @@ import json
 import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 
 class PreciseFieldValidator:
@@ -16,41 +17,25 @@ class PreciseFieldValidator:
     
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
-        self.doctypes = self.load_doctypes()
+        
+        # Initialize comprehensive DocType loader
+        bench_path = self.app_path.parent.parent
+        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        print(f"🎯 Precision-focused validator loaded {len(self.doctypes)} DocTypes")
+        
         self.frappe_methods = self.load_frappe_methods()
         
-    def load_doctypes(self) -> Dict[str, Set[str]]:
-        """Load doctype field definitions"""
-        doctypes = {}
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Set[str]]:
+        """Convert doctype_loader format to simple dict for compatibility"""
+        simple_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-        for json_file in self.app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract only actual field names
-                    fields = set()
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                            
-                    # Add standard Frappe document fields
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-                    ])
-                    
-                    doctypes[doctype_name] = fields
-                    
-                except Exception:
-                    continue
-                    
-        return doctypes
+        for doctype_name, doctype_meta in doctype_metas.items():
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            simple_format[doctype_name] = set(field_names)
+        
+        return simple_format
     
     def load_frappe_methods(self) -> Set[str]:
         """Load known Frappe framework methods and attributes that are NOT fields"""

@@ -350,7 +350,7 @@ def get_mapped_account_impl(migration_doc, eboekhouden_code):
     try:
         # Check for existing mapping
         mapping = frappe.db.get_value(
-            "E-Boekhouden Ledger Mapping", {"eboekhouden_code": eboekhouden_code}, "erpnext_account"
+            "E-Boekhouden Ledger Mapping", {"ledger_code": eboekhouden_code}, "erpnext_account"
         )
 
         if mapping:
@@ -358,7 +358,9 @@ def get_mapped_account_impl(migration_doc, eboekhouden_code):
 
         # Try to find account by E-Boekhouden code
         account = frappe.db.get_value(
-            "Account", {"company": migration_doc.company, "custom_eboekhouden_code": eboekhouden_code}, "name"
+            "Account",
+            {"company": migration_doc.company, "eboekhouden_grootboek_nummer": eboekhouden_code},
+            "name",
         )
 
         return account

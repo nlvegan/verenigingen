@@ -59,7 +59,7 @@ Based on comprehensive analysis of the validation ecosystem, archiving 90 of 143
 1. **doctype-field-validator** → `doctype_field_validator.py`
 2. **sql-field-validator** → `sql_field_reference_validator.py`
 3. **frappe-api-validator** → `database_field_reference_validator.py`
-4. **enhanced-field-validator** → `deprecated_field_validator.py`
+4. **enhanced-field-validator** → `enhanced_field_reference_validator.py`
 5. **template-field-validator** → `template_field_validator.py`
 6. **javascript-doctype-validator** → `javascript_doctype_field_validator.py`
 7. **ast-field-analyzer** → `ast_field_analyzer.py`

@@ -14,6 +14,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -35,7 +36,12 @@ class RefinedFieldValidator:
     def __init__(self, app_path: str):
         self.app_path = Path(app_path)
         self.bench_path = self.app_path.parent.parent
-        self.doctypes = self.load_all_doctypes()
+        
+        # Initialize comprehensive DocType loader
+        self.doctype_loader = DocTypeLoader(str(self.bench_path), verbose=False)
+        self.doctypes = self._convert_doctypes_for_compatibility()
+        print(f"✨ Refined pattern validator loaded {len(self.doctypes)} DocTypes")
+        
         self.issues = []
         
         # Define configuration field patterns
@@ -157,72 +163,28 @@ class RefinedFieldValidator:
             }
         }
     
-    def load_all_doctypes(self) -> Dict[str, Dict]:
-        """Load doctypes from all installed apps"""
-        doctypes = {}
+    def _convert_doctypes_for_compatibility(self) -> Dict[str, Dict]:
+        """Convert doctype_loader format to legacy format for compatibility"""
+        legacy_format = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
         
-        # Standard apps to check
-        app_paths = [
-            self.bench_path / "apps" / "frappe",  # Core Frappe
-            self.bench_path / "apps" / "erpnext",  # ERPNext if available
-            self.bench_path / "apps" / "payments",  # Payments app if available
-            self.app_path,  # Current app (verenigingen)
-        ]
+        for doctype_name, doctype_meta in doctype_metas.items():
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            
+            # Build legacy format structure
+            legacy_format[doctype_name] = {
+                'data': {
+                    'name': doctype_name,
+                    'fields': [
+                        {'fieldname': field_name}
+                        for field_name in field_names
+                    ]
+                },
+                'fields': set(field_names),
+                'link_fields': {}  # Could be populated if needed
+            }
         
-        for app_path in app_paths:
-            if app_path.exists():
-                print(f"Loading doctypes from {app_path.name}...")
-                app_doctypes = self._load_doctypes_from_app(app_path)
-                doctypes.update(app_doctypes)
-                
-        print(f"📋 Loaded {len(doctypes)} doctypes from all apps")
-        return doctypes
-    
-    def _load_doctypes_from_app(self, app_path: Path) -> Dict[str, Dict]:
-        """Load doctypes from a specific app"""
-        doctypes = {}
-        
-        # Find all doctype JSON files
-        for json_file in app_path.rglob("**/doctype/*/*.json"):
-            if json_file.name == json_file.parent.name + ".json":
-                try:
-                    with open(json_file, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        
-                    doctype_name = data.get('name', json_file.stem)
-                    
-                    # Extract actual field names
-                    fields = set()
-                    link_fields = {}  # Track Link field targets for recursive detection
-                    
-                    for field in data.get('fields', []):
-                        fieldname = field.get('fieldname')
-                        if fieldname:
-                            fields.add(fieldname)
-                            
-                            # Track Link fields for recursive reference detection
-                            if field.get('fieldtype') == 'Link':
-                                link_fields[fieldname] = field.get('options', '')
-                                
-                    # Add standard Frappe document fields
-                    fields.update([
-                        'name', 'creation', 'modified', 'modified_by', 'owner',
-                        'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-                        'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-                    ])
-                    
-                    doctypes[doctype_name] = {
-                        'fields': fields,
-                        'link_fields': link_fields,
-                        'data': data,
-                        'app': app_path.name
-                    }
-                    
-                except Exception as e:
-                    # Skip problematic files silently
-                    continue
-                    
-        return doctypes
+        return legacy_format
     
     def is_excluded_pattern(self, obj_name: str, field_name: str, context: str) -> bool:
         """Check if this object.field pattern should be excluded from validation"""

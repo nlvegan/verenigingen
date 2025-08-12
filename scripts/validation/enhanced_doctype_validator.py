@@ -20,6 +20,7 @@ import argparse
 from pathlib import Path
 from typing import Dict, List, Set, Optional, Tuple
 from dataclasses import dataclass
+from doctype_loader import DocTypeLoader, DocTypeMetadata, FieldMetadata
 
 @dataclass
 class ValidationIssue:
@@ -36,58 +37,38 @@ class ValidationIssue:
     suggested_fix: Optional[str] = None
 
 class DocTypeSchema:
-    """Manages DocType schema loading and caching"""
+    """Manages DocType schema loading and caching using comprehensive loader"""
     
     def __init__(self, app_path: Path, bench_path: Path):
         self.app_path = app_path
         self.bench_path = bench_path
-        self.schemas = {}
-        self.child_table_mapping = {}
-        self._load_schemas()
         
-    def _load_schemas(self):
-        """Load all DocType schemas from installed apps"""
-        # Standard Frappe fields
-        standard_fields = {
-            'name', 'creation', 'modified', 'modified_by', 'owner',
-            'docstatus', 'parent', 'parentfield', 'parenttype', 'idx',
-            'doctype', '_user_tags', '_comments', '_assign', '_liked_by'
-        }
+        # Initialize comprehensive DocType loader
+        self.doctype_loader = DocTypeLoader(str(bench_path), verbose=False)
+        self.schemas = self._convert_to_legacy_format()
+        self.child_table_mapping = self._build_child_table_mapping()
+        print(f"📊 Enhanced DocType validator loaded {len(self.schemas)} DocTypes")
         
-        # Load from all apps
-        for app_dir in self.bench_path.glob("apps/*"):
-            if not app_dir.is_dir():
-                continue
-                
-            for json_file in app_dir.rglob("**/doctype/*/*.json"):
-                if json_file.name == json_file.parent.name + ".json":
-                    try:
-                        with open(json_file, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            
-                        doctype_name = data.get('name', json_file.stem)
-                        fields = set(standard_fields)
-                        
-                        # Add defined fields and track child tables
-                        for field in data.get('fields', []):
-                            fieldname = field.get('fieldname')
-                            if fieldname:
-                                fields.add(fieldname)
-                                
-                                # Track child table fields
-                                if field.get('fieldtype') == 'Table':
-                                    child_doctype = field.get('options')
-                                    if child_doctype:
-                                        self.child_table_mapping[f"{doctype_name}.{fieldname}"] = child_doctype
-                                
-                        self.schemas[doctype_name] = {
-                            'fields': fields,
-                            'app': app_dir.name,
-                            'path': str(json_file)
-                        }
-                        
-                    except Exception:
-                        pass
+    def _convert_to_legacy_format(self):
+        """Convert doctype_loader format to legacy schema format"""
+        legacy_schemas = {}
+        doctype_metas = self.doctype_loader.get_doctypes()
+        
+        for doctype_name, doctype_meta in doctype_metas.items():
+            field_names = self.doctype_loader.get_field_names(doctype_name)
+            
+            legacy_schemas[doctype_name] = {
+                'fields': set(field_names),
+                'app': 'comprehensive_loader',  # Could track actual app if needed
+                'path': 'doctype_loader'
+            }
+        
+        return legacy_schemas
+    
+    def _build_child_table_mapping(self):
+        """Build child table mapping from comprehensive loader"""
+        # Use the built-in child table mapping from the loader
+        return self.doctype_loader.get_child_table_mapping()
                         
     def get_fields(self, doctype: str) -> Set[str]:
         """Get fields for a DocType"""

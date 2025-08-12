@@ -94,7 +94,10 @@
   "default_item_group",
   "monitoring_section",
   "stuck_schedule_notification_emails",
-  "payment_history_failure_threshold"
+  "payment_history_failure_threshold",
+  "email_section",
+  "enable_email_group_sync",
+  "enable_email_analytics"
  ],
  "fields": [
   {
@@ -702,6 +705,25 @@
    "fieldname": "payment_history_failure_threshold",
    "fieldtype": "Int",
    "label": "Payment History Failure Threshold"
+  },
+  {
+   "fieldname": "email_section",
+   "fieldtype": "Section Break",
+   "label": "Email Settings"
+  },
+  {
+   "default": "0",
+   "description": "Enable automatic synchronization of email groups",
+   "fieldname": "enable_email_group_sync",
+   "fieldtype": "Check",
+   "label": "Enable Email Group Sync"
+  },
+  {
+   "default": "0",
+   "description": "Enable email campaign analytics tracking",
+   "fieldname": "enable_email_analytics",
+   "fieldtype": "Check",
+   "label": "Enable Email Analytics"
   }
  ],
  "index_web_pages_for_search": 1,

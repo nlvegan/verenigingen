@@ -47,7 +47,7 @@ def create_test_member_with_membership():
             membership_types = frappe.get_all(
                 "Membership Type",
                 filters={"is_active": 1},
-                fields=["name", "membership_type_name", "amount"],
+                fields=["name", "membership_type_name", "minimum_amount"],
                 limit=1,
             )
 
@@ -57,8 +57,9 @@ def create_test_member_with_membership():
                     {
                         "doctype": "Membership Type",
                         "membership_type_name": "Test Standard Membership",
-                        "amount": 25.00,
-                        "currency": "EUR",
+                        "minimum_amount": 25.00,
+                        "billing_period": "Yearly",
+                        "billing_period_in_months": 12,
                         "is_active": 1,
                     }
                 )
@@ -82,7 +83,23 @@ def create_test_member_with_membership():
             membership_doc.insert()
             membership_doc.submit()
 
+            # Create dues schedule for the membership
+            dues_schedule_doc = frappe.get_doc(
+                {
+                    "doctype": "Dues Schedule",
+                    "member": member_doc.name,
+                    "membership": membership_doc.name,
+                    "amount": 25.00,
+                    "frequency": "Yearly",
+                    "start_date": today(),
+                    "is_active": 1,
+                    "status": "Active",
+                }
+            )
+            dues_schedule_doc.insert()
+
             result["membership"] = membership_doc.name
+            result["dues_schedule"] = dues_schedule_doc.name
             result["created_membership"] = True
         else:
             result["membership"] = membership.name

@@ -13,7 +13,9 @@ def audit_verenigingen_permissions():
             """
             SELECT name, module, custom, is_submittable, is_tree, istable, issingle
             FROM `tabDocType`
-            WHERE app = 'verenigingen'
+            WHERE module IN (
+                SELECT name FROM `tabModule Def` WHERE app_name = 'verenigingen'
+            )
             ORDER BY module, name
         """,
             as_dict=True,

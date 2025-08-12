@@ -488,6 +488,16 @@ def generate_btw_report(start_date, end_date):
     Generate Dutch BTW (VAT) report for the specified period
     """
     # Get all invoices in the period
+    # Check if BTW custom fields exist before using them
+    sales_invoice_meta = frappe.get_meta("Sales Invoice")
+    available_fields = [f.fieldname for f in sales_invoice_meta.fields]
+
+    fields = ["name", "posting_date", "base_grand_total"]
+    if "btw_exemption_type" in available_fields:
+        fields.append("btw_exemption_type")
+    if "btw_reporting_category" in available_fields:
+        fields.append("btw_reporting_category")
+
     invoices = frappe.get_all(
         "Sales Invoice",
         filters={
@@ -495,7 +505,7 @@ def generate_btw_report(start_date, end_date):
             "docstatus": 1,
             "company": frappe.defaults.get_global_default("company"),
         },
-        fields=["name", "posting_date", "btw_exemption_type", "btw_reporting_category", "base_grand_total"],
+        fields=fields,
     )
 
     # Initialize report categories
@@ -522,7 +532,7 @@ def generate_btw_report(start_date, end_date):
 
     # Categorize invoices
     for invoice in invoices:
-        category = invoice.btw_reporting_category or "1a"  # Default to 1a if not specified
+        category = getattr(invoice, "btw_reporting_category", "1a") or "1a"  # Default to 1a if not specified
 
         if category != "None":
             report_data[category] += flt(invoice.base_grand_total)

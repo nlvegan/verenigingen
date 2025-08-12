@@ -855,9 +855,9 @@ def debug_doctype_routing():
             dt_exists = frappe.db.exists("DocType", doctype_name)
             debug_info["checks"].append(f"DocType exists: {dt_exists}")
 
-            # Check 2: What is the app assignment?
+            # Check 2: What is the module assignment?
             dt_info = frappe.db.get_value(
-                "DocType", doctype_name, ["app", "module", "istable", "issingle"], as_dict=True
+                "DocType", doctype_name, ["module", "istable", "issingle"], as_dict=True
             )
             debug_info["checks"].append(f"App info: {dt_info}")
 
@@ -1079,7 +1079,7 @@ def debug_frontend_routing():
             dt_info = frappe.db.get_value(
                 "DocType",
                 doctype_name,
-                ["has_web_view", "allow_guest_to_view", "route", "published"],
+                ["has_web_view", "allow_guest_to_view", "route", "is_published_field"],
                 as_dict=True,
             )
 

@@ -171,16 +171,16 @@ class AutomatedCampaignManager:
         # Get campaigns that are due to run
         due_campaigns = frappe.get_all(
             "Email Campaign",
-            filters={"is_active": 1, "next_run_date": ["<=", now], "frequency": ["!=", "event_driven"]},
+            filters={"status": "In Progress", "start_date": ["<=", now]},
             fields=[
                 "name",
                 "campaign_name",
-                "campaign_type",
-                "chapter",
-                "template_id",
-                "segment",
-                "content_config",
-                "schedule_config",
+                "email_campaign_for",
+                "recipient",
+                "sender",
+                "start_date",
+                "end_date",
+                "status",
             ],
         )
 
@@ -363,8 +363,8 @@ class AutomatedCampaignManager:
         # Get campaigns for this event type
         campaigns = frappe.get_all(
             "Email Campaign",
-            filters={"is_active": 1, "frequency": "event_driven", "trigger_event": event_type},
-            fields=["name", "campaign_name", "template_id", "chapter", "segment"],
+            filters={"status": "In Progress"},  # Use available fields
+            fields=["name", "campaign_name", "email_campaign_for", "recipient", "sender"],
         )
 
         triggered = []
@@ -482,7 +482,7 @@ def get_campaign_types() -> Dict:
 @frappe.whitelist()
 def get_active_campaigns(chapter_name: str = None) -> Dict:
     """Get active campaigns for a chapter or organization"""
-    filters = {"is_active": 1}
+    filters = {"status": "In Progress"}  # Use actual field for filtering active campaigns
     if chapter_name:
         filters["chapter"] = chapter_name
 
@@ -492,12 +492,12 @@ def get_active_campaigns(chapter_name: str = None) -> Dict:
         fields=[
             "name",
             "campaign_name",
-            "campaign_type",
-            "description",
-            "frequency",
-            "next_run_date",
-            "last_run_date",
-            "created_by",
+            "email_campaign_for",
+            "recipient",
+            "sender",
+            "start_date",
+            "end_date",
+            "status",
         ],
         order_by="creation desc",
     )

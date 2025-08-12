@@ -13,7 +13,7 @@ sys.path.append(str(Path(__file__).parent))
 
 try:
     from enhanced_field_validator import EnhancedFieldValidator
-    from unified_field_validator import UnifiedFieldValidator
+    from unified_field_validator import SpecializedPatternValidator
     from optimized_field_validator import OptimizedFieldValidator
 except ImportError as e:
     print(f"Error importing validators: {e}")
@@ -73,7 +73,7 @@ def run_validator_assessment():
     print("-" * 30)
     start_time = time.time()
     try:
-        unified_validator = UnifiedFieldValidator(app_path)
+        unified_validator = SpecializedPatternValidator(app_path)
         
         # Run validation manually to get detailed results
         all_violations = []

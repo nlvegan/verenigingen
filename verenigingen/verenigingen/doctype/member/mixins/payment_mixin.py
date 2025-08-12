@@ -624,11 +624,15 @@ class PaymentMixin:
             memberships = frappe.get_all(
                 "Membership",
                 filters={"member": self.name, "status": ["!=", "Cancelled"]},
-                fields=["name", "payment_method"],
+                fields=["name", "membership_type", "status"],
             )
 
             for membership in memberships:
-                if membership.get("payment_method") == "SEPA Direct Debit":
+                # Check if member has SEPA mandates (indicates SEPA payment method)
+                sepa_mandates = frappe.get_all(
+                    "SEPA Mandate", filters={"member": self.name, "status": "Active"}, limit=1
+                )
+                if sepa_mandates:
                     default_mandate = self.get_default_sepa_mandate()
                     if not default_mandate:
                         frappe.msgprint(

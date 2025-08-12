@@ -119,7 +119,7 @@ def get_application_stats():
             "application_status": "Approved",
             "review_date": [">=", frappe.utils.add_days(frappe.utils.today(), -30)],
         },
-        fields=["full_name", "review_date", "reviewed_by", "primary_chapter"],
+        fields=["full_name", "review_date", "reviewed_by", "current_chapter_display"],
         order_by="review_date desc",
         limit=5,
     )

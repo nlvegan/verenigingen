@@ -519,33 +519,6 @@ def detect_incomplete_reversals() -> List[Dict]:
 
     return incomplete
 
-    # Legacy code below - keeping structure for compatibility but not executing
-    if False:  # Disable the rest of the original logic
-        original_payment = None
-
-        # Check if reversal payment exists
-        reversal_payments = frappe.get_all(
-            "Payment Entry",
-            filters={
-                "custom_original_payment": original_payment,
-                "payment_type": "Pay",  # Outward payment (reversal)
-                "docstatus": 1,
-            },
-        )
-
-        if not reversal_payments:
-            incomplete.append(
-                {
-                    "return_record": return_record.name,
-                    "original_payment": original_payment,
-                    "member": return_record.member,
-                    "amount": return_record.amount,
-                    "reason": return_record.return_reason,
-                }
-            )
-
-    return incomplete
-
 
 # =============================================================================
 # VALIDATION FUNCTIONS

@@ -5443,14 +5443,12 @@ def get_current_account_mappings(company):
             "name",
             "account_code",
             "account_name",
-            "description_pattern",
+            "sample_description",
             "document_type",
-            "transaction_category",
-            "priority",
+            "category",
             "usage_count",
-            "is_manual_override",
         ],
-        order_by="priority desc, usage_count desc",
+        order_by="usage_count desc",
     )
 
     return mappings
@@ -6563,7 +6561,7 @@ def debug_import_discrepancy():
     # Get the last few migration runs
     migrations = frappe.get_all(
         "E-Boekhouden Migration",
-        fields=["name", "migration_name", "creation", "migration_log"],
+        fields=["name", "migration_name", "creation", "migration_summary"],
         filters={"migration_status": "Completed"},
         order_by="creation desc",
         limit=3,

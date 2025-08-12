@@ -44,7 +44,7 @@ class AssertionHelpers:
         emails = frappe.get_all(
             "Email Queue",
             filters={"recipients": ["like", f"%{to_email}%"]},
-            fields=["subject", "message"],
+            fields=["message", "status", "sender"],
             order_by="creation desc",
             limit=10,
         )
@@ -53,12 +53,13 @@ class AssertionHelpers:
             raise AssertionError(f"No email found for recipient {to_email}")
 
         if subject_contains:
+            # Check message content for subject since Email Queue doesn't store subject separately
             for email in emails:
-                if subject_contains in email.subject:
+                if subject_contains in email.message:
                     if body_contains and body_contains not in email.message:
                         continue
                     return True
-            raise AssertionError(f"No email with subject containing '{subject_contains}' found")
+            raise AssertionError(f"No email with content containing '{subject_contains}' found")
 
         if body_contains:
             for email in emails:
@@ -193,11 +194,18 @@ class AssertionHelpers:
         if member.status != "Terminated":
             raise AssertionError(f"Member {member_name} is not terminated (status: {member.status})")
 
-        # Check for termination audit entry
-        audit_entries = frappe.get_all("Termination Audit Entry", filters={"member": member_name})
-
-        if not audit_entries:
-            raise AssertionError(f"No termination audit entry found for member {member_name}")
+        # Check for termination request with audit entries
+        termination_requests = frappe.get_all("Membership Termination Request", 
+                                             filters={"member": member_name},
+                                             fields=["name"])
+        
+        if not termination_requests:
+            raise AssertionError(f"No termination request found for member {member_name}")
+        
+        # Check if the termination request has audit entries
+        termination_request = frappe.get_doc("Membership Termination Request", termination_requests[0].name)
+        if not termination_request.audit_trail:
+            raise AssertionError(f"No termination audit entries found for member {member_name}")
 
         return True
 

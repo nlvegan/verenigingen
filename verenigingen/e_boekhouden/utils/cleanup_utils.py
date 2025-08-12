@@ -38,7 +38,7 @@ def cleanup_chart_of_accounts(company, delete_all_accounts=0):
                 # Only get accounts that were imported from E-Boekhouden
                 accounts = frappe.get_all(
                     "Account",
-                    filters={"company": company, "custom_eboekhouden_code": ["!=", ""]},
+                    filters={"company": company, "eboekhouden_grootboek_nummer": ["!=", ""]},
                     fields=["name", "account_name", "is_group", "lft", "rgt"],
                     order_by="lft desc",  # Delete leaf accounts first
                 )

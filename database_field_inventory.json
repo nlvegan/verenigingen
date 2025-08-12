@@ -1,98 +1,154 @@
 {
   "summary": {
-    "total_issues": 160,
-    "total_files": 62,
-    "total_doctypes": 27
+    "total_issues": 156,
+    "total_files": 69,
+    "total_doctypes": 38
   },
   "by_file_type": {
-    "test_file": {
-      "count": 84,
-      "files": 26,
+    "other": {
+      "count": 33,
+      "files": 13,
       "doctypes": [
-        "Volunteer Activity",
-        "Membership",
-        "Team",
-        "Chapter",
-        "Donor",
-        "Membership Type",
-        "Chapter Membership History",
-        "Member Fee Change History",
-        "SEPA Mandate",
-        "Chapter Member",
+        "Payment Entry",
+        "Cost Center",
+        "Sales Invoice",
         "Donation",
+        "Activity Log",
+        "E-Boekhouden Migration",
+        "Role Profile",
+        "Customer",
+        "E-Boekhouden Ledger Mapping",
+        "Module Profile",
+        "E-Boekhouden Account Mapping",
+        "Supplier",
         "Member",
-        "Volunteer Assignment",
-        "Chapter Board Member",
-        "Communication History",
-        "Member Payment History",
+        "Membership"
+      ]
+    },
+    "test_file": {
+      "count": 64,
+      "files": 23,
+      "doctypes": [
         "Termination Audit Entry",
+        "Chapter Board Member",
+        "Team",
+        "Volunteer Activity",
+        "Volunteer Assignment",
+        "Donor",
+        "SEPA Mandate",
+        "Member Payment History",
+        "Chapter Member",
+        "Membership Type",
         "Member IBAN History",
-        "Membership Dues Schedule"
+        "Membership Dues Schedule",
+        "Chapter",
+        "Communication History",
+        "Member Fee Change History",
+        "Member",
+        "Membership"
       ]
     },
     "api_endpoint": {
       "count": 9,
-      "files": 8,
+      "files": 5,
       "doctypes": [
-        "System Alert",
-        "SEPA Audit Log",
         "Membership Type",
-        "Member"
-      ]
-    },
-    "debug_script": {
-      "count": 9,
-      "files": 7,
-      "doctypes": [
-        "E-Boekhouden Ledger Mapping",
-        "Membership Type",
-        "Membership Tier"
+        "Payment Entry",
+        "Has Role",
+        "Sales Invoice"
       ]
     },
     "utility": {
-      "count": 8,
-      "files": 5,
+      "count": 7,
+      "files": 6,
       "doctypes": [
+        "Account",
         "E-Boekhouden Ledger Mapping",
-        "Team Member",
-        "Donation",
-        "Membership",
+        "Has Role",
         "E-Boekhouden Payment Mapping"
       ]
     },
-    "other": {
-      "count": 7,
-      "files": 3,
+    "web_form": {
+      "count": 1,
+      "files": 1,
       "doctypes": [
-        "E-Boekhouden Migration",
-        "E-Boekhouden Account Mapping",
-        "Member"
+        "Has Role"
       ]
     },
     "doctype_controller": {
-      "count": 41,
-      "files": 12,
+      "count": 21,
+      "files": 7,
       "doctypes": [
+        "Chapter Board Member",
         "Volunteer Activity",
         "Chapter Member",
-        "Membership Dues Schedule",
-        "Chapter",
-        "Member",
-        "Membership",
-        "Chapter Board Member",
+        "E-Boekhouden Account Mapping",
+        "Has Role"
+      ]
+    },
+    "debug_script": {
+      "count": 15,
+      "files": 11,
+      "doctypes": [
+        "DocPerm",
+        "Sales Invoice",
         "Membership Type",
-        "E-Boekhouden Account Mapping"
+        "Chapter Member",
+        "Expense Claim Type",
+        "E-Boekhouden Ledger Mapping",
+        "DocType",
+        "System Alert"
       ]
     },
     "user_facing_page": {
-      "count": 2,
-      "files": 1,
+      "count": 6,
+      "files": 3,
       "doctypes": [
-        "Team Member"
+        "Team Member",
+        "DocType",
+        "Company"
       ]
     }
   },
   "by_doctype": {
+    "E-Boekhouden Ledger Mapping": {
+      "count": 7,
+      "missing_fields": [
+        "ledger_description",
+        "eboekhouden_code",
+        "account_name",
+        "eboekhouden_account"
+      ],
+      "files_affected": 6
+    },
+    "Payment Entry": {
+      "count": 4,
+      "missing_fields": [
+        "paid_amount as amount",
+        "posting_date as date"
+      ],
+      "files_affected": 2
+    },
+    "Membership": {
+      "count": 4,
+      "missing_fields": [
+        "membership_fee",
+        "subscription",
+        "membership_year",
+        "to_date"
+      ],
+      "files_affected": 2
+    },
+    "Sales Invoice": {
+      "count": 11,
+      "missing_fields": [
+        "name as invoice",
+        "custom_membership_dues_schedule as membership",
+        "custom_dues_schedule",
+        "outstanding_amount as amount"
+      ],
+      "files_affected": 4
+    },
     "Donor": {
       "count": 6,
       "missing_fields": [
@@ -100,69 +156,56 @@
       ],
       "files_affected": 2
     },
-    "Member": {
-      "count": 15,
+    "Customer": {
+      "count": 2,
       "missing_fields": [
-        "current_chapter",
-        "member_name",
-        "donor",
-        "chapter",
-        "primary_chapter",
-        "opt_out_optional_emails",
-        "*"
+        "custom_eboekhouden_relation_id"
       ],
-      "files_affected": 12
+      "files_affected": 2
     },
-    "Membership Type": {
-      "count": 10,
+    "Supplier": {
+      "count": 2,
       "missing_fields": [
-        "billing_frequency",
-        "subscription_plan",
-        "amount",
-        "subscription_period"
+        "custom_eboekhouden_relation_id"
       ],
-      "files_affected": 9
+      "files_affected": 2
     },
-    "System Alert": {
+    "Cost Center": {
       "count": 1,
       "missing_fields": [
-        "source"
+        "custom_eboekhouden_kostenplaats_id"
       ],
       "files_affected": 1
     },
-    "SEPA Audit Log": {
-      "count": 2,
+    "Has Role": {
+      "count": 4,
       "missing_fields": [
-        "entity_name"
-      ],
-      "files_affected": 2
-    },
-    "Membership": {
-      "count": 5,
-      "missing_fields": [
-        "to_date",
-        "btw_exemption_type",
-        "payment_method"
+        "parent as user"
       ],
       "files_affected": 4
     },
-    "Donation": {
-      "count": 4,
+    "Membership Type": {
+      "count": 7,
       "missing_fields": [
-        "btw_exemption_type",
-        "base_amount",
-        "currency"
+        "amount",
+        "subscription_plan",
+        "subscription_period"
       ],
-      "files_affected": 2
+      "files_affected": 6
     },
-    "Team Member": {
-      "count": 3,
+    "Member": {
+      "count": 13,
       "missing_fields": [
-        "parent as team_name",
-        "responsibility",
-        "status as member_status"
+        "*",
+        "fee_override_reason",
+        "fee_override_by",
+        "primary_chapter",
+        "fee_override_date",
+        "chapter",
+        "membership_fee_override",
+        "member_name"
       ],
-      "files_affected": 2
+      "files_affected": 6
     },
     "SEPA Mandate": {
       "count": 2,
@@ -181,52 +224,32 @@
       "files_affected": 2
     },
     "Member Payment History": {
-      "count": 13,
+      "count": 6,
       "missing_fields": [
-        "batch_reference",
-        "failure_reason",
         "payment_type",
-        "retry_count",
-        "member"
-      ],
-      "files_affected": 5
-    },
-    "Chapter Membership History": {
-      "count": 3,
-      "missing_fields": [
         "member",
-        "role",
-        "chapter"
+        "failure_reason",
+        "batch_reference"
       ],
-      "files_affected": 1
+      "files_affected": 2
     },
     "Volunteer Assignment": {
       "count": 9,
       "missing_fields": [
+        "volunteer",
         "chapter",
-        "team",
         "hours_per_week",
-        "volunteer"
+        "team"
       ],
       "files_affected": 2
-    },
-    "Member IBAN History": {
-      "count": 7,
-      "missing_fields": [
-        "member",
-        "old_iban",
-        "new_iban",
-        "*"
-      ],
-      "files_affected": 3
     },
     "Chapter Board Member": {
       "count": 6,
       "missing_fields": [
-        "member",
         "status",
-        "chapter_role as role",
-        "parent as chapter"
+        "member",
+        "parent as chapter",
+        "chapter_role as role"
       ],
       "files_affected": 3
     },
@@ -237,38 +260,42 @@
       ],
       "files_affected": 1
     },
+    "Member IBAN History": {
+      "count": 4,
+      "missing_fields": [
+        "*"
+      ],
+      "files_affected": 2
+    },
     "Chapter Member": {
-      "count": 16,
+      "count": 17,
       "missing_fields": [
         "chapter",
         "parent as chapter"
       ],
-      "files_affected": 5
+      "files_affected": 6
     },
     "Chapter": {
-      "count": 4,
+      "count": 2,
       "missing_fields": [
         "postal_code_ranges",
-        "donation_account",
         "is_active"
       ],
-      "files_affected": 2
+      "files_affected": 1
     },
     "Membership Dues Schedule": {
-      "count": 4,
+      "count": 2,
       "missing_fields": [
-        "effective_date",
-        "amount",
-        "member.full_name as member_name"
+        "effective_date"
       ],
-      "files_affected": 3
+      "files_affected": 2
     },
     "Communication History": {
       "count": 3,
       "missing_fields": [
-        "reference_doctype",
         "communication_type",
-        "reference_name"
+        "reference_name",
+        "reference_doctype"
       ],
       "files_affected": 1
     },
@@ -282,28 +309,26 @@
     "Volunteer Activity": {
       "count": 3,
       "missing_fields": [
-        "activity_type as assignment_type",
         "description as reference",
+        "activity_type as assignment_type",
         "hours"
       ],
       "files_affected": 2
     },
-    "Membership Tier": {
-      "count": 2,
+    "DocPerm": {
+      "count": 1,
       "missing_fields": [
-        "minimum_amount",
-        "suggested_amount"
+        "*"
       ],
       "files_affected": 1
     },
-    "E-Boekhouden Ledger Mapping": {
-      "count": 6,
+    "Account": {
+      "count": 3,
       "missing_fields": [
-        "eboekhouden_code",
-        "account_name",
-        "ledger_description"
+        "eboekhouden_group",
+        "custom_eboekhouden_code"
       ],
-      "files_affected": 5
+      "files_affected": 3
     },
     "E-Boekhouden Payment Mapping": {
       "count": 1,
@@ -313,23 +338,18 @@
       "files_affected": 1
     },
     "E-Boekhouden Account Mapping": {
-      "count": 29,
+      "count": 16,
       "missing_fields": [
-        "transaction_category",
-        "notes",
-        "confidence_level",
         "is_manual_override",
-        "description",
-        "account_type",
-        "target_document_type",
-        "priority",
         "account_range_start",
+        "confidence_level",
+        "account_type",
+        "description_patterns",
+        "notes",
+        "transaction_category",
         "account_range_end",
         "description_pattern",
-        "target_account_type",
-        "account_code_end",
-        "description_patterns",
-        "account_code_start"
+        "priority"
       ],
       "files_affected": 4
     },
@@ -339,121 +359,187 @@
         "migration_log"
       ],
       "files_affected": 1
+    },
+    "DocType": {
+      "count": 4,
+      "missing_fields": [
+        "app",
+        "published"
+      ],
+      "files_affected": 2
+    },
+    "Team Member": {
+      "count": 2,
+      "missing_fields": [
+        "status as member_status",
+        "parent as team_name"
+      ],
+      "files_affected": 1
+    },
+    "Company": {
+      "count": 1,
+      "missing_fields": [
+        "default_expense_claim_payable_account"
+      ],
+      "files_affected": 1
+    },
+    "Donation": {
+      "count": 1,
+      "missing_fields": [
+        "SUM(amount)"
+      ],
+      "files_affected": 1
+    },
+    "Activity Log": {
+      "count": 2,
+      "missing_fields": [
+        "COUNT(*)",
+        "AVG(response_time)"
+      ],
+      "files_affected": 1
+    },
+    "Role Profile": {
+      "count": 1,
+      "missing_fields": [
+        "*"
+      ],
+      "files_affected": 1
+    },
+    "Module Profile": {
+      "count": 1,
+      "missing_fields": [
+        "*"
+      ],
+      "files_affected": 1
+    },
+    "Expense Claim Type": {
+      "count": 1,
+      "missing_fields": [
+        "default_account"
+      ],
+      "files_affected": 1
+    },
+    "System Alert": {
+      "count": 1,
+      "missing_fields": [
+        "title"
+      ],
+      "files_affected": 1
     }
   },
   "by_issue_type": {
-    "select_field": 114,
-    "filter_field": 46
+    "filter_field": 44,
+    "select_field": 112
   },
   "by_function": {
-    "frappe.db.get_value": 23,
-    "frappe.get_all": 137
+    "frappe.db.get_value": 30,
+    "frappe.get_all": 126
   },
   "most_common_missing_fields": {
-    "chapter": 24,
-    "*": 12,
-    "member": 10,
-    "amount": 8,
-    "parent as chapter": 5,
-    "btw_exemption_type": 4,
-    "transaction_category": 4,
-    "priority": 4,
-    "payment_type": 3,
+    "chapter": 18,
+    "*": 15,
+    "parent as chapter": 6,
+    "amount": 5,
+    "member": 5,
+    "custom_eboekhouden_relation_id": 4,
+    "parent as user": 4,
+    "membership_fee_override": 4,
+    "custom_dues_schedule": 4,
+    "name as invoice": 3,
+    "outstanding_amount as amount": 3,
     "volunteer": 3,
     "team": 3,
     "ledger_description": 3,
-    "target_account_type": 3,
-    "entity_name": 2,
-    "donor": 2,
-    "batch_reference": 2,
-    "to_date": 2,
+    "transaction_category": 3,
+    "app": 3,
+    "posting_date as date": 2,
+    "paid_amount as amount": 2,
     "hours_per_week": 2,
-    "effective_date": 2,
-    "team_members.volunteer": 2
+    "effective_date": 2
   },
   "critical_user_facing": [
     {
-      "file": "api/performance_profiling_api.py",
+      "file": "verenigingen/api/sepa_batch_ui_secure.py",
       "file_type": "api_endpoint",
-      "line": 660,
-      "field": "chapter",
-      "doctype": "Member",
-      "context": "_ = frappe.get_all(",
+      "line": 98,
+      "field": "name as invoice",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
       "issue_type": "select_field",
       "function": "frappe.get_all"
     },
     {
-      "file": "api/fix_membership_types_billing.py",
+      "file": "verenigingen/api/sepa_batch_ui_secure.py",
       "file_type": "api_endpoint",
-      "line": 66,
-      "field": "billing_frequency",
-      "doctype": "Membership Type",
-      "context": "billing_frequency = frappe.db.get_value(\"Membership Type\", mt_name, \"billing_frequency\")",
-      "issue_type": "select_field",
-      "function": "frappe.db.get_value"
-    },
-    {
-      "file": "api/test_monitoring.py",
-      "file_type": "api_endpoint",
-      "line": 394,
-      "field": "source",
-      "doctype": "System Alert",
-      "context": "test_alerts = frappe.get_all(\"System Alert\", filters={\"source\": [\"in\", test_sources]}, pluck=\"name\")",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "api/test_monitoring.py",
-      "file_type": "api_endpoint",
-      "line": 400,
-      "field": "entity_name",
-      "doctype": "SEPA Audit Log",
-      "context": "test_audits = frappe.get_all(\"SEPA Audit Log\", filters={\"entity_name\": [\"like\", \"%TEST%\"]}, pluck=\"name\")",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "api/test_incremental_edge_cases.py",
-      "file_type": "api_endpoint",
-      "line": 20,
-      "field": "donor",
-      "doctype": "Member",
-      "context": "members_without_links = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "api/member_management.py",
-      "file_type": "api_endpoint",
-      "line": 1626,
-      "field": "current_chapter",
-      "doctype": "Member",
-      "context": "members = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "api/monitoring_test_corrected.py",
-      "file_type": "api_endpoint",
-      "line": 579,
-      "field": "entity_name",
-      "doctype": "SEPA Audit Log",
-      "context": "test_audits = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "api/newsletter_demo.py",
-      "file_type": "api_endpoint",
-      "line": 76,
-      "field": "opt_out_optional_emails",
-      "doctype": "Member",
-      "context": "members = frappe.get_all(",
+      "line": 98,
+      "field": "outstanding_amount as amount",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
       "issue_type": "select_field",
       "function": "frappe.get_all"
     },
     {
-      "file": "api/generate_test_membership_types.py",
+      "file": "verenigingen/api/dd_batch_api.py",
+      "file_type": "api_endpoint",
+      "line": 592,
+      "field": "parent as user",
+      "doctype": "Has Role",
+      "context": "admin_users = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/payment_dashboard.py",
+      "file_type": "api_endpoint",
+      "line": 167,
+      "field": "posting_date as date",
+      "doctype": "Payment Entry",
+      "context": "payments = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/payment_dashboard.py",
+      "file_type": "api_endpoint",
+      "line": 167,
+      "field": "paid_amount as amount",
+      "doctype": "Payment Entry",
+      "context": "payments = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/sepa_batch_ui.py",
+      "file_type": "api_endpoint",
+      "line": 52,
+      "field": "name as invoice",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/sepa_batch_ui.py",
+      "file_type": "api_endpoint",
+      "line": 52,
+      "field": "outstanding_amount as amount",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/sepa_batch_ui.py",
+      "file_type": "api_endpoint",
+      "line": 52,
+      "field": "custom_membership_dues_schedule as membership",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/generate_test_membership_types.py",
       "file_type": "api_endpoint",
       "line": 240,
       "field": "amount",
@@ -463,7 +549,47 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "templates/pages/my_teams.py",
+      "file": "verenigingen/verenigingen/web_form/membership_application.py",
+      "file_type": "web_form",
+      "line": 156,
+      "field": "parent as user",
+      "doctype": "Has Role",
+      "context": "managers = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/templates/pages/donate.py",
+      "file_type": "user_facing_page",
+      "line": 566,
+      "field": "app",
+      "doctype": "DocType",
+      "context": "record = frappe.db.get_value(\"DocType\", doctype_name, [\"app\", \"module\"], as_dict=True)",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "verenigingen/templates/pages/donate.py",
+      "file_type": "user_facing_page",
+      "line": 859,
+      "field": "app",
+      "doctype": "DocType",
+      "context": "dt_info = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "verenigingen/templates/pages/donate.py",
+      "file_type": "user_facing_page",
+      "line": 1079,
+      "field": "published",
+      "doctype": "DocType",
+      "context": "dt_info = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "verenigingen/templates/pages/my_teams.py",
       "file_type": "user_facing_page",
       "line": 40,
       "field": "parent as team_name",
@@ -473,7 +599,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "templates/pages/my_teams.py",
+      "file": "verenigingen/templates/pages/my_teams.py",
       "file_type": "user_facing_page",
       "line": 40,
       "field": "status as member_status",
@@ -481,11 +607,101 @@
       "context": "team_memberships = frappe.get_all(",
       "issue_type": "select_field",
       "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/templates/pages/volunteer/expenses.py",
+      "file_type": "user_facing_page",
+      "line": 1495,
+      "field": "default_expense_claim_payable_account",
+      "doctype": "Company",
+      "context": "payable_account = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
     }
   ],
   "detailed_issues": [
     {
-      "file": "tests/test_donor_auto_creation.py",
+      "file": "archived_unused/one_off_scripts/update_mapping_for_verrekeningen.py",
+      "file_type": "other",
+      "line": 72,
+      "field": "eboekhouden_account",
+      "doctype": "E-Boekhouden Ledger Mapping",
+      "context": "existing_mapping = frappe.db.get_value(",
+      "issue_type": "filter_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "archived_unused/api_backups/20250710_222750/payment_dashboard.py",
+      "file_type": "other",
+      "line": 138,
+      "field": "posting_date as date",
+      "doctype": "Payment Entry",
+      "context": "payments = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "archived_unused/api_backups/20250710_222750/payment_dashboard.py",
+      "file_type": "other",
+      "line": 138,
+      "field": "paid_amount as amount",
+      "doctype": "Payment Entry",
+      "context": "payments = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "archived_unused/api_backups/20250710_222750/payment_dashboard.py",
+      "file_type": "other",
+      "line": 281,
+      "field": "subscription",
+      "doctype": "Membership",
+      "context": "active_membership = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "archived_unused/api_backups/20250710_222750/payment_dashboard.py",
+      "file_type": "other",
+      "line": 281,
+      "field": "membership_fee",
+      "doctype": "Membership",
+      "context": "active_membership = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "archived_unused/api_backups/20250710_222750/payment_dashboard.py",
+      "file_type": "other",
+      "line": 207,
+      "field": "membership_year",
+      "doctype": "Membership",
+      "context": "membership_year = frappe.db.get_value(\"Membership\", invoice.membership, \"membership_year\")",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "archived_unused/api_backups/20250710_222750/sepa_batch_ui.py",
+      "file_type": "other",
+      "line": 28,
+      "field": "name as invoice",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "archived_unused/api_backups/20250710_222750/sepa_batch_ui.py",
+      "file_type": "other",
+      "line": 28,
+      "field": "outstanding_amount as amount",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/tests/test_donor_auto_creation.py",
       "file_type": "test_file",
       "line": 67,
       "field": "*",
@@ -495,7 +711,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "tests/test_donor_auto_creation.py",
+      "file": "verenigingen/tests/test_donor_auto_creation.py",
       "file_type": "test_file",
       "line": 108,
       "field": "*",
@@ -505,7 +721,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "tests/test_donor_auto_creation_comprehensive.py",
+      "file": "verenigingen/tests/test_donor_auto_creation_comprehensive.py",
       "file_type": "test_file",
       "line": 62,
       "field": "*",
@@ -515,7 +731,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "tests/test_donor_auto_creation_comprehensive.py",
+      "file": "verenigingen/tests/test_donor_auto_creation_comprehensive.py",
       "file_type": "test_file",
       "line": 90,
       "field": "*",
@@ -525,7 +741,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "tests/test_donor_auto_creation_comprehensive.py",
+      "file": "verenigingen/tests/test_donor_auto_creation_comprehensive.py",
       "file_type": "test_file",
       "line": 377,
       "field": "*",
@@ -535,7 +751,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "tests/test_donor_auto_creation_comprehensive.py",
+      "file": "verenigingen/tests/test_donor_auto_creation_comprehensive.py",
       "file_type": "test_file",
       "line": 378,
       "field": "*",
@@ -545,87 +761,137 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "api/performance_profiling_api.py",
-      "file_type": "api_endpoint",
-      "line": 660,
-      "field": "chapter",
-      "doctype": "Member",
-      "context": "_ = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "api/fix_membership_types_billing.py",
-      "file_type": "api_endpoint",
-      "line": 66,
-      "field": "billing_frequency",
-      "doctype": "Membership Type",
-      "context": "billing_frequency = frappe.db.get_value(\"Membership Type\", mt_name, \"billing_frequency\")",
-      "issue_type": "select_field",
+      "file": "verenigingen/fixes/correct_implementation_example.py",
+      "file_type": "other",
+      "line": 276,
+      "field": "custom_eboekhouden_relation_id",
+      "doctype": "Customer",
+      "context": "existing = frappe.db.get_value(\"Customer\", {\"custom_eboekhouden_relation_id\": relation_id}, \"name\")",
+      "issue_type": "filter_field",
       "function": "frappe.db.get_value"
     },
     {
-      "file": "api/test_monitoring.py",
-      "file_type": "api_endpoint",
-      "line": 394,
-      "field": "source",
-      "doctype": "System Alert",
-      "context": "test_alerts = frappe.get_all(\"System Alert\", filters={\"source\": [\"in\", test_sources]}, pluck=\"name\")",
+      "file": "verenigingen/fixes/correct_implementation_example.py",
+      "file_type": "other",
+      "line": 301,
+      "field": "custom_eboekhouden_relation_id",
+      "doctype": "Supplier",
+      "context": "existing = frappe.db.get_value(\"Supplier\", {\"custom_eboekhouden_relation_id\": relation_id}, \"name\")",
       "issue_type": "filter_field",
-      "function": "frappe.get_all"
+      "function": "frappe.db.get_value"
     },
     {
-      "file": "api/test_monitoring.py",
-      "file_type": "api_endpoint",
-      "line": 400,
-      "field": "entity_name",
-      "doctype": "SEPA Audit Log",
-      "context": "test_audits = frappe.get_all(\"SEPA Audit Log\", filters={\"entity_name\": [\"like\", \"%TEST%\"]}, pluck=\"name\")",
+      "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+      "file_type": "other",
+      "line": 310,
+      "field": "custom_eboekhouden_relation_id",
+      "doctype": "Customer",
+      "context": "existing = frappe.db.get_value(\"Customer\", {\"custom_eboekhouden_relation_id\": relation_id}, \"name\")",
       "issue_type": "filter_field",
-      "function": "frappe.get_all"
+      "function": "frappe.db.get_value"
     },
     {
-      "file": "api/test_incremental_edge_cases.py",
-      "file_type": "api_endpoint",
-      "line": 20,
-      "field": "donor",
-      "doctype": "Member",
-      "context": "members_without_links = frappe.get_all(",
+      "file": "verenigingen/fixes/step1_fix_data_fetching.py",
+      "file_type": "other",
+      "line": 324,
+      "field": "custom_eboekhouden_relation_id",
+      "doctype": "Supplier",
+      "context": "existing = frappe.db.get_value(\"Supplier\", {\"custom_eboekhouden_relation_id\": relation_id}, \"name\")",
       "issue_type": "filter_field",
-      "function": "frappe.get_all"
+      "function": "frappe.db.get_value"
     },
     {
-      "file": "api/member_management.py",
-      "file_type": "api_endpoint",
-      "line": 1626,
-      "field": "current_chapter",
-      "doctype": "Member",
-      "context": "members = frappe.get_all(",
+      "file": "verenigingen/fixes/eboekhouden_utils.py",
+      "file_type": "other",
+      "line": 362,
+      "field": "custom_eboekhouden_kostenplaats_id",
+      "doctype": "Cost Center",
+      "context": "return frappe.db.get_value(\"Cost Center\", {\"custom_eboekhouden_kostenplaats_id\": kostenplaats_id}, \"name\")",
       "issue_type": "filter_field",
-      "function": "frappe.get_all"
+      "function": "frappe.db.get_value"
     },
     {
-      "file": "api/monitoring_test_corrected.py",
+      "file": "verenigingen/api/sepa_batch_ui_secure.py",
       "file_type": "api_endpoint",
-      "line": 579,
-      "field": "entity_name",
-      "doctype": "SEPA Audit Log",
-      "context": "test_audits = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "api/newsletter_demo.py",
-      "file_type": "api_endpoint",
-      "line": 76,
-      "field": "opt_out_optional_emails",
-      "doctype": "Member",
-      "context": "members = frappe.get_all(",
+      "line": 98,
+      "field": "name as invoice",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
       "issue_type": "select_field",
       "function": "frappe.get_all"
     },
     {
-      "file": "api/generate_test_membership_types.py",
+      "file": "verenigingen/api/sepa_batch_ui_secure.py",
+      "file_type": "api_endpoint",
+      "line": 98,
+      "field": "outstanding_amount as amount",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/dd_batch_api.py",
+      "file_type": "api_endpoint",
+      "line": 592,
+      "field": "parent as user",
+      "doctype": "Has Role",
+      "context": "admin_users = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/payment_dashboard.py",
+      "file_type": "api_endpoint",
+      "line": 167,
+      "field": "posting_date as date",
+      "doctype": "Payment Entry",
+      "context": "payments = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/payment_dashboard.py",
+      "file_type": "api_endpoint",
+      "line": 167,
+      "field": "paid_amount as amount",
+      "doctype": "Payment Entry",
+      "context": "payments = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/sepa_batch_ui.py",
+      "file_type": "api_endpoint",
+      "line": 52,
+      "field": "name as invoice",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/sepa_batch_ui.py",
+      "file_type": "api_endpoint",
+      "line": 52,
+      "field": "outstanding_amount as amount",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/sepa_batch_ui.py",
+      "file_type": "api_endpoint",
+      "line": 52,
+      "field": "custom_membership_dues_schedule as membership",
+      "doctype": "Sales Invoice",
+      "context": "invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/api/generate_test_membership_types.py",
       "file_type": "api_endpoint",
       "line": 240,
       "field": "amount",
@@ -635,67 +901,17 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "utils/create_test_member.py",
-      "file_type": "debug_script",
-      "line": 47,
-      "field": "amount",
-      "doctype": "Membership Type",
-      "context": "membership_types = frappe.get_all(",
+      "file": "verenigingen/utils/payment_retry.py",
+      "file_type": "utility",
+      "line": 197,
+      "field": "parent as user",
+      "doctype": "Has Role",
+      "context": "admins = frappe.get_all(\"Has Role\", filters={\"role\": \"Membership Manager\"}, fields=[\"parent as user\"])",
       "issue_type": "select_field",
       "function": "frappe.get_all"
     },
     {
-      "file": "utils/__init__.py",
-      "file_type": "utility",
-      "line": 413,
-      "field": "btw_exemption_type",
-      "doctype": "Membership",
-      "context": "exemption_type = frappe.db.get_value(\"Membership\", invoice.membership, \"btw_exemption_type\")",
-      "issue_type": "select_field",
-      "function": "frappe.db.get_value"
-    },
-    {
-      "file": "utils/__init__.py",
-      "file_type": "utility",
-      "line": 584,
-      "field": "btw_exemption_type",
-      "doctype": "Membership",
-      "context": "frappe.db.get_value(\"Membership\", doc.membership, \"btw_exemption_type\") or \"EXEMPT_MEMBERSHIP\"",
-      "issue_type": "select_field",
-      "function": "frappe.db.get_value"
-    },
-    {
-      "file": "utils/__init__.py",
-      "file_type": "utility",
-      "line": 415,
-      "field": "btw_exemption_type",
-      "doctype": "Donation",
-      "context": "exemption_type = frappe.db.get_value(\"Donation\", invoice.donation, \"btw_exemption_type\")",
-      "issue_type": "select_field",
-      "function": "frappe.db.get_value"
-    },
-    {
-      "file": "utils/__init__.py",
-      "file_type": "utility",
-      "line": 591,
-      "field": "btw_exemption_type",
-      "doctype": "Donation",
-      "context": "frappe.db.get_value(\"Donation\", doc.donation, \"btw_exemption_type\") or \"EXEMPT_FUNDRAISING\"",
-      "issue_type": "select_field",
-      "function": "frappe.db.get_value"
-    },
-    {
-      "file": "utils/project_permissions.py",
-      "file_type": "utility",
-      "line": 128,
-      "field": "responsibility",
-      "doctype": "Team Member",
-      "context": "team_member = frappe.db.get_value(",
-      "issue_type": "select_field",
-      "function": "frappe.db.get_value"
-    },
-    {
-      "file": "email/analytics_tracker.py",
+      "file": "verenigingen/email/analytics_tracker.py",
       "file_type": "other",
       "line": 568,
       "field": "chapter",
@@ -705,7 +921,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "tests/fixtures/anbi_test_personas.py",
+      "file": "verenigingen/tests/fixtures/anbi_test_personas.py",
       "file_type": "test_file",
       "line": 347,
       "field": "donor",
@@ -715,7 +931,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/fixtures/enhanced_test_cleanup.py",
+      "file": "verenigingen/tests/fixtures/enhanced_test_cleanup.py",
       "file_type": "test_file",
       "line": 134,
       "field": "customer",
@@ -725,9 +941,9 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/utils/assertions.py",
+      "file": "verenigingen/tests/utils/assertions.py",
       "file_type": "test_file",
-      "line": 197,
+      "line": 198,
       "field": "member",
       "doctype": "Termination Audit Entry",
       "context": "audit_entries = frappe.get_all(\"Termination Audit Entry\", filters={\"member\": member_name})",
@@ -735,87 +951,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_financial_workflows_complete.py",
-      "file_type": "test_file",
-      "line": 258,
-      "field": "batch_reference",
-      "doctype": "Member Payment History",
-      "context": "payment_histories = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_financial_workflows_complete.py",
-      "file_type": "test_file",
-      "line": 372,
-      "field": "currency",
-      "doctype": "Donation",
-      "context": "donation_summary = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_financial_workflows_complete.py",
-      "file_type": "test_file",
-      "line": 372,
-      "field": "base_amount",
-      "doctype": "Donation",
-      "context": "donation_summary = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_financial_workflows_complete.py",
-      "file_type": "test_file",
-      "line": 479,
-      "field": "member",
-      "doctype": "Member Payment History",
-      "context": "all_payments = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_financial_workflows_complete.py",
-      "file_type": "test_file",
-      "line": 479,
-      "field": "payment_type",
-      "doctype": "Member Payment History",
-      "context": "all_payments = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_financial_workflows_complete.py",
-      "file_type": "test_file",
-      "line": 479,
-      "field": "retry_count",
-      "doctype": "Member Payment History",
-      "context": "all_payments = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_security_comprehensive_advanced.py",
-      "file_type": "test_file",
-      "line": 332,
-      "field": "to_date",
-      "doctype": "Membership",
-      "context": "memberships = frappe.get_all(\"Membership\",",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_security_comprehensive_advanced.py",
-      "file_type": "test_file",
-      "line": 168,
-      "field": "chapter",
-      "doctype": "Member",
-      "context": "members = frappe.get_all(\"Member\",",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_sepa_processing_pipeline.py",
+      "file": "verenigingen/tests/workflows/test_sepa_processing_pipeline.py",
       "file_type": "test_file",
       "line": 349,
       "field": "member",
@@ -825,7 +961,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_sepa_processing_pipeline.py",
+      "file": "verenigingen/tests/workflows/test_sepa_processing_pipeline.py",
       "file_type": "test_file",
       "line": 349,
       "field": "batch_reference",
@@ -835,7 +971,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_sepa_processing_pipeline.py",
+      "file": "verenigingen/tests/workflows/test_sepa_processing_pipeline.py",
       "file_type": "test_file",
       "line": 349,
       "field": "failure_reason",
@@ -845,77 +981,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_performance_comprehensive.py",
-      "file_type": "test_file",
-      "line": 366,
-      "field": "member",
-      "doctype": "Member Payment History",
-      "context": "frappe.get_all(\"Member Payment History\", filters={\"member\": member.name}, limit=10)",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_performance_comprehensive.py",
-      "file_type": "test_file",
-      "line": 189,
-      "field": "chapter",
-      "doctype": "Member",
-      "context": "frappe.get_all(\"Member\",",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_performance_comprehensive.py",
-      "file_type": "test_file",
-      "line": 197,
-      "field": "chapter",
-      "doctype": "Member",
-      "context": "frappe.get_all(\"Member\",",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_performance_comprehensive.py",
-      "file_type": "test_file",
-      "line": 130,
-      "field": "chapter",
-      "doctype": "Member",
-      "context": "\"complex_filter\": lambda: frappe.get_all(\"Member\",",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
-      "file_type": "test_file",
-      "line": 166,
-      "field": "member",
-      "doctype": "Chapter Membership History",
-      "context": "history = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
-      "file_type": "test_file",
-      "line": 166,
-      "field": "chapter",
-      "doctype": "Chapter Membership History",
-      "context": "history = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
-      "file_type": "test_file",
-      "line": 166,
-      "field": "role",
-      "doctype": "Chapter Membership History",
-      "context": "history = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
+      "file": "verenigingen/tests/workflows/test_member_lifecycle_complete.py",
       "file_type": "test_file",
       "line": 179,
       "field": "volunteer",
@@ -925,7 +991,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
+      "file": "verenigingen/tests/workflows/test_member_lifecycle_complete.py",
       "file_type": "test_file",
       "line": 179,
       "field": "chapter",
@@ -935,7 +1001,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
+      "file": "verenigingen/tests/workflows/test_member_lifecycle_complete.py",
       "file_type": "test_file",
       "line": 179,
       "field": "team",
@@ -945,57 +1011,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
-      "file_type": "test_file",
-      "line": 258,
-      "field": "member",
-      "doctype": "Member Payment History",
-      "context": "saved_history = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
-      "file_type": "test_file",
-      "line": 258,
-      "field": "payment_type",
-      "doctype": "Member Payment History",
-      "context": "saved_history = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
-      "file_type": "test_file",
-      "line": 385,
-      "field": "member",
-      "doctype": "Member IBAN History",
-      "context": "history = frappe.get_all(",
-      "issue_type": "filter_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
-      "file_type": "test_file",
-      "line": 385,
-      "field": "old_iban",
-      "doctype": "Member IBAN History",
-      "context": "history = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_member_lifecycle_complete.py",
-      "file_type": "test_file",
-      "line": 385,
-      "field": "new_iban",
-      "doctype": "Member IBAN History",
-      "context": "history = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 154,
       "field": "to_date",
@@ -1005,7 +1021,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 160,
       "field": "member",
@@ -1015,7 +1031,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 160,
       "field": "payment_type",
@@ -1025,7 +1041,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 259,
       "field": "volunteer",
@@ -1035,7 +1051,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 259,
       "field": "team",
@@ -1045,7 +1061,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 259,
       "field": "hours_per_week",
@@ -1055,7 +1071,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 394,
       "field": "team",
@@ -1065,7 +1081,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 394,
       "field": "volunteer",
@@ -1075,7 +1091,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 394,
       "field": "hours_per_week",
@@ -1085,7 +1101,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/workflows/test_portal_functionality_integration.py",
+      "file": "verenigingen/tests/workflows/test_portal_functionality_integration.py",
       "file_type": "test_file",
       "line": 179,
       "field": "member",
@@ -1095,7 +1111,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/comprehensive/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/comprehensive/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 83,
       "field": "member",
@@ -1105,7 +1121,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/comprehensive/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/comprehensive/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 83,
       "field": "status",
@@ -1115,7 +1131,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/comprehensive/test_financial_integration_edge_cases.py",
+      "file": "verenigingen/tests/backend/comprehensive/test_financial_integration_edge_cases.py",
       "file_type": "test_file",
       "line": 476,
       "field": "membership",
@@ -1125,7 +1141,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/comprehensive/test_termination_workflow_edge_cases.py",
+      "file": "verenigingen/tests/backend/comprehensive/test_termination_workflow_edge_cases.py",
       "file_type": "test_file",
       "line": 665,
       "field": "termination_request",
@@ -1135,7 +1151,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/performance/test_performance_edge_cases.py",
+      "file": "verenigingen/tests/backend/performance/test_performance_edge_cases.py",
       "file_type": "test_file",
       "line": 215,
       "field": "*",
@@ -1145,7 +1161,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/performance/test_performance_edge_cases.py",
+      "file": "verenigingen/tests/backend/performance/test_performance_edge_cases.py",
       "file_type": "test_file",
       "line": 553,
       "field": "member_name",
@@ -1155,7 +1171,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/performance/test_api_performance.py",
+      "file": "verenigingen/tests/backend/performance/test_api_performance.py",
       "file_type": "test_file",
       "line": 110,
       "field": "chapter",
@@ -1165,7 +1181,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_member_lifecycle_iban.py",
+      "file": "verenigingen/tests/backend/components/test_member_lifecycle_iban.py",
       "file_type": "test_file",
       "line": 88,
       "field": "*",
@@ -1175,7 +1191,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 133,
       "field": "chapter",
@@ -1185,7 +1201,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 133,
       "field": "chapter",
@@ -1195,7 +1211,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 183,
       "field": "chapter",
@@ -1205,7 +1221,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 183,
       "field": "chapter",
@@ -1215,7 +1231,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 237,
       "field": "chapter",
@@ -1225,7 +1241,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 237,
       "field": "chapter",
@@ -1235,7 +1251,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 281,
       "field": "chapter",
@@ -1245,7 +1261,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 281,
       "field": "chapter",
@@ -1255,7 +1271,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 470,
       "field": "chapter",
@@ -1265,7 +1281,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 470,
       "field": "chapter",
@@ -1275,7 +1291,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 532,
       "field": "is_active",
@@ -1285,7 +1301,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 532,
       "field": "postal_code_ranges",
@@ -1295,7 +1311,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 648,
       "field": "chapter",
@@ -1305,7 +1321,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 515,
       "field": "chapter",
@@ -1315,7 +1331,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_chapter_assignment_comprehensive.py",
+      "file": "verenigingen/tests/backend/components/test_chapter_assignment_comprehensive.py",
       "file_type": "test_file",
       "line": 515,
       "field": "chapter",
@@ -1325,7 +1341,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_membership_application.py",
+      "file": "verenigingen/tests/backend/components/test_membership_application.py",
       "file_type": "test_file",
       "line": 795,
       "field": "effective_date",
@@ -1335,7 +1351,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_member_iban_history.py",
+      "file": "verenigingen/tests/backend/components/test_member_iban_history.py",
       "file_type": "test_file",
       "line": 72,
       "field": "*",
@@ -1345,7 +1361,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_member_iban_history.py",
+      "file": "verenigingen/tests/backend/components/test_member_iban_history.py",
       "file_type": "test_file",
       "line": 123,
       "field": "*",
@@ -1355,7 +1371,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_member_iban_history.py",
+      "file": "verenigingen/tests/backend/components/test_member_iban_history.py",
       "file_type": "test_file",
       "line": 229,
       "field": "*",
@@ -1365,7 +1381,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_membership_utilities.py",
+      "file": "verenigingen/tests/backend/components/test_membership_utilities.py",
       "file_type": "test_file",
       "line": 329,
       "field": "subscription_plan",
@@ -1375,7 +1391,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_member_status_transitions.py",
+      "file": "verenigingen/tests/backend/components/test_member_status_transitions.py",
       "file_type": "test_file",
       "line": 439,
       "field": "chapter",
@@ -1385,7 +1401,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_member_status_transitions.py",
+      "file": "verenigingen/tests/backend/components/test_member_status_transitions.py",
       "file_type": "test_file",
       "line": 361,
       "field": "reference_doctype",
@@ -1395,7 +1411,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_member_status_transitions.py",
+      "file": "verenigingen/tests/backend/components/test_member_status_transitions.py",
       "file_type": "test_file",
       "line": 361,
       "field": "reference_name",
@@ -1405,7 +1421,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_member_status_transitions.py",
+      "file": "verenigingen/tests/backend/components/test_member_status_transitions.py",
       "file_type": "test_file",
       "line": 361,
       "field": "communication_type",
@@ -1415,7 +1431,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_fee_override_integration.py",
+      "file": "verenigingen/tests/backend/components/test_fee_override_integration.py",
       "file_type": "test_file",
       "line": 306,
       "field": "effective_date",
@@ -1425,7 +1441,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_approval_workflow.py",
+      "file": "verenigingen/tests/backend/components/test_approval_workflow.py",
       "file_type": "test_file",
       "line": 36,
       "field": "amount",
@@ -1435,7 +1451,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_payment_interval_fix.py",
+      "file": "verenigingen/tests/backend/components/test_payment_interval_fix.py",
       "file_type": "test_file",
       "line": 13,
       "field": "subscription_period",
@@ -1445,7 +1461,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/components/test_payment_interval_fix.py",
+      "file": "verenigingen/tests/backend/components/test_payment_interval_fix.py",
       "file_type": "test_file",
       "line": 13,
       "field": "amount",
@@ -1455,7 +1471,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/workflows/test_volunteer_journey.py",
+      "file": "verenigingen/tests/backend/workflows/test_volunteer_journey.py",
       "file_type": "test_file",
       "line": 572,
       "field": "team_members.volunteer",
@@ -1465,7 +1481,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/workflows/test_volunteer_journey.py",
+      "file": "verenigingen/tests/backend/workflows/test_volunteer_journey.py",
       "file_type": "test_file",
       "line": 486,
       "field": "hours",
@@ -1475,7 +1491,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "tests/backend/workflows/test_volunteer_journey.py",
+      "file": "verenigingen/tests/backend/workflows/test_volunteer_journey.py",
       "file_type": "test_file",
       "line": 545,
       "field": "team_members.volunteer",
@@ -1485,37 +1501,27 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/donation/donation.py",
-      "file_type": "doctype_controller",
-      "line": 265,
-      "field": "donation_account",
-      "doctype": "Chapter",
-      "context": "chapter_account = frappe.db.get_value(\"Chapter\", self.chapter_reference, \"donation_account\")",
+      "file": "verenigingen/verenigingen/web_form/membership_application.py",
+      "file_type": "web_form",
+      "line": 156,
+      "field": "parent as user",
+      "doctype": "Has Role",
+      "context": "managers = frappe.get_all(",
       "issue_type": "select_field",
-      "function": "frappe.db.get_value"
+      "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/donation/donation.py",
+      "file": "verenigingen/verenigingen/doctype/membership_termination_request/membership_termination_request.py",
       "file_type": "doctype_controller",
-      "line": 353,
-      "field": "donation_account",
-      "doctype": "Chapter",
-      "context": "to_account = frappe.db.get_value(\"Chapter\", self.chapter_reference, \"donation_account\")",
+      "line": 763,
+      "field": "parent as user",
+      "doctype": "Has Role",
+      "context": "users = frappe.get_all(",
       "issue_type": "select_field",
-      "function": "frappe.db.get_value"
+      "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/membership_termination_request/membership_termination_analytics.py",
-      "file_type": "doctype_controller",
-      "line": 151,
-      "field": "primary_chapter",
-      "doctype": "Member",
-      "context": "member_chapter = frappe.db.get_value(\"Member\", termination.member, \"primary_chapter\")",
-      "issue_type": "select_field",
-      "function": "frappe.db.get_value"
-    },
-    {
-      "file": "verenigingen/doctype/volunteer_expense/test_volunteer_expense_minimal.py",
+      "file": "verenigingen/verenigingen/doctype/volunteer_expense/test_volunteer_expense_minimal.py",
       "file_type": "doctype_controller",
       "line": 426,
       "field": "chapter",
@@ -1525,37 +1531,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/membership_goal/membership_goal.py",
-      "file_type": "doctype_controller",
-      "line": 114,
-      "field": "amount",
-      "doctype": "Membership Type",
-      "context": "frappe.db.get_value(\"Membership Type\", membership.membership_type, \"amount\") or 0",
-      "issue_type": "select_field",
-      "function": "frappe.db.get_value"
-    },
-    {
-      "file": "verenigingen/doctype/direct_debit_batch/sepa_processor.py",
-      "file_type": "doctype_controller",
-      "line": 974,
-      "field": "member.full_name as member_name",
-      "doctype": "Membership Dues Schedule",
-      "context": "schedules = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "verenigingen/doctype/direct_debit_batch/sepa_processor.py",
-      "file_type": "doctype_controller",
-      "line": 974,
-      "field": "amount",
-      "doctype": "Membership Dues Schedule",
-      "context": "schedules = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "verenigingen/doctype/member/member.py",
+      "file": "verenigingen/verenigingen/doctype/member/member.py",
       "file_type": "doctype_controller",
       "line": 1720,
       "field": "parent as chapter",
@@ -1565,7 +1541,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/member/member.py",
+      "file": "verenigingen/verenigingen/doctype/member/member.py",
       "file_type": "doctype_controller",
       "line": 1732,
       "field": "parent as chapter",
@@ -1575,7 +1551,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/volunteer/volunteer.py",
+      "file": "verenigingen/verenigingen/doctype/volunteer/volunteer.py",
       "file_type": "doctype_controller",
       "line": 732,
       "field": "activity_type as assignment_type",
@@ -1585,7 +1561,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/volunteer/volunteer.py",
+      "file": "verenigingen/verenigingen/doctype/volunteer/volunteer.py",
       "file_type": "doctype_controller",
       "line": 732,
       "field": "description as reference",
@@ -1595,7 +1571,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/member/mixins/chapter_mixin.py",
+      "file": "verenigingen/verenigingen/doctype/member/mixins/chapter_mixin.py",
       "file_type": "doctype_controller",
       "line": 38,
       "field": "parent as chapter",
@@ -1605,7 +1581,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/member/mixins/chapter_mixin.py",
+      "file": "verenigingen/verenigingen/doctype/member/mixins/chapter_mixin.py",
       "file_type": "doctype_controller",
       "line": 59,
       "field": "parent as chapter",
@@ -1615,7 +1591,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/member/mixins/chapter_mixin.py",
+      "file": "verenigingen/verenigingen/doctype/member/mixins/chapter_mixin.py",
       "file_type": "doctype_controller",
       "line": 92,
       "field": "parent as chapter",
@@ -1625,7 +1601,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/member/mixins/chapter_mixin.py",
+      "file": "verenigingen/verenigingen/doctype/member/mixins/chapter_mixin.py",
       "file_type": "doctype_controller",
       "line": 92,
       "field": "chapter_role as role",
@@ -1635,17 +1611,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "verenigingen/doctype/member/mixins/payment_mixin.py",
-      "file_type": "doctype_controller",
-      "line": 624,
-      "field": "payment_method",
-      "doctype": "Membership",
-      "context": "memberships = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "pages/membership_applications/__init__.py",
+      "file": "verenigingen/pages/membership_applications/__init__.py",
       "file_type": "other",
       "line": 116,
       "field": "primary_chapter",
@@ -1655,7 +1621,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "utils/debug/fix_membership_type_templates.py",
+      "file": "verenigingen/utils/debug/fix_membership_type_templates.py",
       "file_type": "debug_script",
       "line": 124,
       "field": "amount",
@@ -1665,27 +1631,17 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "utils/debug/debug_minimum_contribution.py",
+      "file": "verenigingen/utils/debug/member_permission_debugger.py",
       "file_type": "debug_script",
-      "line": 69,
-      "field": "minimum_amount",
-      "doctype": "Membership Tier",
-      "context": "tiers = frappe.get_all(",
+      "line": 90,
+      "field": "*",
+      "doctype": "DocPerm",
+      "context": "perm_rules = frappe.get_all(",
       "issue_type": "select_field",
       "function": "frappe.get_all"
     },
     {
-      "file": "utils/debug/debug_minimum_contribution.py",
-      "file_type": "debug_script",
-      "line": 69,
-      "field": "suggested_amount",
-      "doctype": "Membership Tier",
-      "context": "tiers = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "utils/debug/debug_mutation_6427.py",
+      "file": "verenigingen/utils/debug/debug_mutation_6427.py",
       "file_type": "debug_script",
       "line": 168,
       "field": "account_name",
@@ -1695,7 +1651,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "utils/debug/debug_mutation_6427.py",
+      "file": "verenigingen/utils/debug/debug_mutation_6427.py",
       "file_type": "debug_script",
       "line": 182,
       "field": "account_name",
@@ -1705,7 +1661,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "utils/debug/analyze_payment_mutations.py",
+      "file": "verenigingen/utils/debug/analyze_payment_mutations.py",
       "file_type": "debug_script",
       "line": 223,
       "field": "ledger_description",
@@ -1715,7 +1671,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "utils/debug/membership_fee_adjustment_debugger.py",
+      "file": "verenigingen/utils/debug/membership_fee_adjustment_debugger.py",
       "file_type": "debug_script",
       "line": 357,
       "field": "amount",
@@ -1725,7 +1681,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "utils/debug/analyze_payment_api.py",
+      "file": "verenigingen/utils/debug/analyze_payment_api.py",
       "file_type": "debug_script",
       "line": 155,
       "field": "ledger_description",
@@ -1735,7 +1691,27 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "e_boekhouden/utils/eboekhouden_api.py",
+      "file": "verenigingen/e_boekhouden/utils/eboekhouden_migration_enhancements.py",
+      "file_type": "utility",
+      "line": 219,
+      "field": "eboekhouden_group",
+      "doctype": "Account",
+      "context": "group_account = frappe.db.get_value(",
+      "issue_type": "filter_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "verenigingen/e_boekhouden/utils/cleanup_utils.py",
+      "file_type": "utility",
+      "line": 39,
+      "field": "custom_eboekhouden_code",
+      "doctype": "Account",
+      "context": "accounts = frappe.get_all(",
+      "issue_type": "filter_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/e_boekhouden/utils/eboekhouden_api.py",
       "file_type": "utility",
       "line": 847,
       "field": "ledger_description",
@@ -1745,7 +1721,7 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "e_boekhouden/utils/transaction_utils.py",
+      "file": "verenigingen/e_boekhouden/utils/transaction_utils.py",
       "file_type": "utility",
       "line": 352,
       "field": "eboekhouden_code",
@@ -1755,7 +1731,17 @@
       "function": "frappe.db.get_value"
     },
     {
-      "file": "e_boekhouden/utils/eboekhouden_payment_mapping.py",
+      "file": "verenigingen/e_boekhouden/utils/transaction_utils.py",
+      "file_type": "utility",
+      "line": 360,
+      "field": "custom_eboekhouden_code",
+      "doctype": "Account",
+      "context": "account = frappe.db.get_value(",
+      "issue_type": "filter_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "verenigingen/e_boekhouden/utils/eboekhouden_payment_mapping.py",
       "file_type": "utility",
       "line": 22,
       "field": "*",
@@ -1765,7 +1751,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
+      "file": "verenigingen/e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
       "file_type": "other",
       "line": 5439,
       "field": "description_pattern",
@@ -1775,7 +1761,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
+      "file": "verenigingen/e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
       "file_type": "other",
       "line": 5439,
       "field": "transaction_category",
@@ -1785,7 +1771,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
+      "file": "verenigingen/e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
       "file_type": "other",
       "line": 5439,
       "field": "priority",
@@ -1795,7 +1781,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
+      "file": "verenigingen/e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
       "file_type": "other",
       "line": 5439,
       "field": "is_manual_override",
@@ -1805,7 +1791,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
+      "file": "verenigingen/e_boekhouden/cleanup_backups/e_boekhouden_migration_original_backup.py",
       "file_type": "other",
       "line": 6564,
       "field": "migration_log",
@@ -1815,147 +1801,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 23,
-      "field": "target_account_type",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 23,
-      "field": "transaction_category",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 23,
-      "field": "priority",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 23,
-      "field": "description",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 253,
-      "field": "target_document_type",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "for mapping in frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 253,
-      "field": "target_account_type",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "for mapping in frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 350,
-      "field": "target_account_type",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 350,
-      "field": "target_document_type",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 350,
-      "field": "transaction_category",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 350,
-      "field": "priority",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 350,
-      "field": "description",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 350,
-      "field": "account_code_start",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 350,
-      "field": "account_code_end",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/api.py",
-      "file_type": "doctype_controller",
-      "line": 350,
-      "field": "description_pattern",
-      "doctype": "E-Boekhouden Account Mapping",
-      "context": "mappings = frappe.get_all(",
-      "issue_type": "select_field",
-      "function": "frappe.get_all"
-    },
-    {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
       "file_type": "doctype_controller",
       "line": 208,
       "field": "account_type",
@@ -1965,7 +1811,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
       "file_type": "doctype_controller",
       "line": 208,
       "field": "confidence_level",
@@ -1975,7 +1821,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
       "file_type": "doctype_controller",
       "line": 208,
       "field": "notes",
@@ -1985,7 +1831,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
       "file_type": "doctype_controller",
       "line": 344,
       "field": "account_type",
@@ -1995,7 +1841,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
       "file_type": "doctype_controller",
       "line": 344,
       "field": "confidence_level",
@@ -2005,7 +1851,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_migration_config.py",
       "file_type": "doctype_controller",
       "line": 344,
       "field": "notes",
@@ -2015,7 +1861,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
       "file_type": "doctype_controller",
       "line": 159,
       "field": "transaction_category",
@@ -2025,7 +1871,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
       "file_type": "doctype_controller",
       "line": 159,
       "field": "account_range_start",
@@ -2035,7 +1881,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
       "file_type": "doctype_controller",
       "line": 159,
       "field": "account_range_end",
@@ -2045,7 +1891,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
       "file_type": "doctype_controller",
       "line": 159,
       "field": "description_patterns",
@@ -2055,7 +1901,7 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
+      "file": "verenigingen/e_boekhouden/doctype/e_boekhouden_account_mapping/eboekhouden_account_analyzer.py",
       "file_type": "doctype_controller",
       "line": 159,
       "field": "priority",
@@ -2065,7 +1911,37 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "templates/pages/my_teams.py",
+      "file": "verenigingen/templates/pages/donate.py",
+      "file_type": "user_facing_page",
+      "line": 566,
+      "field": "app",
+      "doctype": "DocType",
+      "context": "record = frappe.db.get_value(\"DocType\", doctype_name, [\"app\", \"module\"], as_dict=True)",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "verenigingen/templates/pages/donate.py",
+      "file_type": "user_facing_page",
+      "line": 859,
+      "field": "app",
+      "doctype": "DocType",
+      "context": "dt_info = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "verenigingen/templates/pages/donate.py",
+      "file_type": "user_facing_page",
+      "line": 1079,
+      "field": "published",
+      "doctype": "DocType",
+      "context": "dt_info = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "verenigingen/templates/pages/my_teams.py",
       "file_type": "user_facing_page",
       "line": 40,
       "field": "parent as team_name",
@@ -2075,13 +1951,233 @@
       "function": "frappe.get_all"
     },
     {
-      "file": "templates/pages/my_teams.py",
+      "file": "verenigingen/templates/pages/my_teams.py",
       "file_type": "user_facing_page",
       "line": 40,
       "field": "status as member_status",
       "doctype": "Team Member",
       "context": "team_memberships = frappe.get_all(",
       "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "verenigingen/templates/pages/volunteer/expenses.py",
+      "file_type": "user_facing_page",
+      "line": 1495,
+      "field": "default_expense_claim_payable_account",
+      "doctype": "Company",
+      "context": "payable_account = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
+      "file_type": "other",
+      "line": 27,
+      "field": "membership_fee_override",
+      "doctype": "Member",
+      "context": "members_with_overrides = frappe.get_all(",
+      "issue_type": "filter_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
+      "file_type": "other",
+      "line": 27,
+      "field": "membership_fee_override",
+      "doctype": "Member",
+      "context": "members_with_overrides = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
+      "file_type": "other",
+      "line": 27,
+      "field": "fee_override_reason",
+      "doctype": "Member",
+      "context": "members_with_overrides = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
+      "file_type": "other",
+      "line": 27,
+      "field": "fee_override_date",
+      "doctype": "Member",
+      "context": "members_with_overrides = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
+      "file_type": "other",
+      "line": 27,
+      "field": "fee_override_by",
+      "doctype": "Member",
+      "context": "members_with_overrides = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
+      "file_type": "other",
+      "line": 182,
+      "field": "membership_fee_override",
+      "doctype": "Member",
+      "context": "members_with_overrides = frappe.get_all(",
+      "issue_type": "filter_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/migration/migrate_fee_overrides_to_dues_schedules.py",
+      "file_type": "other",
+      "line": 182,
+      "field": "membership_fee_override",
+      "doctype": "Member",
+      "context": "members_with_overrides = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/debug/check_scheduler_status.py",
+      "file_type": "debug_script",
+      "line": 46,
+      "field": "custom_dues_schedule",
+      "doctype": "Sales Invoice",
+      "context": "recent_invoices = frappe.get_all(",
+      "issue_type": "filter_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/debug/check_scheduler_status.py",
+      "file_type": "debug_script",
+      "line": 46,
+      "field": "custom_dues_schedule",
+      "doctype": "Sales Invoice",
+      "context": "recent_invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/debug/check_scheduler_status.py",
+      "file_type": "debug_script",
+      "line": 58,
+      "field": "custom_dues_schedule",
+      "doctype": "Sales Invoice",
+      "context": "dues_schedule_invoices = frappe.get_all(",
+      "issue_type": "filter_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/debug/check_scheduler_status.py",
+      "file_type": "debug_script",
+      "line": 58,
+      "field": "custom_dues_schedule",
+      "doctype": "Sales Invoice",
+      "context": "dues_schedule_invoices = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/debug/debug_chapter_assignment.py",
+      "file_type": "debug_script",
+      "line": 13,
+      "field": "parent as chapter",
+      "doctype": "Chapter Member",
+      "context": "chapter_members = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/monitoring/zabbix_integration.py",
+      "file_type": "other",
+      "line": 122,
+      "field": "SUM(amount)",
+      "doctype": "Donation",
+      "context": "donations_today = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "scripts/monitoring/zabbix_integration.py",
+      "file_type": "other",
+      "line": 183,
+      "field": "COUNT(*)",
+      "doctype": "Activity Log",
+      "context": "total_requests = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "scripts/monitoring/zabbix_integration.py",
+      "file_type": "other",
+      "line": 206,
+      "field": "AVG(response_time)",
+      "doctype": "Activity Log",
+      "context": "avg_response_time = frappe.db.get_value(",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "scripts/api_maintenance/eboekhouden_mapping_setup.py",
+      "file_type": "other",
+      "line": 64,
+      "field": "transaction_category",
+      "doctype": "E-Boekhouden Account Mapping",
+      "context": "sample_mappings = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/setup/deploy_role_profiles.py",
+      "file_type": "other",
+      "line": 67,
+      "field": "*",
+      "doctype": "Role Profile",
+      "context": "role_profiles = frappe.get_all(\"Role Profile\", filters={\"name\": [\"like\", \"Verenigingen%\"]}, fields=[\"*\"])",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/setup/deploy_role_profiles.py",
+      "file_type": "other",
+      "line": 83,
+      "field": "*",
+      "doctype": "Module Profile",
+      "context": "module_profiles = frappe.get_all(",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/testing/integration/test_expense_functionality.py",
+      "file_type": "debug_script",
+      "line": 23,
+      "field": "default_account",
+      "doctype": "Expense Claim Type",
+      "context": "expense_types = frappe.get_all(\"Expense Claim Type\", fields=[\"name\", \"default_account\"], limit=5)",
+      "issue_type": "select_field",
+      "function": "frappe.get_all"
+    },
+    {
+      "file": "scripts/testing/integration/test_doctype_access.py",
+      "file_type": "debug_script",
+      "line": 55,
+      "field": "app",
+      "doctype": "DocType",
+      "context": "record = frappe.db.get_value(\"DocType\", doctype_name, [\"app\", \"module\"], as_dict=True)",
+      "issue_type": "select_field",
+      "function": "frappe.db.get_value"
+    },
+    {
+      "file": "scripts/testing/monitoring/generate_test_data.py",
+      "file_type": "debug_script",
+      "line": 152,
+      "field": "title",
+      "doctype": "System Alert",
+      "context": "test_alerts = frappe.get_all(\"System Alert\",",
+      "issue_type": "filter_field",
       "function": "frappe.get_all"
     }
   ]

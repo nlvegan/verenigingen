@@ -1,11 +1,22 @@
 #!/usr/bin/env python3
 """
-LEGACY MIGRATION SCRIPT - DO NOT USE
-Migration script to convert membership_fee_override data to Membership Dues Schedule records
-This script migrates the legacy override system to the new child DocType architecture
+DEPRECATED LEGACY MIGRATION SCRIPT - DO NOT USE
+===============================================
 
-NOTE: The membership_fee_override field was removed from the Member doctype.
-This script is kept for historical reference only and will not function on current installations.
+⚠️  WARNING: This script is DEPRECATED and NON-FUNCTIONAL
+⚠️  The referenced fields have been REMOVED from the Member DocType
+
+This script was used to migrate legacy membership_fee_override data to the new 
+Membership Dues Schedule architecture. The following fields no longer exist:
+- membership_fee_override
+- fee_override_reason  
+- fee_override_date
+- fee_override_by
+
+This file is kept for historical reference only. Any attempt to run this script
+will fail as the referenced database fields have been removed.
+
+RECOMMENDATION: Remove this file from the repository.
 """
 
 import frappe
@@ -14,6 +25,17 @@ from datetime import datetime
 
 
 def migrate_fee_overrides():
+    """
+    DEPRECATED FUNCTION - IMMEDIATELY EXITS
+    
+    This function is deprecated as the required database fields no longer exist.
+    """
+    frappe.throw("This migration script is deprecated. The required database fields (membership_fee_override, fee_override_reason, fee_override_date, fee_override_by) have been removed from the Member DocType.")
+    
+    # The rest of this function is kept for historical reference but will never execute
+
+
+def _deprecated_migrate_fee_overrides():
     """
     Main migration function to convert all membership_fee_override data
     to Membership Dues Schedule records

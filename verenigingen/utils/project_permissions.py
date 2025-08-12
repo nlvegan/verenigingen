@@ -128,7 +128,7 @@ def get_team_permission_level(team_name, volunteer, permission_type):
         team_member = frappe.db.get_value(
             "Team Member",
             {"parent": team_name, "volunteer": volunteer},
-            ["team_role", "responsibility"],
+            ["team_role", "role_type", "role", "notes"],
             as_dict=True,
         )
 
