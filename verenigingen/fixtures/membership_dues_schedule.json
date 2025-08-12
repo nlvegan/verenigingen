@@ -19,13 +19,7 @@
   "suggested_amount": 3.0,
   "uses_custom_amount": 0,
   "notes": "Standard monthly membership template - €3 per month",
-  "billing_schedule_notes": "Monthly billing on the 1st of each month",
-  "creation": "2025-01-01 00:00:00.000000",
-  "modified": "2025-01-01 00:00:00.000000",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "docstatus": 0,
-  "idx": 0
+  "billing_schedule_notes": "Monthly billing on the 1st of each month"
  },
  {
   "doctype": "Membership Dues Schedule",
@@ -47,12 +41,6 @@
   "suggested_amount": 30.0,
   "uses_custom_amount": 0,
   "notes": "Standard annual membership template - €30 per year (discount vs monthly)",
-  "billing_schedule_notes": "Annual billing on membership anniversary",
-  "creation": "2025-01-01 00:00:00.000000",
-  "modified": "2025-01-01 00:00:00.000000",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "docstatus": 0,
-  "idx": 0
+  "billing_schedule_notes": "Annual billing on membership anniversary"
  }
 ]

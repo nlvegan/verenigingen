@@ -12,12 +12,6 @@
   "description": "Association membership service item for dues schedules",
   "disabled": 0,
   "has_variants": 0,
-  "stock_uom": "Unit",
-  "creation": "2025-01-01 00:00:00.000000",
-  "modified": "2025-01-01 00:00:00.000000",
-  "modified_by": "Administrator",
-  "owner": "Administrator",
-  "docstatus": 0,
-  "idx": 0
+  "stock_uom": "Unit"
  }
 ]

@@ -310,14 +310,8 @@ def execute_after_install():
 
 
 def create_eboekhouden_custom_fields():
-    """Create E-Boekhouden custom fields during installation"""
-    try:
-        from verenigingen.utils.create_eboekhouden_custom_fields import create_eboekhouden_tracking_fields
-
-        create_eboekhouden_tracking_fields()
-        print("✅ Created E-Boekhouden custom fields")
-    except Exception as e:
-        print(f"⚠️ Failed to create E-Boekhouden custom fields: {str(e)}")
+    """E-Boekhouden custom fields are now created via fixtures"""
+    print("✅ E-Boekhouden custom fields created via fixtures")
 
 
 def create_default_eboekhouden_settings():

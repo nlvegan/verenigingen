@@ -7,32 +7,18 @@ import frappe
 
 
 def execute():
-    """Create E-Boekhouden custom fields if they don't exist"""
+    """E-Boekhouden custom fields are now created via fixtures during installation"""
 
-    try:
-        from verenigingen.utils.create_eboekhouden_custom_fields import create_eboekhouden_tracking_fields
+    # Check if fields already exist from fixtures
+    payment_field_exists = frappe.db.exists(
+        "Custom Field", {"dt": "Payment Entry", "fieldname": "eboekhouden_mutation_nr"}
+    )
 
-        # Check if fields already exist
-        payment_field_exists = frappe.db.exists(
-            "Custom Field", {"dt": "Payment Entry", "fieldname": "eboekhouden_mutation_nr"}
-        )
+    journal_field_exists = frappe.db.exists(
+        "Custom Field", {"dt": "Journal Entry", "fieldname": "eboekhouden_mutation_nr"}
+    )
 
-        journal_field_exists = frappe.db.exists(
-            "Custom Field", {"dt": "Journal Entry", "fieldname": "eboekhouden_mutation_nr"}
-        )
-
-        if not payment_field_exists or not journal_field_exists:
-            print("Creating E-Boekhouden custom fields...")
-            result = create_eboekhouden_tracking_fields()
-
-            if result.get("success"):
-                print("✅ E-Boekhouden custom fields created successfully")
-            else:
-                print(f"❌ Failed to create custom fields: {result.get('error')}")
-        else:
-            print("✅ E-Boekhouden custom fields already exist")
-
-    except Exception as e:
-        print(f"❌ Error in patch: {str(e)}")
-        # Don't fail the patch if there are issues
-        frappe.log_error(f"E-Boekhouden fields patch error: {str(e)}")
+    if payment_field_exists and journal_field_exists:
+        print("✅ E-Boekhouden custom fields exist (created via fixtures)")
+    else:
+        print("⚠️ E-Boekhouden custom fields missing - should be created via fixtures")
