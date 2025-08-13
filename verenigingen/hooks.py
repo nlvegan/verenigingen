@@ -345,7 +345,10 @@ doc_events = {
             "verenigingen.utils.apply_tax_exemption_from_source",
             "verenigingen.utils.sales_invoice_hooks.set_member_from_customer",
         ],
-        "validate": ["verenigingen.overrides.sales_invoice.custom_validate"],
+        "validate": [
+            "verenigingen.overrides.sales_invoice.custom_validate",
+            "verenigingen.utils.sales_invoice_account_handler.set_membership_receivable_account",
+        ],
         "after_validate": ["verenigingen.overrides.sales_invoice.after_validate"],
         # Event-driven approach for payment history updates
         # This prevents validation errors from blocking invoice submission

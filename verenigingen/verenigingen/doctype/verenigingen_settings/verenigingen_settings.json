@@ -39,7 +39,6 @@
   "sepa_mandate_starting_counter",
   "column_break_financial",
   "default_receivable_account",
-  "membership_debit_account",
   "membership_payment_account",
   "automate_membership_payment_entries",
   "invoicing_section",
@@ -354,12 +353,6 @@
    "fieldname": "automate_donation_payment_entries",
    "fieldtype": "Check",
    "label": "Skip Automatic Donation Payment Entries"
-  },
-  {
-   "fieldname": "membership_debit_account",
-   "fieldtype": "Link",
-   "label": "Membership Debit Account",
-   "options": "Account"
   },
   {
    "depends_on": "automate_donation_payment_entries",
