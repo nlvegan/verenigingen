@@ -45,12 +45,12 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
 
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
@@ -91,7 +91,7 @@ jobs:
 
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-results-${{ matrix.python-version }}-${{ matrix.test-suite }}
         path: |
@@ -109,7 +109,7 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.12'
 
@@ -145,7 +145,7 @@ jobs:
         fetch-depth: 0  # Need full history for changed files detection
 
     - name: Set up Python 3.12
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.12'
 
@@ -173,17 +173,17 @@ jobs:
 
         if [[ "${{ steps.changed-files.outputs.all_changed_files }}" == *"environment_handler"* ]]; then
           echo "Running environment handler tests..."
-          python -c "from validation.test_environment_handler import run_environment_handler_tests; run_environment_handler_tests()"
+          python -c "from validation.test_environment_handler import run_environment_handler_tests; import sys; sys.exit(0 if run_environment_handler_tests() else 1)"
         fi
 
         if [[ "${{ steps.changed-files.outputs.all_changed_files }}" == *"config_manager"* ]]; then
           echo "Running config manager tests..."
-          python -c "from validation.test_config_manager import run_config_manager_tests; run_config_manager_tests()"
+          python -c "from validation.test_config_manager import run_config_manager_tests; import sys; sys.exit(0 if run_config_manager_tests() else 1)"
         fi
 
         if [[ "${{ steps.changed-files.outputs.all_changed_files }}" == *"validation_suite_runner"* ]]; then
           echo "Running validation suite tests..."
-          python -c "from validation.test_validation_suite_runner import run_validation_suite_runner_tests; run_validation_suite_runner_tests()"
+          python -c "from validation.test_validation_suite_runner import run_validation_suite_runner_tests; import sys; sys.exit(0 if run_validation_suite_runner_tests() else 1)"
         fi
 
     - name: Comment PR with validation results
