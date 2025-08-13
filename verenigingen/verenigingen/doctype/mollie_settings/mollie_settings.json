@@ -1,0 +1,168 @@
+{
+ "actions": [],
+ "allow_copy": 0,
+ "allow_guest_to_view": 0,
+ "allow_import": 0,
+ "allow_rename": 0,
+ "autoname": "field:gateway_name",
+ "creation": "2025-01-13 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "gateway_name",
+  "profile_id",
+  "column_break_3",
+  "secret_key",
+  "test_mode",
+  "section_break_5",
+  "header_img",
+  "column_break_7",
+  "redirect_url",
+  "subscription_section",
+  "enable_subscriptions",
+  "subscription_webhook_url",
+  "column_break_subscription",
+  "default_subscription_interval",
+  "subscription_description_template"
+ ],
+ "fields": [
+  {
+   "fieldname": "gateway_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Payment Gateway Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "profile_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Mollie Profile ID",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "secret_key",
+   "fieldtype": "Password",
+   "label": "Mollie API Secret Key",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "test_mode",
+   "fieldtype": "Check",
+   "label": "Test Mode"
+  },
+  {
+   "fieldname": "section_break_5",
+   "fieldtype": "Section Break",
+   "label": "Customization"
+  },
+  {
+   "fieldname": "header_img",
+   "fieldtype": "Attach Image",
+   "label": "Header Image"
+  },
+  {
+   "fieldname": "column_break_7",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "redirect_url",
+   "fieldtype": "Data",
+   "label": "Custom Redirect URL"
+  },
+  {
+   "fieldname": "subscription_section",
+   "fieldtype": "Section Break",
+   "label": "Subscription Settings"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_subscriptions",
+   "fieldtype": "Check",
+   "label": "Enable Subscriptions"
+  },
+  {
+   "depends_on": "eval:doc.enable_subscriptions",
+   "fieldname": "subscription_webhook_url",
+   "fieldtype": "Data",
+   "label": "Subscription Webhook URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_subscription",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1 month",
+   "depends_on": "eval:doc.enable_subscriptions",
+   "fieldname": "default_subscription_interval",
+   "fieldtype": "Select",
+   "label": "Default Subscription Interval",
+   "options": "1 month\n3 months\n6 months\n1 year"
+  },
+  {
+   "default": "Membership dues for {member_name}",
+   "depends_on": "eval:doc.enable_subscriptions",
+   "fieldname": "subscription_description_template",
+   "fieldtype": "Small Text",
+   "label": "Subscription Description Template"
+  }
+ ],
+ "has_web_view": 0,
+ "hide_heading": 0,
+ "hide_toolbar": 0,
+ "idx": 0,
+ "image_view": 0,
+ "in_create": 0,
+ "is_submittable": 0,
+ "issingle": 0,
+ "istable": 0,
+ "max_attachments": 0,
+ "modified": "2025-01-13 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Mollie Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 1,
+ "read_only": 0,
+ "read_only_onload": 0,
+ "show_name_in_global_search": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1,
+ "track_seen": 0,
+ "track_views": 0
+}

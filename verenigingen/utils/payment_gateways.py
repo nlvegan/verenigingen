@@ -65,72 +65,412 @@ class BankTransferGateway(PaymentGateway):
 
 
 class MollieGateway(PaymentGateway):
-    """Handler for Mollie payments (placeholder for future implementation)"""
+    """
+    Complete Mollie payment gateway implementation
 
-    def __init__(self):
-        # This would load Mollie API credentials from settings
-        self.api_key = self._get_api_key()
-        self.webhook_url = self._get_webhook_url()
+    Provides full Mollie payment processing functionality including:
+    - Payment creation with Mollie API
+    - Real-time payment status checking
+    - Webhook handling for payment updates
+    - Multi-currency and multi-configuration support
+    - Error handling and recovery
+
+    This implementation matches the functionality from the Frappe Payments PR
+    while integrating with the verenigingen payment gateway architecture.
+    """
+
+    def __init__(self, gateway_name="Default"):
+        """
+        Initialize Mollie gateway with configuration
+
+        Args:
+            gateway_name (str): Name of Mollie Settings configuration to use
+        """
+        self.gateway_name = gateway_name
+        self.settings = self._get_mollie_settings()
+        self.client = self._get_mollie_client()
 
     def process_payment(self, donation, form_data):
-        """Create Mollie payment"""
-        # Placeholder for Mollie integration
-        # payment_data = {
-        #     "amount": {"currency": "EUR", "value": "{donation.amount:.2f}"},
-        #     "description": "Donation {donation.name}",
-        #     "redirectUrl": "{frappe.utils.get_url()}/donation-success?id={donation.name}",
-        #     "webhookUrl": self.webhook_url,
-        #     "metadata": {
-        #         "donation_id": donation.name,
-        #         "donor_email": donation.donor_email if hasattr(donation, "donor_email") else "",
-        #     },
-        # }
+        """
+        Create Mollie payment and return checkout information
 
-        # TODO: Implement actual Mollie API call
-        # mollie_payment = mollie_client.payments.create(payment_data)
+        Args:
+            donation: Donation document to process payment for
+            form_data (dict): Form data containing payment details
 
-        return {
-            "status": "redirect_required",
-            "payment_url": "https://mollie.com/checkout/{donation.name}",  # Placeholder
-            "payment_id": "tr_{donation.name}",  # Placeholder
-            "expires_at": frappe.utils.add_to_date(frappe.utils.now(), hours=1),
-        }
+        Returns:
+            dict: Payment processing result with status and redirect information
+        """
+        try:
+            # Validate currency support
+            currency = getattr(donation, "currency", "EUR")
+            self.settings.validate_transaction_currency(currency)
+
+            # Prepare payment data
+            payment_data = {
+                "amount": {"currency": currency, "value": f"{float(donation.amount):.2f}"},
+                "description": f"Donation {donation.name}",
+                "redirectUrl": self._get_redirect_url(donation),
+                "webhookUrl": self.settings.get_webhook_url(),
+                "metadata": {
+                    "donation_id": donation.name,
+                    "reference_doctype": donation.doctype,
+                    "reference_docname": donation.name,
+                },
+            }
+
+            # Add billing address if email available
+            email = self._get_email_from_form_or_doc(donation, form_data)
+            if email:
+                payment_data["billingAddress"] = {"email": email}
+
+            # Create payment with Mollie
+            payment = self.client.payments.create(payment_data)
+
+            # Update donation with payment details
+            donation.db_set("payment_id", payment.id)
+            if hasattr(donation, "payment_status"):
+                donation.db_set("payment_status", "Open")
+
+            # Log payment creation
+            frappe.logger().info(f"Created Mollie payment {payment.id} for donation {donation.name}")
+
+            return {
+                "status": "redirect_required",
+                "payment_url": payment.checkout_url,
+                "payment_id": payment.id,
+                "expires_at": payment.expires_at.isoformat() if payment.expires_at else None,
+                "message": _("Redirecting to Mollie for payment..."),
+            }
+
+        except Exception as e:
+            frappe.log_error(
+                f"Mollie payment creation failed for {donation.name}: {str(e)}", "Mollie Payment Error"
+            )
+            return {
+                "status": "error",
+                "message": _("Payment setup failed. Please try again or contact support."),
+            }
 
     def handle_webhook(self, payload):
-        """Handle Mollie webhook notifications"""
-        # Placeholder for webhook processing
-        payment_id = payload.get("id")
-        status = payload.get("status")
+        """
+        Handle Mollie webhook notifications for payment status updates
 
-        if payment_id and status == "paid":
-            # Find donation by payment ID
-            donation_name = payload.get("metadata", {}).get("donation_id")
-            if donation_name:
-                donation = frappe.get_doc("Donation", donation_name)
-                donation.db_set("paid", 1)
-                donation.db_set("payment_id", payment_id)
+        Args:
+            payload (dict): Webhook payload from Mollie
 
-                # Create payment entry
-                if hasattr(donation, "create_payment_entry"):
-                    donation.create_payment_entry()
+        Returns:
+            dict: Processing result
+        """
+        try:
+            payment_id = payload.get("id")
+            if not payment_id:
+                return {"status": "ignored", "reason": "No payment ID in payload"}
 
-                return {"status": "processed", "donation": donation_name}
+            # Get payment from Mollie
+            payment = self.client.payments.get(payment_id)
 
-        return {"status": "ignored"}
+            # Find the related document
+            reference_doctype = payment.metadata.get("reference_doctype")
+            reference_docname = payment.metadata.get("reference_docname")
+
+            if not (reference_doctype and reference_docname):
+                return {"status": "ignored", "reason": "No reference document in metadata"}
+
+            # Update document based on payment status
+            doc = frappe.get_doc(reference_doctype, reference_docname)
+
+            if payment.is_paid():
+                # Payment successful
+                doc.db_set("paid", 1)
+                if hasattr(doc, "payment_status"):
+                    doc.db_set("payment_status", "Completed")
+
+                # Create payment entry if method exists
+                if hasattr(doc, "create_payment_entry"):
+                    doc.create_payment_entry()
+
+                # Call custom payment completion hook if exists
+                if hasattr(doc, "on_payment_authorized"):
+                    doc.on_payment_authorized("Completed")
+
+                frappe.logger().info(f"Payment {payment_id} completed for {reference_docname}")
+                return {"status": "processed", "payment_status": "completed"}
+
+            elif payment.is_canceled() or payment.is_expired() or payment.is_failed():
+                # Payment failed/cancelled
+                if hasattr(doc, "payment_status"):
+                    doc.db_set("payment_status", "Cancelled")
+
+                frappe.logger().info(f"Payment {payment_id} failed/cancelled for {reference_docname}")
+                return {"status": "processed", "payment_status": "failed"}
+
+            else:
+                # Payment still pending
+                if hasattr(doc, "payment_status"):
+                    doc.db_set("payment_status", "Pending")
+
+                return {"status": "processed", "payment_status": "pending"}
+
+        except Exception as e:
+            frappe.log_error(f"Mollie webhook processing failed: {str(e)}", "Mollie Webhook Error")
+            return {"status": "error", "message": str(e)}
 
     def get_payment_status(self, payment_id):
-        """Get payment status from Mollie"""
-        # TODO: Implement Mollie API status check
-        return {"status": "pending", "message": "Mollie integration pending"}
+        """
+        Get current payment status from Mollie API
 
-    def _get_api_key(self):
-        """Get Mollie API key from settings"""
-        # TODO: Add to Verenigingen Settings
-        return frappe.db.get_single_value("Verenigingen Settings", "mollie_api_key")
+        Args:
+            payment_id (str): Mollie payment ID
 
-    def _get_webhook_url(self):
-        """Get webhook URL for Mollie"""
-        return f"{frappe.utils.get_url()}/api/method/verenigingen.utils.payment_gateways.mollie_webhook"
+        Returns:
+            dict: Payment status information
+        """
+        try:
+            payment = self.client.payments.get(payment_id)
+
+            if payment.is_paid():
+                return {
+                    "status": "Completed",
+                    "payment_url": None,
+                    "message": "Payment completed successfully",
+                }
+            elif payment.is_pending():
+                return {
+                    "status": "Pending",
+                    "payment_url": payment.checkout_url,
+                    "message": "Payment is being processed",
+                }
+            elif payment.is_open():
+                return {
+                    "status": "Open",
+                    "payment_url": payment.checkout_url,
+                    "message": "Payment is waiting for completion",
+                }
+            else:
+                return {
+                    "status": "Cancelled",
+                    "payment_url": None,
+                    "message": "Payment was cancelled or expired",
+                }
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error checking Mollie payment status {payment_id}: {str(e)}", "Mollie Status Check"
+            )
+            return {"status": "Error", "message": f"Could not check payment status: {str(e)}"}
+
+    def create_new_payment_for_cancelled(self, donation, form_data):
+        """
+        Create new payment if previous one was cancelled/expired
+
+        Args:
+            donation: Donation document
+            form_data (dict): Form data
+
+        Returns:
+            dict: New payment result
+        """
+        try:
+            # Clear old payment ID
+            donation.db_set("payment_id", "")
+            if hasattr(donation, "payment_status"):
+                donation.db_set("payment_status", "")
+
+            # Create new payment
+            return self.process_payment(donation, form_data)
+
+        except Exception as e:
+            frappe.log_error(f"Error creating new Mollie payment: {str(e)}", "Mollie Payment Recreation")
+            return {"status": "error", "message": _("Could not create new payment. Please try again.")}
+
+    def _get_mollie_settings(self):
+        """Get Mollie settings configuration"""
+        try:
+            from verenigingen.verenigingen.doctype.mollie_settings.mollie_settings import get_mollie_settings
+
+            return get_mollie_settings(self.gateway_name)
+        except Exception as e:
+            frappe.throw(_("Mollie gateway '{0}' not configured: {1}").format(self.gateway_name, str(e)))
+
+    def _get_mollie_client(self):
+        """Get configured Mollie API client"""
+        return self.settings.get_mollie_client()
+
+    def _get_redirect_url(self, donation):
+        """Get redirect URL after payment"""
+        return self.settings.get_redirect_url(donation.doctype, donation.name)
+
+    def _get_email_from_form_or_doc(self, donation, form_data):
+        """Extract email from form data or document"""
+        # Try form data first
+        email = form_data.get("donor_email") or form_data.get("email")
+
+        # Fall back to document fields
+        if not email:
+            for field in ["donor_email", "email", "contact_email"]:
+                if hasattr(donation, field):
+                    email = getattr(donation, field)
+                    if email:
+                        break
+
+        return email
+
+    def create_subscription(self, member, subscription_data):
+        """
+        Create Mollie subscription for recurring membership dues
+
+        Args:
+            member: Member document
+            subscription_data (dict): Subscription configuration
+
+        Returns:
+            dict: Subscription creation result
+        """
+        try:
+            if not self.settings.enable_subscriptions:
+                return {
+                    "status": "error",
+                    "message": _("Subscriptions are not enabled for this Mollie gateway"),
+                }
+
+            # Prepare customer data
+            customer_data = {
+                "name": f"{member.first_name} {member.last_name}".strip(),
+                "email": member.email,
+                "metadata": {
+                    "member_id": member.name,
+                    "member_number": getattr(member, "member_id", ""),
+                    "reference_doctype": "Member",
+                    "reference_docname": member.name,
+                },
+            }
+
+            # Prepare subscription data
+            interval_mapping = {
+                "1 month": "1 month",
+                "3 months": "3 months",
+                "6 months": "6 months",
+                "1 year": "1 year",
+            }
+
+            mollie_subscription_data = {
+                "amount": {
+                    "currency": subscription_data.get("currency", "EUR"),
+                    "value": f"{float(subscription_data['amount']):.2f}",
+                },
+                "interval": interval_mapping.get(subscription_data.get("interval", "1 month"), "1 month"),
+                "description": subscription_data.get(
+                    "description", f"Membership dues for {member.first_name} {member.last_name}"
+                ),
+                "webhookUrl": self.settings.get_subscription_webhook_url(),
+                "metadata": {
+                    "member_id": member.name,
+                    "subscription_type": "membership_dues",
+                    "reference_doctype": "Member",
+                    "reference_docname": member.name,
+                },
+            }
+
+            # Add start date if provided
+            if subscription_data.get("start_date"):
+                mollie_subscription_data["startDate"] = subscription_data["start_date"]
+
+            # Create subscription via Mollie Settings
+            result = self.settings.create_subscription(customer_data, mollie_subscription_data)
+
+            # Update member with subscription details
+            member.db_set("mollie_customer_id", result["customer_id"])
+            member.db_set("mollie_subscription_id", result["subscription_id"])
+            member.db_set("subscription_status", result["status"])
+            member.db_set("next_payment_date", result.get("next_payment_date"))
+
+            frappe.logger().info(
+                f"Created Mollie subscription {result['subscription_id']} for member {member.name}"
+            )
+
+            return {
+                "status": "success",
+                "customer_id": result["customer_id"],
+                "subscription_id": result["subscription_id"],
+                "subscription_status": result["status"],
+                "next_payment_date": result.get("next_payment_date"),
+                "message": _("Subscription created successfully"),
+            }
+
+        except Exception as e:
+            frappe.log_error(
+                f"Mollie subscription creation failed for {member.name}: {str(e)}",
+                "Mollie Subscription Error",
+            )
+            return {
+                "status": "error",
+                "message": _("Subscription creation failed. Please try again or contact support."),
+            }
+
+    def get_subscription_status(self, customer_id, subscription_id):
+        """
+        Get current subscription status from Mollie
+
+        Args:
+            customer_id (str): Mollie customer ID
+            subscription_id (str): Mollie subscription ID
+
+        Returns:
+            dict: Subscription status information
+        """
+        try:
+            subscription = self.settings.get_subscription(customer_id, subscription_id)
+
+            if subscription:
+                return {
+                    "status": "success",
+                    "subscription": subscription,
+                    "message": _("Subscription status retrieved successfully"),
+                }
+            else:
+                return {"status": "error", "message": _("Could not retrieve subscription status")}
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error getting Mollie subscription status: {str(e)}", "Mollie Subscription Status"
+            )
+            return {"status": "error", "message": f"Error retrieving subscription status: {str(e)}"}
+
+    def cancel_subscription(self, member):
+        """
+        Cancel Mollie subscription for member
+
+        Args:
+            member: Member document with subscription details
+
+        Returns:
+            dict: Cancellation result
+        """
+        try:
+            customer_id = getattr(member, "mollie_customer_id", None)
+            subscription_id = getattr(member, "mollie_subscription_id", None)
+
+            if not (customer_id and subscription_id):
+                return {"status": "error", "message": _("No active subscription found for this member")}
+
+            success = self.settings.cancel_subscription(customer_id, subscription_id)
+
+            if success:
+                # Update member subscription status
+                member.db_set("subscription_status", "cancelled")
+                member.db_set("subscription_cancelled_date", frappe.utils.today())
+
+                return {"status": "success", "message": _("Subscription cancelled successfully")}
+            else:
+                return {"status": "error", "message": _("Failed to cancel subscription")}
+
+        except Exception as e:
+            frappe.log_error(
+                f"Error cancelling Mollie subscription for {member.name}: {str(e)}",
+                "Mollie Subscription Cancel",
+            )
+            return {"status": "error", "message": f"Error cancelling subscription: {str(e)}"}
 
 
 class SEPAGateway(PaymentGateway):
@@ -260,11 +600,24 @@ class PaymentGatewayFactory:
     }
 
     @classmethod
-    def get_gateway(cls, payment_method):
-        """Get payment gateway instance for given method"""
+    def get_gateway(cls, payment_method, gateway_name="Default"):
+        """
+        Get payment gateway instance for given method
+
+        Args:
+            payment_method (str): Payment method name
+            gateway_name (str): Gateway configuration name (for Mollie)
+
+        Returns:
+            PaymentGateway: Configured gateway instance
+        """
         gateway_class = cls._gateways.get(payment_method)
         if gateway_class:
-            return gateway_class()
+            # For Mollie, pass the gateway_name parameter
+            if payment_method == "Mollie":
+                return gateway_class(gateway_name)
+            else:
+                return gateway_class()
         else:
             raise ValueError(f"Unsupported payment method: {payment_method}")
 
@@ -289,6 +642,73 @@ def mollie_webhook():
 
     except Exception as e:
         frappe.log_error(f"Mollie webhook error: {str(e)}", "Payment Gateway Webhook")
+        return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist(allow_guest=True)
+def mollie_subscription_webhook():
+    """Handle Mollie subscription webhook notifications"""
+    try:
+        payload = frappe.request.get_data(as_text=True)
+        data = frappe.parse_json(payload) if payload else {}
+
+        # Extract subscription information
+        subscription_id = data.get("id")
+        if not subscription_id:
+            return {"status": "ignored", "reason": "No subscription ID in payload"}
+
+        # Find member with this subscription
+        members = frappe.get_all(
+            "Member",
+            filters={"mollie_subscription_id": subscription_id},
+            fields=["name", "mollie_customer_id"],
+        )
+
+        if not members:
+            frappe.log_error(
+                f"No member found for subscription {subscription_id}", "Mollie Subscription Webhook"
+            )
+            return {"status": "ignored", "reason": "No member found for subscription"}
+
+        member_name = members[0]["name"]
+        customer_id = members[0]["mollie_customer_id"]
+
+        # Get subscription status from Mollie
+        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+        status_result = gateway.get_subscription_status(customer_id, subscription_id)
+
+        if status_result["status"] == "success":
+            subscription = status_result["subscription"]
+
+            # Update member subscription status
+            member = frappe.get_doc("Member", member_name)
+            member.db_set("subscription_status", subscription["status"])
+
+            if subscription.get("next_payment_date"):
+                member.db_set("next_payment_date", subscription["next_payment_date"])
+
+            if subscription["status"] == "canceled" and subscription.get("canceled_at"):
+                member.db_set("subscription_cancelled_date", subscription["canceled_at"])
+
+            frappe.logger().info(
+                f"Updated subscription status for member {member_name}: {subscription['status']}"
+            )
+
+            return {
+                "status": "processed",
+                "member": member_name,
+                "subscription_status": subscription["status"],
+            }
+
+        else:
+            frappe.log_error(
+                f"Failed to get subscription status: {status_result['message']}",
+                "Mollie Subscription Webhook",
+            )
+            return {"status": "error", "message": status_result["message"]}
+
+    except Exception as e:
+        frappe.log_error(f"Mollie subscription webhook error: {str(e)}", "Mollie Subscription Webhook")
         return {"status": "error", "message": str(e)}
 
 
@@ -325,6 +745,85 @@ def get_payment_status(donation_id):
 
     except Exception as e:
         frappe.log_error(f"Payment status check error: {str(e)}", "Payment Gateway Status")
+        return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def create_member_subscription(member_id, amount, interval="1 month", description=None):
+    """Create Mollie subscription for a member"""
+    if not frappe.has_permission("Member", "write"):
+        frappe.throw(_("Insufficient permissions"))
+
+    try:
+        member = frappe.get_doc("Member", member_id)
+
+        # Prepare subscription data
+        subscription_data = {
+            "amount": amount,
+            "interval": interval,
+            "currency": "EUR",
+            "description": description or f"Membership dues for {member.first_name} {member.last_name}",
+        }
+
+        # Create subscription
+        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+        result = gateway.create_subscription(member, subscription_data)
+
+        if result["status"] == "success":
+            # Update member payment method
+            member.db_set("payment_method", "Mollie")
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error creating subscription for member {member_id}: {str(e)}", "Member Subscription"
+        )
+        return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def cancel_member_subscription(member_id):
+    """Cancel Mollie subscription for a member"""
+    if not frappe.has_permission("Member", "write"):
+        frappe.throw(_("Insufficient permissions"))
+
+    try:
+        member = frappe.get_doc("Member", member_id)
+        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+        result = gateway.cancel_subscription(member)
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error cancelling subscription for member {member_id}: {str(e)}", "Member Subscription Cancel"
+        )
+        return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def get_member_subscription_status(member_id):
+    """Get subscription status for a member"""
+    try:
+        member = frappe.get_doc("Member", member_id)
+
+        customer_id = getattr(member, "mollie_customer_id", None)
+        subscription_id = getattr(member, "mollie_subscription_id", None)
+
+        if not (customer_id and subscription_id):
+            return {"status": "no_subscription", "message": "No active subscription found"}
+
+        gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+        result = gateway.get_subscription_status(customer_id, subscription_id)
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting subscription status for member {member_id}: {str(e)}",
+            "Member Subscription Status",
+        )
         return {"status": "error", "message": str(e)}
 
 

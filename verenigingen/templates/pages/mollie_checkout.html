@@ -1,0 +1,143 @@
+{% extends "templates/web.html" %}
+
+{% block title %} {{ page_title or _("Payment") }} {% endblock %}
+
+{%- block header -%}
+{% endblock %}
+
+{% block script %}
+<script>{% include "templates/includes/mollie_checkout.js" %}</script>
+{% endblock %}
+
+{% block style %}
+<style>{% include "templates/pages/mollie_checkout.css" %}</style>
+{% endblock %}
+
+{%- block page_content -%}
+
+<div class="mollie-checkout-container" style="min-height: 400px; padding-bottom: 50px; margin-top: 20px; margin-left: auto; margin-right: auto; max-width: 600px;">
+    <div class="checkout-content" style="padding: 20px; background: white; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+
+        <!-- Header Section -->
+        <div class="checkout-header" style="text-align: center; margin-bottom: 30px;">
+            {% if header_image %}
+                <img src="{{ header_image }}" alt="Logo" style="max-height: 60px; margin-bottom: 15px;">
+            {% endif %}
+
+            <h2 class="payment-title">{{ title or _("Complete Your Payment") }}</h2>
+
+            {% if test_mode %}
+                <div class="alert alert-warning" style="margin-top: 15px;">
+                    <i class="fa fa-exclamation-triangle"></i>
+                    {{ _("Test Mode Active - No real charges will be made") }}
+                </div>
+            {% endif %}
+        </div>
+
+        <!-- Payment Details Section -->
+        <div class="payment-details" style="background: #f8f9fa; padding: 20px; border-radius: 6px; margin-bottom: 25px;">
+            <div class="detail-row" style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <span class="label">{{ _("Description") }}:</span>
+                <span class="value">{{ description }}</span>
+            </div>
+
+            <div class="detail-row" style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <span class="label">{{ _("Amount") }}:</span>
+                <span class="value" style="font-weight: bold; color: #2e7d4e;">{{ amount_formatted }}</span>
+            </div>
+
+            {% if payer_email %}
+            <div class="detail-row" style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <span class="label">{{ _("Email") }}:</span>
+                <span class="value">{{ payer_email }}</span>
+            </div>
+            {% endif %}
+
+            {% if order_id %}
+            <div class="detail-row" style="display: flex; justify-content: space-between;">
+                <span class="label">{{ _("Reference") }}:</span>
+                <span class="value">{{ order_id }}</span>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Payment Form -->
+        <form id="payment-form" style="text-align: center;">
+
+            <!-- Status Display -->
+            <div class="form-group" style="margin-bottom: 20px;">
+                <label for="status" style="display: block; margin-bottom: 8px; font-weight: 500;">
+                    {{ _("Payment Status") }}
+                </label>
+                <input
+                    id="status"
+                    name="status"
+                    class="form-control"
+                    value="{{ _('Initializing...') }}"
+                    readonly
+                    style="text-align: center; border: 2px solid #dee2e6; border-radius: 4px; padding: 10px; background: #f8f9fa;"
+                />
+            </div>
+
+            <!-- Payment Button -->
+            <button
+                type="submit"
+                class="btn btn-primary btn-lg payment-button"
+                id="submit"
+                style="min-width: 200px; padding: 12px 30px; font-size: 16px; border-radius: 6px; margin-top: 10px;"
+            >
+                {{ _('Loading...') }}
+            </button>
+
+            <!-- Loading Indicator -->
+            <div id="loading-indicator" style="margin-top: 15px; display: none;">
+                <div class="spinner-border spinner-border-sm" role="status">
+                    <span class="sr-only">{{ _("Loading...") }}</span>
+                </div>
+                <span style="margin-left: 10px;">{{ _("Processing payment...") }}</span>
+            </div>
+
+            <!-- Error Message Display -->
+            <div id="error-message" class="alert alert-danger" style="margin-top: 15px; display: none;">
+                <i class="fa fa-exclamation-circle"></i>
+                <span id="error-text"></span>
+            </div>
+
+            <!-- Success Message Display -->
+            <div id="success-message" class="alert alert-success" style="margin-top: 15px; display: none;">
+                <i class="fa fa-check-circle"></i>
+                <span id="success-text"></span>
+            </div>
+
+        </form>
+
+        <!-- Security Notice -->
+        <div class="security-notice" style="margin-top: 30px; padding: 15px; background: #e8f4f8; border-radius: 4px; text-align: center; font-size: 14px; color: #0c5460;">
+            <i class="fa fa-shield-alt" style="margin-right: 5px;"></i>
+            {{ _("Your payment is secured by Mollie with bank-level encryption") }}
+        </div>
+
+        <!-- Help Text -->
+        <div class="help-text" style="margin-top: 20px; text-align: center; font-size: 13px; color: #6c757d;">
+            {{ _("You will be redirected to Mollie's secure payment page to complete your transaction.") }}
+            <br>
+            {{ _("After payment, you will be automatically returned to our website.") }}
+        </div>
+    </div>
+</div>
+
+<!-- Hidden form data for JavaScript -->
+<script type="application/json" id="payment-data">
+    {{ frappe.form_dict | tojson }}
+</script>
+
+<script type="application/json" id="page-config">
+    {
+        "reference_doctype": "{{ reference_doctype }}",
+        "reference_docname": "{{ reference_docname }}",
+        "gateway_name": "{{ gateway_name }}",
+        "test_mode": {{ test_mode | lower }}
+    }
+</script>
+
+{% endblock %}

@@ -45,6 +45,13 @@
   "payments_tab",
   "payment_method_section",
   "payment_method",
+  "mollie_subscription_section",
+  "mollie_customer_id",
+  "mollie_subscription_id",
+  "column_break_mollie",
+  "subscription_status",
+  "next_payment_date",
+  "subscription_cancelled_date",
   "bank_details_section",
   "iban",
   "bic",
@@ -202,7 +209,54 @@
    "fieldname": "payment_method",
    "fieldtype": "Select",
    "label": "Payment Method",
-   "options": "Bank Transfer\nSEPA Direct Debit\nCredit Card\nCash\nOther"
+   "options": "Bank Transfer\nSEPA Direct Debit\nMollie\nCredit Card\nCash\nOther"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.payment_method == 'Mollie'",
+   "fieldname": "mollie_subscription_section",
+   "fieldtype": "Section Break",
+   "label": "Mollie Subscription"
+  },
+  {
+   "depends_on": "eval:doc.payment_method == 'Mollie'",
+   "fieldname": "mollie_customer_id",
+   "fieldtype": "Data",
+   "label": "Mollie Customer ID",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.payment_method == 'Mollie'",
+   "fieldname": "mollie_subscription_id",
+   "fieldtype": "Data",
+   "label": "Mollie Subscription ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_mollie",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.payment_method == 'Mollie'",
+   "fieldname": "subscription_status",
+   "fieldtype": "Select",
+   "label": "Subscription Status",
+   "options": "active\npending\ncanceled\nsuspended\ncompleted",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.payment_method == 'Mollie'",
+   "fieldname": "next_payment_date",
+   "fieldtype": "Date",
+   "label": "Next Payment Date",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.payment_method == 'Mollie'",
+   "fieldname": "subscription_cancelled_date",
+   "fieldtype": "Date",
+   "label": "Subscription Cancelled Date",
+   "read_only": 1
   },
   {
    "collapsible": 1,

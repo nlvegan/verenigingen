@@ -34,6 +34,7 @@
   "section_break_vgxdm",
   "paid",
   "payment_id",
+  "payment_status",
   "bank_reference",
   "column_break_12",
   "status",
@@ -148,6 +149,14 @@
    "fieldname": "payment_id",
    "fieldtype": "Data",
    "label": "Payment ID"
+  },
+  {
+   "depends_on": "eval: doc.payment_method == 'Mollie' || doc.payment_method == 'SEPA Direct Debit'",
+   "fieldname": "payment_status",
+   "fieldtype": "Select",
+   "label": "Payment Status",
+   "options": "Open\nPending\nCompleted\nCancelled\nError",
+   "read_only": 1
   },
   {
    "fieldname": "bank_reference",
