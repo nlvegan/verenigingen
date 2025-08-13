@@ -1,7 +1,7 @@
 {
  "charts": [],
  "content": "[{\"id\": \"PaymentGatewaysHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Payment Gateways</b></span>\", \"col\": 12}}, {\"id\": \"PaymentGatewaysCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Gateways\", \"col\": 4}}, {\"id\": \"SEPAProcessingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"SEPA Processing\", \"col\": 4}}, {\"id\": \"PaymentPlansCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Plans\", \"col\": 4}}, {\"id\": \"Spacer1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"ProcessingHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Payment Processing</b></span>\", \"col\": 12}}, {\"id\": \"PaymentProcessingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Processing\", \"col\": 4}}, {\"id\": \"AuditingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"SEPA Auditing & Retry\", \"col\": 4}}, {\"id\": \"Spacer2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"ReportsHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports & Analytics</b></span>\", \"col\": 12}}, {\"id\": \"ReportsAnalyticsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Reports & Analytics\", \"col\": 8}}]",
- "creation": "2025-01-13 10:00:00.000000",
+ "creation": "2025-08-13 15:10:34.777825",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -11,8 +11,176 @@
  "indicator_color": "blue",
  "is_hidden": 0,
  "label": "Verenigingen Payments",
- "links": [],
- "modified": "2025-01-13 10:00:00.000000",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Payment Gateways",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Mollie Settings",
+   "link_count": 0,
+   "link_to": "Mollie Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "SEPA Processing",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "SEPA Mandate",
+   "link_count": 0,
+   "link_to": "SEPA Mandate",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Direct Debit Batch",
+   "link_count": 0,
+   "link_to": "Direct Debit Batch",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Payment Plans",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Payment Plan",
+   "link_count": 0,
+   "link_to": "Payment Plan",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Payment Processing",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Member Payment History",
+   "link_count": 0,
+   "link_to": "Member Payment History",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "SEPA Audit Log",
+   "link_count": 0,
+   "link_to": "SEPA Audit Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "SEPA Auditing & Retry",
+   "link_count": 2,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "SEPA Payment Retry",
+   "link_count": 0,
+   "link_to": "SEPA Payment Retry",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "SEPA Retry Batch",
+   "link_count": 0,
+   "link_to": "SEPA Retry Batch",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Reports & Analytics",
+   "link_count": 3,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Overdue Member Payments",
+   "link_count": 0,
+   "link_to": "Overdue Member Payments",
+   "link_type": "Report",
+   "onboard": 0,
+   "report_ref_doctype": "Sales Invoice",
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Members Without Dues Schedule",
+   "link_count": 0,
+   "link_to": "Members Without Dues Schedule",
+   "link_type": "Report",
+   "onboard": 0,
+   "report_ref_doctype": "Member",
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Membership Dues Coverage Analysis",
+   "link_count": 0,
+   "link_to": "Membership Dues Coverage Analysis",
+   "link_type": "Report",
+   "onboard": 0,
+   "report_ref_doctype": "Member",
+   "type": "Link"
+  }
+ ],
+ "modified": "2025-01-13 10:00:00",
  "modified_by": "Administrator",
  "module": "Verenigingen Payments",
  "name": "Verenigingen Payments",
