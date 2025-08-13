@@ -1,0 +1,13 @@
+{
+ "creation": "2025-08-13 21:31:00.033102",
+ "docstatus": 0,
+ "doctype": "Dashboard Chart Source",
+ "idx": 0,
+ "modified": "2025-08-13 21:31:00.033102",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "ages",
+ "owner": "Administrator",
+ "source_name": "ages",
+ "timeseries": 0
+}

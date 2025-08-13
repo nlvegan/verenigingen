@@ -1,0 +1,36 @@
+{
+ "add_total_row": 0,
+ "add_translate_data": 0,
+ "columns": [],
+ "creation": "2025-08-13 20:47:42.657624",
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "idx": 0,
+ "is_standard": "Yes",
+ "json": "{\"chart\": {\"data\": {\"x\": \"age_group\", \"y\": \"count\"}, \"type\": \"bar\"}}",
+ "letterhead": null,
+ "modified": "2025-08-13 21:40:14.868738",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Member Age Groups",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT \n  CASE \n    WHEN age IS NULL THEN 'Unknown'\n    WHEN age < 18 THEN 'Under 18'\n    WHEN age BETWEEN 18 AND 22 THEN '18-22'\n    WHEN age BETWEEN 23 AND 27 THEN '23-27'\n    WHEN age BETWEEN 28 AND 32 THEN '28-32'\n    WHEN age BETWEEN 33 AND 37 THEN '33-37'\n    WHEN age BETWEEN 38 AND 42 THEN '38-42'\n    WHEN age BETWEEN 43 AND 47 THEN '43-47'\n    WHEN age BETWEEN 48 AND 52 THEN '48-52'\n    WHEN age BETWEEN 53 AND 57 THEN '53-57'\n    WHEN age BETWEEN 58 AND 62 THEN '58-62'\n    WHEN age BETWEEN 63 AND 67 THEN '63-67'\n    WHEN age >= 68 THEN '68+'\n  END as age_group,\n  COUNT(*) as count\nFROM `tabMember` \nWHERE status IN ('Active', 'Pending')\nGROUP BY age_group\nORDER BY \n  CASE age_group\n    WHEN 'Under 18' THEN 1\n    WHEN '18-22' THEN 2\n    WHEN '23-27' THEN 3\n    WHEN '28-32' THEN 4\n    WHEN '33-37' THEN 5\n    WHEN '38-42' THEN 6\n    WHEN '43-47' THEN 7\n    WHEN '48-52' THEN 8\n    WHEN '53-57' THEN 9\n    WHEN '58-62' THEN 10\n    WHEN '63-67' THEN 11\n    WHEN '68+' THEN 12\n    ELSE 13\n  END",
+ "ref_doctype": "Member",
+ "report_name": "Member Age Groups",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "Verenigingen Manager"
+  },
+  {
+   "role": "Verenigingen Administrator"
+  },
+  {
+   "role": "System Manager"
+  }
+ ],
+ "timeout": 0
+}

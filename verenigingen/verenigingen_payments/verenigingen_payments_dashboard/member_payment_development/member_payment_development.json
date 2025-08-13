@@ -1,0 +1,21 @@
+{
+ "cards": [],
+ "charts": [
+  {
+   "chart": "SEPA Payment Status",
+   "width": "Half"
+  }
+ ],
+ "creation": "2025-08-13 18:52:43.565650",
+ "dashboard_name": "Member payment development",
+ "docstatus": 0,
+ "doctype": "Dashboard",
+ "idx": 0,
+ "is_default": 0,
+ "is_standard": 1,
+ "modified": "2025-08-13 18:52:43.565650",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "Member payment development",
+ "owner": "Administrator"
+}

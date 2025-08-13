@@ -649,7 +649,14 @@ def mollie_webhook():
 
 @frappe.whitelist(allow_guest=True)
 def mollie_subscription_webhook():
-    """Handle Mollie subscription webhook notifications"""
+    """
+    Handle Mollie subscription webhook notifications
+
+    Processes subscription payments by:
+    1. Finding the member with the subscription
+    2. Processing any new payments (creating Payment Entry for unpaid invoices)
+    3. Updating member subscription status
+    """
     try:
         payload = frappe.request.get_data(as_text=True)
         data = frappe.parse_json(payload) if payload else {}
@@ -659,11 +666,14 @@ def mollie_subscription_webhook():
         if not subscription_id:
             return {"status": "ignored", "reason": "No subscription ID in payload"}
 
+        # Check if this is a payment notification
+        payment_id = data.get("payment", {}).get("id") if data.get("payment") else None
+
         # Find member with this subscription
         members = frappe.get_all(
             "Member",
             filters={"mollie_subscription_id": subscription_id},
-            fields=["name", "mollie_customer_id"],
+            fields=["name", "mollie_customer_id", "customer"],
         )
 
         if not members:
@@ -674,9 +684,36 @@ def mollie_subscription_webhook():
 
         member_name = members[0]["name"]
         customer_id = members[0]["mollie_customer_id"]
+        member_customer = members[0]["customer"]
+
+        result = {
+            "status": "processed",
+            "member": member_name,
+            "subscription_id": subscription_id,
+            "actions": [],
+        }
 
         # Get subscription status from Mollie
         gateway = PaymentGatewayFactory.get_gateway("Mollie", "Default")
+
+        # Process payment if this webhook includes a payment
+        if payment_id:
+            try:
+                payment_result = _process_subscription_payment(
+                    gateway, member_name, member_customer, payment_id, subscription_id
+                )
+                result["payment_processed"] = payment_result
+                result["actions"].append("payment_processed")
+
+                frappe.logger().info(f"Processed subscription payment {payment_id} for member {member_name}")
+            except Exception as e:
+                frappe.log_error(
+                    f"Failed to process subscription payment {payment_id} for member {member_name}: {str(e)}",
+                    "Mollie Subscription Payment Processing",
+                )
+                result["payment_error"] = str(e)
+
+        # Update subscription status
         status_result = gateway.get_subscription_status(customer_id, subscription_id)
 
         if status_result["status"] == "success":
@@ -692,26 +729,161 @@ def mollie_subscription_webhook():
             if subscription["status"] == "canceled" and subscription.get("canceled_at"):
                 member.db_set("subscription_cancelled_date", subscription["canceled_at"])
 
+            result["subscription_status"] = subscription["status"]
+            result["actions"].append("status_updated")
+
             frappe.logger().info(
                 f"Updated subscription status for member {member_name}: {subscription['status']}"
             )
-
-            return {
-                "status": "processed",
-                "member": member_name,
-                "subscription_status": subscription["status"],
-            }
 
         else:
             frappe.log_error(
                 f"Failed to get subscription status: {status_result['message']}",
                 "Mollie Subscription Webhook",
             )
-            return {"status": "error", "message": status_result["message"]}
+            result["subscription_error"] = status_result["message"]
+
+        return result
 
     except Exception as e:
         frappe.log_error(f"Mollie subscription webhook error: {str(e)}", "Mollie Subscription Webhook")
         return {"status": "error", "message": str(e)}
+
+
+def _process_subscription_payment(gateway, member_name, member_customer, payment_id, subscription_id):
+    """
+    Process a subscription payment by creating Payment Entry for unpaid invoices
+
+    Args:
+        gateway: MollieGateway instance
+        member_name (str): Member document name
+        member_customer (str): Customer name linked to member
+        payment_id (str): Mollie payment ID
+        subscription_id (str): Mollie subscription ID
+
+    Returns:
+        dict: Payment processing result
+    """
+    try:
+        # Get payment details from Mollie
+        payment = gateway.client.payments.get(payment_id)
+
+        if not payment.is_paid():
+            return {
+                "status": "ignored",
+                "reason": f"Payment {payment_id} is not paid (status: {payment.status})",
+            }
+
+        # Find the most recent unpaid Sales Invoice for this member
+        unpaid_invoices = frappe.get_all(
+            "Sales Invoice",
+            filters={
+                "customer": member_customer,
+                "docstatus": 1,
+                "status": ["in", ["Unpaid", "Overdue", "Partly Paid"]],
+            },
+            fields=["name", "grand_total", "currency", "posting_date"],
+            order_by="posting_date desc",
+            limit=1,
+        )
+
+        if not unpaid_invoices:
+            frappe.logger().warning(
+                f"No unpaid invoices found for member {member_name} (customer: {member_customer}) "
+                f"when processing subscription payment {payment_id}"
+            )
+            return {"status": "no_invoice", "reason": "No unpaid invoices found for this member"}
+
+        invoice = unpaid_invoices[0]
+
+        # Verify payment amount matches invoice (with some tolerance for currency precision)
+        payment_amount = float(payment.amount["value"])
+        invoice_amount = float(invoice["grand_total"])
+
+        if abs(payment_amount - invoice_amount) > 0.01:  # 1 cent tolerance
+            frappe.logger().warning(
+                f"Payment amount mismatch: Mollie payment {payment_id} is {payment_amount} "
+                f"but invoice {invoice['name']} is {invoice_amount}"
+            )
+            # Continue anyway - partial payments are handled by ERPNext
+
+        # Create Payment Entry to mark invoice as paid
+        payment_entry = frappe.new_doc("Payment Entry")
+        payment_entry.payment_type = "Receive"
+        payment_entry.party_type = "Customer"
+        payment_entry.party = member_customer
+        payment_entry.posting_date = frappe.utils.today()
+        payment_entry.paid_amount = payment_amount
+        payment_entry.received_amount = payment_amount
+        payment_entry.reference_no = payment_id
+        payment_entry.reference_date = frappe.utils.today()
+        payment_entry.mode_of_payment = "Mollie"
+
+        # Set currency
+        payment_entry.paid_from_account_currency = invoice["currency"]
+        payment_entry.paid_to_account_currency = invoice["currency"]
+
+        # Get default accounts (this should be configured in Mollie Settings or Company)
+        company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
+            "Global Defaults", "default_company"
+        )
+
+        # Get appropriate accounts for Mollie payments
+        paid_to_account = frappe.db.get_value("Company", company, "default_cash_account")
+        if not paid_to_account:
+            # Fallback to first cash account
+            paid_to_account = frappe.db.get_value(
+                "Account", {"company": company, "account_type": "Cash", "is_group": 0}, "name"
+            )
+
+        if not paid_to_account:
+            frappe.throw(
+                f"No cash account found for company {company}. Please configure Mollie payment accounts."
+            )
+
+        payment_entry.paid_to = paid_to_account
+
+        # Link to the invoice
+        payment_entry.append(
+            "references",
+            {
+                "reference_doctype": "Sales Invoice",
+                "reference_name": invoice["name"],
+                "allocated_amount": min(payment_amount, invoice_amount),
+            },
+        )
+
+        # Add notes about subscription payment
+        payment_entry.remarks = (
+            f"Automatic payment via Mollie subscription {subscription_id}. Payment ID: {payment_id}"
+        )
+
+        # Set accounts - ERPNext will auto-populate based on party
+        payment_entry.set_missing_values()
+
+        # Submit the payment entry
+        payment_entry.insert()
+        payment_entry.submit()
+
+        frappe.logger().info(
+            f"Created Payment Entry {payment_entry.name} for Mollie subscription payment {payment_id} "
+            f"against invoice {invoice['name']} for member {member_name}"
+        )
+
+        return {
+            "status": "success",
+            "payment_entry": payment_entry.name,
+            "invoice": invoice["name"],
+            "amount": payment_amount,
+            "payment_id": payment_id,
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error processing subscription payment {payment_id} for member {member_name}: {str(e)}",
+            "Mollie Subscription Payment Processing",
+        )
+        raise e
 
 
 @frappe.whitelist()

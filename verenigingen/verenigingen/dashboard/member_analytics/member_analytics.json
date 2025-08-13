@@ -1,0 +1,39 @@
+{
+ "charts": [
+  {
+   "chart": "Member Count by Chapter",
+   "width": "Half"
+  },
+  {
+   "chart": "Member Joins Trends",
+   "width": "Half"
+  },
+  {
+   "chart": "Total Active Members Over Time",
+   "width": "Half"
+  },
+  {
+   "chart": "Member Status Distribution",
+   "width": "Half"
+  },
+  {
+   "chart": "Members with Outstanding Invoices",
+   "width": "Half"
+  },
+  {
+   "chart": "Member Pronoun Distribution",
+   "width": "Half"
+  }
+ ],
+ "creation": "2025-08-13 18:45:00.000000",
+ "dashboard_name": "Member Analytics",
+ "docstatus": 0,
+ "doctype": "Dashboard",
+ "idx": 0,
+ "is_default": 0,
+ "modified": "2025-08-13 18:45:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Member Analytics",
+ "owner": "Administrator"
+}

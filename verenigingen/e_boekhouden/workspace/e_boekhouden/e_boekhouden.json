@@ -1,7 +1,7 @@
 {
  "charts": [],
- "content": "[{\"id\": \"MigrationHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>E-Boekhouden Integration</b></span>\", \"col\": 12}}, {\"id\": \"MigrationCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Migration & Settings\", \"col\": 4}}, {\"id\": \"MappingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Mapping & Configuration\", \"col\": 4}}, {\"id\": \"MonitoringCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Monitoring & Logs\", \"col\": 4}}]",
- "creation": "2025-07-24 13:59:26.329047",
+ "content": "[{\"id\":\"MigrationHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>E-Boekhouden Integration</b></span>\",\"col\":12}},{\"id\":\"MigrationCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Migration & Settings\",\"col\":4}},{\"id\":\"MappingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Mapping & Configuration\",\"col\":4}},{\"id\":\"MonitoringCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Monitoring & Logs\",\"col\":4}}]",
+ "creation": "2025-08-14 00:05:26.561883",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -13,6 +13,16 @@
  "is_hidden": 0,
  "label": "E-Boekhouden",
  "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Account Mapping",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Account Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
   {
    "hidden": 0,
    "is_query_report": 0,
@@ -56,7 +66,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Mapping & Configuration",
-   "link_count": 8,
+   "link_count": 5,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -94,36 +104,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Account Mapping",
-   "link_count": 0,
-   "link_to": "E-Boekhouden Account Mapping",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Cost Center Mapping",
-   "link_count": 0,
-   "link_to": "E-Boekhouden Cost Center Mapping",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Party Enrichment Queue",
-   "link_count": 0,
-   "link_to": "Party Enrichment Queue",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Monitoring & Logs",
    "link_count": 1,
    "link_type": "DocType",
@@ -141,7 +121,7 @@
    "type": "Link"
   }
  ],
- "modified": "2025-07-24 21:48:11.815722",
+ "modified": "2025-08-14 00:17:31.967944",
  "modified_by": "Administrator",
  "module": "E-Boekhouden",
  "name": "E-Boekhouden",

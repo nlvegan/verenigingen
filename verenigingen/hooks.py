@@ -294,6 +294,7 @@ app_include_js = [
     # Removed termination_dashboard.js as it's a React component and causes import errors
     "/assets/verenigingen/js/member_portal_redirect.js",
     "/assets/verenigingen/js/utils/iban-validator.js",
+    "/assets/verenigingen/js/member_age_chart.js",
 ]
 
 # include js in doctype views
@@ -808,6 +809,29 @@ fixtures = [
     {
         "doctype": "Workspace",
         "filters": [["name", "in", ["E-Boekhouden", "Verenigingen"]]],
+    },
+    # Dashboards
+    {
+        "doctype": "Dashboard",
+        "filters": [["name", "in", ["Member Analytics"]]],
+    },
+    # Dashboard Charts
+    {
+        "doctype": "Dashboard Chart",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Member Count by Chapter",
+                    "Member Count Trends",
+                    "Member Applications & Exits",
+                    "Member Age Distribution",
+                    "Member Pronoun Distribution",
+                    "Members with Outstanding Invoices",
+                ],
+            ]
+        ],
     },
 ]
 

@@ -175,7 +175,7 @@
    "fieldname": "cost_center_mappings",
    "fieldtype": "Table",
    "label": "Cost Center Mappings",
-   "options": "EBoekhouden Cost Center Mapping",
+   "options": "E-Boekhouden Cost Center Mapping",
    "description": "Configure which account groups should become cost centers",
    "read_only": 1
   }

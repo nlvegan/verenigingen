@@ -127,16 +127,19 @@ class MollieSettings(Document):
                     error_msg += _(" Authentication failed.")
                 elif "profile" in str(e).lower():
                     error_msg += _(" Profile ID may be incorrect.")
+                elif "invalid api key" in str(e).lower():
+                    error_msg += _(" API key format is invalid. Ensure it starts with 'test_' or 'live_'.")
 
                 frappe.log_error(
                     f"Mollie credential validation failed: {str(e)}", "Mollie Settings Validation"
                 )
-                frappe.throw(error_msg)
+                frappe.throw(f"{error_msg} Error details: {str(e)}")
 
         except ImportError:
             frappe.throw(_("Mollie Python library not installed. Please run: pip install mollie-api-python"))
         except Exception as e:
-            frappe.log_error(f"Mollie validation error: {str(e)}", "Mollie Settings Validation")
+            # Simplified error logging to avoid length issues
+            frappe.log_error("Mollie validation error occurred", "Mollie Settings Validation")
             frappe.throw(_("Error validating Mollie credentials: {0}").format(str(e)))
 
     def validate_transaction_currency(self, currency):

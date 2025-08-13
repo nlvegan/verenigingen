@@ -1,7 +1,12 @@
 {
- "charts": [],
- "content": "[{\"id\": \"PaymentGatewaysHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Payment Gateways</b></span>\", \"col\": 12}}, {\"id\": \"PaymentGatewaysCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Gateways\", \"col\": 4}}, {\"id\": \"SEPAProcessingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"SEPA Processing\", \"col\": 4}}, {\"id\": \"PaymentPlansCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Plans\", \"col\": 4}}, {\"id\": \"Spacer1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"ProcessingHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Payment Processing</b></span>\", \"col\": 12}}, {\"id\": \"PaymentProcessingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Processing\", \"col\": 4}}, {\"id\": \"AuditingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"SEPA Auditing & Retry\", \"col\": 4}}, {\"id\": \"Spacer2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"ReportsHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports & Analytics</b></span>\", \"col\": 12}}, {\"id\": \"ReportsAnalyticsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Reports & Analytics\", \"col\": 8}}]",
- "creation": "2025-08-13 15:10:34.777825",
+ "charts": [
+  {
+   "chart_name": "SEPA Payment Status",
+   "label": "Payment Status Overview"
+  }
+ ],
+ "content": "[{\"id\": \"TestChart\", \"type\": \"chart\", \"data\": {\"chart_name\": \"SEPA Payment Status\", \"col\": 12}}, {\"id\": \"PaymentGatewaysHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Payment Gateways</b></span>\", \"col\": 12}}, {\"id\": \"PaymentGatewaysCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Gateways\", \"col\": 4}}, {\"id\": \"SEPAProcessingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"SEPA Processing\", \"col\": 4}}, {\"id\": \"PaymentPlansCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Plans\", \"col\": 4}}, {\"id\": \"Spacer1\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"ProcessingHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Payment Processing</b></span>\", \"col\": 12}}, {\"id\": \"PaymentProcessingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Processing\", \"col\": 4}}, {\"id\": \"AuditingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"SEPA Auditing & Retry\", \"col\": 4}}, {\"id\": \"Spacer2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"ReportsHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports & Analytics</b></span>\", \"col\": 12}}, {\"id\": \"PaymentStatusChart\", \"type\": \"chart\", \"data\": {\"chart_name\": \"SEPA Payment Status\", \"col\": 12}}, {\"id\": \"SEPAPaymentStatusChart\", \"type\": \"chart\", \"data\": {\"chart_name\": \"SEPA Payment Status\", \"col\": 12}}, {\"id\": \"ReportsAnalyticsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Reports & Analytics\", \"col\": 8}}]",
+ "creation": "2025-08-13 18:34:22.315066",
  "custom_blocks": [],
  "docstatus": 0,
  "doctype": "Workspace",
@@ -83,20 +88,10 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Payment Processing",
-   "link_count": 2,
+   "link_count": 1,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Member Payment History",
-   "link_count": 0,
-   "link_to": "Member Payment History",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
   },
   {
    "hidden": 0,
@@ -141,7 +136,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Reports & Analytics",
-   "link_count": 3,
+   "link_count": 4,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -180,7 +175,7 @@
    "type": "Link"
   }
  ],
- "modified": "2025-01-13 10:00:00",
+ "modified": "2025-08-13 18:36:23.402976",
  "modified_by": "Administrator",
  "module": "Verenigingen Payments",
  "name": "Verenigingen Payments",
@@ -221,6 +216,22 @@
    "label": "Completed Batches",
    "link_to": "Direct Debit Batch",
    "stats_filter": "{\"status\": \"Completed\"}",
+   "type": "DocType"
+  },
+  {
+   "color": "Cyan",
+   "doc_view": "List",
+   "label": "Active Mollie Subscriptions",
+   "link_to": "Member",
+   "stats_filter": "{\"payment_method\": \"Mollie\", \"subscription_status\": \"active\"}",
+   "type": "DocType"
+  },
+  {
+   "color": "Yellow",
+   "doc_view": "List",
+   "label": "Cancelled Mollie Subscriptions",
+   "link_to": "Member",
+   "stats_filter": "{\"payment_method\": \"Mollie\", \"subscription_status\": \"cancelled\"}",
    "type": "DocType"
   }
  ],

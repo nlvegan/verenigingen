@@ -1,0 +1,33 @@
+{
+ "add_total_row": 0,
+ "columns": [],
+ "creation": "2025-08-13 20:00:00.000000",
+ "disable_prepared_report": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "idx": 0,
+ "is_standard": "Yes",
+ "json": "{}",
+ "modified": "2025-08-13 20:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Member Pronoun Distribution",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "SELECT \n  CASE \n    WHEN pronouns IS NULL OR pronouns = '' OR TRIM(pronouns) = '' \n    THEN 'Unknown' \n    ELSE pronouns \n  END as pronouns,\n  COUNT(*) as count\nFROM `tabMember` \nWHERE status IN ('Active', 'Dues Outstanding')\nGROUP BY pronouns\nORDER BY count DESC",
+ "ref_doctype": "Member",
+ "report_name": "Member Pronoun Distribution",
+ "report_type": "Query Report",
+ "roles": [
+  {
+   "role": "Verenigingen Manager"
+  },
+  {
+   "role": "Verenigingen Administrator"
+  },
+  {
+   "role": "System Manager"
+  }
+ ]
+}
