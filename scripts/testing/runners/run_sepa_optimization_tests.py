@@ -129,7 +129,7 @@ def run_api_endpoint_tests():
     
     try:
         # Test configuration APIs
-        from verenigingen.utils.sepa_config_manager import (
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import (
             get_sepa_config, validate_sepa_configuration, get_sepa_config_cache_info
         )
         
@@ -145,7 +145,7 @@ def run_api_endpoint_tests():
         print("✅ Configuration APIs working")
         
         # Test mandate service APIs
-        from verenigingen.utils.sepa_mandate_service import (
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
             get_sepa_cache_stats, clear_sepa_mandate_cache
         )
         
@@ -158,7 +158,7 @@ def run_api_endpoint_tests():
         print("✅ Mandate service APIs working")
         
         # Test error handler APIs
-        from verenigingen.utils.sepa_error_handler import (
+        from verenigingen.verenigingen_payments.utils.sepa_error_handler import (
             get_sepa_error_handler_status, reset_sepa_circuit_breaker
         )
         

@@ -382,7 +382,7 @@ class TestSEPAMandateEdgeCases(VereningingenTestCase):
                 # Process bank response
                 try:
                     # This would be implemented in actual bank integration
-                    from verenigingen.utils.sepa_processing import process_bank_response
+                    from verenigingen.verenigingen_payments.utils.sepa_processing import process_bank_response
 
                     response_data = {
                         "mandate": mandate.name,

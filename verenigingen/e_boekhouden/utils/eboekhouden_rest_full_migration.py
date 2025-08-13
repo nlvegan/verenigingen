@@ -177,9 +177,8 @@ def should_skip_mutation(mutation, debug_info=None):
     # Allow all zero-amount invoices to be imported (they're valid in ERPNext)
     if mutation_type in [1, 2]:  # Sales Invoice or Purchase Invoice
         # Only skip automated system imports that are clearly not real invoices
+        # Note: WooCommerce invoices are legitimate customer transactions and should be imported
         system_patterns = [
-            "woocommerce automatic import",
-            "automatische import van woocommerce",
             "system notification",
             "status update",
         ]

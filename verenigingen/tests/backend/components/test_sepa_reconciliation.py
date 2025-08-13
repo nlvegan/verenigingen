@@ -3,7 +3,7 @@ import unittest
 import frappe
 from frappe.utils import today
 
-from verenigingen.utils.sepa_reconciliation import SEPAReconciliationManager
+from verenigingen.verenigingen_payments.utils.sepa_reconciliation import SEPAReconciliationManager
 
 
 class TestSEPAReconciliation(unittest.TestCase):

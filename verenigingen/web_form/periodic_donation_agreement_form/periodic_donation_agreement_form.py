@@ -194,7 +194,7 @@ def create_sepa_mandate_for_agreement(donor, iban, account_holder):
 
     # Derive BIC if possible
     if iban.startswith("NL"):
-        from verenigingen.utils.sepa_utils import derive_bic_from_iban
+        from verenigingen.verenigingen_payments.utils.sepa_utils import derive_bic_from_iban
 
         mandate.bic = derive_bic_from_iban(iban)
 

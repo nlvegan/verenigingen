@@ -2701,7 +2701,9 @@ def validate_mandate_creation(member, iban, mandate_id):
 def derive_bic_from_iban(iban):
     """Derive BIC code from IBAN"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch import get_bic_from_iban
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
+            get_bic_from_iban,
+        )
 
         bic = get_bic_from_iban(iban)
         return {"bic": bic} if bic else {"bic": None}

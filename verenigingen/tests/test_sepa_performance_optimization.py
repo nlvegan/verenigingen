@@ -4,7 +4,7 @@ Test SEPA performance optimizations - N+1 query elimination
 
 import frappe
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.api.sepa_batch_ui import load_unpaid_invoices, get_invoice_mandate_info, validate_invoice_mandate
+from verenigingen.verenigingen_payments.api.sepa_batch_ui import load_unpaid_invoices, get_invoice_mandate_info, validate_invoice_mandate
 
 
 class TestSEPAPerformanceOptimization(VereningingenTestCase):

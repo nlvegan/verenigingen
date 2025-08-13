@@ -11,7 +11,9 @@ def on_payment_submit(doc, method):
 
             if member:
                 # Send payment success notification
-                from verenigingen.utils.sepa_notifications import SEPAMandateNotificationManager
+                from verenigingen.verenigingen_payments.utils.sepa_notifications import (
+                    SEPAMandateNotificationManager,
+                )
 
                 notification_manager = SEPAMandateNotificationManager()
                 notification_manager.send_payment_success_notification(doc)

@@ -16,8 +16,8 @@ class TestSEPAOptimizations(VereningingenTestCase):
         super().setUp()
         # Clear any existing caches to ensure clean test state
         try:
-            from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
-            from verenigingen.utils.sepa_config_manager import get_sepa_config_manager
+            from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
+            from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
             
             mandate_service = get_sepa_mandate_service()
             mandate_service.clear_cache()
@@ -29,7 +29,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_mandate_service_batch_processing(self):
         """Test unified mandate service batch processing"""
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
         
         service = get_sepa_mandate_service()
         
@@ -47,7 +47,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_configuration_manager_integration(self):
         """Test centralized configuration manager"""
-        from verenigingen.utils.sepa_config_manager import get_sepa_config_manager
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
         
         manager = get_sepa_config_manager()
         
@@ -69,7 +69,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_error_handler_functionality(self):
         """Test error handler and circuit breaker"""
-        from verenigingen.utils.sepa_error_handler import get_sepa_error_handler
+        from verenigingen.verenigingen_payments.utils.sepa_error_handler import get_sepa_error_handler
         
         handler = get_sepa_error_handler()
         
@@ -97,7 +97,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_sepa_processor_optimization(self):
         """Test Enhanced SEPA Processor with optimizations"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         processor = SEPAProcessor()
         
@@ -135,7 +135,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_batch_sequence_type_determination(self):
         """Test batch sequence type processing"""
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
         
         service = get_sepa_mandate_service()
         
@@ -157,7 +157,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_configuration_api_endpoints(self):
         """Test configuration management API endpoints"""
-        from verenigingen.utils.sepa_config_manager import (
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import (
             get_sepa_config, validate_sepa_configuration, get_sepa_config_cache_info
         )
         
@@ -182,7 +182,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_mandate_service_api_endpoints(self):
         """Test mandate service API endpoints"""
-        from verenigingen.utils.sepa_mandate_service import (
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import (
             get_sepa_cache_stats, clear_sepa_mandate_cache
         )
         
@@ -198,7 +198,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_error_handler_api_endpoints(self):
         """Test error handler API endpoints"""
-        from verenigingen.utils.sepa_error_handler import (
+        from verenigingen.verenigingen_payments.utils.sepa_error_handler import (
             get_sepa_error_handler_status, reset_sepa_circuit_breaker
         )
         
@@ -215,7 +215,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     def test_performance_improvements(self):
         """Test performance improvements (basic timing test)"""
         import time
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
         
         service = get_sepa_mandate_service()
         
@@ -233,7 +233,7 @@ class TestSEPAOptimizations(VereningingenTestCase):
     
     def test_monthly_batch_creation_optimization(self):
         """Test optimized monthly batch creation"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch
         )
         

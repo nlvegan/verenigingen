@@ -17,9 +17,11 @@ class EnhancedWorkspaceValidator:
     """Validates workspaces in both database and fixtures file"""
 
     def __init__(self):
-        self.fixtures_path = (
-            "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/fixtures/workspace.json"
-        )
+        import frappe
+
+        self.app_path = frappe.get_app_path("verenigingen")
+        self.fixtures_path = os.path.join(self.app_path, "fixtures", "workspace.json")
+        self.modules_path = os.path.join(self.app_path, "modules.txt")
         self.errors = []
         self.warnings = []
         self.info = []
@@ -42,26 +44,81 @@ class EnhancedWorkspaceValidator:
 
         return self._generate_summary()
 
-    def _load_fixtures_workspaces(self) -> Dict:
-        """Load workspaces from fixtures file"""
-        workspaces = {}
+    def _discover_module_workspaces(self) -> List[str]:
+        """Discover all workspace files by scanning modules.txt and their workspace directories"""
+        workspace_paths = []
 
-        if not os.path.exists(self.fixtures_path):
-            self.errors.append("Fixtures file not found: " + self.fixtures_path)
-            return workspaces
+        # Read modules.txt to get list of modules
+        if not os.path.exists(self.modules_path):
+            self.warnings.append(f"modules.txt not found at {self.modules_path}")
+            return workspace_paths
 
         try:
-            with open(self.fixtures_path, "r") as f:
-                workspace_list = json.load(f)
+            with open(self.modules_path, "r") as f:
+                modules = [line.strip() for line in f.readlines() if line.strip()]
 
-            for ws in workspace_list:
-                workspaces[ws.get("name")] = ws
+            self.info.append(f"Found {len(modules)} modules in modules.txt: {', '.join(modules)}")
 
-            self.info.append(f"Loaded {len(workspaces)} workspaces from fixtures")
+            # For each module, look for workspace directories
+            for module in modules:
+                # Convert module name to directory name (e.g., "Verenigingen Payments" -> "verenigingen_payments")
+                module_dir = module.lower().replace(" ", "_").replace("-", "_")
+                module_path = os.path.join(self.app_path, module_dir)
+
+                if os.path.exists(module_path):
+                    workspace_dir = os.path.join(module_path, "workspace")
+                    if os.path.exists(workspace_dir):
+                        # Look for workspace subdirectories
+                        for item in os.listdir(workspace_dir):
+                            workspace_subdir = os.path.join(workspace_dir, item)
+                            if os.path.isdir(workspace_subdir):
+                                # Look for JSON file with same name as directory
+                                json_file = os.path.join(workspace_subdir, f"{item}.json")
+                                if os.path.exists(json_file):
+                                    workspace_paths.append(json_file)
+                                    self.info.append(f"Found workspace: {json_file}")
 
         except Exception as e:
-            self.errors.append(f"Error loading fixtures: {str(e)}")
+            self.errors.append(f"Error discovering module workspaces: {str(e)}")
 
+        return workspace_paths
+
+    def _load_fixtures_workspaces(self) -> Dict:
+        """Load workspaces from fixtures file and dynamically discovered module workspaces"""
+        workspaces = {}
+
+        # Load from main fixtures file
+        if not os.path.exists(self.fixtures_path):
+            self.errors.append("Fixtures file not found: " + self.fixtures_path)
+        else:
+            try:
+                with open(self.fixtures_path, "r") as f:
+                    workspace_list = json.load(f)
+
+                for ws in workspace_list:
+                    workspaces[ws.get("name")] = ws
+
+                self.info.append(f"Loaded {len(workspace_list)} workspaces from main fixtures file")
+            except Exception as e:
+                self.errors.append(f"Error loading fixtures workspace: {str(e)}")
+
+        # Dynamically discover and load module workspaces
+        module_workspace_paths = self._discover_module_workspaces()
+
+        for workspace_path in module_workspace_paths:
+            try:
+                with open(workspace_path, "r") as f:
+                    workspace_data = json.load(f)
+                    workspace_name = workspace_data.get("name")
+                    if workspace_name:
+                        workspaces[workspace_name] = workspace_data
+                        self.info.append(f"Loaded module workspace: {workspace_name}")
+                    else:
+                        self.warnings.append(f"Workspace at {workspace_path} has no name field")
+            except Exception as e:
+                self.errors.append(f"Error loading workspace from {workspace_path}: {str(e)}")
+
+        self.info.append(f"Loaded {len(workspaces)} workspaces total")
         return workspaces
 
     def _get_database_workspaces(self) -> Dict:

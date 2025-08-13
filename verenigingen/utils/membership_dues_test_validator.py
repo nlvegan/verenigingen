@@ -214,7 +214,7 @@ def run_quick_membership_dues_tests():
     try:
         # Test 3: Enhanced SEPA processor
         results.append("\nTesting enhanced SEPA processor...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
         processor = SEPAProcessor()
         results.append("  ✅ Enhanced SEPA processor initialized")

@@ -73,7 +73,7 @@
             <p>This is an automated message from {{ company_name }}.<br>
             Please do not reply to this email. For support, visit your member portal.<br>
             © {{ current_year }} {{ company_name }}. All rights reserved.<br>
-            <a href="{{ unsubscribe_link }}" style="color: #6c757d;">Manage email preferences</a></p>
+            <a href="{{ unsubscribe_link|default('#') }}" style="color: #6c757d;">Manage email preferences</a></p>
         </div>
     </div>
 </body>

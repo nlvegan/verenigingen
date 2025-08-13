@@ -1,0 +1,232 @@
+{
+ "app": "verenigingen",
+ "autoname": "format:BATCH-{YY}-{MM}-{####}",
+ "creation": "2023-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "batch_details_section",
+  "batch_date",
+  "batch_description",
+  "batch_type",
+  "column_break_5",
+  "total_amount",
+  "currency",
+  "entry_count",
+  "status",
+  "validation_section",
+  "validation_status",
+  "validation_errors",
+  "validation_warnings",
+  "invoices_section",
+  "invoices",
+  "sepa_file_section",
+  "generate_sepa_file",
+  "sepa_file_generated",
+  "sepa_file",
+  "column_break_15",
+  "sepa_message_id",
+  "sepa_payment_info_id",
+  "sepa_generation_date",
+  "section_break_19",
+  "batch_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "batch_details_section",
+   "fieldtype": "Section Break",
+   "label": "Batch Details"
+  },
+  {
+   "default": "Today",
+   "fieldname": "batch_date",
+   "fieldtype": "Date",
+   "label": "Batch Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "batch_description",
+   "fieldtype": "Data",
+   "label": "Batch Description",
+   "reqd": 1
+  },
+  {
+   "default": "CORE",
+   "fieldname": "batch_type",
+   "fieldtype": "Select",
+   "label": "Batch Type",
+   "options": "CORE\nB2B\nFRST\nRCUR",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "EUR",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "entry_count",
+   "fieldtype": "Int",
+   "label": "Entry Count",
+   "read_only": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Draft\nGenerated\nSubmitted\nProcessed\nFailed",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "validation_section",
+   "fieldtype": "Section Break",
+   "label": "Sequence Type Validation"
+  },
+  {
+   "fieldname": "validation_status",
+   "fieldtype": "Select",
+   "label": "Validation Status",
+   "options": "Passed\nWarnings\nCritical Errors\nValidation Failed",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "fieldname": "validation_errors",
+   "fieldtype": "Long Text",
+   "label": "Critical Errors",
+   "read_only": 1,
+   "depends_on": "eval:doc.validation_status == 'Critical Errors' || doc.validation_status == 'Validation Failed'"
+  },
+  {
+   "fieldname": "validation_warnings",
+   "fieldtype": "Long Text",
+   "label": "Warnings",
+   "read_only": 1,
+   "depends_on": "eval:doc.validation_status == 'Warnings' || doc.validation_errors"
+  },
+  {
+   "fieldname": "invoices_section",
+   "fieldtype": "Section Break",
+   "label": "Invoices"
+  },
+  {
+   "fieldname": "invoices",
+   "fieldtype": "Table",
+   "label": "Invoices",
+   "options": "Direct Debit Batch Invoice"
+  },
+  {
+   "fieldname": "sepa_file_section",
+   "fieldtype": "Section Break",
+   "label": "SEPA File"
+  },
+  {
+   "fieldname": "generate_sepa_file",
+   "fieldtype": "Button",
+   "label": "Generate SEPA File"
+  },
+  {
+   "default": "0",
+   "fieldname": "sepa_file_generated",
+   "fieldtype": "Check",
+   "label": "SEPA File Generated",
+   "read_only": 1,
+   "allow_on_submit": 1
+  },
+  {
+   "depends_on": "eval:doc.sepa_file_generated==1",
+   "fieldname": "sepa_file",
+   "fieldtype": "Attach",
+   "label": "SEPA File"
+  },
+  {
+   "fieldname": "column_break_15",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "sepa_message_id",
+   "fieldtype": "Data",
+   "label": "SEPA Message ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sepa_payment_info_id",
+   "fieldtype": "Data",
+   "label": "SEPA Payment Info ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sepa_generation_date",
+   "fieldtype": "Datetime",
+   "label": "SEPA Generation Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_19",
+   "fieldtype": "Section Break",
+   "label": "Batch Log"
+  },
+  {
+   "fieldname": "batch_log",
+   "fieldtype": "Long Text",
+   "label": "Batch Log",
+   "read_only": 1
+  }
+ ],
+ "is_submittable": 1,
+ "modified": "2023-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "Direct Debit Batch",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

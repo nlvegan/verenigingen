@@ -20,7 +20,7 @@ def test_sepa_processor():
     try:
         # Test 1: Import the processor
         print("\n1. Testing processor import...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         processor = SEPAProcessor()
         print("✅ Enhanced SEPA Processor imported successfully")
         
@@ -39,14 +39,14 @@ def test_sepa_processor():
         
         # Test 4: Test batch preview
         print("\n4. Testing SEPA batch preview...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import get_sepa_batch_preview
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import get_sepa_batch_preview
         preview_result = get_sepa_batch_preview()
         print(f"✅ Batch preview completed: {preview_result['unpaid_invoices_found']} invoices, "
               f"€{preview_result.get('total_amount', 0):.2f} total")
         
         # Test 5: Test monthly scheduler function
         print("\n5. Testing monthly scheduler function...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import create_monthly_dues_collection_batch
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import create_monthly_dues_collection_batch
         from frappe.utils import getdate
         
         current_date = getdate(today())
@@ -104,7 +104,7 @@ def test_scheduler_integration():
         
         # Test Enhanced SEPA processor integration
         print("\n2. Testing Enhanced SEPA processor integration...")
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import create_monthly_dues_collection_batch
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import create_monthly_dues_collection_batch
         print("✅ Monthly SEPA processor function available")
         
         print("\n3. Integration status:")

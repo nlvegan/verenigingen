@@ -35,7 +35,7 @@ def test_dutch_payroll_timing():
 def test_sepa_processor_import():
     """Test Enhanced SEPA Processor can be imported"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
         processor = SEPAProcessor()
         print("✅ Enhanced SEPA Processor imported and initialized successfully")
@@ -48,7 +48,7 @@ def test_sepa_processor_import():
 def test_api_endpoints():
     """Test Option A+C API endpoints"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch,
             get_sepa_batch_preview,
             verify_invoice_coverage_status,
@@ -98,7 +98,9 @@ def test_custom_fields():
 def test_sequence_type_validation():
     """Test sequence type validation integration"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch import DirectDebitBatch
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
+            DirectDebitBatch,
+        )
 
         # Check if validate_sequence_types method exists
         has_validation = hasattr(DirectDebitBatch, "validate_sequence_types")
@@ -118,7 +120,7 @@ def test_sequence_type_validation():
 def test_invoice_coverage_verification():
     """Test invoice coverage verification"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
         processor = SEPAProcessor()
         result = processor.verify_invoice_coverage(today())
@@ -137,7 +139,7 @@ def test_invoice_coverage_verification():
 def test_rolling_period_validation():
     """Test rolling period validation logic"""
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
         processor = SEPAProcessor()
 

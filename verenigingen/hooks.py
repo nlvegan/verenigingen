@@ -472,7 +472,7 @@ scheduler_events = {
         # SEPA mandate synchronization
         "verenigingen.verenigingen.doctype.member.mixins.sepa_mixin.check_sepa_mandate_discrepancies",
         # SEPA mandate child table sync (catches cases where hooks didn't trigger)
-        "verenigingen.api.sepa_mandate_management.periodic_sepa_mandate_child_table_sync",
+        "verenigingen.verenigingen_payments.api.sepa_mandate_management.periodic_sepa_mandate_child_table_sync",
         # Contact request automation
         "verenigingen.verenigingen.doctype.member_contact_request.contact_request_automation.process_contact_request_automation",
         # E-Boekhouden dashboard updates
@@ -482,21 +482,21 @@ scheduler_events = {
         # SEPA payment retry processing
         "verenigingen.utils.payment_retry.execute_payment_retry",
         # Bank transaction reconciliation
-        "verenigingen.utils.sepa_reconciliation.reconcile_bank_transactions",
+        "verenigingen.verenigingen_payments.utils.sepa_reconciliation.reconcile_bank_transactions",
         # SEPA mandate expiry notifications
-        "verenigingen.utils.sepa_notifications.check_and_send_expiry_notifications",
+        "verenigingen.verenigingen_payments.utils.sepa_notifications.check_and_send_expiry_notifications",
         # Native expense approver sync
         "verenigingen.utils.native_expense_helpers.refresh_all_expense_approvers",
         # Expense history batch processing
         "verenigingen.utils.expense_history_batch_processor.process_pending_expense_history_updates",
         # SEPA Direct Debit batch optimization
-        "verenigingen.api.dd_batch_scheduler.daily_batch_optimization",
+        "verenigingen.verenigingen_payments.api.dd_batch_scheduler.daily_batch_optimization",
         # Create daily analytics snapshots
         "verenigingen.verenigingen.doctype.membership_analytics_snapshot.membership_analytics_snapshot.create_scheduled_snapshots",
         # Membership dues collection processing
-        "verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch",
+        "verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor.create_monthly_dues_collection_batch",
         # Payment plan processing
-        "verenigingen.verenigingen.doctype.payment_plan.payment_plan.process_overdue_installments",
+        "verenigingen.verenigingen_payments.doctype.payment_plan.payment_plan.process_overdue_installments",
         # Security audit log cleanup
         "verenigingen.utils.security.audit_logging.cleanup_old_audit_logs",
         # Monitoring and alerting system

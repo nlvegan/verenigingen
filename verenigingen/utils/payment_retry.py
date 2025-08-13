@@ -64,7 +64,7 @@ class PaymentRetryManager:
         self.create_retry_job(retry_record)
 
         # Send notification about scheduled retry
-        from verenigingen.utils.sepa_notifications import SEPAMandateNotificationManager
+        from verenigingen.verenigingen_payments.utils.sepa_notifications import SEPAMandateNotificationManager
 
         notification_manager = SEPAMandateNotificationManager()
         notification_manager.send_payment_retry_notification(retry_record)

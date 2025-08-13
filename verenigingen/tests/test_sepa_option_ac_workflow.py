@@ -19,7 +19,7 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
         
     def test_01_processor_initialization(self):
         """Test Enhanced SEPA Processor can be initialized"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         self.processor = SEPAProcessor()
         self.assertIsNotNone(self.processor, "Enhanced SEPA Processor should initialize successfully")
@@ -139,7 +139,7 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
     def test_06_api_endpoints_option_ac(self):
         """Test Option A+C specific API endpoints"""
         # Test imports
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch,
             verify_invoice_coverage_status,
             get_sepa_batch_preview
@@ -170,7 +170,7 @@ class TestSEPAOptionACWorkflow(VereningingenTestCase):
     def test_07_sequence_type_validation_integration(self):
         """Test sequence type validation integration with Direct Debit Batch"""
         # Test that the Direct Debit Batch validation system is accessible
-        from verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch import DirectDebitBatch
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import DirectDebitBatch
         
         # Check if validate_sequence_types method exists
         self.assertTrue(hasattr(DirectDebitBatch, 'validate_sequence_types'),

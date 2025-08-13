@@ -23,15 +23,15 @@ import frappe
 from frappe.utils import get_datetime, now_datetime
 
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.utils.sepa_monitoring_dashboard import (
+from verenigingen.verenigingen_payments.utils.sepa_monitoring_dashboard import (
     SEPAMonitoringDashboard, get_dashboard_instance
 )
-from verenigingen.utils.sepa_alerting_system import (
+from verenigingen.verenigingen_payments.utils.sepa_alerting_system import (
     SEPAAlertingSystem, AlertSeverity, AlertStatus, get_alerting_system
 )
-from verenigingen.utils.sepa_admin_reporting import SEPAAdminReportGenerator
-from verenigingen.utils.sepa_zabbix_enhanced import SEPAZabbixIntegration
-from verenigingen.utils.sepa_memory_optimizer import SEPAMemoryMonitor
+from verenigingen.verenigingen_payments.utils.sepa_admin_reporting import SEPAAdminReportGenerator
+from verenigingen.verenigingen_payments.utils.sepa_zabbix_enhanced import SEPAZabbixIntegration
+from verenigingen.verenigingen_payments.utils.sepa_memory_optimizer import SEPAMemoryMonitor
 
 
 class TestSEPAMonitoringDashboard(VereningingenTestCase):

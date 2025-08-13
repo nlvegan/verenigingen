@@ -28,28 +28,28 @@ import frappe
 from frappe.utils import today, now, add_days, getdate
 
 # Import the modules we're testing
-from verenigingen.utils.sepa_race_condition_manager import (
+from verenigingen.verenigingen_payments.utils.sepa_race_condition_manager import (
     SEPADistributedLock, SEPABatchRaceConditionManager
 )
-from verenigingen.utils.sepa_conflict_detector import (
+from verenigingen.verenigingen_payments.utils.sepa_conflict_detector import (
     SEPAConflictDetector, ConflictSeverity
 )
-from verenigingen.utils.sepa_retry_manager import (
+from verenigingen.verenigingen_payments.utils.sepa_retry_manager import (
     SEPARetryManager, RetryConfig, RetryStrategy, with_retry
 )
-from verenigingen.utils.sepa_xml_enhanced_generator import (
+from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
     EnhancedSEPAXMLGenerator, SEPASequenceType, SEPALocalInstrument
 )
-from verenigingen.utils.sepa_rulebook_validator import (
+from verenigingen.verenigingen_payments.utils.sepa_rulebook_validator import (
     SEPARulebookValidator
 )
-from verenigingen.utils.sepa_mandate_lifecycle_manager import (
+from verenigingen.verenigingen_payments.utils.sepa_mandate_lifecycle_manager import (
     SEPAMandateLifecycleManager, MandateUsageType
 )
-from verenigingen.utils.sepa_rollback_manager import (
+from verenigingen.verenigingen_payments.utils.sepa_rollback_manager import (
     SEPARollbackManager, RollbackReason, RollbackScope
 )
-from verenigingen.utils.sepa_notification_manager import (
+from verenigingen.verenigingen_payments.utils.sepa_notification_manager import (
     SEPANotificationManager, NotificationType, NotificationPriority
 )
 
@@ -314,7 +314,7 @@ class TestSEPAWeek3Features(unittest.TestCase):
         generator = EnhancedSEPAXMLGenerator()
         
         # Create test data structures
-        from verenigingen.utils.sepa_xml_enhanced_generator import (
+        from verenigingen.verenigingen_payments.utils.sepa_xml_enhanced_generator import (
             SEPACreditor, SEPADebtor, SEPAMandate, SEPATransaction, SEPAPaymentInfo
         )
         

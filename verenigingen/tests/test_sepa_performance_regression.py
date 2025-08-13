@@ -43,7 +43,7 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
     
     def test_mandate_service_performance(self):
         """Test mandate service performance benchmarks"""
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
         
         service = get_sepa_mandate_service()
         
@@ -70,7 +70,7 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
     
     def test_configuration_manager_performance(self):
         """Test configuration manager performance"""
-        from verenigingen.utils.sepa_config_manager import get_sepa_config_manager
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
         
         manager = get_sepa_config_manager()
         
@@ -93,7 +93,7 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
     
     def test_sepa_processor_performance(self):
         """Test Enhanced SEPA Processor performance"""
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
         
         processor = SEPAProcessor()
         
@@ -118,7 +118,7 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
     
     def test_sequence_type_batch_performance(self):
         """Test batch sequence type determination performance"""
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
         
         service = get_sepa_mandate_service()
         
@@ -188,7 +188,7 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
     
     def test_error_handler_performance(self):
         """Test error handler performance doesn't add significant overhead"""
-        from verenigingen.utils.sepa_error_handler import get_sepa_error_handler
+        from verenigingen.verenigingen_payments.utils.sepa_error_handler import get_sepa_error_handler
         
         handler = get_sepa_error_handler()
         
@@ -222,7 +222,7 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         """Test API endpoint performance"""
         
         # Test configuration APIs
-        from verenigingen.utils.sepa_config_manager import get_sepa_config
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config
         
         start_time = time.time()
         config = get_sepa_config()
@@ -232,7 +232,7 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         self.assertLess(api_time, 0.2, "Configuration API should be fast")
         
         # Test mandate service APIs
-        from verenigingen.utils.sepa_mandate_service import get_sepa_cache_stats
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_cache_stats
         
         start_time = time.time()
         cache_stats = get_sepa_cache_stats()
@@ -250,8 +250,8 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
         
         # Perform multiple operations to test for memory leaks
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
-        from verenigingen.utils.sepa_config_manager import get_sepa_config_manager
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
         
         service = get_sepa_mandate_service()
         manager = get_sepa_config_manager()
@@ -283,7 +283,7 @@ class TestSEPAPerformanceRegression(VereningingenTestCase):
         import threading
         import time
         
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
         
         service = get_sepa_mandate_service()
         results = []

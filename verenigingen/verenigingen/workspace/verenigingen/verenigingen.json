@@ -420,36 +420,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "SEPA Mandate",
-   "link_count": 0,
-   "link_to": "SEPA Mandate",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Direct Debit Batch",
-   "link_count": 0,
-   "link_to": "Direct Debit Batch",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "SEPA Payment Retry",
-   "link_count": 0,
-   "link_to": "SEPA Payment Retry",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Banking",
    "link_count": 0,
    "link_type": "DocType",
@@ -631,16 +601,6 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "Overdue Member Payments",
-   "link_count": 0,
-   "link_to": "Overdue Member Payments",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
   },
   {
    "hidden": 0,

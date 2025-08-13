@@ -14,7 +14,7 @@ import frappe
 from frappe.utils import today, add_days
 from decimal import Decimal
 from verenigingen.tests.utils.base import VereningingenTestCase
-from verenigingen.utils.sepa_input_validation import SEPAInputValidator
+from verenigingen.verenigingen_payments.utils.sepa_input_validation import SEPAInputValidator
 
 
 class TestSEPAInputValidation(VereningingenTestCase):

@@ -22,9 +22,9 @@ from verenigingen.utils.security.api_security_framework import OperationType, hi
 
 # Import existing monitoring systems
 from verenigingen.utils.security.security_monitoring import get_security_monitor, get_security_tester
-from verenigingen.utils.sepa_alerting_system import get_alerting_system
-from verenigingen.utils.sepa_monitoring_dashboard import get_dashboard_instance
-from verenigingen.utils.sepa_zabbix_enhanced import get_zabbix_integration_instance
+from verenigingen.verenigingen_payments.utils.sepa_alerting_system import get_alerting_system
+from verenigingen.verenigingen_payments.utils.sepa_monitoring_dashboard import get_dashboard_instance
+from verenigingen.verenigingen_payments.utils.sepa_zabbix_enhanced import get_zabbix_integration_instance
 from verenigingen.www.monitoring_dashboard import get_unified_security_summary
 
 

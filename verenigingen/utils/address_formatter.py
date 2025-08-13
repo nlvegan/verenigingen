@@ -3,6 +3,7 @@ Address formatting utilities for different countries
 """
 
 import frappe
+import html
 
 from verenigingen.utils.api_response import APIResponse, api_response_handler
 from verenigingen.utils.error_handling import cache_with_ttl
@@ -35,35 +36,35 @@ def format_dutch_address(address_doc):
 
     # Line 1: Street + house number (address_line1)
     if address_doc.address_line1:
-        lines.append(address_doc.address_line1.strip())
+        lines.append(html.escape(address_doc.address_line1.strip()))
 
     # Line 2: Additional address info (address_line2) if present
     if address_doc.address_line2 and address_doc.address_line2.strip():
-        lines.append(address_doc.address_line2.strip())
+        lines.append(html.escape(address_doc.address_line2.strip()))
 
     # Line 3: Postal code + City (Dutch standard format)
     postal_city_line = []
 
     # Add postal code first (Dutch convention)
     if address_doc.pincode:
-        postal_city_line.append(address_doc.pincode.strip())
+        postal_city_line.append(html.escape(address_doc.pincode.strip()))
 
     # Then add city
     if address_doc.city:
-        postal_city_line.append(address_doc.city.strip())
+        postal_city_line.append(html.escape(address_doc.city.strip()))
 
     if postal_city_line:
         lines.append(" ".join(postal_city_line))
 
     # State (province) if present - not common in NL but include if specified
     if address_doc.state and address_doc.state.strip():
-        lines.append(address_doc.state.strip())
+        lines.append(html.escape(address_doc.state.strip()))
 
     # Country - only show if not Netherlands or if specifically requested
     NETHERLANDS_IDENTIFIERS = {"netherlands", "nederland", "nl"}
     country = (address_doc.country or "").strip().lower()
     if country and country not in NETHERLANDS_IDENTIFIERS:
-        lines.append(address_doc.country)
+        lines.append(html.escape(address_doc.country))
 
     return "<br>".join(lines)
 
@@ -81,29 +82,29 @@ def format_international_address(address_doc):
 
     # Street address
     if address_doc.address_line1:
-        lines.append(address_doc.address_line1.strip())
+        lines.append(html.escape(address_doc.address_line1.strip()))
 
     # Additional address info
     if address_doc.address_line2 and address_doc.address_line2.strip():
-        lines.append(address_doc.address_line2.strip())
+        lines.append(html.escape(address_doc.address_line2.strip()))
 
     # City and state line
     city_state_parts = []
     if address_doc.city:
-        city_state_parts.append(address_doc.city.strip())
+        city_state_parts.append(html.escape(address_doc.city.strip()))
     if address_doc.state:
-        city_state_parts.append(address_doc.state.strip())
+        city_state_parts.append(html.escape(address_doc.state.strip()))
 
     if city_state_parts:
         lines.append(", ".join(city_state_parts))
 
     # Postal code
     if address_doc.pincode:
-        lines.append(address_doc.pincode.strip())
+        lines.append(html.escape(address_doc.pincode.strip()))
 
     # Country
     if address_doc.country:
-        lines.append(address_doc.country.strip())
+        lines.append(html.escape(address_doc.country.strip()))
 
     return "<br>".join(lines)
 

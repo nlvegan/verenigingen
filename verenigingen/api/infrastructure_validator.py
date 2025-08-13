@@ -197,7 +197,7 @@ def validate_alert_manager():
             pass
 
         try:
-            from verenigingen.utils.sepa_alerting_system import get_alerting_system
+            from verenigingen.verenigingen_payments.utils.sepa_alerting_system import get_alerting_system
 
             has_alerting_system = True
         except ImportError:

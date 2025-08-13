@@ -3,6 +3,7 @@ Portal menu enhancer to add submenu items
 """
 
 import frappe
+import html
 
 
 @frappe.whitelist()
@@ -256,8 +257,8 @@ def generate_portal_menu_html():
                 f"""
                 <div class="portal-menu-item">
                     <div class="main-menu-item">
-                        <a href="{item['route']}" class="menu-link">
-                            <h4>{item['title']}</h4>
+                        <a href="{html.escape(item['route'])}" class="menu-link">
+                            <h4>{html.escape(item['title'])}</h4>
                         </a>
                     </div>
             """
@@ -271,10 +272,10 @@ def generate_portal_menu_html():
                     html_parts.append(
                         f"""
                         <div class="submenu-item">
-                            <i class="{icon}"></i>
+                            <i class="{html.escape(icon)}"></i>
                             <div class="submenu-content">
-                                <strong>{submenu['title']}</strong>
-                                <p class="text-muted">{submenu['description']}</p>
+                                <strong>{html.escape(submenu['title'])}</strong>
+                                <p class="text-muted">{html.escape(submenu['description'])}</p>
                             </div>
                         </div>
                     """

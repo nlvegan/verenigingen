@@ -13,7 +13,7 @@ def test_mandate_service_optimization():
     print("🔍 Testing SEPA Mandate Service...")
 
     try:
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
 
         service = get_sepa_mandate_service()
 
@@ -68,7 +68,7 @@ def test_error_handler():
     print("🔍 Testing SEPA Error Handler...")
 
     try:
-        from verenigingen.utils.sepa_error_handler import get_sepa_error_handler
+        from verenigingen.verenigingen_payments.utils.sepa_error_handler import get_sepa_error_handler
 
         handler = get_sepa_error_handler()
 
@@ -97,7 +97,7 @@ def test_config_manager():
     print("🔍 Testing SEPA Configuration Manager...")
 
     try:
-        from verenigingen.utils.sepa_config_manager import get_sepa_config_manager
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import get_sepa_config_manager
 
         manager = get_sepa_config_manager()
 
@@ -146,7 +146,7 @@ def test_sepa_processor():
     print("🔍 Testing Enhanced SEPA Processor...")
 
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import SEPAProcessor
 
         processor = SEPAProcessor()
 
@@ -176,7 +176,7 @@ def test_monthly_batch_creation():
     print("🔍 Testing Monthly Batch Creation...")
 
     try:
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
             create_monthly_dues_collection_batch,
         )
 
@@ -202,7 +202,10 @@ def test_api_endpoints():
 
     try:
         # Test configuration APIs
-        from verenigingen.utils.sepa_config_manager import get_sepa_config, validate_sepa_configuration
+        from verenigingen.verenigingen_payments.utils.sepa_config_manager import (
+            get_sepa_config,
+            validate_sepa_configuration,
+        )
 
         config = get_sepa_config()
         print(f"✅ Configuration API: Returned {len(config)} configuration sections")
@@ -211,13 +214,13 @@ def test_api_endpoints():
         print(f"✅ Validation API: Configuration {'valid' if validation['valid'] else 'invalid'}")
 
         # Test mandate service APIs
-        from verenigingen.utils.sepa_mandate_service import get_sepa_cache_stats
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_cache_stats
 
         cache_stats = get_sepa_cache_stats()
         print(f"✅ Cache stats API: {cache_stats['total_cached_items']} cached items")
 
         # Test error handler APIs
-        from verenigingen.utils.sepa_error_handler import get_sepa_error_handler_status
+        from verenigingen.verenigingen_payments.utils.sepa_error_handler import get_sepa_error_handler_status
 
         error_status = get_sepa_error_handler_status()
         print(f"✅ Error handler API: Circuit breaker state '{error_status['state']}'")
@@ -236,7 +239,7 @@ def test_performance_improvements():
     try:
         import time
 
-        from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+        from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
 
         service = get_sepa_mandate_service()
 

@@ -15,7 +15,7 @@ def validate_integration():
 
     try:
         # Test 1: Import enhanced processor
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
             SEPAProcessor,
         )
 
@@ -23,7 +23,7 @@ def validate_integration():
         results.append("✓ Enhanced SEPA processor imported successfully")
 
         # Test 2: Check SEPA configuration
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
             validate_sepa_configuration,
         )
 
@@ -39,7 +39,7 @@ def validate_integration():
         results.append(f"✓ Found {len(eligible_schedules)} eligible dues schedules")
 
         # Test 4: Test upcoming collections API
-        from verenigingen.verenigingen.doctype.direct_debit_batch.sepa_processor import (
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.sepa_processor import (
             get_upcoming_dues_collections,
         )
 
@@ -47,7 +47,7 @@ def validate_integration():
         results.append(f"✓ Found {len(upcoming)} upcoming collection dates")
 
         # Test 5: Test direct debit batch API functions
-        from verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch import (
+        from verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch import (
             get_dues_collection_preview,
         )
 

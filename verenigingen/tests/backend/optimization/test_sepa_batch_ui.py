@@ -19,11 +19,11 @@ def test_optimized_endpoints():
         
         # Test caching
         start = time.time()
-        result1 = frappe.call(f"verenigingen.api.sepa_batch_ui.{endpoint_name}")
+        result1 = frappe.call(f"verenigingen.verenigingen_payments.api.sepa_batch_ui.{endpoint_name}")
         time1 = time.time() - start
         
         start = time.time()
-        result2 = frappe.call(f"verenigingen.api.sepa_batch_ui.{endpoint_name}")
+        result2 = frappe.call(f"verenigingen.verenigingen_payments.api.sepa_batch_ui.{endpoint_name}")
         time2 = time.time() - start
         
         print(f"  First call: {time1:.3f}s")
@@ -36,7 +36,7 @@ def test_optimized_endpoints():
             
         # Test error handling
         try:
-            frappe.call(f"verenigingen.api.sepa_batch_ui.{endpoint_name}", 
+            frappe.call(f"verenigingen.verenigingen_payments.api.sepa_batch_ui.{endpoint_name}", 
                        {"invalid_param": "test"})
         except Exception as e:
             print(f"  ✓ Error handling works: {type(e).__name__}")

@@ -31,7 +31,7 @@ class TestAllImports(FrappeTestCase):
         import verenigingen.e_boekhouden.api.eboekhouden_migration
         
         # SEPA API modules
-        import verenigingen.api.sepa_batch_ui
+        import verenigingen.verenigingen_payments.api.sepa_batch_ui
         import verenigingen.api.sepa_reconciliation
         import verenigingen.api.sepa_mandate_management
         
@@ -84,8 +84,8 @@ class TestAllImports(FrappeTestCase):
         import verenigingen.verenigingen.doctype.volunteer_assignment.volunteer_assignment
         
         # Financial
-        import verenigingen.verenigingen.doctype.sepa_mandate.sepa_mandate
-        import verenigingen.verenigingen.doctype.direct_debit_batch.direct_debit_batch
+        import verenigingen.verenigingen_payments.doctype.sepa_mandate.sepa_mandate
+        import verenigingen.verenigingen_payments.doctype.direct_debit_batch.direct_debit_batch
         
         # E-Boekhouden (now in submodule)
         import verenigingen.e_boekhouden.doctype.e_boekhouden_settings.e_boekhouden_settings

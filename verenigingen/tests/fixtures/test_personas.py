@@ -136,7 +136,7 @@ class TestPersonas:
         mandate.insert()
 
         # Add some usage history for testing FRST/RCUR logic
-        from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import create_mandate_usage_record
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import create_mandate_usage_record
         
         # Create historical usage (collected)
         create_mandate_usage_record(

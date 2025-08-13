@@ -370,7 +370,7 @@ class TestSecurityIntegration(VereningingenTestCase):
         
         with self.set_user(user.email):
             # Test that secure endpoints require proper setup
-            from verenigingen.api.sepa_batch_ui_secure import load_unpaid_invoices_secure
+            from verenigingen.verenigingen_payments.api.sepa_batch_ui_secure import load_unpaid_invoices_secure
             
             # This would normally require CSRF token, rate limiting, etc.
             # For testing, we'd need to mock or configure these properly
@@ -385,7 +385,7 @@ class TestSecurityIntegration(VereningingenTestCase):
     def test_security_health_check(self):
         """Test security health check endpoint"""
         with self.set_user("Administrator"):
-            from verenigingen.api.sepa_batch_ui_secure import sepa_security_health_check
+            from verenigingen.verenigingen_payments.api.sepa_batch_ui_secure import sepa_security_health_check
             
             health_result = sepa_security_health_check()
             

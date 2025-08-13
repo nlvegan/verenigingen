@@ -448,7 +448,7 @@ def test_donation_system():
 
     # Test 5: Test payment gateway components
     try:
-        from verenigingen.utils.payment_gateways import PaymentGatewayFactory
+        from verenigingen.verenigingen_payments.utils.payment_gateways import PaymentGatewayFactory
 
         supported_methods = PaymentGatewayFactory.get_supported_methods()
         results["tests"].append({"name": "Payment Gateways", "status": "pass", "methods": supported_methods})

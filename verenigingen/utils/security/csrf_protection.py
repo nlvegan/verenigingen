@@ -331,10 +331,10 @@ def csrf_protect_sepa_endpoints():
     protect SEPA endpoints without modifying each function individually.
     """
     sepa_endpoints = [
-        "verenigingen.api.sepa_batch_ui.create_sepa_batch_validated",
-        "verenigingen.api.sepa_batch_ui.validate_batch_invoices",
-        "verenigingen.api.sepa_batch_ui.get_batch_analytics",
-        "verenigingen.api.sepa_batch_ui.preview_sepa_xml",
+        "verenigingen.verenigingen_payments.api.sepa_batch_ui.create_sepa_batch_validated",
+        "verenigingen.verenigingen_payments.api.sepa_batch_ui.validate_batch_invoices",
+        "verenigingen.verenigingen_payments.api.sepa_batch_ui.get_batch_analytics",
+        "verenigingen.verenigingen_payments.api.sepa_batch_ui.preview_sepa_xml",
         # Add other SEPA endpoints as needed
     ]
 
@@ -440,7 +440,7 @@ def csrf_middleware(request):
 
     # Check if this is a SEPA-related request
     path = getattr(request, "path", "")
-    if "/api/method/verenigingen.api.sepa_batch_ui" in path:
+    if "/api/method/verenigingen.verenigingen_payments.api.sepa_batch_ui" in path:
         try:
             CSRFProtection.validate_request()
         except CSRFError as e:

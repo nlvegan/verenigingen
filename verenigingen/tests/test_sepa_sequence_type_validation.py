@@ -77,7 +77,7 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
     def test_sequence_type_validation_warning(self):
         """Test that validation creates warnings for other mismatches"""
         # First create a successful usage to set up mandate history
-        from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import create_mandate_usage_record
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import create_mandate_usage_record
         
         usage_name = create_mandate_usage_record(
             mandate_name=self.mandate.name,
@@ -243,7 +243,7 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
 
     def test_get_mandate_sequence_type_api(self):
         """Test the sequence type determination API"""
-        from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import get_mandate_sequence_type
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import get_mandate_sequence_type
         
         # First usage should be FRST
         result = get_mandate_sequence_type(self.mandate.name, "TEST-INV-001")
@@ -251,7 +251,7 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
         self.assertIn("First usage", result["reason"])
         
         # Create and collect first usage
-        from verenigingen.verenigingen.doctype.sepa_mandate_usage.sepa_mandate_usage import create_mandate_usage_record
+        from verenigingen.verenigingen_payments.doctype.sepa_mandate_usage.sepa_mandate_usage import create_mandate_usage_record
         
         create_mandate_usage_record(
             mandate_name=self.mandate.name,
@@ -312,7 +312,7 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
     def test_error_handler_integration(self):
         """Test error handler integration with sequence type validation"""
         try:
-            from verenigingen.utils.sepa_error_handler import get_sepa_error_handler
+            from verenigingen.verenigingen_payments.utils.sepa_error_handler import get_sepa_error_handler
             
             handler = get_sepa_error_handler()
             
@@ -335,7 +335,7 @@ class TestSEPASequenceTypeValidation(VereningingenTestCase):
     def test_mandate_service_integration(self):
         """Test mandate service integration with sequence type validation"""
         try:
-            from verenigingen.utils.sepa_mandate_service import get_sepa_mandate_service
+            from verenigingen.verenigingen_payments.utils.sepa_mandate_service import get_sepa_mandate_service
             
             service = get_sepa_mandate_service()
             

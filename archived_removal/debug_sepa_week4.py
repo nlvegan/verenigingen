@@ -1,6 +1,6 @@
 import frappe
 
-from verenigingen.utils.sepa_admin_reporting import SEPAAdminReportGenerator
+from verenigingen.verenigingen_payments.utils.sepa_admin_reporting import SEPAAdminReportGenerator
 
 
 @frappe.whitelist()

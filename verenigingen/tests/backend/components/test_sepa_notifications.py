@@ -6,7 +6,7 @@ from frappe.utils import add_days, today
 
 from verenigingen.tests.test_patches import apply_test_patches, remove_test_patches
 from verenigingen.utils.payment_notifications import check_and_resolve_payment_retries, on_payment_submit
-from verenigingen.utils.sepa_notifications import SEPAMandateNotificationManager
+from verenigingen.verenigingen_payments.utils.sepa_notifications import SEPAMandateNotificationManager
 
 
 class TestSEPANotifications(unittest.TestCase):
