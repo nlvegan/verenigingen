@@ -8,8 +8,16 @@ Reorganizes the Verenigingen workspace with proper logical categorization.
 import frappe
 
 
-def reorganize_workspace():
+def reorganize_workspace(force_enable=False):
     """Reorganize workspace links into logical categories"""
+    
+    # SAFETY GUARD: This script DELETES ALL WORKSPACE LINKS!
+    if not force_enable:
+        print("🛡️ WORKSPACE REORGANIZATION DISABLED FOR SAFETY")
+        print("   ❌ THIS SCRIPT DELETES ALL WORKSPACE LINKS!")
+        print("   This would completely destroy your current workspace")
+        print("   Use force_enable=True to override (NOT RECOMMENDED)")
+        return False
     
     print("🔄 Reorganizing Verenigingen workspace...")
     

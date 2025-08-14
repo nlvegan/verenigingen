@@ -5,12 +5,19 @@ import frappe
 
 
 @frappe.whitelist()
-def fix_content_sync():
+def fix_content_sync(force_enable=False):
     """Fix content synchronization after reorganization"""
+
+    # SAFETY GUARD: Prevent accidental workspace corruption
+    if not force_enable:
+        print("🛡️ WORKSPACE REORGANIZATION DISABLED FOR SAFETY")
+        print("   Use force_enable=True to override")
+        return False
+
     from verenigingen.utils.workspace_content_fixer import fix_workspace_content
 
     print("🔧 Fixing content synchronization for Verenigingen workspace...")
-    result = fix_workspace_content("Verenigingen", dry_run=False)
+    result = fix_workspace_content("Verenigingen", dry_run=False, force_enable=True)
 
     if result:
         print("✅ Content synchronization fixed successfully!")

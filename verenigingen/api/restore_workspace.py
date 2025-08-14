@@ -5,8 +5,15 @@ import frappe
 
 
 @frappe.whitelist()
-def restore_workspace():
+def restore_workspace(force_enable=False):
     """Restore the workspace from fixtures"""
+
+    # SAFETY GUARD: Prevent accidental workspace restoration
+    if not force_enable:
+        return {
+            "success": False,
+            "message": "🛡️ WORKSPACE RESTORE DISABLED FOR SAFETY. This overwrites current workspace with fixture data. Use force_enable=True to override.",
+        }
 
     # Path to the fixtures file
     fixtures_path = "/home/frappe/frappe-bench/apps/verenigingen/verenigingen/fixtures/workspace.json"

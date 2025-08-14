@@ -2,7 +2,14 @@ import frappe
 
 
 @frappe.whitelist()
-def fix_workspace():
+def fix_workspace(force_enable=False):
+    # SAFETY GUARD: Prevent accidental workspace corruption
+    if not force_enable:
+        return {
+            "success": False,
+            "message": "🛡️ WORKSPACE AUTO-FIX DISABLED FOR SAFETY. Use force_enable=True to override.",
+        }
+
     # Check if Verenigingen workspace exists
     if frappe.db.exists("Workspace", "Verenigingen"):
         workspace = frappe.get_doc("Workspace", "Verenigingen")

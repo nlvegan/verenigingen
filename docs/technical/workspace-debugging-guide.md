@@ -894,3 +894,53 @@ WHERE cb.parent = 'Workspace_Name' AND cb.type = 'Card Break';
 ```
 
 This comprehensive guide should prevent and resolve most workspace issues encountered during development.
+
+## Critical Warning: Auto-Correction System Risk
+
+**⚠️ IMPORTANT**: The Verenigingen application has an extensive workspace auto-correction system that can cause workspace corruption when broken links are clicked.
+
+### Identified Risk Pattern:
+1. User clicks broken link → 404 error occurs
+2. System validation triggers → detects "content/database mismatch"
+3. Auto-correction activates → `workspace_content_fixer.py` removes "orphaned cards"
+4. Workspace reverts → custom layouts get wiped
+
+### High-Risk Auto-Correction Files:
+- `/verenigingen/utils/workspace_content_fixer.py` - Removes "orphaned cards"
+- `/verenigingen/api/rebuild_workspace.py` - Complete workspace rebuilding
+- `/verenigingen/api/fix_workspace.py` - Adds missing links
+- `/verenigingen/api/check_and_fix_workspace.py` - Validation with auto-repair
+
+### Immediate Protection Steps:
+
+1. **Backup Before Link Testing**:
+   ```bash
+   # Always backup before clicking suspicious links
+   bench --site [site] export-doc Workspace Verenigingen
+   ```
+
+2. **Monitor Auto-Correction Calls**:
+   ```bash
+   # Check if auto-correction was triggered
+   grep -r "workspace.*fix\|fix.*workspace" /path/to/error/logs/
+   ```
+
+3. **Disable Auto-Correction Temporarily**:
+   ```python
+   # Add this to prevent automatic workspace fixes
+   # in workspace_content_fixer.py or similar files:
+   def fix_workspace_content(workspace_name, dry_run=True):  # Force dry_run
+       if not dry_run:
+           print("Auto-correction disabled for safety")
+           return False
+   ```
+
+### Safe Link Testing Procedure:
+1. **Validate workspace health first** (using tools above)
+2. **Export current workspace** as backup
+3. **Test broken links in incognito/private browser** (reduces cached state issues)
+4. **Immediately re-validate** after any navigation errors
+5. **Restore from backup** if corruption detected
+
+### Long-term Solution:
+Consider disabling or modifying auto-correction systems to require explicit user confirmation before making any workspace structural changes.

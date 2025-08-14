@@ -10,6 +10,12 @@ def execute():
     try:
         print("🔄 Adding Membership Application Workflow Demo to workspace...")
 
+        # SAFETY GUARD: Skip workspace reload to prevent corruption
+        print("🛡️ WORKSPACE RELOAD DISABLED FOR SAFETY - Skipping fixture reload")
+        print("   This patch would reload workspace from fixtures, potentially losing customizations")
+        print("   Workflow demo link was removed anyway, so this patch is no longer needed")
+        return
+
         # First reload the workspace from fixtures to get the latest structure
         print("   📋 Reloading workspace from fixtures...")
         frappe.reload_doc("verenigingen", "workspace", "verenigingen", force=True)

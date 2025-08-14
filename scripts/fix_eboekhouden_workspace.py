@@ -9,8 +9,16 @@ import json
 import os
 
 
-def install_eboekhouden_workspace():
+def install_eboekhouden_workspace(force_enable=False):
     """Install or update the E-Boekhouden workspace"""
+    
+    # SAFETY GUARD: Prevent accidental workspace installation
+    if not force_enable:
+        print("🛡️ E-BOEKHOUDEN WORKSPACE INSTALL DISABLED FOR SAFETY")
+        print("   This creates/modifies E-Boekhouden workspace")
+        print("   Use force_enable=True to override")
+        return False
+        
     try:
         # Path to the workspace JSON file
         workspace_path = frappe.get_app_path("verenigingen", "verenigingen", "workspace", "e_boekhouden", "e_boekhouden.json")

@@ -9,8 +9,15 @@ import json
 import frappe
 
 
-def fix_workspace_content(workspace_name, dry_run=True):
+def fix_workspace_content(workspace_name, dry_run=True, force_enable=False):
     """Automatically fix content field to match Card Break structure"""
+
+    # SAFETY GUARD: Prevent accidental workspace corruption
+    if not force_enable:
+        print("🛡️  WORKSPACE AUTO-CORRECTION DISABLED FOR SAFETY")
+        print("   To enable, call with force_enable=True")
+        print("   This prevents workspace corruption from broken links")
+        return False
 
     from verenigingen.utils.workspace_analyzer import analyze_workspace
 
@@ -42,12 +49,12 @@ def fix_workspace_content(workspace_name, dry_run=True):
 
     # Note: Adding new cards requires manual intervention for proper placement
     if analysis["db_only"]:
-        print(f"\n⚠️  Manual intervention required:")
-        print(f"   Add these cards to the content field in appropriate locations:")
+        print("\n⚠️  Manual intervention required:")
+        print("   Add these cards to the content field in appropriate locations:")
         for card_break in analysis["db_only"]:
             print(f"   - {card_break}")
-        print(f"\n   Example card structure:")
-        print(f'   {{"id": "NewCard", "type": "card", "data": {{"card_name": "Card Name", "col": 4}}}}')
+        print("\n   Example card structure:")
+        print('   {"id": "NewCard", "type": "card", "data": {"card_name": "Card Name", "col": 4}}')
 
     if not dry_run and removed_count > 0:
         # Backup original content

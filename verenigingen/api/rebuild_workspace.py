@@ -5,12 +5,19 @@ from frappe import _
 
 
 @frappe.whitelist()
-def rebuild_workspace():
+def rebuild_workspace(force_enable=False):
     """Rebuild the workspace with proper structure based on fixtures
 
     Returns:
         dict: Success status with message and details
     """
+
+    # SAFETY GUARD: Prevent accidental workspace destruction
+    if not force_enable:
+        return {
+            "success": False,
+            "message": "🛡️ WORKSPACE REBUILD DISABLED FOR SAFETY. This would destroy current workspace structure. Use force_enable=True to override.",
+        }
 
     # Check permissions
     if not frappe.has_permission("Workspace", "write"):

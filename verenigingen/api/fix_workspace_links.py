@@ -2,8 +2,15 @@ import frappe
 
 
 @frappe.whitelist()
-def fix_workspace_links():
+def fix_workspace_links(force_enable=False):
     """Fix broken workspace links and add Communication section"""
+
+    # SAFETY GUARD: Prevent accidental workspace corruption
+    if not force_enable:
+        return {
+            "success": False,
+            "message": "🛡️ WORKSPACE LINK AUTO-FIX DISABLED FOR SAFETY. This removes broken links automatically. Use force_enable=True to override.",
+        }
 
     if not frappe.db.exists("Workspace", "Verenigingen"):
         return {"success": False, "message": "Workspace does not exist"}

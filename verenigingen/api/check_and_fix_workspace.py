@@ -2,8 +2,15 @@ import frappe
 
 
 @frappe.whitelist()
-def check_and_fix_workspace():
+def check_and_fix_workspace(force_enable=False):
     """Check workspace and add Communication section"""
+
+    # SAFETY GUARD: Prevent accidental workspace corruption
+    if not force_enable:
+        return {
+            "success": False,
+            "message": "🛡️ WORKSPACE AUTO-CORRECTION DISABLED FOR SAFETY. Use force_enable=True to override.",
+        }
 
     if not frappe.db.exists("Workspace", "Verenigingen"):
         return {"success": False, "message": "Workspace does not exist. Run bench migrate first."}

@@ -9,8 +9,16 @@ import frappe
 
 
 @frappe.whitelist()
-def install_eboekhouden_workspace():
+def install_eboekhouden_workspace(force_enable=False):
     """Install or update the E-Boekhouden workspace"""
+    
+    # SAFETY GUARD: Prevent accidental workspace installation
+    if not force_enable:
+        return {
+            "success": False,
+            "message": "🛡️ E-BOEKHOUDEN WORKSPACE INSTALL DISABLED FOR SAFETY. Use force_enable=True to override."
+        }
+        
     try:
         # Path to the workspace JSON file
         workspace_path = frappe.get_app_path(
