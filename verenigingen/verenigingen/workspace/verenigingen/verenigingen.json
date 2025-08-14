@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"NFcjh9I8BH\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Members/Memberships</b></span>\", \"col\": 12}}, {\"id\": \"oIk2CrSoAH\", \"type\": \"card\", \"data\": {\"card_name\": \"Memberships\", \"col\": 4}}, {\"id\": \"BillingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Billing & Dues\", \"col\": 4}}, {\"id\": \"ApplicationsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Applications & Requests\", \"col\": 4}}, {\"id\": \"ZvroSYo9F3\", \"type\": \"card\", \"data\": {\"card_name\": \"Donations\", \"col\": 4}}, {\"id\": \"zGoLYG0xRM\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"jMy1CTqEJS\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Volunteering</b></span>\", \"col\": 12}}, {\"id\": \"2vHgUjgQcL\", \"type\": \"card\", \"data\": {\"card_name\": \"Volunteers\", \"col\": 4}}, {\"id\": \"ExpenseCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Volunteer Expenses\", \"col\": 4}}, {\"id\": \"zGoLYG0xRM2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"jMy1CTqEJS2\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Chapters/Teams</b></span>\", \"col\": 12}}, {\"id\": \"S8Mi0T41U7\", \"type\": \"card\", \"data\": {\"card_name\": \"Chapters\", \"col\": 4}}, {\"id\": \"XXEhdaTHF_\", \"type\": \"card\", \"data\": {\"card_name\": \"Teams and Commissions\", \"col\": 4}}, {\"id\": \"zGoLYG0xRM3\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"jMy1CTqEJS3\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Financial</b></span>\", \"col\": 12}}, {\"id\": \"PaymentCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Processing\", \"col\": 4}}, {\"id\": \"lYnozqzRgf\", \"type\": \"card\", \"data\": {\"card_name\": \"Banking\", \"col\": 4}}, {\"id\": \"VN3xecH16c\", \"type\": \"card\", \"data\": {\"card_name\": \"Accounting (Misc.)\", \"col\": 4}}, {\"id\": \"zGoLYG0xRM4\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"jMy1CTqEJS4\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports</b></span>\", \"col\": 12}}, {\"id\": \"ReportsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Reports\", \"col\": 8}}, {\"id\": \"SettingsHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Settings & Configuration</b></span>\", \"col\": 12}}, {\"id\": \"SettingsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Settings\", \"col\": 4}}, {\"id\": \"PortalsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Portal Pages\", \"col\": 4}}]",
+ "content": "[{\"id\": \"NFcjh9I8BH\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Members/Memberships</b></span>\", \"col\": 12}}, {\"id\": \"oIk2CrSoAH\", \"type\": \"card\", \"data\": {\"card_name\": \"Memberships\", \"col\": 4}}, {\"id\": \"BillingCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Billing & Dues\", \"col\": 4}}, {\"id\": \"ApplicationsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Applications & Requests\", \"col\": 4}}, {\"id\": \"ZvroSYo9F3\", \"type\": \"card\", \"data\": {\"card_name\": \"Donations\", \"col\": 4}}, {\"id\": \"zGoLYG0xRM\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"jMy1CTqEJS\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Volunteering</b></span>\", \"col\": 12}}, {\"id\": \"2vHgUjgQcL\", \"type\": \"card\", \"data\": {\"card_name\": \"Volunteers\", \"col\": 4}}, {\"id\": \"ExpenseCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Volunteer Expenses\", \"col\": 4}}, {\"id\": \"zGoLYG0xRM2\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"jMy1CTqEJS2\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Chapters/Teams</b></span>\", \"col\": 12}}, {\"id\": \"S8Mi0T41U7\", \"type\": \"card\", \"data\": {\"card_name\": \"Chapters\", \"col\": 4}}, {\"id\": \"XXEhdaTHF_\", \"type\": \"card\", \"data\": {\"card_name\": \"Teams and Commissions\", \"col\": 4}}, {\"id\": \"zGoLYG0xRM3\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"jMy1CTqEJS3\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Financial</b></span>\", \"col\": 12}}, {\"id\": \"PaymentCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Payment Processing\", \"col\": 4}}, {\"id\": \"lYnozqzRgf\", \"type\": \"card\", \"data\": {\"card_name\": \"Banking\", \"col\": 4}}, {\"id\": \"VN3xecH16c\", \"type\": \"card\", \"data\": {\"card_name\": \"Accounting (Misc.)\", \"col\": 4}}, {\"id\": \"zGoLYG0xRM4\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"jMy1CTqEJS4\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Reports</b></span>\", \"col\": 12}}, {\"id\": \"MemberReportsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Member Reports\", \"col\": 4}}, {\"id\": \"FinancialReportsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Financial Reports\", \"col\": 4}}, {\"id\": \"AdministrativeReportsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Administrative Reports\", \"col\": 4}}, {\"id\": \"SettingsHeader\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\"><b>Settings & Configuration</b></span>\", \"col\": 12}}, {\"id\": \"SettingsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Settings\", \"col\": 4}}, {\"id\": \"PortalsCard\", \"type\": \"card\", \"data\": {\"card_name\": \"Portal Pages\", \"col\": 4}}]",
  "creation": "2025-08-14 16:17:00.259562",
  "custom_blocks": [],
  "docstatus": 0,
@@ -146,7 +146,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Memberships",
-   "link_count": 5,
+   "link_count": 3,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -468,21 +468,10 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Reports",
-   "link_count": 13,
-   "link_type": "DocType",
+   "label": "Member Reports",
+   "link_count": 5,
    "onboard": 0,
    "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Membership Analytics Dashboard",
-   "link_count": 0,
-   "link_to": "membership-analytics",
-   "link_type": "Page",
-   "onboard": 0,
-   "type": "Link"
   },
   {
    "hidden": 0,
@@ -517,9 +506,19 @@
   {
    "hidden": 0,
    "is_query_report": 1,
-   "label": "Overdue Member Payments",
+   "label": "Members Without Active Memberships",
    "link_count": 0,
-   "link_to": "Overdue Member Payments",
+   "link_to": "Members Without Active Memberships",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Members Without Dues Schedule",
+   "link_count": 0,
+   "link_to": "Members Without Dues Schedule",
    "link_type": "Report",
    "onboard": 0,
    "type": "Link"
@@ -536,40 +535,18 @@
   },
   {
    "hidden": 0,
-   "is_query_report": 1,
-   "label": "Termination Compliance Report",
-   "link_count": 0,
-   "link_to": "Termination Compliance Report",
-   "link_type": "Report",
+   "is_query_report": 0,
+   "label": "Financial Reports",
+   "link_count": 3,
    "onboard": 0,
-   "type": "Link"
+   "type": "Card Break"
   },
   {
    "hidden": 0,
    "is_query_report": 1,
-   "label": "Users by Team",
+   "label": "Overdue Member Payments",
    "link_count": 0,
-   "link_to": "Users by Team",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "Members Without Active Memberships",
-   "link_count": 0,
-   "link_to": "Members Without Active Memberships",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "Members Without Dues Schedule",
-   "link_count": 0,
-   "link_to": "Members Without Dues Schedule",
+   "link_to": "Overdue Member Payments",
    "link_type": "Report",
    "onboard": 0,
    "type": "Link"
@@ -598,10 +575,38 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Membership Application Workflow Demo",
+   "label": "Administrative Reports",
+   "link_count": 3,
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Membership Analytics Dashboard",
    "link_count": 0,
-   "link_to": "workflow-builder",
+   "link_to": "membership-analytics",
    "link_type": "Page",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Termination Compliance Report",
+   "link_count": 0,
+   "link_to": "Termination Compliance Report",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Users by Team",
+   "link_count": 0,
+   "link_to": "Users by Team",
+   "link_type": "Report",
    "onboard": 0,
    "type": "Link"
   },
@@ -736,7 +741,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Portal Pages",
-   "link_count": 7,
+   "link_count": 6,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -784,16 +789,6 @@
   {
    "hidden": 0,
    "is_query_report": 0,
-   "label": "Brand Management",
-   "link_count": 0,
-   "link_to": "/brand_management",
-   "link_type": "Page",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
    "label": "Public Application Form",
    "link_count": 0,
    "link_to": "/membership_application",
@@ -816,7 +811,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Volunteers",
-   "link_count": 4,
+   "link_count": 3,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
