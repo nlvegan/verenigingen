@@ -1118,6 +1118,54 @@ class ASTFieldAnalyzer:
                 print(f"  ✓ Skipped conditional hasattr access: {obj_name}.{field_name}")
             return True
         
+        # 12. Skip enum/constant access patterns
+        # Common patterns: IssueType.INVALID_FIELD, Status.ACTIVE, etc.
+        if self._is_enum_or_constant_access(obj_name, field_name, context_line):
+            if self.verbose:
+                print(f"  ✓ Skipped enum/constant access: {obj_name}.{field_name}")
+            return True
+        
+        return False
+    
+    def _is_enum_or_constant_access(self, obj_name: str, field_name: str, context_line: str) -> bool:
+        """Detect enum, constant, or class member access patterns"""
+        
+        # Pattern 1: ALL_CAPS field names with underscores (constants)
+        if field_name.isupper() and '_' in field_name:
+            return True
+        
+        # Pattern 2: CamelCase object names with ALL_CAPS fields (enums)
+        # Only if the field is actually all uppercase
+        if (obj_name[0].isupper() and 
+            field_name.isupper() and 
+            not any(c.islower() for c in field_name)):
+            return True
+        
+        # Pattern 3: Known enum patterns
+        enum_patterns = [
+            'Type', 'Status', 'State', 'Mode', 'Level', 'Kind', 'Category'
+        ]
+        if any(pattern in obj_name for pattern in enum_patterns) and field_name.isupper():
+            return True
+        
+        # Pattern 4: Import-based detection - check if obj_name is imported
+        # Common imports: from enum import Enum, from dataclasses import dataclass
+        if obj_name in ['Enum', 'IntEnum', 'Flag', 'IntFlag']:
+            return True
+        
+        # Pattern 5: Check for assignment patterns that suggest constants
+        # Pattern: CONSTANT = value or Class.CONSTANT
+        if re.search(rf'{re.escape(obj_name)}\.{re.escape(field_name)}\s*=', context_line):
+            return True
+        
+        # Pattern 6: Comparison patterns often used with enums/constants
+        # Only if the field name looks like a constant (all caps with underscores)
+        if field_name.isupper() and '_' in field_name:
+            comparison_patterns = ['==', '!=', 'is', 'is not', 'in']
+            for pattern in comparison_patterns:
+                if f'{obj_name}.{field_name}' in context_line and pattern in context_line:
+                    return True
+        
         return False
     
     def _is_defensive_pattern(self, obj_name: str, field_name: str, source_lines: List[str], line_num: int) -> bool:
