@@ -354,11 +354,22 @@ def main():
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
     validator = MethodResolutionValidator(app_path)
     
+    # Extract file paths (non-option arguments)
+    file_paths = []
+    for arg in sys.argv[1:]:
+        if not arg.startswith('--') and arg.endswith('.py'):
+            file_paths.append(Path(arg))
+    
     # Validate files
-    if len(sys.argv) > 1 and not sys.argv[1].startswith('--'):
+    if len(file_paths) == 1:
         # Validate specific file
-        file_path = Path(sys.argv[1])
-        issues = validator._validate_file(file_path)
+        issues = validator._validate_file(file_paths[0])
+    elif file_paths:
+        # Validate multiple files from pre-commit
+        issues = []
+        for file_path in file_paths:
+            if file_path.exists():
+                issues.extend(validator._validate_file(file_path))
     else:
         # Validate all files
         issues = validator.validate_directory()

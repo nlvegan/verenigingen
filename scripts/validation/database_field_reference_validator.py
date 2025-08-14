@@ -553,6 +553,8 @@ def main():
                         help='Show validation statistics')
     parser.add_argument('--pre-commit', action='store_true',
                         help='Run in pre-commit mode (non-blocking, warnings only)')
+    parser.add_argument('files', nargs='*',
+                        help='Specific files to validate (from pre-commit)')
     
     args = parser.parse_args()
     
@@ -565,7 +567,15 @@ def main():
     
     validator = DatabaseFieldReferenceValidator(args.app_path, config)
     
-    if args.stats:
+    # Handle specific files from pre-commit
+    if args.files:
+        print(f"🔍 Validating {len(args.files)} specific files...")
+        violations = []
+        for file_path in args.files:
+            file_path = Path(file_path)
+            if file_path.exists() and file_path.suffix == '.py':
+                violations.extend(validator.validate_file(file_path))
+    elif args.stats:
         stats = validator.get_validation_stats()
         print(f"\n📈 Validation Statistics:")
         print(f"   🏷️  Doctypes loaded: {stats['doctypes_loaded']}")
@@ -575,8 +585,9 @@ def main():
             status = "✅" if enabled else "❌"
             print(f"      {status} {exclusion.replace('_', ' ').title()}")
         print()
-    
-    violations = validator.validate_app()
+        violations = validator.validate_app()
+    else:
+        violations = validator.validate_app()
     
     if args.pre_commit:
         # Pre-commit mode: Show issues as warnings but don't block commits

@@ -1303,7 +1303,20 @@ def main():
     print(f"🎯 Using modern detection logic with confidence scoring")
     print("")
     
-    violations = validator.validate_app(confidence_threshold=threshold)
+    # Extract file paths (non-option arguments)
+    file_paths = []
+    for arg in sys.argv[1:]:
+        if not arg.startswith('--') and arg.endswith('.py'):
+            file_paths.append(Path(arg))
+    
+    if file_paths:
+        print(f"🔍 Validating {len(file_paths)} specific files...")
+        violations = []
+        for file_path in file_paths:
+            if file_path.exists():
+                violations.extend(validator.validate_file(file_path))
+    else:
+        violations = validator.validate_app(confidence_threshold=threshold)
     
     print("\n" + "="*60)
     report = validator.generate_report(violations, detailed=detailed)

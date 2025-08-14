@@ -134,7 +134,7 @@ repos:
         name: DocType field attribute access validator
         entry: python scripts/validation/doctype_field_validator.py --pre-commit --reduced-fp-mode
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: \.py$
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
@@ -143,7 +143,7 @@ repos:
         name: SQL query field validation
         entry: python scripts/validation/sql_field_reference_validator.py --pre-commit
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: \.py$
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
@@ -152,7 +152,7 @@ repos:
         name: Balanced field validation (practical mode)
         entry: python scripts/validation/database_field_reference_validator.py --level balanced --pre-commit
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: \.py$
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|one-off-test-utils/|archived_.*|archived_unused/|archived_deleted/)'
@@ -161,7 +161,7 @@ repos:
         name: Context-aware field reference validator
         entry: python scripts/validation/enhanced_field_reference_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.(py|html|js)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|archived_.*|archived_unused/|archived_deleted/)'
@@ -170,7 +170,7 @@ repos:
         name: HTML/JavaScript template field validation
         entry: python scripts/validation/template_field_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.(html|js)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.(html|js)|debug_|.*_debug\.(html|js)|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
@@ -179,7 +179,7 @@ repos:
         name: JavaScript DocType field validation
         entry: python scripts/validation/javascript_doctype_field_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.js$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.js|debug_|.*_debug\.js|scripts/testing/|scripts/debug/|frontend_tests/|node_modules/)'
@@ -201,7 +201,7 @@ repos:
         name: Method call validation
         entry: python scripts/validation/method_resolution_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.py$'
         stages: [pre-commit]
         exclude: '^(archived_unused/|archived_deleted/|archived_removal/|scripts/testing/|scripts/debug/|test_field_validation_gaps\.py|.*_test\.py|debug_.*\.py)'
@@ -229,7 +229,7 @@ repos:
         description: AST-based field validation using abstract syntax tree analysis
         entry: python scripts/validation/ast_field_analyzer.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: \.py$
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*|one-off-test-utils/)'
@@ -275,7 +275,7 @@ repos:
         description: Validate Frappe hooks and event handlers
         entry: python scripts/validation/frappe_hooks_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.(py)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
@@ -285,7 +285,7 @@ repos:
         description: High-confidence API field validation
         entry: python scripts/validation/frappe_api_confidence_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.(py)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
@@ -295,7 +295,7 @@ repos:
         description: Validate variables in Jinja2 templates and HTML files
         entry: python scripts/validation/template_variable_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.(html|htm|jinja|jinja2)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.(html|htm)|debug_|.*_debug\.(html|htm)|scripts/testing/|scripts/debug/|node_modules/)'
@@ -306,7 +306,7 @@ repos:
         description: Validate JavaScript to Python API parameter consistency
         entry: python scripts/validation/js_python_parameter_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.(js|py)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.(js|py)|debug_|.*_debug\.(js|py)|scripts/testing/|scripts/debug/|node_modules/|archived_.*)'
@@ -317,7 +317,7 @@ repos:
         description: Validate method calls and resolution patterns
         entry: python scripts/validation/method_resolution_validator.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.(py)$'
         stages: [pre-push]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
@@ -349,7 +349,7 @@ repos:
         description: Validate email templates and fixtures
         entry: python scripts/validation/email_template_precommit_check.py
         language: system
-        pass_filenames: false
+        pass_filenames: true
         files: '\.(json|html|py)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'

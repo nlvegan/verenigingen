@@ -810,11 +810,6 @@ fixtures = [
         "doctype": "Workspace",
         "filters": [["name", "in", ["E-Boekhouden", "Verenigingen"]]],
     },
-    # Dashboards
-    {
-        "doctype": "Dashboard",
-        "filters": [["name", "in", ["Member Analytics"]]],
-    },
     # Dashboard Charts
     {
         "doctype": "Dashboard Chart",
@@ -829,6 +824,19 @@ fixtures = [
                     "Member Age Distribution",
                     "Member Pronoun Distribution",
                     "Members with Outstanding Invoices",
+                ],
+            ]
+        ],
+    },
+    # Dashboards
+    {
+        "doctype": "Dashboard",
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Member Analytics",
                 ],
             ]
         ],

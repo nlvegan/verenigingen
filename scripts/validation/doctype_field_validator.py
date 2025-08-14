@@ -784,11 +784,13 @@ def main():
     reduced_fp_mode = '--reduced-fp-mode' in sys.argv
     single_file = None
     
-    # Check for single file testing
+    # Extract file paths (non-option arguments)
+    file_paths = []
     for arg in sys.argv[1:]:
         if not arg.startswith('--') and arg.endswith('.py'):
-            single_file = Path(app_path) / arg
-            break
+            file_paths.append(Path(arg))
+    
+    single_file = file_paths[0] if len(file_paths) == 1 else None
     
     validator = AccurateFieldValidator(app_path, verbose=verbose)
     
@@ -803,6 +805,12 @@ def main():
     if single_file:
         print(f"🔍 Validating single file: {single_file}")
         violations = validator.validate_file(single_file)
+    elif file_paths:
+        print(f"🔍 Validating {len(file_paths)} files from pre-commit...")
+        violations = []
+        for file_path in file_paths:
+            if file_path.exists():
+                violations.extend(validator.validate_file(file_path))
     elif pre_commit:
         print("🚨 Running in pre-commit mode (production files only)...")
         violations = validator.validate_app(pre_commit=pre_commit)
