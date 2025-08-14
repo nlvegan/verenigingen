@@ -4,7 +4,7 @@
   "name": "Membership",
   "item_code": "MEMBERSHIP",
   "item_name": "Membership",
-  "item_group": "Services",
+  "item_group": "Memberships",
   "is_stock_item": 0,
   "is_sales_item": 1,
   "is_purchase_item": 0,

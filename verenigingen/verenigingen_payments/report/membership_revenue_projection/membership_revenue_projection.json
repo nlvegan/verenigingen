@@ -1,0 +1,30 @@
+{
+ "add_total_row": 0,
+ "columns": [],
+ "creation": "2025-01-01 10:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Report",
+ "idx": 0,
+ "is_standard": "Yes",
+ "modified": "2025-01-01 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "Membership Revenue Projection",
+ "owner": "Administrator",
+ "prepared_report": 0,
+ "query": "",
+ "ref_doctype": "Membership Dues Schedule",
+ "report_name": "Membership Revenue Projection",
+ "report_type": "Script Report",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Verenigingen Administrator"
+  },
+  {
+   "role": "Verenigingen Manager"
+  }
+ ]
+}

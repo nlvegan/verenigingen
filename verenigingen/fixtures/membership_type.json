@@ -11,6 +11,16 @@
  },
  {
   "doctype": "Membership Type",
+  "name": "Quarterly Membership",
+  "membership_type_name": "Quarterly Membership",
+  "minimum_amount": 9.0,
+  "billing_period": "Quarterly",
+  "dues_schedule_template": "Quarterly Membership Template",
+  "is_active": 1,
+  "description": "Quarterly membership dues - automatically renews every three months"
+ },
+ {
+  "doctype": "Membership Type",
   "name": "Annual Membership",
   "membership_type_name": "Annual Membership",
   "minimum_amount": 30.0,

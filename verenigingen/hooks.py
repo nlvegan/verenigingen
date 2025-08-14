@@ -769,7 +769,17 @@ fixtures = [
     # Reports
     {
         "doctype": "Report",
-        "filters": [["name", "in", ["Termination Audit Report", "Termination Compliance Report"]]],
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Termination Audit Report",
+                    "Termination Compliance Report",
+                    "Membership Revenue Projection",
+                ],
+            ]
+        ],
     },
     # Custom Fields (if you want to export them)
     {
@@ -787,12 +797,27 @@ fixtures = [
     # Membership Types
     {
         "doctype": "Membership Type",
-        "filters": [["name", "in", ["Monthly Membership", "Annual Membership"]]],
+        "filters": [["name", "in", ["Monthly Membership", "Quarterly Membership", "Annual Membership"]]],
     },
     # Membership Dues Schedule Templates
     {
         "doctype": "Membership Dues Schedule",
-        "filters": [["name", "in", ["Monthly Membership Template", "Annual Membership Template"]]],
+        "filters": [
+            [
+                "name",
+                "in",
+                [
+                    "Monthly Membership Template",
+                    "Quarterly Membership Template",
+                    "Annual Membership Template",
+                ],
+            ]
+        ],
+    },
+    # Item Groups
+    {
+        "doctype": "Item Group",
+        "filters": [["name", "=", "Memberships"]],
     },
     # Items
     {
@@ -824,6 +849,11 @@ fixtures = [
                     "Member Age Distribution",
                     "Member Pronoun Distribution",
                     "Members with Outstanding Invoices",
+                    "SEPA Payment Status",
+                    "Monthly Revenue Trends",
+                    "Outstanding Invoices by Month",
+                    "Revenue by Payment Status",
+                    "Revenue by Quarter",
                 ],
             ]
         ],
@@ -837,6 +867,7 @@ fixtures = [
                 "in",
                 [
                     "Member Analytics",
+                    "Member payment development",
                 ],
             ]
         ],

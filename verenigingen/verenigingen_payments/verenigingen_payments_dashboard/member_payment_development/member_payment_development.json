@@ -4,6 +4,22 @@
   {
    "chart": "SEPA Payment Status",
    "width": "Half"
+  },
+  {
+   "chart": "Monthly Revenue Trends",
+   "width": "Half"
+  },
+  {
+   "chart": "Outstanding Invoices by Month",
+   "width": "Half"
+  },
+  {
+   "chart": "Revenue by Payment Status",
+   "width": "Half"
+  },
+  {
+   "chart": "Revenue by Quarter",
+   "width": "Half"
   }
  ],
  "creation": "2025-08-13 18:52:43.565650",

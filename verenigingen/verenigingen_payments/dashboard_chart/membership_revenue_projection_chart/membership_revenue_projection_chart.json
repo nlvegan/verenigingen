@@ -1,0 +1,29 @@
+{
+ "chart_name": "Membership Revenue Projection",
+ "chart_type": "Line",
+ "color": "#28A745",
+ "creation": "2025-01-01 10:00:00.000000",
+ "custom_options": "{}",
+ "docstatus": 0,
+ "doctype": "Dashboard Chart",
+ "document_type": "Membership Dues Schedule",
+ "idx": 0,
+ "is_public": 1,
+ "is_standard": 1,
+ "modified": "2025-01-01 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen Payments",
+ "name": "Membership Revenue Projection",
+ "number_of_groups": 0,
+ "owner": "Administrator",
+ "source": "Membership Revenue Projection",
+ "timeseries": 0,
+ "type": "Line",
+ "use_report_chart": 1,
+ "x_field": "month",
+ "y_axis": [
+  {
+   "y_field": "projected_revenue"
+  }
+ ]
+}

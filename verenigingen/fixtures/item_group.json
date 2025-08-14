@@ -1,0 +1,11 @@
+[
+ {
+  "doctype": "Item Group",
+  "name": "Memberships",
+  "item_group_name": "Memberships",
+  "parent_item_group": "All Item Groups",
+  "is_group": 0,
+  "image": "",
+  "description": "Item group for membership-related services and products"
+ }
+]
