@@ -1,0 +1,218 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-08-14 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "csv_file",
+  "encoding",
+  "column_break_4",
+  "import_status",
+  "test_mode",
+  "section_break_mapping",
+  "field_mapping_instructions",
+  "preview_section",
+  "preview_data",
+  "section_break_results",
+  "import_summary",
+  "members_created",
+  "members_updated",
+  "members_skipped",
+  "error_log",
+  "section_break_dates",
+  "import_date",
+  "column_break_dates",
+  "descriptive_name"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "MEMBER-IMPORT-.YYYY.-",
+   "reqd": 1
+  },
+  {
+   "description": "Upload your CSV or Excel file with member data",
+   "fieldname": "csv_file",
+   "fieldtype": "Attach",
+   "label": "CSV/Excel File",
+   "reqd": 1
+  },
+  {
+   "default": "utf-8",
+   "fieldname": "encoding",
+   "fieldtype": "Select",
+   "label": "File Encoding",
+   "options": "utf-8\nutf-8-sig\niso-8859-1\nwindows-1252",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "import_status",
+   "fieldtype": "Select",
+   "label": "Import Status",
+   "options": "\nPending\nValidating\nReady for Import\nIn Progress\nCompleted\nFailed",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "description": "Run in test mode first to preview results without creating records",
+   "fieldname": "test_mode",
+   "fieldtype": "Check",
+   "label": "Test Mode"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_mapping",
+   "fieldtype": "Section Break",
+   "label": "Field Mapping Guide"
+  },
+  {
+   "fieldname": "field_mapping_instructions",
+   "fieldtype": "HTML",
+   "label": "Expected CSV/Excel Column Headers",
+   "options": "<div class=\"alert alert-info\">\n<h6>Expected CSV Format:</h6>\n<p>Your CSV should contain the following columns (Dutch headers are automatically mapped):</p>\n<ul>\n<li><strong>Lidnr.</strong> → Member ID</li>\n<li><strong>Voornaam</strong> → First Name</li>\n<li><strong>Achternaam</strong> → Last Name</li>\n<li><strong>Geboortedatum</strong> → Birth Date (YYYY-MM-DD)</li>\n<li><strong>Inschrijfdataum</strong> → Member Since (YYYY-MM-DD)</li>\n<li><strong>Groep</strong> → Chapter/Group</li>\n<li><strong>E-mailadres</strong> → Email</li>\n<li><strong>Telefoonnr.</strong> → Phone Number</li>\n<li><strong>Adres</strong> → Address</li>\n<li><strong>Plaats</strong> → City</li>\n<li><strong>Postcode</strong> → Postal Code</li>\n<li><strong>Landcode</strong> → Country Code</li>\n<li><strong>IBAN</strong> → Bank Account</li>\n<li><strong>Contributiebedrag</strong> → Membership Fee</li>\n<li><strong>Betaalperiode</strong> → Payment Period</li>\n<li><strong>Mollie CID</strong> → Mollie Customer ID</li>\n<li><strong>Mollie SID</strong> → Mollie Subscription ID</li>\n<li><strong>Lidmaatschapstype</strong> → Membership Type</li>\n</ul>\n</div>"
+  },
+  {
+   "depends_on": "eval:doc.import_status == 'Ready for Import'",
+   "fieldname": "preview_section",
+   "fieldtype": "Section Break",
+   "label": "Data Preview"
+  },
+  {
+   "depends_on": "eval:doc.import_status == 'Ready for Import'",
+   "fieldname": "preview_data",
+   "fieldtype": "Code",
+   "label": "Preview Data",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_results",
+   "fieldtype": "Section Break",
+   "label": "Import Results"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "import_summary",
+   "fieldtype": "Text",
+   "label": "Import Summary",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "members_created",
+   "fieldtype": "Int",
+   "label": "Members Created",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "members_updated",
+   "fieldtype": "Int",
+   "label": "Members Updated",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "members_skipped",
+   "fieldtype": "Int",
+   "label": "Members Skipped",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "error_log",
+   "fieldtype": "Long Text",
+   "label": "Error Log",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_dates",
+   "fieldtype": "Section Break",
+   "label": "Import Information"
+  },
+  {
+   "default": "Today",
+   "fieldname": "import_date",
+   "fieldtype": "Date",
+   "label": "Import Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "descriptive_name",
+   "fieldtype": "Data",
+   "label": "Descriptive Name",
+   "description": "Auto-generated descriptive name based on import details",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-08-14 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "Member CSV Import",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Administrator",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Verenigingen Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "descriptive_name",
+ "track_changes": 1
+}

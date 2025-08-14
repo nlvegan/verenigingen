@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-AST Field Analyzer - Advanced Code Analysis for Field Reference Validation
-Ultra-precise field validation using sophisticated Abstract Syntax Tree analysis
+AST Field Analyzer for Field Reference Validation
+Field validation using Abstract Syntax Tree analysis
 
-ENHANCED VERSION with:
+Features:
 - Unified DocType loader integration
-- Advanced confidence scoring system
-- Enhanced false positive reduction
-- Modernized AST analysis techniques
+- Confidence scoring system
+- False positive reduction
+- AST analysis techniques
 - Context-aware validation
 - Performance optimizations
 """
@@ -885,7 +885,7 @@ class ASTFieldAnalyzer:
         return None
     
     def validate_file(self, file_path: Path) -> List[ValidationIssue]:
-        """Validate a single file with modern detection logic and false positive reduction"""
+        """Validate a single file with confidence scoring and false positive reduction"""
         violations = []
         
         # Input validation and safety checks
@@ -1227,7 +1227,7 @@ class ASTFieldAnalyzer:
         violations = []
         files_checked = 0
         
-        print(f"🔍 Scanning Python files in {self.app_path} with modern detection logic...")
+        print(f"🔍 Scanning Python files in {self.app_path}...")
         
         # Define confidence priority
         confidence_priority = {
@@ -1266,9 +1266,9 @@ class ASTFieldAnalyzer:
         return violations
     
     def generate_report(self, violations: List[ValidationIssue], detailed: bool = False) -> str:
-        """Generate a modern, actionable report"""
+        """Generate an actionable report"""
         if not violations:
-            return "✅ No field reference issues found with modern detection!"
+            return "✅ No field reference issues found!"
         
         report = []
         report.append(f"📊 Field Validation Report (Modern Detection)")
@@ -1340,7 +1340,7 @@ def main():
     else:
         threshold = ConfidenceLevel.MEDIUM
     
-    print("🚀 AST Field Analyzer - Advanced Code Analysis")
+    print("AST Field Analyzer")
     print(f"   Confidence threshold: {threshold.value}")
     print("")
     
@@ -1348,7 +1348,7 @@ def main():
     
     print(f"📋 Loaded {len(validator.doctypes)} doctypes")
     print(f"🔗 Built {len(validator.child_table_mapping)} child table mappings")
-    print(f"🎯 Using modern detection logic with confidence scoring")
+    print(f"🎯 Using confidence scoring")
     print("")
     
     # Extract file paths (non-option arguments)
@@ -1386,7 +1386,7 @@ def main():
         print(f"\n⚠️  {high_count} HIGH confidence issues should be reviewed.")
         return 1
     else:
-        print("\n✅ No critical issues found with modern detection!")
+        print("\n✅ No critical issues found!")
         return 0
 
 
