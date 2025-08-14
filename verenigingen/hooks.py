@@ -855,6 +855,13 @@ on_logout = "verenigingen.auth_hooks.on_logout"
 # 	"frappe.desk.query_report.export_query": "verenigingen.verenigingen.report.termination_audit_report.termination_audit_report.export_audit_report"
 # }
 
+# Command Registration
+# -------------------
+# Register custom commands with Frappe CLI
+commands = [
+    "verenigingen.commands.workspace.workspace",
+]
+
 # Whitelisted API Methods
 # ----------------------
 # These methods are automatically whitelisted due to @frappe.whitelist() decorators

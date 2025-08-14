@@ -1721,7 +1721,7 @@
     "is_query_report": 0,
     "label": "Payment Mapping",
     "link_count": 0,
-    "link_to": "EBoekhouden Payment Mapping",
+    "link_to": "E-Boekhouden Payment Mapping",
     "link_type": "DocType",
     "onboard": 0,
     "only_for": null,
