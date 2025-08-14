@@ -783,8 +783,22 @@ def main():
     print(f"   Cache enabled: {config['cache_enabled']}")
     print("")
     
+    # Extract file paths (non-option arguments)
+    file_paths = []
+    for arg in sys.argv[1:]:
+        if not arg.startswith('--') and arg.endswith('.py'):
+            file_paths.append(Path(arg))
+    
     validator = FrappeAPIConfidenceValidator(app_path, config)
-    issues = validator.validate_app(confidence_threshold)
+    
+    if file_paths:
+        print(f"🔍 Validating {len(file_paths)} specific files...")
+        issues = []
+        for file_path in file_paths:
+            if file_path.exists():
+                issues.extend(validator.validate_file(file_path))
+    else:
+        issues = validator.validate_app(confidence_threshold)
     
     print("\n" + "=" * 80)
     report = validator.generate_report(issues)

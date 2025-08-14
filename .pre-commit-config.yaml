@@ -214,6 +214,15 @@ repos:
         files: '^(verenigingen/fixtures/workspace\.json|verenigingen/api/workspace_.*\.py)$'
         stages: [pre-commit]
 
+      # - id: workspace-content-validator
+      #   name: 🔍 Workspace Content Synchronization Validator
+      #   description: Validate content field vs Card Break synchronization in workspaces
+      #   entry: bench --site dev.veganisme.net execute scripts.validate_workspace_content.main
+      #   language: system
+      #   pass_filenames: false
+      #   files: '^(verenigingen/.*workspace.*\.json|verenigingen/api/workspace_.*\.py)$'
+      #   stages: [pre-commit]
+
       - id: comprehensive-validation
         name: Validation suite runner (field + template)
         entry: python scripts/validation/validation_suite_runner.py --quiet
@@ -275,7 +284,7 @@ repos:
         description: Validate Frappe hooks and event handlers
         entry: python scripts/validation/frappe_hooks_validator.py
         language: system
-        pass_filenames: true
+        pass_filenames: false
         files: '\.(py)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'
@@ -349,7 +358,7 @@ repos:
         description: Validate email templates and fixtures
         entry: python scripts/validation/email_template_precommit_check.py
         language: system
-        pass_filenames: true
+        pass_filenames: false
         files: '\.(json|html|py)$'
         stages: [pre-commit]
         exclude: '^(tests/|test_|.*_test\.py|debug_|.*_debug\.py|scripts/testing/|scripts/debug/|archived_.*)'

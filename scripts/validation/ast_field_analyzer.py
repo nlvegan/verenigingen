@@ -1313,8 +1313,13 @@ def main():
         print(f"🔍 Validating {len(file_paths)} specific files...")
         violations = []
         for file_path in file_paths:
-            if file_path.exists():
-                violations.extend(validator.validate_file(file_path))
+            try:
+                # Resolve path relative to current working directory
+                resolved_path = file_path.resolve()
+                if resolved_path.exists():
+                    violations.extend(validator.validate_file(resolved_path))
+            except Exception as e:
+                print(f"Warning: Could not process {file_path}: {e}")
     else:
         violations = validator.validate_app(confidence_threshold=threshold)
     

@@ -445,16 +445,19 @@ def main():
     
     parser = argparse.ArgumentParser(description="Validate SQL field references")
     parser.add_argument("--pre-commit", action="store_true", help="Run in pre-commit mode")
-    parser.add_argument("file", nargs="?", help="Specific file to validate")
+    parser.add_argument("files", nargs="*", help="Specific files to validate")
     args = parser.parse_args()
     
     app_path = "/home/frappe/frappe-bench/apps/verenigingen"
     validator = SQLFieldValidator(app_path)
     
-    # Validate specific file if provided
-    if args.file:
-        file_path = Path(args.file)
-        violations = validator.validate_file(file_path)
+    # Validate specific files if provided
+    if args.files:
+        violations = []
+        for file_path in args.files:
+            file_path = Path(file_path)
+            if file_path.exists() and file_path.suffix == '.py':
+                violations.extend(validator.validate_file(file_path))
     else:
         # Validate all files
         violations = validator.validate_directory()

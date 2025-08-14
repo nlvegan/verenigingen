@@ -790,8 +790,6 @@ def main():
         if not arg.startswith('--') and arg.endswith('.py'):
             file_paths.append(Path(arg))
     
-    single_file = file_paths[0] if len(file_paths) == 1 else None
-    
     validator = AccurateFieldValidator(app_path, verbose=verbose)
     
     # Apply reduced false positive mode if requested
@@ -802,10 +800,7 @@ def main():
         print(f"📋 Loaded {len(validator.doctypes)} doctypes with field definitions")
         print(f"📋 Built child table mapping with {len(validator.child_table_mapping)} entries")
     
-    if single_file:
-        print(f"🔍 Validating single file: {single_file}")
-        violations = validator.validate_file(single_file)
-    elif file_paths:
+    if file_paths:
         print(f"🔍 Validating {len(file_paths)} files from pre-commit...")
         violations = []
         for file_path in file_paths:
