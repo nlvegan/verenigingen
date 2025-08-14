@@ -13,6 +13,19 @@ def execute(filters=None):
     return columns, data, None, chart
 
 
+def get_filters():
+    """Define filters for the report"""
+    return [
+        {
+            "fieldname": "projection_months",
+            "label": "Projection Months",
+            "fieldtype": "Int",
+            "default": 12,
+            "reqd": 0,
+        }
+    ]
+
+
 def get_columns():
     """Define report columns"""
     return [
@@ -34,9 +47,14 @@ def get_columns():
 
 
 def get_data(filters):
-    """Calculate projected revenue for next 12 months"""
+    """Calculate projected revenue for specified number of months"""
     data = []
     current_date = datetime.now().replace(day=1)  # Start of current month
+
+    # Get projection months from filters, default to 12
+    projection_months = 12
+    if filters and filters.get("projection_months"):
+        projection_months = max(1, min(24, int(filters.get("projection_months"))))
 
     # Get active membership dues schedules
     active_schedules = frappe.db.sql(
@@ -58,8 +76,8 @@ def get_data(filters):
         as_dict=True,
     )
 
-    # Calculate projections for next 12 months
-    for month_offset in range(12):
+    # Calculate projections for specified number of months
+    for month_offset in range(projection_months):
         projection_date = current_date + relativedelta(months=month_offset)
         month_str = projection_date.strftime("%Y-%m")
 
@@ -115,7 +133,7 @@ def calculate_monthly_revenue(dues_rate, billing_frequency, projection_date):
 def get_chart_config(data):
     """Generate chart configuration for the report"""
     return {
-        "data": {"x": "month", "y": [{"name": "Projected Revenue", "type": "line"}]},
+        "data": {"x": "month", "y": [{"name": "projected_revenue", "type": "line"}]},
         "chart_type": "line",
         "height": 300,
         "colors": ["#28A745"],

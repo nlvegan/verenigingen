@@ -14,6 +14,9 @@ def get_dashboard_data(year=None, period="year", compare_previous=False, filters
     if not year:
         year = datetime.now().year
 
+    # Ensure year is an integer
+    year = int(year)
+
     if filters and isinstance(filters, str):
         filters = json.loads(filters)
     else:
@@ -41,6 +44,9 @@ def get_dashboard_data(year=None, period="year", compare_previous=False, filters
 def get_summary_metrics(year, period="year", filters=None):
     """Get summary metrics for the dashboard header"""
     filters = filters or {}
+
+    # Ensure year is an integer
+    year = int(year)
 
     # Define date range
     if period == "year":
@@ -100,6 +106,9 @@ def get_summary_metrics(year, period="year", filters=None):
 
 def calculate_projected_revenue(year):
     """Calculate projected revenue for the year"""
+
+    # Ensure year is an integer
+    year = int(year)
     # Get all active memberships
     active_memberships = frappe.get_all(
         "Membership", filters={"status": "Active"}, fields=["name", "member", "membership_type"]
@@ -107,20 +116,32 @@ def calculate_projected_revenue(year):
 
     total_revenue = 0
     for membership in active_memberships:
-        # Check for fee override
-        member_doc = frappe.get_doc("Member", membership.member)
-        if member_doc.dues_rate:
-            annual_fee = member_doc.dues_rate
-        else:
-            # Get standard fee from template
-            membership_type = frappe.get_doc("Membership Type", membership.membership_type)
-            if membership_type.dues_schedule_template:
-                template = frappe.get_doc("Membership Dues Schedule", membership_type.dues_schedule_template)
-                annual_fee = template.suggested_amount or 0
-            else:
-                annual_fee = 0
+        try:
+            # Check if member exists before trying to get it
+            if not frappe.db.exists("Member", membership.member):
+                continue
 
-        total_revenue += annual_fee
+            # Check for fee override
+            member_doc = frappe.get_doc("Member", membership.member)
+            if member_doc.dues_rate:
+                annual_fee = member_doc.dues_rate
+            else:
+                # Get standard fee from template
+                membership_type = frappe.get_doc("Membership Type", membership.membership_type)
+                if membership_type.dues_schedule_template:
+                    template = frappe.get_doc(
+                        "Membership Dues Schedule", membership_type.dues_schedule_template
+                    )
+                    annual_fee = template.suggested_amount or 0
+                else:
+                    annual_fee = 0
+
+            total_revenue += annual_fee
+
+        except Exception as e:
+            # Log the error but don't crash the whole calculation
+            frappe.log_error(f"Error calculating revenue for membership {membership.name}: {str(e)}")
+            continue
 
     return total_revenue
 
@@ -130,6 +151,9 @@ def get_growth_trend(year, period="year", filters=None):
     """Get member growth trend data for charts"""
     filters = filters or {}
     growth_data = []
+
+    # Ensure year is an integer
+    year = int(year)
 
     if period == "year":
         # Monthly data for the year
@@ -162,6 +186,9 @@ def get_growth_trend(year, period="year", filters=None):
 def get_revenue_projection(year, filters=None):
     """Get revenue projection by membership type"""
     filters = filters or {}
+
+    # Ensure year is an integer
+    year = int(year)
     membership_types = frappe.get_all(
         "Membership Type", filters={"is_active": 1}, fields=["name", "minimum_amount"]
     )
@@ -200,6 +227,9 @@ def get_revenue_projection(year, filters=None):
 def get_membership_breakdown(year, filters=None):
     """Get membership breakdown by type"""
     filters = filters or {}
+
+    # Ensure year is an integer
+    year = int(year)
     breakdown = frappe.db.sql(
         """
         SELECT
@@ -221,6 +251,9 @@ def get_membership_breakdown(year, filters=None):
 @frappe.whitelist()
 def get_goals_progress(year):
     """Get progress on membership goals"""
+
+    # Ensure year is an integer
+    year = int(year)
     goals = frappe.get_all(
         "Membership Goal",
         filters={"goal_year": year, "status": ["in", ["Active", "In Progress", "Achieved"]]},
@@ -251,18 +284,23 @@ def get_goals_progress(year):
 @frappe.whitelist()
 def get_top_insights(year):
     """Get AI-like insights based on data analysis"""
+
+    # Ensure year is an integer
+    year = int(year)
     insights = []
 
-    # Get growth by chapter
+    # Get growth by chapter using Chapter Member relationship
     chapter_growth = frappe.db.sql(
         """
         SELECT
-            current_chapter_display as chapter,
-            COUNT(*) as new_members
-        FROM `tabMember`
-        WHERE member_since BETWEEN %s AND %s
-        AND current_chapter_display IS NOT NULL
-        GROUP BY current_chapter_display
+            c.name as chapter,
+            COUNT(DISTINCT m.name) as new_members
+        FROM `tabMember` m
+        JOIN `tabChapter Member` cm ON cm.member = m.name
+        JOIN `tabChapter` c ON c.name = cm.parent
+        WHERE m.member_since BETWEEN %s AND %s
+        AND cm.status = 'Active'
+        GROUP BY c.name
         ORDER BY new_members DESC
         LIMIT 1
     """,
@@ -275,10 +313,13 @@ def get_top_insights(year):
             """
             SELECT AVG(member_count) as avg_count
             FROM (
-                SELECT COUNT(*) as member_count
-                FROM `tabMember`
-                WHERE member_since BETWEEN %s AND %s
-                GROUP BY current_chapter_display
+                SELECT COUNT(DISTINCT m.name) as member_count
+                FROM `tabMember` m
+                JOIN `tabChapter Member` cm ON cm.member = m.name
+                JOIN `tabChapter` c ON c.name = cm.parent
+                WHERE m.member_since BETWEEN %s AND %s
+                AND cm.status = 'Active'
+                GROUP BY c.name
             ) as chapter_counts
         """,
             (f"{year}-01-01", f"{year}-12-31"),
@@ -322,6 +363,9 @@ def get_top_insights(year):
 
 def calculate_retention_rate(year):
     """Calculate retention rate for a year"""
+
+    # Ensure year is an integer
+    year = int(year)
     start_date = f"{year}-01-01"
     end_date = f"{year}-12-31"
 
@@ -359,6 +403,9 @@ def get_segmentation_data(year, period="year", filters=None):
     """Get detailed segmentation data"""
     filters = filters or {}
 
+    # Ensure year is an integer
+    year = int(year)
+
     # Apply filters to base query
     filter_conditions = build_filter_conditions(filters)
 
@@ -378,7 +425,9 @@ def build_filter_conditions(filters):
     conditions = []
 
     if filters.get("chapter"):
-        conditions.append(f"current_chapter_display = '{filters['chapter']}'")
+        conditions.append(
+            f"EXISTS (SELECT 1 FROM `tabChapter Member` cm JOIN `tabChapter` c ON c.name = cm.parent WHERE cm.member = m.name AND c.name = '{filters['chapter']}' AND cm.status = 'Active')"
+        )
 
     if filters.get("membership_type"):
         conditions.append(
@@ -429,19 +478,24 @@ def get_region_condition(region):
 
 def get_chapter_segmentation(year, filter_conditions):
     """Get member distribution by chapter"""
+
+    # Ensure year is an integer
+    year = int(year)
     query = f"""
         SELECT
-            COALESCE(current_chapter_display, 'No Chapter') as name,
-            COUNT(*) as total_members,
-            SUM(CASE WHEN YEAR(member_since) = {year} THEN 1 ELSE 0 END) as new_members,
-            AVG(COALESCE(dues_rate,
+            COALESCE(c.name, 'No Chapter') as name,
+            COUNT(DISTINCT m.name) as total_members,
+            SUM(CASE WHEN YEAR(m.member_since) = {year} THEN 1 ELSE 0 END) as new_members,
+            AVG(COALESCE(m.dues_rate,
                 (SELECT minimum_amount FROM `tabMembership Type` mt
                  JOIN `tabMembership` ms ON ms.membership_type = mt.name
                  WHERE ms.member = m.name AND ms.status = 'Active'
                  LIMIT 1), 0)) as avg_fee
         FROM `tabMember` m
-        WHERE status = 'Active' {filter_conditions}
-        GROUP BY current_chapter_display
+        LEFT JOIN `tabChapter Member` cm ON cm.member = m.name AND cm.status = 'Active'
+        LEFT JOIN `tabChapter` c ON c.name = cm.parent
+        WHERE m.status = 'Active' {filter_conditions}
+        GROUP BY c.name
         ORDER BY total_members DESC
     """
 
@@ -450,6 +504,9 @@ def get_chapter_segmentation(year, filter_conditions):
 
 def get_region_segmentation(year, filter_conditions):
     """Get member distribution by region"""
+
+    # Ensure year is an integer
+    year = int(year)
     query = f"""
         SELECT
             CASE
@@ -478,6 +535,9 @@ def get_region_segmentation(year, filter_conditions):
 
 def get_age_segmentation(year, filter_conditions):
     """Get member distribution by age group"""
+
+    # Ensure year is an integer
+    year = int(year)
     query = f"""
         SELECT
             CASE
@@ -506,6 +566,9 @@ def get_age_segmentation(year, filter_conditions):
 
 def get_payment_method_segmentation(year, filter_conditions):
     """Get member distribution by payment method"""
+
+    # Ensure year is an integer
+    year = int(year)
     query = f"""
         SELECT
             COALESCE(payment_method, 'Not Set') as name,
@@ -522,6 +585,9 @@ def get_payment_method_segmentation(year, filter_conditions):
 
 def get_join_year_segmentation(year, filter_conditions):
     """Get member distribution by join year"""
+
+    # Ensure year is an integer
+    year = int(year)
     query = f"""
         SELECT
             YEAR(member_since) as name,
@@ -545,6 +611,9 @@ def get_join_year_segmentation(year, filter_conditions):
 @frappe.whitelist()
 def get_cohort_analysis(year):
     """Get cohort retention analysis"""
+
+    # Ensure year is an integer
+    year = int(year)
     # Get last 12 months of cohorts
     cohorts = []
     end_date = datetime(year, 12, 31)

@@ -1,5 +1,5 @@
 /**
- * @fileoverview Membership Analytics Dashboard - Advanced Business Intelligence and Predictive Analytics
+ * @fileoverview Membership Analytics Dashboard - Advanced Business Intelligence and Predictive Analytics (Fixed v2.0)
  *
  * This module provides comprehensive analytics and business intelligence capabilities for association
  * membership management, featuring real-time dashboards, predictive modeling, cohort analysis,
@@ -238,14 +238,14 @@ class MembershipAnalytics {
 			args: {
 				doctype: 'Chapter',
 				fields: ['name'],
-				filters: { is_active: 1 },
+				filters: {},
 				limit_page_length: 0
 			},
 			callback: (r) => {
 				if (r.message) {
 					const select = $('#filter-chapter');
 					r.message.forEach(chapter => {
-						select.append(`<option value="${chapter.name}">${chapter.chapter_name}</option>`);
+						select.append(`<option value="${chapter.name}">${chapter.name}</option>`);
 					});
 				}
 			}
@@ -256,7 +256,7 @@ class MembershipAnalytics {
 			method: 'frappe.client.get_list',
 			args: {
 				doctype: 'Membership Type',
-				fields: ['name'],
+				fields: ['name', 'membership_type_name'],
 				filters: { is_active: 1 },
 				limit_page_length: 0
 			},
