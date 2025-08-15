@@ -1330,11 +1330,18 @@ class Member(
             if self.dues_rate:
                 if self.dues_rate <= 0:
                     frappe.throw(_("Membership fee override must be greater than 0"))
-                # Skip fee override reason validation for system updates (e.g., CSV import)
-                if not getattr(self, "_system_update", False) and not getattr(
-                    self, "fee_override_reason", None
-                ):
+                # Skip fee override reason validation for system updates and CSV imports
+                is_csv_import = getattr(self, "_csv_import", False)
+                is_system_update = getattr(self, "_system_update", False)
+
+                if not (is_csv_import or is_system_update) and not getattr(self, "fee_override_reason", None):
                     frappe.throw(_("Please provide a reason for the fee override"))
+
+                # For CSV imports, create audit log entry instead of requiring override fields
+                if is_csv_import and self.dues_rate:
+                    frappe.logger().info(
+                        f"CSV Import: Member {self.name or 'NEW'} imported with dues_rate {self.dues_rate}"
+                    )
 
                 # Set audit fields for new members (but no change tracking)
                 if not getattr(self, "fee_override_date", None):

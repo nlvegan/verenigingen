@@ -466,6 +466,10 @@ class MemberCSVImport(Document):
         elif field_type == "country":
             return self._convert_country_code(value)
 
+        # Membership type conversion
+        elif field_type == "membership_type":
+            return self._convert_membership_type(value)
+
         return cstr(value)
 
     def _convert_country_code(self, country_code: str) -> str:
@@ -495,28 +499,54 @@ class MemberCSVImport(Document):
         return country_mapping.get(code, country_code)  # Return original if not found
 
     def _clean_phone_number(self, phone_number: str) -> str:
-        """Clean phone number format for better validation compatibility."""
+        """Clean and normalize phone number format for validation compatibility."""
         if not phone_number:
             return ""
 
         # Remove extra whitespace
         phone = phone_number.strip()
 
-        # Common format standardizations for Dutch/European numbers
-        # Convert formats like "+31 6 12345678" to "+31612345678"
+        # Step 1: Normalize common formats
         if phone.startswith("+"):
             # Remove spaces in international numbers but keep the + prefix
             phone = "+" + "".join(phone[1:].split())
-
-            # Special handling for Dutch mobile numbers that might be rejected
-            # Convert +31612345678 to 0612345678 format if validation fails
-            if phone.startswith("+316") and len(phone) == 12:  # Dutch mobile
-                phone = "0" + phone[3:]  # Convert +31612345678 to 0612345678
         else:
             # For non-international numbers, just remove spaces and dashes
             phone = "".join(phone.split()).replace("-", "")
 
-        return phone
+        # Step 2: Apply Dutch-specific normalization rules
+        if phone.startswith("+316") and len(phone) == 12:  # Dutch mobile
+            # Convert to national format for better compatibility
+            phone = "0" + phone[3:]  # +31612345678 → 0612345678
+        elif phone.startswith("+3120") or phone.startswith("+3130"):  # Dutch landline
+            # Convert to national format
+            phone = "0" + phone[3:]  # +31201234567 → 0201234567
+
+        # Step 3: Validate length and format for Dutch numbers
+        if phone.startswith("06") and len(phone) == 10:  # Dutch mobile
+            return phone
+        elif phone.startswith("0") and len(phone) >= 9 and len(phone) <= 10:  # Dutch landline
+            return phone
+        elif phone.startswith("+") and len(phone) >= 10 and len(phone) <= 15:  # International
+            return phone
+        else:
+            # Invalid format - return empty string to skip this field
+            frappe.logger().warning(f"Invalid phone number format during CSV import: {phone_number}")
+            return ""
+
+    def _convert_membership_type(self, membership_type: str) -> str:
+        """Convert Dutch membership types to standardized values."""
+        type_mapping = {
+            "lid": "Standard",  # Regular member
+            "aspirant": "Aspirant",  # Candidate/provisional member
+            "uitgeschreven": "Terminated",  # Unsubscribed/left voluntarily
+            "opgezegd": "Terminated",  # Cancelled/terminated
+            "geroyeerd": "Expelled",  # Expelled/removed for cause
+            "geschorst": "Suspended",  # Suspended
+        }
+
+        type_value = membership_type.lower().strip() if membership_type else ""
+        return type_mapping.get(type_value, membership_type)  # Return original if not found
 
     def _parse_date(self, date_str: str) -> Optional[str]:
         """Parse date string to YYYY-MM-DD format."""
@@ -800,31 +830,21 @@ class MemberCSVImport(Document):
             member = frappe.new_doc("Member")
             self._update_member_fields(member, row_data)
 
-            # Set system flags to bypass validations for CSV import
+            # Set system flags for CSV import - maintain validation but mark as system operation
             member.flags.ignore_validate = False  # We want validation, but with system flags
-            member.flags.ignore_permissions = True  # Administrative import operation
+            member._csv_import = True  # Mark as CSV import for validation exceptions
 
-            # Temporarily disable phone field validation for this member
-            contact_field = member.meta.get_field("contact_number")
-            original_options = None
-            if contact_field and contact_field.options == "Phone":
-                original_options = contact_field.options
-                contact_field.options = None
+            # Check if user has CSV import permissions
+            if not self._check_csv_import_permissions():
+                frappe.throw(
+                    _("You do not have permission to perform CSV imports. Contact your administrator.")
+                )
 
-            try:
-                # Save member first (Customer will be created automatically by Member DocType hooks)
-                member.insert(ignore_permissions=True)
-            finally:
-                # Restore original phone validation
-                if contact_field and original_options:
-                    contact_field.options = original_options
+            # Save member with proper validation
+            member.insert()
 
-            # Create address after member and customer are created
-            if hasattr(member, "_pending_address_data") and member._pending_address_data:
-                self._create_or_update_address(member, member._pending_address_data)
-                # Update primary_address field on member if address was created
-                if member.primary_address:
-                    member.save()
+            # Create related records after successful member creation
+            self._create_related_records(member)
 
             return "created"
 
@@ -835,7 +855,19 @@ class MemberCSVImport(Document):
         # CSV imported members are backend-created, not application-created
         member_doc.application_id = None  # Explicitly ensure no application ID
         member_doc.application_status = "Approved"  # Backend-created = pre-approved
-        member_doc.status = "Active"  # Immediately active
+
+        # Set status based on membership type
+        membership_type = row_data.get("membership_type", "").lower()
+        if membership_type in ["lid", "aspirant"]:
+            member_doc.status = "Active"
+        elif membership_type in ["uitgeschreven", "opgezegd"]:
+            member_doc.status = "Terminated"
+        elif membership_type == "geroyeerd":
+            member_doc.status = "Expelled"
+        elif membership_type == "geschorst":
+            member_doc.status = "Suspended"
+        else:
+            member_doc.status = "Active"  # Default for unknown types
 
         # Set system flags early to ensure they're available during all validations
         member_doc._system_update = True  # Bypass fee override validation
@@ -865,31 +897,24 @@ class MemberCSVImport(Document):
         if row_data.get("email"):
             member_doc.email = row_data["email"]
         if row_data.get("contact_number"):
-            # For CSV imports, if phone validation might fail, store it in a different field or skip
-            # Try to set the contact number, but don't fail the entire import if it's invalid
-            try:
-                cleaned_phone = self._clean_phone_number(row_data["contact_number"])
+            # Clean and normalize the phone number
+            cleaned_phone = self._clean_phone_number(row_data["contact_number"])
+            if cleaned_phone:  # Only set if cleaning was successful
                 member_doc.contact_number = cleaned_phone
-            except:
-                # If phone validation fails, store in notes or skip
-                frappe.logger().warning(
-                    f"Invalid phone number for member import: {row_data['contact_number']}"
-                )
-                member_doc.contact_number = None
+            # If cleaning failed, the field will remain empty (logged in _clean_phone_number)
         if row_data.get("member_since"):
             member_doc.member_since = row_data["member_since"]
+        if row_data.get("membership_type"):
+            # Store the cleaned membership type
+            member_doc.membership_type = row_data["membership_type"]
 
         # Financial information
         if row_data.get("iban"):
             member_doc.iban = row_data["iban"]
             member_doc.payment_method = "SEPA Direct Debit"
         if row_data.get("dues_rate"):
-            # Set dues_rate and provide temporary fee override fields to satisfy validation
+            # Set dues_rate - CSV import flag will handle validation bypass
             member_doc.dues_rate = row_data["dues_rate"]
-            # Set temporary fee override fields to bypass validation (these fields don't exist in schema but satisfy getattr checks)
-            setattr(member_doc, "fee_override_reason", "CSV Import - Imported from external system")
-            setattr(member_doc, "fee_override_date", today())
-            setattr(member_doc, "fee_override_by", frappe.session.user)
 
         # Mollie information
         if row_data.get("mollie_customer_id"):
@@ -904,6 +929,14 @@ class MemberCSVImport(Document):
             if any(row_data.get(field) for field in ["address_line1", "city", "postal_code"])
             else None
         )
+
+        # Store termination information for later creation if member is terminated
+        if membership_type in ["uitgeschreven", "opgezegd", "geroyeerd", "geschorst"]:
+            member_doc._pending_termination_data = {
+                "membership_type": membership_type,
+                "member_since": row_data.get("member_since"),
+                "termination_reason": self._get_termination_reason(membership_type),
+            }
 
         # Set member_since date (status was already set at the beginning of _update_member_fields)
         member_doc.member_since = row_data.get("member_since") or today()
@@ -968,6 +1001,72 @@ class MemberCSVImport(Document):
             address = frappe.get_doc({"doctype": "Address", **address_data})
             address.insert()
             member_doc.primary_address = address.name
+
+    def _get_termination_reason(self, membership_type: str) -> str:
+        """Get human-readable termination reason from membership type."""
+        reason_mapping = {
+            "uitgeschreven": "Voluntarily left membership",
+            "opgezegd": "Membership cancelled/terminated",
+            "geroyeerd": "Expelled from organization",
+            "geschorst": "Membership suspended",
+        }
+        return reason_mapping.get(membership_type, f"Terminated ({membership_type})")
+
+    def _check_csv_import_permissions(self) -> bool:
+        """Check if current user has permission to perform CSV imports."""
+        user_roles = frappe.get_roles(frappe.session.user)
+        # Define roles that can perform CSV imports
+        authorized_roles = ["System Manager", "Verenigingen Administrator", "Verenigingen Manager"]
+
+        return any(role in user_roles for role in authorized_roles)
+
+    def _create_related_records(self, member_doc: Document):
+        """Create related records (address, termination) after successful member creation."""
+        try:
+            # Create address if address data was provided
+            if hasattr(member_doc, "_pending_address_data") and member_doc._pending_address_data:
+                self._create_or_update_address(member_doc, member_doc._pending_address_data)
+                # Update primary_address field on member if address was created
+                if member_doc.primary_address:
+                    member_doc.save()
+
+            # Create membership termination record if needed
+            if hasattr(member_doc, "_pending_termination_data"):
+                self._create_termination_record(member_doc, member_doc._pending_termination_data)
+
+        except Exception as e:
+            # Log error but don't fail the entire member creation for related record issues
+            frappe.logger().error(f"Failed to create related records for member {member_doc.name}: {str(e)}")
+
+    def _create_termination_record(self, member_doc: Document, termination_data: dict):
+        """Create a membership termination record for historical accuracy."""
+        try:
+            # Check if Member Termination Request DocType exists
+            if not frappe.db.exists("DocType", "Membership Termination Request"):
+                frappe.logger().info(
+                    "Membership Termination Request DocType not found, skipping termination record creation"
+                )
+                return
+
+            termination_doc = frappe.new_doc("Membership Termination Request")
+            termination_doc.member = member_doc.name
+            termination_doc.termination_reason = termination_data["termination_reason"]
+            termination_doc.termination_date = termination_data.get("member_since") or today()
+            termination_doc.notes = (
+                f"Imported from CSV - Original type: {termination_data['membership_type']}"
+            )
+            termination_doc.status = "Approved"  # Historical data is pre-approved
+
+            # Set flags to bypass workflow for historical data
+            termination_doc._csv_import = True
+
+            # Insert termination record with proper permissions
+            termination_doc.insert()
+            frappe.logger().info(f"Created termination record for member {member_doc.name}")
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to create termination record for {member_doc.name}: {str(e)}")
+            # Don't fail the entire import for termination record issues
 
 
 @frappe.whitelist()
