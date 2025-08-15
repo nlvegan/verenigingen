@@ -1,8 +1,11 @@
-{% extends "templates/web.html" %}
+{% extends "templates/base_portal.html" %}
 
 {% block title %}{{ _("Make a Donation") }}{% endblock %}
 
-{% block head_include %}
+{% block style %}
+<link href="/assets/verenigingen/css/tailwind.css" rel="stylesheet">
+{% from "templates/macros/brand_css.html" import brand_css %}
+{{ brand_css() }}
 <style>
 .donation-form {
     max-width: 800px;
@@ -22,8 +25,7 @@
 }
 
 .progress-bar {
-    background-color: #cf3131;
-    transition: width 0.3s ease;
+    @apply bg-primary-600 transition-all duration-300;
 }
 
 .progress-steps {
@@ -42,13 +44,11 @@
 }
 
 .step.active {
-    background-color: #cf3131;
-    color: white;
+    @apply bg-primary-600 text-white;
 }
 
 .step.completed {
-    background-color: #01796f;
-    color: white;
+    @apply bg-secondary-600 text-white;
 }
 
 .form-step {
@@ -88,9 +88,7 @@
 }
 
 .form-control:focus {
-    outline: none;
-    border-color: #cf3131;
-    box-shadow: 0 0 0 2px rgba(207,49,49,0.25);
+    @apply outline-none border-primary-600 ring-2 ring-primary-200;
 }
 
 .form-check {
@@ -113,12 +111,7 @@
 }
 
 .btn-primary {
-    background-color: #cf3131;
-    color: white;
-}
-
-.btn-primary:hover {
-    background-color: #b82828;
+    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-3 px-6 rounded-lg transition-colors duration-200;
 }
 
 .btn-secondary {
@@ -140,12 +133,11 @@
 }
 
 .payment-method:hover {
-    border-color: #cf3131;
+    @apply border-primary-600;
 }
 
 .payment-method.selected {
-    border-color: #cf3131;
-    background-color: #fef2f2;
+    @apply border-primary-600 bg-primary-50;
 }
 
 .payment-method h5 {

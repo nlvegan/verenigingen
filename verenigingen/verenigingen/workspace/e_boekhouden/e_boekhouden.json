@@ -1,0 +1,127 @@
+{
+ "charts": [],
+ "content": "[{\"id\":\"MigrationHeader\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\"><b>E-Boekhouden Integration</b></span>\",\"col\":12}},{\"id\":\"MigrationCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Migration & Settings\",\"col\":4}},{\"id\":\"MappingCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Mapping & Configuration\",\"col\":4}},{\"id\":\"MonitoringCard\",\"type\":\"card\",\"data\":{\"card_name\":\"Monitoring & Logs\",\"col\":4}}]",
+ "creation": "2025-08-15 11:52:35.542514",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "accounting",
+ "idx": 0,
+ "indicator_color": "green",
+ "is_hidden": 0,
+ "label": "E-Boekhouden",
+ "links": [
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Migration & Settings",
+   "link_count": 3,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "E-Boekhouden Migration",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Migration",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "E-Boekhouden Settings",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Settings",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "E-Boekhouden Dashboard",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Dashboard",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Mapping & Configuration",
+   "link_count": 5,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Ledger Mapping",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Ledger Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Item Mapping",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Item Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Payment Mapping",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Payment Mapping",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Monitoring & Logs",
+   "link_count": 1,
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Card Break"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Import Log",
+   "link_count": 0,
+   "link_to": "E-Boekhouden Import Log",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  }
+ ],
+ "modified": "2025-08-15 16:14:06.957234",
+ "modified_by": "Administrator",
+ "module": "Verenigingen",
+ "name": "E-Boekhouden",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "Verenigingen Payments",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 3.0,
+ "shortcuts": [],
+ "title": "E-Boekhouden"
+}
