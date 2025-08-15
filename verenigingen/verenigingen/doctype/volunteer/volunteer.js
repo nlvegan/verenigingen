@@ -507,23 +507,28 @@ function show_volunteer_timeline(frm) {
 				const history = r.message;
 
 				// Create a formatted HTML timeline
-				let html = '<div class="timeline-view">';
+				let html = '<div class="timeline-view" role="region" aria-label="Volunteer assignment history timeline">';
 				html += `<h4>${__('Volunteer History Timeline')}</h4>`;
-				html += '<div class="timeline-items">';
+				html += '<div class="timeline-items" role="list" aria-label="Assignment history entries">';
 
-				history.forEach((item) => {
+				history.forEach((item, index) => {
 					let status_color = item.is_active ? 'green' : 'grey';
 					if (item.status === 'Cancelled') { status_color = 'red'; }
 
-					html += '<div class="timeline-item">';
-					html += `<div class="timeline-dot" style="background-color: var(--${status_color});"></div>`;
+					const statusText = item.is_active ? 'Active' : item.status;
+					const dateRange = item.end_date
+						? `from ${frappe.datetime.str_to_user(item.start_date)} to ${frappe.datetime.str_to_user(item.end_date)}`
+						: `from ${frappe.datetime.str_to_user(item.start_date)} to Present`;
+					const ariaLabel = `Assignment ${index + 1}: ${item.role} in ${item.assignment_type}, ${dateRange}, status: ${statusText}`;
+
+					html += `<div class="timeline-item" role="listitem" aria-label="${ariaLabel}" tabindex="0">`;
+					html += `<div class="timeline-dot" style="background-color: var(--${status_color});" aria-hidden="true"></div>`;
 					html += '<div class="timeline-content">';
 					html += `<div class="timeline-title">${item.role} (${item.assignment_type})</div>`;
 					html += `<div class="timeline-reference">${item.reference || ''}</div>`;
 					html += `<div class="timeline-dates">${frappe.datetime.str_to_user(item.start_date)
 					}${item.end_date ? ` to ${frappe.datetime.str_to_user(item.end_date)}` : ' to Present'}</div>`;
-					html += `<div class="timeline-status"><span class="indicator ${status_color}">${
-						item.is_active ? 'Active' : item.status}</span></div>`;
+					html += `<div class="timeline-status"><span class="indicator ${status_color}">${statusText}</span></div>`;
 					html += '</div>'; // timeline-content
 					html += '</div>'; // timeline-item
 				});
@@ -532,7 +537,7 @@ function show_volunteer_timeline(frm) {
 				html += '</div>'; // timeline-view
 
 				// Show the timeline in a dialog
-				var d = new frappe.ui.Dialog({
+				const d = new frappe.ui.Dialog({
 					title: __('Volunteer History for {0}', [frm.doc.volunteer_name]),
 					fields: [{
 						fieldtype: 'HTML',
@@ -599,7 +604,7 @@ function show_volunteer_timeline(frm) {
 // Function to add a new skill
 function add_new_skill(frm) {
 	// Dialog to add a new skill
-	var d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Add New Skill'),
 		fields: [
 			{
@@ -847,7 +852,7 @@ function generate_report_html(frm, skills_by_category, assignments) {
 
 // Helper function to show report dialog
 function show_report_dialog(frm, html) {
-	var d = new frappe.ui.Dialog({
+	const d = new frappe.ui.Dialog({
 		title: __('Volunteer Report'),
 		fields: [{
 			fieldtype: 'HTML',

@@ -241,7 +241,7 @@ class Volunteer(Document):
                 'Team Member' as source_doctype,
                 tm.parent as source_name,
                 COALESCE(t.team_type, 'Team') as source_doctype_display,
-                t.name as source_name_display,
+                t.team_name as source_name_display,
                 tm.role,
                 tm.from_date as start_date,
                 tm.to_date as end_date,
@@ -328,93 +328,111 @@ class Volunteer(Document):
 
         return assignments
 
+    def _transform_membership_to_assignment(self, membership, config):
+        """Transform membership data to standardized assignment format"""
+        return {
+            "source_type": config["source_type"],
+            "source_doctype": config["source_doctype"],
+            "source_name": membership[config["source_name_field"]],
+            "source_doctype_display": config.get("source_doctype_display", config["source_doctype"]),
+            "source_name_display": membership[config["display_name_field"]],
+            "role": membership[config["role_field"]],
+            "start_date": membership.get("from_date"),
+            "end_date": membership.get("to_date"),
+            "is_active": config["is_active_func"](membership),
+            "editable": config.get("editable", False),
+            "source_link": config["source_link_template"].format(
+                source_id=membership[config["source_name_field"]]
+            ),
+        }
+
+    def _build_membership_query(self, child_doctype, parent_doctype, config):
+        """Build standardized membership query using Query Builder"""
+        ChildDT = DocType(child_doctype)
+        ParentDT = DocType(parent_doctype)
+
+        query = (
+            frappe.qb.from_(ChildDT)
+            .join(ParentDT)
+            .on(ChildDT.parent == ParentDT.name)
+            .select(
+                ChildDT.name.as_("membership_id"),
+                ChildDT.parent.as_(config["source_name_field"]),
+                *config["select_fields"],
+            )
+            .where((ChildDT.volunteer == self.name) & config["where_condition"](ChildDT))
+        )
+
+        return query.run(as_dict=True)
+
     def get_board_assignments(self):
         """Get board assignments from Chapter Board Member"""
-        board_assignments = []
-
-        # Query board memberships for this volunteer using Query Builder
         CBM = DocType("Chapter Board Member")
         Chapter = DocType("Chapter")
 
-        board_memberships = (
-            frappe.qb.from_(CBM)
-            .join(Chapter)
-            .on(CBM.parent == Chapter.name)
-            .select(
-                CBM.name.as_("membership_id"),
-                CBM.parent.as_("chapter"),
+        config = {
+            "source_type": "Board Position",
+            "source_doctype": "Chapter",
+            "source_name_field": "chapter",
+            "source_doctype_display": "Chapter",
+            "display_name_field": "chapter_name",
+            "role_field": "role",
+            "editable": False,
+            "source_link_template": "/app/chapter/{source_id}",
+            "is_active_func": lambda m: bool(m.is_active),
+            "where_condition": lambda dt: dt.is_active == 1,
+            "select_fields": [
                 CBM.chapter_role.as_("role"),
                 CBM.from_date,
                 CBM.to_date,
                 CBM.is_active,
                 Chapter.name.as_("chapter_name"),
-            )
-            .where((CBM.volunteer == self.name) & (CBM.is_active == 1))
-        ).run(as_dict=True)
+            ],
+        }
 
-        for membership in board_memberships:
-            board_assignments.append(
-                {
-                    "source_type": "Board Position",
-                    "source_doctype": "Chapter",
-                    "source_name": membership.chapter,
-                    "source_doctype_display": "Chapter",
-                    "source_name_display": membership.chapter_name,
-                    "role": membership.role,
-                    "start_date": membership.from_date,
-                    "end_date": membership.to_date,
-                    "is_active": membership.is_active,
-                    "editable": False,
-                    "source_link": f"/app/chapter/{membership.chapter}",
-                }
-            )
+        board_memberships = self._build_membership_query("Chapter Board Member", "Chapter", config)
 
-        return board_assignments
+        return [
+            self._transform_membership_to_assignment(membership, config) for membership in board_memberships
+        ]
 
     def get_team_assignments(self):
         """Get team assignments from Team Member"""
-        team_assignments = []
-
-        # Query team memberships for this volunteer using Query Builder
         TM = DocType("Team Member")
         Team = DocType("Team")
 
-        team_memberships = (
-            frappe.qb.from_(TM)
-            .join(Team)
-            .on(TM.parent == Team.name)
-            .select(
-                TM.name.as_("membership_id"),
-                TM.parent.as_("team"),
+        config = {
+            "source_type": "Team",
+            "source_doctype": "Team",
+            "source_name_field": "team",
+            "display_name_field": "team_name",
+            "role_field": "role",
+            "editable": False,
+            "source_link_template": "/app/team/{source_id}",
+            "is_active_func": lambda m: m.status == "Active",
+            "where_condition": lambda dt: dt.status == "Active",
+            "select_fields": [
                 TM.role,
                 TM.role_type,
                 TM.from_date,
                 TM.to_date,
                 TM.status,
-                Team.name.as_("team_name"),
+                Team.team_name,
                 Team.team_type,
-            )
-            .where((TM.volunteer == self.name) & (TM.status == "Active"))
-        ).run(as_dict=True)
+            ],
+        }
 
+        team_memberships = self._build_membership_query("Team Member", "Team", config)
+
+        # Transform with special handling for team_type display
+        assignments = []
         for membership in team_memberships:
-            team_assignments.append(
-                {
-                    "source_type": "Team",
-                    "source_doctype": "Team",
-                    "source_name": membership.team,
-                    "source_doctype_display": f"{membership.team_type or 'Team'}",
-                    "source_name_display": membership.team_name,
-                    "role": membership.role,
-                    "start_date": membership.from_date,
-                    "end_date": membership.to_date,
-                    "is_active": membership.status == "Active",
-                    "editable": False,
-                    "source_link": f"/app/team/{membership.team}",
-                }
-            )
+            assignment = self._transform_membership_to_assignment(membership, config)
+            # Special case: customize source_doctype_display for teams
+            assignment["source_doctype_display"] = f"{membership.team_type or 'Team'}"
+            assignments.append(assignment)
 
-        return team_assignments
+        return assignments
 
     def get_activity_assignments(self):
         """Get active assignments from assignment history and Volunteer Activity"""
