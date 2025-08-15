@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # Import unified DocType loader - secure import without modifying sys.path
 try:
     from .doctype_loader import load_doctypes_detailed
+    from .hooks_parser import HooksParser
 except ImportError:
     # Fallback for direct script execution
     current_dir = Path(__file__).parent
@@ -41,6 +42,7 @@ except ImportError:
         sys.path.insert(0, str(current_dir))
     try:
         from doctype_loader import load_doctypes_detailed
+        from hooks_parser import HooksParser
     finally:
         # Clean up sys.path modification
         if str(current_dir) in sys.path:
@@ -82,6 +84,7 @@ class ValidationIssue:
     suggested_fix: Optional[str] = None
     severity: str = "medium"
     category: str = "field_reference"
+    inference_method: Optional[str] = None
 
 class ConfidenceThresholds:
     """Confidence scoring thresholds"""
@@ -216,6 +219,9 @@ class ASTFieldAnalyzer:
         self.doctypes = load_doctypes_detailed(str(self.app_path), verbose=False)
         self.child_table_mapping = self._build_child_table_mapping()
         self.issues = []
+        
+        # Initialize hooks parser for event handler mapping
+        self.hooks_parser = HooksParser(str(self.app_path), verbose=False)
         
         # Build comprehensive patterns
         self.excluded_patterns = self._build_excluded_patterns()
@@ -559,6 +565,21 @@ class ASTFieldAnalyzer:
         """Calculate confidence level for an issue based on multiple factors"""
         confidence_score = 50  # Start at medium
         
+        # Adjust base score based on inference method
+        inference_confidence = {
+            "explicit_type_check": 95,
+            "hooks_registry": 90, 
+            "field_usage_pattern": 80,
+            "variable_assignment": 60,
+            "child_table_iteration": 70,
+            "function_parameter_analysis": 40,
+            "variable_name_mapping": 30,
+            "context_inference": 20
+        }
+        
+        if issue.inference_method and issue.inference_method in inference_confidence:
+            confidence_score = inference_confidence[issue.inference_method]
+        
         # Increase confidence for certain patterns
         if issue.issue_type == "missing_doctype":
             confidence_score += 30
@@ -651,43 +672,128 @@ class ASTFieldAnalyzer:
         
         return False
     
+    def _should_skip_validation(self, obj_name: str, field_name: str, context_line: str, 
+                              file_context: ValidationContext) -> bool:
+        """Skip validation for ambiguous cases where DocType cannot be confidently determined"""
+        
+        # Skip if object name is too generic/ambiguous
+        ambiguous_names = {
+            'data', 'item', 'obj', 'result', 'response', 'content', 'info',
+            'details', 'record', 'row', 'entry', 'instance', 'entity'
+        }
+        
+        if obj_name in ambiguous_names:
+            return True
+        
+        # Skip if in a conditional context where field existence is being checked
+        defensive_patterns = [
+            f'if {obj_name}.get("{field_name}")',
+            f'if {obj_name}.{field_name}:',
+            f'if not {obj_name}.{field_name}:',
+            f'hasattr({obj_name}, "{field_name}")',
+            f'getattr({obj_name}, "{field_name}"',
+        ]
+        
+        for pattern in defensive_patterns:
+            if pattern in context_line:
+                return True
+        
+        # Skip if field name is very generic (likely to exist across multiple DocTypes)
+        generic_fields = {
+            'name', 'title', 'status', 'modified', 'creation', 'owner', 'doctype',
+            'idx', 'parent', 'parenttype', 'parentfield', 'disabled'
+        }
+        
+        if field_name in generic_fields:
+            return True
+        
+        # Skip if in a factory/builder pattern where type is dynamic
+        factory_patterns = [
+            'frappe.get_doc', 'frappe.new_doc', 'get_mapped_doc',
+            'make_autoname', 'create_variant', 'duplicate_doc'
+        ]
+        
+        for pattern in factory_patterns:
+            if pattern in context_line:
+                return True
+        
+        # Skip if variable name suggests it could be multiple types
+        polymorphic_names = {
+            'document', 'record', 'target_doc', 'source_doc', 'ref_doc',
+            'linked_doc', 'parent_doc', 'child_doc', 'reference'
+        }
+        
+        if obj_name in polymorphic_names:
+            return True
+        
+        return False
+    
     def detect_doctype_with_modern_logic(self, node: ast.Attribute, source_lines: List[str],
-                                        file_context: ValidationContext) -> Optional[str]:
+                                        file_context: ValidationContext) -> Tuple[Optional[str], Optional[str]]:
         """Modern DocType detection with multiple strategies and confidence"""
         
         obj_name = node.value.id if hasattr(node.value, 'id') else None
         if not obj_name:
-            return None
+            return None, None
         
         line_num = node.lineno
         
-        # Strategy 1: Direct variable assignment tracking (most accurate)
-        assignment_doctype = self._track_variable_assignment(obj_name, source_lines, line_num)
-        if assignment_doctype:
-            return assignment_doctype
+        if self.verbose and obj_name == 'doc':
+            print(f"    🔍 Starting detection for {obj_name} at line {line_num}")
         
-        # Strategy 2: Child table iteration patterns
+        # Strategy 1: Explicit type checks in code (highest confidence)
+        if obj_name in ['doc', 'self']:
+            if self.verbose and obj_name == 'doc':
+                print(f"    🔍 Trying Strategy 1: Explicit type check")
+            explicit_doctype = self._find_explicit_type_check(obj_name, source_lines, line_num)
+            if explicit_doctype:
+                return explicit_doctype, "explicit_type_check"
+        
+        # Strategy 2: Event handler hooks registry (very high confidence)
+        if obj_name in ['doc', 'self']:
+            if self.verbose and obj_name == 'doc':
+                print(f"    🔍 Trying Strategy 2: Hooks registry")
+            hook_doctype = self._analyze_hooks_registry(source_lines, line_num, file_context)
+            if hook_doctype:
+                return hook_doctype, "hooks_registry"
+        
+        # Strategy 3: Field usage pattern analysis (high confidence)
+        if obj_name in ['doc', 'self']:
+            if self.verbose and obj_name == 'doc':
+                print(f"    🔍 Trying Strategy 3: Field usage patterns")
+            pattern_doctype = self._infer_from_field_usage_patterns(obj_name, source_lines, line_num, node)
+            if pattern_doctype:
+                return pattern_doctype, "field_usage_pattern"
+        
+        # Strategy 4: Direct variable assignment tracking (medium confidence)
+        assignment_doctype = self._track_variable_assignment(obj_name, source_lines, line_num)
+        if self.verbose and obj_name == 'doc':
+            print(f"    🔍 Strategy 4 result: {assignment_doctype}")
+        if assignment_doctype:
+            return assignment_doctype, "variable_assignment"
+        
+        # Strategy 5: Child table iteration patterns
         child_doctype = self._detect_child_table_iteration(obj_name, source_lines, line_num)
         if child_doctype:
-            return child_doctype
+            return child_doctype, "child_table_iteration"
         
-        # Strategy 3: Function parameter analysis
+        # Strategy 6: Function parameter analysis (legacy method)
         if obj_name in ['doc', 'self']:
             param_doctype = self._analyze_function_parameters(source_lines, line_num, file_context)
             if param_doctype:
-                return param_doctype
+                return param_doctype, "function_parameter_analysis"
         
-        # Strategy 4: Enhanced variable name mapping
+        # Strategy 7: Enhanced variable name mapping
         mapped_doctype = self._map_variable_to_doctype(obj_name)
         if mapped_doctype:
-            return mapped_doctype
+            return mapped_doctype, "variable_name_mapping"
         
-        # Strategy 5: Context-based inference
+        # Strategy 8: Context-based inference
         inferred_doctype = self._infer_from_context(obj_name, source_lines, line_num, file_context)
         if inferred_doctype:
-            return inferred_doctype
+            return inferred_doctype, "context_inference"
         
-        return None
+        return None, None
     
     def _track_variable_assignment(self, var_name: str, lines: List[str], current_line: int, depth: int = 0) -> Optional[str]:
         """Track variable assignments to determine DocType with enhanced recursion protection"""
@@ -829,6 +935,118 @@ class ASTFieldAnalyzer:
                     if file_context.doctype_hints:
                         # Return the most likely hint
                         return next(iter(file_context.doctype_hints), None)
+        
+        return None
+    
+    def _find_explicit_type_check(self, var_name: str, source_lines: List[str], line_num: int) -> Optional[str]:
+        """Find explicit doctype checks like 'if doc.doctype == "X"'"""
+        # Search in a reasonable window around the current line
+        start_line = max(0, line_num - 20)
+        end_line = min(len(source_lines), line_num + 10)
+        
+        patterns = [
+            rf'if\s+{var_name}\.doctype\s*==\s*["\'](\w+(?:\s+\w+)*)["\']',
+            rf'if\s+{var_name}\.get\(["\']doctype["\']\)\s*==\s*["\'](\w+(?:\s+\w+)*)["\']',
+            rf'{var_name}\.doctype\s*!=\s*["\'](\w+(?:\s+\w+)*)["\']',  # Negative checks
+        ]
+        
+        for i in range(start_line, end_line):
+            line = source_lines[i].strip()
+            for pattern in patterns:
+                match = re.search(pattern, line)
+                if match:
+                    doctype = match.group(1)
+                    # Verify this is a valid DocType
+                    if doctype in self.doctypes:
+                        if self.verbose:
+                            print(f"  ✓ Found {var_name} -> {doctype} via explicit type check")
+                        return doctype
+        
+        return None
+    
+    def _analyze_hooks_registry(self, source_lines: List[str], line_num: int, 
+                               file_context: ValidationContext) -> Optional[str]:
+        """Use hooks registry to determine DocType for event handler functions"""
+        # Find the containing function
+        for i in range(line_num - 1, max(0, line_num - 100), -1):
+            line = source_lines[i].strip()
+            
+            # Check for function definition
+            if line.startswith('def '):
+                func_match = re.match(r'def\s+(\w+)\s*\(', line)
+                if func_match:
+                    func_name = func_match.group(1)
+                    
+                    # Look up in hooks registry
+                    doctype = self.hooks_parser.get_doctype_for_function(func_name)
+                    if doctype:
+                        if self.verbose:
+                            print(f"  ✓ Found {func_name} -> {doctype} via hooks registry")
+                        return doctype
+                    
+                    # Check if it's a polymorphic function
+                    if self.hooks_parser.is_polymorphic_function(func_name):
+                        # For polymorphic functions, we can't be certain
+                        return None
+                    
+                    break
+        
+        return None
+    
+    def _infer_from_field_usage_patterns(self, var_name: str, source_lines: List[str], 
+                                       line_num: int, current_node: ast.Attribute) -> Optional[str]:
+        """Infer DocType from unique field combination patterns"""
+        # Collect all fields accessed on this variable in nearby code
+        accessed_fields = set()
+        
+        # Search in a reasonable window around the current line
+        start_line = max(0, line_num - 30)
+        end_line = min(len(source_lines), line_num + 30)
+        
+        for i in range(start_line, end_line):
+            line = source_lines[i].strip()
+            
+            # Find patterns like var_name.field_name
+            pattern = rf'{var_name}\.(\w+)'
+            matches = re.findall(pattern, line)
+            for match in matches:
+                # Exclude methods and common properties
+                if match not in ['get', 'set', 'save', 'insert', 'submit', 'cancel', 'delete', 
+                               'name', 'doctype', 'creation', 'modified', 'owner', 'modified_by']:
+                    accessed_fields.add(match)
+        
+        # Add the current field being accessed
+        if hasattr(current_node, 'attr'):
+            accessed_fields.add(current_node.attr)
+        
+        # Match against known field signatures
+        field_signatures = {
+            # Payment Entry signature
+            frozenset(['party_type', 'party', 'paid_from', 'paid_to']): 'Payment Entry',
+            frozenset(['party_type', 'party']): 'Payment Entry',
+            
+            # Verenigingen Settings signature  
+            frozenset(['member_id_start', 'last_member_id']): 'Verenigingen Settings',
+            frozenset(['member_id_start']): 'Verenigingen Settings',
+            
+            # Sales Invoice signature
+            frozenset(['customer', 'items', 'taxes']): 'Sales Invoice',
+            frozenset(['customer', 'grand_total']): 'Sales Invoice',
+            
+            # Member signature
+            frozenset(['first_name', 'last_name', 'member_id']): 'Member',
+            frozenset(['full_name', 'customer']): 'Member',
+            
+            # Purchase Invoice signature
+            frozenset(['supplier', 'items', 'taxes']): 'Purchase Invoice',
+        }
+        
+        # Try to find a matching signature
+        for field_set, doctype in field_signatures.items():
+            if field_set.issubset(accessed_fields) and doctype in self.doctypes:
+                if self.verbose:
+                    print(f"  ✓ Found {var_name} -> {doctype} via field pattern: {field_set & accessed_fields}")
+                return doctype
         
         return None
     
@@ -975,8 +1193,17 @@ class ASTFieldAnalyzer:
                     if self.is_excluded_pattern(obj_name, field_name, context_line, file_context):
                         continue
                     
+                    # Contextual validation rules - skip when ambiguous
+                    if self._should_skip_validation(obj_name, field_name, context_line, file_context):
+                        if self.verbose:
+                            print(f"  ✓ Skipped ambiguous case: {obj_name}.{field_name}")
+                        continue
+                    
                     # Detect DocType with modern logic
-                    doctype = self.detect_doctype_with_modern_logic(node, source_lines, file_context)
+                    if self.verbose and obj_name == 'doc' and field_name in ['party_type', 'party', 'member_id_start']:
+                        print(f"  🔍 Analyzing {obj_name}.{field_name} with modern logic...")
+                    
+                    doctype, inference_method = self.detect_doctype_with_modern_logic(node, source_lines, file_context)
                     
                     if doctype and doctype in self.doctypes:
                         doctype_info = self.doctypes[doctype]
@@ -994,7 +1221,8 @@ class ASTFieldAnalyzer:
                                 context=context_line,
                                 confidence=ConfidenceLevel.MEDIUM,
                                 issue_type="missing_field",
-                                suggested_fix=self._suggest_fix(field_name, fields)
+                                suggested_fix=self._suggest_fix(field_name, fields),
+                                inference_method=inference_method
                             )
                             
                             # Calculate confidence

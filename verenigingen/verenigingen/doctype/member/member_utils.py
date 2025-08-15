@@ -2,17 +2,61 @@ import frappe
 from frappe import _
 from frappe.utils import cint, now, today
 
+# Import security framework
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
+
+
+def get_member_settings():
+    """Get member-related configuration settings with defaults"""
+    try:
+        settings = frappe.get_single("Verenigingen Settings")
+        return {
+            "mandate_expiry_warning_days": getattr(settings, "mandate_expiry_warning_days", 30),
+            "default_mandate_type": getattr(settings, "default_mandate_type", "RCUR"),
+        }
+    except Exception:
+        # Return defaults if settings not available
+        return {
+            "mandate_expiry_warning_days": 30,
+            "default_mandate_type": "RCUR",
+        }
+
+
+def get_iban_bank_codes():
+    """Get IBAN bank code mappings - configurable via custom settings"""
+    # TODO: Move to Verenigingen Settings DocType for full configurability
+    return {
+        "NL": (4, 4),
+        "DE": (4, 8),
+        "BE": (4, 3),
+        "FR": (4, 5),
+        "IT": (5, 5),
+        "ES": (4, 4),
+        "GB": (4, 6),
+    }
+
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def is_chapter_management_enabled():
     """Check if chapter management is enabled in settings"""
     try:
         return frappe.db.get_single_value("Verenigingen Settings", "enable_chapter_management") == 1
-    except Exception:
+    except (frappe.DoesNotExistError, frappe.ValidationError) as e:
+        frappe.log_error(f"Settings access error in chapter management check: {str(e)}", "Member Utils")
+        return True  # Default to enabled for backward compatibility
+    except frappe.DatabaseError as e:
+        frappe.log_error(f"Database error in chapter management check: {str(e)}", "Member Utils")
         return True
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_board_memberships(member_name):
     """Get board memberships for a member with proper permission handling"""
     if not is_chapter_management_enabled():
@@ -58,6 +102,7 @@ def get_board_memberships(member_name):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_sepa_mandate_status(member):
     """Check SEPA mandate status for dashboard indicators"""
     member_doc = frappe.get_doc("Member", member)
@@ -65,10 +110,14 @@ def check_sepa_mandate_status(member):
 
     result = {"has_active_mandate": bool(active_mandates), "expiring_soon": False}
 
+    # Get configurable warning threshold
+    settings = get_member_settings()
+    warning_days = settings["mandate_expiry_warning_days"]
+
     for mandate in active_mandates:
         if mandate.expiry_date:
             days_to_expiry = frappe.utils.date_diff(mandate.expiry_date, today())
-            if 0 < days_to_expiry <= 30:
+            if 0 < days_to_expiry <= warning_days:
                 result["expiring_soon"] = True
                 break
 
@@ -76,6 +125,7 @@ def check_sepa_mandate_status(member):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.FINANCIAL)
 def update_member_payment_history(doc, method=None):
     """Update payment history for member when a payment entry is modified"""
     if doc.party_type != "Customer":
@@ -88,8 +138,25 @@ def update_member_payment_history(doc, method=None):
             member = frappe.get_doc("Member", member_doc.name)
             member.load_payment_history()
             member.save(ignore_permissions=True)
+        except frappe.DoesNotExistError:
+            frappe.log_error(
+                f"Member {member_doc.name} not found during payment history update", "Member Payment History"
+            )
+        except frappe.ValidationError as e:
+            frappe.log_error(
+                f"Validation error updating payment history for Member {member_doc.name}: {str(e)}",
+                "Member Payment History",
+            )
+        except frappe.DatabaseError as e:
+            frappe.log_error(
+                f"Database error updating payment history for Member {member_doc.name}: {str(e)}",
+                "Member Payment History",
+            )
         except Exception as e:
-            frappe.log_error(f"Failed to update payment history for Member {member_doc.name}: {str(e)}")
+            frappe.log_error(
+                f"Unexpected error updating payment history for Member {member_doc.name}: {str(e)}",
+                "Member Payment History",
+            )
 
 
 def update_member_payment_history_from_invoice(doc, method=None):
@@ -104,11 +171,30 @@ def update_member_payment_history_from_invoice(doc, method=None):
             member = frappe.get_doc("Member", member_doc.name)
             member.load_payment_history()
             member.save(ignore_permissions=True)
+        except frappe.DoesNotExistError:
+            frappe.log_error(
+                f"Member {member_doc.name} not found during invoice payment history update",
+                "Member Payment History",
+            )
+        except frappe.ValidationError as e:
+            frappe.log_error(
+                f"Validation error updating payment history for Member {member_doc.name}: {str(e)}",
+                "Member Payment History",
+            )
+        except frappe.DatabaseError as e:
+            frappe.log_error(
+                f"Database error updating payment history for Member {member_doc.name}: {str(e)}",
+                "Member Payment History",
+            )
         except Exception as e:
-            frappe.log_error(f"Failed to update payment history for Member {member_doc.name}: {str(e)}")
+            frappe.log_error(
+                f"Unexpected error updating payment history for Member {member_doc.name}: {str(e)}",
+                "Member Payment History",
+            )
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def add_manual_payment_record(member, amount, payment_date=None, payment_method=None, notes=None):
     """Manually add a payment record (e.g., for cash donations)"""
     if not member or not amount:
@@ -155,8 +241,22 @@ def add_manual_payment_record(member, amount, payment_date=None, payment_method=
 
     payment.remarks = notes or "Manual donation entry"
 
+    # Audit log before financial transaction
+    frappe.log_error(
+        f"AUDIT: Manual payment record creation initiated by {frappe.session.user} "
+        f"for member {member} - Amount: {amount}, Method: {payment_method or 'Cash'}, Notes: {notes or 'None'}",
+        "Financial Audit Trail",
+    )
+
     payment.insert(ignore_permissions=True)
     payment.submit()
+
+    # Audit log successful transaction
+    frappe.log_error(
+        f"AUDIT: Manual payment record {payment.name} successfully created and submitted "
+        f"for member {member} by {frappe.session.user}",
+        "Financial Audit Trail",
+    )
 
     member_doc.load_payment_history()
     member_doc.save(ignore_permissions=True)
@@ -165,6 +265,7 @@ def add_manual_payment_record(member, amount, payment_date=None, payment_method=
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_linked_donations(member):
     """Find linked donor record for a member to view donations"""
     if not member:
@@ -189,6 +290,7 @@ def get_linked_donations(member):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_donor_exists(member):
     """Check if a donor record exists for this member"""
     if not member:
@@ -217,6 +319,7 @@ def check_donor_exists(member):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_phone_validation_fix():
     """Test that members without phone numbers can create donor records"""
     try:
@@ -266,6 +369,7 @@ def test_phone_validation_fix():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def test_donor_fixes():
     """Test the fixed donor-related functions"""
     results = {}
@@ -306,12 +410,13 @@ def test_donor_fixes():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_sepa_mandate_from_bank_details(
     member,
     iban,
     bic=None,
     account_holder_name=None,
-    mandate_type="RCUR",
+    mandate_type=None,
     sign_date=None,
     used_for_memberships=1,
     used_for_donations=0,
@@ -322,6 +427,11 @@ def create_sepa_mandate_from_bank_details(
 
     if not sign_date:
         sign_date = today()
+
+    # Use configurable default mandate type if not provided
+    if not mandate_type:
+        settings = get_member_settings()
+        mandate_type = settings["default_mandate_type"]
 
     member_doc = frappe.get_doc("Member", member)
     if not account_holder_name:
@@ -347,16 +457,31 @@ def create_sepa_mandate_from_bank_details(
     mandate.status = "Active"
     mandate.is_active = 1
 
+    # Audit log before SEPA mandate creation
+    frappe.log_error(
+        f"AUDIT: SEPA mandate creation initiated by {frappe.session.user} "
+        f"for member {member} - IBAN: {iban[-4:].rjust(len(iban), '*')}, "
+        f"Mandate ID: {mandate_id}, Type: {mandate_type}",
+        "SEPA Audit Trail",
+    )
+
     mandate.insert(ignore_permissions=True)
 
-    member_doc.append("sepa_mandates", {"sepa_mandate": mandate.name, "is_current": 1})
+    # Audit log successful mandate creation
+    frappe.log_error(
+        f"AUDIT: SEPA mandate {mandate.name} successfully created and linked "
+        f"to member {member} by {frappe.session.user}",
+        "SEPA Audit Trail",
+    )
 
+    member_doc.append("sepa_mandates", {"sepa_mandate": mandate.name, "is_current": 1})
     member_doc.save(ignore_permissions=True)
 
     return mandate.name
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def get_member_form_settings():
     """Get settings for the member form based on system configuration"""
     settings = {
@@ -368,6 +493,7 @@ def get_member_form_settings():
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.PUBLIC)
 def find_chapter_by_postal_code(postal_code):
     """Find chapters matching a postal code"""
     if not is_chapter_management_enabled():
@@ -392,6 +518,7 @@ def find_chapter_by_postal_code(postal_code):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def check_mandate_iban_mismatch(member, current_iban):
     """Check if we should show SEPA mandate creation popup"""
     frappe.logger().debug(
@@ -445,6 +572,7 @@ def check_mandate_iban_mismatch(member, current_iban):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def derive_bic_from_iban(iban):
     """Derive BIC/SWIFT code from IBAN for supported countries"""
     if not iban:
@@ -457,15 +585,7 @@ def derive_bic_from_iban(iban):
 
     country_code = iban[:2]
 
-    bank_code_map = {
-        "NL": (4, 4),
-        "DE": (4, 8),
-        "BE": (4, 3),
-        "FR": (4, 5),
-        "IT": (5, 5),
-        "ES": (4, 4),
-        "GB": (4, 6),
-    }
+    bank_code_map = get_iban_bank_codes()
 
     if country_code not in bank_code_map:
         return {"bic": None}
@@ -502,6 +622,7 @@ def derive_bic_from_iban(iban):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def get_member_termination_status(member):
     """Get termination status for a member"""
     pending_requests = frappe.get_all(
@@ -606,6 +727,7 @@ def update_termination_status_display(doc, method=None):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.ADMIN)
 def reset_member_id_counter(counter_value):
     """Reset the member ID counter (called from client-side)"""
     from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
@@ -626,6 +748,7 @@ def reset_member_id_counter(counter_value):
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.ADMIN)
 def get_next_member_id_preview():
     """Get the next member ID that would be assigned"""
     from verenigingen.verenigingen.doctype.member.member_id_manager import MemberIDManager
@@ -643,6 +766,7 @@ def get_next_member_id_preview():
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_and_link_mandate_enhanced(
     member,
     mandate_id,
@@ -791,6 +915,7 @@ def create_and_link_mandate_enhanced(
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def generate_mandate_reference(member):
     """Generate a suggested mandate reference for a member"""
     member_doc = frappe.get_doc("Member", member)
@@ -820,6 +945,7 @@ def generate_mandate_reference(member):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def validate_mandate_reference(mandate_id):
     """Validate if a mandate reference is available"""
     exists = frappe.db.exists("SEPA Mandate", {"mandate_id": mandate_id})
@@ -828,6 +954,7 @@ def validate_mandate_reference(mandate_id):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def check_and_handle_sepa_mandate(member, iban):
     """Check if a mandate exists for this IBAN and handle accordingly"""
     member_doc = frappe.get_doc("Member", member)
@@ -863,6 +990,7 @@ def check_and_handle_sepa_mandate(member, iban):
 
 
 @frappe.whitelist()
+@high_security_api(operation_type=OperationType.MEMBER_DATA)
 def need_new_mandate(member, iban):
     """Check if we need to create a new mandate for this IBAN"""
     matching_mandates = frappe.get_all(
@@ -875,6 +1003,7 @@ def need_new_mandate(member, iban):
 
 
 @frappe.whitelist()
+@critical_api(operation_type=OperationType.FINANCIAL)
 def create_and_link_mandate(
     member,
     iban,
@@ -965,6 +1094,7 @@ def create_and_link_mandate(
 
 
 @frappe.whitelist()
+@standard_api(operation_type=OperationType.UTILITY)
 def debug_postal_code_matching(postal_code):
     """Debug function to test postal code matching"""
     if not postal_code:
