@@ -337,9 +337,17 @@ doc_events = {
             "verenigingen.utils.payment_notifications.on_payment_submit",  # Keep synchronous - fast
             "verenigingen.utils.background_jobs.queue_expense_event_processing_handler",
             "verenigingen.utils.background_jobs.queue_donor_auto_creation_handler",
+            "verenigingen.utils.cache_invalidation.on_document_submit",  # Cache invalidation
+            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_member_payment_update",  # Safe performance optimization
         ],
-        "on_cancel": "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
-        "on_trash": "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
+        "on_cancel": [
+            "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
+            "verenigingen.utils.cache_invalidation.on_document_cancel",  # Cache invalidation
+        ],
+        "on_trash": [
+            "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
+            "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
+        ],
     },
     "Sales Invoice": {
         "before_validate": [
@@ -353,9 +361,19 @@ doc_events = {
         "after_validate": ["verenigingen.overrides.sales_invoice.after_validate"],
         # Event-driven approach for payment history updates
         # This prevents validation errors from blocking invoice submission
-        "on_submit": "verenigingen.events.invoice_events.emit_invoice_submitted",
-        "on_update_after_submit": "verenigingen.events.invoice_events.emit_invoice_updated_after_submit",
-        "on_cancel": "verenigingen.events.invoice_events.emit_invoice_cancelled",
+        "on_submit": [
+            "verenigingen.events.invoice_events.emit_invoice_submitted",
+            "verenigingen.utils.cache_invalidation.on_document_submit",  # Cache invalidation
+            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_member_payment_update",  # Safe performance optimization
+        ],
+        "on_update_after_submit": [
+            "verenigingen.events.invoice_events.emit_invoice_updated_after_submit",
+            "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
+        ],
+        "on_cancel": [
+            "verenigingen.events.invoice_events.emit_invoice_cancelled",
+            "verenigingen.utils.cache_invalidation.on_document_cancel",  # Cache invalidation
+        ],
     },
     # Termination system events
     "Membership Termination Request": {
@@ -387,8 +405,14 @@ doc_events = {
         "on_update": "verenigingen.utils.donor_customer_sync.sync_donor_to_customer",
     },
     "Customer": {
-        "after_save": "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
-        "on_update": "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
+        "after_save": [
+            "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
+            "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
+        ],
+        "on_update": [
+            "verenigingen.utils.donor_customer_sync.sync_customer_to_donor",
+            "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
+        ],
     },
     # Brand Settings - regenerate CSS when colors change (Single doctype)
     "Brand Settings": {"on_update": "verenigingen.utils.brand_css_generator.generate_brand_css_file"},
@@ -421,6 +445,7 @@ doc_events = {
         "on_update": [
             "verenigingen.utils.native_expense_helpers.update_employee_approver",
             "verenigingen.utils.chapter_role_events.on_volunteer_on_update",
+            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_volunteer_assignment_change",  # Safe performance optimization
         ]
     },
     # Member updates can affect board member roles and email groups
@@ -429,8 +454,26 @@ doc_events = {
         "after_save": [
             "verenigingen.verenigingen.doctype.member.member.handle_fee_override_after_save",
             "verenigingen.email.email_group_sync.sync_member_on_change",
+            "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
         ],
-        "on_update": "verenigingen.utils.chapter_role_events.on_member_on_update",
+        "on_update": [
+            "verenigingen.utils.chapter_role_events.on_member_on_update",
+            "verenigingen.utils.cache_invalidation.on_document_update",  # Cache invalidation
+        ],
+    },
+    # SEPA Mandate events for cache invalidation
+    "SEPA Mandate": {
+        "after_save": [
+            "verenigingen.utils.cache_invalidation.on_document_update",
+            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_sepa_mandate_change",  # Safe performance optimization
+        ],
+        "on_update": [
+            "verenigingen.utils.cache_invalidation.on_document_update",
+            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_sepa_mandate_change",  # Safe performance optimization
+        ],
+        "on_submit": "verenigingen.utils.cache_invalidation.on_document_submit",
+        "on_cancel": "verenigingen.utils.cache_invalidation.on_document_cancel",
+        "on_trash": "verenigingen.utils.cache_invalidation.on_document_update",
     },
     # Volunteer Expense approval validation
     "Volunteer Expense": {
@@ -872,6 +915,8 @@ fixtures = [
             ]
         ],
     },
+    # Custom HTML Blocks
+    {"doctype": "Custom HTML Block", "filters": [["name", "=", "Page Links"]]},
 ]
 
 # Authentication and authorization

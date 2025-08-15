@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Performance Integration Module (Safe Version)
+Safe Performance Integration Module
 Problem #1 Resolution: Safe integration layer without monkey patching
 
 This module provides safe integration for performance optimizations using
 proper Frappe event hooks instead of dangerous monkey patching.
 
-IMPORTANT: This module has been completely refactored to eliminate all
-monkey patching and replace it with safe, event-driven optimization patterns.
+IMPORTANT: This replaces the previous performance_integration.py which used
+dangerous monkey patching patterns that posed security risks.
 
 Integration Strategy:
 1. Event-driven optimization through document hooks
@@ -41,7 +41,7 @@ from verenigingen.utils.performance_event_handlers import (
 )
 
 
-class PerformanceIntegration:
+class SafePerformanceIntegration:
     """
     Main integration class for performance optimizations using safe patterns
 
@@ -60,9 +60,9 @@ class PerformanceIntegration:
 
         try:
             # Initialize performance system safely
-            PerformanceIntegration._initialize_optimization_system()
-            PerformanceIntegration._setup_event_handlers()
-            PerformanceIntegration._validate_system_integrity()
+            SafePerformanceIntegration._initialize_optimization_system()
+            SafePerformanceIntegration._setup_event_handlers()
+            SafePerformanceIntegration._validate_system_integrity()
 
             frappe.logger().info("Safe performance optimization system initialized successfully")
             return {"success": True, "message": "Performance optimization system ready"}
@@ -113,10 +113,10 @@ class PerformanceIntegration:
 
         try:
             # Ensure no monkey patching is active
-            PerformanceIntegration._verify_no_monkey_patching()
+            SafePerformanceIntegration._verify_no_monkey_patching()
 
             # Test core functionality
-            PerformanceIntegration._test_core_functionality()
+            SafePerformanceIntegration._test_core_functionality()
 
             frappe.logger().info("System integrity validated successfully")
 
@@ -204,7 +204,7 @@ class PerformanceIntegration:
 
             # Verify no monkey patching is active
             try:
-                PerformanceIntegration._verify_no_monkey_patching()
+                SafePerformanceIntegration._verify_no_monkey_patching()
                 status["monkey_patching_detected"] = False
             except Exception as e:
                 status["monkey_patching_detected"] = True
@@ -248,19 +248,19 @@ def trigger_bulk_member_optimization(member_names: List[str]):
 @frappe.whitelist()
 def install_safe_performance_optimizations():
     """API endpoint to install safe performance optimizations"""
-    return PerformanceIntegration.install()
+    return SafePerformanceIntegration.install()
 
 
 @frappe.whitelist()
 def get_performance_system_status():
     """API endpoint to get performance system status"""
-    return PerformanceIntegration.get_status()
+    return SafePerformanceIntegration.get_status()
 
 
 @frappe.whitelist()
 def uninstall_performance_optimizations():
     """API endpoint to uninstall performance optimizations"""
-    return PerformanceIntegration.uninstall()
+    return SafePerformanceIntegration.uninstall()
 
 
 @frappe.whitelist()
@@ -282,7 +282,7 @@ def trigger_member_bulk_optimization(member_names):
 def initialize_on_import():
     """Initialize safe performance system when module is imported"""
     try:
-        result = PerformanceIntegration.install()
+        result = SafePerformanceIntegration.install()
         if result.get("success"):
             frappe.logger().info("Safe performance integration initialized automatically")
     except Exception as e:

@@ -2,8 +2,9 @@
 Portal menu enhancer to add submenu items
 """
 
-import frappe
 import html
+
+import frappe
 
 
 @frappe.whitelist()

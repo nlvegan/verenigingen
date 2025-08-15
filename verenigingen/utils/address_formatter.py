@@ -2,8 +2,9 @@
 Address formatting utilities for different countries
 """
 
-import frappe
 import html
+
+import frappe
 
 from verenigingen.utils.api_response import APIResponse, api_response_handler
 from verenigingen.utils.error_handling import cache_with_ttl

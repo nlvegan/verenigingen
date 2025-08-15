@@ -131,7 +131,7 @@ class MembershipType(Document):
                 "mode": template.contribution_mode or "Calculator",
                 "minimum": template.minimum_amount or 5.0,
                 "suggested": template.suggested_amount or 15.0,
-                "maximum": template.maximum_amount or ((template.suggested_amount or 15.0) * 10),
+                "maximum": ((template.suggested_amount or 15.0) * 10),
                 "calculator": {
                     "enabled": template.enable_income_calculator
                     if hasattr(template, "enable_income_calculator")
