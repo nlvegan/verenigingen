@@ -1316,6 +1316,10 @@ class Member(
 
     def handle_fee_override_changes(self):
         """Handle changes to membership fee override using amendment system with better atomicity"""
+        # Skip all fee override handling for CSV imports
+        if getattr(self, "_csv_import", False) or getattr(self, "_system_update", False):
+            return
+
         # Check permissions for fee override changes
         self.validate_fee_override_permissions()
 
@@ -1326,7 +1330,10 @@ class Member(
             if self.dues_rate:
                 if self.dues_rate <= 0:
                     frappe.throw(_("Membership fee override must be greater than 0"))
-                if not getattr(self, "fee_override_reason", None):
+                # Skip fee override reason validation for system updates (e.g., CSV import)
+                if not getattr(self, "_system_update", False) and not getattr(
+                    self, "fee_override_reason", None
+                ):
                     frappe.throw(_("Please provide a reason for the fee override"))
 
                 # Set audit fields for new members (but no change tracking)

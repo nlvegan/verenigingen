@@ -34,9 +34,11 @@ frappe.ui.form.on('Member CSV Import', {
 	refresh(frm) {
 		// Add custom buttons based on status
 		if (frm.doc.docstatus === 0) {
-			// Add validation button
-			if (frm.doc.csv_file && frm.doc.name) {
+			// Add validation button (only if not already validating or processing)
+			if (frm.doc.csv_file && frm.doc.name && !['Validating', 'In Progress'].includes(frm.doc.import_status)) {
 				frm.add_custom_button(__('Validate CSV'), () => {
+					// Prevent multiple clicks
+					frm.set_value('import_status', 'Validating');
 					frappe.show_alert(__('Validating file...'));
 					frappe.call({
 						method: 'verenigingen.verenigingen.doctype.member_csv_import.member_csv_import.validate_import_file',
@@ -134,7 +136,9 @@ frappe.ui.form.on('Member CSV Import', {
 		if (!frm.doc.csv_file) {
 			frm.set_intro(__('1. Upload a CSV or Excel file with member data to begin.'), 'blue');
 		} else if (!frm.doc.import_status || frm.doc.import_status === 'Pending') {
-			frm.set_intro(__('2. Click "Validate CSV" to process and validate your uploaded file.'), 'orange');
+			// Show file name to confirm selection
+			const fileName = frm.doc.csv_file.split('/').pop() || frm.doc.csv_file;
+			frm.set_intro(__('File selected: {0}. Click "Validate CSV" to process and validate the file.', [fileName]), 'orange');
 		} else if (frm.doc.import_status === 'Validating') {
 			frm.set_intro(__('Processing file... Please wait.'), 'blue');
 		} else if (frm.doc.import_status === 'Failed') {
@@ -158,9 +162,27 @@ frappe.ui.form.on('Member CSV Import', {
 	},
 
 	csv_file(frm) {
-		// Auto-validate when file is uploaded
+		// Handle file selection (both upload and library selection)
 		if (frm.doc.csv_file) {
-			frm.set_value('import_status', 'Validating');
+			// Reset import status when file changes
+			frm.set_value('import_status', 'Pending');
+
+			// Show file name in the field label for better UX
+			const fileName = frm.doc.csv_file.split('/').pop() || frm.doc.csv_file;
+			frm.set_df_property('csv_file', 'description', __('Selected file: {0}', [fileName]));
+
+			// Update intro to show next step
+			frm.set_intro(__('File selected. Click "Validate CSV" to process the file.'), 'blue');
+
+			// Refresh form to update button states
+			setTimeout(() => {
+				frm.refresh();
+			}, 100);
+		} else {
+			// Clear status if file is removed
+			frm.set_value('import_status', '');
+			frm.set_df_property('csv_file', 'description', '');
+			frm.set_intro(__('Please upload or select a CSV file to begin.'), 'blue');
 		}
 	},
 
