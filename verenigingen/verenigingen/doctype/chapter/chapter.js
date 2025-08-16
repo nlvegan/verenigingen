@@ -91,6 +91,7 @@ frappe.ui.form.on('Chapter', {
 		setup_chapter_buttons(frm);
 		update_chapter_ui(frm);
 		setup_board_grid(frm);
+		display_chapter_join_requests(frm);
 	},
 
 	/**
@@ -442,7 +443,7 @@ function prepare_chapter_save(frm) {
 	return true;
 }
 
-function handle_chapter_after_save(frm) {
+function handle_chapter_after_save(_frm) {
 	frappe.show_alert({
 		message: __('Chapter saved successfully'),
 		indicator: 'green'
@@ -553,7 +554,7 @@ function handle_board_member_add(frm, cdt, cdn) {
 	row.is_active = 1;
 }
 
-function handle_board_member_remove(frm, cdt, cdn) {
+function handle_board_member_remove(_frm, _cdt, _cdn) {
 	// Board member removed
 }
 
@@ -569,8 +570,7 @@ function handle_volunteer_change(frm, cdt, cdn) {
 	}
 }
 
-function handle_role_change(frm, cdt, cdn) {
-	const row = locals[cdt][cdn];
+function handle_role_change(_frm, _cdt, _cdn) {
 	// Handle role-specific logic
 }
 
@@ -600,7 +600,7 @@ function handle_member_add(frm, cdt, cdn) {
 	}
 }
 
-function handle_member_remove(frm, cdt, cdn) {
+function handle_member_remove(_frm, _cdt, _cdn) {
 	// Member removed
 }
 
@@ -611,7 +611,7 @@ function handle_member_change(frm, cdt, cdn) {
 	}
 }
 
-function handle_enabled_change(frm, cdt, cdn) {
+function handle_enabled_change(_frm, _cdt, _cdn) {
 	// Handle member enabled/disabled change
 }
 
@@ -633,7 +633,7 @@ function update_postal_code_preview(frm) {
 	}
 }
 
-function setup_postal_code_validation(frm) {
+function setup_postal_code_validation(_frm) {
 	// Set up real-time postal code validation
 }
 
@@ -649,7 +649,7 @@ function setup_member_filters(frm) {
 }
 
 // Dialog Functions
-function view_chapter_members(frm) {
+function view_chapter_members(_frm) {
 	// Navigate to members list - members will be filtered by chapter roster
 	frappe.msgprint({
 		title: __('Chapter Members'),
@@ -817,6 +817,361 @@ function sync_board_with_volunteers(frm) {
 		},
 		error(r) {
 			frappe.msgprint(__('Error syncing board members: {0}', [r.message]));
+		}
+	});
+}
+
+/**
+ * Display Chapter Join Requests
+ *
+ * Shows pending and recent chapter join requests at the top of the chapter form,
+ * following the same pattern as member amendment requests. Board members can
+ * review and approve/reject requests directly from this interface.
+ *
+ * @param {Object} frm - Chapter form object
+ */
+function display_chapter_join_requests(frm) {
+	if (!frm.doc.name) { return; }
+
+	frappe.call({
+		method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.get_chapter_join_requests',
+		args: {
+			chapter_name: frm.doc.name
+		},
+		callback(r) {
+			if (r.message && r.message.length > 0) {
+				// Create container using secure DOM manipulation
+				const container = document.createElement('div');
+				container.style.marginBottom = '20px';
+				container.setAttribute('data-chapter-requests', 'true');
+
+				// Create header
+				const header = document.createElement('h5');
+				header.style.cssText = 'margin-bottom: 15px; color: var(--text-color); border-bottom: 1px solid var(--border-color); padding-bottom: 5px;';
+
+				// Create icon element safely
+				const headerIcon = document.createElement('i');
+				headerIcon.className = 'fa fa-user-plus';
+				header.appendChild(headerIcon);
+				header.appendChild(document.createTextNode(' Chapter Join Requests'));
+				container.appendChild(header);
+
+				// Process each request securely
+				r.message.forEach(request => {
+					const requestCard = create_chapter_request_card(request, frm);
+					container.appendChild(requestCard);
+				});
+
+				// Secure DOM injection
+				inject_chapter_requests_safely(frm, container);
+			}
+		}
+	});
+}
+
+/**
+ * Approve Chapter Join Request
+ *
+ * Approves a chapter join request and refreshes the display.
+ *
+ * @param {string} request_name - Name of the join request document
+ * @param {string} chapter_name - Name of the chapter
+ */
+window.approve_chapter_join_request = function (request_name, _chapter_name) {
+	frappe.prompt([
+		{
+			fieldtype: 'Text',
+			fieldname: 'notes',
+			label: __('Approval Notes (Optional)'),
+			description: __('Optional notes for the approval')
+		}
+	], (values) => {
+		frappe.call({
+			method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.approve_join_request',
+			args: {
+				request_name,
+				notes: values.notes
+			},
+			freeze: true,
+			freeze_message: __('Approving request...'),
+			callback(r) {
+				if (r.message && r.message.success) {
+					frappe.show_alert({
+						message: __('Join request approved successfully'),
+						indicator: 'green'
+					}, 3);
+					// Refresh the current form to update the display
+					cur_frm.refresh();
+				} else {
+					frappe.msgprint(__('Failed to approve request: {0}', [r.message.error || 'Unknown error']));
+				}
+			},
+			error(r) {
+				frappe.msgprint(__('Error approving request: {0}', [r.message]));
+			}
+		});
+	}, __('Approve Join Request'), __('Approve'));
+};
+
+/**
+ * Reject Chapter Join Request
+ *
+ * Rejects a chapter join request with a reason and refreshes the display.
+ *
+ * @param {string} request_name - Name of the join request document
+ * @param {string} chapter_name - Name of the chapter
+ */
+window.reject_chapter_join_request = function (request_name, _chapter_name) {
+	frappe.prompt([
+		{
+			fieldtype: 'Text',
+			fieldname: 'reason',
+			label: __('Rejection Reason'),
+			reqd: 1,
+			description: __('Please provide a reason for rejecting this request')
+		}
+	], (values) => {
+		frappe.call({
+			method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.reject_join_request',
+			args: {
+				request_name,
+				reason: values.reason
+			},
+			freeze: true,
+			freeze_message: __('Rejecting request...'),
+			callback(r) {
+				if (r.message && r.message.success) {
+					frappe.show_alert({
+						message: __('Join request rejected'),
+						indicator: 'orange'
+					}, 3);
+					// Refresh the current form to update the display
+					cur_frm.refresh();
+				} else {
+					frappe.msgprint(__('Failed to reject request: {0}', [r.message.error || 'Unknown error']));
+				}
+			},
+			error(r) {
+				frappe.msgprint(__('Error rejecting request: {0}', [r.message]));
+			}
+		});
+	}, __('Reject Join Request'), __('Reject'));
+};
+
+/**
+ * Securely create a chapter join request card with proper HTML escaping
+ *
+ * @param {Object} request - The request data object
+ * @param {Object} frm - The form object
+ * @returns {HTMLElement} - Safely constructed DOM element
+ */
+function create_chapter_request_card(request, frm) {
+	// Sanitize user input data
+	const safe_member_name = frappe.utils.escape_html(request.member_name || '');
+	const safe_member_email = frappe.utils.escape_html(request.member_email || '');
+	const safe_introduction = frappe.utils.escape_html(request.introduction || '');
+	const safe_review_notes = frappe.utils.escape_html(request.review_notes || '');
+	const safe_request_name = frappe.utils.escape_html(request.name || '');
+
+	// Determine status styling
+	let status_color = 'warning';
+	let alert_class = 'alert-warning';
+
+	if (request.status === 'Approved') {
+		status_color = 'success';
+		alert_class = 'alert-success';
+	} else if (request.status === 'Rejected') {
+		status_color = 'danger';
+		alert_class = 'alert-danger';
+	}
+
+	// Create main card element
+	const card = document.createElement('div');
+	card.className = `alert ${alert_class}`;
+	card.style.cssText = `padding: 12px; margin: 8px 0; border-left: 4px solid var(--${status_color});`;
+
+	// Create row container
+	const row = document.createElement('div');
+	row.className = 'row';
+
+	// Create left column (main content)
+	const leftCol = document.createElement('div');
+	leftCol.className = 'col-md-8';
+
+	// Member info header
+	const memberHeader = document.createElement('h6');
+	memberHeader.style.cssText = 'margin: 0 0 5px 0;';
+
+	const memberIcon = document.createElement('i');
+	memberIcon.className = 'fa fa-user';
+	memberHeader.appendChild(memberIcon);
+	memberHeader.appendChild(document.createTextNode(` ${safe_member_name} (${safe_member_email})`));
+	leftCol.appendChild(memberHeader);
+
+	// Request date
+	const requestDate = document.createElement('p');
+	requestDate.style.margin = '0';
+
+	const dateLabel = document.createElement('strong');
+	dateLabel.textContent = 'Request Date:';
+	requestDate.appendChild(dateLabel);
+	requestDate.appendChild(document.createTextNode(` ${frappe.datetime.str_to_user(request.request_date)}`));
+	leftCol.appendChild(requestDate);
+
+	// Introduction text (truncated and escaped)
+	const introduction = document.createElement('p');
+	introduction.style.cssText = 'margin: 5px 0 0 0;';
+
+	const introSmall = document.createElement('small');
+	const introLabel = document.createElement('strong');
+	introLabel.textContent = 'Introduction:';
+	introSmall.appendChild(introLabel);
+
+	const truncated_intro = safe_introduction.length > 100
+		? `${safe_introduction.substring(0, 100)}...` : safe_introduction;
+	introSmall.appendChild(document.createTextNode(` ${truncated_intro}`));
+	introduction.appendChild(introSmall);
+	leftCol.appendChild(introduction);
+
+	// Review notes (if present)
+	if (request.review_notes) {
+		const reviewNotes = document.createElement('p');
+		reviewNotes.style.cssText = 'margin: 5px 0 0 0;';
+
+		const notesSmall = document.createElement('small');
+		const notesLabel = document.createElement('strong');
+		notesLabel.textContent = 'Review Notes:';
+		notesSmall.appendChild(notesLabel);
+		notesSmall.appendChild(document.createTextNode(` ${safe_review_notes}`));
+		reviewNotes.appendChild(notesSmall);
+		leftCol.appendChild(reviewNotes);
+	}
+
+	// Create right column (actions)
+	const rightCol = document.createElement('div');
+	rightCol.className = 'col-md-4 text-right';
+
+	// Status badge
+	const statusBadge = document.createElement('span');
+	statusBadge.className = `badge badge-${status_color} badge-lg`;
+	statusBadge.style.cssText = 'font-size: 12px; padding: 4px 8px;';
+	statusBadge.textContent = request.status;
+	rightCol.appendChild(statusBadge);
+
+	// Review date (if present)
+	if (request.review_date) {
+		const reviewDate = document.createElement('small');
+		reviewDate.style.cssText = 'color: #666; display: block;';
+		reviewDate.textContent = `Reviewed: ${frappe.datetime.str_to_user(request.review_date)}`;
+		rightCol.appendChild(document.createElement('br'));
+		rightCol.appendChild(reviewDate);
+	}
+
+	// View request link
+	rightCol.appendChild(document.createElement('br'));
+	const viewLink = document.createElement('a');
+	viewLink.href = `/app/chapter-join-request/${safe_request_name}`;
+	viewLink.className = 'btn btn-xs btn-default';
+	viewLink.style.cssText = 'margin-top: 5px;';
+	viewLink.textContent = 'View Request';
+	rightCol.appendChild(viewLink);
+
+	// Action buttons (only for pending requests and with permission check)
+	if (request.status === 'Pending') {
+		check_chapter_approval_permission(request.chapter, (has_permission) => {
+			if (has_permission) {
+				const actionDiv = document.createElement('div');
+				actionDiv.style.cssText = 'margin-top: 8px;';
+
+				// Approve button
+				const approveBtn = document.createElement('button');
+				approveBtn.className = 'btn btn-xs btn-success';
+				approveBtn.style.cssText = 'margin-right: 5px;';
+
+				const approveIcon = document.createElement('i');
+				approveIcon.className = 'fa fa-check';
+				approveBtn.appendChild(approveIcon);
+				approveBtn.appendChild(document.createTextNode(' Approve'));
+				approveBtn.onclick = () => window.approve_chapter_join_request(safe_request_name, frm.doc.name);
+				actionDiv.appendChild(approveBtn);
+
+				// Reject button
+				const rejectBtn = document.createElement('button');
+				rejectBtn.className = 'btn btn-xs btn-danger';
+
+				const rejectIcon = document.createElement('i');
+				rejectIcon.className = 'fa fa-times';
+				rejectBtn.appendChild(rejectIcon);
+				rejectBtn.appendChild(document.createTextNode(' Reject'));
+				rejectBtn.onclick = () => window.reject_chapter_join_request(safe_request_name, frm.doc.name);
+				actionDiv.appendChild(rejectBtn);
+
+				rightCol.appendChild(actionDiv);
+			}
+		});
+	}
+
+	// Assemble the card
+	row.appendChild(leftCol);
+	row.appendChild(rightCol);
+	card.appendChild(row);
+
+	return card;
+}
+
+/**
+ * Safely inject chapter requests into the form dashboard
+ *
+ * @param {Object} frm - The form object
+ * @param {HTMLElement} container - The container element to inject
+ */
+function inject_chapter_requests_safely(frm, container) {
+	// Use Frappe's form dashboard API if available
+	if (frm.dashboard && frm.dashboard.wrapper) {
+		try {
+			const dashboard = frm.dashboard.wrapper.find('.form-dashboard');
+			if (dashboard.length > 0) {
+				// Remove any existing chapter requests
+				dashboard.find('[data-chapter-requests]').remove();
+				// Prepend the new container
+				dashboard.prepend(container);
+				return;
+			}
+		} catch (e) {
+			console.error('Dashboard injection failed:', e);
+		}
+	}
+
+	// Fallback to form layout
+	try {
+		const formLayout = frm.layout.wrapper;
+		if (formLayout && formLayout.length > 0) {
+			formLayout.find('[data-chapter-requests]').remove();
+			formLayout.prepend(container);
+		}
+	} catch (e) {
+		console.error('Form layout injection failed:', e);
+		frappe.msgprint(__('Unable to display chapter join requests. Please refresh the page.'));
+	}
+}
+
+/**
+ * Check if current user has permission to approve/reject requests for a chapter
+ *
+ * @param {string} chapter_name - Name of the chapter
+ * @param {Function} callback - Callback function with boolean result
+ */
+function check_chapter_approval_permission(chapter_name, callback) {
+	frappe.call({
+		method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.has_chapter_approval_permission',
+		args: {
+			chapter_name
+		},
+		callback(r) {
+			callback(r.message || false);
+		},
+		error() {
+			callback(false);
 		}
 	});
 }

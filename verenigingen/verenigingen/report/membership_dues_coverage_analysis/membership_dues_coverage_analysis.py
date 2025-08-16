@@ -294,9 +294,15 @@ def calculate_coverage_timeline(member_name, from_date=None, to_date=None):
         )
         total_outstanding += period_outstanding
 
-        # Identify gaps in this period
-        period_gaps = identify_coverage_gaps(period_coverage, membership_start, membership_end)
+        # Identify gaps in this period (includes both missing coverage and billing pattern issues)
+        period_gaps = identify_coverage_gaps(period_coverage, membership_start, membership_end, member_name)
         all_gaps.extend(period_gaps)
+
+        # Also identify billing pattern inconsistencies
+        billing_inconsistencies = identify_billing_pattern_issues(
+            period_coverage, membership_start, membership_end, member_name
+        )
+        all_gaps.extend(billing_inconsistencies)
 
     # Calculate catch-up requirements
     catchup_analysis = calculate_catchup_requirements(member_name, all_gaps)
@@ -449,11 +455,16 @@ def build_period_coverage_map(invoices, period_start, period_end):
     return deduplicated_coverage
 
 
-def identify_coverage_gaps(coverage_map, period_start, period_end):
-    """Identify gaps in coverage within a membership period"""
+def identify_coverage_gaps(coverage_map, period_start, period_end, member_name=None):
+    """Identify gaps in coverage within a membership period, including missing expected invoices"""
 
     gaps = []
     current_date = period_start
+
+    # Get membership type to understand expected billing pattern
+    expected_billing_frequency = (
+        get_expected_billing_frequency(member_name, period_start, period_end) if member_name else None
+    )
 
     for coverage in coverage_map:
         coverage_start = coverage["coverage_start"]
@@ -461,12 +472,19 @@ def identify_coverage_gaps(coverage_map, period_start, period_end):
         # Check for gap before this coverage period
         if current_date < coverage_start:
             gap_days = date_diff(coverage_start, current_date)
+            gap_type = classify_gap_type(gap_days)
+
+            # Enhance gap classification if we know the expected billing frequency
+            if expected_billing_frequency:
+                gap_type = classify_gap_with_billing_context(gap_days, expected_billing_frequency, gap_type)
+
             gaps.append(
                 {
                     "gap_start": current_date,
                     "gap_end": add_days(coverage_start, -1),
                     "gap_days": gap_days,
-                    "gap_type": classify_gap_type(gap_days),
+                    "gap_type": gap_type,
+                    "gap_reason": get_gap_reason(current_date, coverage_start, expected_billing_frequency),
                 }
             )
 
@@ -476,12 +494,21 @@ def identify_coverage_gaps(coverage_map, period_start, period_end):
     # Check for gap after last coverage period
     if current_date <= period_end:
         gap_days = date_diff(period_end, current_date) + 1
+        gap_type = classify_gap_type(gap_days)
+
+        # Enhance gap classification if we know the expected billing frequency
+        if expected_billing_frequency:
+            gap_type = classify_gap_with_billing_context(gap_days, expected_billing_frequency, gap_type)
+
         gaps.append(
             {
                 "gap_start": current_date,
                 "gap_end": period_end,
                 "gap_days": gap_days,
-                "gap_type": classify_gap_type(gap_days),
+                "gap_type": gap_type,
+                "gap_reason": get_gap_reason(
+                    current_date, period_end, expected_billing_frequency, is_final_gap=True
+                ),
             }
         )
 
@@ -498,6 +525,180 @@ def classify_gap_type(gap_days):
         return "Significant"
     else:
         return "Critical"
+
+
+def get_expected_billing_frequency(member_name, period_start, period_end):
+    """Get the expected billing frequency for a member during a period"""
+
+    try:
+        # Get membership for this period
+        membership = frappe.db.sql(
+            """
+            SELECT mb.membership_type
+            FROM `tabMembership` mb
+            WHERE mb.member = %s
+              AND mb.docstatus = 1
+              AND mb.start_date <= %s
+              AND (mb.cancellation_date IS NULL OR mb.cancellation_date >= %s)
+            ORDER BY mb.start_date DESC
+            LIMIT 1
+        """,
+            [member_name, period_end, period_start],
+            as_dict=True,
+        )
+
+        if not membership:
+            return None
+
+        membership_type = membership[0]["membership_type"]
+
+        # Get the billing period from membership type
+        billing_period = frappe.db.get_value("Membership Type", membership_type, "billing_period")
+
+        return billing_period
+
+    except Exception as e:
+        frappe.log_error(
+            f"Error getting billing frequency for {member_name}: {str(e)}", "Coverage Gap Analysis"
+        )
+        return None
+
+
+def classify_gap_with_billing_context(gap_days, expected_billing_frequency, base_classification):
+    """Enhance gap classification based on expected billing frequency"""
+
+    if not expected_billing_frequency:
+        return base_classification
+
+    # For daily billing, any gap is more serious
+    if expected_billing_frequency == "Daily":
+        if gap_days >= 14:  # Missing 2+ weeks of daily billing
+            return "Critical"
+        elif gap_days >= 7:  # Missing 1+ week of daily billing
+            return "Significant"
+        elif gap_days >= 3:  # Missing 3+ days of daily billing
+            return "Moderate"
+        else:
+            return "Minor"
+
+    # For monthly billing, adjust thresholds
+    elif expected_billing_frequency == "Monthly":
+        if gap_days >= 60:  # Missing 2+ months
+            return "Critical"
+        elif gap_days >= 35:  # Missing 1+ month
+            return "Significant"
+        elif gap_days >= 14:  # Half month missing
+            return "Moderate"
+        else:
+            return "Minor"
+
+    # For other frequencies, use base classification but with context
+    return base_classification
+
+
+def get_gap_reason(gap_start, gap_end, expected_billing_frequency, is_final_gap=False):
+    """Determine the likely reason for a coverage gap"""
+
+    if not expected_billing_frequency:
+        return "No coverage (unknown billing schedule)"
+
+    gap_days = date_diff(gap_end, gap_start) + (0 if is_final_gap else 1)
+
+    if expected_billing_frequency == "Daily":
+        if gap_days == 1:
+            return "Missing 1 day of daily billing"
+        else:
+            return f"Missing {gap_days} days of daily billing"
+
+    elif expected_billing_frequency == "Monthly":
+        if gap_days < 32:
+            return "Partial month gap in monthly billing"
+        else:
+            months = gap_days // 30
+            return f"Missing ~{months} month(s) of monthly billing"
+
+    elif expected_billing_frequency == "Quarterly":
+        if gap_days < 90:
+            return "Partial quarter gap in quarterly billing"
+        else:
+            quarters = gap_days // 90
+            return f"Missing ~{quarters} quarter(s) of quarterly billing"
+
+    elif expected_billing_frequency == "Annual":
+        if gap_days < 365:
+            return "Partial year gap in annual billing"
+        else:
+            years = gap_days // 365
+            return f"Missing ~{years} year(s) of annual billing"
+
+    else:
+        return f"Coverage gap in {expected_billing_frequency.lower()} billing"
+
+
+def identify_billing_pattern_issues(coverage_map, period_start, period_end, member_name):
+    """Identify periods where billing pattern doesn't match expected membership type"""
+
+    issues = []
+
+    # Get expected billing frequency
+    expected_billing_frequency = get_expected_billing_frequency(member_name, period_start, period_end)
+
+    if not expected_billing_frequency or expected_billing_frequency != "Daily":
+        # Only check daily billing patterns for now
+        return issues
+
+    # For daily billing, we need to check if long-duration invoices are replacing missing daily invoices
+    # or if they're legitimate adjustments alongside proper daily invoices
+
+    for coverage in coverage_map:
+        coverage_days = date_diff(coverage["coverage_end"], coverage["coverage_start"]) + 1
+
+        # If a single invoice covers more than 7 days for daily billing, investigate further
+        if coverage_days > 7:
+            # Check if there are other invoices covering individual days within this period
+            period_has_daily_invoices = any(
+                other_cov
+                for other_cov in coverage_map
+                if other_cov != coverage
+                and other_cov["coverage_start"] >= coverage["coverage_start"]
+                and other_cov["coverage_end"] <= coverage["coverage_end"]
+                and date_diff(other_cov["coverage_end"], other_cov["coverage_start"]) + 1
+                <= 2  # Daily or 2-day invoices
+            )
+
+            # If there are no daily invoices for this period, it might be a billing issue
+            if not period_has_daily_invoices:
+                # Check if this might be a legitimate adjustment or special case
+                is_likely_adjustment = (
+                    coverage["amount"] < 10
+                    or "adjustment"  # Very low amount suggests adjustment
+                    in coverage.get("invoice", "").lower()
+                    or "correction" in coverage.get("invoice", "").lower()
+                )
+
+                if is_likely_adjustment:
+                    # This looks like a manual adjustment covering a period that should have daily invoices
+                    # Calculate how many daily invoices should have been generated
+                    expected_daily_invoices = coverage_days
+                    missing_daily_invoices = expected_daily_invoices - 1  # -1 because we have this adjustment
+
+                    if missing_daily_invoices > 0:
+                        # Report this as a billing pattern issue
+                        issues.append(
+                            {
+                                "gap_start": coverage["coverage_start"],
+                                "gap_end": coverage["coverage_end"],
+                                "gap_days": missing_daily_invoices,
+                                "gap_type": classify_gap_with_billing_context(
+                                    missing_daily_invoices, "Daily", "Moderate"
+                                ),
+                                "gap_reason": f"Billing schedule misconfiguration: {coverage_days}-day adjustment invoice instead of {expected_daily_invoices} daily invoices (Missing {missing_daily_invoices} invoices)",
+                                "issue_type": "billing_pattern_mismatch",
+                                "covering_invoice": coverage["invoice"],
+                            }
+                        )
+
+    return issues
 
 
 def calculate_catchup_requirements(member_name, gaps):
@@ -677,7 +878,12 @@ def format_gaps_for_display(gaps):
 
     gap_strings = []
     for gap in gaps:
-        gap_str = f"{gap['gap_start']} to {gap['gap_end']} ({gap['gap_days']} days, {gap['gap_type']})"
+        # Include gap reason if available
+        reason = gap.get("gap_reason", "")
+        if reason:
+            gap_str = f"{gap['gap_start']} to {gap['gap_end']} ({gap['gap_days']} days, {gap['gap_type']}) - {reason}"
+        else:
+            gap_str = f"{gap['gap_start']} to {gap['gap_end']} ({gap['gap_days']} days, {gap['gap_type']})"
         gap_strings.append(gap_str)
 
     return "; ".join(gap_strings)

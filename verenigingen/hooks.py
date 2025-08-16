@@ -338,7 +338,7 @@ doc_events = {
             "verenigingen.utils.background_jobs.queue_expense_event_processing_handler",
             "verenigingen.utils.background_jobs.queue_donor_auto_creation_handler",
             "verenigingen.utils.cache_invalidation.on_document_submit",  # Cache invalidation
-            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_member_payment_update",  # Safe performance optimization
+            "verenigingen.utils.performance_event_handlers.on_member_payment_update",  # Safe performance optimization
         ],
         "on_cancel": [
             "verenigingen.utils.background_jobs.queue_member_payment_history_update_handler",
@@ -364,7 +364,7 @@ doc_events = {
         "on_submit": [
             "verenigingen.events.invoice_events.emit_invoice_submitted",
             "verenigingen.utils.cache_invalidation.on_document_submit",  # Cache invalidation
-            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_member_payment_update",  # Safe performance optimization
+            "verenigingen.utils.performance_event_handlers.on_member_payment_update",  # Safe performance optimization
         ],
         "on_update_after_submit": [
             "verenigingen.events.invoice_events.emit_invoice_updated_after_submit",
@@ -445,7 +445,7 @@ doc_events = {
         "on_update": [
             "verenigingen.utils.native_expense_helpers.update_employee_approver",
             "verenigingen.utils.chapter_role_events.on_volunteer_on_update",
-            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_volunteer_assignment_change",  # Safe performance optimization
+            "verenigingen.utils.performance_event_handlers.on_volunteer_assignment_change",  # Safe performance optimization
         ]
     },
     # Member updates can affect board member roles and email groups
@@ -465,11 +465,11 @@ doc_events = {
     "SEPA Mandate": {
         "after_save": [
             "verenigingen.utils.cache_invalidation.on_document_update",
-            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_sepa_mandate_change",  # Safe performance optimization
+            "verenigingen.utils.performance_event_handlers.on_sepa_mandate_change",  # Safe performance optimization
         ],
         "on_update": [
             "verenigingen.utils.cache_invalidation.on_document_update",
-            "verenigingen.utils.performance_event_handlers.PerformanceEventHandlers.on_sepa_mandate_change",  # Safe performance optimization
+            "verenigingen.utils.performance_event_handlers.on_sepa_mandate_change",  # Safe performance optimization
         ],
         "on_submit": "verenigingen.utils.cache_invalidation.on_document_submit",
         "on_cancel": "verenigingen.utils.cache_invalidation.on_document_cancel",

@@ -9,4 +9,5 @@ skips = B101,B601
 
 # Only show issues of HIGH severity
 # This focuses on actual security vulnerabilities
-severity = HIGH
+--severity-level
+HIGH

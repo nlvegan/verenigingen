@@ -25,7 +25,12 @@ import frappe
 from frappe import _
 
 # Import security decorators
-from verenigingen.utils.security.api_security_framework import critical_api, high_security_api, standard_api
+from verenigingen.utils.security.api_security_framework import (
+    OperationType,
+    critical_api,
+    high_security_api,
+    standard_api,
+)
 
 
 @frappe.whitelist()
@@ -119,60 +124,33 @@ def get_chapter_join_context(chapter_name):
         return {"success": False, "error": str(e)}
 
 
-@frappe.whitelist()
-@high_security_api()  # Chapter membership operations
+@frappe.whitelist(allow_guest=False)
+@standard_api(operation_type=OperationType.MEMBER_DATA)  # Chapter membership operations
 def join_chapter(chapter_name, introduction):
-    """Handle chapter join request.
+    """Create a chapter join request.
 
-    Processes a member's request to join a specific chapter, including
-    validation, permission checking, and proper history tracking.
+    Creates a new Chapter Join Request document that will be reviewed and
+    approved/rejected by chapter board members.
 
     Args:
-        chapter_name (str): Name/ID of the chapter to join
-        introduction (str): Member's introduction message (required)
+        chapter_name (str): Name of the chapter to join
+        introduction (str): Member's introduction message
 
     Returns:
-        dict: Join request result with structure:
+        dict: Success status and message or error details
             - success (bool): Operation status
-            - message (str): Success message with chapter name
+            - message (str): Success/error message
+            - request_id (str): ID of created request (on success)
             - error (str, optional): Error description (on failure)
 
-    Security Requirements:
-        - User must be authenticated (not Guest)
-        - Valid Member record must exist for user's email
-        - Introduction message is required and non-empty
-
-    Business Logic:
-        - Uses ChapterMembershipManager for proper workflow handling
-        - Tracks membership history and audit trail
-        - Prevents duplicate membership requests
-        - Handles chapter approval workflows
-
-    Side Effects:
-        - Creates Chapter Member record with appropriate status
-        - Logs membership request for audit purposes
-        - May trigger notification workflows
-
-    Raises:
-        frappe.PermissionError: For guest users
-        frappe.DoesNotExistError: For users without member records
-        frappe.ValidationError: For missing/invalid introduction
-
-    Examples:
-        >>> # Successful join request
-        {
-            "success": True,
-            "message": "Successfully joined chapter Amsterdam!"
-        }
-
-        >>> # Authentication error
-        {
-            "success": False,
-            "error": "Please login to join a chapter"
-        }
+    Security:
+        - Requires authenticated user session
+        - Validates member record exists
+        - Creates Chapter Join Request document
+        - Uses standard Frappe permissions
     """
     try:
-        # Ensure user is authenticated before allowing join operations
+        # Ensure user is authenticated
         if frappe.session.user == "Guest":
             frappe.throw(_("Please login to join a chapter"), frappe.PermissionError)
 
@@ -185,25 +163,57 @@ def join_chapter(chapter_name, introduction):
         if not introduction or not introduction.strip():
             frappe.throw(_("Introduction is required"))
 
-        # Use centralized chapter membership manager for proper history tracking
-        # This ensures consistent workflow handling and audit trail creation
-        from verenigingen.utils.chapter_membership_manager import ChapterMembershipManager
-
-        result = ChapterMembershipManager.join_chapter(
-            member_id=member,
-            chapter_name=chapter_name,
-            introduction=introduction,
-            user_email=frappe.session.user,
+        # Create Chapter Join Request document
+        join_request = frappe.get_doc(
+            {
+                "doctype": "Chapter Join Request",
+                "member": member,
+                "chapter": chapter_name,
+                "introduction": introduction.strip(),
+                "status": "Pending",
+            }
         )
 
-        # Enhance success message with proper chapter display name
-        if result.get("success"):
-            chapter_doc = frappe.get_doc("Chapter", chapter_name)
-            result["message"] = _("Successfully joined chapter {0}!").format(chapter_doc.name)
+        # Save and submit the request
+        join_request.insert()
+        join_request.submit()
 
-        return result
+        return {
+            "success": True,
+            "message": _(
+                "Your request to join {0} has been submitted for approval. You will be notified once reviewed."
+            ).format(chapter_name),
+            "request_id": join_request.name,
+        }
 
     except Exception as e:
         # Log join request errors for debugging
-        frappe.log_error(f"Error in chapter join request: {str(e)}")
+        frappe.log_error(f"Error creating chapter join request: {str(e)}")
         return {"success": False, "error": str(e)}
+
+
+@frappe.whitelist()
+def get_user_chapter_requests():
+    """Get chapter join requests for chapters where the current user is a board member"""
+    user = frappe.session.user
+
+    # Get member record for current user
+    member = frappe.db.get_value("Member", {"email": user})
+    if not member:
+        return {"chapters": []}
+
+    # Get chapters where user is a board member
+    board_memberships = frappe.get_all(
+        "Chapter Board Member", filters={"member": member, "enabled": 1}, fields=["parent"]
+    )
+
+    chapter_names = [bm.parent for bm in board_memberships]
+
+    # For administrators and managers, include all chapters
+    user_roles = frappe.get_roles(user)
+    if "Verenigingen Administrator" in user_roles or "Verenigingen Manager" in user_roles:
+        all_chapters = frappe.get_all("Chapter", fields=["name"])
+        chapter_names.extend([ch.name for ch in all_chapters])
+        chapter_names = list(set(chapter_names))  # Remove duplicates
+
+    return {"chapters": chapter_names}

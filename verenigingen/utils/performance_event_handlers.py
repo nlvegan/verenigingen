@@ -290,6 +290,22 @@ def optimized_update_member_payment_history_from_invoice(invoice_name: str):
         )
 
 
+# Module-level functions for hooks (required by Frappe hooks validator)
+def on_member_payment_update(doc, method=None):
+    """Module-level wrapper for PerformanceEventHandlers.on_member_payment_update"""
+    return PerformanceEventHandlers.on_member_payment_update(doc, method)
+
+
+def on_volunteer_assignment_change(doc, method=None):
+    """Module-level wrapper for PerformanceEventHandlers.on_volunteer_assignment_change"""
+    return PerformanceEventHandlers.on_volunteer_assignment_change(doc, method)
+
+
+def on_sepa_mandate_change(doc, method=None):
+    """Module-level wrapper for PerformanceEventHandlers.on_sepa_mandate_change"""
+    return PerformanceEventHandlers.on_sepa_mandate_change(doc, method)
+
+
 # API endpoints for manual optimization triggers
 @frappe.whitelist()
 def trigger_member_optimization(member_names):

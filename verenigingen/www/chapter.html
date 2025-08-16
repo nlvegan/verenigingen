@@ -352,13 +352,17 @@
                 return response.json();
             })
             .then(data => {
+                console.log('API Response:', data);
                 if (data.message && data.message.success) {
-                    // Show success message
-                    alert('Your request to join ' + chapterName + ' has been submitted for approval. You will be notified once approved.');
+                    // Show success message from API
+                    alert(data.message.message || 'Your request to join ' + chapterName + ' has been submitted for approval.');
                     // Reload the page to refresh the chapter list
                     loadChapters();
                 } else {
-                    throw new Error(data.message.error || 'Failed to submit request');
+                    // Handle error response - check both Frappe wrapped format and direct format
+                    console.log('Error response data:', data);
+                    const errorMsg = (data.message && data.message.error) || data.error || data.exc || 'Failed to submit request';
+                    throw new Error(errorMsg);
                 }
             })
             .catch(error => {

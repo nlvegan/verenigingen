@@ -322,8 +322,14 @@ class EnhancedTestDataFactory:
             })
             
             # Insert using proper permissions (no ignore_permissions bypass)
-            member.insert()
-            return member
+            # Set administrator context for test data creation
+            current_user = frappe.session.user
+            try:
+                frappe.set_user("Administrator")
+                member.insert()
+                return member
+            finally:
+                frappe.set_user(current_user)
         except Exception as e:
             raise Exception(f"Failed to create member: {e}")
             
@@ -407,8 +413,14 @@ class EnhancedTestDataFactory:
                 **data
             })
             
-            chapter.insert()
-            return chapter
+            # Set administrator context for test data creation
+            current_user = frappe.session.user
+            try:
+                frappe.set_user("Administrator")
+                chapter.insert()
+                return chapter
+            finally:
+                frappe.set_user(current_user)
         except Exception as e:
             raise Exception(f"Failed to create chapter: {e}")
             
