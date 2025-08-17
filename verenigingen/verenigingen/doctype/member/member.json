@@ -617,12 +617,12 @@
    "read_only": 1
   },
   {
-   "fetch_from": "dues_schedule.next_invoice_date",
+   "description": "Next scheduled invoice date from the dues schedule",
+   "fetch_from": "current_dues_schedule.next_invoice_date",
    "fieldname": "next_invoice_date",
    "fieldtype": "Date",
    "label": "Next Invoice Date",
-   "read_only": 1,
-   "description": "Next scheduled invoice date from the dues schedule"
+   "read_only": 1
   },
   {
    "fetch_from": "current_membership_details.membership_type",
@@ -918,8 +918,7 @@
   {
    "group": "Memberships",
    "link_doctype": "Membership",
-   "link_fieldname": "member",
-   "show_count": true
+   "link_fieldname": "member"
   },
   {
    "group": "Memberships",
@@ -929,8 +928,7 @@
   {
    "group": "Memberships",
    "link_doctype": "Membership Dues Schedule",
-   "link_fieldname": "member",
-   "show_count": true
+   "link_fieldname": "member"
   },
   {
    "group": "Memberships",
@@ -941,26 +939,22 @@
    "group": "Transactions",
    "link_doctype": "Payment Entry",
    "link_fieldname": "party",
-   "table_fieldname": "references",
-   "show_count": true
+   "table_fieldname": "references"
   },
   {
    "group": "Financial",
    "link_doctype": "Customer",
-   "link_fieldname": "member",
-   "show_count": true
+   "link_fieldname": "member"
   },
   {
    "group": "Financial",
    "link_doctype": "Sales Invoice",
-   "link_fieldname": "member",
-   "show_count": true
+   "link_fieldname": "member"
   },
   {
    "group": "Financial",
    "link_doctype": "SEPA Mandate",
-   "link_fieldname": "member",
-   "show_count": true
+   "link_fieldname": "member"
   },
   {
    "group": "Volunteer",
@@ -978,7 +972,7 @@
    "link_fieldname": "volunteer"
   }
  ],
- "modified": "2025-07-19 21:47:12.021269",
+ "modified": "2025-08-17 10:48:01.203029",
  "modified_by": "Administrator",
  "module": "Verenigingen",
  "name": "Member",

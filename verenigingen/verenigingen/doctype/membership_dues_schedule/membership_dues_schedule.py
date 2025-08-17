@@ -573,10 +573,11 @@ class MembershipDuesSchedule(Document):
         """Set billing day based on member's anniversary date"""
         if not self.billing_day or self.billing_day == 0:
             if self.member:
-                member = frappe.get_doc("Member", self.member)
-                if member.member_since:
+                # Get the member_since value directly from database to avoid field object issues
+                member_since = frappe.db.get_value("Member", self.member, "member_since")
+                if member_since:
                     # Use day from member's anniversary date
-                    member_since_date = getdate(member.member_since)
+                    member_since_date = getdate(member_since)
                     self.billing_day = member_since_date.day
                 else:
                     # Default to 1st of month when no member_since date
@@ -1008,9 +1009,8 @@ class MembershipDuesSchedule(Document):
             # ✅ ENHANCED: Calculate coverage period (authoritative source)
             coverage_start, coverage_end = self.calculate_billing_period(frappe.utils.today())
 
-            # Store next billing period in schedule (SSoT)
-            self.next_billing_period_start_date = coverage_start
-            self.next_billing_period_end_date = coverage_end
+            # Don't set billing period dates here - they'll be set in update_schedule_dates()
+            # after we know the actual next_invoice_date
 
             # Create actual invoice
             invoice_name = self.create_sales_invoice()
@@ -1207,7 +1207,17 @@ class MembershipDuesSchedule(Document):
             self.last_invoice_date = self.next_invoice_date
             self.next_invoice_date = self.calculate_next_invoice_date(self.next_invoice_date)
 
+        # Update the billing period dates to reflect the period the NEXT invoice will cover
+        next_period_start, next_period_end = self.calculate_billing_period(self.next_invoice_date)
+        self.next_billing_period_start_date = next_period_start
+        self.next_billing_period_end_date = next_period_end
+
         self.save()
+
+        # Also update the Member's next_invoice_date field
+        if self.member:
+            frappe.db.set_value("Member", self.member, "next_invoice_date", self.next_invoice_date)
+            # Don't commit here - let the transaction complete normally
 
     def get_member_payment_method(self):
         """Get member's preferred payment method"""
@@ -1510,6 +1520,10 @@ class MembershipDuesSchedule(Document):
             self.add_billing_history_entry("New Schedule", None, self.dues_rate)
             # Update member's dues_rate field
             self.update_member_dues_rate()
+            # Update member's current_dues_schedule if this should be the current one
+            from .membership_dues_schedule_hooks import update_member_current_dues_schedule
+
+            update_member_current_dues_schedule(self)
 
     def on_update(self):
         """Track billing history changes when schedule is updated"""
@@ -1534,6 +1548,11 @@ class MembershipDuesSchedule(Document):
                 self.add_billing_history_entry("Schedule Cancelled", self.dues_rate, self.dues_rate)
             elif old_doc.status == "Paused" and self.status == "Active":
                 self.add_billing_history_entry("Schedule Resumed", self.dues_rate, self.dues_rate)
+
+            # Update member's current_dues_schedule when status changes
+            from .membership_dues_schedule_hooks import update_member_current_dues_schedule
+
+            update_member_current_dues_schedule(self)
 
         # Check for billing frequency change
         if old_doc.billing_frequency != self.billing_frequency:

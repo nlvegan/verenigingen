@@ -1076,39 +1076,36 @@ function create_chapter_request_card(request, frm) {
 	viewLink.textContent = 'View Request';
 	rightCol.appendChild(viewLink);
 
-	// Action buttons (only for pending requests and with permission check)
-	if (request.status === 'Pending') {
-		check_chapter_approval_permission(request.chapter, (has_permission) => {
-			if (has_permission) {
-				const actionDiv = document.createElement('div');
-				actionDiv.style.cssText = 'margin-top: 8px;';
+	// Action buttons (only for pending requests and users with permission)
+	// Permission flag is now included in request data from server
+	if (request.status === 'Pending' && request.can_approve) {
+		const actionDiv = document.createElement('div');
+		actionDiv.style.cssText = 'margin-top: 8px;';
 
-				// Approve button
-				const approveBtn = document.createElement('button');
-				approveBtn.className = 'btn btn-xs btn-success';
-				approveBtn.style.cssText = 'margin-right: 5px;';
+		// Approve button
+		const approveBtn = document.createElement('button');
+		approveBtn.className = 'btn btn-xs btn-success';
+		approveBtn.style.cssText = 'margin-right: 5px;';
 
-				const approveIcon = document.createElement('i');
-				approveIcon.className = 'fa fa-check';
-				approveBtn.appendChild(approveIcon);
-				approveBtn.appendChild(document.createTextNode(' Approve'));
-				approveBtn.onclick = () => window.approve_chapter_join_request(safe_request_name, frm.doc.name);
-				actionDiv.appendChild(approveBtn);
+		const approveIcon = document.createElement('i');
+		approveIcon.className = 'fa fa-check';
+		approveBtn.appendChild(approveIcon);
+		approveBtn.appendChild(document.createTextNode(' Approve'));
+		approveBtn.onclick = () => window.approve_chapter_join_request(safe_request_name, frm.doc.name);
+		actionDiv.appendChild(approveBtn);
 
-				// Reject button
-				const rejectBtn = document.createElement('button');
-				rejectBtn.className = 'btn btn-xs btn-danger';
+		// Reject button
+		const rejectBtn = document.createElement('button');
+		rejectBtn.className = 'btn btn-xs btn-danger';
 
-				const rejectIcon = document.createElement('i');
-				rejectIcon.className = 'fa fa-times';
-				rejectBtn.appendChild(rejectIcon);
-				rejectBtn.appendChild(document.createTextNode(' Reject'));
-				rejectBtn.onclick = () => window.reject_chapter_join_request(safe_request_name, frm.doc.name);
-				actionDiv.appendChild(rejectBtn);
+		const rejectIcon = document.createElement('i');
+		rejectIcon.className = 'fa fa-times';
+		rejectBtn.appendChild(rejectIcon);
+		rejectBtn.appendChild(document.createTextNode(' Reject'));
+		rejectBtn.onclick = () => window.reject_chapter_join_request(safe_request_name, frm.doc.name);
+		actionDiv.appendChild(rejectBtn);
 
-				rightCol.appendChild(actionDiv);
-			}
-		});
+		rightCol.appendChild(actionDiv);
 	}
 
 	// Assemble the card
@@ -1153,25 +1150,4 @@ function inject_chapter_requests_safely(frm, container) {
 		console.error('Form layout injection failed:', e);
 		frappe.msgprint(__('Unable to display chapter join requests. Please refresh the page.'));
 	}
-}
-
-/**
- * Check if current user has permission to approve/reject requests for a chapter
- *
- * @param {string} chapter_name - Name of the chapter
- * @param {Function} callback - Callback function with boolean result
- */
-function check_chapter_approval_permission(chapter_name, callback) {
-	frappe.call({
-		method: 'verenigingen.verenigingen.doctype.chapter_join_request.chapter_join_request.has_chapter_approval_permission',
-		args: {
-			chapter_name
-		},
-		callback(r) {
-			callback(r.message || false);
-		},
-		error() {
-			callback(false);
-		}
-	});
 }

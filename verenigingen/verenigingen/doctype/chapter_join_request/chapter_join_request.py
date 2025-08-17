@@ -263,8 +263,13 @@ class ChapterJoinRequest(Document):
 
 
 @frappe.whitelist()
-def has_chapter_approval_permission(chapter_name, user=None):
+def has_chapter_approval_permission(chapter_name=None, user=None):
     """Check if user has permission to approve/reject requests for a specific chapter"""
+    if not chapter_name:
+        # Return False if no chapter specified, rather than throwing an error
+        # This prevents JavaScript errors when the function is called during form load
+        return False
+
     if not user:
         user = frappe.session.user
 
@@ -352,9 +357,8 @@ def get_member_chapter_join_requests(member_name):
 def get_chapter_join_requests(chapter_name):
     """Get all chapter join requests for a specific chapter"""
     try:
-        # Check if user has permission to view requests for this chapter
-        if not has_chapter_approval_permission(chapter_name):
-            return []
+        # Get requests first, then check permissions for approve/deny buttons
+        # This allows all users to see requests but only authorized users to act on them
 
         requests = frappe.get_all(
             "Chapter Join Request",
@@ -374,6 +378,11 @@ def get_chapter_join_requests(chapter_name):
             ],
             order_by="request_date desc",
         )
+
+        # Add permission flag to each request for button display
+        can_approve = has_chapter_approval_permission(chapter_name)
+        for request in requests:
+            request["can_approve"] = can_approve
 
         return requests
 
