@@ -270,13 +270,13 @@ def test_resilience_patterns():
         from verenigingen.verenigingen_payments.core.resilience.circuit_breaker import (
             CircuitBreaker, CircuitState
         )
-        from verenigingen.verenigingen_payments.core.resilience.rate_limiter import RateLimiter
-        from verenigingen.verenigingen_payments.core.resilience.retry_policy import RetryPolicy
+        from verenigingen.verenigingen_payments.core.resilience.rate_limiter import TokenBucketRateLimiter as RateLimiter
+        from verenigingen.verenigingen_payments.core.resilience.retry_policy import ExponentialBackoffRetry as RetryPolicy
         
         # Test Circuit Breaker
         breaker = CircuitBreaker(
             failure_threshold=3,
-            timeout=1,
+            recovery_timeout=1,
             success_threshold=2
         )
         
@@ -292,16 +292,16 @@ def test_resilience_patterns():
         assert breaker.state == CircuitState.OPEN, "Should be OPEN after failures"
         
         # Test Rate Limiter
-        limiter = RateLimiter(requests_per_second=10, burst_size=20)
+        limiter = RateLimiter(max_tokens=20, refill_rate=10, refill_period=1.0)
         
         # Should allow initial burst
         for _ in range(20):
-            allowed, wait_time = limiter.check_rate_limit("test")
+            allowed = limiter.acquire(1)
             assert allowed, "Should allow burst requests"
         
         # Should rate limit after burst
-        allowed, wait_time = limiter.check_rate_limit("test")
-        assert not allowed or wait_time > 0, "Should rate limit after burst"
+        allowed = limiter.acquire(1, wait=False)
+        assert not allowed, "Should rate limit after burst"
         
         # Test Retry Policy
         policy = RetryPolicy(max_attempts=3, base_delay=0.1)
@@ -383,8 +383,8 @@ def test_business_workflows():
     
     try:
         # Mock dependencies
-        with patch('verenigingen.verenigingen_payments.workflows.reconciliation_engine.BalancesClient'):
-            with patch('verenigingen.verenigingen_payments.workflows.reconciliation_engine.SettlementsClient'):
+        with patch('verenigingen.verenigingen_payments.clients.balances_client.BalancesClient'):
+            with patch('verenigingen.verenigingen_payments.clients.settlements_client.SettlementsClient'):
                 
                 from verenigingen.verenigingen_payments.workflows.reconciliation_engine import (
                     ReconciliationEngine

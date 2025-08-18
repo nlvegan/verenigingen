@@ -218,6 +218,11 @@ class MockFrappe:
 # Create global mock instance
 frappe = MockFrappe()
 
+# Make frappe importable as a module
+import sys
+sys.modules['frappe'] = frappe
+sys.modules['frappe.utils'] = frappe.utils
+
 # Export all necessary components
 __all__ = [
     'frappe',

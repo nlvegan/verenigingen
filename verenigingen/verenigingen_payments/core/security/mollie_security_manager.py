@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 import frappe
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from frappe import _
 from frappe.utils import get_datetime, now_datetime
 
