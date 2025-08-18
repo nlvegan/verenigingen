@@ -495,6 +495,8 @@ function formatToolResult(result, toolTitle) {
     // Handle different types of results based on the tool
     if (toolTitle.includes('Invoice') || toolTitle.includes('Dues')) {
         html += formatInvoiceResult(result);
+    } else if (toolTitle.includes('Security')) {
+        html += formatSecurityResult(result);
     } else if (toolTitle.includes('System Health')) {
         html += formatHealthResult(result);
     } else if (toolTitle.includes('Performance')) {
@@ -591,6 +593,78 @@ function formatPerformanceResult(result) {
     var html = '<h5>Performance Metrics</h5>';
     // Add performance-specific formatting here
     return html + '<pre class="bg-light p-3">' + JSON.stringify(result, null, 2) + '</pre>';
+}
+
+function formatSecurityResult(result) {
+    var html = '<h5 class="text-brand-primary mb-3">Security Configuration Status</h5>';
+
+    if (result.status) {
+        var status = result.status;
+
+        // Security score display
+        html += '<div class="text-center mb-4">';
+        html += '<div class="security-score-display" style="display: inline-block; padding: 2rem; background: var(--brand-bg-secondary, #f8f9fa); border-radius: 12px;">';
+        html += '<h2 style="margin: 0; color: ' + (status.security_percentage >= 70 ? 'var(--brand-secondary, #1A555F)' : 'var(--brand-primary, #F99F20)') + ';">';
+        html += status.security_score || '0/0';
+        html += '</h2>';
+        html += '<p style="margin-top: 0.5rem; color: var(--brand-text-secondary, #666);">Security Score</p>';
+        html += '<div style="width: 200px; height: 8px; background: #e0e0e0; border-radius: 4px; margin: 0.5rem auto;">';
+        html += '<div style="width: ' + (status.security_percentage || 0) + '%; height: 100%; background: ' +
+                (status.security_percentage >= 70 ? 'var(--brand-secondary, #1A555F)' : 'var(--brand-primary, #F99F20)') +
+                '; border-radius: 4px;"></div>';
+        html += '</div>';
+        html += '</div>';
+        html += '</div>';
+
+        // Security status items
+        html += '<div class="row mb-4">';
+        html += '<div class="col-md-6">';
+        html += '<h6>Security Features</h6>';
+        html += '<ul class="list-unstyled">';
+        html += '<li>' + (status.csrf_protection ? '✅' : '❌') + ' CSRF Protection: ' + (status.csrf_protection ? 'Enabled' : 'Disabled') + '</li>';
+        html += '<li>' + (status.encryption_key ? '✅' : '❌') + ' Encryption Key: ' + (status.encryption_key ? 'Set' : 'Missing') + '</li>';
+        html += '<li>' + (status.secret_key ? '✅' : '❌') + ' Session Secret: ' + (status.secret_key ? 'Set' : 'Missing') + '</li>';
+        html += '</ul>';
+        html += '</div>';
+        html += '<div class="col-md-6">';
+        html += '<h6>Environment</h6>';
+        html += '<ul class="list-unstyled">';
+        html += '<li>' + (!status.developer_mode ? '✅' : '⚠️') + ' Developer Mode: ' + (status.developer_mode ? 'Enabled' : 'Disabled') + '</li>';
+        html += '<li>' + (!status.allow_tests ? '✅' : '⚠️') + ' Test Mode: ' + (status.allow_tests ? 'Enabled' : 'Disabled') + '</li>';
+        html += '<li>Session Expiry: ' + status.session_expiry + '</li>';
+        html += '</ul>';
+        html += '</div>';
+        html += '</div>';
+
+        // Recommendations
+        if (status.recommendations && status.recommendations.length > 0) {
+            html += '<div class="alert alert-warning">';
+            html += '<h6>Security Recommendations</h6>';
+            html += '<ul class="mb-0">';
+            status.recommendations.forEach(function(rec) {
+                html += '<li>' + rec + '</li>';
+            });
+            html += '</ul>';
+            html += '</div>';
+        }
+    }
+
+    // For apply production security results
+    if (result.changes && result.changes.length > 0) {
+        html += '<div class="alert alert-success">';
+        html += '<h6>Security Changes Applied</h6>';
+        html += '<ul class="mb-0">';
+        result.changes.forEach(function(change) {
+            html += '<li>✅ ' + change + '</li>';
+        });
+        html += '</ul>';
+        if (result.note) {
+            html += '<p class="mb-0 mt-3"><strong>Note:</strong> ' + result.note + '</p>';
+        }
+        html += '</div>';
+    }
+
+    return html;
 }
 
 function formatGenericResult(result) {

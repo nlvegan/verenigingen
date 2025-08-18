@@ -107,6 +107,21 @@ def get_context(context):
     # System administration tools
     context.system_tools = [
         {
+            "title": "Security Configuration",
+            "description": "Check and configure security settings including CSRF protection",
+            "method": "verenigingen.setup.security_setup.check_current_security_status",
+            "icon": "fa fa-lock",
+            "color": "brand-primary",
+        },
+        {
+            "title": "Apply Production Security",
+            "description": "Enable CSRF protection and apply production security settings",
+            "method": "verenigingen.setup.security_setup.apply_production_security",
+            "icon": "fa fa-shield",
+            "color": "brand-secondary",
+            "warning": "This will enable CSRF protection and disable developer mode. Restart bench after applying.",
+        },
+        {
             "title": "System Health Check",
             "description": "Check database, cache, and API performance status",
             "method": "verenigingen.utils.performance_dashboard.get_system_health",
@@ -229,38 +244,113 @@ def get_context(context):
     return context
 
 
+# Define allowed methods - CRITICAL for security
+ALLOWED_ADMIN_METHODS = {
+    # Invoice management
+    "verenigingen.utils.invoice_management.get_dues_schedules_summary",
+    "verenigingen.utils.invoice_management.validate_invoice_generation_readiness",
+    "verenigingen.utils.invoice_management.bulk_generate_dues_invoices",
+    "verenigingen.utils.invoice_management.cleanup_orphaned_schedules",
+    # System administration
+    "verenigingen.utils.performance_dashboard.get_system_health",
+    "verenigingen.utils.performance_dashboard.get_performance_dashboard",
+    "verenigingen.utils.performance_dashboard.get_optimization_suggestions",
+    "verenigingen.utils.database_query_analyzer.analyze_database_performance",
+    "verenigingen.utils.database_query_analyzer.get_index_recommendations",
+    "verenigingen.utils.api_doc_generator.generate_api_documentation",
+    "verenigingen.utils.api_doc_generator.get_api_endpoints_summary",
+    "verenigingen.utils.fraud_detection.get_fraud_statistics",
+    # E-Boekhouden cleanup
+    "verenigingen.e_boekhouden.utils.cleanup_utils.test_cleanup_small_batch",
+    "verenigingen.e_boekhouden.utils.cleanup_utils.cleanup_orphaned_gl_entries",
+    "verenigingen.e_boekhouden.utils.cleanup_utils.nuclear_cleanup_all_imported_data",
+    # Security management
+    "verenigingen.setup.security_setup.check_current_security_status",
+    "verenigingen.setup.security_setup.apply_production_security",
+    "verenigingen.setup.security_setup.enable_csrf_protection",
+}
+
+
 @frappe.whitelist()
 def execute_admin_tool(method, args=None):
-    """Execute an admin tool method"""
+    """Execute an admin tool method with strict security validation"""
 
-    # Check permissions
-    if not (
-        frappe.session.user == "Administrator"
-        or "System Manager" in frappe.get_roles()
-        or "Verenigingen Administrator" in frappe.get_roles()
-    ):
-        frappe.throw(_("Insufficient permissions"))
+    # Check permissions using Frappe's permission system
+    if not frappe.has_permission("System Settings", "write"):
+        # Additional role check for Verenigingen Administrator
+        if "Verenigingen Administrator" not in frappe.get_roles():
+            frappe.throw(
+                _("Insufficient permissions. You need System Manager or Verenigingen Administrator role."),
+                frappe.PermissionError,
+            )
+
+    # CRITICAL: Validate method is in allowed list
+    if method not in ALLOWED_ADMIN_METHODS:
+        frappe.log_error(
+            f"Unauthorized admin tool execution attempt: {method} by {frappe.session.user}", "Security Alert"
+        )
+        frappe.throw(_("Method not allowed for security reasons"), frappe.PermissionError)
+
+    # Log the admin action for audit purposes
+    frappe.logger("verenigingen.admin_tools").info(
+        f"Admin tool executed: {method} by {frappe.session.user} with args: {args}"
+    )
 
     try:
-        # Import the module and call the method directly
+        # Import the module and call the method
         from importlib import import_module
 
         # Split module and function
         if "." not in method:
             raise ValueError(f"Invalid method path: {method}")
+
         module_path, function_name = method.rsplit(".", 1)
+
+        # Additional security check - ensure module is from verenigingen app
+        if not module_path.startswith(("verenigingen.", "frappe.")):
+            frappe.throw(_("Invalid module path"), frappe.PermissionError)
+
         module = import_module(module_path)
         func = getattr(module, function_name)
 
+        # Validate the function has the whitelist decorator
+        if not getattr(func, "__func_is_whitelisted__", False):
+            frappe.throw(_("Method is not properly whitelisted"), frappe.PermissionError)
+
+        # Parse and validate arguments
         if args:
             import json
 
+            # Parse args if string
             args = json.loads(args) if isinstance(args, str) else args
+
+            # Validate args is a dict
+            if not isinstance(args, dict):
+                frappe.throw(_("Invalid arguments format"), frappe.ValidationError)
+
+            # Execute with arguments
             result = func(**args)
         else:
+            # Execute without arguments
             result = func()
 
+        # Log successful execution
+        frappe.logger("verenigingen.admin_tools").info(
+            f"Admin tool completed successfully: {method} by {frappe.session.user}"
+        )
+
         return {"success": True, "result": result, "timestamp": now_datetime()}
+
+    except frappe.PermissionError:
+        # Re-raise permission errors
+        raise
     except Exception as e:
-        frappe.log_error(f"Admin tool execution failed: {str(e)}", "Admin Tools")
-        return {"success": False, "error": str(e), "timestamp": now_datetime()}
+        # Log error with full traceback for debugging
+        frappe.log_error(
+            f"Admin tool execution failed: {method}\nUser: {frappe.session.user}\nError: {str(e)}",
+            "Admin Tools Error",
+        )
+
+        # Return sanitized error message
+        error_msg = str(e) if frappe.conf.developer_mode else "An error occurred while executing the tool"
+        return {"success": False, "error": error_msg, "timestamp": now_datetime()}

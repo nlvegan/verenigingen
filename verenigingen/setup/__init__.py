@@ -300,6 +300,15 @@ def execute_after_install():
         # Load fixtures
         load_application_fixtures()
 
+        # Set up security configurations
+        try:
+            from verenigingen.setup.security_setup import setup_all_security
+
+            setup_all_security()
+        except Exception as e:
+            print(f"⚠️ Security setup failed: {str(e)}")
+            frappe.logger().warning(f"Security setup failed: {str(e)}")
+
         # Log the successful setup
         frappe.logger().info("Verenigingen setup completed successfully")
         print("Verenigingen app setup completed successfully")

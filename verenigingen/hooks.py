@@ -642,7 +642,10 @@ update_website_context = ["verenigingen.utils.portal_customization.add_brand_bod
 
 # Installation
 # ------------
-after_install = ["verenigingen.setup.execute_after_install", "verenigingen.utils.security.setup_all_security"]
+after_install = [
+    "verenigingen.setup.execute_after_install",
+    "verenigingen.setup.security_setup.setup_all_security",
+]
 
 # Permissions
 # -----------
