@@ -128,6 +128,8 @@ class MockFrappe:
         self.db = MockDB()
         self.session = MockSession()
         self.utils = MockUtils()
+        self.conf = {}  # Mock configuration dict
+        self.local = Mock()  # Mock frappe.local
         
         # Mock error classes
         self.ValidationError = ValidationError

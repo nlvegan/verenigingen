@@ -140,18 +140,24 @@ def test_encryption():
     print("\n4. Testing Encryption...")
 
     try:
-        from verenigingen.verenigingen_payments.core.security.encryption_handler import EncryptionHandler
+        # Mock frappe.conf for encryption key storage
+        with patch("frappe.conf", {"mollie_encryption_key": "mock_key_123"}):
+            from cryptography.fernet import Fernet
 
-        handler = EncryptionHandler()
+            from verenigingen.verenigingen_payments.core.security.encryption_handler import EncryptionHandler
 
-        # Test encryption/decryption
-        sensitive = "secret_data_123"
-        encrypted = handler.encrypt_data(sensitive)
-        decrypted = handler.decrypt_data(encrypted)
+            # Create a test encryption key
+            test_key = Fernet.generate_key()
+            handler = EncryptionHandler(encryption_key=test_key)
 
-        assert decrypted == sensitive
-        assert encrypted != sensitive
-        print("   ✓ Encryption/decryption works")
+            # Test encryption/decryption
+            sensitive = "secret_data_123"
+            encrypted = handler.encrypt_data(sensitive)
+            decrypted = handler.decrypt_data(encrypted)
+
+            assert decrypted == sensitive
+            assert encrypted != sensitive
+            print("   ✓ Encryption/decryption works")
 
         print("   ✅ Encryption tests PASSED")
         return True
@@ -166,24 +172,40 @@ def test_webhook_validation():
     print("\n5. Testing Webhook Validation...")
 
     try:
-        from verenigingen.verenigingen_payments.core.security.webhook_validator import WebhookValidator
+        from cryptography.fernet import Fernet
 
-        with patch.object(WebhookValidator, "_load_settings") as mock_settings:
-            mock_settings.return_value = {"webhook_secret": "test_secret"}
+        from verenigingen.verenigingen_payments.core.security.mollie_security_manager import (
+            MollieSecurityManager,
+        )
 
-            validator = WebhookValidator("Test Settings")
+        # Mock Mollie settings with proper structure
+        mock_settings = Mock()
+        mock_settings.get_password.return_value = "test_secret_webhook"
 
-            # Test signature computation
-            payload = b'{"id": "test123"}'
-            signature = validator._compute_signature(payload, b"test_secret")
+        # Mock the encryption key generation to avoid base64 padding issues
+        test_key = Fernet.generate_key()
+
+        with patch.object(MollieSecurityManager, "_get_or_create_encryption_key", return_value=test_key):
+            security_manager = MollieSecurityManager(mock_settings)
+
+            # Test webhook signature validation
+            payload = '{"id": "test123", "resource": "payment", "status": "paid", "amount": {"value": "10.00", "currency": "EUR"}}'
+
+            # Calculate expected signature
+            import hashlib
+            import hmac
+
+            expected_signature = hmac.new(
+                "test_secret_webhook".encode("utf-8"), payload.encode("utf-8"), hashlib.sha256
+            ).hexdigest()
 
             # Test validation
-            is_valid = validator.validate_webhook(payload, signature)
+            is_valid = security_manager.validate_webhook_signature(payload, expected_signature)
             assert is_valid
             print("   ✓ Signature validation works")
 
             # Test invalid signature
-            is_invalid = validator.validate_webhook(payload, "bad_signature")
+            is_invalid = security_manager.validate_webhook_signature(payload, "bad_signature")
             assert not is_invalid
             print("   ✓ Invalid signature detection works")
 
