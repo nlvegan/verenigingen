@@ -1,1078 +1,638 @@
-# API Documentation
-
-This comprehensive guide covers the Verenigingen API endpoints, authentication, and integration patterns.
+# Mollie Backend API Integration - Documentation
 
 ## Table of Contents
-- [Overview](#overview)
-- [Authentication](#authentication)
-- [Core API Endpoints](#core-api-endpoints)
-- [Member Management API](#member-management-api)
-- [Payment and Financial API](#payment-and-financial-api)
-- [eBoekhouden Integration API](#eboekhouden-integration-api)
-- [Volunteer Management API](#volunteer-management-api)
-- [Communication API](#communication-api)
-- [Portal APIs](#portal-apis)
-- [Integration Examples](#integration-examples)
-- [Error Handling](#error-handling)
-- [Rate Limiting](#rate-limiting)
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [API Endpoints](#api-endpoints)
+4. [Configuration](#configuration)
+5. [Security](#security)
+6. [Error Handling](#error-handling)
+7. [Monitoring](#monitoring)
+8. [Troubleshooting](#troubleshooting)
 
 ## Overview
 
-The Verenigingen app provides a comprehensive REST API built on the Frappe framework. All endpoints follow Frappe's API conventions and require proper authentication.
-
-### Base URL Structure
-```
-https://your-site.com/api/method/verenigingen.api.[module].[function]
-```
-
-### API Capabilities
-- **Member Management**: Complete lifecycle from application to termination with automated workflows
-- **Payment Processing**: SEPA direct debit, mandate management, and ERPNext financial integration
-- **eBoekhouden Integration**: Production-ready REST API integration for financial data synchronization
-- **Volunteer Coordination**: Team assignments, expense management, and skills tracking
-- **Portal Systems**: Member and volunteer self-service portals with brand customization
-- **Communication**: Automated email templates and notification systems
-- **Analytics & Reporting**: Real-time KPIs, cohort analysis, and business intelligence
-- **Brand Management**: Dynamic theming with color preview and instant activation
-- **System Administration**: Health monitoring, test framework, and migration tools
-- **Geographic Organization**: Chapter management with postal code assignment
-- **Termination Workflows**: Governance-compliant termination with audit trails
-- **Banking Integration**: MT940 import, IBAN validation, and bank reconciliation
-
-### Response Format
-All API responses follow this standard format:
-```json
-{
-  "message": {
-    "success": true,
-    "data": {
-      "id": "record_id",
-      "name": "Document Name",
-      "details": {}
-    },
-    "error": null,
-    "timestamp": "2025-01-21T10:30:00Z",
-    "version": "1.0"
-  }
-}
-```
-
-### Error Response Format
-Error responses include detailed information for debugging:
-```json
-{
-  "exc_type": "ValidationError",
-  "message": "Detailed error description",
-  "exception": "Full stack trace (in debug mode)"
-}
-```
-
-## Authentication
-
-### API Key Authentication (Recommended)
-
-1. **Generate API Keys**:
-   - Go to **Users and Permissions → User**
-   - Select user account
-   - Click "Generate Keys" in API Access section
-
-2. **API Request Headers**:
-   ```http
-   Authorization: token api_key:api_secret
-   Content-Type: application/json
-   ```
-
-### Session-Based Authentication
-
-For browser-based applications:
-```javascript
-// Login to create session
-fetch('/api/method/login', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    usr: 'user@example.com',
-    pwd: 'password'
-  })
-});
-```
-
-## Core API Endpoints
-
-### Member Management API
-
-#### Get Member Information
-```http
-GET /api/method/verenigingen.api.member_management.get_member_info
-```
-
-**Parameters**:
-- `member_id` (string): Member ID or email address
-- `include_payments` (boolean): Include payment history
-- `include_volunteer` (boolean): Include volunteer information
-
-**Example Request**:
-```bash
-curl -X GET "https://your-site.com/api/method/verenigingen.api.member_management.get_member_info" \
-  -H "Authorization: token your_api_key:your_api_secret" \
-  -d "member_id=MEMBER001&include_payments=true"
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "success": true,
-    "data": {
-      "member_id": "MEMBER001",
-      "name": "John Doe",
-      "email": "john@example.com",
-      "status": "Active",
-      "membership_type": "Individual",
-      "chapter": "Amsterdam",
-      "join_date": "2023-01-15",
-      "payments": [
-        {
-          "date": "2024-01-01",
-          "amount": 25.00,
-          "status": "Paid",
-          "method": "SEPA"
-        }
-      ]
-    }
-  }
-}
-```
-
-#### Create New Member
-```http
-POST /api/method/verenigingen.api.member_management.create_member
-```
-
-**Request Body**:
-```json
-{
-  "first_name": "Jane",
-  "last_name": "Smith",
-  "email": "jane@example.com",
-  "phone": "+31612345678",
-  "address": {
-    "street": "Damrak 1",
-    "city": "Amsterdam",
-    "postal_code": "1012LG",
-    "country": "Netherlands"
-  },
-  "membership_type": "Individual",
-  "fee_amount": 25.00
-}
-```
-
-#### Update Member Information
-```http
-PUT /api/method/verenigingen.api.member_management.update_member
-```
-
-**Parameters**:
-- `member_id` (string, required): Member to update
-- `data` (object): Fields to update
-
-### Membership Application API
-
-#### Submit New Application
-```http
-POST /api/method/verenigingen.api.membership_application.submit_application
-```
-
-**Request Body**:
-```json
-{
-  "applicant": {
-    "first_name": "John",
-    "last_name": "Doe",
-    "email": "john@example.com",
-    "phone": "+31612345678",
-    "birth_date": "1990-01-01"
-  },
-  "address": {
-    "street": "Damrak 1",
-    "city": "Amsterdam",
-    "postal_code": "1012LG"
-  },
-  "membership_type": "Individual",
-  "payment_method": "sepa",
-  "iban": "NL91ABNA0417164300"
-}
-```
-
-#### Get Application Status
-```http
-GET /api/method/verenigingen.api.membership_application.get_application_status
-```
-
-**Parameters**:
-- `application_id` (string): Application reference number
-- `email` (string): Applicant email address
-
-## Payment and Financial API
-
-### SEPA Mandate Management
-
-#### Create SEPA Mandate
-```http
-POST /api/method/verenigingen.api.sepa_mandate_fix.create_sepa_mandate
-```
-
-**Request Body**:
-```json
-{
-  "member_id": "MEMBER001",
-  "iban": "NL91ABNA0417164300",
-  "account_holder": "John Doe",
-  "mandate_type": "RCUR"
-}
-```
-
-#### Validate IBAN
-```http
-GET /api/method/verenigingen.utils.iban_validator.validate_iban
-```
-
-**Parameters**:
-- `iban` (string): IBAN to validate
-
-**Example Response**:
-```json
-{
-  "message": {
-    "valid": true,
-    "iban": "NL91ABNA0417164300",
-    "bank": "ABN AMRO",
-    "bic": "ABNANL2A",
-    "country": "Netherlands"
-  }
-}
-```
-
-### Payment Processing
-
-#### Process Payment
-```http
-POST /api/method/verenigingen.api.payment_processing.process_payment
-```
-
-**Request Body**:
-```json
-{
-  "member_id": "MEMBER001",
-  "amount": 25.00,
-  "payment_method": "sepa",
-  "description": "Annual membership fee",
-  "due_date": "2024-12-31"
-}
-```
-
-#### Get Payment History
-```http
-GET /api/method/verenigingen.api.payment_processing.get_payment_history
-```
-
-**Parameters**:
-- `member_id` (string): Member ID
-- `from_date` (date): Start date filter
-- `to_date` (date): End date filter
-- `status` (string): Payment status filter
-
-### Direct Debit Batch Management
-
-#### Create SEPA Batch
-```http
-POST /api/method/verenigingen.api.dd_batch_scheduler.create_dd_batch
-```
-
-**Request Body**:
-```json
-{
-  "execution_date": "2024-12-31",
-  "batch_type": "membership_fees",
-  "include_member_types": ["Individual", "Student"],
-  "exclude_suspended": true
-}
-```
-
-## eBoekhouden Integration API
-
-The eBoekhouden integration provides comprehensive accounting system synchronization using REST API architecture. This enables complete financial data management and compliance with Dutch accounting standards.
-
-> **📖 Detailed Guide**: For complete implementation details, see [eBoekhouden API Integration Guide](api/EBOEKHOUDEN_API_GUIDE.md)
-
-### Migration Management
-
-#### Start Complete Migration
-```http
-POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.start_full_rest_import
-```
-
-**Request Body**:
-```json
-{
-  "migration_name": "eBoekhouden Migration 2025-01-07"
-}
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "success": true,
-    "migration_id": "MIGRATE-2025-001",
-    "status": "Started",
-    "estimated_transactions": 7163,
-    "start_time": "2025-01-07 10:00:00"
-  }
-}
-```
-
-#### Test Opening Balance Import
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.test_opening_balance_import
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "success": true,
-    "imported": 1,
-    "total_amount": "324062.12",
-    "account_entries": 22,
-    "journal_entry": "EBH-Opening-Balance"
-  }
-}
-```
-
-#### Get Migration Progress
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.get_migration_status
-```
-
-**Parameters**:
-- `migration_id` (string): Migration identifier
-
-**Example Response**:
-```json
-{
-  "message": {
-    "migration_id": "MIGRATE-2025-001",
-    "status": "In Progress",
-    "progress": {
-      "total_mutations": 7163,
-      "processed": 1250,
-      "successful": 1200,
-      "failed": 50,
-      "percentage": 17.4
-    },
-    "current_operation": "Processing mutation 1251: ID=4550, Type=3",
-    "errors": [
-      "Failed to import mutation 3746: Zero amount invoice",
-      "Skipped mutation 1256: Zero amount journal entry"
-    ]
-  }
-}
-```
-
-### Data Analysis and Validation
-
-#### Analyze Missing Mappings
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.analyze_missing_ledger_mappings
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "total_unmapped": 15,
-    "missing_mappings": [
-      {
-        "ledger_id": "42308",
-        "usage_count": 25,
-        "description": "Bijeenkomsten: deelnemersbijdragen"
-      }
-    ],
-    "impact_analysis": {
-      "affected_transactions": 250,
-      "total_amount": "15420.50"
-    }
-  }
-}
-```
-
-#### Export Unprocessed Data
-```http
-POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.export_unprocessed_mutations
-```
-
-**Request Body**:
-```json
-{
-  "export_path": "/tmp/unprocessed_mutations.json",
-  "format": "json"
-}
-```
-
-### API Connectivity Testing
-
-#### Test REST API Connection
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_iterator.test_rest_iterator
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "success": true,
-    "api_status": "Connected",
-    "mutations_found": {
-      "100": "Found - Type: 2, Date: 2024-03-15",
-      "500": "Found - Type: 1, Date: 2024-04-20"
-    },
-    "session_token": "Valid",
-    "estimated_range": "1 to 7420"
-  }
-}
-```
-
-#### Estimate Data Range
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_iterator.estimate_mutation_range
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "success": true,
-    "lowest_id": 0,
-    "highest_id": 7420,
-    "estimated_count": 7421,
-    "includes_opening_balance": true
-  }
-}
-```
-
-### Cache Management
-
-#### Get Cache Statistics
-```http
-GET /api/method/verenigingen.utils.eboekhouden_rest_full_migration.get_cache_statistics
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "total_cached_mutations": 5000,
-    "cache_size_mb": 45.2,
-    "oldest_entry": "2024-01-01",
-    "newest_entry": "2024-12-31",
-    "hit_rate": "85.6%"
-  }
-}
-```
-
-#### Clear Cache
-```http
-DELETE /api/method/verenigingen.utils.eboekhouden_rest_full_migration.clear_cache
-```
-
-### Account Management
-
-#### Create Account Mapping
-```http
-POST /api/method/verenigingen.api.eboekhouden_account_manager.create_account_mapping
-```
-
-**Request Body**:
-```json
-{
-  "eboekhouden_code": "42308",
-  "erpnext_account": "42308 - Bijeenkomsten: deelnemersbijdragen - NVV",
-  "account_type": "Expense Account",
-  "description": "Event participation fees"
-}
-```
-
-#### Validate Account Structure
-```http
-GET /api/method/verenigingen.api.eboekhouden_account_manager.validate_account_structure
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "valid": true,
-    "chart_of_accounts": {
-      "total_accounts": 156,
-      "mapped_accounts": 141,
-      "unmapped_accounts": 15
-    },
-    "validation_errors": [],
-    "recommendations": [
-      "Create mapping for account 42308",
-      "Review account hierarchy for group 19000"
-    ]
-  }
-}
-```
-
-### Document Processing
-
-#### Process Single Transaction
-```http
-POST /api/method/verenigingen.utils.eboekhouden_rest_full_migration.process_single_mutation
-```
-
-**Request Body**:
-```json
-{
-  "mutation_id": 4550,
-  "force_reprocess": false,
-  "validation_mode": false
-}
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "success": true,
-    "mutation_id": 4550,
-    "document_created": "EBH-Payment-4550",
-    "document_type": "Journal Entry",
-    "amount": 150.00,
-    "party": "Customer ABC",
-    "balanced": true
-  }
-}
-```
-
-### System Health
-
-#### Health Check
-```http
-GET /api/method/verenigingen.api.eboekhouden_account_manager.system_health_check
-```
-
-**Example Response**:
-```json
-{
-  "message": {
-    "overall_status": "Healthy",
-    "api_connectivity": "Connected",
-    "database_integrity": "Valid",
-    "mapping_coverage": "90.4%",
-    "balance_accuracy": "99.8%",
-    "last_import": "2025-01-07 09:30:00",
-    "recommendations": [
-      "Update 15 missing account mappings",
-      "Review 3 balance discrepancies"
-    ]
-  }
-}
-```
-
-### Error Handling for eBoekhouden API
-
-The eBoekhouden integration includes comprehensive error handling:
-
-```json
-{
-  "message": {
-    "success": false,
-    "error": "API_CONNECTION_FAILED",
-    "details": {
-      "error_code": "AUTH_001",
-      "description": "Invalid API credentials",
-      "resolution": "Check eBoekhouden Settings and verify API token",
-      "retry_possible": true
-    }
-  }
-}
-```
-
-**Common Error Codes**:
-- `AUTH_001`: Invalid API credentials
-- `MAPPING_002`: Missing account mapping
-- `VALIDATION_003`: Document validation failed
-- `BALANCE_004`: Transaction balance mismatch
-- `NETWORK_005`: API connectivity issues
-
-## Volunteer Management API
-
-### Volunteer Information
-
-#### Get Volunteer Profile
-```http
-GET /api/method/verenigingen.api.volunteer_api.get_volunteer_profile
-```
-
-**Parameters**:
-- `volunteer_id` (string): Volunteer ID or member email
-- `include_assignments` (boolean): Include team assignments
-- `include_expenses` (boolean): Include expense history
-
-#### Update Volunteer Availability
-```http
-PUT /api/method/verenigingen.api.volunteer_api.update_availability
-```
-
-**Request Body**:
-```json
-{
-  "volunteer_id": "VOL001",
-  "availability": {
-    "monday": {"start": "09:00", "end": "17:00"},
-    "tuesday": {"start": "09:00", "end": "17:00"},
-    "weekend": false
-  },
-  "preferred_activities": ["fundraising", "events"],
-  "skills": ["marketing", "social_media", "event_planning"]
-}
-```
-
-### Team Management
-
-#### Get Team Information
-```http
-GET /api/method/verenigingen.api.volunteer_api.get_team_info
-```
-
-**Parameters**:
-- `team_id` (string): Team identifier
-- `include_members` (boolean): Include team member details
-
-#### Assign Volunteer to Team
-```http
-POST /api/method/verenigingen.api.volunteer_api.assign_to_team
-```
-
-**Request Body**:
-```json
-{
-  "volunteer_id": "VOL001",
-  "team_id": "TEAM001",
-  "role": "Member",
-  "start_date": "2024-01-01",
-  "responsibilities": ["Social media management", "Event coordination"]
-}
-```
-
-### Expense Management
-
-#### Submit Volunteer Expense
-```http
-POST /api/method/verenigingen.api.volunteer_api.submit_expense
-```
-
-**Request Body**:
-```json
-{
-  "volunteer_id": "VOL001",
-  "team_id": "TEAM001",
-  "expense_type": "Travel",
-  "amount": 15.50,
-  "description": "Train ticket to volunteer event",
-  "expense_date": "2024-01-15",
-  "receipt_attachment": "base64_encoded_image"
-}
-```
-
-## Communication API
-
-### Email Management
-
-#### Send Email Template
-```http
-POST /api/method/verenigingen.api.email_template_manager.send_template_email
-```
-
-**Request Body**:
-```json
-{
-  "template_name": "membership_welcome",
-  "recipient": "new_member@example.com",
-  "context": {
-    "member_name": "John Doe",
-    "membership_type": "Individual",
-    "member_id": "MEMBER001"
-  }
-}
-```
-
-#### Create Email Template
-```http
-POST /api/method/verenigingen.api.email_template_manager.create_template
-```
-
-**Request Body**:
-```json
-{
-  "template_name": "custom_notification",
-  "subject": "Important Update - {{ member_name }}",
-  "message": "Dear {{ member_name }}, we have an important update...",
-  "template_type": "notification"
-}
-```
-
-### Notification Management
-
-#### Send System Notification
-```http
-POST /api/method/verenigingen.api.communication.send_notification
-```
-
-**Request Body**:
-```json
-{
-  "recipients": ["user1@example.com", "user2@example.com"],
-  "subject": "System Maintenance Notice",
-  "message": "The system will be under maintenance...",
-  "notification_type": "system_alert",
-  "priority": "high"
-}
-```
-
-## Chapter Management API
-
-### Chapter Information
-
-#### Get Chapter Details
-```http
-GET /api/method/verenigingen.api.chapter_dashboard_api.get_chapter_info
-```
-
-**Parameters**:
-- `chapter_id` (string): Chapter identifier
-- `include_members` (boolean): Include member count and details
-- `include_activities` (boolean): Include recent activities
-
-#### Get Chapters by Postal Code
-```http
-GET /api/method/verenigingen.api.get_user_chapters.get_chapters_by_postal_code
-```
-
-**Parameters**:
-- `postal_code` (string): Dutch postal code (e.g., "1012LG")
-
-**Example Response**:
-```json
-{
-  "message": {
-    "chapters": [
-      {
-        "name": "Amsterdam",
-        "chapter_id": "AMS001",
-        "coverage_area": "Amsterdam city center",
-        "contact_email": "amsterdam@example.org"
-      }
-    ]
-  }
-}
-```
-
-## System Administration API
-
-### Brand Management
-
-#### Update Brand Settings
-```http
-POST /api/method/verenigingen.api.brand_management.update_brand_settings
-```
-
-**Request Body**:
-```json
-{
-  "primary_color": "#cf3131",
-  "secondary_color": "#01796f",
-  "accent_color": "#663399",
-  "success_color": "#28a745",
-  "warning_color": "#ffc107",
-  "error_color": "#dc3545"
-}
-```
-
-#### Generate Brand CSS
-```http
-GET /api/method/verenigingen.templates.pages.brand_css.get_brand_css
-```
-
-### Analytics and Reporting
-
-#### Get Membership Analytics
-```http
-GET /api/method/verenigingen.api.member_management.get_membership_analytics
-```
-
-**Parameters**:
-- `date_range` (string): "last_month", "last_quarter", "last_year"
-- `group_by` (string): "membership_type", "chapter", "age_group"
-- `include_trends` (boolean): Include trend analysis
-
-**Example Response**:
-```json
-{
-  "message": {
-    "total_members": 1250,
-    "new_members_this_month": 45,
-    "retention_rate": 89.5,
-    "revenue_this_month": 31250.00,
-    "by_membership_type": {
-      "Individual": 800,
-      "Student": 300,
-      "Senior": 150
-    },
-    "trends": {
-      "growth_rate": 5.2,
-      "churn_rate": 2.1
-    }
-  }
-}
-```
-
-## Integration Examples
-
-### JavaScript/Node.js Example
-
-```javascript
-class VerenigingenAPI {
-  constructor(baseUrl, apiKey, apiSecret) {
-    this.baseUrl = baseUrl;
-    this.auth = Buffer.from(`${apiKey}:${apiSecret}`).toString('base64');
-  }
-
-  async getMemberInfo(memberId) {
-    const response = await fetch(
-      `${this.baseUrl}/api/method/verenigingen.api.member_management.get_member_info`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `token ${this.auth}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ member_id: memberId })
-      }
-    );
-
-    return response.json();
-  }
-
-  async createMember(memberData) {
-    const response = await fetch(
-      `${this.baseUrl}/api/method/verenigingen.api.member_management.create_member`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `token ${this.auth}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(memberData)
-      }
-    );
-
-    return response.json();
-  }
-}
-
-// Usage
-const api = new VerenigingenAPI('https://your-site.com', 'api_key', 'api_secret');
-const member = await api.getMemberInfo('MEMBER001');
-```
-
-### Python Example
+The Mollie Backend API Integration provides comprehensive financial operations management for the Verenigingen association management system. This integration enables automated payment processing, settlement reconciliation, dispute resolution, and financial reporting through Mollie's backend APIs.
+
+### Key Features
+- **Real-time Balance Monitoring**: Track account balances and receive alerts
+- **Automated Settlement Reconciliation**: Match settlements with invoices automatically
+- **Subscription Management**: Handle recurring payments and subscription lifecycle
+- **Dispute Resolution**: Manage chargebacks and payment disputes
+- **Financial Dashboard**: Real-time metrics and reporting
+
+### System Requirements
+- Frappe Framework v15+
+- Python 3.10+
+- Redis for background jobs
+- MySQL 8.0+ or MariaDB 10.6+
+- Mollie API credentials (live or test)
+
+## Architecture
+
+### Component Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Frappe Application Layer                 │
+├─────────────────────────────────────────────────────────────┤
+│                   Mollie Backend Integration                 │
+├──────────────┬────────────┬────────────┬──────────────────┤
+│   Security   │  Resilience │ Compliance │    Monitoring    │
+├──────────────┴────────────┴────────────┴──────────────────┤
+│                      API Clients Layer                       │
+├────────┬──────────┬───────────┬──────────┬────────────────┤
+│Balance │Settlement│  Invoice  │  Org     │  Chargeback    │
+│ Client │  Client  │  Client   │  Client  │    Client      │
+├────────┴──────────┴───────────┴──────────┴────────────────┤
+│                    Mollie Backend APIs                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Core Components
+
+#### 1. Security Framework
+- **Location**: `verenigingen_payments/core/security/`
+- **Components**:
+  - `mollie_security_manager.py`: API key management and rotation
+  - `webhook_validator.py`: Webhook signature validation
+  - `encryption_handler.py`: Sensitive data encryption
+
+#### 2. Resilience Infrastructure
+- **Location**: `verenigingen_payments/core/resilience/`
+- **Components**:
+  - `circuit_breaker.py`: Fault tolerance with circuit breaker pattern
+  - `rate_limiter.py`: API rate limiting
+  - `retry_policy.py`: Exponential backoff retry logic
+
+#### 3. API Clients
+- **Location**: `verenigingen_payments/clients/`
+- **Components**:
+  - `balances_client.py`: Balance monitoring and alerts
+  - `settlements_client.py`: Settlement reconciliation
+  - `invoices_client.py`: Invoice management
+  - `organizations_client.py`: Organization settings
+  - `chargebacks_client.py`: Dispute handling
+
+#### 4. Business Workflows
+- **Location**: `verenigingen_payments/workflows/`
+- **Components**:
+  - `reconciliation_engine.py`: Automated reconciliation
+  - `subscription_manager.py`: Subscription lifecycle
+  - `dispute_resolution.py`: Chargeback workflows
+  - `financial_dashboard.py`: Reporting and metrics
+
+## API Endpoints
+
+### Whitelisted Methods
+
+All API endpoints are secured with Frappe's permission system and require authentication.
+
+#### Balance Operations
 
 ```python
-import requests
-import base64
-import json
+@frappe.whitelist()
+def get_account_balance():
+    """
+    Get current account balance
 
-class VerenigingenAPI:
-    def __init__(self, base_url, api_key, api_secret):
-        self.base_url = base_url
-        self.auth_header = {
-            'Authorization': f'token {api_key}:{api_secret}',
-            'Content-Type': 'application/json'
+    Returns:
+        dict: {
+            "available": decimal,
+            "pending": decimal,
+            "currency": str
         }
-
-    def get_member_info(self, member_id):
-        url = f"{self.base_url}/api/method/verenigingen.api.member_management.get_member_info"
-        data = {'member_id': member_id}
-
-        response = requests.post(url, headers=self.auth_header, json=data)
-        return response.json()
-
-    def create_sepa_mandate(self, member_id, iban):
-        url = f"{self.base_url}/api/method/verenigingen.api.sepa_mandate_fix.create_sepa_mandate"
-        data = {
-            'member_id': member_id,
-            'iban': iban,
-            'mandate_type': 'RCUR'
-        }
-
-        response = requests.post(url, headers=self.auth_header, json=data)
-        return response.json()
-
-# Usage
-api = VerenigingenAPI('https://your-site.com', 'api_key', 'api_secret')
-member = api.get_member_info('MEMBER001')
+    """
 ```
 
-### PHP Example
+```python
+@frappe.whitelist()
+def set_balance_alert(threshold: float, alert_type: str):
+    """
+    Set balance alert threshold
 
-```php
-<?php
-class VerenigingenAPI {
-    private $baseUrl;
-    private $authHeader;
+    Args:
+        threshold: Amount threshold
+        alert_type: "low_balance" | "high_balance"
 
-    public function __construct($baseUrl, $apiKey, $apiSecret) {
-        $this->baseUrl = $baseUrl;
-        $this->authHeader = [
-            'Authorization: token ' . $apiKey . ':' . $apiSecret,
-            'Content-Type: application/json'
-        ];
-    }
+    Returns:
+        dict: Alert configuration
+    """
+```
 
-    public function getMemberInfo($memberId) {
-        $url = $this->baseUrl . '/api/method/verenigingen.api.member_management.get_member_info';
-        $data = json_encode(['member_id' => $memberId]);
+#### Settlement Operations
 
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_POST, true);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, $data);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, $this->authHeader);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+```python
+@frappe.whitelist()
+def reconcile_settlements(date_from: str = None, date_to: str = None):
+    """
+    Reconcile settlements for date range
 
-        $response = curl_exec($ch);
-        curl_close($ch);
+    Args:
+        date_from: Start date (YYYY-MM-DD)
+        date_to: End date (YYYY-MM-DD)
 
-        return json_decode($response, true);
-    }
+    Returns:
+        dict: {
+            "reconciled": int,
+            "unmatched": int,
+            "errors": list
+        }
+    """
+```
+
+```python
+@frappe.whitelist()
+def get_settlement_details(settlement_id: str):
+    """
+    Get detailed settlement information
+
+    Args:
+        settlement_id: Mollie settlement ID
+
+    Returns:
+        dict: Settlement details with transactions
+    """
+```
+
+#### Subscription Management
+
+```python
+@frappe.whitelist()
+def create_subscription(member_name: str, amount: float, interval: str):
+    """
+    Create Mollie subscription
+
+    Args:
+        member_name: Member document name
+        amount: Subscription amount
+        interval: "1 month" | "3 months" | "1 year"
+
+    Returns:
+        dict: {
+            "subscription_id": str,
+            "status": str,
+            "next_payment": date
+        }
+    """
+```
+
+```python
+@frappe.whitelist()
+def cancel_subscription(member_name: str, reason: str = None):
+    """
+    Cancel member subscription
+
+    Args:
+        member_name: Member document name
+        reason: Cancellation reason
+
+    Returns:
+        dict: Cancellation confirmation
+    """
+```
+
+#### Dispute Resolution
+
+```python
+@frappe.whitelist()
+def create_dispute_case(payment_id: str, chargeback_id: str):
+    """
+    Create dispute case from chargeback
+
+    Args:
+        payment_id: Mollie payment ID
+        chargeback_id: Mollie chargeback ID
+
+    Returns:
+        dict: Dispute case details
+    """
+```
+
+```python
+@frappe.whitelist()
+def submit_dispute_evidence(case_id: str, evidence_ids: list, response: str):
+    """
+    Submit dispute response with evidence
+
+    Args:
+        case_id: Dispute case ID
+        evidence_ids: List of evidence document IDs
+        response: Dispute response text
+
+    Returns:
+        dict: Submission result
+    """
+```
+
+#### Dashboard & Reporting
+
+```python
+@frappe.whitelist()
+def get_dashboard_metrics():
+    """
+    Get real-time financial metrics
+
+    Returns:
+        dict: {
+            "balance": dict,
+            "settlements": dict,
+            "subscriptions": dict,
+            "disputes": dict,
+            "revenue": dict
+        }
+    """
+```
+
+## Configuration
+
+### Mollie Settings DocType
+
+Configure the integration through the Mollie Settings DocType:
+
+```python
+{
+    "gateway_name": "Production",  # or "Test"
+    "secret_key": "live_xxx",      # Encrypted
+    "profile_id": "pfl_xxx",
+    "webhook_secret": "xxx",       # For webhook validation
+
+    # Security Settings
+    "enable_encryption": true,
+    "enable_audit_trail": true,
+    "api_key_rotation_days": 90,
+
+    # Resilience Settings
+    "circuit_breaker_failure_threshold": 5,
+    "circuit_breaker_timeout": 60,
+    "rate_limit_requests_per_second": 25,
+    "retry_max_attempts": 3,
+    "retry_backoff_base": 2,
+
+    # Reconciliation Settings
+    "auto_reconcile": true,
+    "reconciliation_hour": 2,  # 2 AM
+    "reconciliation_tolerance": 0.01,  # 1 cent
+
+    # Alert Settings
+    "low_balance_threshold": 1000.00,
+    "enable_balance_alerts": true,
+    "alert_recipients": "finance@example.com"
 }
-
-// Usage
-$api = new VerenigingenAPI('https://your-site.com', 'api_key', 'api_secret');
-$member = $api->getMemberInfo('MEMBER001');
-?>
 ```
+
+### Environment Variables
+
+Set these environment variables for production:
+
+```bash
+# Required
+MOLLIE_API_KEY=live_xxx
+MOLLIE_PROFILE_ID=pfl_xxx
+MOLLIE_WEBHOOK_SECRET=xxx
+
+# Optional
+MOLLIE_API_TIMEOUT=30
+MOLLIE_MAX_RETRIES=3
+MOLLIE_RATE_LIMIT=25
+```
+
+### Webhook Configuration
+
+Configure webhook endpoint in Mollie Dashboard:
+
+```
+URL: https://your-domain.com/api/method/verenigingen.utils.payment_gateways.mollie_webhook
+Method: POST
+Events: All payment and subscription events
+```
+
+## Security
+
+### API Key Management
+
+```python
+# Rotate API keys programmatically
+from verenigingen.verenigingen_payments.core.security import MollieSecurityManager
+
+manager = MollieSecurityManager("Production")
+new_key = manager.rotate_api_key()
+```
+
+### Webhook Validation
+
+All webhooks are validated using HMAC-SHA256:
+
+```python
+from verenigingen.verenigingen_payments.core.security import WebhookValidator
+
+validator = WebhookValidator("Production")
+is_valid = validator.validate_webhook(body, signature)
+```
+
+### Data Encryption
+
+Sensitive data is encrypted using AES-256-GCM:
+
+```python
+from verenigingen.verenigingen_payments.core.security import EncryptionHandler
+
+handler = EncryptionHandler()
+encrypted = handler.encrypt_data(sensitive_data)
+decrypted = handler.decrypt_data(encrypted)
+```
+
+### Permission Model
+
+| Role | Permissions |
+|------|------------|
+| Verenigingen Administrator | Full access to all features |
+| Verenigingen Manager | Create/read subscriptions, view reports |
+| Verenigingen Finance | Reconciliation, reports, disputes |
+| Verenigingen Staff | View reports only |
 
 ## Error Handling
 
-### Standard Error Response Format
+### Error Types
 
-```json
+#### 1. API Errors
+```python
+try:
+    result = client.get_balance()
+except MollieAPIError as e:
+    # Handle API-specific errors
+    if e.status_code == 404:
+        # Resource not found
+    elif e.status_code == 422:
+        # Validation error
+```
+
+#### 2. Network Errors
+```python
+try:
+    result = client.make_request()
+except (ConnectionError, TimeoutError) as e:
+    # Handled by retry policy and circuit breaker
+```
+
+#### 3. Business Logic Errors
+```python
+try:
+    reconcile_settlement(settlement_id)
+except ReconciliationError as e:
+    # Log to audit trail
+    # Create manual reconciliation task
+```
+
+### Error Recovery
+
+The system implements automatic recovery for transient failures:
+
+1. **Retry with Exponential Backoff**: Up to 3 attempts
+2. **Circuit Breaker**: Prevents cascading failures
+3. **Fallback Mechanisms**: Degraded service when possible
+4. **Manual Recovery Queue**: For persistent failures
+
+## Monitoring
+
+### Metrics Collection
+
+Key metrics tracked:
+
+- **API Performance**:
+  - Response times (p50, p95, p99)
+  - Error rates by endpoint
+  - Rate limit utilization
+
+- **Business Metrics**:
+  - Successful payment rate
+  - Settlement reconciliation rate
+  - Dispute win rate
+  - Subscription churn rate
+
+- **System Health**:
+  - Circuit breaker state
+  - Queue depth
+  - Memory usage
+  - Database query performance
+
+### Alerting Rules
+
+Configure alerts in `Mollie Alert Configuration`:
+
+```python
 {
-  "message": {
-    "success": false,
-    "error": {
-      "code": "VALIDATION_ERROR",
-      "message": "Required field 'email' is missing",
-      "details": {
-        "field": "email",
-        "type": "required"
-      }
-    }
-  }
+    "alert_rules": [
+        {
+            "name": "Low Balance",
+            "condition": "balance < 1000",
+            "severity": "warning",
+            "recipients": ["finance@example.com"]
+        },
+        {
+            "name": "High Failure Rate",
+            "condition": "error_rate > 0.05",
+            "severity": "critical",
+            "recipients": ["tech@example.com"]
+        },
+        {
+            "name": "Reconciliation Failed",
+            "condition": "reconciliation_status == 'failed'",
+            "severity": "high",
+            "recipients": ["finance@example.com"]
+        }
+    ]
 }
 ```
 
-### Common Error Codes
+### Dashboard Access
 
-- **AUTHENTICATION_ERROR**: Invalid API credentials
-- **PERMISSION_DENIED**: Insufficient permissions for operation
-- **VALIDATION_ERROR**: Input validation failed
-- **NOT_FOUND**: Requested resource not found
-- **DUPLICATE_ENTRY**: Attempt to create duplicate record
-- **PAYMENT_ERROR**: Payment processing failed
-- **SEPA_ERROR**: SEPA mandate or direct debit error
-- **SYSTEM_ERROR**: Internal system error
-
-### HTTP Status Codes
-
-- **200**: Success
-- **400**: Bad Request (validation error)
-- **401**: Unauthorized (authentication error)
-- **403**: Forbidden (permission denied)
-- **404**: Not Found
-- **409**: Conflict (duplicate entry)
-- **500**: Internal Server Error
-
-## Rate Limiting
-
-### Default Limits
-- **Authenticated requests**: 1000 requests per hour per user
-- **Anonymous requests**: 100 requests per hour per IP
-- **Bulk operations**: 10 requests per minute per user
-
-### Rate Limit Headers
-```http
-X-RateLimit-Limit: 1000
-X-RateLimit-Remaining: 999
-X-RateLimit-Reset: 1640995200
+Access the financial dashboard at:
+```
+/app/mollie-financial-dashboard
 ```
 
-### Handling Rate Limits
-When rate limits are exceeded, the API returns HTTP 429 with:
-```json
+Features:
+- Real-time balance display
+- Settlement status overview
+- Subscription metrics
+- Dispute tracking
+- Revenue trends
+
+## Troubleshooting
+
+### Common Issues
+
+#### 1. Webhook Not Received
+
+**Symptoms**: Payments not updating automatically
+
+**Diagnosis**:
+```bash
+# Check webhook logs
+bench --site your-site mariadb
+SELECT * FROM `tabMollie Webhook Log`
+WHERE creation > DATE_SUB(NOW(), INTERVAL 1 HOUR)
+ORDER BY creation DESC;
+```
+
+**Solutions**:
+- Verify webhook URL in Mollie Dashboard
+- Check webhook secret configuration
+- Ensure firewall allows Mollie IPs
+- Validate SSL certificate
+
+#### 2. Reconciliation Failures
+
+**Symptoms**: Settlements not matching invoices
+
+**Diagnosis**:
+```python
+# Check reconciliation logs
+frappe.get_all("Mollie Reconciliation Log",
+    filters={"status": "Failed"},
+    fields=["settlement_id", "error_message"])
+```
+
+**Solutions**:
+- Adjust reconciliation tolerance
+- Check for duplicate invoices
+- Verify payment references
+- Run manual reconciliation
+
+#### 3. API Rate Limiting
+
+**Symptoms**: 429 errors from Mollie API
+
+**Diagnosis**:
+```python
+# Check rate limit metrics
+from verenigingen.verenigingen_payments.core.resilience import RateLimiter
+limiter = RateLimiter()
+print(f"Current rate: {limiter.get_current_rate()}")
+```
+
+**Solutions**:
+- Reduce request frequency
+- Implement request batching
+- Use webhook updates instead of polling
+- Contact Mollie for rate limit increase
+
+#### 4. Circuit Breaker Open
+
+**Symptoms**: All API calls failing immediately
+
+**Diagnosis**:
+```python
+# Check circuit breaker state
+from verenigingen.verenigingen_payments.core.resilience import CircuitBreaker
+breaker = CircuitBreaker.get_instance("mollie_api")
+print(f"State: {breaker.state}")
+print(f"Failure count: {breaker.failure_count}")
+```
+
+**Solutions**:
+- Wait for timeout period
+- Check API health status
+- Manually reset if API recovered
+- Investigate root cause of failures
+
+### Debug Mode
+
+Enable debug logging:
+
+```python
+# In frappe-bench/sites/your-site/site_config.json
 {
-  "message": {
-    "success": false,
-    "error": {
-      "code": "RATE_LIMIT_EXCEEDED",
-      "message": "Rate limit exceeded. Try again later.",
-      "retry_after": 3600
-    }
-  }
+    "developer_mode": 1,
+    "logging": 2,
+    "mollie_debug": true
 }
 ```
 
-## Best Practices
+View debug logs:
+```bash
+tail -f frappe-bench/logs/frappe.log | grep MOLLIE
+```
 
-### API Usage Guidelines
+### Support Resources
 
-1. **Authentication Security**:
-   - Store API credentials securely
-   - Use HTTPS for all API calls
-   - Rotate API keys regularly
-   - Implement proper error handling
+- **Mollie API Documentation**: https://docs.mollie.com/
+- **Frappe Framework Docs**: https://frappeframework.com/
+- **Issue Tracker**: https://github.com/your-org/verenigingen/issues
+- **Support Email**: support@your-org.com
 
-2. **Request Optimization**:
-   - Use appropriate HTTP methods (GET, POST, PUT, DELETE)
-   - Batch requests when possible
-   - Implement exponential backoff for retries
-   - Cache responses when appropriate
+## Appendix
 
-3. **Data Handling**:
-   - Validate input data before sending
-   - Handle partial failures gracefully
-   - Implement idempotency for critical operations
-   - Use pagination for large datasets
+### A. API Response Codes
 
-4. **Error Handling**:
-   - Check response status codes
-   - Parse error messages appropriately
-   - Implement retry logic for transient errors
-   - Log errors for debugging
+| Code | Meaning | Action |
+|------|---------|--------|
+| 200 | Success | Process response |
+| 201 | Created | Process new resource |
+| 204 | No Content | Success, no response body |
+| 400 | Bad Request | Check request parameters |
+| 401 | Unauthorized | Check API key |
+| 403 | Forbidden | Check permissions |
+| 404 | Not Found | Resource doesn't exist |
+| 422 | Unprocessable | Validation error |
+| 429 | Rate Limited | Implement backoff |
+| 500 | Server Error | Retry with backoff |
+| 503 | Unavailable | Circuit breaker activates |
 
-### Integration Patterns
+### B. Webhook Event Types
 
-1. **Webhook Integration**: Set up webhooks for real-time notifications
-2. **Batch Processing**: Use bulk operations for large data sets
-3. **Synchronization**: Implement proper sync strategies for data consistency
-4. **Monitoring**: Track API usage and performance metrics
+| Event | Description | Handler |
+|-------|-------------|---------|
+| payment.paid | Payment successful | Update invoice, create payment entry |
+| payment.failed | Payment failed | Log failure, notify member |
+| payment.expired | Payment expired | Cancel pending invoice |
+| subscription.created | New subscription | Update member record |
+| subscription.updated | Subscription changed | Update subscription details |
+| subscription.cancelled | Subscription ended | Update status, stop billing |
+| settlement.settled | Settlement completed | Trigger reconciliation |
+| chargeback.received | Dispute initiated | Create dispute case |
+
+### C. Database Schema
+
+Key tables created by the integration:
+
+```sql
+-- Mollie Settings
+CREATE TABLE `tabMollie Settings` (
+    `name` varchar(140),
+    `gateway_name` varchar(140),
+    `secret_key` text,  -- Encrypted
+    `profile_id` varchar(140),
+    ...
+);
+
+-- Mollie Audit Log
+CREATE TABLE `tabMollie Audit Log` (
+    `name` varchar(140),
+    `event_type` varchar(140),
+    `severity` varchar(20),
+    `message` text,
+    `details` longtext,  -- JSON
+    `user` varchar(140),
+    `ip_address` varchar(45),
+    ...
+);
+
+-- Dispute Case
+CREATE TABLE `tabDispute Case` (
+    `name` varchar(140),
+    `case_id` varchar(140),
+    `payment_id` varchar(140),
+    `chargeback_id` varchar(140),
+    `amount` decimal(18,6),
+    `status` varchar(20),
+    `priority` varchar(20),
+    ...
+);
+```
 
 ---
 
-This API documentation provides comprehensive information for integrating with the Verenigingen system. For specific implementation questions or additional endpoints, refer to the source code or contact the development team.
+*Last Updated: August 2024*
+*Version: 1.0.0*

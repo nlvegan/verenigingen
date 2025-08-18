@@ -1,0 +1,114 @@
+# Alert rules for Mollie Backend monitoring
+
+groups:
+  - name: mollie_backend_alerts
+    interval: 30s
+    rules:
+      # Critical: Payment processing failure
+      - alert: PaymentProcessingDown
+        expr: rate(mollie_payment_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: mollie-backend
+        annotations:
+          summary: "High payment error rate detected"
+          description: "Payment error rate is {{ $value | humanizePercentage }} over the last 5 minutes"
+
+      # Critical: Low balance
+      - alert: CriticalLowBalance
+        expr: mollie_balance_eur < 100
+        for: 1m
+        labels:
+          severity: critical
+          service: mollie-backend
+        annotations:
+          summary: "Critical low EUR balance"
+          description: "EUR balance is €{{ $value }}"
+
+      # Warning: Reconciliation failures
+      - alert: ReconciliationFailures
+        expr: rate(mollie_reconciliation_failures_total[1h]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: mollie-backend
+        annotations:
+          summary: "High reconciliation failure rate"
+          description: "{{ $value | humanizePercentage }} of reconciliations failing"
+
+      # Warning: API rate limiting
+      - alert: APIRateLimitNear
+        expr: mollie_api_rate_limit_usage > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: mollie-backend
+        annotations:
+          summary: "Approaching API rate limit"
+          description: "API rate limit usage at {{ $value | humanizePercentage }}"
+
+      # Critical: Circuit breaker open
+      - alert: CircuitBreakerOpen
+        expr: mollie_circuit_breaker_state == 2
+        for: 1m
+        labels:
+          severity: critical
+          service: mollie-backend
+        annotations:
+          summary: "Circuit breaker is OPEN"
+          description: "Mollie API circuit breaker has opened due to failures"
+
+      # Warning: High webhook queue
+      - alert: WebhookQueueBacklog
+        expr: mollie_webhook_queue_size > 100
+        for: 10m
+        labels:
+          severity: warning
+          service: mollie-backend
+        annotations:
+          summary: "Webhook queue building up"
+          description: "{{ $value }} webhooks pending processing"
+
+      # Info: New dispute
+      - alert: NewDispute
+        expr: increase(mollie_disputes_total[1h]) > 0
+        labels:
+          severity: info
+          service: mollie-backend
+        annotations:
+          summary: "New dispute received"
+          description: "{{ $value }} new dispute(s) in the last hour"
+
+      # Critical: Database connection issues
+      - alert: DatabaseConnectionFailure
+        expr: mysql_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "Database connection lost"
+          description: "Cannot connect to MySQL database"
+
+      # Warning: High memory usage
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }}"
+
+      # Warning: Disk space low
+      - alert: DiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "Low disk space"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining"
