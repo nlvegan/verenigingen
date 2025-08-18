@@ -14,7 +14,8 @@ from frappe.utils import add_days, get_datetime, now_datetime
 
 from ..clients.balances_client import BalancesClient
 from ..clients.settlements_client import SettlementsClient
-from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, AuditTrail
+from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
+from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
 
 
 class SubscriptionStatus:
@@ -40,17 +41,16 @@ class SubscriptionManager:
     - Automated billing coordination
     """
 
-    def __init__(self, settings_name: str):
+    def __init__(self):
         """Initialize subscription manager"""
-        self.settings_name = settings_name
         self.audit_trail = AuditTrail()
 
         # Initialize API clients
-        self.balances_client = BalancesClient(settings_name)
-        self.settlements_client = SettlementsClient(settings_name)
+        self.balances_client = BalancesClient()
+        self.settlements_client = SettlementsClient()
 
-        # Get Mollie settings
-        self.settings = frappe.get_doc("Mollie Settings", settings_name)
+        # Get Mollie settings (singleton)
+        self.settings = frappe.get_single("Mollie Settings")
 
     def sync_subscription_payments(self, member_name: str) -> Dict:
         """
@@ -579,12 +579,12 @@ class SubscriptionManager:
 @frappe.whitelist()
 def sync_all_subscription_payments():
     """Sync payments for all active subscriptions"""
-    settings = frappe.get_all("Mollie Settings", filters={"enable_backend_api": True}, limit=1)
+    settings = frappe.get_single("Mollie Settings")
 
-    if not settings:
-        return {"status": "skipped", "reason": "No active settings"}
+    if not settings.enable_backend_api:
+        return {"status": "skipped", "reason": "Backend API not enabled"}
 
-    manager = SubscriptionManager(settings[0]["name"])
+    manager = SubscriptionManager()
 
     # Get all active subscription members
     members = frappe.get_all(
@@ -612,12 +612,12 @@ def sync_all_subscription_payments():
 @frappe.whitelist()
 def analyze_subscription_health():
     """Analyze overall subscription health"""
-    settings = frappe.get_all("Mollie Settings", filters={"enable_backend_api": True}, limit=1)
+    settings = frappe.get_single("Mollie Settings")
 
-    if not settings:
-        return {"status": "error", "message": "No active settings"}
+    if not settings.enable_backend_api:
+        return {"status": "error", "message": "Backend API not enabled"}
 
-    manager = SubscriptionManager(settings[0]["name"])
+    manager = SubscriptionManager()
 
     # Get revenue analysis
     revenue = manager.analyze_subscription_revenue(30)

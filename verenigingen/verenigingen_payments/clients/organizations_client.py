@@ -36,7 +36,7 @@ class OrganizationsClient(MollieBaseClient):
             "Retrieving current organization details",
         )
 
-        response = self.get("/organizations/me")
+        response = self.get("organizations/me")
         return Organization(response)
 
     def get_organization(self, organization_id: str) -> Organization:
@@ -55,7 +55,7 @@ class OrganizationsClient(MollieBaseClient):
             f"Retrieving organization: {organization_id}",
         )
 
-        response = self.get(f"/organizations/{organization_id}")
+        response = self.get(f"organizations/{organization_id}")
         return Organization(response)
 
     def get_organization_info(self) -> Dict:

@@ -126,12 +126,7 @@
  "module": "Verenigingen",
  "name": "Volunteer Assignment",
  "owner": "Administrator",
- "permissions": [
-  {
-   "read": 1,
-   "role": "All"
-  }
- ],
+ "permissions": [],
  "sort_field": "modified",
  "sort_order": "DESC",
  "title_field": "title"

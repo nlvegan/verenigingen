@@ -1,0 +1,207 @@
+---
+title: Mollie Financial Dashboard
+---
+
+{% extends "templates/web.html" %}
+
+{% block page_content %}
+<div class="container mt-4">
+    <h1>Mollie Financial Dashboard</h1>
+
+    <div id="dashboard-loading" class="text-center py-5">
+        <div class="spinner-border" role="status">
+            <span class="sr-only">Loading...</span>
+        </div>
+    </div>
+
+    <div id="dashboard-content" style="display: none;">
+        <!-- Balance Overview -->
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Current Balance</h5>
+                        <h2 id="current-balance" class="text-primary">€0.00</h2>
+                        <small class="text-muted">Available funds</small>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Pending Balance</h5>
+                        <h2 id="pending-balance" class="text-warning">€0.00</h2>
+                        <small class="text-muted">Awaiting settlement</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Revenue Metrics -->
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">This Week</h6>
+                        <h4 id="week-revenue">€0.00</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">This Month</h6>
+                        <h4 id="month-revenue">€0.00</h4>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h6 class="card-subtitle mb-2 text-muted">This Quarter</h6>
+                        <h4 id="quarter-revenue">€0.00</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Settlements -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Recent Settlements</h5>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Reference</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="settlements-table">
+                            <tr>
+                                <td colspan="4" class="text-center">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reconciliation Status -->
+        <div class="card">
+            <div class="card-header">
+                <h5>Reconciliation Status</h5>
+            </div>
+            <div class="card-body">
+                <div class="progress mb-2">
+                    <div id="reconciliation-progress" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
+                </div>
+                <small class="text-muted">
+                    <span id="reconciled-count">0</span> of <span id="total-count">0</span> transactions reconciled
+                </small>
+            </div>
+        </div>
+    </div>
+
+    <div id="dashboard-error" class="alert alert-danger" style="display: none;">
+        <h4>Unable to load dashboard</h4>
+        <p id="error-message"></p>
+    </div>
+</div>
+
+<script>
+frappe.ready(function() {
+    loadDashboard();
+
+    // Refresh every 30 seconds
+    setInterval(loadDashboard, 30000);
+});
+
+function loadDashboard() {
+    frappe.call({
+        method: 'verenigingen.verenigingen_payments.dashboards.financial_dashboard.get_dashboard_data',
+        callback: function(r) {
+            if (r.message && r.message.success) {
+                displayDashboard(r.message.data);
+            } else {
+                showError(r.message ? r.message.error : 'Unknown error');
+            }
+        },
+        error: function(err) {
+            showError('Failed to load dashboard: ' + err.message);
+        }
+    });
+}
+
+function displayDashboard(data) {
+    document.getElementById('dashboard-loading').style.display = 'none';
+    document.getElementById('dashboard-content').style.display = 'block';
+    document.getElementById('dashboard-error').style.display = 'none';
+
+    // Update balances
+    if (data.balances) {
+        document.getElementById('current-balance').textContent = '€' + (data.balances.available || 0).toFixed(2);
+        document.getElementById('pending-balance').textContent = '€' + (data.balances.pending || 0).toFixed(2);
+    }
+
+    // Update revenue metrics
+    if (data.revenue_metrics) {
+        document.getElementById('week-revenue').textContent = '€' + (data.revenue_metrics.this_week || 0).toFixed(2);
+        document.getElementById('month-revenue').textContent = '€' + (data.revenue_metrics.this_month || 0).toFixed(2);
+        document.getElementById('quarter-revenue').textContent = '€' + (data.revenue_metrics.this_quarter || 0).toFixed(2);
+    }
+
+    // Update settlements table
+    if (data.recent_settlements && data.recent_settlements.length > 0) {
+        let tableHTML = '';
+        data.recent_settlements.forEach(function(settlement) {
+            tableHTML += `
+                <tr>
+                    <td>${settlement.settled_at || settlement.date}</td>
+                    <td>${settlement.reference}</td>
+                    <td>€${settlement.amount}</td>
+                    <td><span class="badge badge-${getStatusBadge(settlement.status)}">${settlement.status}</span></td>
+                </tr>
+            `;
+        });
+        document.getElementById('settlements-table').innerHTML = tableHTML;
+    } else {
+        document.getElementById('settlements-table').innerHTML = '<tr><td colspan="4" class="text-center">No recent settlements</td></tr>';
+    }
+
+    // Update reconciliation status
+    if (data.reconciliation_status) {
+        const percentage = data.reconciliation_status.percentage || 0;
+        document.getElementById('reconciliation-progress').style.width = percentage + '%';
+        document.getElementById('reconciliation-progress').textContent = percentage + '%';
+        document.getElementById('reconciled-count').textContent = data.reconciliation_status.reconciled || 0;
+        document.getElementById('total-count').textContent = data.reconciliation_status.total || 0;
+    }
+}
+
+function getStatusBadge(status) {
+    switch(status) {
+        case 'paidout':
+        case 'completed':
+            return 'success';
+        case 'pending':
+            return 'warning';
+        case 'failed':
+            return 'danger';
+        default:
+            return 'secondary';
+    }
+}
+
+function showError(message) {
+    document.getElementById('dashboard-loading').style.display = 'none';
+    document.getElementById('dashboard-content').style.display = 'none';
+    document.getElementById('dashboard-error').style.display = 'block';
+    document.getElementById('error-message').textContent = message;
+}
+</script>
+{% endblock %}

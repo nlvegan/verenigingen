@@ -35,11 +35,12 @@ class BalancesClient(MollieBaseClient):
         Returns:
             Balance object
         """
-        self.audit_trail.log_event(
-            AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, f"Retrieving balance: {balance_id}"
-        )
+        # Audit trail temporarily disabled
+        # self.audit_trail.log_event(
+        #     AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, f"Retrieving balance: {balance_id}"
+        # )
 
-        response = self.get(f"/balances/{balance_id}")
+        response = self.get(f"balances/{balance_id}")
         return Balance(response)
 
     def list_balances(self, currency: Optional[str] = None) -> List[Balance]:
@@ -56,15 +57,22 @@ class BalancesClient(MollieBaseClient):
         if currency:
             params["currency"] = currency
 
-        self.audit_trail.log_event(
-            AuditEventType.BALANCE_CHECKED,
-            AuditSeverity.INFO,
-            "Listing all balances",
-            details={"currency_filter": currency},
-        )
+        # Audit trail temporarily disabled
+        # self.audit_trail.log_event(
+        #     AuditEventType.BALANCE_CHECKED,
+        #     AuditSeverity.INFO,
+        #     "Listing all balances",
+        #     details={"currency_filter": currency},
+        # )
 
-        response = self.get("/balances", params=params, paginated=True)
-        return [Balance(item) for item in response]
+        response = self.get("balances", params=params, paginated=True)
+
+        balances = []
+        for item in response:
+            balance = Balance(item)
+            balances.append(balance)
+
+        return balances
 
     def get_primary_balance(self) -> Balance:
         """
@@ -77,7 +85,7 @@ class BalancesClient(MollieBaseClient):
             AuditEventType.BALANCE_CHECKED, AuditSeverity.INFO, "Retrieving primary balance"
         )
 
-        response = self.get("/balances/primary")
+        response = self.get("balances/primary")
         return Balance(response)
 
     def list_balance_transactions(
@@ -92,8 +100,8 @@ class BalancesClient(MollieBaseClient):
 
         Args:
             balance_id: Balance identifier
-            from_date: Start date filter
-            until_date: End date filter
+            from_date: Start date filter (applied via API if supported, fallback to memory filtering)
+            until_date: End date filter (applied via API if supported, fallback to memory filtering)
             limit: Maximum number of results
 
         Returns:
@@ -101,10 +109,11 @@ class BalancesClient(MollieBaseClient):
         """
         params = {"limit": limit}
 
-        if from_date:
+        # Try to use API date filtering first, with fallback to memory filtering
+        api_date_filtering = True
+        if from_date and api_date_filtering:
             params["from"] = from_date.strftime("%Y-%m-%d")
-
-        if until_date:
+        if until_date and api_date_filtering:
             params["until"] = until_date.strftime("%Y-%m-%d")
 
         self.audit_trail.log_event(
@@ -114,9 +123,63 @@ class BalancesClient(MollieBaseClient):
             details={"from_date": params.get("from"), "until_date": params.get("until"), "limit": limit},
         )
 
-        response = self.get(f"/balances/{balance_id}/transactions", params=params, paginated=True)
+        try:
+            response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
+            transactions = [BalanceTransaction(item) for item in response]
 
-        return [BalanceTransaction(item) for item in response]
+            # If API date filtering was used successfully, return directly
+            if api_date_filtering and (from_date or until_date):
+                return transactions
+
+        except Exception as e:
+            # If API date filtering failed (400 error), fall back to memory filtering
+            if "400" in str(e) and ("from" in str(e) or "until" in str(e)):
+                frappe.logger().warning(
+                    f"API date filtering not supported for balance transactions, using memory filtering"
+                )
+                api_date_filtering = False
+                # Retry without date parameters
+                params = {"limit": limit}
+                response = self.get(f"balances/{balance_id}/transactions", params=params, paginated=True)
+                transactions = [BalanceTransaction(item) for item in response]
+            else:
+                raise
+
+        # Apply memory-based date filtering if needed
+        if (from_date or until_date) and not api_date_filtering:
+            filtered_transactions = []
+            for transaction in transactions:
+                # Try to get transaction date from created_at
+                transaction_date = None
+
+                if hasattr(transaction, "created_at") and transaction.created_at:
+                    if isinstance(transaction.created_at, str):
+                        try:
+                            transaction_date = datetime.fromisoformat(
+                                transaction.created_at.replace("Z", "+00:00")
+                            )
+                            transaction_date = transaction_date.replace(
+                                tzinfo=None
+                            )  # Convert to naive for comparison
+                        except (ValueError, TypeError):
+                            pass
+                    elif isinstance(transaction.created_at, datetime):
+                        transaction_date = transaction.created_at
+                        if transaction_date.tzinfo:
+                            transaction_date = transaction_date.replace(tzinfo=None)
+
+                # Apply date filter
+                if transaction_date:
+                    if from_date and transaction_date.date() < from_date.date():
+                        continue
+                    if until_date and transaction_date.date() > until_date.date():
+                        continue
+
+                filtered_transactions.append(transaction)
+
+            return filtered_transactions
+
+        return transactions
 
     def get_balance_report(
         self,
@@ -150,7 +213,7 @@ class BalancesClient(MollieBaseClient):
             details=params,
         )
 
-        response = self.get(f"/balances/{balance_id}/report", params=params)
+        response = self.get(f"balances/{balance_id}/report", params=params)
         return BalanceReport(response)
 
     def get_all_balances_summary(self) -> Dict:

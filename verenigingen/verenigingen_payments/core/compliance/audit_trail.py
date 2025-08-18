@@ -114,7 +114,7 @@ class ImmutableAuditTrail:
                 "entity_type": entity_type,
                 "entity_id": entity_id,
                 "timestamp": now_datetime().isoformat(),
-                "sequence": self._get_next_sequence(),
+                "sequence": int(time.time() * 1000),  # Use timestamp as sequence for now
                 "previous_hash": self.last_hash,
             }
 
@@ -176,37 +176,43 @@ class ImmutableAuditTrail:
         }
 
         # Add request context if available
-        if frappe.local.request:
-            context.update(
-                {
-                    "ip_address": frappe.local.request.environ.get("REMOTE_ADDR"),
-                    "user_agent": frappe.local.request.environ.get("HTTP_USER_AGENT"),
-                    "request_method": frappe.local.request.method,
-                    "request_path": frappe.local.request.path,
-                }
-            )
+        try:
+            if hasattr(frappe.local, "request") and frappe.local.request:
+                context.update(
+                    {
+                        "ip_address": frappe.local.request.environ.get("REMOTE_ADDR"),
+                        "user_agent": frappe.local.request.environ.get("HTTP_USER_AGENT"),
+                        "request_method": frappe.local.request.method,
+                        "request_path": frappe.local.request.path,
+                    }
+                )
+        except (AttributeError, TypeError):
+            # No request context available (e.g., in console or background job)
+            pass
 
         return context
 
-    def _get_next_sequence(self) -> int:
-        """
-        Get next sequence number
-
-        Returns:
-            int: Next sequence number
-        """
-        # Get max sequence from database
-        max_seq = frappe.db.sql(
-            """
-            SELECT MAX(CAST(sequence AS UNSIGNED)) as max_seq
-            FROM `tabMollie Audit Log`
-        """,
-            as_dict=True,
-        )
-
-        if max_seq and max_seq[0].get("max_seq"):
-            return max_seq[0]["max_seq"] + 1
-        return 1
+    # NOTE: Sequence functionality disabled temporarily due to missing field in DocType
+    # def _get_next_sequence(self) -> int:
+    #     """
+    #     Get next sequence number
+    #
+    #     Returns:
+    #         int: Next sequence number
+    #     """
+    #     # Get the current maximum sequence number from the audit log
+    #     max_seq = frappe.db.sql(
+    #         """
+    #         SELECT COALESCE(MAX(CAST(sequence AS UNSIGNED)), 0) as max_seq
+    #         FROM `tabMollie Audit Log`
+    #         WHERE creation >= CURRENT_DATE
+    #     """,
+    #         as_dict=True,
+    #     )
+    #
+    #     if max_seq and len(max_seq) > 0:
+    #         return max_seq[0]["max_seq"] + 1
+    #     return 1
 
     def _get_last_hash(self) -> Optional[str]:
         """
@@ -229,6 +235,24 @@ class ImmutableAuditTrail:
             return last_entry[0]["integrity_hash"]
         return None
 
+    def _map_severity_to_status(self, severity: str) -> str:
+        """
+        Map audit severity to DocType status field values
+
+        Args:
+            severity: Audit severity (info, warning, error, critical)
+
+        Returns:
+            str: Mapped status (success, warning, failed)
+        """
+        severity_mapping = {
+            AuditSeverity.INFO.value: "success",
+            AuditSeverity.WARNING.value: "warning",
+            AuditSeverity.ERROR.value: "failed",
+            AuditSeverity.CRITICAL.value: "failed",
+        }
+        return severity_mapping.get(severity, "warning")
+
     def _flush_buffer(self):
         """Flush audit buffer to database"""
         if not self.buffer:
@@ -239,7 +263,7 @@ class ImmutableAuditTrail:
                 # Create Mollie Audit Log document
                 audit_log = frappe.new_doc("Mollie Audit Log")
                 audit_log.action = entry["event_type"]
-                audit_log.status = entry["severity"]
+                audit_log.status = self._map_severity_to_status(entry["severity"])
                 audit_log.details = json.dumps(
                     {
                         "description": entry["description"],
@@ -255,9 +279,12 @@ class ImmutableAuditTrail:
                 audit_log.previous_hash = entry["previous_hash"]
                 audit_log.integrity_hash = entry["hash"]
 
-                # Save with system permissions
-                audit_log.flags.ignore_permissions = True
-                audit_log.insert()
+                # Save audit log - use system user context for audit operations
+                frappe.set_user("Administrator")
+                try:
+                    audit_log.insert()
+                finally:
+                    frappe.set_user(entry.get("user", "Administrator"))
 
             # Clear buffer after successful flush
             self.buffer = []

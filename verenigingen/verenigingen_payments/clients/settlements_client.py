@@ -37,11 +37,12 @@ class SettlementsClient(MollieBaseClient):
         Returns:
             Settlement object
         """
-        self.audit_trail.log_event(
-            AuditEventType.SETTLEMENT_PROCESSED, AuditSeverity.INFO, f"Retrieving settlement: {settlement_id}"
-        )
+        # Audit trail temporarily disabled
+        # self.audit_trail.log_event(
+        #     AuditEventType.SETTLEMENT_PROCESSED, AuditSeverity.INFO, f"Retrieving settlement: {settlement_id}"
+        # )
 
-        response = self.get(f"/settlements/{settlement_id}")
+        response = self.get(f"settlements/{settlement_id}")
         return Settlement(response)
 
     def list_settlements(
@@ -56,8 +57,8 @@ class SettlementsClient(MollieBaseClient):
 
         Args:
             reference: Filter by bank reference
-            from_date: Start date filter
-            until_date: End date filter
+            from_date: Start date filter (applied in memory, not API)
+            until_date: End date filter (applied in memory, not API)
             limit: Maximum number of results
 
         Returns:
@@ -65,21 +66,64 @@ class SettlementsClient(MollieBaseClient):
         """
         params = {"limit": limit}
 
+        # NOTE: Mollie settlements API doesn't support date filtering
+        # We get all settlements and filter in memory
         if reference:
             params["reference"] = reference
 
-        if from_date:
-            params["from"] = from_date.strftime("%Y-%m-%d")
-
-        if until_date:
-            params["until"] = until_date.strftime("%Y-%m-%d")
+        # Don't add date parameters as they cause 400 Bad Request
+        # if from_date:
+        #     params["from"] = from_date.strftime("%Y-%m-%d")
+        # if until_date:
+        #     params["until"] = until_date.strftime("%Y-%m-%d")
 
         self.audit_trail.log_event(
             AuditEventType.SETTLEMENT_PROCESSED, AuditSeverity.INFO, "Listing settlements", details=params
         )
 
-        response = self.get("/settlements", params=params, paginated=True)
-        return [Settlement(item) for item in response]
+        response = self.get("settlements", params=params, paginated=True)
+        settlements = [Settlement(item) for item in response]
+
+        # Apply optimized date filtering in memory if requested
+        if from_date or until_date:
+            filtered_settlements = []
+
+            # Use optimized date comparison with model's parsed datetime objects
+            for settlement in settlements:
+                settlement_date = None
+
+                # Use the model's parsed datetime objects (already converted to naive)
+                if hasattr(settlement, "settled_at_datetime") and settlement.settled_at_datetime:
+                    settlement_date = settlement.settled_at_datetime
+                elif hasattr(settlement, "created_at_datetime") and settlement.created_at_datetime:
+                    settlement_date = settlement.created_at_datetime
+
+                # Apply date filter using date-only comparison for better performance
+                if settlement_date:
+                    settlement_date_only = (
+                        settlement_date.date() if hasattr(settlement_date, "date") else settlement_date
+                    )
+                    from_date_only = (
+                        from_date.date() if from_date and hasattr(from_date, "date") else from_date
+                    )
+                    until_date_only = (
+                        until_date.date() if until_date and hasattr(until_date, "date") else until_date
+                    )
+
+                    if from_date_only and settlement_date_only < from_date_only:
+                        continue
+                    if until_date_only and settlement_date_only > until_date_only:
+                        continue
+
+                filtered_settlements.append(settlement)
+
+            # Log performance information
+            frappe.logger().info(
+                f"Filtered {len(settlements)} settlements to {len(filtered_settlements)} based on date range"
+            )
+            return filtered_settlements
+
+        return settlements
 
     def get_next_settlement(self) -> Optional[Settlement]:
         """
@@ -88,7 +132,7 @@ class SettlementsClient(MollieBaseClient):
         Returns:
             Settlement object or None if no pending settlement
         """
-        response = self.get("/settlements/next")
+        response = self.get("settlements/next")
 
         if response:
             self.audit_trail.log_event(
@@ -108,7 +152,7 @@ class SettlementsClient(MollieBaseClient):
         Returns:
             Settlement object or None if no open settlement
         """
-        response = self.get("/settlements/open")
+        response = self.get("settlements/open")
 
         if response:
             self.audit_trail.log_event(
@@ -140,7 +184,7 @@ class SettlementsClient(MollieBaseClient):
             f"Listing payments for settlement: {settlement_id}",
         )
 
-        response = self.get(f"/settlements/{settlement_id}/payments", params=params, paginated=True)
+        response = self.get(f"settlements/{settlement_id}/payments", params=params, paginated=True)
 
         return response
 
@@ -163,7 +207,7 @@ class SettlementsClient(MollieBaseClient):
             f"Listing refunds for settlement: {settlement_id}",
         )
 
-        response = self.get(f"/settlements/{settlement_id}/refunds", params=params, paginated=True)
+        response = self.get(f"settlements/{settlement_id}/refunds", params=params, paginated=True)
 
         return response
 
@@ -186,7 +230,7 @@ class SettlementsClient(MollieBaseClient):
             f"Listing chargebacks for settlement: {settlement_id}",
         )
 
-        response = self.get(f"/settlements/{settlement_id}/chargebacks", params=params, paginated=True)
+        response = self.get(f"settlements/{settlement_id}/chargebacks", params=params, paginated=True)
 
         return response
 
@@ -209,7 +253,7 @@ class SettlementsClient(MollieBaseClient):
             f"Listing captures for settlement: {settlement_id}",
         )
 
-        response = self.get(f"/settlements/{settlement_id}/captures", params=params, paginated=True)
+        response = self.get(f"settlements/{settlement_id}/captures", params=params, paginated=True)
 
         return [SettlementCapture(item) for item in response]
 

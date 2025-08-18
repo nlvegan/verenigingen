@@ -68,11 +68,63 @@ CREATE DATABASE verenigingen_prod;
 CREATE USER 'frappe_prod'@'localhost' IDENTIFIED BY 'strong_password';
 GRANT ALL PRIVILEGES ON verenigingen_prod.* TO 'frappe_prod'@'localhost';
 FLUSH PRIVILEGES;
+```
 
--- Configure for production
-SET GLOBAL innodb_buffer_pool_size = 2147483648; -- 2GB
-SET GLOBAL max_connections = 200;
-SET GLOBAL query_cache_size = 67108864; -- 64MB
+**Production MySQL Configuration**
+
+**For MySQL 8.0+ (`/etc/mysql/mysql.conf.d/mysqld.cnf`):**
+```ini
+[mysqld]
+# Security
+bind-address = 127.0.0.1
+mysqlx-bind-address = 127.0.0.1
+
+# Performance tuning (adjust based on available RAM)
+innodb_buffer_pool_size = 2G
+max_connections = 200
+innodb_log_file_size = 256M
+innodb_flush_log_at_trx_commit = 2
+
+# Frappe-specific optimizations
+sql_mode = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+character_set_server = utf8mb4
+collation_server = utf8mb4_unicode_ci
+
+# Disable binary logging if not using replication
+skip-log-bin
+```
+
+**For MariaDB 10.6+ (`/etc/mysql/mariadb.conf.d/50-server.cnf`):**
+```ini
+[mysqld]
+# Security
+bind-address = 127.0.0.1
+
+# Performance tuning (adjust based on available RAM)
+innodb_buffer_pool_size = 2G
+max_connections = 200
+innodb_log_file_size = 256M
+innodb_flush_log_at_trx_commit = 2
+
+# Query cache (still available in MariaDB)
+query_cache_type = 1
+query_cache_size = 64M
+
+# Frappe-specific optimizations
+sql_mode = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+character_set_server = utf8mb4
+collation_server = utf8mb4_unicode_ci
+
+# Disable binary logging if not using replication
+skip-log-bin
+```
+
+**Apply configuration:**
+```bash
+# Restart MySQL/MariaDB after configuration changes
+sudo systemctl restart mysql     # For MySQL
+# OR
+sudo systemctl restart mariadb   # For MariaDB
 ```
 
 ### 3. Redis Configuration
@@ -84,6 +136,10 @@ maxmemory-policy allkeys-lru
 save 900 1
 save 300 10
 save 60 10000
+
+# SECURITY: Network binding (CRITICAL)
+bind 127.0.0.1 ::1
+protected-mode yes
 
 # Restart Redis
 sudo systemctl restart redis-server
@@ -333,8 +389,16 @@ sudo ufw default allow outgoing
 sudo ufw allow 22/tcp    # SSH
 sudo ufw allow 80/tcp    # HTTP
 sudo ufw allow 443/tcp   # HTTPS
-sudo ufw allow 3306/tcp  # MySQL (restrict to specific IPs)
-sudo ufw allow 6379/tcp  # Redis (localhost only)
+
+# MySQL: SECURITY - Only allow from specific application servers
+# Replace with your actual app server IPs in production
+# sudo ufw allow from 10.0.0.10 to any port 3306 proto tcp
+# sudo ufw allow from 10.0.0.11 to any port 3306 proto tcp
+# For single-server setup, MySQL should bind to localhost only (no UFW rule needed)
+
+# Redis: SECURITY - Do NOT expose Redis publicly
+# Redis is configured to bind to localhost only (see redis.conf above)
+# No UFW rule needed when Redis binds to 127.0.0.1
 
 # Enable firewall
 sudo ufw enable
@@ -419,10 +483,10 @@ class MollieAPIUser(HttpUser):
     @task
     def get_dashboard(self):
         self.client.get("/api/method/get_dashboard_metrics")
+EOF
 
 # Run load test
 locust -f locustfile.py --host=https://prod.verenigingen.nl
-EOF
 ```
 
 ## Go-Live Procedures

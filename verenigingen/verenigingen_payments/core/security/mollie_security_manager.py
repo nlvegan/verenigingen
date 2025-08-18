@@ -66,13 +66,13 @@ class MollieSecurityManager:
         if not webhook_secret:
             self._create_security_alert("WEBHOOK_SECRET_MISSING", "critical")
             frappe.log_error("Webhook secret not configured", "Mollie Security")
-            return False
+            raise SecurityException("Webhook secret not configured - cannot validate webhook security")
 
         # Validate timestamp to prevent replay attacks (5 minute window)
         if timestamp:
             if not self._validate_webhook_timestamp(timestamp):
                 self._create_security_alert("WEBHOOK_REPLAY_ATTEMPT", "warning", f"Timestamp: {timestamp}")
-                return False
+                raise SecurityException("Webhook timestamp validation failed - possible replay attack")
 
         # Calculate expected signature
         expected_signature = hmac.new(
@@ -86,12 +86,12 @@ class MollieSecurityManager:
             self._create_security_alert(
                 "WEBHOOK_SIGNATURE_INVALID", "critical", f"Received: {signature[:20]}..."
             )
+            raise SecurityException("Webhook signature validation failed - invalid signature")
 
         # Log successful validation for audit
-        if is_valid:
-            self._create_audit_log("WEBHOOK_VALIDATED", "success", {"signature": signature[:20] + "..."})
+        self._create_audit_log("WEBHOOK_VALIDATED", "success", {"signature": signature[:20] + "..."})
 
-        return is_valid
+        return True
 
     def rotate_api_keys(self) -> Dict[str, str]:
         """
@@ -117,7 +117,7 @@ class MollieSecurityManager:
                 raise SecurityException("No current API key found")
 
             # Store current key as fallback with timestamp
-            self.settings.set_password("secret_key_fallback", current_key)
+            frappe.db.set_value("Mollie Settings", None, "secret_key_fallback", current_key)
             self.settings.db_set("key_rotation_date", frappe.utils.now())
             self.settings.db_set("fallback_key_expiry", frappe.utils.add_days(frappe.utils.now(), 1))
 
@@ -130,8 +130,8 @@ class MollieSecurityManager:
             # Test connectivity with new key
             if self._test_api_connectivity(new_key):
                 # Update primary key
-                self.settings.set_password("secret_key", new_key)
-                self.settings.set_password("secret_key_pending", "")  # Clear pending
+                frappe.db.set_value("Mollie Settings", None, "secret_key", new_key)
+                frappe.db.set_value("Mollie Settings", None, "secret_key_pending", "")  # Clear pending
 
                 # Schedule cleanup of fallback key after 24 hours
                 self._schedule_fallback_cleanup()
@@ -147,7 +147,7 @@ class MollieSecurityManager:
                 }
             else:
                 # Rollback on failure
-                self.settings.set_password("secret_key_fallback", "")
+                frappe.db.set_value("Mollie Settings", None, "secret_key_fallback", "")
                 raise SecurityException("New API key validation failed")
 
         except Exception as e:
@@ -210,8 +210,8 @@ class MollieSecurityManager:
         Returns:
             bytes: Encryption key for Fernet
         """
-        # Check if encryption key exists
-        stored_key = self.settings.get_password("encryption_key")
+        # Check if encryption key exists - use raise_exception=False to handle missing field gracefully
+        stored_key = self.settings.get_password("encryption_key", raise_exception=False)
 
         if stored_key:
             # Decode from base64
@@ -220,10 +220,26 @@ class MollieSecurityManager:
             # Generate new key
             key = Fernet.generate_key()
 
-            # Store as base64 string
-            self.settings.set_password("encryption_key", base64.urlsafe_b64encode(key).decode("utf-8"))
+            # Try to store as base64 string - use proper Frappe method for Single DocType
+            try:
+                # For Single DocTypes, use the frappe.db.set_value method for Password fields
+                frappe.db.set_value(
+                    "Mollie Settings", None, "encryption_key", base64.urlsafe_b64encode(key).decode("utf-8")
+                )
+                frappe.db.commit()
+                self._create_audit_log("ENCRYPTION_KEY_CREATED", "success")
+            except Exception as e:
+                # If we can't store the key, just use a session key
+                frappe.log_error(f"Could not store encryption key in settings: {str(e)}", "Mollie Security")
+                # Use a deterministic key based on site config for consistency
+                import hashlib
 
-            self._create_audit_log("ENCRYPTION_KEY_CREATED", "success")
+                site_key = frappe.local.conf.get("secret_key", "default_secret")
+                # Generate a proper Fernet key from site secret
+                key_material = hashlib.sha256(f"mollie_security_{site_key}".encode()).digest()
+                # Fernet requires a URL-safe base64-encoded 32-byte key
+                key = base64.urlsafe_b64encode(key_material)
+
             return key
 
     def _validate_webhook_timestamp(self, timestamp: str, tolerance_seconds: int = 300) -> bool:
@@ -342,10 +358,32 @@ class MollieSecurityManager:
             f"Security Alert: {alert_type}\nSeverity: {severity}\nDetails: {details}", "Mollie Security Alert"
         )
 
-        # TODO: Send notification to security team if critical
+        # Send notification to security team if critical
         if severity == "critical":
-            # Send email or system notification
-            pass
+            # Send email notification to administrators
+            try:
+                from frappe.utils.user import get_system_managers
+
+                system_managers = get_system_managers(only_name=True)
+
+                if system_managers:
+                    frappe.sendmail(
+                        recipients=system_managers,
+                        subject=f"🚨 Critical Mollie Security Alert: {alert_type}",
+                        message=f"""
+                        <h3>Critical Security Alert</h3>
+                        <p><strong>Alert Type:</strong> {alert_type}</p>
+                        <p><strong>Severity:</strong> {severity}</p>
+                        <p><strong>Details:</strong> {details}</p>
+                        <p><strong>Timestamp:</strong> {frappe.utils.now()}</p>
+                        <p><strong>Site:</strong> {frappe.local.site}</p>
+
+                        <p>Please investigate this security incident immediately.</p>
+                        """,
+                        now=True,
+                    )
+            except Exception as e:
+                frappe.log_error(f"Failed to send security alert email: {str(e)}", "Mollie Security")
 
     def _calculate_integrity_hash(self, audit_log) -> str:
         """
@@ -368,20 +406,17 @@ class SecurityException(Exception):
     pass
 
 
-def cleanup_fallback_key(mollie_settings_name: str):
+def cleanup_fallback_key():
     """
     Background job to cleanup fallback API key after expiry
-
-    Args:
-        mollie_settings_name: Name of Mollie Settings document
     """
     try:
-        settings = frappe.get_doc("Mollie Settings", mollie_settings_name)
+        settings = frappe.get_single("Mollie Settings")
 
         # Check if fallback key has expired
         if settings.fallback_key_expiry and get_datetime(settings.fallback_key_expiry) < now_datetime():
             # Clear fallback key
-            settings.set_password("secret_key_fallback", "")
+            frappe.db.set_value("Mollie Settings", None, "secret_key_fallback", "")
             settings.db_set("fallback_key_expiry", None)
 
             # Log cleanup

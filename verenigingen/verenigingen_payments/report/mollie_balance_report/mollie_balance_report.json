@@ -1,0 +1,26 @@
+{
+ "add_total_row": 0,
+ "columns": [],
+ "creation": "2025-08-18 22:00:00.000000",
+ "disable_prepared_report": 0,
+ "disabled": 0,
+ "docstatus": 0,
+ "doctype": "Report",
+ "filters": [],
+ "is_standard": "Yes",
+ "modified": "2025-08-18 22:00:00.000000",
+ "module": "Verenigingen Payments",
+ "name": "Mollie Balance Report",
+ "prepared_report": 0,
+ "ref_doctype": "Mollie Settings",
+ "report_name": "Mollie Balance Report",
+ "report_type": "Script Report",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Verenigingen Administrator"
+  }
+ ]
+}

@@ -385,8 +385,8 @@ Daily and weekly schedulers handle:
 ## Site Configuration
 
 **Site Information:**
-- **Active Site:** `dev.veganisme.net`
-- **Site Location:** `~/frappe-bench/sites/dev.veganisme.net/`
+- **Active Site:** `SITE_NAME`
+- **Site Location:** `~/frappe-bench/sites/SITE_NAME`
 - **Bench Directory:** `~/frappe-bench/` (restricted access for Claude Code)
 - **Deployment Type:** Production server running in cloud environment (not local development)
 

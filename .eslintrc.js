@@ -165,7 +165,7 @@ module.exports = {
 		'no-undef-init': 'error',
 		'no-use-before-define': ['error', { functions: false, classes: false, variables: true }],
 		// Console and debugging
-		'no-console': 'off',
+		'no-console': ['warn', { allow: ['warn', 'error'] }],
 		'no-debugger': 'error',
 		'no-alert': 'off', // Allow confirm() and alert() for user interactions
 		// Best practices

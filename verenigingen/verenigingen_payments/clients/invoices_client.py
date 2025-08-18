@@ -40,7 +40,7 @@ class InvoicesClient(MollieBaseClient):
             AuditEventType.REPORT_GENERATED, AuditSeverity.INFO, f"Retrieving invoice: {invoice_id}"
         )
 
-        response = self.get(f"/invoices/{invoice_id}")
+        response = self.get(f"invoices/{invoice_id}")
         return Invoice(response)
 
     def list_invoices(
@@ -82,7 +82,7 @@ class InvoicesClient(MollieBaseClient):
             AuditEventType.REPORT_GENERATED, AuditSeverity.INFO, "Listing invoices", details=params
         )
 
-        response = self.get("/invoices", params=params, paginated=True)
+        response = self.get("invoices", params=params, paginated=True)
         return [Invoice(item) for item in response]
 
     def get_overdue_invoices(self) -> List[Invoice]:

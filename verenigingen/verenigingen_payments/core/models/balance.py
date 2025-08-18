@@ -8,6 +8,8 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+import frappe
+
 from .base import Amount, BaseModel, Links
 
 
@@ -88,11 +90,14 @@ class Balance(BaseModel):
         return None
 
     def _post_init(self):
-        """Parse dates"""
+        """Parse dates with consistent timezone handling"""
         if self.created_at and isinstance(self.created_at, str):
             try:
-                self.created_at_datetime = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
-            except:
+                dt = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
+                self.created_at_datetime = dt.replace(
+                    tzinfo=None
+                )  # Convert to naive for consistent comparison
+            except (ValueError, TypeError):
                 self.created_at_datetime = None
 
     def is_active(self) -> bool:
@@ -140,11 +145,14 @@ class BalanceTransaction(BaseModel):
         return None
 
     def _post_init(self):
-        """Parse dates"""
+        """Parse dates with consistent timezone handling"""
         if self.created_at and isinstance(self.created_at, str):
             try:
-                self.created_at_datetime = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
-            except:
+                dt = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
+                self.created_at_datetime = dt.replace(
+                    tzinfo=None
+                )  # Convert to naive for consistent comparison
+            except (ValueError, TypeError):
                 self.created_at_datetime = None
 
     def get_total_deductions(self) -> Decimal:

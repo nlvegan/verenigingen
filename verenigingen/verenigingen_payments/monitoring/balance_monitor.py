@@ -15,7 +15,8 @@ from frappe.utils import add_days, get_datetime, now_datetime
 
 from ..clients.balances_client import BalancesClient
 from ..clients.settlements_client import SettlementsClient
-from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, AuditTrail
+from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
+from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
 
 
 class AlertSeverity(Enum):
@@ -52,14 +53,13 @@ class BalanceMonitor:
     - Historical analysis
     """
 
-    def __init__(self, settings_name: str):
+    def __init__(self):
         """Initialize balance monitor"""
-        self.settings_name = settings_name
         self.audit_trail = AuditTrail()
 
         # Initialize API clients
-        self.balances_client = BalancesClient(settings_name)
-        self.settlements_client = SettlementsClient(settings_name)
+        self.balances_client = BalancesClient()
+        self.settlements_client = SettlementsClient()
 
         # Load monitoring configuration
         self.config = self._load_monitoring_config()
@@ -622,12 +622,12 @@ class BalanceMonitor:
 @frappe.whitelist()
 def run_balance_monitoring():
     """Run scheduled balance monitoring"""
-    settings = frappe.get_all("Mollie Settings", filters={"enable_backend_api": True}, limit=1)
+    settings = frappe.get_single("Mollie Settings")
 
-    if not settings:
-        return {"status": "skipped", "reason": "No active settings"}
+    if not settings.enable_backend_api:
+        return {"status": "skipped", "reason": "Backend API not enabled"}
 
-    monitor = BalanceMonitor(settings[0]["name"])
+    monitor = BalanceMonitor()
     return monitor.run_monitoring_cycle()
 
 
@@ -635,12 +635,12 @@ def run_balance_monitoring():
 @frappe.whitelist()
 def get_balance_health_dashboard():
     """Get balance health dashboard data"""
-    settings = frappe.get_all("Mollie Settings", filters={"enable_backend_api": True}, limit=1)
+    settings = frappe.get_single("Mollie Settings")
 
-    if not settings:
-        return {"status": "error", "message": "No active settings"}
+    if not settings.enable_backend_api:
+        return {"status": "error", "message": "Backend API not enabled"}
 
-    monitor = BalanceMonitor(settings[0]["name"])
+    monitor = BalanceMonitor()
 
     # Get all balances
     balances = monitor.balances_client.list_balances()

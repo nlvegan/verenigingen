@@ -73,11 +73,11 @@ class ResilientHTTPClient:
             expected_exception=requests.RequestException,
         )
 
-        self.rate_limiter = AdaptiveRateLimiter(initial_rate=rate_limit, burst_size=rate_limit * 2)
-
-        self.retry_policy = SmartRetryPolicy(
-            max_retries=max_retries, initial_delay=1.0, max_delay=60.0, exponential_base=2.0
+        self.rate_limiter = AdaptiveRateLimiter(
+            initial_max_tokens=rate_limit * 2, initial_refill_rate=rate_limit
         )
+
+        self.retry_policy = SmartRetryPolicy(retry_budget=max_retries * 10)
 
         self.audit_trail = get_audit_trail()
 
@@ -98,7 +98,7 @@ class ResilientHTTPClient:
         retry_strategy = Retry(
             total=self.max_retries,
             status_forcelist=[429, 500, 502, 503, 504],
-            method_whitelist=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE"],
+            allowed_methods=["HEAD", "GET", "PUT", "DELETE", "OPTIONS", "TRACE"],
             backoff_factor=1,
         )
 
@@ -140,7 +140,7 @@ class ResilientHTTPClient:
             Tuple of (response_data, status_code)
         """
         # Check rate limit
-        if not self.rate_limiter.allow_request():
+        if not self.rate_limiter.acquire():
             self.metrics["rate_limit_throttles"] += 1
             self._log_throttle(endpoint)
             raise frappe.ValidationError(_("Rate limit exceeded. Please try again later."))
@@ -239,7 +239,7 @@ class ResilientHTTPClient:
             return response
 
         # Use smart retry policy
-        return self.retry_policy.execute_with_retry(make_request)
+        return self.retry_policy.execute_with_classification(make_request)
 
     def _update_rate_limit_from_headers(self, headers: Dict[str, str]):
         """
@@ -277,7 +277,7 @@ class ResilientHTTPClient:
         # Handle different content types
         content_type = response.headers.get("Content-Type", "")
 
-        if "application/json" in content_type:
+        if "application/json" in content_type or "application/hal+json" in content_type:
             try:
                 data = response.json()
             except json.JSONDecodeError:

@@ -8,6 +8,8 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+import frappe
+
 from .base import Amount, BaseModel, Links
 
 
@@ -88,18 +90,26 @@ class Settlement(BaseModel):
         return None
 
     def _post_init(self):
-        """Parse dates and periods"""
-        # Parse dates
+        """Parse dates and periods with consistent timezone handling"""
+        # Parse dates with proper timezone handling
         if self.created_at and isinstance(self.created_at, str):
             try:
-                self.created_at_datetime = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
-            except:
+                dt = datetime.fromisoformat(self.created_at.replace("Z", "+00:00"))
+                self.created_at_datetime = dt.replace(
+                    tzinfo=None
+                )  # Convert to naive for consistent comparison
+            except (ValueError, TypeError) as e:
+                frappe.logger().warning(f"Failed to parse settlement created_at date: {e}")
                 self.created_at_datetime = None
 
         if self.settled_at and isinstance(self.settled_at, str):
             try:
-                self.settled_at_datetime = datetime.fromisoformat(self.settled_at.replace("Z", "+00:00"))
-            except:
+                dt = datetime.fromisoformat(self.settled_at.replace("Z", "+00:00"))
+                self.settled_at_datetime = dt.replace(
+                    tzinfo=None
+                )  # Convert to naive for consistent comparison
+            except (ValueError, TypeError) as e:
+                frappe.logger().warning(f"Failed to parse settlement settled_at date: {e}")
                 self.settled_at_datetime = None
 
         # Parse periods

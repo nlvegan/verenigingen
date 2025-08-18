@@ -190,12 +190,7 @@
  "name": "Chapter Member",
  "name_case": "",
  "owner": "Administrator",
- "permissions": [
-  {
-   "read": 1,
-   "role": "All"
-  }
- ],
+ "permissions": [],
  "quick_entry": 1,
  "read_only": 0,
  "read_only_onload": 0,

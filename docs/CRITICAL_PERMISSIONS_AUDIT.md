@@ -122,17 +122,42 @@ Our automated permissions audit of 1,039 DocTypes has identified **450 potential
 **Plus server-side handler for chapter-based access**
 
 ### Pattern 3: Child Tables
+**⚠️ SECURITY WARNING: Do not assign permissions directly to Child DocTypes.**
+
+Child DocTypes inherit access permissions from their parent documents. Adding explicit child permissions can create security vulnerabilities by exposing sensitive line-item data through indirect access.
+
+**✅ RECOMMENDED APPROACH:**
+- **Default**: No explicit permissions on child DocTypes
+- **Parent inheritance**: Child tables automatically inherit permissions from parent documents
+- **Exception handling**: Only add explicit child permissions in exceptional, documented cases
+- **Never use public roles**: Never assign permissions to "All", "Guest", or broad roles on child tables
+
+**❌ DANGEROUS PATTERN (DO NOT USE):**
 ```json
 {
   "permissions": [
     {
-      "role": "All",
+      "role": "All",      // ← SECURITY RISK: Exposes child data
       "read": 1
     }
   ]
 }
 ```
-**Note**: Child tables inherit create/write permissions from parent
+
+**✅ SECURE PATTERN:**
+```
+// No permissions needed - child inherits from parent
+// If exceptional case requires explicit permissions:
+{
+  "permissions": [
+    {
+      "role": "System Manager",  // ← Minimal necessary role only
+      "read": 1
+    }
+  ]
+}
+// + Documented justification for the exception
+```
 
 ## 🔍 IMPLEMENTATION PLAN
 

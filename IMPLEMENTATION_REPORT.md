@@ -31,8 +31,8 @@ Successfully implemented a comprehensive Mollie Backend API integration for the 
 
 ### 3. Security Components (95% Complete)
 - **Encryption Handler** (`encryption_handler.py`)
-  - AES-256 encryption via Fernet
-  - Format-preserving encryption for sensitive data
+  - Symmetric encryption via Fernet (AES-128-CBC + HMAC-SHA256)
+  - Custom field-level protection for IBANs and card numbers (no dedicated FPE library)
   - Secure key derivation using PBKDF2HMAC
 
 - **Webhook Validator** (`webhook_validator.py`)

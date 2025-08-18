@@ -104,12 +104,7 @@
  "module": "Verenigingen",
  "name": "Team Member",
  "owner": "Administrator",
- "permissions": [
-  {
-   "read": 1,
-   "role": "All"
-  }
- ],
+ "permissions": [],
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",

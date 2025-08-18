@@ -938,6 +938,12 @@ class MemberCSVImport(Document):
                 "termination_reason": self._get_termination_reason(membership_type),
             }
 
+        # Handle chapter assignment if chapter is provided
+        if row_data.get("chapter"):
+            chapter_name = str(row_data["chapter"]).strip()
+            # Store chapter information for later creation (after member is saved and has a name)
+            member_doc._pending_chapter_assignment = chapter_name
+
         # Set member_since date (status was already set at the beginning of _update_member_fields)
         member_doc.member_since = row_data.get("member_since") or today()
 
@@ -1034,6 +1040,10 @@ class MemberCSVImport(Document):
             if hasattr(member_doc, "_pending_termination_data"):
                 self._create_termination_record(member_doc, member_doc._pending_termination_data)
 
+            # Create chapter assignment if chapter was provided
+            if hasattr(member_doc, "_pending_chapter_assignment"):
+                self._assign_member_to_chapter(member_doc, member_doc._pending_chapter_assignment)
+
         except Exception as e:
             # Log error but don't fail the entire member creation for related record issues
             frappe.logger().error(f"Failed to create related records for member {member_doc.name}: {str(e)}")
@@ -1067,6 +1077,49 @@ class MemberCSVImport(Document):
         except Exception as e:
             frappe.logger().error(f"Failed to create termination record for {member_doc.name}: {str(e)}")
             # Don't fail the entire import for termination record issues
+
+    def _assign_member_to_chapter(self, member_doc: Document, chapter_name: str):
+        """Assign member to chapter based on chapter name from CSV, using the same logic as membership approval."""
+        try:
+            # Check if the chapter exists
+            if not frappe.db.exists("Chapter", chapter_name):
+                frappe.logger().warning(
+                    f"Chapter '{chapter_name}' does not exist. Skipping chapter assignment for member {member_doc.name}"
+                )
+                return
+
+            # Create chapter membership using the same logic as in membership approval
+            # Check if chapter membership already exists
+            existing_membership = frappe.db.exists(
+                "Chapter Member", {"member": member_doc.name, "parent": chapter_name, "enabled": 1}
+            )
+
+            if not existing_membership:
+                chapter_member = frappe.get_doc(
+                    {
+                        "doctype": "Chapter Member",
+                        "parent": chapter_name,
+                        "parenttype": "Chapter",
+                        "parentfield": "members",
+                        "member": member_doc.name,
+                        "enabled": 1,
+                        "chapter_join_date": member_doc.member_since or today(),
+                    }
+                )
+                chapter_member.insert()
+                frappe.logger().info(
+                    f"Successfully assigned member {member_doc.name} to chapter {chapter_name}"
+                )
+            else:
+                frappe.logger().info(
+                    f"Member {member_doc.name} is already assigned to chapter {chapter_name}"
+                )
+
+        except Exception as e:
+            frappe.logger().error(
+                f"Failed to assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
+            )
+            # Don't fail the entire import for chapter assignment issues
 
 
 @frappe.whitelist()

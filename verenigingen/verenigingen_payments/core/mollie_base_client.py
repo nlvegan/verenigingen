@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import frappe
+import requests
 from frappe import _
 
 from .compliance.audit_trail import AuditEventType, AuditSeverity, get_audit_trail
@@ -54,25 +55,33 @@ class MollieBaseClient:
     """
 
     # API endpoints
-    BASE_URL = "https://api.mollie.com/v2"
+    BASE_URL = "https://api.mollie.com/v2/"
 
     # API versions
     API_VERSION = "v2"
 
-    def __init__(self, api_key: Optional[str] = None, test_mode: bool = False):
+    def __init__(self, api_key: Optional[str] = None, test_mode: bool = False, use_backend_api: bool = True):
         """
         Initialize Mollie base client
 
         Args:
             api_key: Mollie API key (if not provided, fetched from settings)
-            test_mode: Whether to use test mode
+            test_mode: Whether to use test mode (only applies to payment API, not backend API)
+            use_backend_api: If True, use Organization Access Token for backend features
         """
+        # Get settings (singleton)
+        self.mollie_settings = frappe.get_single("Mollie Settings")
+
         # Get API key from settings if not provided
         if not api_key:
-            api_key = self._get_api_key_from_settings(test_mode)
+            if use_backend_api:
+                api_key = self._get_backend_api_key()
+            else:
+                api_key = self._get_api_key_from_settings(test_mode)
 
         self.api_key = api_key
         self.test_mode = test_mode
+        self.use_backend_api = use_backend_api
 
         # Initialize components
         self.http_client = ResilientHTTPClient(
@@ -83,7 +92,7 @@ class MollieBaseClient:
             circuit_breaker_threshold=5,
         )
 
-        self.security_manager = MollieSecurityManager()
+        self.security_manager = MollieSecurityManager(self.mollie_settings)
         self.financial_validator = FinancialValidator()
         self.audit_trail = get_audit_trail()
 
@@ -92,7 +101,7 @@ class MollieBaseClient:
 
     def _get_api_key_from_settings(self, test_mode: bool) -> str:
         """
-        Get API key from Mollie Settings
+        Get API key from Mollie Settings (for payment API, not backend API)
 
         Args:
             test_mode: Whether to use test mode
@@ -101,8 +110,8 @@ class MollieBaseClient:
             API key string
         """
         try:
-            # Get Mollie Settings
-            settings = frappe.get_single("Mollie Settings")
+            # Use the settings we already loaded
+            settings = self.mollie_settings
 
             if not settings:
                 raise frappe.ValidationError(_("Mollie Settings not configured"))
@@ -122,16 +131,51 @@ class MollieBaseClient:
             if not api_key:
                 raise frappe.ValidationError(_("Mollie API key not configured"))
 
-            # Validate key format
-            if test_mode and not api_key.startswith("test_"):
-                frappe.msgprint(_("Warning: Using non-test API key in test mode"))
-            elif not test_mode and not api_key.startswith("live_"):
-                raise frappe.ValidationError(_("Live API key required for production mode"))
+            # Validate key format only for payment API (not backend API)
+            if not self.use_backend_api:
+                if test_mode and not api_key.startswith("test_"):
+                    frappe.msgprint(_("Warning: Using non-test API key in test mode"))
+                elif not test_mode and not api_key.startswith("live_"):
+                    raise frappe.ValidationError(_("Live API key required for production mode"))
 
             return api_key
 
         except Exception as e:
             frappe.log_error(f"Failed to get Mollie API key: {str(e)}", "Mollie API")
+            raise
+
+    def _get_backend_api_key(self) -> str:
+        """
+        Get Organization Access Token for backend API operations
+
+        Returns:
+            Organization Access Token string
+        """
+        try:
+            settings = self.mollie_settings
+            if not settings:
+                raise frappe.ValidationError(_("Mollie Settings not configured"))
+
+            # Check if backend API is enabled
+            if not settings.get("enable_backend_api"):
+                raise frappe.ValidationError(
+                    _("Mollie Backend API is not enabled. Please enable it in Mollie Settings.")
+                )
+
+            # Get Organization Access Token
+            api_key = settings.get_password("organization_access_token", raise_exception=False)
+            if not api_key:
+                raise frappe.ValidationError(
+                    _(
+                        "Organization Access Token not configured. Please configure it in Mollie Settings for backend API access."
+                    )
+                )
+
+            # OAT tokens don't follow test_/live_ format - they're always live tokens
+            return api_key
+
+        except Exception as e:
+            frappe.log_error(f"Failed to get Mollie Backend API key: {str(e)}", "Mollie Backend API")
             raise
 
     def request(
@@ -162,7 +206,8 @@ class MollieBaseClient:
 
             # Make request
             if paginated:
-                return self._request_paginated(method, endpoint, params, data)
+                result = self._request_paginated(method, endpoint, params, data)
+                return result
             else:
                 response, status_code = self.http_client.request(
                     method=method, endpoint=endpoint, params=params, json_data=data
@@ -212,6 +257,13 @@ class MollieBaseClient:
                 method=method, endpoint=endpoint, params=params, json_data=data
             )
 
+            # Debug logging - only log on error or if needed for debugging
+            if status_code >= 400:
+                frappe.log_error(
+                    f"[MOLLIE ERROR] MollieBaseClient._request_paginated: Error response (status {status_code}): {response}",
+                    "Mollie Error",
+                )
+
             # Validate response
             self._validate_response(response, status_code)
 
@@ -230,7 +282,7 @@ class MollieBaseClient:
                 break
 
             # Check for next page
-            if "_links" in response and "next" in response["_links"]:
+            if "_links" in response and "next" in response["_links"] and response["_links"]["next"]:
                 next_url = response["_links"]["next"]["href"]
                 # Extract cursor or from parameter
                 if "from" in next_url:
@@ -311,7 +363,7 @@ class MollieBaseClient:
 
     def _handle_api_error(self, response: Optional[Dict[str, Any]], status_code: int):
         """
-        Handle API error response
+        Handle API error response with enhanced parameter validation
 
         Args:
             response: Error response data
@@ -339,6 +391,17 @@ class MollieBaseClient:
 
             if "_links" in response and "documentation" in response["_links"]:
                 error_details["documentation"] = response["_links"]["documentation"]["href"]
+
+        # Enhanced logging for parameter-related errors
+        if status_code == 400 and error_message:
+            frappe.logger().error(f"Mollie API 400 error: {error_message}")
+            # Check for unsupported parameter errors
+            if (
+                "parameter" in error_message.lower()
+                or "from" in error_message.lower()
+                or "until" in error_message.lower()
+            ):
+                frappe.logger().warning(f"Possible unsupported parameter error: {error_message}")
 
         # Map to appropriate exception
         if status_code == 401:
@@ -409,6 +472,49 @@ class MollieBaseClient:
     def get_metrics(self) -> Dict[str, Any]:
         """Get client performance metrics"""
         return self.http_client.get_metrics()
+
+    def test_endpoint_parameter_support(self, endpoint: str, test_params: Dict[str, str]) -> Dict[str, bool]:
+        """
+        Test which parameters are supported by an endpoint
+
+        Args:
+            endpoint: API endpoint to test
+            test_params: Dictionary of parameter names and test values
+
+        Returns:
+            Dictionary mapping parameter names to support status (True/False)
+        """
+        support_status = {}
+
+        for param_name, param_value in test_params.items():
+            try:
+                # Test with minimal parameters plus the test parameter
+                test_request_params = {"limit": 1, param_name: param_value}
+                response, status_code = self.http_client.request(
+                    method="GET", endpoint=endpoint, params=test_request_params
+                )
+
+                if status_code == 200:
+                    support_status[param_name] = True
+                    frappe.logger().info(f"Parameter '{param_name}' is supported by {endpoint}")
+                else:
+                    support_status[param_name] = False
+                    frappe.logger().info(
+                        f"Parameter '{param_name}' returned status {status_code} for {endpoint}"
+                    )
+
+            except Exception as e:
+                if "400" in str(e) and (param_name in str(e).lower() or "parameter" in str(e).lower()):
+                    support_status[param_name] = False
+                    frappe.logger().info(f"Parameter '{param_name}' is not supported by {endpoint}: {str(e)}")
+                else:
+                    # Other error types don't necessarily mean parameter unsupported
+                    support_status[param_name] = "unknown"
+                    frappe.logger().warning(
+                        f"Could not test parameter '{param_name}' for {endpoint}: {str(e)}"
+                    )
+
+        return support_status
 
     def close(self):
         """Close client connections"""

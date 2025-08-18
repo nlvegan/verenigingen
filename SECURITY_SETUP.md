@@ -86,10 +86,10 @@ Total possible score: 10 points
 
 When CSRF protection is enabled:
 1. Frappe automatically generates a CSRF token for each session
-2. The token is included in all forms and AJAX requests
-3. Token validation happens automatically on the server
-4. No additional configuration needed in the app code
-
+2. The token is automatically included in forms and AJAX requests when using Frappe’s client utilities (e.g., frappe.call) or templated forms
+3. For custom XHR/fetch or external clients, include the CSRF token via the `X-Frappe-CSRF-Token` header (or the token from the `frappe.csrf_token` cookie/meta)
+4. Token validation happens automatically on the server
+5. No additional configuration is needed in app code when using Frappe’s standard form/AJAX helpers
 ## Troubleshooting
 
 ### "CSRF token missing" errors

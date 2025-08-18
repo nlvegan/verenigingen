@@ -78,7 +78,7 @@ function test_mollie_connection(frm) {
 	frappe.call({
 		method: 'verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings.test_mollie_connection',
 		args: {
-			gateway_name: frm.doc.name
+			// For singleton, no args needed - method will use frappe.get_single()
 		},
 		callback(r) {
 			if (r.message && r.message.success) {
@@ -146,10 +146,8 @@ frappe.ui.form.on('Mollie Settings', 'test_mode', (frm) => {
 
 // Form validation before save
 frappe.ui.form.on('Mollie Settings', 'before_save', (frm) => {
-	// Ensure gateway name is provided
-	if (!frm.doc.gateway_name) {
-		frappe.throw(__('Payment Gateway Name is required'));
-	}
+	// For singleton, name is automatically set to DocType name
+	// No need to validate gateway_name since it's not used in singleton pattern
 
 	// Validate required fields
 	if (!frm.doc.profile_id || !frm.doc.secret_key) {

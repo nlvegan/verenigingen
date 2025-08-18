@@ -16,7 +16,8 @@ from ..clients.balances_client import BalancesClient
 from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.invoices_client import InvoicesClient
 from ..clients.settlements_client import SettlementsClient
-from ..core.compliance.audit_trail import AuditEventType, AuditSeverity, AuditTrail
+from ..core.compliance.audit_trail import AuditEventType, AuditSeverity
+from ..core.compliance.audit_trail import ImmutableAuditTrail as AuditTrail
 
 
 class ReconciliationStatus:
@@ -41,16 +42,15 @@ class ReconciliationEngine:
     - Comprehensive reporting
     """
 
-    def __init__(self, settings_name: str):
+    def __init__(self):
         """Initialize reconciliation engine"""
-        self.settings_name = settings_name
         self.audit_trail = AuditTrail()
 
         # Initialize API clients
-        self.balances_client = BalancesClient(settings_name)
-        self.settlements_client = SettlementsClient(settings_name)
-        self.invoices_client = InvoicesClient(settings_name)
-        self.chargebacks_client = ChargebacksClient(settings_name)
+        self.balances_client = BalancesClient()
+        self.settlements_client = SettlementsClient()
+        self.invoices_client = InvoicesClient()
+        self.chargebacks_client = ChargebacksClient()
 
         # Track reconciliation state
         self.reconciliation_id = None
@@ -519,10 +519,10 @@ class ReconciliationEngine:
 @frappe.whitelist()
 def run_scheduled_reconciliation():
     """Run scheduled daily reconciliation"""
-    settings = frappe.get_all("Mollie Settings", filters={"enable_backend_api": True}, limit=1)
+    settings = frappe.get_single("Mollie Settings")
 
-    if settings:
-        engine = ReconciliationEngine(settings[0]["name"])
+    if settings.enable_backend_api:
+        engine = ReconciliationEngine()
         return engine.run_daily_reconciliation()
 
     return {"status": "skipped", "reason": "No active Mollie backend API settings"}

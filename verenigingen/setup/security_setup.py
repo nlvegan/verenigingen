@@ -13,6 +13,16 @@ import frappe
 from frappe import _
 from frappe.rate_limiter import rate_limit
 
+# Import and initialize the security logger configuration
+try:
+    from verenigingen.utils.logger_config import get_security_logger
+
+    # Initialize the logger with proper file path configuration
+    security_logger = get_security_logger()
+except ImportError:
+    # Fallback to standard Frappe logger if config not available
+    security_logger = frappe.logger("verenigingen.security")
+
 
 def security_rate_limit(limit=5, seconds=60):
     """
@@ -309,31 +319,28 @@ def log_security_audit(action, details, user=None):
     try:
         user = user or frappe.session.user
 
-        # Create audit log entry
+        # Create comment for audit trail (more flexible than Activity Log)
         frappe.get_doc(
             {
-                "doctype": "Activity Log",
-                "subject": f"Security Configuration: {action}",
-                "full_name": frappe.get_value("User", user, "full_name") or user,
-                "user": user,
-                "operation": action,
+                "doctype": "Comment",
+                "comment_type": "Info",
                 "reference_doctype": "System Settings",
-                "timeline_doctype": "System Settings",
-                "timeline_name": "System Settings",
-                "content": frappe.as_json(details),
-                "communication_date": frappe.utils.now_datetime(),
+                "reference_name": "System Settings",
+                "subject": f"Security Configuration: {action}",
+                "content": f"<b>Security Action:</b> {action}<br>"
+                f"<b>User:</b> {user}<br>"
+                f"<b>Details:</b> <pre>{frappe.as_json(details, indent=2)}</pre>",
+                "comment_by": user,
                 "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
             }
         ).insert(ignore_permissions=True)
 
-        # Also log to security-specific log file
-        frappe.logger("verenigingen.security").info(
-            f"SECURITY AUDIT: {action} by {user} - {frappe.as_json(details)}"
-        )
+        # Also log to security-specific log file using configured logger
+        security_logger.info(f"SECURITY AUDIT: {action} by {user} - {frappe.as_json(details)}")
 
     except Exception as e:
         # Don't fail the main operation if logging fails
-        frappe.logger("verenigingen.security").error(f"Failed to log security audit: {str(e)}")
+        security_logger.error(f"Failed to log security audit: {str(e)}")
 
 
 def setup_all_security():
@@ -433,9 +440,34 @@ def check_current_security_status():
     """Check current security configuration status."""
     # No CSRF validation needed for read-only operation
     try:
+        # Log the security status check for audit purposes
+        # Even read operations should be logged for reconnaissance detection
+        log_security_audit(
+            "Security Status Check",
+            {
+                "user": frappe.session.user,
+                "timestamp": frappe.utils.now_datetime(),
+                "ip_address": frappe.local.request_ip if hasattr(frappe.local, "request_ip") else None,
+            },
+        )
+
         status = check_security_status()
+
+        # Log if any critical security issues are found
+        if status.get("security_percentage", 100) < 50:
+            log_security_audit(
+                "Low Security Score Detected",
+                {
+                    "user": frappe.session.user,
+                    "score": status.get("security_score"),
+                    "percentage": status.get("security_percentage"),
+                },
+            )
+
         return {"success": True, "status": status}
     except Exception as e:
+        # Log failed attempts as well
+        log_security_audit("Security Status Check Failed", {"user": frappe.session.user, "error": str(e)})
         return {"success": False, "message": str(e)}
 
 

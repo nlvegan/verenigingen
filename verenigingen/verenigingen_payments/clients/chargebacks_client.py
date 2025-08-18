@@ -43,7 +43,7 @@ class ChargebacksClient(MollieBaseClient):
             f"Retrieving chargeback: {chargeback_id} for payment: {payment_id}",
         )
 
-        response = self.get(f"/payments/{payment_id}/chargebacks/{chargeback_id}")
+        response = self.get(f"payments/{payment_id}/chargebacks/{chargeback_id}")
         return Chargeback(response)
 
     def list_payment_chargebacks(self, payment_id: str) -> List[Chargeback]:
@@ -62,7 +62,7 @@ class ChargebacksClient(MollieBaseClient):
             f"Listing chargebacks for payment: {payment_id}",
         )
 
-        response = self.get(f"/payments/{payment_id}/chargebacks", paginated=True)
+        response = self.get(f"payments/{payment_id}/chargebacks", paginated=True)
         return [Chargeback(item) for item in response]
 
     def list_all_chargebacks(
@@ -72,8 +72,8 @@ class ChargebacksClient(MollieBaseClient):
         List all chargebacks across all payments
 
         Args:
-            from_date: Start date filter
-            until_date: End date filter
+            from_date: Start date filter (applied in memory, not API)
+            until_date: End date filter (applied in memory, not API)
             limit: Maximum number of results
 
         Returns:
@@ -81,18 +81,52 @@ class ChargebacksClient(MollieBaseClient):
         """
         params = {"limit": limit}
 
-        if from_date:
-            params["from"] = from_date.strftime("%Y-%m-%d")
+        # NOTE: Mollie chargebacks API doesn't support date filtering
+        # We get all chargebacks and filter in memory
 
-        if until_date:
-            params["until"] = until_date.strftime("%Y-%m-%d")
+        # Don't add date parameters as they cause 400 Bad Request
+        # if from_date:
+        #     params["from"] = from_date.strftime("%Y-%m-%d")
+        # if until_date:
+        #     params["until"] = until_date.strftime("%Y-%m-%d")
 
         self.audit_trail.log_event(
             AuditEventType.CHARGEBACK_RECEIVED, AuditSeverity.INFO, "Listing all chargebacks", details=params
         )
 
-        response = self.get("/chargebacks", params=params, paginated=True)
-        return [Chargeback(item) for item in response]
+        response = self.get("chargebacks", params=params, paginated=True)
+        chargebacks = [Chargeback(item) for item in response]
+
+        # Apply date filtering in memory if requested
+        if from_date or until_date:
+            filtered_chargebacks = []
+            for chargeback in chargebacks:
+                # Try to get chargeback date from createdAt
+                chargeback_date = None
+
+                if hasattr(chargeback, "created_at") and chargeback.created_at:
+                    if isinstance(chargeback.created_at, str):
+                        try:
+                            chargeback_date = datetime.fromisoformat(
+                                chargeback.created_at.replace("Z", "+00:00")
+                            )
+                        except (ValueError, TypeError):
+                            pass
+                    elif isinstance(chargeback.created_at, datetime):
+                        chargeback_date = chargeback.created_at
+
+                # Apply date filter
+                if chargeback_date:
+                    if from_date and chargeback_date < from_date:
+                        continue
+                    if until_date and chargeback_date > until_date:
+                        continue
+
+                filtered_chargebacks.append(chargeback)
+
+            return filtered_chargebacks
+
+        return chargebacks
 
     def analyze_chargeback_trends(self, period_days: int = 90) -> Dict:
         """

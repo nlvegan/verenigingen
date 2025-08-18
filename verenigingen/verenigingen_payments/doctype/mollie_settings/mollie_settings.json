@@ -4,13 +4,11 @@
  "allow_guest_to_view": 0,
  "allow_import": 0,
  "allow_rename": 0,
- "autoname": "field:gateway_name",
  "creation": "2025-01-13 10:00:00.000000",
  "doctype": "DocType",
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "gateway_name",
   "profile_id",
   "column_break_3",
   "secret_key",
@@ -24,17 +22,17 @@
   "subscription_webhook_url",
   "column_break_subscription",
   "default_subscription_interval",
-  "subscription_description_template"
+  "subscription_description_template",
+  "backend_api_section",
+  "enable_backend_api",
+  "organization_access_token",
+  "column_break_backend",
+  "organization_id",
+  "backend_webhook_secret",
+  "section_break_security",
+  "encryption_key"
  ],
  "fields": [
-  {
-   "fieldname": "gateway_name",
-   "fieldtype": "Data",
-   "in_list_view": 1,
-   "label": "Payment Gateway Name",
-   "reqd": 1,
-   "unique": 1
-  },
   {
    "fieldname": "profile_id",
    "fieldtype": "Data",
@@ -113,6 +111,58 @@
    "fieldname": "subscription_description_template",
    "fieldtype": "Small Text",
    "label": "Subscription Description Template"
+  },
+  {
+   "fieldname": "backend_api_section",
+   "fieldtype": "Section Break",
+   "label": "Backend API Settings"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_backend_api",
+   "fieldtype": "Check",
+   "label": "Enable Backend API",
+   "description": "Enable Mollie Backend API for settlements, balances, and invoices"
+  },
+  {
+   "depends_on": "eval:doc.enable_backend_api",
+   "fieldname": "organization_access_token",
+   "fieldtype": "Password",
+   "label": "Organization Access Token",
+   "description": "OAuth access token for Mollie organization API"
+  },
+  {
+   "fieldname": "column_break_backend",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_backend_api",
+   "fieldname": "organization_id",
+   "fieldtype": "Data",
+   "label": "Organization ID",
+   "description": "Your Mollie organization ID (org_xxxxx). Leave empty to auto-discover from your Organization Access Token.",
+   "reqd": 0
+  },
+  {
+   "depends_on": "eval:doc.enable_backend_api",
+   "fieldname": "backend_webhook_secret",
+   "fieldtype": "Password",
+   "label": "Backend Webhook Secret",
+   "description": "Secret for verifying backend webhook signatures"
+  },
+  {
+   "fieldname": "section_break_security",
+   "fieldtype": "Section Break",
+   "label": "Security Settings",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "encryption_key",
+   "fieldtype": "Password",
+   "label": "Encryption Key",
+   "description": "Internal encryption key for secure data storage",
+   "read_only": 1,
+   "hidden": 1
   }
  ],
  "has_web_view": 0,
@@ -122,7 +172,7 @@
  "image_view": 0,
  "in_create": 0,
  "is_submittable": 0,
- "issingle": 0,
+ "issingle": 1,
  "istable": 0,
  "max_attachments": 0,
  "modified": "2025-01-13 10:00:00.000000",

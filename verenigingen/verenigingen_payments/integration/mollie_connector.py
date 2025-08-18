@@ -34,29 +34,19 @@ class MollieConnector:
     Provides actual API connectivity with proper error handling
     """
 
-    def __init__(self, settings_name: str = None):
+    def __init__(self):
         """Initialize Mollie connector with settings"""
         if not MOLLIE_AVAILABLE:
             raise MollieIntegrationError("Mollie SDK not installed. Run: pip install mollie-api-python")
 
-        self.settings_name = settings_name or self._get_default_settings()
         self.settings = self._load_settings()
         self.client = self._initialize_client()
         self._test_connectivity()
 
-    def _get_default_settings(self) -> str:
-        """Get default Mollie settings"""
-        settings = frappe.get_all("Mollie Settings", filters={"enabled": 1}, limit=1, pluck="name")
-
-        if not settings:
-            raise MollieIntegrationError("No active Mollie Settings found")
-
-        return settings[0]
-
     def _load_settings(self) -> Dict:
         """Load Mollie settings from database"""
         try:
-            doc = frappe.get_doc("Mollie Settings", self.settings_name)
+            doc = frappe.get_single("Mollie Settings")
 
             # Decrypt API key
             api_key = doc.get_password(fieldname="secret_key", raise_exception=False)

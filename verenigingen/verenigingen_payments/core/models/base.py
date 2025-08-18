@@ -47,7 +47,10 @@ class BaseModel:
                 # Check if we have a model class for this attribute
                 model_class = self._get_nested_model_class(attr_name)
                 if model_class:
-                    value = model_class(value)
+                    try:
+                        value = model_class(value)
+                    except Exception as e:
+                        frappe.logger().error(f"Failed to create nested object for '{attr_name}': {e}")
 
             # Handle lists of nested objects
             elif isinstance(value, list) and value and isinstance(value[0], dict):
@@ -60,7 +63,7 @@ class BaseModel:
 
     def _normalize_attribute_name(self, name: str) -> str:
         """
-        Normalize attribute name (e.g., handle camelCase)
+        Normalize attribute name (convert camelCase to snake_case)
 
         Args:
             name: Original attribute name
@@ -68,8 +71,11 @@ class BaseModel:
         Returns:
             Normalized attribute name
         """
-        # Keep snake_case as is for Python convention
-        return name
+        # Convert camelCase to snake_case for Python convention
+        import re
+
+        s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+        return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
 
     def _get_nested_model_class(self, attr_name: str) -> Optional[type]:
         """
@@ -147,8 +153,11 @@ class Amount(BaseModel):
         if self.value and isinstance(self.value, str):
             try:
                 self.decimal_value = Decimal(self.value)
-            except:
+            except Exception as e:
                 self.decimal_value = Decimal("0")
+                frappe.logger().error(f"Failed to convert '{self.value}' to Decimal: {e}")
+        else:
+            self.decimal_value = Decimal("0")
 
     def validate(self) -> bool:
         """Validate amount"""

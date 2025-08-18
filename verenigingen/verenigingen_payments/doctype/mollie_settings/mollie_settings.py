@@ -200,8 +200,8 @@ class MollieSettings(Document):
     def register_payment_gateway(self):
         """Register this configuration with the payment gateway system"""
         try:
-            # Update payment gateway factory to include this Mollie configuration
-            gateway_name = f"Mollie-{self.gateway_name}"
+            # Single Mollie gateway configuration
+            gateway_name = "Mollie"
 
             # This could integrate with a payment gateway registry if needed
             frappe.logger().info(f"Registered Mollie gateway: {gateway_name}")
@@ -344,42 +344,44 @@ class MollieSettings(Document):
         else:
             self.subscription_webhook_url = ""
 
+    def get_api_key(self):
+        """Get decrypted API key"""
+        return self.get_password(fieldname="secret_key", raise_exception=False)
+
+    def get_organization_token(self):
+        """Get decrypted organization access token"""
+        if self.enable_backend_api:
+            return self.get_password(fieldname="organization_access_token", raise_exception=False)
+        return None
+
+    def get_webhook_secret(self):
+        """Get decrypted webhook secret"""
+        if self.enable_backend_api:
+            return self.get_password(fieldname="backend_webhook_secret", raise_exception=False)
+        return None
+
 
 @frappe.whitelist()
-def get_mollie_settings(gateway_name="Default"):
+def get_mollie_settings():
     """
-    Get Mollie settings for a specific gateway
-
-    Args:
-        gateway_name (str): Name of the Mollie gateway configuration
+    Get Mollie settings singleton
 
     Returns:
         MollieSettings: Mollie settings document
-
-    Raises:
-        frappe.DoesNotExistError: If settings not found
     """
-    try:
-        return frappe.get_doc("Mollie Settings", gateway_name)
-    except frappe.DoesNotExistError:
-        frappe.throw(
-            _("Mollie Settings '{0}' not found. Please create the configuration first.").format(gateway_name)
-        )
+    return frappe.get_single("Mollie Settings")
 
 
 @frappe.whitelist()
-def test_mollie_connection(gateway_name):
+def test_mollie_connection():
     """
-    Test Mollie API connection for a specific gateway
-
-    Args:
-        gateway_name (str): Name of the Mollie gateway to test
+    Test Mollie API connection
 
     Returns:
         dict: Test result with status and message
     """
     try:
-        settings = frappe.get_doc("Mollie Settings", gateway_name)
+        settings = frappe.get_single("Mollie Settings")
         settings.validate_mollie_credentials()
 
         return {"success": True, "message": _("Mollie connection test successful")}
