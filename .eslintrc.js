@@ -35,8 +35,6 @@ module.exports = {
 		es2022: true,
 		node: true,
 		jquery: true,
-		jest: true,
-		mocha: true
 	},
 	extends: [
 		'eslint:recommended',

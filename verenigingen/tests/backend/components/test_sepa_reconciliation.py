@@ -3,7 +3,7 @@ import unittest
 import frappe
 from frappe.utils import today
 
-from verenigingen.verenigingen_payments.utils.sepa_reconciliation import SEPAReconciliationManager
+from verenigingen.verenigingen_payments.utils.sepa_reconciliation import PaymentReconciliationManager
 
 
 class TestSEPAReconciliation(unittest.TestCase):
@@ -29,7 +29,9 @@ class TestSEPAReconciliation(unittest.TestCase):
             cls.test_member = frappe.get_doc(
                 {
                     "doctype": "Member",
-                    "member_name": "Test Recon Member",
+                    "first_name": "Test",
+                    "last_name": "Member",
+                    "preferred_name": "Test Recon Member",
                     "email": "recon-test@example.com",
                     "customer": cls.test_customer.name}
             ).insert()
@@ -86,20 +88,9 @@ class TestSEPAReconciliation(unittest.TestCase):
 
     def setUp(self):
         """Set up for each test"""
-        self.reconciliation_engine = SEPAReconciliationManager()
+        self.reconciliation_engine = PaymentReconciliationManager()
 
-        # Create test batch and invoice
-        self.test_batch = frappe.get_doc(
-            {
-                "doctype": "Direct Debit Batch",
-                "batch_date": today(),
-                "batch_type": "FRST",
-                "total_amount": 100,
-                "status": "Submitted"}
-        )
-        self.test_batch.insert()
-
-        # Create test invoice
+        # Create test invoice first
         self.test_invoice = frappe.get_doc(
             {
                 "doctype": "Sales Invoice",
@@ -107,25 +98,34 @@ class TestSEPAReconciliation(unittest.TestCase):
                 "posting_date": today(),
                 "items": [
                     {
-                        "item_code": frappe.db.get_value("Item", {"item_group": {"!=": ""}}, "name"),
+                        "item_code": frappe.db.get_value("Item", {"item_group": ["!=", ""]}, "name") or "Test Item",
                         "qty": 1,
                         "rate": 100}
                 ]}
         ).insert()
         self.test_invoice.submit()
 
-        # Add invoice to batch (using correct field names from DocType)
-        self.test_batch.append(
-            "invoices", 
+        # Create test batch with invoice included
+        self.test_batch = frappe.get_doc(
             {
-                "invoice": self.test_invoice.name,  # Correct field name
-                "member": self.test_member.name,
-                "member_name": self.test_member.member_name or "Test Recon Member",
-                "amount": 100,
-                "iban": self.test_mandate.iban,
-                "mandate_reference": self.test_mandate.mandate_id},
+                "doctype": "Direct Debit Batch",
+                "batch_date": today(),
+                "batch_type": "FRST",
+                "total_amount": 100,
+                "status": "Submitted",
+                "invoices": [
+                    {
+                        "invoice": self.test_invoice.name,  # Correct field name
+                        "member": self.test_member.name,
+                        "member_name": self.test_member.preferred_name or "Test Recon Member",
+                        "amount": 100,
+                        "iban": self.test_mandate.iban,
+                        "mandate_reference": self.test_mandate.mandate_id
+                    }
+                ]
+            }
         )
-        self.test_batch.save()
+        self.test_batch.insert()
 
     def tearDown(self):
         """Clean up after each test"""

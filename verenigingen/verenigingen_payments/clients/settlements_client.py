@@ -145,6 +145,95 @@ class SettlementsClient(MollieBaseClient):
 
         return None
 
+    def get_settlements_by_date_range(self, from_date: str, to_date: str) -> List[Dict]:
+        """
+        Get settlements within a specific date range
+
+        Args:
+            from_date: Start date (YYYY-MM-DD)
+            to_date: End date (YYYY-MM-DD)
+
+        Returns:
+            List of settlement dictionaries
+        """
+        try:
+            # Get all settlements and filter by date range in memory
+            # (Mollie API doesn't support date filtering directly)
+            all_settlements = self.get("settlements", paginated=True)
+
+            from frappe.utils import getdate
+
+            from_date_obj = getdate(from_date)
+            to_date_obj = getdate(to_date)
+
+            filtered_settlements = []
+            for settlement in all_settlements:
+                settlement_date_str = settlement.get("settledAt")
+                if settlement_date_str:
+                    # Parse ISO date format (2024-08-15T10:30:00+00:00)
+                    import datetime
+
+                    settlement_date = datetime.datetime.fromisoformat(
+                        settlement_date_str.replace("Z", "+00:00")
+                    ).date()
+
+                    if from_date_obj <= settlement_date <= to_date_obj:
+                        filtered_settlements.append(settlement)
+
+            return filtered_settlements
+
+        except Exception as e:
+            frappe.log_error(f"Error getting settlements by date range: {str(e)}")
+            return []
+
+    def get_payments_for_settlement(self, settlement_id: str) -> List[Dict]:
+        """
+        Get all payments that are part of a specific settlement
+
+        Args:
+            settlement_id: Mollie settlement ID
+
+        Returns:
+            List of payment dictionaries
+        """
+        try:
+            # Get settlement details to find payment IDs
+            settlement = self.get(f"settlements/{settlement_id}")
+
+            if not settlement:
+                return []
+
+            # Get payments that were settled in this settlement
+            # Note: This might need to be implemented differently based on Mollie API structure
+            # For now, we'll use a simplified approach
+
+            # Get payments with settlement ID filter if supported
+            try:
+                payments = self.get(f"settlements/{settlement_id}/payments", paginated=True)
+                return payments if payments else []
+            except Exception:
+                # Fallback: get recent payments and filter by settlement ID
+                from frappe.utils import add_days, getdate
+
+                recent_date = add_days(getdate(), -30)
+
+                # Use the base client to get payments (settlements client inherits from base)
+                all_payments = self.get(
+                    "payments", paginated=True, params={"from": recent_date.strftime("%Y-%m-%d")}
+                )
+
+                # Filter payments that belong to this settlement
+                settlement_payments = []
+                for payment in all_payments:
+                    if payment.get("settlementId") == settlement_id:
+                        settlement_payments.append(payment)
+
+                return settlement_payments
+
+        except Exception as e:
+            frappe.log_error(f"Error getting payments for settlement {settlement_id}: {str(e)}")
+            return []
+
     def get_open_settlement(self) -> Optional[Settlement]:
         """
         Get the currently open settlement

@@ -86,7 +86,8 @@ innodb_log_file_size = 256M
 innodb_flush_log_at_trx_commit = 2
 
 # Frappe-specific optimizations
-sql_mode = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+# MySQL/MariaDB SQL mode - NO_AUTO_CREATE_USER removed in MySQL 8.0
+sql_mode = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
 character_set_server = utf8mb4
 collation_server = utf8mb4_unicode_ci
 
@@ -106,12 +107,20 @@ max_connections = 200
 innodb_log_file_size = 256M
 innodb_flush_log_at_trx_commit = 2
 
-# Query cache (still available in MariaDB)
-query_cache_type = 1
-query_cache_size = 64M
+# Query cache is supported but disabled by default to avoid contention.
+# The built-in query cache introduces a global lock on every SELECT and causes
+# contention on writes. For most modern, concurrent workloads you should disable it.
+query_cache_type = 0
+query_cache_size = 0
+
+# If you have a very low-write, high-read workload with identical queries,
+# you can re-enable and tune the cache—measure carefully before rolling out.
+# query_cache_type = 1
+# query_cache_size = 64M
 
 # Frappe-specific optimizations
-sql_mode = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION"
+# MySQL/MariaDB SQL mode - NO_AUTO_CREATE_USER removed in MySQL 8.0
+sql_mode = "STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
 character_set_server = utf8mb4
 collation_server = utf8mb4_unicode_ci
 
@@ -421,19 +430,29 @@ frappe.db.set_value("Mollie Settings", "Production", "api_key_rotation_days", 90
 
 ### 4. Webhook Security
 
+**Important**: Mollie does not publish static webhook IP ranges and explicitly advises against firewall-level restrictions. The system implements secure webhook validation by fetching the referenced resource via the Mollie API.
+
 ```nginx
 # Nginx configuration for webhook endpoint
 location /api/method/verenigingen.utils.payment_gateways.mollie_webhook {
-    # Mollie IP whitelist
-    allow 87.233.217.24/29;
-    allow 87.233.217.32/29;
-    deny all;
-
+    # Mollie webhooks cannot be IP-whitelisted (no static CIDRs).
+    # Security is implemented in the application layer:
+    #   1. Extract the object ID from the webhook payload
+    #   2. Call GET https://api.mollie.com/v2/payments/{id} to verify
+    #   3. Process only if the API response is authenticated and valid
+    #   4. Signature validation with HMAC-SHA256
+    #   5. Replay attack prevention
     proxy_pass http://frappe-bench-frappe;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 ```
+
+**Security Implementation**:
+- **API Verification**: Each webhook triggers a direct API call to Mollie to verify the payment exists and get current status
+- **Signature Validation**: HMAC-SHA256 signature verification using webhook secret
+- **Replay Protection**: Timestamp validation and duplicate webhook detection
+- **Payload Validation**: JSON structure validation and required field checking
 
 ## Testing
 

@@ -29,6 +29,11 @@
   "column_break_backend",
   "organization_id",
   "backend_webhook_secret",
+  "reconciliation_section",
+  "mollie_bank_account",
+  "column_break_reconciliation",
+  "mollie_clearing_account",
+  "payment_processing_fees_account",
   "section_break_security",
   "encryption_key"
  ],
@@ -149,6 +154,39 @@
    "fieldtype": "Password",
    "label": "Backend Webhook Secret",
    "description": "Secret for verifying backend webhook signatures"
+  },
+  {
+   "fieldname": "reconciliation_section",
+   "fieldtype": "Section Break",
+   "label": "Reconciliation Settings"
+  },
+  {
+   "fieldname": "mollie_bank_account",
+   "fieldtype": "Link",
+   "label": "Mollie Bank Account",
+   "options": "Account",
+   "description": "Bank account where Mollie settlements are received",
+   "reqd": 0
+  },
+  {
+   "fieldname": "column_break_reconciliation",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mollie_clearing_account",
+   "fieldtype": "Link",
+   "label": "Mollie Clearing Account",
+   "options": "Account",
+   "description": "Temporary account for Mollie payment reconciliation",
+   "reqd": 0
+  },
+  {
+   "fieldname": "payment_processing_fees_account",
+   "fieldtype": "Link",
+   "label": "Payment Processing Fees Account",
+   "options": "Account",
+   "description": "Account for recording Mollie transaction fees",
+   "reqd": 0
   },
   {
    "fieldname": "section_break_security",
