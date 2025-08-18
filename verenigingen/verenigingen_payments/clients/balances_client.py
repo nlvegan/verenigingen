@@ -135,7 +135,7 @@ class BalancesClient(MollieBaseClient):
             # If API date filtering failed (400 error), fall back to memory filtering
             if "400" in str(e) and ("from" in str(e) or "until" in str(e)):
                 frappe.logger().warning(
-                    f"API date filtering not supported for balance transactions, using memory filtering"
+                    "API date filtering not supported for balance transactions, using memory filtering"
                 )
                 api_date_filtering = False
                 # Retry without date parameters

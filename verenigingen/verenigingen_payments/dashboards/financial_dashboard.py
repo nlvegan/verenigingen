@@ -402,7 +402,6 @@ class FinancialDashboard:
         try:
             # Get costs from settlements
             now = datetime.now()
-            month_start = now.replace(day=1)
 
             # Use cached settlements data instead of API call with unsupported date filters
             settlements_data = self._get_settlements_data()

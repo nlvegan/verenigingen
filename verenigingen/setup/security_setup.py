@@ -107,7 +107,6 @@ def setup_csrf_protection():
 
         # Get site config
         site = frappe.local.site
-        site_config_path = frappe.get_site_path("site_config.json")
 
         # Load current site config
         site_config = frappe.get_site_config()
