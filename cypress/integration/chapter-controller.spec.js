@@ -398,26 +398,20 @@ describe('Chapter JavaScript Controller Tests', () => {
 
 			// Test status transitions
 			const statuses = ['Formation', 'Active', 'Inactive', 'Dissolved'];
-			statuses.forEach((status, index) => {
+			cy.wrap(statuses).each((status, index) => {
 				if (index > 0) {
 					cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
-
 					cy.execute_business_workflow(() => {
 						cy.window().then((win) => {
 							const frm = win.frappe.ui.form.get_form('Chapter');
 							expect(frm.doc.status).to.equal(status);
-
-							// Test status-dependent JavaScript logic
 							cy.log(`Chapter status changed to: ${status}`);
-
-							// Test status-specific field visibility
-							if (status === 'Dissolved' && frm.fields_dict.dissolution_date) {
-								expect(frm.fields_dict.dissolution_date).to.exist;
+							if (status === 'Dissolved') {
+								cy.get('[data-fieldname="dissolution_date"]').should('exist');
 							}
 						});
 						return true;
 					}, null, `Status Change to ${status}`);
-
 					cy.save_frappe_doc();
 				}
 			});

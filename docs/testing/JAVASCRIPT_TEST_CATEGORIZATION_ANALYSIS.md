@@ -104,7 +104,7 @@ describe('Member Lifecycle Management', () => {
     });
 
     cy.saveDocument();
-    cy.should('contain', 'Member created successfully');
+    cy.contains('Member created successfully');
   });
 });
 ```

@@ -49,7 +49,7 @@ const memberData = {
 };
 cy.fillMemberForm(memberData);
 cy.saveDocument();
-cy.should('contain', 'Member created successfully');
+cy.contains('Member created successfully');
 ```
 
 #### Strategy B: Jest Unit Tests (Secondary)

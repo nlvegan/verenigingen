@@ -223,35 +223,29 @@ describe('Direct Debit Batch JavaScript Controller Tests', () => {
 
 			// Test status transitions
 			const statuses = ['Draft', 'Validated', 'Submitted', 'Processing', 'Completed', 'Failed'];
-			statuses.forEach((status, index) => {
-				if (index > 0) {
-					cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
-
-					cy.execute_business_workflow(() => {
-						cy.window().then((win) => {
-							const frm = win.frappe.ui.form.get_form('Direct Debit Batch');
-							expect(frm.doc.status).to.equal(status);
-
-							// Test status-dependent field visibility
-							cy.log(`Batch status changed to: ${status}`);
-
-							if (status === 'Processing' && frm.fields_dict.processing_start_time) {
-								expect(frm.fields_dict.processing_start_time).to.exist;
-							}
-
-							if (status === 'Completed' && frm.fields_dict.completion_timestamp) {
-								expect(frm.fields_dict.completion_timestamp).to.exist;
-							}
-
-							if (status === 'Failed' && frm.fields_dict.failure_reason) {
-								expect(frm.fields_dict.failure_reason).to.exist;
-							}
-						});
-						return true;
-					}, null, `Status Change to ${status}`);
-
-					cy.save_frappe_doc();
+			cy.wrap(statuses).each((status, index) => {
+				if (index === 0) {
+					return;
 				}
+				cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
+				cy.execute_business_workflow(() => {
+					cy.window().then((win) => {
+						const frm = win.frappe.ui.form.get_form('Direct Debit Batch');
+						expect(frm.doc.status).to.equal(status);
+						cy.log(`Batch status changed to: ${status}`);
+						if (status === 'Processing' && frm.fields_dict.processing_start_time) {
+							expect(frm.fields_dict.processing_start_time).to.exist;
+						}
+						if (status === 'Completed' && frm.fields_dict.completion_timestamp) {
+							expect(frm.fields_dict.completion_timestamp).to.exist;
+						}
+						if (status === 'Failed' && frm.fields_dict.failure_reason) {
+							expect(frm.fields_dict.failure_reason).to.exist;
+						}
+					});
+					return true;
+				}, null, `Status Change to ${status}`);
+				cy.save_frappe_doc();
 			});
 		});
 

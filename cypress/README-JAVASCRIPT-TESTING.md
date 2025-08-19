@@ -208,7 +208,7 @@ npx cypress run --spec "cypress/integration/direct-debit-batch-controller.spec.j
 ### Production Environment Configuration
 
 The test suite is configured for production environment testing:
-- **Base URL**: https://dev.veganisme.net (HTTPS production instance)
+- **Base URL**: https://dev.veganisme.net (HTTPS staginginstance)
 - **Authentication**: Session-based login with proper credential handling
 - **Test Data Isolation**: Scoped test data with automatic cleanup
 - **Error Recovery**: Comprehensive retry strategies and fallback mechanisms

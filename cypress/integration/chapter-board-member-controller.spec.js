@@ -66,7 +66,7 @@ describe('Chapter Board Member JavaScript Controller Tests', () => {
 		it('should test different board position assignments', () => {
 			const positions = ['Chair', 'Vice Chair', 'Secretary', 'Treasurer', 'Member-at-Large'];
 
-			positions.forEach((position) => {
+			cy.wrap(positions).each((position) => {
 				cy.createTestMemberWithFinancialSetup().then((member) => {
 					cy.visit_doctype_form('Chapter Board Member');
 					cy.wait_for_navigation();

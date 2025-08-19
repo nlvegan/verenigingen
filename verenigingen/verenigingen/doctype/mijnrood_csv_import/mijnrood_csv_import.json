@@ -13,6 +13,7 @@
   "column_break_4",
   "import_status",
   "test_mode",
+  "auto_create_chapters",
   "section_break_mapping",
   "field_mapping_instructions",
   "preview_section",
@@ -69,6 +70,13 @@
    "fieldname": "test_mode",
    "fieldtype": "Check",
    "label": "Test Mode"
+  },
+  {
+   "default": "0",
+   "description": "Import members from Mijnrood CSV files. Automatically creates chapters with 'nl' region if they don't exist. Middle_name field maps to Tussenvoegsel for Dutch name particles.",
+   "fieldname": "auto_create_chapters",
+   "fieldtype": "Check",
+   "label": "Auto-create Chapters"
   },
   {
    "collapsible": 1,
@@ -167,7 +175,7 @@
  "modified": "2025-08-14 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Verenigingen",
- "name": "Member CSV Import",
+ "name": "Mijnrood CSV Import",
  "naming_rule": "By \"Naming Series\" field",
  "owner": "Administrator",
  "permissions": [

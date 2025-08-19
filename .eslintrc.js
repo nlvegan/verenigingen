@@ -187,21 +187,16 @@ module.exports = {
 		'array-bracket-spacing': ['error', 'never'],
 		'block-spacing': ['error', 'always'],
 		'brace-style': ['error', '1tbs', { allowSingleLine: true }],
+		// Disable camelcase rule in favor of id-match for proper regex support
+		camelcase: 'off',
+
 		// Snake_case enforcement for Frappe/ERPNext framework compatibility
-		// Replaces camelcase rule to align with framework conventions and E-Boekhouden API
-		camelcase: ['error', {
-			properties: 'never',
-			ignoreDestructuring: true,
-			ignoreImports: true,
-			ignoreGlobals: true,
-			// Allow snake_case patterns (standard for Frappe), PascalCase (classes), CONSTANTS
-			allow: [
-				'^[a-z]+(_[a-z0-9]+)*$',
-				'^[A-Z][a-zA-Z0-9]*$',
-				'^[A-Z_]+$',
-				'^__.*__$',
-				'^_[a-z]+(_[a-z0-9]+)*$'
-			]
+		// Uses regex patterns to allow snake_case (Frappe standard), camelCase (JavaScript standard),
+		// PascalCase (classes), and CONSTANTS
+		'id-match': ['error', '^([a-z]+(_[a-z0-9]+)*|[a-z][a-zA-Z0-9]*|[A-Z][a-zA-Z0-9]*|[A-Z_]+|__.*__|_[a-z]+(_[a-z0-9]+)*|\\$[a-zA-Z][a-zA-Z0-9]*)$', {
+			properties: false,
+			onlyDeclarations: false,
+			ignoreDestructuring: true
 		}],
 		'comma-dangle': ['error', 'never'],
 		'comma-spacing': ['error', { before: false, after: true }],

@@ -148,7 +148,7 @@ describe('SEPA Mandate JavaScript Controller Tests', () => {
 		it('should test different mandate types and their configurations', () => {
 			const mandateTypes = ['OOFF', 'RCUR'];
 
-			mandateTypes.forEach((type) => {
+			cy.wrap(mandateTypes).each((type) => {
 				cy.createTestMemberWithFinancialSetup().then((member) => {
 					cy.visit_doctype_form('SEPA Mandate');
 					cy.wait_for_navigation();
@@ -250,32 +250,31 @@ describe('SEPA Mandate JavaScript Controller Tests', () => {
 
 				// Test status transitions
 				const statuses = ['Draft', 'Active', 'Suspended', 'Cancelled'];
-				statuses.forEach((status, index) => {
-					if (index > 0) {
-						cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
+				cy.wrap(statuses).each((status, index) => {
+					if (index === 0) { return; }
+					cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
 
-						cy.execute_business_workflow(() => {
-							cy.window().then((win) => {
-								const frm = win.frappe.ui.form.get_form('SEPA Mandate');
-								expect(frm.doc.status).to.equal(status);
+					cy.execute_business_workflow(() => {
+						cy.window().then((win) => {
+							const frm = win.frappe.ui.form.get_form('SEPA Mandate');
+							expect(frm.doc.status).to.equal(status);
 
-								// Test status-dependent JavaScript logic
-								cy.log(`Mandate status changed to: ${status}`);
+							// Test status-dependent JavaScript logic
+							cy.log(`Mandate status changed to: ${status}`);
 
-								// Test status-specific field visibility
-								if (status === 'Active' && frm.fields_dict.activation_date) {
-									expect(frm.fields_dict.activation_date).to.exist;
-								}
+							// Test status-specific field visibility
+							if (status === 'Active' && frm.fields_dict.activation_date) {
+								expect(frm.fields_dict.activation_date).to.exist;
+							}
 
-								if (status === 'Cancelled' && frm.fields_dict.cancellation_reason) {
-									expect(frm.fields_dict.cancellation_reason).to.exist;
-								}
-							});
-							return true;
-						}, null, `Status Change to ${status}`);
+							if (status === 'Cancelled' && frm.fields_dict.cancellation_reason) {
+								expect(frm.fields_dict.cancellation_reason).to.exist;
+							}
+						});
+						return true;
+					}, null, `Status Change to ${status}`);
 
-						cy.save_frappe_doc();
-					}
+					cy.save_frappe_doc();
 				});
 			});
 		});

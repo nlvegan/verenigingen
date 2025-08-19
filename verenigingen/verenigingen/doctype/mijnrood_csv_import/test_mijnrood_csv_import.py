@@ -8,7 +8,7 @@ from unittest.mock import mock_open, patch
 
 import frappe
 
-from verenigingen.verenigingen.doctype.member_csv_import.member_csv_import import MemberCSVImport
+from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import MemberCSVImport
 
 
 class TestMemberCSVImport(unittest.TestCase):
@@ -174,7 +174,9 @@ class TestMemberCSVImport(unittest.TestCase):
 
     def test_get_import_template(self):
         """Test CSV template generation."""
-        from verenigingen.verenigingen.doctype.member_csv_import.member_csv_import import get_import_template
+        from verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import import (
+            get_import_template,
+        )
 
         template = get_import_template()
 
@@ -191,7 +193,7 @@ class TestMemberCSVImport(unittest.TestCase):
             self.assertIn(header, headers)
 
 
-def test_member_csv_import_integration():
+def test_mijnrood_csv_import_integration():
     """Integration test for member CSV import."""
     # This would require a full Frappe environment
     # Skip if not in test environment

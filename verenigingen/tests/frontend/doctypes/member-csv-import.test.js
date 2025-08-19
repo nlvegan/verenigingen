@@ -25,7 +25,7 @@ describe('Member CSV Import DocType - Comprehensive Test Suite', () => {
 		test('should validate CSV file format', () => {
 			mockDoc.csv_file = '/files/members.csv';
 
-			const csvImport = require('../../../../verenigingen/doctype/member_csv_import/member_csv_import.js');
+			const csvImport = require('../../../../verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.js');
 			csvImport.csv_file(mockFrm);
 
 			expect(mockDoc.csv_file).toContain('.csv');
@@ -41,7 +41,7 @@ describe('Member CSV Import DocType - Comprehensive Test Suite', () => {
 				}
 			});
 
-			const csvImport = require('../../../../verenigingen/doctype/member_csv_import/member_csv_import.js');
+			const csvImport = require('../../../../verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.js');
 			csvImport.process_import(mockFrm);
 
 			expect(mockFrm.call).toHaveBeenCalled();
@@ -53,7 +53,7 @@ describe('Member CSV Import DocType - Comprehensive Test Suite', () => {
 			mockDoc.validate_emails = true;
 			mockDoc.skip_duplicates = true;
 
-			const csvImport = require('../../../../verenigingen/doctype/member_csv_import/member_csv_import.js');
+			const csvImport = require('../../../../verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.js');
 			csvImport.validate_emails(mockFrm);
 
 			expect(mockDoc.validate_emails).toBe(true);
@@ -62,7 +62,7 @@ describe('Member CSV Import DocType - Comprehensive Test Suite', () => {
 		test('should handle import errors gracefully', async () => {
 			mockFrm.call.mockRejectedValueOnce(new Error('Import failed'));
 
-			const csvImport = require('../../../../verenigingen/doctype/member_csv_import/member_csv_import.js');
+			const csvImport = require('../../../../verenigingen/doctype/mijnrood_csv_import/mijnrood_csv_import.js');
 
 			await expect(async () => {
 				await csvImport.process_import(mockFrm);

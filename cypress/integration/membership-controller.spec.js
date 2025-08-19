@@ -336,35 +336,34 @@ describe('Membership JavaScript Controller Tests', () => {
 
 				// Test status transitions
 				const statuses = ['Active', 'Expired', 'Suspended', 'Cancelled'];
-				statuses.forEach((status, index) => {
-					if (index > 0) {
-						cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
+				cy.wrap(statuses).each((status, index) => {
+					if (index === 0) { return; }
+					cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
 
-						cy.execute_business_workflow(() => {
-							cy.window().then((win) => {
-								const frm = win.frappe.ui.form.get_form('Membership');
-								expect(frm.doc.status).to.equal(status);
+					cy.execute_business_workflow(() => {
+						cy.window().then((win) => {
+							const frm = win.frappe.ui.form.get_form('Membership');
+							expect(frm.doc.status).to.equal(status);
 
-								// Test status-dependent logic
-								cy.log(`Membership status changed to: ${status}`);
+							// Test status-dependent logic
+							cy.log(`Membership status changed to: ${status}`);
 
-								if (status === 'Expired' && frm.fields_dict.expiry_processing) {
-									expect(frm.fields_dict.expiry_processing).to.exist;
-								}
+							if (status === 'Expired' && frm.fields_dict.expiry_processing) {
+								expect(frm.fields_dict.expiry_processing).to.exist;
+							}
 
-								if (status === 'Suspended' && frm.fields_dict.suspension_reason) {
-									expect(frm.fields_dict.suspension_reason).to.exist;
-								}
+							if (status === 'Suspended' && frm.fields_dict.suspension_reason) {
+								expect(frm.fields_dict.suspension_reason).to.exist;
+							}
 
-								if (status === 'Cancelled' && frm.fields_dict.cancellation_processing) {
-									expect(frm.fields_dict.cancellation_processing).to.exist;
-								}
-							});
-							return true;
-						}, null, `Status Change to ${status}`);
+							if (status === 'Cancelled' && frm.fields_dict.cancellation_processing) {
+								expect(frm.fields_dict.cancellation_processing).to.exist;
+							}
+						});
+						return true;
+					}, null, `Status Change to ${status}`);
 
-						cy.save_frappe_doc();
-					}
+					cy.save_frappe_doc();
 				});
 			});
 		});

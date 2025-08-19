@@ -41,7 +41,7 @@ frappe.ui.form.on('Member CSV Import', {
 					frm.set_value('import_status', 'Validating');
 					frappe.show_alert(__('Validating file...'));
 					frappe.call({
-						method: 'verenigingen.verenigingen.doctype.member_csv_import.member_csv_import.validate_import_file',
+						method: 'verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.validate_import_file',
 						args: {
 							import_doc_name: frm.doc.name
 						},
@@ -101,7 +101,7 @@ frappe.ui.form.on('Member CSV Import', {
 			// Add download template button
 			frm.add_custom_button(__('Download Template'), () => {
 				frappe.call({
-					method: 'verenigingen.verenigingen.doctype.member_csv_import.member_csv_import.get_import_template',
+					method: 'verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.get_import_template',
 					callback(r) {
 						if (r.message) {
 							// Create downloadable file

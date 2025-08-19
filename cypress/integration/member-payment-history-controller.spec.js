@@ -67,7 +67,7 @@ describe('Member Payment History JavaScript Controller Tests', () => {
 		it('should test different transaction types and their configurations', () => {
 			const transactionTypes = ['Payment', 'Refund', 'Donation', 'Fee', 'Adjustment'];
 
-			transactionTypes.forEach((type) => {
+			cy.wrap(transactionTypes).each((type) => {
 				cy.createTestMemberWithFinancialSetup().then((member) => {
 					cy.visit_doctype_form('Member Payment History');
 					cy.wait_for_navigation();
@@ -171,32 +171,31 @@ describe('Member Payment History JavaScript Controller Tests', () => {
 
 				// Test status transitions
 				const statuses = ['Pending', 'Completed', 'Failed', 'Refunded'];
-				statuses.forEach((status, index) => {
-					if (index > 0) {
-						cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
+				cy.wrap(statuses).each((status, index) => {
+					if (index === 0) { return; }
+					cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
 
-						cy.execute_business_workflow(() => {
-							cy.window().then((win) => {
-								const frm = win.frappe.ui.form.get_form('Member Payment History');
-								expect(frm.doc.status).to.equal(status);
+					cy.execute_business_workflow(() => {
+						cy.window().then((win) => {
+							const frm = win.frappe.ui.form.get_form('Member Payment History');
+							expect(frm.doc.status).to.equal(status);
 
-								// Test status-dependent JavaScript logic
-								cy.log(`Payment status changed to: ${status}`);
+							// Test status-dependent JavaScript logic
+							cy.log(`Payment status changed to: ${status}`);
 
-								// Test status-specific field visibility
-								if (status === 'Failed' && frm.fields_dict.failure_reason) {
-									expect(frm.fields_dict.failure_reason).to.exist;
-								}
+							// Test status-specific field visibility
+							if (status === 'Failed' && frm.fields_dict.failure_reason) {
+								expect(frm.fields_dict.failure_reason).to.exist;
+							}
 
-								if (status === 'Completed' && frm.fields_dict.completion_date) {
-									expect(frm.fields_dict.completion_date).to.exist;
-								}
-							});
-							return true;
-						}, null, `Status Change to ${status}`);
+							if (status === 'Completed' && frm.fields_dict.completion_date) {
+								expect(frm.fields_dict.completion_date).to.exist;
+							}
+						});
+						return true;
+					}, null, `Status Change to ${status}`);
 
-						cy.save_frappe_doc();
-					}
+					cy.save_frappe_doc();
 				});
 			});
 		});

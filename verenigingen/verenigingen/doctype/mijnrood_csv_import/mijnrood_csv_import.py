@@ -358,6 +358,8 @@ class MemberCSVImport(Document):
             "lidnr.": "member_id",
             "lidnr": "member_id",
             "voornaam": "first_name",
+            "tussenvoegsel": "tussenvoegsel",
+            "middle_name": "tussenvoegsel",  # Import middle_name as tussenvoegsel
             "achternaam": "last_name",
             "geboortedatum": "birth_date",
             "inschrijfdataum": "member_since",
@@ -893,6 +895,8 @@ class MemberCSVImport(Document):
             member_doc.member_id = row_data["member_id"]
         if row_data.get("first_name"):
             member_doc.first_name = row_data["first_name"]
+        if row_data.get("tussenvoegsel"):
+            member_doc.tussenvoegsel = row_data["tussenvoegsel"]
         if row_data.get("last_name"):
             member_doc.last_name = row_data["last_name"]
         if row_data.get("birth_date"):
@@ -1094,14 +1098,27 @@ class MemberCSVImport(Document):
             # Don't fail the entire import for termination record issues
 
     def _assign_member_to_chapter(self, member_doc: Document, chapter_name: str):
-        """Assign member to chapter based on chapter name from CSV, using the same logic as membership approval."""
+        """Assign member to chapter based on chapter name from CSV, with optional auto-creation."""
         try:
             # Check if the chapter exists
             if not frappe.db.exists("Chapter", chapter_name):
-                frappe.logger().warning(
-                    f"Chapter '{chapter_name}' does not exist. Skipping chapter assignment for member {member_doc.name}"
-                )
-                return
+                if self.auto_create_chapters:
+                    # Try to create the chapter automatically
+                    created_chapter = self._create_chapter_if_not_exists(chapter_name)
+                    if not created_chapter:
+                        frappe.logger().error(
+                            f"Failed to auto-create chapter '{chapter_name}'. Skipping chapter assignment for member {member_doc.name}"
+                        )
+                        return
+                    frappe.logger().info(
+                        f"Auto-created chapter '{chapter_name}' and assigning member {member_doc.name}"
+                    )
+                else:
+                    # Original behavior: log warning and skip
+                    frappe.logger().warning(
+                        f"Chapter '{chapter_name}' does not exist. Skipping chapter assignment for member {member_doc.name}"
+                    )
+                    return
 
             # Create chapter membership using the same logic as in membership approval
             # Check if chapter membership already exists
@@ -1331,6 +1348,80 @@ class MemberCSVImport(Document):
             frappe.logger().error(f"Error validating field '{fieldname}' on DocType '{doctype}': {str(e)}")
             return False
 
+    def _ensure_nl_region_exists(self) -> str:
+        """Ensure the Netherlands region exists and return its name."""
+        try:
+            # Check if NL region already exists
+            nl_region = frappe.db.get_value("Region", {"region_code": "NL"})
+            if nl_region:
+                return nl_region
+
+            # Create basic Netherlands region
+            region = frappe.new_doc("Region")
+            region.update(
+                {
+                    "region_name": "Netherlands",
+                    "region_code": "NL",
+                    "country": "Netherlands",
+                    "is_active": 1,
+                    "preferred_language": "Dutch",
+                    "time_zone": "Europe/Amsterdam",
+                    "membership_fee_adjustment": 1.0,
+                    "description": "Auto-created Netherlands region during CSV import",
+                }
+            )
+
+            # Set CSV import flags
+            region._csv_import = True
+            region.flags.ignore_workflow = True
+
+            region.insert()
+
+            frappe.logger().info("Auto-created Netherlands region during CSV import")
+            return region.name
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to create Netherlands region: {str(e)}")
+            # Return None to indicate failure
+            return None
+
+    def _create_chapter_if_not_exists(self, chapter_name: str) -> str:
+        """Create a new chapter with Netherlands region if it doesn't exist."""
+        try:
+            # Ensure Netherlands region exists
+            nl_region = self._ensure_nl_region_exists()
+            if not nl_region:
+                frappe.logger().error(
+                    f"Cannot create chapter '{chapter_name}' - Netherlands region creation failed"
+                )
+                return None
+
+            # Create new chapter
+            chapter = frappe.new_doc("Chapter")
+            chapter.update(
+                {
+                    "name": chapter_name,
+                    "status": "Active",
+                    "region": nl_region,
+                    "introduction": f"Auto-created chapter '{chapter_name}' during CSV import. Please update with proper details.",
+                }
+            )
+
+            # Set CSV import flags
+            chapter._csv_import = True
+            chapter.flags.ignore_workflow = True
+
+            chapter.insert()
+
+            frappe.logger().info(
+                f"Auto-created chapter '{chapter_name}' with Netherlands region during CSV import"
+            )
+            return chapter.name
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to create chapter '{chapter_name}': {str(e)}")
+            return None
+
 
 @frappe.whitelist()
 def validate_import_file(import_doc_name):
@@ -1411,6 +1502,7 @@ def get_import_template():
     headers = [
         "Lidnr.",
         "Voornaam",
+        "Tussenvoegsel",
         "Achternaam",
         "Geboortedatum",
         "Inschrijfdataum",
@@ -1434,7 +1526,8 @@ def get_import_template():
     sample_data = [
         "12345",
         "Jan",
-        "Jansen",
+        "van der",
+        "Berg",
         "1990-01-15",
         "2024-01-01",
         "Amsterdam",

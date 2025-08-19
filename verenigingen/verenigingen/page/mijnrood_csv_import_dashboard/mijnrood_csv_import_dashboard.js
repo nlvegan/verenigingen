@@ -9,10 +9,10 @@
  * @since 1.0.0
  */
 
-frappe.pages['member-csv-import'].on_page_load = function (wrapper) {
+frappe.pages['mijnrood-csv-import-dashboard'].on_page_load = function (wrapper) {
 	const page = frappe.ui.make_app_page({
 		parent: wrapper,
-		title: 'Member CSV Import',
+		title: 'Mijnrood CSV Import',
 		single_column: true
 	});
 
@@ -38,7 +38,7 @@ class MemberCSVImportPage {
             <div class="member-import-header mb-4">
                 <div class="row">
                     <div class="col-md-8">
-                        <h3>Member CSV Import</h3>
+                        <h3>Mijnrood CSV Import</h3>
                         <p class="text-muted">
                             Import member data from CSV files with validation and preview.
                             Use test mode to validate your data before creating records.
@@ -137,7 +137,7 @@ class MemberCSVImportPage {
 		frappe.call({
 			method: 'frappe.client.get_list',
 			args: {
-				doctype: 'Member CSV Import',
+				doctype: 'Mijnrood CSV Import',
 				fields: ['name', 'descriptive_name', 'import_status', 'import_date', 'members_created', 'members_updated', 'members_skipped'],
 				order_by: 'creation desc',
 				limit: 10
@@ -169,7 +169,7 @@ class MemberCSVImportPage {
                     <td><span class="badge ${status_class}">${imp.import_status || 'Pending'}</span></td>
                     <td>${results}</td>
                     <td>
-                        <button class="btn btn-sm btn-default" onclick="frappe.set_route('Form', 'Member CSV Import', '${imp.name}')">
+                        <button class="btn btn-sm btn-default" onclick="frappe.set_route('Form', 'Mijnrood CSV Import', '${imp.name}')">
                             <i class="fa fa-eye"></i> View
                         </button>
                     </td>
@@ -196,13 +196,13 @@ class MemberCSVImportPage {
 	setup_actions() {
 		// New Import button
 		$(this.wrapper).on('click', '#new-import-btn', () => {
-			frappe.new_doc('Member CSV Import');
+			frappe.new_doc('Mijnrood CSV Import');
 		});
 
 		// Download Template button
 		$(this.wrapper).on('click', '#download-template-btn', () => {
 			frappe.call({
-				method: 'verenigingen.verenigingen.doctype.member_csv_import.member_csv_import.get_import_template',
+				method: 'verenigingen.verenigingen.doctype.mijnrood_csv_import.mijnrood_csv_import.get_import_template',
 				callback: (r) => {
 					if (r.message) {
 						this.download_file(r.message.content, r.message.filename);
@@ -227,7 +227,7 @@ class MemberCSVImportPage {
 
 // Add custom CSS
 frappe.provide('frappe.pages["member-csv-import"]');
-frappe.pages['member-csv-import'].on_page_show = function () {
+frappe.pages['mijnrood-csv-import-dashboard'].on_page_show = function () {
 	if (!document.querySelector('#member-import-page-styles')) {
 		const style = document.createElement('style');
 		style.id = 'member-import-page-styles';

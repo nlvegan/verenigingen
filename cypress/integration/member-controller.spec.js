@@ -162,35 +162,29 @@ describe('Member JavaScript Controller Tests', () => {
 
 			// Test status transitions
 			const statuses = ['Applicant', 'Active', 'Inactive', 'Suspended', 'Terminated'];
-			statuses.forEach((status, index) => {
-				if (index > 0) {
-					cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
-
-					cy.execute_business_workflow(() => {
-						cy.window().then((win) => {
-							const frm = win.frappe.ui.form.get_form('Member');
-							expect(frm.doc.status).to.equal(status);
-
-							// Test status-dependent field visibility and validation
-							cy.log(`Member status changed to: ${status}`);
-
-							if (status === 'Active' && frm.fields_dict.activation_date) {
-								expect(frm.fields_dict.activation_date).to.exist;
-							}
-
-							if (status === 'Suspended' && frm.fields_dict.suspension_reason) {
-								expect(frm.fields_dict.suspension_reason).to.exist;
-							}
-
-							if (status === 'Terminated' && frm.fields_dict.termination_date) {
-								expect(frm.fields_dict.termination_date).to.exist;
-							}
-						});
-						return true;
-					}, null, `Status Change to ${status}`);
-
-					cy.save_frappe_doc();
+			cy.wrap(statuses).each((status, index) => {
+				if (index === 0) {
+					return;
 				}
+				cy.fill_frappe_field('status', status, { fieldtype: 'Select' });
+				cy.execute_business_workflow(() => {
+					cy.window().then((win) => {
+						const frm = win.frappe.ui.form.get_form('Member');
+						expect(frm.doc.status).to.equal(status);
+						cy.log(`Member status changed to: ${status}`);
+						if (status === 'Active' && frm.fields_dict.activation_date) {
+							expect(frm.fields_dict.activation_date).to.exist;
+						}
+						if (status === 'Suspended' && frm.fields_dict.suspension_reason) {
+							expect(frm.fields_dict.suspension_reason).to.exist;
+						}
+						if (status === 'Terminated' && frm.fields_dict.termination_date) {
+							expect(frm.fields_dict.termination_date).to.exist;
+						}
+					});
+					return true;
+				}, null, `Status Change to ${status}`);
+				cy.save_frappe_doc();
 			});
 		});
 
