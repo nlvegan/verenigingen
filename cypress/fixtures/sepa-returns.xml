@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.002.001.03">
+  <CstmrPmtStsRpt>
+    <GrpHdr>
+      <MsgId>RETN20250819001</MsgId>
+      <CreDtTm>2025-08-19T10:30:00</CreDtTm>
+      <DbtrAgt>
+        <FinInstnId>
+          <BIC>ABNANL2A</BIC>
+        </FinInstnId>
+      </DbtrAgt>
+    </GrpHdr>
+    <OrgnlGrpInfAndSts>
+      <OrgnlMsgId>DD20250819001</OrgnlMsgId>
+      <OrgnlMsgNmId>pain.008.001.02</OrgnlMsgNmId>
+      <GrpSts>RJCT</GrpSts>
+    </OrgnlGrpInfAndSts>
+    <OrgnlPmtInfAndSts>
+      <OrgnlPmtInfId>BATCH001</OrgnlPmtInfId>
+      <TxInfAndSts>
+        <OrgnlTxId>TXN001</OrgnlTxId>
+        <TxSts>RJCT</TxSts>
+        <StsRsnInf>
+          <Rsn>
+            <Cd>AC04</Cd>
+          </Rsn>
+          <AddtlInf>Account closed</AddtlInf>
+        </StsRsnInf>
+        <OrgnlTxRef>
+          <Amt>
+            <InstdAmt Ccy="EUR">25.00</InstdAmt>
+          </Amt>
+          <DbtrAcct>
+            <Id>
+              <IBAN>NL91ABNA0417164300</IBAN>
+            </Id>
+          </DbtrAcct>
+        </OrgnlTxRef>
+      </TxInfAndSts>
+      <TxInfAndSts>
+        <OrgnlTxId>TXN002</OrgnlTxId>
+        <TxSts>RJCT</TxSts>
+        <StsRsnInf>
+          <Rsn>
+            <Cd>MD07</Cd>
+          </Rsn>
+          <AddtlInf>End customer deceased</AddtlInf>
+        </StsRsnInf>
+        <OrgnlTxRef>
+          <Amt>
+            <InstdAmt Ccy="EUR">25.00</InstdAmt>
+          </Amt>
+          <DbtrAcct>
+            <Id>
+              <IBAN>NL91RABO0315264811</IBAN>
+            </Id>
+          </DbtrAcct>
+        </OrgnlTxRef>
+      </TxInfAndSts>
+    </OrgnlPmtInfAndSts>
+  </CstmrPmtStsRpt>
+</Document>

@@ -74,75 +74,75 @@ const { defineConfig } = require('cypress');
  * environment setup, browser configuration, and custom behaviors.
  */
 module.exports = defineConfig({
-  /** @type {string} Cypress project identifier for dashboard integration */
-  projectId: 'verenigingen-tests',
+	/** @type {string} Cypress project identifier for dashboard integration */
+	projectId: 'verenigingen-tests',
 
-  /** @type {number} Browser viewport height in pixels for consistent testing */
-  viewportHeight: 960,
+	/** @type {number} Browser viewport height in pixels for consistent testing */
+	viewportHeight: 960,
 
-  /** @type {number} Browser viewport width in pixels for responsive testing */
-  viewportWidth: 1400,
+	/** @type {number} Browser viewport width in pixels for responsive testing */
+	viewportWidth: 1400,
 
-  /** @type {number} Default timeout for Cypress commands in milliseconds */
-  defaultCommandTimeout: 20000,
+	/** @type {number} Default timeout for Cypress commands in milliseconds */
+	defaultCommandTimeout: 20000,
 
-  /** @type {number} Page load timeout for slow development environment */
-  pageLoadTimeout: 15000,
+	/** @type {number} Page load timeout for slow development environment */
+	pageLoadTimeout: 15000,
 
-  /** @type {boolean} Enable video recording for test debugging */
-  video: true,
+	/** @type {boolean} Enable video recording only for CI/debugging (disabled by default for file size) */
+	video: false,
 
-  /** @type {boolean} Only upload videos on test failures to save storage */
-  videoUploadOnPasses: false,
+	/** @type {boolean} Video compression settings */
+	videoCompression: 32,
 
-  /** @type {Object} Retry configuration for different execution modes */
-  retries: {
-    /** @type {number} Retry failed tests 2 times in CI/headless mode */
-    runMode: 2,
-    /** @type {number} No retries in interactive mode for debugging */
-    openMode: 0,
-  },
+	/** @type {Object} Retry configuration for different execution modes */
+	retries: {
+		/** @type {number} Retry failed tests 2 times in CI/headless mode */
+		runMode: 2,
+		/** @type {number} No retries in interactive mode for debugging */
+		openMode: 0
+	},
 
-  /** @type {Object} End-to-end testing specific configuration */
-  e2e: {
-    /** @type {string} Base URL for the Verenigingen development environment */
-    baseUrl: 'http://dev.veganisme.net:8000',
+	/** @type {Object} End-to-end testing specific configuration */
+	e2e: {
+		/** @type {string} Base URL for the Verenigingen production environment */
+		baseUrl: 'https://dev.veganisme.net',
 
-    /** @type {string} Pattern for locating test specification files */
-    specPattern: 'cypress/integration/**/*.js',
+		/** @type {string} Pattern for locating test specification files */
+		specPattern: 'cypress/integration/**/*.js',
 
-    /** @type {string} Support file with global commands and utilities */
-    supportFile: 'cypress/support/index.js',
+		/** @type {string} Support file with global commands and utilities */
+		supportFile: 'cypress/support/index.js',
 
-    /** @type {boolean} Enable Cypress Studio for test recording */
-    experimentalStudio: true,
+		/** @type {boolean} Enable Cypress Studio for test recording */
+		experimentalStudio: true,
 
-    /**
+		/**
      * Configure Node.js event handlers and custom tasks
      *
      * @param {Function} on - Event handler registration function
      * @param {Object} config - Cypress configuration object
      * @returns {Object} Modified configuration object
      */
-    setupNodeEvents(on, config) {
-      // Setup code coverage collection and reporting
-      require('@cypress/code-coverage/task')(on, config);
+		setupNodeEvents(on, config) {
+			// Setup code coverage collection and reporting
+			require('@cypress/code-coverage/task')(on, config);
 
-      // Register custom tasks for enhanced testing capabilities
-      on('task', {
-        /**
+			// Register custom tasks for enhanced testing capabilities
+			on('task', {
+				/**
          * Custom logging task for debugging test execution
          *
          * @param {string} message - Message to log to console
          * @returns {null} Required return value for Cypress tasks
          */
-        log(message) {
-          console.log(message);
-          return null;
-        },
-      });
+				log(message) {
+					console.log(message);
+					return null;
+				}
+			});
 
-      return config;
-    },
-  },
+			return config;
+		}
+	}
 });

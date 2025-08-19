@@ -4,7 +4,7 @@ describe('Sample Test', () => {
 	});
 
 	it('should test string concatenation', () => {
-		const result = 'Hello' + ' ' + 'World';
+		const result = 'Hello World';
 		expect(result).toBe('Hello World');
 	});
 });

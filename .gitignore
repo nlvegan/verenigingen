@@ -8,6 +8,14 @@ tags
 node_modules
 CLAUDE.md
 TEST_SUMMARY.md
+
+# Cypress test artifacts
+cypress/videos/
+cypress/screenshots/
+cypress/downloads/
+
+# Test logs
+test-logs/
 __pycache__
 .pytest_cache/
 .coverage

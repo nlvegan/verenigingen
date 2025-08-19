@@ -137,6 +137,7 @@ bench --version  # Should be v15.0.0+
 - **[🏗️ Technical Architecture](docs/TECHNICAL_ARCHITECTURE.md)** - System architecture and design patterns
 - **[🧪 Testing Framework 2025](docs/TESTING_FRAMEWORK_2025.md)** - Enhanced testing framework and best practices
 - **[👨‍💻 Developer Testing Guide](docs/DEVELOPER_TESTING_GUIDE.md)** - Testing standards and requirements
+- **[⚡ Cypress JavaScript Controller Testing](cypress/README-JAVASCRIPT-TESTING.md)** - Complete E2E testing for 25+ DocType controllers
 - **[🔌 API Documentation](docs/API_DOCUMENTATION.md)** - Complete API reference and examples
 - **[❓ FAQ & Troubleshooting](docs/FAQ_TROUBLESHOOTING.md)** - Common issues and solutions
 - **[🛠️ Developer Guide](CLAUDE.md)** - Development guidelines and technical context

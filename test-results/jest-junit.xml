@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="75" failures="0" errors="0" time="1.427">
+  <testsuite name="IBAN Validator - Real Banking Scenarios" errors="0" failures="0" skipped="0" timestamp="2025-08-19T07:47:35" time="0.763" tests="35">
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Major Dutch Banks should validate ING Bank IBAN" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Major Dutch Banks should validate ING Bank IBAN" time="0.003">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Major Dutch Banks should validate ABN AMRO IBAN" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Major Dutch Banks should validate ABN AMRO IBAN" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Major Dutch Banks should validate Rabobank IBAN" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Major Dutch Banks should validate Rabobank IBAN" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Major Dutch Banks should validate Triodos Bank IBAN" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Major Dutch Banks should validate Triodos Bank IBAN" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Dutch Bank Information Extraction should extract BIC code for ING" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Dutch Bank Information Extraction should extract BIC code for ING" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Dutch Bank Information Extraction should extract bank name for ABN AMRO" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Dutch Bank Information Extraction should extract bank name for ABN AMRO" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Dutch Bank Information Extraction should extract bank name for Rabobank" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Dutch Bank Information Extraction should extract bank name for Rabobank" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Dutch Bank Information Extraction should return null for unknown Dutch bank code" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Dutch Bank Information Extraction should return null for unknown Dutch bank code" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Common Dutch IBAN Errors should reject IBAN with incorrect checksum" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Common Dutch IBAN Errors should reject IBAN with incorrect checksum" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Common Dutch IBAN Errors should reject IBAN with wrong length" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Common Dutch IBAN Errors should reject IBAN with wrong length" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Common Dutch IBAN Errors should handle IBAN with spaces correctly" name="IBAN Validator - Real Banking Scenarios Dutch Banking (Primary Member Base) Common Dutch IBAN Errors should handle IBAN with spaces correctly" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios European Banking (International Members) Major European Countries should validate German IBAN" name="IBAN Validator - Real Banking Scenarios European Banking (International Members) Major European Countries should validate German IBAN" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios European Banking (International Members) Major European Countries should validate Belgian IBAN" name="IBAN Validator - Real Banking Scenarios European Banking (International Members) Major European Countries should validate Belgian IBAN" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios European Banking (International Members) Major European Countries should validate French IBAN" name="IBAN Validator - Real Banking Scenarios European Banking (International Members) Major European Countries should validate French IBAN" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios European Banking (International Members) Major European Countries should validate British IBAN" name="IBAN Validator - Real Banking Scenarios European Banking (International Members) Major European Countries should validate British IBAN" time="0.007">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios European Banking (International Members) European Country Length Validation should reject German IBAN with wrong length" name="IBAN Validator - Real Banking Scenarios European Banking (International Members) European Country Length Validation should reject German IBAN with wrong length" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios European Banking (International Members) European Country Length Validation should reject Belgian IBAN with wrong length" name="IBAN Validator - Real Banking Scenarios European Banking (International Members) European Country Length Validation should reject Belgian IBAN with wrong length" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Invalid Input Types should handle empty IBAN" name="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Invalid Input Types should handle empty IBAN" time="0.002">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Invalid Input Types should handle null IBAN" name="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Invalid Input Types should handle null IBAN" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Invalid Input Types should handle undefined IBAN" name="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Invalid Input Types should handle undefined IBAN" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Format Validation should reject IBAN with invalid characters" name="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Format Validation should reject IBAN with invalid characters" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Format Validation should reject IBAN with incorrect country format" name="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Format Validation should reject IBAN with incorrect country format" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Format Validation should reject IBAN with unsupported country" name="IBAN Validator - Real Banking Scenarios Input Validation and Error Handling Format Validation should reject IBAN with unsupported country" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Member Registration Edge Cases should handle IBAN entered with mixed case" name="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Member Registration Edge Cases should handle IBAN entered with mixed case" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Member Registration Edge Cases should handle IBAN entered without spaces" name="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Member Registration Edge Cases should handle IBAN entered without spaces" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Member Registration Edge Cases should handle IBAN with irregular spacing" name="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Member Registration Edge Cases should handle IBAN with irregular spacing" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Multi-National Member Support should validate member from Germany" name="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Multi-National Member Support should validate member from Germany" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Multi-National Member Support should validate member from Belgium" name="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Multi-National Member Support should validate member from Belgium" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Multi-National Member Support should provide helpful error for Belgian member with wrong format" name="IBAN Validator - Real Banking Scenarios Real Member Data Scenarios Multi-National Member Support should provide helpful error for Belgian member with wrong format" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Checksum Algorithm Validation Mod-97 Algorithm Edge Cases should correctly validate checksum with leading zeros" name="IBAN Validator - Real Banking Scenarios Checksum Algorithm Validation Mod-97 Algorithm Edge Cases should correctly validate checksum with leading zeros" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Checksum Algorithm Validation Mod-97 Algorithm Edge Cases should handle large account numbers in checksum calculation" name="IBAN Validator - Real Banking Scenarios Checksum Algorithm Validation Mod-97 Algorithm Edge Cases should handle large account numbers in checksum calculation" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Checksum Algorithm Validation Mod-97 Algorithm Edge Cases should detect single digit errors in checksum" name="IBAN Validator - Real Banking Scenarios Checksum Algorithm Validation Mod-97 Algorithm Edge Cases should detect single digit errors in checksum" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Format Utility Functions IBAN Formatting should format clean IBAN with spaces" name="IBAN Validator - Real Banking Scenarios Format Utility Functions IBAN Formatting should format clean IBAN with spaces" time="0">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Format Utility Functions IBAN Formatting should reformat already spaced IBAN" name="IBAN Validator - Real Banking Scenarios Format Utility Functions IBAN Formatting should reformat already spaced IBAN" time="0.001">
+    </testcase>
+    <testcase classname="IBAN Validator - Real Banking Scenarios Format Utility Functions IBAN Formatting should handle lowercase formatting" name="IBAN Validator - Real Banking Scenarios Format Utility Functions IBAN Formatting should handle lowercase formatting" time="0">
+    </testcase>
+  </testsuite>
+  <testsuite name="Validation Service - Standalone Utilities" errors="0" failures="0" skipped="0" timestamp="2025-08-19T07:47:36" time="0.204" tests="40">
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for first name" name="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for first name" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for last name" name="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for last name" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for email" name="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for email" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for birth date" name="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for birth date" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for postal code" name="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for postal code" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for phone number" name="Validation Service - Standalone Utilities Field Label Utilities Standard Member Fields should return correct label for phone number" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Address Fields should return correct label for address" name="Validation Service - Standalone Utilities Field Label Utilities Address Fields should return correct label for address" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Address Fields should return correct label for city" name="Validation Service - Standalone Utilities Field Label Utilities Address Fields should return correct label for city" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Address Fields should return correct label for country" name="Validation Service - Standalone Utilities Field Label Utilities Address Fields should return correct label for country" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Unknown Fields should return field name for unknown field" name="Validation Service - Standalone Utilities Field Label Utilities Unknown Fields should return field name for unknown field" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Field Label Utilities Unknown Fields should return field name for custom field" name="Validation Service - Standalone Utilities Field Label Utilities Unknown Fields should return field name for custom field" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful email error message" name="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful email error message" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful first name error message" name="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful first name error message" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful last name error message" name="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful last name error message" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful phone error message" name="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful phone error message" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful city error message" name="Validation Service - Standalone Utilities Error Message Utilities Standard Pattern Errors should return helpful city error message" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Error Message Utilities Generic Error Messages should generate generic message for unknown field" name="Validation Service - Standalone Utilities Error Message Utilities Generic Error Messages should generate generic message for unknown field" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Error Message Utilities Generic Error Messages should generate generic message for custom field" name="Validation Service - Standalone Utilities Error Message Utilities Generic Error Messages should generate generic message for custom field" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return personal info fields for step 1" name="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return personal info fields for step 1" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return address fields for step 2" name="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return address fields for step 2" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return empty array for membership step (step 3)" name="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return empty array for membership step (step 3)" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return empty array for volunteer step (step 4)" name="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return empty array for volunteer step (step 4)" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return empty array for payment step (step 5)" name="Validation Service - Standalone Utilities Step Field Mapping Member Application Steps should return empty array for payment step (step 5)" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Step Field Mapping Invalid Steps should return empty array for step 0" name="Validation Service - Standalone Utilities Step Field Mapping Invalid Steps should return empty array for step 0" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Step Field Mapping Invalid Steps should return empty array for step 6" name="Validation Service - Standalone Utilities Step Field Mapping Invalid Steps should return empty array for step 6" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Step Field Mapping Invalid Steps should return empty array for negative step" name="Validation Service - Standalone Utilities Step Field Mapping Invalid Steps should return empty array for negative step" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Summary Generator All Valid Results should generate correct summary for all valid fields" name="Validation Service - Standalone Utilities Validation Summary Generator All Valid Results should generate correct summary for all valid fields" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Summary Generator Mixed Valid/Invalid Results should generate correct summary for mixed validation results" name="Validation Service - Standalone Utilities Validation Summary Generator Mixed Valid/Invalid Results should generate correct summary for mixed validation results" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Summary Generator Results with Warnings should count warnings for valid fields" name="Validation Service - Standalone Utilities Validation Summary Generator Results with Warnings should count warnings for valid fields" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Summary Generator All Invalid Results should generate correct summary for all invalid fields" name="Validation Service - Standalone Utilities Validation Summary Generator All Invalid Results should generate correct summary for all invalid fields" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Summary Generator Empty Results should handle empty results object" name="Validation Service - Standalone Utilities Validation Summary Generator Empty Results should handle empty results object" time="0.003">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Summary Generator Single Field Results should handle single valid field" name="Validation Service - Standalone Utilities Validation Summary Generator Single Field Results should handle single valid field" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Summary Generator Single Field Results should handle single invalid field" name="Validation Service - Standalone Utilities Validation Summary Generator Single Field Results should handle single invalid field" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Rules Access Rule Structure Validation should have email validation rule" name="Validation Service - Standalone Utilities Validation Rules Access Rule Structure Validation should have email validation rule" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Rules Access Rule Structure Validation should have name validation rules" name="Validation Service - Standalone Utilities Validation Rules Access Rule Structure Validation should have name validation rules" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Rules Access Rule Structure Validation should have city validation rules" name="Validation Service - Standalone Utilities Validation Rules Access Rule Structure Validation should have city validation rules" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Rules Access Rule Structure Validation should have optional phone validation rule" name="Validation Service - Standalone Utilities Validation Rules Access Rule Structure Validation should have optional phone validation rule" time="0">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Rules Access Pattern Validation Rules should validate Dutch names with pattern" name="Validation Service - Standalone Utilities Validation Rules Access Pattern Validation Rules should validate Dutch names with pattern" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Rules Access Pattern Validation Rules should validate email addresses with pattern" name="Validation Service - Standalone Utilities Validation Rules Access Pattern Validation Rules should validate email addresses with pattern" time="0.001">
+    </testcase>
+    <testcase classname="Validation Service - Standalone Utilities Validation Rules Access Pattern Validation Rules should validate phone numbers with pattern" name="Validation Service - Standalone Utilities Validation Rules Access Pattern Validation Rules should validate phone numbers with pattern" time="0">
+    </testcase>
+  </testsuite>
+</testsuites>

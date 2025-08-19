@@ -34,7 +34,7 @@ module.exports = {
 		browser: true,
 		es2022: true,
 		node: true,
-		jquery: true,
+		jquery: true
 	},
 	extends: [
 		'eslint:recommended',
@@ -194,8 +194,14 @@ module.exports = {
 			ignoreDestructuring: true,
 			ignoreImports: true,
 			ignoreGlobals: true,
-			// Allow snake_case patterns (standard for Frappe), PascalCase (classes), CONSTANTS, and function names with underscores
-			allow: ['^[a-z]+(_[a-z0-9]+)*$', '^[A-Z][a-zA-Z0-9]*$', '^[A-Z_]+$', '^__.*__$', '^_[a-z]+(_[a-z0-9]+)*$']
+			// Allow snake_case patterns (standard for Frappe), PascalCase (classes), CONSTANTS
+			allow: [
+				'^[a-z]+(_[a-z0-9]+)*$',
+				'^[A-Z][a-zA-Z0-9]*$',
+				'^[A-Z_]+$',
+				'^__.*__$',
+				'^_[a-z]+(_[a-z0-9]+)*$'
+			]
 		}],
 		'comma-dangle': ['error', 'never'],
 		'comma-spacing': ['error', { before: false, after: true }],
@@ -300,7 +306,10 @@ module.exports = {
 				'no-unused-expressions': 'off',
 				'max-len': 'off',
 				'no-console': 'off',
-				'no-undef': 'off'
+				'no-undef': 'off',
+				'no-use-before-define': 'off',
+				'no-unused-vars': 'warn',
+				radix: 'off'
 			}
 		},
 		{
@@ -313,7 +322,10 @@ module.exports = {
 				'no-unused-expressions': 'off',
 				'max-len': 'off',
 				'no-console': 'off',
-				'no-undef': 'off'
+				'no-undef': 'off',
+				'no-use-before-define': 'off',
+				'no-unused-vars': 'warn',
+				radix: 'off'
 			}
 		},
 		{

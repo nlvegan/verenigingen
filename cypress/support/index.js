@@ -181,6 +181,7 @@ import './commands';
 import '@cypress/code-coverage/support';
 import '@testing-library/cypress/add-commands';
 import 'cypress-real-events/support';
+import 'cypress-wait-until';
 
 // Global before hook
 before(() => {
@@ -189,7 +190,7 @@ before(() => {
 });
 
 // Handle uncaught exceptions
-Cypress.on('uncaught:exception', (err, runnable) => {
+Cypress.on('uncaught:exception', (err) => {
 	// Ignore ResizeObserver errors
 	if (err.message.includes('ResizeObserver loop limit exceeded')) {
 		return false;

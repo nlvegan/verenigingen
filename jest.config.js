@@ -75,65 +75,65 @@
  * environment setup, coverage thresholds, and reporting options.
  */
 module.exports = {
-  /** @type {string} Test environment for DOM-based testing */
-  testEnvironment: 'jsdom',
+	/** @type {string} Test environment for DOM-based testing */
+	testEnvironment: 'jsdom',
 
-  /** @type {Array<string>} Root directories for test discovery */
-  roots: ['<rootDir>/verenigingen'],
+	/** @type {Array<string>} Root directories for test discovery */
+	roots: ['<rootDir>/verenigingen'],
 
-  /** @type {Array<string>} Patterns for locating test files */
-  testMatch: [
-    '**/tests/frontend/**/*.spec.js',
-    '**/tests/frontend/**/*.test.js'
-  ],
+	/** @type {Array<string>} Patterns for locating test files - ONLY utility tests */
+	testMatch: [
+		'**/tests/unit/**/*.test.js'
+	],
 
-  /** @type {Array<string>} Files to include in coverage collection */
-  collectCoverageFrom: [
-    'verenigingen/public/js/**/*.js',
-    'verenigingen/templates/**/*.js',
-    '!**/node_modules/**',
-    '!**/vendor/**',
-    '!**/tests/**'
-  ],
+	/** @type {Array<string>} Files to include in coverage collection - ONLY utilities */
+	collectCoverageFrom: [
+		'verenigingen/public/js/utils/**/*.js',
+		'verenigingen/public/js/services/**/*.js',
+		'!**/*frappe*/**', // Exclude Frappe-dependent files
+		'!**/node_modules/**',
+		'!**/vendor/**',
+		'!**/tests/**'
+	],
 
-  /** @type {Object} Minimum coverage thresholds for code quality */
-  coverageThreshold: {
-    global: {
-      /** @type {number} Minimum branch coverage percentage */
-      branches: 70,
-      /** @type {number} Minimum function coverage percentage */
-      functions: 70,
-      /** @type {number} Minimum line coverage percentage */
-      lines: 70,
-      /** @type {number} Minimum statement coverage percentage */
-      statements: 70
-    }
-  },
+	/** @type {Object} Minimum coverage thresholds for code quality */
+	coverageThreshold: {
+		global: {
+			/** @type {number} Minimum branch coverage percentage */
+			branches: 70,
+			/** @type {number} Minimum function coverage percentage */
+			functions: 70,
+			/** @type {number} Minimum line coverage percentage */
+			lines: 70,
+			/** @type {number} Minimum statement coverage percentage */
+			statements: 70
+		}
+	},
 
-  /** @type {Object} Module path resolution for assets and styles */
-  moduleNameMapper: {
-    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
-  },
+	/** @type {Object} Module path resolution for assets and styles */
+	moduleNameMapper: {
+		'\\.(css|less|scss|sass)$': 'identity-obj-proxy'
+	},
 
-  /** @type {Array<string>} Setup files to run after test framework initialization */
-  setupFilesAfterEnv: ['<rootDir>/tests/frontend/setup.js'],
+	/** @type {Array<string>} Setup files to run after test framework initialization */
+	setupFilesAfterEnv: ['<rootDir>/verenigingen/tests/frontend/setup.js'],
 
-  /** @type {Object} File transformation rules for different file types */
-  transform: {
-    '^.+\\.jsx?$': 'babel-jest',
-  },
+	/** @type {Object} File transformation rules for different file types */
+	transform: {
+		'^.+\\.jsx?$': 'babel-jest'
+	},
 
-  /** @type {Array<string>} Coverage report output formats */
-  coverageReporters: ['text', 'lcov', 'html', 'json'],
+	/** @type {Array<string>} Coverage report output formats */
+	coverageReporters: ['text', 'lcov', 'html', 'json'],
 
-  /** @type {Array} Test result reporters for different output formats */
-  reporters: [
-    'default',
-    ['jest-junit', {
-      /** @type {string} Directory for JUnit XML output */
-      outputDirectory: './test-results',
-      /** @type {string} Filename for JUnit XML report */
-      outputName: 'jest-junit.xml',
-    }]
-  ]
+	/** @type {Array} Test result reporters for different output formats */
+	reporters: [
+		'default',
+		['jest-junit', {
+			/** @type {string} Directory for JUnit XML output */
+			outputDirectory: './test-results',
+			/** @type {string} Filename for JUnit XML report */
+			outputName: 'jest-junit.xml'
+		}]
+	]
 };

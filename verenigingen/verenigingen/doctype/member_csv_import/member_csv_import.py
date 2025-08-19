@@ -824,6 +824,9 @@ class MemberCSVImport(Document):
                 if member.primary_address:
                     member.save()
 
+            # Update/create dues schedule and membership if data was provided
+            self._create_related_records(member, row_data)
+
             return "updated"
         else:
             # Create new member
@@ -844,7 +847,7 @@ class MemberCSVImport(Document):
             member.insert()
 
             # Create related records after successful member creation
-            self._create_related_records(member)
+            self._create_related_records(member, row_data)
 
             return "created"
 
@@ -904,9 +907,8 @@ class MemberCSVImport(Document):
             # If cleaning failed, the field will remain empty (logged in _clean_phone_number)
         if row_data.get("member_since"):
             member_doc.member_since = row_data["member_since"]
-        if row_data.get("membership_type"):
-            # Store the cleaned membership type
-            member_doc.membership_type = row_data["membership_type"]
+        # Note: membership_type is set via Membership record creation, not directly on Member
+        # The Member.current_membership_type field is read-only and computed from linked Membership
 
         # Financial information
         if row_data.get("iban"):
@@ -915,6 +917,12 @@ class MemberCSVImport(Document):
         if row_data.get("dues_rate"):
             # Set dues_rate - CSV import flag will handle validation bypass
             member_doc.dues_rate = row_data["dues_rate"]
+            # Store data for creating membership dues schedule after member creation
+            member_doc._pending_dues_schedule_data = {
+                "dues_rate": row_data["dues_rate"],
+                "payment_period": row_data.get("payment_period"),
+                "override_reason": "Import from mijnrood",
+            }
 
         # Mollie information
         if row_data.get("mollie_customer_id"):
@@ -959,14 +967,13 @@ class MemberCSVImport(Document):
         if city:
             city = str(city).strip() if city else None
 
-        if not address_line1 and not city:
-            return  # Skip address creation if no meaningful data
-
-        # Use fallback values for missing required fields
-        if not address_line1:
-            address_line1 = "Address not provided"
-        if not city:
-            city = "Unknown"
+        # Skip address creation entirely if we don't have meaningful address data
+        # Don't create placeholder addresses with fake data
+        if not address_line1 or not city:
+            frappe.logger().info(
+                f"Skipping address creation for member {member_doc.name} - insufficient address data"
+            )
+            return
 
         address_data = {
             "address_title": f"{member_doc.first_name} {member_doc.last_name}",
@@ -1026,7 +1033,7 @@ class MemberCSVImport(Document):
 
         return any(role in user_roles for role in authorized_roles)
 
-    def _create_related_records(self, member_doc: Document):
+    def _create_related_records(self, member_doc: Document, row_data: Dict = None):
         """Create related records (address, termination) after successful member creation."""
         try:
             # Create address if address data was provided
@@ -1043,6 +1050,14 @@ class MemberCSVImport(Document):
             # Create chapter assignment if chapter was provided
             if hasattr(member_doc, "_pending_chapter_assignment"):
                 self._assign_member_to_chapter(member_doc, member_doc._pending_chapter_assignment)
+
+            # Create dues schedule if dues data was provided
+            if hasattr(member_doc, "_pending_dues_schedule_data"):
+                self._create_dues_schedule_from_import(member_doc, member_doc._pending_dues_schedule_data)
+
+            # Create membership record with appropriate type
+            if row_data and (row_data.get("payment_period") or row_data.get("membership_type")):
+                self._create_membership_from_import(member_doc, row_data)
 
         except Exception as e:
             # Log error but don't fail the entire member creation for related record issues
@@ -1120,6 +1135,201 @@ class MemberCSVImport(Document):
                 f"Failed to assign member {member_doc.name} to chapter {chapter_name}: {str(e)}"
             )
             # Don't fail the entire import for chapter assignment issues
+
+    def _create_dues_schedule_from_import(self, member_doc: Document, dues_data: dict):
+        """Create a membership dues schedule from CSV import data."""
+        try:
+            # Map payment period to billing frequency
+            billing_frequency = self._map_payment_period_to_frequency(dues_data.get("payment_period"))
+
+            # Create dues schedule
+            dues_schedule = frappe.new_doc("Membership Dues Schedule")
+            dues_schedule.member = member_doc.name
+            dues_schedule.member_name = (
+                member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}"
+            )
+            # Get membership type from the row data context
+            membership_type_name = self._determine_membership_type(row_data) or "Standard"
+            dues_schedule.membership_type = membership_type_name
+            dues_schedule.dues_rate = dues_data["dues_rate"]
+            dues_schedule.billing_frequency = billing_frequency
+            dues_schedule.status = "Active"
+            dues_schedule.is_active = 1
+            dues_schedule.uses_custom_amount = 1
+            dues_schedule.custom_amount_reason = dues_data["override_reason"]
+            dues_schedule.custom_amount_approved = 1
+            dues_schedule.custom_amount_approved_by = frappe.session.user
+            dues_schedule.custom_amount_approved_date = today()
+
+            # Set next invoice date based on member_since date and billing frequency
+            if member_doc.member_since:
+                dues_schedule.next_invoice_date = self._calculate_next_invoice_date(
+                    getdate(member_doc.member_since), billing_frequency
+                )
+            else:
+                dues_schedule.next_invoice_date = today()
+
+            # Set CSV import flag
+            dues_schedule._csv_import = True
+            dues_schedule.flags.ignore_workflow = True
+
+            dues_schedule.insert()
+
+            # Update member's current dues schedule reference
+            member_doc.current_dues_schedule = dues_schedule.name
+            member_doc.next_invoice_date = dues_schedule.next_invoice_date
+            member_doc.save()
+
+            frappe.logger().info(f"Created dues schedule {dues_schedule.name} for member {member_doc.name}")
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to create dues schedule for {member_doc.name}: {str(e)}")
+            # Don't fail the entire import for dues schedule issues
+
+    def _create_membership_from_import(self, member_doc: Document, row_data: dict):
+        """Create a membership record from CSV import data."""
+        try:
+            # Determine membership type from payment period or existing membership_type
+            membership_type_name = self._determine_membership_type(row_data)
+
+            # Create membership record
+            membership = frappe.new_doc("Membership")
+            membership.member = member_doc.name
+            membership.member_name = member_doc.full_name or f"{member_doc.first_name} {member_doc.last_name}"
+            membership.membership_type = membership_type_name
+            membership.start_date = row_data.get("member_since") or today()
+            membership.status = "Current"
+
+            # Set end date based on membership type billing period
+            if membership_type_name:
+                membership_type_doc = frappe.get_doc("Membership Type", membership_type_name)
+                if (
+                    hasattr(membership_type_doc, "billing_period_in_months")
+                    and membership_type_doc.billing_period_in_months
+                ):
+                    from dateutil.relativedelta import relativedelta
+
+                    start_date = getdate(membership.start_date)
+                    membership.renewal_date = start_date + relativedelta(
+                        months=membership_type_doc.billing_period_in_months
+                    )
+
+            # Set CSV import flag
+            membership._csv_import = True
+            membership.flags.ignore_workflow = True
+
+            membership.insert()
+            membership.submit()
+
+            # Update member's current membership reference
+            # Note: These fields are fetch fields and will be updated automatically from the membership record
+            member_doc.current_membership_details = membership.name
+            member_doc.save()
+
+            frappe.logger().info(f"Created membership {membership.name} for member {member_doc.name}")
+
+        except Exception as e:
+            frappe.logger().error(f"Failed to create membership for {member_doc.name}: {str(e)}")
+            # Don't fail the entire import for membership creation issues
+
+    def _map_payment_period_to_frequency(self, payment_period: str) -> str:
+        """Map Dutch payment period terms to billing frequencies."""
+        if not payment_period:
+            return "Annual"
+
+        period_mapping = {
+            "maandelijks": "Monthly",
+            "monthly": "Monthly",
+            "per maand": "Monthly",
+            "kwartaal": "Quarterly",
+            "quarterly": "Quarterly",
+            "per kwartaal": "Quarterly",
+            "driemaandelijks": "Quarterly",
+            "halfjaar": "Semi-Annual",
+            "halfjaarlijks": "Semi-Annual",
+            "semi-annual": "Semi-Annual",
+            "per halfjaar": "Semi-Annual",
+            "jaar": "Annual",
+            "jaarlijks": "Annual",
+            "annual": "Annual",
+            "per jaar": "Annual",
+            "yearly": "Annual",
+        }
+
+        period_lower = payment_period.lower().strip()
+        return period_mapping.get(period_lower, "Annual")
+
+    def _determine_membership_type(self, row_data: dict) -> str:
+        """Determine membership type from CSV data."""
+        # First check if membership_type was explicitly provided
+        if row_data.get("membership_type"):
+            membership_type = row_data["membership_type"]
+            if self._validate_membership_type_exists(membership_type):
+                return membership_type
+
+        # Map payment periods to likely membership types
+        payment_period = row_data.get("payment_period", "").lower().strip()
+
+        # Check if we have specific membership types that match the payment period
+        period_type_mapping = {
+            "maandelijks": "Standard",
+            "monthly": "Standard",
+            "kwartaal": "Quarterly",
+            "quarterly": "Quarterly",
+            "halfjaar": "Semi-Annual",
+            "semi-annual": "Semi-Annual",
+            "jaar": "Annual",
+            "annual": "Annual",
+            "jaarlijks": "Annual",
+        }
+
+        suggested_type = period_type_mapping.get(payment_period)
+        if suggested_type and self._validate_membership_type_exists(suggested_type):
+            return suggested_type
+
+        # Default to Standard if available, otherwise first active membership type
+        if self._validate_membership_type_exists("Standard"):
+            return "Standard"
+
+        # Fallback: get any active membership type
+        active_types = frappe.get_all("Membership Type", filters={"is_active": 1}, fields=["name"], limit=1)
+
+        return active_types[0].name if active_types else "Standard"
+
+    def _calculate_next_invoice_date(self, start_date: "datetime.date", billing_frequency: str) -> str:
+        """Calculate next invoice date based on start date and billing frequency."""
+        from dateutil.relativedelta import relativedelta
+
+        if billing_frequency == "Monthly":
+            next_date = start_date + relativedelta(months=1)
+        elif billing_frequency == "Quarterly":
+            next_date = start_date + relativedelta(months=3)
+        elif billing_frequency == "Semi-Annual":
+            next_date = start_date + relativedelta(months=6)
+        elif billing_frequency == "Annual":
+            next_date = start_date + relativedelta(months=12)
+        else:
+            # Default to annual
+            next_date = start_date + relativedelta(months=12)
+
+        return next_date.strftime("%Y-%m-%d")
+
+    def _validate_membership_type_exists(self, membership_type: str) -> bool:
+        """Validate that a membership type exists before using it."""
+        try:
+            return frappe.db.exists("Membership Type", membership_type) is not None
+        except Exception as e:
+            frappe.logger().error(f"Error validating membership type '{membership_type}': {str(e)}")
+            return False
+
+    def _validate_doctype_field(self, doctype: str, fieldname: str) -> bool:
+        """Validate that a field exists on a DocType before trying to set it."""
+        try:
+            meta = frappe.get_meta(doctype)
+            return meta.has_field(fieldname)
+        except Exception as e:
+            frappe.logger().error(f"Error validating field '{fieldname}' on DocType '{doctype}': {str(e)}")
+            return False
 
 
 @frappe.whitelist()
