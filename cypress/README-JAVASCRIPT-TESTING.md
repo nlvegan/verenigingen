@@ -153,21 +153,21 @@ const dutchNames = [
 ### Quick Start
 ```bash
 # Run all 25+ JavaScript controller tests (production-ready)
-./run_controller_tests.sh --all --headless
+scripts/testing/runners/run_controller_tests.sh --all --headless
 
 # Run by business priority
-./run_controller_tests.sh --high-priority     # Financial operations (6 DocTypes)
-./run_controller_tests.sh --medium-priority   # Admin & reporting (7 DocTypes)
-./run_controller_tests.sh --lower-priority    # Extended features (12+ DocTypes)
+scripts/testing/runners/run_controller_tests.sh --high-priority     # Financial operations (6 DocTypes)
+scripts/testing/runners/run_controller_tests.sh --medium-priority   # Admin & reporting (7 DocTypes)
+scripts/testing/runners/run_controller_tests.sh --lower-priority    # Extended features (12+ DocTypes)
 
 # Interactive mode for debugging
-./run_controller_tests.sh --interactive
+scripts/testing/runners/run_controller_tests.sh --interactive
 
 # Validate environment without running tests
-./run_controller_tests.sh --validate-only
+scripts/testing/runners/run_controller_tests.sh --validate-only
 
 # Performance and coverage analysis
-./run_controller_tests.sh --all --parallel --coverage --performance
+scripts/testing/runners/run_controller_tests.sh --all --parallel --coverage --performance
 ```
 
 ### Individual Test Execution
@@ -306,7 +306,7 @@ cypress/integration/
 ### Prerequisites Verification
 ```bash
 # Verify environment is ready for testing
-./run_controller_tests.sh --validate-only
+scripts/testing/runners/run_controller_tests.sh --validate-only
 ```
 
 ### Run Your First Test
@@ -315,10 +315,10 @@ cypress/integration/
 npx cypress run --spec "cypress/integration/member-controller.spec.js" --headless
 
 # If successful, run high-priority tests
-./run_controller_tests.sh --high-priority --headless
+scripts/testing/runners/run_controller_tests.sh --high-priority --headless
 
 # Full test suite (5-10 minutes)
-./run_controller_tests.sh --all --headless
+scripts/testing/runners/run_controller_tests.sh --all --headless
 ```
 
 ### Expected Results
@@ -330,9 +330,9 @@ npx cypress run --spec "cypress/integration/member-controller.spec.js" --headles
 ## Next Steps
 
 1. **Authentication Setup**: Configure appropriate credentials for production environment testing
-2. **Initial Test Run**: Execute `./run_controller_tests.sh --high-priority --headless`
+2. **Initial Test Run**: Execute `scripts/testing/runners/run_controller_tests.sh --high-priority --headless`
 3. **Review Results**: Analyze test outputs and address any environment-specific issues
-4. **Full Coverage**: Run complete test suite with `./run_controller_tests.sh --all --headless`
+4. **Full Coverage**: Run complete test suite with `scripts/testing/runners/run_controller_tests.sh --all --headless`
 5. **CI Integration**: Include test execution in continuous integration pipeline
 6. **Monitor Performance**: Track execution time and reliability metrics
 

@@ -104,7 +104,7 @@ jobs:
       run: |
         echo "Running ${{ matrix.test-suite }} tests..."
         # Note: Actual tests would run in a Frappe bench environment
-        # python scripts/testing/run_tests.py --suite ${{ matrix.test-suite }}
+        # python scripts/testing/runners/run_tests.py --suite ${{ matrix.test-suite }}
 
   prepare-release:
     name: Prepare Release

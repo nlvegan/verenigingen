@@ -5,7 +5,10 @@
       "Bash(curl:*)",
       "Bash(git add:*)",
       "Bash(git status:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(find:*)",
+      "Bash(jest:*)",
+      "bash(npx:*)"
     ],
     "deny": [],
     "ask": []

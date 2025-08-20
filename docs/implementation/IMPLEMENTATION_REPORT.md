@@ -95,7 +95,7 @@ Successfully implemented a comprehensive Mollie Backend API integration for the 
   - Sandbox environment support
   - Performance benchmarking
 
-- **Core Test Runner** (`run_core_tests.py`)
+- **Core Test Runner** (`scripts/testing/runners/run_core_tests.py`)
   - Validates essential components
   - Quick validation suite
   - CI/CD ready
@@ -154,8 +154,10 @@ Core Components Test Results:
 vereinigen-mollie-backend/
 ├── pyproject.toml                 # Dependencies and metadata
 ├── setup_test_env.py              # Test environment setup
-├── run_core_tests.py              # Core component tests
-├── run_tests.py                   # Full test suite
+└── scripts/testing/runners/
+    ├── run_controller_tests.sh       # Cypress controller tests
+    ├── run_core_tests.py             # Core component tests
+    └── run_tests.py                  # Full test suite
 └── verenigingen/
     ├── tests/
     │   ├── frappe_mock.py         # Frappe framework mock

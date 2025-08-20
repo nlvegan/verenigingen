@@ -81,19 +81,23 @@ module.exports = {
 	/** @type {Array<string>} Root directories for test discovery */
 	roots: ['<rootDir>/verenigingen'],
 
-	/** @type {Array<string>} Patterns for locating test files - ONLY utility tests */
+	/** @type {Array<string>} Patterns for locating test files - utilities and controller tests */
 	testMatch: [
-		'**/tests/unit/**/*.test.js'
+		'**/tests/unit/**/*.test.js',
+		'**/tests/unit/doctype/test_*_controller.js',
+		'**/tests/unit/doctype/test_*_real_controller.js'
 	],
 
-	/** @type {Array<string>} Files to include in coverage collection - ONLY utilities */
+	/** @type {Array<string>} Files to include in coverage collection - utilities and controllers */
 	collectCoverageFrom: [
 		'verenigingen/public/js/utils/**/*.js',
 		'verenigingen/public/js/services/**/*.js',
+		'verenigingen/**/doctype/*/*.js',
 		'!**/*frappe*/**', // Exclude Frappe-dependent files
 		'!**/node_modules/**',
 		'!**/vendor/**',
-		'!**/tests/**'
+		'!**/tests/**',
+		'!**/fixtures/**'
 	],
 
 	/** @type {Object} Minimum coverage thresholds for code quality */
@@ -116,7 +120,10 @@ module.exports = {
 	},
 
 	/** @type {Array<string>} Setup files to run after test framework initialization */
-	setupFilesAfterEnv: ['<rootDir>/verenigingen/tests/frontend/setup.js'],
+	setupFilesAfterEnv: [
+		'<rootDir>/verenigingen/tests/setup/test-environment.js',
+		'<rootDir>/verenigingen/tests/frontend/setup.js'
+	],
 
 	/** @type {Object} File transformation rules for different file types */
 	transform: {
