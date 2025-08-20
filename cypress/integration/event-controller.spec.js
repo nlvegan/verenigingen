@@ -17,7 +17,11 @@
 
 describe('Event JavaScript Controller Tests', () => {
 	beforeEach(() => {
-		cy.login('Administrator', 'admin');
+		const user = Cypress.env('ADMIN_USER');
+		const pass = Cypress.env('ADMIN_PASSWORD');
+		expect(user, 'ADMIN_USER env var').to.be.a('string').and.not.be.empty;
+		expect(pass, 'ADMIN_PASSWORD env var').to.be.a('string').and.not.be.empty;
+		cy.login(user, pass);
 		cy.clear_test_data();
 	});
 
@@ -157,15 +161,7 @@ describe('Event JavaScript Controller Tests', () => {
 					const frm = win.frappe.ui.form.get_form('Event');
 
 					// Test registration buttons
-					cy.get('button').then($buttons => {
-						const buttonTexts = Array.from($buttons).map(btn => btn.textContent);
-						if (buttonTexts.some(text => text.includes('Manage Registrations'))) {
-							cy.log('Registration management button available');
-						}
-						if (buttonTexts.some(text => text.includes('Check-in Attendees'))) {
-							cy.log('Attendee check-in functionality available');
-						}
-					});
+					// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
 
 					// Test registration tracking
 					if (frm.fields_dict.registration_count) {
@@ -397,15 +393,7 @@ describe('Event JavaScript Controller Tests', () => {
 						const frm = win.frappe.ui.form.get_form('Event');
 
 						// Test volunteer management buttons
-						cy.get('button').then($buttons => {
-							const buttonTexts = Array.from($buttons).map(btn => btn.textContent);
-							if (buttonTexts.some(text => text.includes('Assign Volunteers'))) {
-								cy.log('Volunteer assignment functionality available');
-							}
-							if (buttonTexts.some(text => text.includes('Volunteer Schedule'))) {
-								cy.log('Volunteer scheduling available');
-							}
-						});
+						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
 
 						// Test volunteer tracking
 						if (frm.fields_dict.volunteer_assignments) {

@@ -17,7 +17,11 @@
 
 describe('Chapter Join Request JavaScript Controller Tests', () => {
 	beforeEach(() => {
-		cy.login('Administrator', 'admin');
+		const user = Cypress.env('ADMIN_USER');
+		const pass = Cypress.env('ADMIN_PASSWORD');
+		expect(user, 'ADMIN_USER env var').to.be.a('string').and.not.be.empty;
+		expect(pass, 'ADMIN_PASSWORD env var').to.be.a('string').and.not.be.empty;
+		cy.login(user, pass);
 		cy.clear_test_data();
 	});
 
@@ -493,15 +497,7 @@ describe('Chapter Join Request JavaScript Controller Tests', () => {
 						const frm = win.frappe.ui.form.get_form('Chapter Join Request');
 
 						// Test custom buttons for integration
-						cy.get('button').then($buttons => {
-							const buttonTexts = Array.from($buttons).map(btn => btn.textContent);
-							if (buttonTexts.some(text => text.includes('Create Chapter Membership'))) {
-								cy.log('Chapter membership creation button available');
-							}
-							if (buttonTexts.some(text => text.includes('View Chapter'))) {
-								cy.log('View chapter button available');
-							}
-						});
+						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
 
 						// Test integration tracking
 						if (frm.fields_dict.chapter_member_created) {

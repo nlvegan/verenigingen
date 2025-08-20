@@ -17,7 +17,11 @@
 
 describe('Direct Debit Batch JavaScript Controller Tests', () => {
 	beforeEach(() => {
-		cy.login('Administrator', 'admin');
+		const user = Cypress.env('ADMIN_USER');
+		const pass = Cypress.env('ADMIN_PASSWORD');
+		expect(user, 'ADMIN_USER env var').to.be.a('string').and.not.be.empty;
+		expect(pass, 'ADMIN_PASSWORD env var').to.be.a('string').and.not.be.empty;
+		cy.login(user, pass);
 		cy.clear_test_data();
 	});
 
@@ -300,16 +304,9 @@ describe('Direct Debit Batch JavaScript Controller Tests', () => {
 				cy.window().then((win) => {
 					const frm = win.frappe.ui.form.get_form('Direct Debit Batch');
 
-					// Test file generation buttons
-					cy.get('button').then($buttons => {
-						const buttonTexts = Array.from($buttons).map(btn => btn.textContent);
-						if (buttonTexts.some(text => text.includes('Generate SEPA File'))) {
-							cy.log('SEPA file generation button available');
-						}
-						if (buttonTexts.some(text => text.includes('Validate XML'))) {
-							cy.log('XML validation button available');
-						}
-					});
+					// Test file generation buttons (assert presence)
+					cy.contains('button', 'Generate SEPA File').should('exist');
+					cy.contains('button', 'Validate XML').should('exist');
 
 					// Test file generation fields
 					if (frm.fields_dict.generated_file) {

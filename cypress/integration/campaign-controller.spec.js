@@ -17,7 +17,11 @@
 
 describe('Campaign JavaScript Controller Tests', () => {
 	beforeEach(() => {
-		cy.login('Administrator', 'admin');
+		const user = Cypress.env('ADMIN_USER');
+		const pass = Cypress.env('ADMIN_PASSWORD');
+		expect(user, 'ADMIN_USER env var').to.be.a('string').and.not.be.empty;
+		expect(pass, 'ADMIN_PASSWORD env var').to.be.a('string').and.not.be.empty;
+		cy.login(user, pass);
 		cy.clear_test_data();
 	});
 
@@ -548,15 +552,8 @@ describe('Campaign JavaScript Controller Tests', () => {
 						const frm = win.frappe.ui.form.get_form('Campaign');
 
 						// Test team assignment buttons
-						cy.get('button').then($buttons => {
-							const buttonTexts = Array.from($buttons).map(btn => btn.textContent);
-							if (buttonTexts.some(text => text.includes('Assign Team'))) {
-								cy.log('Team assignment functionality available');
-							}
-							if (buttonTexts.some(text => text.includes('Task Management'))) {
-								cy.log('Task management integration available');
-							}
-						});
+						cy.contains('button', 'Assign Team').should('exist');
+						cy.contains('button', 'Task Management').should('exist');
 
 						// Test collaboration tools
 						if (frm.fields_dict.collaboration_tools) {
@@ -637,9 +634,9 @@ describe('Campaign JavaScript Controller Tests', () => {
 					// Verify core reporting fields
 					expect(frm.doc.campaign_name).to.equal('Analytics Comprehensive Test');
 					expect(frm.doc.campaign_type).to.equal('Data Analysis');
-					expect(frm.doc.budget).to.equal(12000.00);
-					expect(frm.doc.target_reach).to.equal(8000);
-					expect(frm.doc.actual_reach).to.equal(9200);
+					expect(Number(frm.doc.budget)).to.equal(12000);
+					expect(Number(frm.doc.target_reach)).to.equal(8000);
+					expect(Number(frm.doc.actual_reach)).to.equal(9200);
 
 					// Test campaign effectiveness
 					if (frm.fields_dict.effectiveness_metrics) {

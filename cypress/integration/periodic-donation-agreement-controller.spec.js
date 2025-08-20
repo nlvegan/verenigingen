@@ -17,7 +17,11 @@
 
 describe('Periodic Donation Agreement JavaScript Controller Tests', () => {
 	beforeEach(() => {
-		cy.login('Administrator', 'admin');
+		const user = Cypress.env('ADMIN_USER');
+		const pass = Cypress.env('ADMIN_PASSWORD');
+		expect(user, 'ADMIN_USER env var').to.be.a('string').and.not.be.empty;
+		expect(pass, 'ADMIN_PASSWORD env var').to.be.a('string').and.not.be.empty;
+		cy.login(user, pass);
 		cy.clear_test_data();
 	});
 
@@ -440,15 +444,7 @@ describe('Periodic Donation Agreement JavaScript Controller Tests', () => {
 					const frm = win.frappe.ui.form.get_form('Periodic Donation Agreement');
 
 					// Test custom buttons for donation processing
-					cy.get('button').then($buttons => {
-						const buttonTexts = Array.from($buttons).map(btn => btn.textContent);
-						if (buttonTexts.some(text => text.includes('Process Next Donation'))) {
-							cy.log('Donation processing button available');
-						}
-						if (buttonTexts.some(text => text.includes('View Donations'))) {
-							cy.log('View donations button available');
-						}
-					});
+					// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
 
 					// Test donation creation link
 					if (frm.fields_dict.related_donations) {

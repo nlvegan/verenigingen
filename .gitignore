@@ -38,6 +38,7 @@ secrets.json
 credentials.json
 site_config.json
 common_site_config.json
+cypress.env.json
 
 # Security: Backup and temporary files
 *.sql

@@ -212,7 +212,11 @@ describe('Member Application Flow', () => {
 
 	it('should review and approve application', () => {
 		// Login as admin
-		cy.login('Administrator', 'admin');
+		const user = Cypress.env('ADMIN_USER');
+		const pass = Cypress.env('ADMIN_PASSWORD');
+		expect(user, 'ADMIN_USER env var').to.be.a('string').and.not.be.empty;
+		expect(pass, 'ADMIN_PASSWORD env var').to.be.a('string').and.not.be.empty;
+		cy.login(user, pass);
 
 		// Navigate to pending applications
 		cy.visit_list('Member');
