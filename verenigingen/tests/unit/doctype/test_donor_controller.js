@@ -1,10 +1,10 @@
 /**
  * @fileoverview Unit Tests for Donor DocType Controller
- * 
+ *
  * Comprehensive test suite for Dutch ANBI-compliant donor management,
  * covering BSN/RSIN validation, donation tracking, tax compliance,
  * and regulatory reporting functionality.
- * 
+ *
  * @author Verenigingen Development Team
  * @version 1.0.0
  */
@@ -52,10 +52,10 @@ global.frappe = mockFrappe;
 
 describe('Donor DocType Controller', () => {
 	let mockForm;
-	
+
 	beforeEach(() => {
 		jest.clearAllMocks();
-		
+
 		mockForm = {
 			doc: {
 				name: 'DON-2025-001',
@@ -79,7 +79,7 @@ describe('Donor DocType Controller', () => {
 				const validBSNs = [
 					'123456782', // Standard valid BSN
 					'111222333', // Another valid BSN
-					'987654321'  // Valid BSN with different pattern
+					'987654321' // Valid BSN with different pattern
 				];
 
 				validBSNs.forEach(bsn => {
@@ -93,9 +93,9 @@ describe('Donor DocType Controller', () => {
 				const invalidBSNs = [
 					'123456783', // Invalid checksum
 					'000000000', // All zeros
-					'12345678',  // Too short
+					'12345678', // Too short
 					'1234567890', // Too long
-					'12345678a'   // Contains letters
+					'12345678a' // Contains letters
 				];
 
 				invalidBSNs.forEach(bsn => {
@@ -109,7 +109,7 @@ describe('Donor DocType Controller', () => {
 				// BSN checksum algorithm: sum of (digit * weight) mod 11
 				const bsn = '123456782';
 				const checksum = calculate_bsn_checksum(bsn);
-				
+
 				expect(checksum).toBe(parseInt(bsn.slice(-1)));
 			});
 
@@ -129,7 +129,7 @@ describe('Donor DocType Controller', () => {
 				});
 
 				const { validate_bsn_dialog } = require('../../../verenigingen/doctype/donor/donor.js');
-				
+
 				validate_bsn_dialog(mockForm);
 
 				expect(mockFrappe.ui.Dialog).toHaveBeenCalledWith({
@@ -145,7 +145,7 @@ describe('Donor DocType Controller', () => {
 			test('should validate correct RSIN numbers', () => {
 				const validRSINs = [
 					'123456782', // 9-digit RSIN
-					'001234567'  // RSIN with leading zeros
+					'001234567' // RSIN with leading zeros
 				];
 
 				validRSINs.forEach(rsin => {
@@ -157,7 +157,7 @@ describe('Donor DocType Controller', () => {
 			test('should reject invalid RSIN numbers', () => {
 				const invalidRSINs = [
 					'123456783', // Invalid checksum
-					'12345678',  // Too short
+					'12345678', // Too short
 					'1234567890' // Too long
 				];
 
@@ -171,9 +171,9 @@ describe('Donor DocType Controller', () => {
 		describe('ANBI Consent Management', () => {
 			test('should track ANBI consent with audit trail', () => {
 				mockForm.doc.anbi_consent = 1;
-				
+
 				const consentData = track_anbi_consent(mockForm);
-				
+
 				expect(consentData).toEqual({
 					consented: true,
 					consent_date: expect.any(String),
@@ -224,7 +224,7 @@ describe('Donor DocType Controller', () => {
 				});
 
 				const { sync_donation_history } = require('../../../verenigingen/doctype/donor/donor.js');
-				
+
 				await sync_donation_history(mockForm);
 
 				expect(mockFrappe.call).toHaveBeenCalledWith({
@@ -237,7 +237,7 @@ describe('Donor DocType Controller', () => {
 				mockFrappe.call.mockRejectedValue(new Error('API Error'));
 
 				const { sync_donation_history } = require('../../../verenigingen/doctype/donor/donor.js');
-				
+
 				await sync_donation_history(mockForm);
 
 				expect(mockFrappe.msgprint).toHaveBeenCalledWith(
@@ -270,7 +270,7 @@ describe('Donor DocType Controller', () => {
 				];
 
 				const deductibleAmount = calculate_tax_deductible_amount(donations);
-				
+
 				expect(deductibleAmount).toBe(250);
 			});
 		});
@@ -281,7 +281,7 @@ describe('Donor DocType Controller', () => {
 			test('should encrypt sensitive tax identifiers', () => {
 				const plainBSN = '123456782';
 				const encrypted = encrypt_tax_identifier(plainBSN);
-				
+
 				expect(encrypted).not.toBe(plainBSN);
 				expect(encrypted.length).toBeGreaterThan(plainBSN.length);
 			});
@@ -290,13 +290,13 @@ describe('Donor DocType Controller', () => {
 				const plainBSN = '123456782';
 				const encrypted = encrypt_tax_identifier(plainBSN);
 				const decrypted = decrypt_tax_identifier(encrypted);
-				
+
 				expect(decrypted).toBe(plainBSN);
 			});
 
 			test('should handle decryption errors', () => {
 				const invalidEncrypted = 'invalid_encrypted_data';
-				
+
 				expect(() => {
 					decrypt_tax_identifier(invalidEncrypted);
 				}).toThrow('Decryption failed');
@@ -306,7 +306,7 @@ describe('Donor DocType Controller', () => {
 		describe('Tax ID Type Detection', () => {
 			test('should detect BSN format', () => {
 				const bsnNumbers = ['123456782', '987654321'];
-				
+
 				bsnNumbers.forEach(number => {
 					expect(detect_tax_id_type(number)).toBe('BSN');
 				});
@@ -314,7 +314,7 @@ describe('Donor DocType Controller', () => {
 
 			test('should detect RSIN format', () => {
 				const rsinNumbers = ['123456782', '001234567'];
-				
+
 				rsinNumbers.forEach(number => {
 					// RSIN uses same format as BSN, so context matters
 					expect(detect_tax_id_type(number, 'business')).toBe('RSIN');
@@ -412,7 +412,7 @@ describe('Donor DocType Controller', () => {
 			};
 
 			const { create_donation_agreement } = require('../../../verenigingen/doctype/donor/donor.js');
-			
+
 			create_donation_agreement(mockForm, agreementData);
 
 			expect(mockFrappe.call).toHaveBeenCalledWith({
@@ -473,8 +473,8 @@ describe('Donor DocType Controller', () => {
 		test('should handle malformed BSN input', () => {
 			const malformedInputs = [
 				'  123456782  ', // With whitespace
-				'123-456-782',  // With hyphens
-				'123.456.782'   // With dots
+				'123-456-782', // With hyphens
+				'123.456.782' // With dots
 			];
 
 			malformedInputs.forEach(input => {
@@ -516,7 +516,7 @@ function validate_bsn(bsn) {
 
 	const digits = bsn.split('').map(Number);
 	const checksum = calculate_bsn_checksum(bsn);
-	
+
 	if (checksum !== digits[8]) {
 		return { valid: false, error: 'Invalid BSN checksum' };
 	}
@@ -527,10 +527,10 @@ function validate_bsn(bsn) {
 function calculate_bsn_checksum(bsn) {
 	const weights = [9, 8, 7, 6, 5, 4, 3, 2, -1];
 	const digits = bsn.split('').map(Number);
-	
-	const sum = digits.reduce((total, digit, index) => 
+
+	const sum = digits.reduce((total, digit, index) =>
 		total + (digit * weights[index]), 0);
-	
+
 	return sum % 11;
 }
 
@@ -586,9 +586,9 @@ function detect_tax_id_type(number, context = 'individual') {
 
 async function sync_donor_address(frm, addressId) {
 	try {
-		const address = await mockFrappe.db.get_value('Address', addressId, 
+		const address = await mockFrappe.db.get_value('Address', addressId,
 			['address_line1', 'city', 'pincode', 'country']);
-		
+
 		if (address.message) {
 			frm.set_value('address_line1', address.message.address_line1);
 			frm.set_value('city', address.message.city);
@@ -618,8 +618,8 @@ function validate_agreement_eligibility(donor) {
 function mask_sensitive_data(data) {
 	return {
 		...data,
-		bsn: data.bsn ? data.bsn.substring(0, 3) + '***' + data.bsn.substring(6) : null,
-		email: data.email ? data.email.charAt(0) + '***@' + data.email.split('@')[1] : null
+		bsn: data.bsn ? `${data.bsn.substring(0, 3)}***${data.bsn.substring(6)}` : null,
+		email: data.email ? `${data.email.charAt(0)}***@${data.email.split('@')[1]}` : null
 	};
 }
 

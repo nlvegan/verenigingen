@@ -247,8 +247,12 @@ describe('Volunteer JavaScript Controller Tests', () => {
 					cy.window().then((win) => {
 						const frm = win.frappe.ui.form.get_form('Volunteer');
 
-						// Test team assignment buttons
-						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+						// Test volunteer management buttons
+						cy.contains('button', 'View Member').should('exist');
+						cy.contains('button', 'Add Activity').should('exist');
+						cy.contains('button', 'View Timeline').should('exist');
+						cy.contains('button', 'Volunteer Report').should('exist');
+						cy.contains('button', 'Add Skill').should('exist');
 
 						// Test team coordination
 						if (frm.fields_dict.team_coordination) {

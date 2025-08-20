@@ -38,7 +38,7 @@
  */
 
 frappe.ui.form.on('Team Responsibility', {
-	responsibility(frm, cdt, cdn) {
+	responsibility(_frm, _cdt, _cdn) {
 		// No specific actions needed yet, but keeping for future extensions
 	},
 

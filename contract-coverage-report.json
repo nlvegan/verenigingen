@@ -1,0 +1,43 @@
+{
+  "timestamp": "2025-08-20T09:55:39.190Z",
+  "totalMethods": 16,
+  "validMethods": 16,
+  "criticalMethods": [
+    "verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate",
+    "verenigingen.verenigingen_payments.utils.iban_validator.validate_iban",
+    "verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch",
+    "verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment",
+    "verenigingen.verenigingen_payments.integration.mollie_connector.test_mollie_connection",
+    "verenigingen.verenigingen.doctype.member.member.process_payment",
+    "verenigingen.verenigingen.doctype.member.member.create_member",
+    "verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details",
+    "verenigingen.verenigingen.doctype.member.member.update_member_status",
+    "verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban",
+    "verenigingen.verenigingen.doctype.member.member.validate_mandate_creation",
+    "verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup",
+    "verenigingen.verenigingen.doctype.member.member.get_payment_history",
+    "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.create_dues_schedule",
+    "verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement"
+  ],
+  "coveragePercentage": "100.0",
+  "passed": true,
+  "issues": [],
+  "methods": [
+    "verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate",
+    "verenigingen.verenigingen_payments.utils.iban_validator.validate_iban",
+    "verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch",
+    "verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment",
+    "verenigingen.verenigingen_payments.integration.mollie_connector.test_mollie_connection",
+    "verenigingen.verenigingen.doctype.member.member.process_payment",
+    "verenigingen.verenigingen.doctype.member.member.create_member",
+    "verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details",
+    "verenigingen.verenigingen.doctype.member.member.update_member_status",
+    "verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban",
+    "verenigingen.verenigingen.doctype.member.member.validate_mandate_creation",
+    "verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup",
+    "verenigingen.templates.pages.donate.submit_donation",
+    "verenigingen.verenigingen.doctype.member.member.get_payment_history",
+    "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.create_dues_schedule",
+    "verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement"
+  ]
+}

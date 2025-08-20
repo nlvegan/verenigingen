@@ -1,0 +1,999 @@
+{
+  "domains": {
+    "financial": [
+      {
+        "method": "verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate",
+        "valid": true,
+        "testData": {
+          "member": "Member-2024-01-0001",
+          "iban": "NL91ABNA0417164300",
+          "bic": "ABNANL2A"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 61.807759284973145,
+          "cacheHit": false,
+          "compilationTime": 61.185208320617676
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string",
+              "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+            },
+            "iban": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7,10}$",
+              "minLength": 15,
+              "maxLength": 34
+            },
+            "bic": {
+              "type": "string",
+              "pattern": "^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+            },
+            "mandate_type": {
+              "type": "string",
+              "enum": [
+                "CORE",
+                "B2B",
+                "FIRST",
+                "RCUR"
+              ],
+              "default": "RCUR"
+            },
+            "debtor_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 70
+            }
+          },
+          "required": [
+            "member",
+            "iban",
+            "bic"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen_payments.utils.iban_validator.validate_iban",
+        "valid": true,
+        "testData": {
+          "iban": "aaaaaaaaaaaaaaa"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 2.087594985961914,
+          "cacheHit": false,
+          "compilationTime": 1.8646793365478516
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "iban": {
+              "type": "string",
+              "minLength": 15,
+              "maxLength": 34
+            },
+            "country_code": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}$"
+            }
+          },
+          "required": [
+            "iban"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen_payments.utils.direct_debit_batch.create_dd_batch",
+        "valid": true,
+        "testData": {
+          "collection_date": "2024-01-15",
+          "batch_type": "FRST"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 10.912993431091309,
+          "cacheHit": false,
+          "compilationTime": 10.3624267578125
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "collection_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "batch_type": {
+              "type": "string",
+              "enum": [
+                "FRST",
+                "RCUR",
+                "FNAL",
+                "OOFF"
+              ]
+            },
+            "invoice_filters": {
+              "type": "object",
+              "properties": {
+                "membership_type": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "due_date_range": {
+                  "type": "object",
+                  "properties": {
+                    "from": {
+                      "type": "string",
+                      "format": "date"
+                    },
+                    "to": {
+                      "type": "string",
+                      "format": "date"
+                    }
+                  }
+                },
+                "max_amount": {
+                  "type": "number",
+                  "minimum": 0.01,
+                  "maximum": 999999.99
+                }
+              }
+            },
+            "test_mode": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "required": [
+            "collection_date",
+            "batch_type"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen_payments.templates.pages.mollie_checkout.make_payment",
+        "valid": true,
+        "testData": {
+          "data": {
+            "amount": {
+              "value": "25.00",
+              "currency": "EUR"
+            },
+            "description": "a"
+          },
+          "reference_doctype": "Sales Invoice",
+          "reference_docname": "REF-DOC-001"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 11.07188892364502,
+          "cacheHit": false,
+          "compilationTime": 10.485014915466309
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "data": {
+              "type": "object",
+              "properties": {
+                "amount": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string",
+                      "pattern": "^[0-9]+\\.[0-9]{2}$"
+                    },
+                    "currency": {
+                      "type": "string",
+                      "pattern": "^[A-Z]{3}$",
+                      "default": "EUR"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "currency"
+                  ]
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255
+                },
+                "metadata": {
+                  "type": "object",
+                  "properties": {
+                    "member_id": {
+                      "type": "string"
+                    },
+                    "membership_type": {
+                      "type": "string"
+                    }
+                  }
+                }
+              },
+              "required": [
+                "amount",
+                "description"
+              ]
+            },
+            "reference_doctype": {
+              "type": "string",
+              "enum": [
+                "Sales Invoice",
+                "Donation",
+                "Event Registration"
+              ]
+            },
+            "reference_docname": {
+              "type": "string",
+              "pattern": "^[A-Z\\-0-9]+$"
+            },
+            "gateway_name": {
+              "type": "string",
+              "default": "Default"
+            }
+          },
+          "required": [
+            "data",
+            "reference_doctype",
+            "reference_docname"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen_payments.integration.mollie_connector.test_mollie_connection",
+        "valid": true,
+        "testData": {},
+        "errors": [],
+        "performance": {
+          "validationTime": 3.149637222290039,
+          "cacheHit": false,
+          "compilationTime": 3.0371170043945312
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "settings_name": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.member.member.process_payment",
+        "valid": true,
+        "testData": {
+          "member_id": "Member-2024-01-0001",
+          "payment_amount": 0.01,
+          "payment_method": "SEPA Direct Debit"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 9.214202880859375,
+          "cacheHit": false,
+          "compilationTime": 8.668082237243652
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member_id": {
+              "type": "string",
+              "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+            },
+            "payment_amount": {
+              "type": "number",
+              "minimum": 0.01,
+              "maximum": 999999.99,
+              "multipleOf": 0.01
+            },
+            "payment_method": {
+              "type": "string",
+              "enum": [
+                "SEPA Direct Debit",
+                "Mollie",
+                "Bank Transfer",
+                "Cash",
+                "Other"
+              ]
+            },
+            "payment_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "reference": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "invoice_id": {
+              "type": "string",
+              "pattern": "^SI-\\d{4}-\\d{2}-\\d{4}$"
+            },
+            "payment_gateway_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "member_id",
+            "payment_amount",
+            "payment_method"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.member.member.get_payment_history",
+        "valid": true,
+        "testData": {
+          "member_id": "Member-2024-01-0001"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 2.7661209106445312,
+          "cacheHit": false,
+          "compilationTime": 2.4570541381835938
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member_id": {
+              "type": "string",
+              "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+            },
+            "date_range": {
+              "type": "object",
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "to": {
+                  "type": "string",
+                  "format": "date"
+                }
+              }
+            },
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 50
+            }
+          },
+          "required": [
+            "member_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement",
+        "valid": true,
+        "testData": {
+          "bank_account": "test-value",
+          "statement_data": "test-value"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 3.401247024536133,
+          "cacheHit": false,
+          "compilationTime": 3.0680551528930664
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "bank_account": {
+              "type": "string"
+            },
+            "statement_data": {
+              "type": "string",
+              "description": "Base64 encoded CAMT.053 file or JSON"
+            },
+            "auto_reconcile": {
+              "type": "boolean",
+              "default": true
+            },
+            "reconciliation_rules": {
+              "type": "object",
+              "properties": {
+                "match_threshold": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.95
+                },
+                "date_tolerance_days": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 30,
+                  "default": 3
+                }
+              }
+            }
+          },
+          "required": [
+            "bank_account",
+            "statement_data"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "sepa": [
+      {
+        "method": "verenigingen.verenigingen_payments.utils.sepa_mandate.create_sepa_mandate",
+        "valid": true,
+        "testData": {
+          "member": "Member-2024-01-0001",
+          "iban": "NL91ABNA0417164300",
+          "bic": "ABNANL2A"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 61.807759284973145,
+          "cacheHit": false,
+          "compilationTime": 61.185208320617676
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string",
+              "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+            },
+            "iban": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7,10}$",
+              "minLength": 15,
+              "maxLength": 34
+            },
+            "bic": {
+              "type": "string",
+              "pattern": "^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+            },
+            "mandate_type": {
+              "type": "string",
+              "enum": [
+                "CORE",
+                "B2B",
+                "FIRST",
+                "RCUR"
+              ],
+              "default": "RCUR"
+            },
+            "debtor_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 70
+            }
+          },
+          "required": [
+            "member",
+            "iban",
+            "bic"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.member.member.validate_mandate_creation",
+        "valid": true,
+        "testData": {
+          "member": "test-value",
+          "iban": "NL91ABNA0417164300"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 1.8478269577026367,
+          "cacheHit": false,
+          "compilationTime": 1.6302223205566406
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string"
+            },
+            "iban": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7,10}$"
+            },
+            "mandate_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "member",
+            "iban"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen_payments.utils.sepa_reconciliation.import_bank_statement",
+        "valid": true,
+        "testData": {
+          "bank_account": "test-value",
+          "statement_data": "test-value"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 3.401247024536133,
+          "cacheHit": false,
+          "compilationTime": 3.0680551528930664
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "bank_account": {
+              "type": "string"
+            },
+            "statement_data": {
+              "type": "string",
+              "description": "Base64 encoded CAMT.053 file or JSON"
+            },
+            "auto_reconcile": {
+              "type": "boolean",
+              "default": true
+            },
+            "reconciliation_rules": {
+              "type": "object",
+              "properties": {
+                "match_threshold": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1,
+                  "default": 0.95
+                },
+                "date_tolerance_days": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 30,
+                  "default": 3
+                }
+              }
+            }
+          },
+          "required": [
+            "bank_account",
+            "statement_data"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "membership": [
+      {
+        "method": "verenigingen.verenigingen.doctype.member.member.create_member",
+        "valid": true,
+        "testData": {
+          "first_name": "Test Name",
+          "last_name": "Test Name",
+          "email": "test@example.org",
+          "birth_date": "2024-01-15"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 9.990370750427246,
+          "cacheHit": false,
+          "compilationTime": 8.996537208557129
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "first_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50,
+              "pattern": "^[A-Za-z\\s\\-']+$"
+            },
+            "last_name": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 50,
+              "pattern": "^[A-Za-z\\s\\-']+$"
+            },
+            "tussenvoegsel": {
+              "type": "string",
+              "maxLength": 15,
+              "pattern": "^(van|de|der|den|te|ten|tot|op|aan|in|onder|over|bij|voor|na|uit|vom|von|du|da|del|della|di|el|la|le|les|des)?( (van|de|der|den|te|ten|tot|op|aan|in|onder|over|bij|voor|na|uit|vom|von|du|da|del|della|di|el|la|le|les|des))*$"
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "birth_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "postal_code": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{3}\\s?[A-Z]{2}$"
+            },
+            "city": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 100
+            },
+            "phone": {
+              "type": "string",
+              "pattern": "^(\\+31|0)[1-9][0-9]{8}$"
+            },
+            "membership_type": {
+              "type": "string",
+              "enum": [
+                "Regular",
+                "Student",
+                "Senior",
+                "Family",
+                "Corporate",
+                "Honorary"
+              ]
+            },
+            "chapter": {
+              "type": "string"
+            },
+            "preferred_language": {
+              "type": "string",
+              "enum": [
+                "nl",
+                "en",
+                "de",
+                "fr"
+              ],
+              "default": "nl"
+            }
+          },
+          "required": [
+            "first_name",
+            "last_name",
+            "email",
+            "birth_date"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.member.member.get_current_dues_schedule_details",
+        "valid": true,
+        "testData": {
+          "member": "Member-2024-01-0001"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 1.7118949890136719,
+          "cacheHit": false,
+          "compilationTime": 1.5543994903564453
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string",
+              "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+            }
+          },
+          "required": [
+            "member"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.member.member.update_member_status",
+        "valid": true,
+        "testData": {
+          "member_id": "Member-2024-01-0001",
+          "new_status": "Active"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 3.104081153869629,
+          "cacheHit": false,
+          "compilationTime": 2.760089874267578
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member_id": {
+              "type": "string",
+              "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+            },
+            "new_status": {
+              "type": "string",
+              "enum": [
+                "Active",
+                "Suspended",
+                "Terminated",
+                "Pending"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "maxLength": 500
+            },
+            "effective_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "termination_type": {
+              "type": "string",
+              "enum": [
+                "voluntary",
+                "involuntary",
+                "deceased",
+                "duplicate"
+              ]
+            }
+          },
+          "required": [
+            "member_id",
+            "new_status"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.member.member.derive_bic_from_iban",
+        "valid": true,
+        "testData": {
+          "iban": "NL91ABNA0417164300"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 1.6593875885009766,
+          "cacheHit": false,
+          "compilationTime": 1.433694839477539
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "iban": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7,10}$"
+            }
+          },
+          "required": [
+            "iban"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.member.member.validate_mandate_creation",
+        "valid": true,
+        "testData": {
+          "member": "test-value",
+          "iban": "NL91ABNA0417164300"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 1.8478269577026367,
+          "cacheHit": false,
+          "compilationTime": 1.6302223205566406
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string"
+            },
+            "iban": {
+              "type": "string",
+              "pattern": "^[A-Z]{2}[0-9]{2}[A-Z0-9]{4}[0-9]{7,10}$"
+            },
+            "mandate_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "member",
+            "iban"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup",
+        "valid": true,
+        "testData": {
+          "member": "test-value",
+          "chapter": "test-value"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 4.014369964599609,
+          "cacheHit": false,
+          "compilationTime": 3.823063850402832
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string"
+            },
+            "chapter": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "member",
+            "chapter"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "method": "verenigingen.verenigingen.doctype.membership_dues_schedule.membership_dues_schedule.create_dues_schedule",
+        "valid": true,
+        "testData": {
+          "member": "Member-2024-01-0001",
+          "membership_type": "Regular",
+          "dues_rate": 0,
+          "frequency": "Monthly"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 4.3585615158081055,
+          "cacheHit": false,
+          "compilationTime": 3.8751211166381836
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string",
+              "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+            },
+            "membership_type": {
+              "type": "string",
+              "enum": [
+                "Regular",
+                "Student",
+                "Senior",
+                "Family",
+                "Corporate",
+                "Honorary"
+              ]
+            },
+            "dues_rate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 999999.99,
+              "multipleOf": 0.01
+            },
+            "frequency": {
+              "type": "string",
+              "enum": [
+                "Monthly",
+                "Quarterly",
+                "Semi-annually",
+                "Annually"
+              ]
+            },
+            "start_date": {
+              "type": "string",
+              "format": "date"
+            },
+            "payment_method": {
+              "type": "string",
+              "enum": [
+                "SEPA Direct Debit",
+                "Mollie",
+                "Manual"
+              ]
+            }
+          },
+          "required": [
+            "member",
+            "membership_type",
+            "dues_rate",
+            "frequency"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "chapter": [
+      {
+        "method": "verenigingen.verenigingen.doctype.chapter.chapter.assign_member_to_chapter_with_cleanup",
+        "valid": true,
+        "testData": {
+          "member": "test-value",
+          "chapter": "test-value"
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 4.014369964599609,
+          "cacheHit": false,
+          "compilationTime": 3.823063850402832
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "member": {
+              "type": "string"
+            },
+            "chapter": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "member",
+            "chapter"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "donation": [
+      {
+        "method": "verenigingen.templates.pages.donate.submit_donation",
+        "valid": true,
+        "testData": {
+          "donor_name": "a",
+          "email": "test@example.org",
+          "amount": 1
+        },
+        "errors": [],
+        "performance": {
+          "validationTime": 4.902507781982422,
+          "cacheHit": false,
+          "compilationTime": 4.459702491760254
+        },
+        "schema": {
+          "type": "object",
+          "properties": {
+            "donor_name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            },
+            "amount": {
+              "type": "number",
+              "minimum": 1
+            },
+            "donation_type": {
+              "type": "string",
+              "enum": [
+                "one-time",
+                "recurring"
+              ]
+            },
+            "anbi_consent": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "donor_name",
+            "email",
+            "amount"
+          ],
+          "additionalProperties": true
+        }
+      }
+    ]
+  },
+  "maturity": {
+    "production": 16,
+    "development": 0,
+    "missing": 0
+  }
+}

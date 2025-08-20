@@ -830,7 +830,7 @@ function add_consolidated_view_buttons(frm) {
 }
 
 function add_administrative_buttons(frm) {
-	const hasAdminRole = frappe.user.has_role(['System Manager', 'Membership Manager', 'Verenigingen Administrator']);
+	const hasAdminRole = frappe.user.has_role(['System Manager', 'Verenigingen Manager', 'Verenigingen Administrator']);
 	const isSystemManager = frappe.user.has_role(['System Manager']);
 
 	if (!hasAdminRole) { return; }
@@ -932,7 +932,7 @@ function add_membership_review_button(frm) {
 	// Add application review buttons if member is pending
 	if (frm.doc.application_status === 'Pending' && frm.doc.status === 'Pending') {
 		// Check if user has appropriate permissions
-		if (frappe.user.has_role(['Verenigingen Administrator', 'Membership Manager'])
+		if (frappe.user.has_role(['Verenigingen Administrator', 'Verenigingen Manager'])
             || is_chapter_board_member_with_permissions(frm)) {
 			// Add approve button
 			frm.add_custom_button(__('Approve Application'), () => {
@@ -1154,7 +1154,7 @@ function add_suspension_action_button(frm) {
 
 function add_member_id_management_buttons(frm) {
 	const user_roles = frappe.user_roles || [];
-	const can_manage_member_ids = user_roles.includes('System Manager') || user_roles.includes('Membership Manager');
+	const can_manage_member_ids = user_roles.includes('System Manager') || user_roles.includes('Verenigingen Manager');
 
 	if (!can_manage_member_ids) { return; }
 
@@ -1283,7 +1283,7 @@ function setup_organization_user_creation(frm) {
 function add_member_id_buttons(_frm) {
 	// Check if user has permission to manage member IDs
 	const user_roles = frappe.user_roles || [];
-	const can_manage_member_ids = user_roles.includes('System Manager') || user_roles.includes('Membership Manager');
+	const can_manage_member_ids = user_roles.includes('System Manager') || user_roles.includes('Verenigingen Manager');
 
 	if (!can_manage_member_ids) {
 		return; // User doesn't have permission
@@ -1354,7 +1354,7 @@ function add_fee_management_buttons(frm) {
 		}, __('Membership & Dues'));
 
 		// Add button to change fee if user has permission
-		if (frappe.user.has_role(['System Manager', 'Membership Manager', 'Verenigingen Administrator'])) {
+		if (frappe.user.has_role(['System Manager', 'Verenigingen Manager', 'Verenigingen Administrator'])) {
 			frm.add_custom_button(__('Override Membership Fee'), () => {
 				show_fee_override_dialog(frm);
 			}, __('Membership & Dues'));
@@ -1377,7 +1377,7 @@ function add_fee_management_buttons(frm) {
 
 function ensure_fee_management_section_visibility(frm) {
 	// Ensure fee management section is visible for authorized users
-	const hasRequiredRole = frappe.user.has_role(['System Manager', 'Membership Manager', 'Verenigingen Administrator']);
+	const hasRequiredRole = frappe.user.has_role(['System Manager', 'Verenigingen Manager', 'Verenigingen Administrator']);
 	const shouldShow = !frm.doc.__islocal && hasRequiredRole;
 
 	if (shouldShow) {

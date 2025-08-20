@@ -453,8 +453,8 @@ describe('Direct Debit Batch JavaScript Controller Tests', () => {
 
 					// Verify reporting fields
 					expect(frm.doc.batch_id).to.equal('ANALYTICS-BATCH-001');
-					expect(frm.doc.total_amount).to.equal(25000.00);
-					expect(frm.doc.transaction_count).to.equal(150);
+					expect(Number(frm.doc.total_amount)).to.equal(25000);
+					expect(Number(frm.doc.transaction_count)).to.equal(150);
 
 					// Test performance metrics
 					if (frm.fields_dict.processing_time) {

@@ -419,7 +419,7 @@ QUnit.test('test: Member - Browser Compatibility', (assert) => {
 		() => {
 			let eventSupported = false;
 			try {
-				const _testEvent = new CustomEvent('test');
+				const testEvent = new CustomEvent('test');
 				eventSupported = true;
 			} catch (e) {
 				// Fallback for older browsers
@@ -560,7 +560,7 @@ QUnit.test('test: Member - Data Integrity and Consistency', (assert) => {
 		() => {
 			const today = frappe.datetime.get_today();
 			const futureDate = frappe.datetime.add_days(today, 30);
-			const _pastDate = frappe.datetime.add_days(today, -30);
+			const pastDate = frappe.datetime.add_days(today, -30);
 
 			const payment_row = frappe.model.add_child(cur_frm.doc, 'Member Payment History', 'payment_history');
 			frappe.model.set_value(payment_row.doctype, payment_row.name, {
@@ -595,7 +595,7 @@ QUnit.test('test: Member - Data Integrity and Consistency', (assert) => {
 
 		// Test child table consistency
 		() => {
-			const _paymentCount = cur_frm.doc.payment_history.length;
+			const paymentCount = cur_frm.doc.payment_history.length;
 			cur_frm.refresh_field('payment_history');
 		},
 		() => frappe.timeout(1),

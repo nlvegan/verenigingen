@@ -906,7 +906,7 @@
       "line": 197,
       "field": "parent as user",
       "doctype": "Has Role",
-      "context": "admins = frappe.get_all(\"Has Role\", filters={\"role\": \"Membership Manager\"}, fields=[\"parent as user\"])",
+      "context": "admins = frappe.get_all(\"Has Role\", filters={\"role\": \"Verenigingen Manager\"}, fields=[\"parent as user\"])",
       "issue_type": "select_field",
       "function": "frappe.get_all"
     },

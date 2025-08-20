@@ -326,7 +326,8 @@ describe('Member JavaScript Controller Tests', () => {
 					const frm = win.frappe.ui.form.get_form('Member');
 
 					// Test chapter assignment buttons
-					// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+					cy.contains('button', 'Assign Chapter').should('exist');
+					cy.contains('button', 'View').should('exist');
 
 					// Test chapter membership tracking
 					if (frm.fields_dict.chapter_memberships) {

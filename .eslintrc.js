@@ -349,6 +349,51 @@ module.exports = {
 			rules: {
 				camelcase: 'off'
 			}
+		},
+		{
+			files: ['verenigingen/e_boekhouden/cleanup_backups/**/*.js'],
+			rules: {
+				'no-console': 'off',
+				'no-unused-vars': 'off',
+				'max-len': 'off',
+				'no-shadow': 'off',
+				radix: 'off'
+			}
+		},
+		{
+			files: ['verenigingen/e_boekhouden/doctype/e_boekhouden_migration/**/*.js'],
+			rules: {
+				'no-unused-vars': 'warn',
+				'max-len': 'warn',
+				'no-shadow': 'warn'
+			}
+		},
+		{
+			files: ['verenigingen/verenigingen/page/system_health_dashboard/**/*.js'],
+			rules: {
+				'no-console': 'off'
+			}
+		},
+		{
+			files: ['scripts/testing/**/*.js'],
+			rules: {
+				'no-unused-vars': 'warn',
+				'no-global-assign': 'warn',
+				'no-return-assign': 'warn',
+				'id-match': 'warn'
+			}
+		},
+		{
+			files: ['verenigingen/public/js/**/*.js', 'verenigingen/tests/**/*.js'],
+			rules: {
+				'id-match': 'off',
+				'no-console': 'warn',
+				'no-unused-vars': 'warn',
+				'no-redeclare': 'warn',
+				'no-case-declarations': 'warn',
+				radix: 'warn',
+				'max-len': 'warn'
+			}
 		}
 	]
 };

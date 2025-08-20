@@ -287,8 +287,8 @@ describe('Donation JavaScript Controller Tests', () => {
 						cy.log('Tax receipt number generation available');
 					}
 
-					// Test custom buttons for tax receipt
-					// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+					// Test custom buttons for payment processing
+					cy.contains('button', 'Create Payment Entry').should('exist');
 				});
 				return true;
 			}, null, 'Tax Receipt Generation Workflow');

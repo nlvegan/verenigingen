@@ -425,7 +425,7 @@ def get_batches_pending_approval():
             # Finance Manager can see all draft batches
             filters["status"] = ["in", ["Draft", "Generated"]]
         elif "Verenigingen Manager" in user_roles:
-            # Membership Manager can only see draft batches
+            # Verenigingen Manager can only see draft batches
             filters["status"] = "Draft"
         else:
             # No approval permissions

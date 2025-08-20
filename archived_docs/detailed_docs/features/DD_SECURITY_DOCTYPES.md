@@ -297,7 +297,7 @@
       "create": 1
     },
     {
-      "role": "Membership Manager",
+      "role": "Verenigingen Manager",
       "read": 1,
       "write": 1
     }

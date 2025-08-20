@@ -751,7 +751,7 @@ class MembershipAnalytics {
 		}
 	}
 
-	render_segmentation_chart(elementId, data, title) {
+	render_segmentation_chart(elementId, data, _title) {
 		const container = $(`#${elementId}`);
 		if (!container.length) { return; }
 
@@ -1209,7 +1209,7 @@ class MembershipAnalytics {
 
 	build_scenarios_html(scenarios) {
 		let html = '';
-		for (const [key, scenario] of Object.entries(scenarios.scenarios)) {
+		for (const [, scenario] of Object.entries(scenarios.scenarios)) {
 			html += `
                 <div class="scenario-card">
                     <h5>${scenario.name}</h5>
@@ -1322,23 +1322,23 @@ class MembershipAnalytics {
 		if (!scenarios || !scenarios.scenarios) { return; }
 
 		const labels = [];
-		const year1_values = [];
-		const year3_values = [];
+		const year1Values = [];
+		const year3Values = [];
 
-		for (const [key, scenario] of Object.entries(scenarios.scenarios)) {
+		for (const [, scenario] of Object.entries(scenarios.scenarios)) {
 			labels.push(scenario.name);
-			year1_values.push(scenario.projections.year_1.members);
-			year3_values.push(scenario.projections.year_3.members);
+			year1Values.push(scenario.projections.year_1.members);
+			year3Values.push(scenario.projections.year_3.members);
 		}
 
 		const chartData = {
 			labels,
 			datasets: [{
 				name: __('Year 1'),
-				values: year1_values
+				values: year1Values
 			}, {
 				name: __('Year 3'),
-				values: year3_values
+				values: year3Values
 			}]
 		};
 

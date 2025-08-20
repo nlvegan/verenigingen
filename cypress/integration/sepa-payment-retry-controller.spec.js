@@ -229,8 +229,11 @@ describe('SEPA Payment Retry JavaScript Controller Tests', () => {
 						// Test retry processing workflow
 						expect(frm.doc.status).to.equal('Pending');
 
-						// Test if custom buttons exist for retry processing
-						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+						// Test retry processing buttons
+						cy.contains('button', 'Retry Now').should('exist');
+						cy.contains('button', 'Cancel Retry').should('exist');
+						cy.contains('button', 'Schedule New Retry').should('exist');
+						cy.contains('button', 'Mark as Resolved').should('exist');
 					});
 					return true;
 				}, null, 'Retry Processing Workflow');

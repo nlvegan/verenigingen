@@ -1,69 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<testsuites name="jest tests" tests="31" failures="0" errors="0" time="1.587">
-  <testsuite name="Simple API Contract Testing" errors="0" failures="0" skipped="0" timestamp="2025-08-20T07:24:33" time="0.765" tests="18">
-    <testcase classname="Simple API Contract Testing Parameter Validation should validate correct member API call" name="Simple API Contract Testing Parameter Validation should validate correct member API call" time="0.029">
+<testsuites name="jest tests" tests="20" failures="0" errors="0" time="1.564">
+  <testsuite name="Membership Termination Request Controller (Focused Tests)" errors="0" failures="0" skipped="0" timestamp="2025-08-20T11:25:01" time="0.725" tests="20">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should load controller successfully" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should load controller successfully" time="0.024">
     </testcase>
-    <testcase classname="Simple API Contract Testing Parameter Validation should reject invalid member format" name="Simple API Contract Testing Parameter Validation should reject invalid member format" time="0.026">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should have all expected event handlers" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should have all expected event handlers" time="0.016">
     </testcase>
-    <testcase classname="Simple API Contract Testing Parameter Validation should reject missing required parameters" name="Simple API Contract Testing Parameter Validation should reject missing required parameters" time="0.015">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute refresh handler without errors" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute refresh handler without errors" time="0.005">
     </testcase>
-    <testcase classname="Simple API Contract Testing IBAN Validation Contract should validate Dutch IBAN format correctly" name="Simple API Contract Testing IBAN Validation Contract should validate Dutch IBAN format correctly" time="0.011">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute onload handler without errors" name="Membership Termination Request Controller (Focused Tests) Controller Loading and Basic Functionality should execute onload handler without errors" time="0.004">
     </testcase>
-    <testcase classname="Simple API Contract Testing IBAN Validation Contract should reject invalid IBAN format" name="Simple API Contract Testing IBAN Validation Contract should reject invalid IBAN format" time="0.015">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should handle termination_type changes" name="Membership Termination Request Controller (Focused Tests) Form Field Management should handle termination_type changes" time="0.006">
     </testcase>
-    <testcase classname="Simple API Contract Testing Chapter Assignment Contract should validate chapter assignment with required fields" name="Simple API Contract Testing Chapter Assignment Contract should validate chapter assignment with required fields" time="0.011">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should handle member field changes" name="Membership Termination Request Controller (Focused Tests) Form Field Management should handle member field changes" time="0.003">
     </testcase>
-    <testcase classname="Simple API Contract Testing Chapter Assignment Contract should allow optional note field to be omitted" name="Simple API Contract Testing Chapter Assignment Contract should allow optional note field to be omitted" time="0.016">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should handle before_save validation for voluntary termination" name="Membership Termination Request Controller (Focused Tests) Form Field Management should handle before_save validation for voluntary termination" time="0.007">
     </testcase>
-    <testcase classname="Simple API Contract Testing Donation API Contract should validate donation with all required fields" name="Simple API Contract Testing Donation API Contract should validate donation with all required fields" time="0.013">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should require documentation for disciplinary terminations" name="Membership Termination Request Controller (Focused Tests) Form Field Management should require documentation for disciplinary terminations" time="0.048">
     </testcase>
-    <testcase classname="Simple API Contract Testing Donation API Contract should reject invalid email format" name="Simple API Contract Testing Donation API Contract should reject invalid email format" time="0.025">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form Field Management should allow disciplinary termination with proper documentation" name="Membership Termination Request Controller (Focused Tests) Form Field Management should allow disciplinary termination with proper documentation" time="0.004">
     </testcase>
-    <testcase classname="Simple API Contract Testing Donation API Contract should reject negative donation amounts" name="Simple API Contract Testing Donation API Contract should reject negative donation amounts" time="0.031">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form State Management should set default values for new documents" name="Membership Termination Request Controller (Focused Tests) Form State Management should set default values for new documents" time="0.004">
     </testcase>
-    <testcase classname="Simple API Contract Testing Test Data Generation should generate valid test data for member APIs" name="Simple API Contract Testing Test Data Generation should generate valid test data for member APIs" time="0.002">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form State Management should not override existing values for saved documents" name="Membership Termination Request Controller (Focused Tests) Form State Management should not override existing values for saved documents" time="0.002">
     </testcase>
-    <testcase classname="Simple API Contract Testing Test Data Generation should generate valid IBAN test data" name="Simple API Contract Testing Test Data Generation should generate valid IBAN test data" time="0">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Form State Management should clear member_name when member is cleared" name="Membership Termination Request Controller (Focused Tests) Form State Management should clear member_name when member is cleared" time="0.005">
     </testcase>
-    <testcase classname="Simple API Contract Testing Test Data Generation should generate valid donation test data" name="Simple API Contract Testing Test Data Generation should generate valid donation test data" time="0.001">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should execute all handlers quickly" name="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should execute all handlers quickly" time="0.005">
     </testcase>
-    <testcase classname="Simple API Contract Testing Available Methods Validation should list all available API methods" name="Simple API Contract Testing Available Methods Validation should list all available API methods" time="0.001">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should handle missing frappe utilities gracefully" name="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should handle missing frappe utilities gracefully" time="0.002">
     </testcase>
-    <testcase classname="Simple API Contract Testing Available Methods Validation should provide schema details for specific methods" name="Simple API Contract Testing Available Methods Validation should provide schema details for specific methods" time="0.001">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should handle form API errors gracefully" name="Membership Termination Request Controller (Focused Tests) Performance and Error Handling should handle form API errors gracefully" time="0.002">
     </testcase>
-    <testcase classname="Simple API Contract Testing Direct Validation Testing should validate API calls directly" name="Simple API Contract Testing Direct Validation Testing should validate API calls directly" time="0.011">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Business Logic Validation should handle all termination types correctly" name="Membership Termination Request Controller (Focused Tests) Business Logic Validation should handle all termination types correctly" time="0.002">
     </testcase>
-    <testcase classname="Simple API Contract Testing Direct Validation Testing should detect parameter name mismatches" name="Simple API Contract Testing Direct Validation Testing should detect parameter name mismatches" time="0">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Business Logic Validation should distinguish between disciplinary and non-disciplinary types" name="Membership Termination Request Controller (Focused Tests) Business Logic Validation should distinguish between disciplinary and non-disciplinary types" time="0.003">
     </testcase>
-    <testcase classname="Simple API Contract Testing Direct Validation Testing should detect data type mismatches" name="Simple API Contract Testing Direct Validation Testing should detect data type mismatches" time="0.003">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Integration Points should set appropriate query filters for secondary_approver" name="Membership Termination Request Controller (Focused Tests) Integration Points should set appropriate query filters for secondary_approver" time="0.007">
     </testcase>
-  </testsuite>
-  <testsuite name="Member Controller API Contract Integration" errors="0" failures="0" skipped="0" timestamp="2025-08-20T07:24:34" time="0.357" tests="13">
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should load controller and handlers" name="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should load controller and handlers" time="0.002">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Integration Points should make audit_trail read-only on refresh" name="Membership Termination Request Controller (Focused Tests) Integration Points should make audit_trail read-only on refresh" time="0.002">
     </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should execute refresh handler without errors" name="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should execute refresh handler without errors" time="0.003">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should not make excessive server calls during refresh" name="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should not make excessive server calls during refresh" time="0.001">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should execute quickly" name="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should execute quickly" time="0.001">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should handle network errors gracefully" name="Member Controller API Contract Integration Member Controller with API Contracts Standard Controller Tests should handle network errors gracefully" time="0.001">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts API Contract Validation should make valid API calls when processing payments" name="Member Controller API Contract Integration Member Controller with API Contracts API Contract Validation should make valid API calls when processing payments" time="0">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts API Contract Validation should validate member dues schedule API calls" name="Member Controller API Contract Integration Member Controller with API Contracts API Contract Validation should validate member dues schedule API calls" time="0.001">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts API Contract Validation should make valid IBAN validation calls" name="Member Controller API Contract Integration Member Controller with API Contracts API Contract Validation should make valid IBAN validation calls" time="0.002">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts API Contract Validation should validate mandate creation API calls" name="Member Controller API Contract Integration Member Controller with API Contracts API Contract Validation should validate mandate creation API calls" time="0.001">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts API Response Handling should handle API responses correctly" name="Member Controller API Contract Integration Member Controller with API Contracts API Response Handling should handle API responses correctly" time="0.01">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts API Response Handling should handle API error responses gracefully" name="Member Controller API Contract Integration Member Controller with API Contracts API Response Handling should handle API error responses gracefully" time="0.001">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts Test Data Contract Compliance should use test data that matches API contracts" name="Member Controller API Contract Integration Member Controller with API Contracts Test Data Contract Compliance should use test data that matches API contracts" time="0.001">
-    </testcase>
-    <testcase classname="Member Controller API Contract Integration Member Controller with API Contracts API Method Coverage should provide coverage for all member-related API methods" name="Member Controller API Contract Integration Member Controller with API Contracts API Method Coverage should provide coverage for all member-related API methods" time="0.001">
+    <testcase classname="Membership Termination Request Controller (Focused Tests) Integration Points should add View Member button when member is set" name="Membership Termination Request Controller (Focused Tests) Integration Points should add View Member button when member is set" time="0.002">
     </testcase>
   </testsuite>
 </testsuites>

@@ -2627,11 +2627,11 @@ def assign_member_id(member_name):
     if not frappe.has_permission("Member", "write"):
         frappe.throw(_("Insufficient permissions to assign member ID"))
 
-    # Only allow System Manager and Membership Manager roles to manually assign member IDs
+    # Only allow System Manager and Verenigingen Manager roles to manually assign member IDs
     allowed_roles = ["System Manager", "Verenigingen Manager"]
     user_roles = frappe.get_roles(frappe.session.user)
     if not any(role in user_roles for role in allowed_roles):
-        frappe.throw(_("Only System Managers and Membership Managers can manually assign member IDs"))
+        frappe.throw(_("Only System Managers and Verenigingen Managers can manually assign member IDs"))
 
     try:
         member = frappe.get_doc("Member", member_name)

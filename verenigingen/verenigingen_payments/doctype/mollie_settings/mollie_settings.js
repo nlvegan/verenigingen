@@ -74,7 +74,7 @@ function setup_form_indicators(frm) {
 	}
 }
 
-function test_mollie_connection(frm) {
+function test_mollie_connection(_frm) {
 	frappe.call({
 		method: 'verenigingen.verenigingen_payments.doctype.mollie_settings.mollie_settings.test_mollie_connection',
 		args: {

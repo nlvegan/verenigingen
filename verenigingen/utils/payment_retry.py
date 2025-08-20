@@ -194,7 +194,9 @@ class PaymentRetryManager:
         member = frappe.get_doc("Member", retry_record.member)
 
         # Get admin users
-        admins = frappe.get_all("Has Role", filters={"role": "Membership Manager"}, fields=["parent as user"])
+        admins = frappe.get_all(
+            "Has Role", filters={"role": "Verenigingen Manager"}, fields=["parent as user"]
+        )
 
         recipients = [admin.user for admin in admins]
 

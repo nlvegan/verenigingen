@@ -443,8 +443,13 @@ describe('Periodic Donation Agreement JavaScript Controller Tests', () => {
 				cy.window().then((win) => {
 					const frm = win.frappe.ui.form.get_form('Periodic Donation Agreement');
 
-					// Test custom buttons for donation processing
-					// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+					// Test custom buttons for donation processing (when status is Active)
+					cy.contains('button', 'Link Donation').should('exist');
+					cy.contains('button', 'Cancel Agreement').should('exist');
+					cy.contains('button', 'Generate PDF').should('exist');
+
+					// For Draft status (when testing that scenario)
+					cy.contains('button', 'Activate Agreement').should('exist');
 
 					// Test donation creation link
 					if (frm.fields_dict.related_donations) {

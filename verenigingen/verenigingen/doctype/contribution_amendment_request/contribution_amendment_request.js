@@ -87,7 +87,7 @@ frappe.ui.form.on('Contribution Amendment Request', {
 function add_amendment_buttons(frm) {
 	if (frm.doc.status === 'Pending Approval') {
 		// Add approval buttons for authorized users
-		if (frappe.user.has_role(['System Manager', 'Membership Manager'])) {
+		if (frappe.user.has_role(['System Manager', 'Verenigingen Manager'])) {
 			frm.add_custom_button(__('Approve'), () => {
 				approve_amendment(frm);
 			}, __('Actions')).addClass('btn-success');
@@ -100,7 +100,7 @@ function add_amendment_buttons(frm) {
 
 	if (frm.doc.status === 'Approved') {
 		// Add apply button for system managers
-		if (frappe.user.has_role(['System Manager', 'Membership Manager'])) {
+		if (frappe.user.has_role(['System Manager', 'Verenigingen Manager'])) {
 			frm.add_custom_button(__('Apply Amendment'), () => {
 				apply_amendment(frm);
 			}).addClass('btn-primary');

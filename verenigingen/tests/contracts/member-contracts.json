@@ -1,0 +1,470 @@
+{
+  "member_lifecycle_apis": {
+    "create_member": {
+      "request": {
+        "type": "object",
+        "required": ["first_name", "last_name", "email", "birth_date"],
+        "properties": {
+          "first_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "pattern": "^[A-Za-z\\s\\-\\']+$"
+          },
+          "last_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "pattern": "^[A-Za-z\\s\\-\\']+$"
+          },
+          "tussenvoegsel": {
+            "type": "string",
+            "maxLength": 15,
+            "pattern": "^(van|de|der|den|te|ten|tot|op|aan|in|onder|over|bij|voor|na|uit|vom|von|du|da|del|della|di|el|la|le|les|des)?( (van|de|der|den|te|ten|tot|op|aan|in|onder|over|bij|voor|na|uit|vom|von|du|da|del|della|di|el|la|le|les|des))*$",
+            "description": "Dutch name particles (tussenvoegsel)"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "birth_date": {
+            "type": "string",
+            "format": "date",
+            "description": "ISO 8601 date format (YYYY-MM-DD)"
+          },
+          "postal_code": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{3}\\s?[A-Z]{2}$",
+            "description": "Dutch postal code format (1234 AB)"
+          },
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "phone": {
+            "type": "string",
+            "pattern": "^(\\+31|0)[1-9][0-9]{8}$",
+            "description": "Dutch phone number format"
+          },
+          "membership_type": {
+            "type": "string",
+            "enum": ["Regular", "Student", "Senior", "Family", "Corporate", "Honorary"]
+          },
+          "chapter": {
+            "type": "string",
+            "description": "Chapter name for geographic affiliation"
+          },
+          "preferred_language": {
+            "type": "string",
+            "enum": ["nl", "en", "de", "fr"],
+            "default": "nl"
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["success", "member_id", "customer_id"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "member_id": {
+            "type": "string",
+            "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "customer_id": {
+            "type": "string",
+            "pattern": "^(Assoc-)?Customer-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Pending", "Active", "Suspended", "Terminated"]
+          },
+          "member_since": {
+            "type": "string",
+            "format": "date"
+          },
+          "next_invoice_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "validation_warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "field": { "type": "string" },
+                "message": { "type": "string" },
+                "severity": {
+                  "type": "string",
+                  "enum": ["info", "warning", "error"]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "update_member_status": {
+      "request": {
+        "type": "object",
+        "required": ["member_id", "new_status"],
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "new_status": {
+            "type": "string",
+            "enum": ["Active", "Suspended", "Terminated", "Pending"]
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "termination_type": {
+            "type": "string",
+            "enum": ["voluntary", "involuntary", "deceased", "duplicate"],
+            "description": "Required when status is 'Terminated'"
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["success", "previous_status", "new_status"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "previous_status": { "type": "string" },
+          "new_status": { "type": "string" },
+          "effective_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "workflow_actions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "action": { "type": "string" },
+                "status": { "type": "string" },
+                "timestamp": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "audit_log_id": { "type": "string" }
+        }
+      }
+    },
+    "create_membership_dues_schedule": {
+      "request": {
+        "type": "object",
+        "required": ["member", "membership_type", "dues_rate", "frequency"],
+        "properties": {
+          "member": {
+            "type": "string",
+            "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "membership_type": {
+            "type": "string",
+            "enum": ["Regular", "Student", "Senior", "Family", "Corporate", "Honorary"]
+          },
+          "dues_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 999999.99,
+            "multipleOf": 0.01
+          },
+          "frequency": {
+            "type": "string",
+            "enum": ["Monthly", "Quarterly", "Semi-annually", "Annually"]
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "end_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "billing_day": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31,
+            "description": "Day of month for billing"
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": ["SEPA Direct Debit", "Mollie", "Manual"]
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["success", "schedule_id", "next_invoice_date"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "schedule_id": {
+            "type": "string",
+            "pattern": "^MDS-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "next_invoice_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "annual_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "prorated_first_invoice": {
+            "type": "number",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Active", "Paused", "Terminated"]
+          }
+        }
+      }
+    },
+    "process_membership_payment": {
+      "request": {
+        "type": "object",
+        "required": ["member_id", "payment_amount", "payment_method"],
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "payment_amount": {
+            "type": "number",
+            "minimum": 0.01,
+            "maximum": 999999.99,
+            "multipleOf": 0.01
+          },
+          "payment_method": {
+            "type": "string",
+            "enum": ["SEPA Direct Debit", "Mollie", "Bank Transfer", "Cash", "Other"]
+          },
+          "payment_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "reference": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "invoice_id": {
+            "type": "string",
+            "pattern": "^SI-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "payment_gateway_id": {
+            "type": "string",
+            "description": "External payment processor transaction ID"
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["success", "payment_entry_id", "invoice_status"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "payment_entry_id": {
+            "type": "string",
+            "pattern": "^PE-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "invoice_status": {
+            "type": "string",
+            "enum": ["Paid", "Partially Paid", "Unpaid", "Overdue", "Cancelled"]
+          },
+          "outstanding_amount": {
+            "type": "number",
+            "minimum": 0
+          },
+          "payment_history_updated": { "type": "boolean" },
+          "member_status_updated": { "type": "boolean" },
+          "next_payment_due": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    }
+  },
+  "member_query_apis": {
+    "get_member_payment_history": {
+      "request": {
+        "type": "object",
+        "required": ["member_id"],
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "date_range": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string", "format": "date" },
+              "to": { "type": "string", "format": "date" }
+            }
+          },
+          "payment_status": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["Paid", "Failed", "Pending", "Refunded"]
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["success", "payment_history", "total_count"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "total_count": { "type": "integer" },
+          "payment_history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "date": { "type": "string", "format": "date" },
+                "amount": { "type": "number" },
+                "payment_method": { "type": "string" },
+                "status": {
+                  "type": "string",
+                  "enum": ["Paid", "Failed", "Pending", "Refunded"]
+                },
+                "invoice_id": { "type": "string" },
+                "reference": { "type": "string" },
+                "gateway_transaction_id": { "type": "string" }
+              }
+            }
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "total_paid": { "type": "number" },
+              "total_failed": { "type": "number" },
+              "average_payment": { "type": "number" },
+              "payment_frequency": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "get_member_financial_summary": {
+      "request": {
+        "type": "object",
+        "required": ["member_id"],
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "include_projections": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["success", "financial_summary"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "financial_summary": {
+            "type": "object",
+            "properties": {
+              "current_balance": { "type": "number" },
+              "outstanding_invoices": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "invoice_id": { "type": "string" },
+                    "amount": { "type": "number" },
+                    "due_date": { "type": "string", "format": "date" },
+                    "days_overdue": { "type": "integer" }
+                  }
+                }
+              },
+              "next_payment_date": {
+                "type": "string",
+                "format": "date"
+              },
+              "annual_dues": { "type": "number" },
+              "payment_method": { "type": "string" },
+              "sepa_mandate": {
+                "type": "object",
+                "properties": {
+                  "status": { "type": "string" },
+                  "reference": { "type": "string" },
+                  "iban": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "chapter_management_apis": {
+    "join_chapter": {
+      "request": {
+        "type": "object",
+        "required": ["member_id", "chapter"],
+        "properties": {
+          "member_id": {
+            "type": "string",
+            "pattern": "^(Assoc-)?Member-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "chapter": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "role": {
+            "type": "string",
+            "enum": ["Member", "Volunteer", "Board Member", "Chair"],
+            "default": "Member"
+          },
+          "start_date": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      },
+      "response": {
+        "type": "object",
+        "required": ["success", "chapter_membership_id"],
+        "properties": {
+          "success": { "type": "boolean" },
+          "chapter_membership_id": {
+            "type": "string",
+            "pattern": "^CM-\\d{4}-\\d{2}-\\d{4}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["Pending", "Active", "Inactive"]
+          },
+          "requires_approval": { "type": "boolean" },
+          "approval_status": {
+            "type": "string",
+            "enum": ["Pending", "Approved", "Rejected"]
+          }
+        }
+      }
+    }
+  }
+}

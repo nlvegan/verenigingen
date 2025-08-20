@@ -496,8 +496,13 @@ describe('Chapter Join Request JavaScript Controller Tests', () => {
 					cy.window().then((win) => {
 						const frm = win.frappe.ui.form.get_form('Chapter Join Request');
 
-						// Test custom buttons for integration
-						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+						// Test custom buttons for integration and workflow
+						cy.contains('button', 'View Member').should('exist');
+						cy.contains('button', 'View Chapter').should('exist');
+
+						// For pending requests (when user has permissions)
+						cy.contains('button', 'Approve').should('exist');
+						cy.contains('button', 'Reject').should('exist');
 
 						// Test integration tracking
 						if (frm.fields_dict.chapter_member_created) {

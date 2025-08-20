@@ -253,8 +253,9 @@ describe('Membership JavaScript Controller Tests', () => {
 					cy.window().then((win) => {
 						const frm = win.frappe.ui.form.get_form('Membership');
 
-						// Test invoice generation buttons
-						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+						// Test dues schedule management buttons
+						cy.contains('button', 'View Active Dues Schedule').should('exist');
+						cy.contains('button', 'Create Dues Schedule').should('exist');
 
 						// Test payment integration
 						if (frm.fields_dict.payment_status) {

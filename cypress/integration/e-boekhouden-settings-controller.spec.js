@@ -124,7 +124,8 @@ describe('E-Boekhouden Settings JavaScript Controller Tests', () => {
 			// Test connection testing button
 			cy.execute_business_workflow(() => {
 				// Test custom buttons for connection testing
-				// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+				cy.contains('button', 'Test REST API Connection').should('exist');
+				cy.contains('button', 'Test Chart of Accounts').should('exist');
 				return true;
 			}, null, 'Connection Testing Functionality');
 		});
@@ -299,8 +300,9 @@ describe('E-Boekhouden Settings JavaScript Controller Tests', () => {
 					const frm = win.frappe.ui.form.get_form('E-Boekhouden Settings');
 					expect(frm.doc.sync_invoices).to.be.true;
 
-					// Test custom buttons for invoice sync
-					// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+					// Test custom buttons for cost center management (when mappings exist)
+					cy.contains('button', 'Preview Cost Center Creation').should('exist');
+					cy.contains('button', 'Create Cost Centers').should('exist');
 				});
 				return true;
 			}, null, 'Invoice Synchronization Workflow');

@@ -105,7 +105,7 @@ module.exports = defineConfig({
 
 	/** @type {Object} End-to-end testing specific configuration */
 	e2e: {
-		/** @type {string} Base URL for the Verenigingen production environment */
+		/** @type {string} Base URL for the Verenigingen development environment */
 		baseUrl: 'https://dev.veganisme.net',
 
 		/** @type {string} Pattern for locating test specification files */

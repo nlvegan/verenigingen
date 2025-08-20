@@ -161,7 +161,8 @@ describe('Event JavaScript Controller Tests', () => {
 					const frm = win.frappe.ui.form.get_form('Event');
 
 					// Test registration buttons
-					// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+					cy.contains('button', 'Add Contacts').should('exist');
+					cy.contains('button', 'Add Participants').should('exist');
 
 					// Test registration tracking
 					if (frm.fields_dict.registration_count) {
@@ -393,7 +394,8 @@ describe('Event JavaScript Controller Tests', () => {
 						const frm = win.frappe.ui.form.get_form('Event');
 
 						// Test volunteer management buttons
-						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+						cy.contains('button', 'Add Contacts').should('exist');
+						cy.contains('button', 'Add Participants').should('exist');
 
 						// Test volunteer tracking
 						if (frm.fields_dict.volunteer_assignments) {

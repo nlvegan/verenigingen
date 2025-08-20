@@ -32,12 +32,12 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Volunteer Team Form Controller Tests', () => {
 		it('should load Volunteer Team form with JavaScript controller', () => {
 			// Navigate to new Volunteer Team form
-			cy.visit_doctype_form('Volunteer Team');
+			cy.visit_doctype_form('Team');
 			cy.wait_for_navigation();
 
 			// Verify the controller is loaded
 			cy.window().then((win) => {
-				expect(win.frappe.ui.form.get_form('Volunteer Team')).to.exist;
+				expect(win.frappe.ui.form.get_form('Team')).to.exist;
 			});
 
 			// Verify core fields are present
@@ -48,7 +48,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 
 		it('should test volunteer team creation workflow', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				// Create volunteer team
@@ -70,7 +70,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Team Structure and Leadership Tests', () => {
 		it('should test team leadership assignment and hierarchy', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Communications Team');
@@ -81,7 +81,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test leadership structure
 				cy.execute_business_workflow(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 						expect(frm.doc.team_leader).to.equal(member.name);
 
 						// Test leadership hierarchy
@@ -110,7 +110,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 
 		it('should test team member assignment and role management', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Fundraising Team');
@@ -121,7 +121,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test member assignment
 				cy.execute_form_operation(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test team member management
 						if (frm.fields_dict.team_members) {
@@ -151,7 +151,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Project Coordination and Management Tests', () => {
 		it('should test project assignment and tracking', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Website Development Team');
@@ -163,7 +163,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test project coordination
 				cy.execute_business_workflow(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test project management fields
 						if (frm.fields_dict.assigned_projects) {
@@ -191,7 +191,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 
 		it('should test task assignment and progress tracking', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Outreach Team');
@@ -202,7 +202,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test task management
 				cy.execute_form_operation(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test task management fields
 						if (frm.fields_dict.team_tasks) {
@@ -232,7 +232,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Skill Matching and Resource Management Tests', () => {
 		it('should test skill-based team formation', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Technical Support Team');
@@ -243,7 +243,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test skill matching
 				cy.execute_business_workflow(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test skill management fields
 						if (frm.fields_dict.required_skills) {
@@ -271,7 +271,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 
 		it('should test resource allocation and availability', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Training Team');
@@ -282,7 +282,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test resource management
 				cy.execute_form_operation(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test resource fields
 						if (frm.fields_dict.resource_requirements) {
@@ -312,7 +312,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Team Communication and Collaboration Tests', () => {
 		it('should test team communication workflows', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Social Media Team');
@@ -323,7 +323,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test communication features
 				cy.execute_business_workflow(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test communication fields
 						if (frm.fields_dict.communication_channels) {
@@ -351,7 +351,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 
 		it('should test team meeting and coordination management', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Policy Research Team');
@@ -362,7 +362,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test meeting coordination
 				cy.execute_form_operation(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test meeting management fields
 						if (frm.fields_dict.meeting_frequency) {
@@ -392,7 +392,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Performance Tracking and Evaluation Tests', () => {
 		it('should test team performance metrics and tracking', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Membership Growth Team');
@@ -403,7 +403,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test performance tracking
 				cy.execute_business_workflow(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test performance metrics
 						if (frm.fields_dict.performance_metrics) {
@@ -431,7 +431,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 
 		it('should test team evaluation and feedback systems', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Grant Writing Team');
@@ -442,7 +442,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test evaluation systems
 				cy.execute_form_operation(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test evaluation fields
 						if (frm.fields_dict.team_evaluation) {
@@ -472,7 +472,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Team Lifecycle and Status Management Tests', () => {
 		it('should test team status transitions and lifecycle', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Newsletter Team');
@@ -491,7 +491,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 
 					cy.execute_business_workflow(() => {
 						cy.window().then((win) => {
-							const frm = win.frappe.ui.form.get_form('Volunteer Team');
+							const frm = win.frappe.ui.form.get_form('Team');
 							expect(frm.doc.status).to.equal(status);
 
 							// Test status-dependent JavaScript logic
@@ -516,7 +516,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 
 		it('should test team succession and handover planning', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Event Coordination Team');
@@ -528,7 +528,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test succession planning
 				cy.execute_form_operation(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Test succession fields
 						if (frm.fields_dict.succession_plan) {
@@ -558,7 +558,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Integration with Volunteer Management Tests', () => {
 		it('should test integration with Volunteer DocType', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Research Team');
@@ -569,10 +569,10 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test volunteer integration
 				cy.execute_business_workflow(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
-						// Test custom buttons for integration
-						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+						// Note: Team DocType controller has no custom buttons implemented
+						// The team.js controller is currently commented out, so no buttons to test
 
 						// Test volunteer tracking integration
 						if (frm.fields_dict.volunteer_hours) {
@@ -591,7 +591,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 	describe('Reporting and Analytics Integration Tests', () => {
 		it('should test team analytics and reporting data', () => {
 			cy.createTestMemberWithFinancialSetup().then((member) => {
-				cy.visit_doctype_form('Volunteer Team');
+				cy.visit_doctype_form('Team');
 				cy.wait_for_navigation();
 
 				cy.fill_frappe_field('team_name', 'Analytics Test Team');
@@ -603,7 +603,7 @@ describe('Volunteer Team JavaScript Controller Tests', () => {
 				// Test analytics data structure
 				cy.execute_business_workflow(() => {
 					cy.window().then((win) => {
-						const frm = win.frappe.ui.form.get_form('Volunteer Team');
+						const frm = win.frappe.ui.form.get_form('Team');
 
 						// Verify reporting fields
 						expect(frm.doc.team_name).to.equal('Analytics Test Team');

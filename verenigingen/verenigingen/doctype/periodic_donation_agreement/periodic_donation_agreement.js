@@ -123,7 +123,7 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 
 		// Auto-update end date based on duration
 		if (frm.doc.start_date && frm.doc.agreement_duration_years) {
-			const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
+			const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10);
 			if (duration) {
 				const end_date = frappe.datetime.add_years(frm.doc.start_date, duration);
 				frm.set_value('end_date', end_date);
@@ -134,7 +134,7 @@ frappe.ui.form.on('Periodic Donation Agreement', {
 	start_date(frm) {
 		// Auto-calculate end date based on selected duration
 		if (frm.doc.start_date && frm.doc.agreement_duration_years) {
-			const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
+			const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10);
 			if (duration) {
 				const end_date = frappe.datetime.add_years(frm.doc.start_date, duration);
 				frm.set_value('end_date', end_date);
@@ -230,8 +230,8 @@ function link_donation_dialog(frm) {
 							args: {
 								donation_name: values.donation
 							},
-							callback(r) {
-								if (r.message) {
+							callback(response) {
+								if (response.message) {
 									frappe.show_alert({
 										message: __('Donation linked successfully'),
 										indicator: 'green'
@@ -322,7 +322,7 @@ function activate_agreement(frm) {
 	);
 }
 
-function generate_agreement_pdf(frm) {
+function generate_agreement_pdf(_frm) {
 	// TODO: Implement PDF generation
 	frappe.msgprint(__('PDF generation will be implemented in Phase 3'));
 }
@@ -333,7 +333,7 @@ function add_donation_statistics(frm) {
 		// Calculate actual duration in years
 		let duration_years = 5; // default
 		if (frm.doc.agreement_duration_years) {
-			duration_years = parseInt(frm.doc.agreement_duration_years.split(' ')[0]) || 5;
+			duration_years = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10) || 5;
 		}
 
 		const total_expected = frm.doc.annual_amount * duration_years;
@@ -371,7 +371,7 @@ function add_donation_statistics(frm) {
 	}
 }
 
-function set_agreement_type_options(frm) {
+function set_agreement_type_options(_frm) {
 	// Set agreement type options based on configuration
 	// For now, we'll use the default options
 	// This can be expanded to pull from system settings
@@ -379,12 +379,12 @@ function set_agreement_type_options(frm) {
 
 // Child table events for donations tracking
 frappe.ui.form.on('Periodic Donation Agreement Item', {
-	donations_add(frm, cdt, cdn) {
+	donations_add(frm, _cdt, _cdn) {
 		// Update tracking when donation is added
 		frm.trigger('update_donation_tracking');
 	},
 
-	donations_remove(frm, cdt, cdn) {
+	donations_remove(frm, _cdt, _cdn) {
 		// Update tracking when donation is removed
 		frm.trigger('update_donation_tracking');
 	},
@@ -462,7 +462,7 @@ function show_anbi_validation_status(frm) {
 				}
 			}
 		},
-		error(xhr, status, error) {
+		error(_xhr, _status, error) {
 			frappe.show_alert({
 				message: __('Failed to check ANBI validation status. Please try again.'),
 				indicator: 'orange'
@@ -474,7 +474,7 @@ function show_anbi_validation_status(frm) {
 function update_anbi_eligibility_message(frm) {
 	// Update ANBI eligibility message based on selected duration
 	if (frm.doc.agreement_duration_years) {
-		const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0]);
+		const duration = parseInt(frm.doc.agreement_duration_years.split(' ')[0], 10);
 		let message = '';
 		let indicator = '';
 

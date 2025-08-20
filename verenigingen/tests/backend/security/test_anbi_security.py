@@ -72,7 +72,7 @@ class TestANBISecurity(FrappeTestCase):
                 "can_see_email": False
             },
             {
-                "role": "Membership Manager",
+                "role": "Verenigingen Manager",
                 "can_see_bsn": False,
                 "can_see_full_name": True,
                 "can_see_email": True
@@ -123,7 +123,7 @@ class TestANBISecurity(FrappeTestCase):
             masked["bsn"] = getattr(member, "bsn", None)
             masked["full_name"] = member.full_name
             masked["email"] = member.email
-        elif role == "Membership Manager":
+        elif role == "Verenigingen Manager":
             masked["full_name"] = member.full_name
             masked["email"] = member.email
         elif role == "Verenigingen Member":
@@ -321,13 +321,13 @@ class TestANBISecurity(FrappeTestCase):
         # Test permission matrix
         field_permissions = {
             "bsn": ["ANBI Administrator", "System Manager"],
-            "rsin": ["ANBI Administrator", "System Manager", "Membership Manager"],
+            "rsin": ["ANBI Administrator", "System Manager", "Verenigingen Manager"],
             "bank_account": ["Finance Manager", "System Manager"],
             "salary_data": ["HR Manager", "System Manager"]
         }
         
         # Test access for different roles
-        test_role = "Membership Manager"
+        test_role = "Verenigingen Manager"
         accessible_fields = []
         
         for field, allowed_roles in field_permissions.items():

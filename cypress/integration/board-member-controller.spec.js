@@ -334,8 +334,8 @@ describe('Board Member JavaScript Controller Tests', () => {
 					cy.window().then((win) => {
 						const frm = win.frappe.ui.form.get_form('Board Member');
 
-						// Test meeting integration buttons
-						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+						// Note: Board Member DocType has no custom buttons implemented
+						// Tests focus on field validation and business logic rather than custom actions
 
 						// Test decision tracking
 						if (frm.fields_dict.decision_tracking) {

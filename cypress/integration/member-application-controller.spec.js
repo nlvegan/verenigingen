@@ -259,8 +259,10 @@ describe('Member Application JavaScript Controller Tests', () => {
 						cy.log('Review notes tracking available');
 					}
 
-					// Test approval workflow buttons
-					// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+					// Test approval workflow buttons (from Member DocType controller)
+					cy.contains('button', 'Approve Application').should('exist');
+					cy.contains('button', 'Reject Application').should('exist');
+					cy.contains('button', 'Request More Info').should('exist');
 				});
 				return true;
 			}, null, 'Review Workflow');

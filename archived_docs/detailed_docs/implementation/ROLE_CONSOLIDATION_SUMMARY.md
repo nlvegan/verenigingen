@@ -51,7 +51,7 @@ After consolidation, the system now has a cleaner role structure:
 
 ### **Other Existing Roles** (unchanged)
 - **"System Manager"**: Full system access
-- **"Membership Manager"**: Focused on membership lifecycle management
+- **"Verenigingen Manager"**: Focused on membership lifecycle management
 - **"Verenigingen Governance Auditor"**: Compliance and audit functions
 - **"Verenigingen Chapter Board Member"**: Chapter-specific board member functions
 

@@ -276,7 +276,9 @@ describe('Volunteer Expense JavaScript Controller Tests', () => {
 						}
 
 						// Test approval workflow buttons
-						// TODO: Replace with proper button assertions using cy.contains('button', 'ButtonText').should('exist')
+						cy.contains('button', 'Approve').should('exist');
+						cy.contains('button', 'Reject').should('exist');
+						cy.contains('button', 'Mark as Reimbursed').should('exist');
 
 						// Test escalation triggers
 						if (frm.fields_dict.escalation_level) {
