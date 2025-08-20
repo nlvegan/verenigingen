@@ -240,6 +240,20 @@ class FinancialValidator:
             Tuple of (is_valid, error_message)
         """
         try:
+            # Handle None or empty values
+            if amount is None:
+                return False, "Amount cannot be None"
+
+            if amount == "":
+                return False, "Amount cannot be empty"
+
+            # Handle dictionary/object amounts from Mollie API
+            if isinstance(amount, dict):
+                if "value" in amount:
+                    amount = amount["value"]
+                else:
+                    return False, "Amount object missing 'value' field"
+
             # Convert to Decimal for precise financial calculations
             decimal_amount = Decimal(str(amount))
 
@@ -265,8 +279,13 @@ class FinancialValidator:
 
             return True, None
 
-        except (ValueError, decimal.InvalidOperation) as e:
-            return False, f"Invalid amount format: {str(e)}"
+        except (ValueError, decimal.InvalidOperation, decimal.ConversionSyntax) as e:
+            # Handle specific decimal conversion errors more gracefully
+            error_str = str(e)
+            if "ConversionSyntax" in error_str or isinstance(e, decimal.ConversionSyntax):
+                return False, f"Invalid amount format: Unable to parse '{amount}' as a valid number"
+            else:
+                return False, f"Invalid amount format: {error_str}"
 
     def validate_currency(self, currency: str) -> Tuple[bool, Optional[str]]:
         """

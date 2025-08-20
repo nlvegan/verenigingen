@@ -133,9 +133,14 @@ def validate_application_data(data):
 
     Performs comprehensive validation of membership application data including:
     - Required field presence check
+    - Input sanitization and security validation
     - Email format and uniqueness validation
     - Membership type existence verification
     - Contribution amount constraints validation
+    - Dutch association business rules validation
+    - Age requirements validation
+    - Payment method requirements validation
+    - Fraud prevention measures
 
     Args:
         data (dict): Application data dictionary containing form fields
@@ -147,9 +152,13 @@ def validate_application_data(data):
 
     Validation Rules:
         - All required fields must be present and non-empty
+        - Input data must pass security sanitization
         - Email must be valid format and unique in system
         - Membership type must exist in database
         - Contribution amount must meet membership type constraints
+        - Age must match membership type requirements
+        - Payment method must have required supporting data
+        - Dutch business rules must be followed
     """
     required_fields = [
         "first_name",
@@ -162,7 +171,21 @@ def validate_application_data(data):
         "membership_type",
         "contribution_amount",
         "payment_method",
+        "birth_date",  # Required for age-based membership validation
     ]
+
+    # Input sanitization and security validation
+    sanitization_result = sanitize_and_validate_input(data)
+    if not sanitization_result["valid"]:
+        return {"valid": False, "error": sanitization_result["error"]}
+
+    # Update data with sanitized values
+    data = sanitization_result["data"]
+
+    # Basic fraud prevention - check for suspicious patterns
+    fraud_check = validate_fraud_prevention(data)
+    if not fraud_check["valid"]:
+        return {"valid": False, "error": fraud_check["error"]}
 
     for field in required_fields:
         if not data.get(field):
@@ -194,6 +217,21 @@ def validate_application_data(data):
 
     if not contribution_validation["valid"]:
         return {"valid": False, "error": contribution_validation["error"]}
+
+    # Enhanced Dutch association business rules validation
+    dutch_validation = validate_dutch_business_rules(data)
+    if not dutch_validation["valid"]:
+        return {"valid": False, "error": dutch_validation["error"]}
+
+    # Validate age requirements for membership types
+    age_validation = validate_age_requirements(data.get("birth_date"), membership_type)
+    if not age_validation["valid"]:
+        return {"valid": False, "error": age_validation["error"]}
+
+    # Validate payment method requirements
+    payment_validation = validate_payment_method_requirements(data)
+    if not payment_validation["valid"]:
+        return {"valid": False, "error": payment_validation["error"]}
 
     return {"valid": True}
 
@@ -893,3 +931,495 @@ def get_membership_types_for_application():
     except Exception as e:
         frappe.log_error(f"Error getting membership types for application: {str(e)}")
         return []
+
+
+@frappe.whitelist()
+@public_api(operation_type=OperationType.PUBLIC)
+def get_contribution_calculator_config(membership_type=None):
+    """Get contribution calculator configuration for membership type.
+
+    Provides calculator configuration including tiers, quick amounts,
+    and calculation methods for flexible contribution selection.
+
+    Args:
+        membership_type (str, optional): Membership type name
+
+    Returns:
+        dict: Calculator configuration with structure:
+            - enabled (bool): Whether calculator is enabled
+            - percentage (float): Base calculation percentage
+            - description (str): Calculator description
+            - quick_amounts (list): Pre-defined amounts for quick selection
+            - tiers (list): Available contribution tiers
+            - minimum (float): Minimum allowed amount
+            - maximum (float): Maximum allowed amount
+    """
+    try:
+        if not membership_type:
+            # Return default configuration
+            return {
+                "enabled": True,
+                "percentage": 0.5,
+                "description": "Standard contribution calculation",
+                "quick_amounts": [25, 35, 50, 75],
+                "tiers": [
+                    {"name": "Basic", "amount": 25, "description": "Basic support"},
+                    {"name": "Supporter", "amount": 50, "description": "Enhanced support"},
+                ],
+                "minimum": 15.0,
+                "maximum": 150.0,
+            }
+
+        # Get membership type specific configuration
+        if not frappe.db.exists("Membership Type", membership_type):
+            return {"enabled": False, "error": "Invalid membership type"}
+
+        mt_doc = frappe.get_doc("Membership Type", membership_type)
+
+        # Build configuration based on membership type
+        config = {
+            "enabled": True,
+            "percentage": 0.5,  # Default percentage
+            "description": f"Contribution calculator for {membership_type}",
+            "minimum": getattr(mt_doc, "minimum_amount", 15.0),
+            "maximum": getattr(mt_doc, "minimum_amount", 25.0) * 10
+            if hasattr(mt_doc, "minimum_amount")
+            else 150.0,
+        }
+
+        # Add quick amounts based on membership type
+        base_amount = getattr(mt_doc, "minimum_amount", 25.0)
+        config["quick_amounts"] = [
+            int(base_amount),
+            int(base_amount * 1.4),
+            int(base_amount * 2),
+            int(base_amount * 3),
+        ]
+
+        # Add tiers
+        config["tiers"] = [
+            {"name": "Basic", "amount": base_amount, "description": f"Basic {membership_type} membership"},
+            {"name": "Supporter", "amount": base_amount * 2, "description": "Support our mission"},
+            {"name": "Champion", "amount": base_amount * 3, "description": "Champion level support"},
+        ]
+
+        return config
+
+    except Exception as e:
+        frappe.log_error(f"Error getting contribution calculator config: {str(e)}")
+        return {"enabled": False, "error": "Configuration unavailable"}
+
+
+def validate_dutch_business_rules(data):
+    """Validate Dutch association-specific business rules.
+
+    Validates application data against Dutch association management requirements:
+    - Dutch postal code format validation
+    - IBAN validation for Dutch bank accounts
+    - Name component validation (tussenvoegsel support)
+    - Address format validation
+
+    Args:
+        data (dict): Application data dictionary
+
+    Returns:
+        dict: Validation result with valid/error structure
+    """
+    # Validate Dutch postal code if country is Netherlands
+    if data.get("country") == "Netherlands":
+        postal_code = data.get("postal_code", "").strip()
+        if postal_code and not _is_valid_dutch_postal_code(postal_code):
+            return {"valid": False, "error": "Invalid Dutch postal code format. Please use format: 1234 AB"}
+
+    # Validate IBAN if provided (required for SEPA payments)
+    iban = data.get("iban", "").strip()
+    if iban:
+        iban_validation = _validate_iban_format(iban)
+        if not iban_validation["valid"]:
+            return {"valid": False, "error": iban_validation["error"]}
+
+    # Validate name components (Dutch names may have tussenvoegsel)
+    if data.get("tussenvoegsel"):
+        tussenvoegsel = data.get("tussenvoegsel").strip()
+        if not _is_valid_tussenvoegsel(tussenvoegsel):
+            return {
+                "valid": False,
+                "error": "Invalid tussenvoegsel. Common examples: van, de, der, van der, van den",
+            }
+
+    # Validate phone number format (Dutch format)
+    phone = data.get("phone", "").strip()
+    if phone and data.get("country") == "Netherlands":
+        if not _is_valid_dutch_phone(phone):
+            return {
+                "valid": False,
+                "error": "Invalid Dutch phone number format. Please use +31 format or 06-format",
+            }
+
+    return {"valid": True}
+
+
+def validate_age_requirements(birth_date, membership_type_name):
+    """Validate age requirements for membership types.
+
+    Enforces age-based membership rules:
+    - Student memberships: Must be 18-30 years old
+    - Senior memberships: Must be 65+ years old
+    - Youth memberships: Must be 16-18 years old
+    - Regular memberships: Must be 18+ years old
+
+    Args:
+        birth_date (str): Birth date in YYYY-MM-DD format
+        membership_type_name (str): Name of the membership type
+
+    Returns:
+        dict: Validation result with valid/error structure
+    """
+    if not birth_date:
+        # Birth date is optional for some membership types
+        return {"valid": True}
+
+    try:
+        birth_date = getdate(birth_date)
+        today_date = getdate(today())
+        age = (
+            today_date.year
+            - birth_date.year
+            - ((today_date.month, today_date.day) < (birth_date.month, birth_date.day))
+        )
+
+        # Age-based membership validation
+        membership_lower = membership_type_name.lower()
+
+        if "student" in membership_lower:
+            if age < 18 or age > 30:
+                return {"valid": False, "error": "Student memberships are available for ages 18-30"}
+        elif "youth" in membership_lower or "junior" in membership_lower:
+            if age < 16 or age >= 18:
+                return {"valid": False, "error": "Youth memberships are available for ages 16-17"}
+        elif "senior" in membership_lower:
+            if age < 65:
+                return {"valid": False, "error": "Senior memberships are available for ages 65+"}
+        else:
+            # Regular membership - must be 18+
+            if age < 18:
+                return {"valid": False, "error": "Regular membership requires minimum age of 18"}
+
+        return {"valid": True}
+
+    except Exception as e:
+        frappe.log_error(f"Error validating age requirements: {str(e)}")
+        return {"valid": False, "error": "Invalid birth date format"}
+
+
+def validate_payment_method_requirements(data):
+    """Validate payment method specific requirements.
+
+    Ensures payment method selections have required supporting information:
+    - SEPA Direct Debit: Requires IBAN and account holder name
+    - Bank Transfer: No additional requirements
+    - Mollie: No additional requirements
+
+    Args:
+        data (dict): Application data dictionary
+
+    Returns:
+        dict: Validation result with valid/error structure
+    """
+    payment_method = data.get("payment_method", "").strip()
+
+    if payment_method == "SEPA Direct Debit":
+        # SEPA requires IBAN and account holder name
+        if not data.get("iban"):
+            return {"valid": False, "error": "IBAN is required for SEPA Direct Debit payments"}
+
+        if not data.get("account_holder_name"):
+            return {"valid": False, "error": "Account holder name is required for SEPA Direct Debit payments"}
+
+        # Validate IBAN format
+        iban_validation = _validate_iban_format(data.get("iban"))
+        if not iban_validation["valid"]:
+            return {"valid": False, "error": iban_validation["error"]}
+
+    elif payment_method == "Mollie":
+        # Mollie payments don't require additional validation at application time
+        pass
+
+    elif payment_method == "Bank Transfer":
+        # Bank transfers don't require additional fields
+        pass
+
+    else:
+        return {
+            "valid": False,
+            "error": "Invalid payment method. Supported methods: SEPA Direct Debit, Bank Transfer, Mollie",
+        }
+
+    return {"valid": True}
+
+
+def _is_valid_dutch_postal_code(postal_code):
+    """Check if postal code matches Dutch format (1234 AB).
+
+    Args:
+        postal_code (str): Postal code to validate
+
+    Returns:
+        bool: True if valid Dutch postal code format
+    """
+    import re
+
+    # Dutch postal code: 4 digits + space + 2 letters
+    pattern = r"^\d{4}\s[A-Z]{2}$"
+    return bool(re.match(pattern, postal_code.upper()))
+
+
+def _validate_iban_format(iban):
+    """Validate IBAN format and checksum.
+
+    Args:
+        iban (str): IBAN to validate
+
+    Returns:
+        dict: Validation result with valid/error structure
+    """
+    iban = iban.replace(" ", "").upper()
+
+    # Basic format check
+    if len(iban) < 15 or len(iban) > 34:
+        return {"valid": False, "error": "IBAN must be between 15-34 characters"}
+
+    if not iban[:2].isalpha():
+        return {"valid": False, "error": "IBAN must start with 2-letter country code"}
+
+    if not iban[2:4].isdigit():
+        return {"valid": False, "error": "IBAN check digits must be numeric"}
+
+    # For Dutch IBANs, enforce stricter validation
+    if iban.startswith("NL"):
+        if len(iban) != 18:
+            return {"valid": False, "error": "Dutch IBAN must be 18 characters long"}
+
+    return {"valid": True}
+
+
+def _is_valid_tussenvoegsel(tussenvoegsel):
+    """Check if tussenvoegsel is a valid Dutch name particle.
+
+    Args:
+        tussenvoegsel (str): Name particle to validate
+
+    Returns:
+        bool: True if valid tussenvoegsel
+    """
+    valid_particles = [
+        "van",
+        "de",
+        "der",
+        "den",
+        "het",
+        "van der",
+        "van den",
+        "van het",
+        "von",
+        "du",
+        "da",
+        "di",
+        "del",
+        "della",
+        "van de",
+        "ter",
+        "te",
+    ]
+    return tussenvoegsel.lower() in valid_particles
+
+
+def _is_valid_dutch_phone(phone):
+    """Check if phone number matches Dutch format.
+
+    Args:
+        phone (str): Phone number to validate
+
+    Returns:
+        bool: True if valid Dutch phone format
+    """
+    import re
+
+    phone = phone.replace(" ", "").replace("-", "")
+
+    # Dutch mobile: +31 6 followed by 8 digits, or 06 followed by 8 digits
+    mobile_pattern = r"^(\+31|0)6\d{8}$"
+    # Dutch landline: +31 followed by area code and number
+    landline_pattern = r"^(\+31|0)[1-9]\d{7,8}$"
+
+    return bool(re.match(mobile_pattern, phone) or re.match(landline_pattern, phone))
+
+
+def sanitize_and_validate_input(data):
+    """Sanitize and validate input data for security.
+
+    Performs input sanitization and security validation:
+    - XSS prevention through HTML escaping
+    - SQL injection prevention through input cleaning
+    - Maximum length validation
+    - Character set validation
+    - Removes potential malicious content
+
+    Args:
+        data (dict): Raw input data dictionary
+
+    Returns:
+        dict: Result with sanitized data or error
+    """
+    import html
+    import re
+
+    sanitized_data = {}
+
+    # Define field-specific validation rules
+    field_rules = {
+        "first_name": {"max_length": 100, "pattern": r"^[a-zA-ZÀ-ÿ\s\-'\.]*$"},
+        "last_name": {"max_length": 100, "pattern": r"^[a-zA-ZÀ-ÿ\s\-'\.]*$"},
+        "tussenvoegsel": {"max_length": 50, "pattern": r"^[a-zA-Z\s]*$"},
+        "email": {"max_length": 255, "pattern": r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"},
+        "phone": {"max_length": 20, "pattern": r"^[+\d\s\-\(\)]*$"},
+        "address_line1": {"max_length": 255},
+        "address_line2": {"max_length": 255},
+        "postal_code": {"max_length": 20, "pattern": r"^[A-Z0-9\s\-]*$"},
+        "city": {"max_length": 100, "pattern": r"^[a-zA-ZÀ-ÿ\s\-'\.]*$"},
+        "country": {"max_length": 100, "pattern": r"^[a-zA-Z\s]*$"},
+        "iban": {"max_length": 34, "pattern": r"^[A-Z0-9\s]*$"},
+        "account_holder_name": {"max_length": 255, "pattern": r"^[a-zA-ZÀ-ÿ\s\-'\.]*$"},
+        "membership_type": {"max_length": 100, "pattern": r"^[a-zA-Z0-9\s\-_]*$"},
+        "payment_method": {"max_length": 50, "pattern": r"^[a-zA-Z\s]*$"},
+    }
+
+    for field, value in data.items():
+        if not isinstance(value, str):
+            # Keep non-string values as-is (numbers, booleans, etc.)
+            sanitized_data[field] = value
+            continue
+
+        # Basic sanitization
+        sanitized_value = html.escape(value.strip())
+
+        # Check against field-specific rules
+        if field in field_rules:
+            rules = field_rules[field]
+
+            # Length validation
+            if len(sanitized_value) > rules.get("max_length", 1000):
+                return {
+                    "valid": False,
+                    "error": f"{field.replace('_', ' ').title()} is too long (maximum {rules['max_length']} characters)",
+                }
+
+            # Pattern validation
+            if "pattern" in rules and sanitized_value:
+                if not re.match(rules["pattern"], sanitized_value, re.IGNORECASE):
+                    return {
+                        "valid": False,
+                        "error": f"{field.replace('_', ' ').title()} contains invalid characters",
+                    }
+
+        # Remove potential XSS/injection patterns
+        dangerous_patterns = [
+            r"<script[^>]*>.*?</script>",
+            r"javascript:",
+            r"on\w+\s*=",
+            r"expression\s*\(",
+            r"@import",
+            r"vbscript:",
+            r"<iframe[^>]*>",
+            r"<object[^>]*>",
+            r"<embed[^>]*>",
+            r"<link[^>]*>",
+            r"<meta[^>]*>",
+        ]
+
+        for pattern in dangerous_patterns:
+            if re.search(pattern, sanitized_value, re.IGNORECASE):
+                return {"valid": False, "error": "Input contains potentially dangerous content"}
+
+        sanitized_data[field] = sanitized_value
+
+    return {"valid": True, "data": sanitized_data}
+
+
+def validate_fraud_prevention(data):
+    """Basic fraud prevention validation.
+
+    Checks for common fraud indicators:
+    - Suspicious email patterns
+    - Unrealistic contribution amounts
+    - Suspicious name patterns
+    - Rate limiting indicators
+
+    Args:
+        data (dict): Application data dictionary
+
+    Returns:
+        dict: Validation result with valid/error structure
+    """
+    import re
+
+    # Check for obviously fake email addresses
+    email = data.get("email", "").lower()
+    suspicious_email_patterns = [
+        r"test@",
+        r"fake@",
+        r"spam@",
+        r"noreply@",
+        r"no-reply@",
+        r"@mailinator\.",
+        r"@10minutemail\.",
+        r"@temp",
+        r"@guerrillamail\.",
+    ]
+
+    for pattern in suspicious_email_patterns:
+        if re.search(pattern, email):
+            return {"valid": False, "error": "Please provide a valid personal email address"}
+
+    # Check for unrealistic contribution amounts
+    contribution_amount = float(data.get("contribution_amount", 0))
+    if contribution_amount > 10000:  # €10,000 per month is unrealistic
+        return {
+            "valid": False,
+            "error": "Contribution amount appears unrealistic. Please contact us directly for large contributions",
+        }
+
+    if contribution_amount < 0.01:  # Must be positive
+        return {"valid": False, "error": "Contribution amount must be greater than €0.01"}
+
+    # Check for suspicious name patterns
+    first_name = data.get("first_name", "").lower()
+    last_name = data.get("last_name", "").lower()
+
+    suspicious_name_patterns = [
+        "test",
+        "fake",
+        "admin",
+        "administrator",
+        "user",
+        "guest",
+        "asdf",
+        "qwerty",
+        "aaaa",
+        "bbbb",
+        "xxxx",
+        "null",
+        "undefined",
+    ]
+
+    if first_name in suspicious_name_patterns or last_name in suspicious_name_patterns:
+        return {"valid": False, "error": "Please provide your real name for membership registration"}
+
+    # Check for duplicate consecutive characters (likely bot behavior)
+    if len(set(first_name)) == 1 and len(first_name) > 2:  # Like "aaaa"
+        return {"valid": False, "error": "Please provide a valid first name"}
+
+    if len(set(last_name)) == 1 and len(last_name) > 2:  # Like "bbbb"
+        return {"valid": False, "error": "Please provide a valid last name"}
+
+    return {"valid": True}

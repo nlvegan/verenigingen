@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Real Member Controller Tests
  *

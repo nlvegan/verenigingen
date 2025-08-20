@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Refactored Direct Debit Batch Controller Tests
  *
@@ -179,7 +180,8 @@ const customBatchTests = {
 		});
 
 		it('should support Dutch bank format requirements', () => {
-			const financialBuilder = createDomainTestBuilder(getControllerTest(), 'financial');
+			const controllerTest = getControllerTest();
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should handle European banking compliance']();
 		});

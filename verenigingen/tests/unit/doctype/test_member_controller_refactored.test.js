@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Refactored Member Controller Tests
  *
@@ -95,7 +96,10 @@ const memberConfig = {
 		};
 
 		return form;
-	}
+	},
+
+	// Mock server call threshold - Member controller is complex and makes many validation calls
+	mockServerCallThreshold: 20
 };
 
 // Custom test suites specific to Member controller

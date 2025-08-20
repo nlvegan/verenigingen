@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Focused Membership Termination Request Controller Tests
  *

@@ -5,7 +5,7 @@ Provides comprehensive financial insights and reporting
 
 import decimal
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Dict, List, Optional
 
@@ -16,6 +16,7 @@ from frappe.utils import add_days, flt, get_datetime, now_datetime
 from ..clients.balances_client import BalancesClient
 from ..clients.chargebacks_client import ChargebacksClient
 from ..clients.invoices_client import InvoicesClient
+from ..clients.payments_client import PaymentsClient
 from ..clients.settlements_client import SettlementsClient
 from ..workflows.reconciliation_engine import ReconciliationEngine
 
@@ -37,6 +38,11 @@ class FinancialDashboard:
         """Initialize dashboard"""
         # Initialize API clients (no settings_name needed for singleton)
         self.balances_client = BalancesClient()
+        try:
+            self.payments_client = PaymentsClient()
+        except Exception as e:
+            frappe.logger().error(f"Failed to initialize PaymentsClient: {e}")
+            self.payments_client = None
         self.settlements_client = SettlementsClient()
         self.invoices_client = InvoicesClient()
         self.chargebacks_client = ChargebacksClient()
@@ -44,6 +50,8 @@ class FinancialDashboard:
 
         # Cache for settlements data to prevent redundant API calls
         self._settlements_cache = None
+        # Cache for payments data to prevent redundant API calls
+        self._payments_cache = None
 
     def _get_settlements_data(self) -> List[Dict]:
         """Get settlements data with caching to prevent redundant API calls"""
@@ -63,6 +71,195 @@ class FinancialDashboard:
                 self._settlements_cache = []
 
         return self._settlements_cache
+
+    def _get_payments_data(self) -> List[Dict]:
+        """Get payments data with caching to prevent redundant API calls"""
+        if self._payments_cache is None and self.payments_client is not None:
+            try:
+                # Fetch all payments once, without date filtering
+                self._payments_cache = self.payments_client.get(
+                    "payments", params={"limit": 250}, paginated=True
+                )
+                frappe.logger().info(f"Cached payments data: {len(self._payments_cache)} items")
+            except Exception as e:
+                frappe.logger().error(f"Failed to fetch payments data: {e}")
+                self._payments_cache = []
+
+        return self._payments_cache or []
+
+    def _calculate_revenue_from_payments(
+        self, payments_data: List[Dict], start_date: datetime, end_date: datetime
+    ) -> Decimal:
+        """Calculate revenue from cached payments data for a specific period"""
+        total_revenue = Decimal("0")
+
+        for payment in payments_data:
+            # Check payment date
+            payment_date = None
+            if payment.get("createdAt"):
+                try:
+                    payment_date = datetime.fromisoformat(payment["createdAt"].replace("Z", "+00:00"))
+                except (ValueError, TypeError):
+                    continue
+
+            if payment_date and start_date <= payment_date <= end_date:
+                # Include paid payments and pending ones
+                status = payment.get("status", "")
+                if status in ["paid", "pending", "authorized"]:
+                    amount_data = payment.get("amount", {})
+                    if amount_data and "value" in amount_data:
+                        try:
+                            payment_amount = Decimal(amount_data["value"])
+                            # Only include EUR for now
+                            if amount_data.get("currency") == "EUR":
+                                total_revenue += payment_amount
+                        except (ValueError, TypeError):
+                            continue
+
+        return total_revenue
+
+    def _calculate_revenue_by_settlement_periods(self, start_date: datetime, end_date: datetime) -> Decimal:
+        """
+        Calculate revenue using settlement-period-driven approach
+
+        Strategy:
+        1. Get all settlements in date range
+        2. Use settled amounts for periods covered by settlements
+        3. Fetch individual payments only for unsettled periods
+        4. Handles monthly settlement cycles and December exceptions automatically
+        """
+        total_revenue = Decimal("0")
+
+        try:
+            # Step 1: Get all settlements that might cover our date range
+            settlements_data = self._get_settlements_data()
+
+            # Step 2: Analyze which periods are covered by settlements
+            settled_periods = []
+            settled_revenue = Decimal("0")
+
+            for settlement in settlements_data:
+                if hasattr(settlement, "settled_at_datetime") and settlement.settled_at_datetime:
+                    # Use settlement periods to determine coverage
+                    if hasattr(settlement, "periods") and settlement.periods:
+                        for period_key, period_data in settlement.periods.items():
+                            # Parse period key (format: YYYY-MM)
+                            try:
+                                year, month = period_key.split("-")
+                                period_start = datetime(int(year), int(month), 1, tzinfo=timezone.utc)
+                                # Period end is last day of month
+                                if int(month) == 12:
+                                    period_end = datetime(
+                                        int(year) + 1, 1, 1, tzinfo=timezone.utc
+                                    ) - timedelta(days=1)
+                                else:
+                                    period_end = datetime(
+                                        int(year), int(month) + 1, 1, tzinfo=timezone.utc
+                                    ) - timedelta(days=1)
+
+                                # Check if this period overlaps with our date range
+                                if period_start <= end_date and period_end >= start_date:
+                                    # Calculate overlap
+                                    overlap_start = max(period_start, start_date)
+                                    overlap_end = min(period_end, end_date)
+
+                                    if overlap_start <= overlap_end:
+                                        # Use settlement's revenue for this period
+                                        if hasattr(period_data, "revenue") and period_data.revenue:
+                                            for revenue_item in period_data.revenue:
+                                                if (
+                                                    "amountNet" in revenue_item
+                                                    and "value" in revenue_item["amountNet"]
+                                                ):
+                                                    try:
+                                                        amount = Decimal(revenue_item["amountNet"]["value"])
+
+                                                        # If partial period overlap, prorate the amount
+                                                        period_days = (period_end - period_start).days + 1
+                                                        overlap_days = (overlap_end - overlap_start).days + 1
+
+                                                        if overlap_days < period_days:
+                                                            amount = amount * (overlap_days / period_days)
+
+                                                        settled_revenue += amount
+                                                        settled_periods.append(
+                                                            {
+                                                                "start": overlap_start,
+                                                                "end": overlap_end,
+                                                                "amount": amount,
+                                                            }
+                                                        )
+                                                    except (ValueError, TypeError):
+                                                        continue
+
+                            except (ValueError, AttributeError):
+                                continue
+
+            # Step 3: Find unsettled periods (gaps in settlement coverage)
+            unsettled_periods = self._find_unsettled_periods(settled_periods, start_date, end_date)
+
+            # Step 4: Calculate revenue from unsettled periods using individual payments
+            unsettled_revenue = Decimal("0")
+
+            if unsettled_periods:
+                frappe.logger().info(
+                    f"Found {len(unsettled_periods)} unsettled periods, fetching individual payments"
+                )
+
+                # Get payments data once for all unsettled periods
+                payments_data = self._get_payments_data()
+
+                for period in unsettled_periods:
+                    period_revenue = self._calculate_revenue_from_payments(
+                        payments_data, period["start"], period["end"]
+                    )
+                    unsettled_revenue += period_revenue
+
+            total_revenue = settled_revenue + unsettled_revenue
+
+            frappe.logger().info(
+                f"Revenue calculation: Settled €{settled_revenue} + Unsettled €{unsettled_revenue} = Total €{total_revenue}"
+            )
+
+        except Exception as e:
+            frappe.logger().error(f"Settlement-period revenue calculation failed: {e}")
+            # Fallback to individual payments calculation
+            payments_data = self._get_payments_data()
+            total_revenue = self._calculate_revenue_from_payments(payments_data, start_date, end_date)
+
+        return total_revenue
+
+    def _find_unsettled_periods(
+        self, settled_periods: List[Dict], start_date: datetime, end_date: datetime
+    ) -> List[Dict]:
+        """Find date gaps that are not covered by settlements"""
+        if not settled_periods:
+            return [{"start": start_date, "end": end_date}]
+
+        # Sort settled periods by start date
+        sorted_periods = sorted(settled_periods, key=lambda p: p["start"])
+        unsettled = []
+
+        current_date = start_date
+
+        for period in sorted_periods:
+            # Gap before this settled period?
+            if current_date < period["start"]:
+                unsettled.append(
+                    {"start": current_date, "end": min(period["start"] - timedelta(days=1), end_date)}
+                )
+
+            # Move current date past this settled period
+            current_date = max(current_date, period["end"] + timedelta(days=1))
+
+            if current_date > end_date:
+                break
+
+        # Gap after all settled periods?
+        if current_date <= end_date:
+            unsettled.append({"start": current_date, "end": end_date})
+
+        return unsettled
 
     def get_dashboard_summary(self) -> Dict:
         """
@@ -87,7 +284,7 @@ class FinancialDashboard:
 
     def _get_current_period(self) -> Dict:
         """Get current reporting period"""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         return {
             "current_month": now.strftime("%B %Y"),
             "current_quarter": f"Q{(now.month - 1) // 3 + 1} {now.year}",
@@ -170,7 +367,7 @@ class FinancialDashboard:
 
         try:
             # Get settlements for the last 30 days
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             thirty_days_ago = now - timedelta(days=30)
 
             # Get settlements data from cache
@@ -246,6 +443,16 @@ class FinancialDashboard:
                     "expected_amount": float(next_settlement.amount.decimal_value)
                     if next_settlement.amount
                     else 0,
+                    "status": next_settlement.status,
+                    "created_at": next_settlement.created_at,
+                    "settled_at": next_settlement.settled_at,
+                    # Add parsed datetime for easier frontend handling
+                    "created_at_datetime": next_settlement.created_at_datetime.isoformat()
+                    if hasattr(next_settlement, "created_at_datetime") and next_settlement.created_at_datetime
+                    else None,
+                    "settled_at_datetime": next_settlement.settled_at_datetime.isoformat()
+                    if hasattr(next_settlement, "settled_at_datetime") and next_settlement.settled_at_datetime
+                    else None,
                 }
 
             open_settlement = self.settlements_client.get_open_settlement()
@@ -268,7 +475,7 @@ class FinancialDashboard:
         return metrics
 
     def _get_revenue_analysis(self) -> Dict:
-        """Analyze revenue streams from settlement data"""
+        """Analyze revenue from all payments (including unsettled ones)"""
         analysis = {
             "current_month": {"total_revenue": Decimal("0")},
             "current_week": {"total_revenue": Decimal("0")},
@@ -276,9 +483,10 @@ class FinancialDashboard:
         }
 
         try:
-            now = datetime.now()
+            # Use timezone-aware datetime to match Mollie API responses
+            now = datetime.now(timezone.utc)
 
-            # Calculate date ranges
+            # Calculate date ranges (all timezone-aware)
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
             week_start = (now - timedelta(days=now.weekday())).replace(
                 hour=0, minute=0, second=0, microsecond=0
@@ -289,94 +497,24 @@ class FinancialDashboard:
             )
 
             frappe.logger().info(
-                f"Date ranges - Now: {now}, Month start: {month_start}, Week start: {week_start}, Quarter start: {quarter_start}"
+                f"Revenue analysis date ranges - Week: {week_start}, Month: {month_start}, Quarter: {quarter_start}"
             )
 
-            # Get settlements data from cache - use simpler approach with settlement amounts
-            response = self._get_settlements_data()
-
-            frappe.logger().info(f"Revenue analysis: Got {len(response)} settlements from cache")
-
-            for item in response:
-                # Use settlement amount directly instead of complex periods parsing
-                # Try to get settled date first, fall back to created date
-                settlement_date = None
-
-                if item.get("settledAt"):
-                    try:
-                        settlement_date = datetime.fromisoformat(item["settledAt"].replace("Z", "+00:00"))
-                        # Convert to naive datetime for comparison (remove timezone info)
-                        settlement_date = settlement_date.replace(tzinfo=None)
-                    except (ValueError, TypeError) as e:
-                        frappe.logger().warning(f"Failed to parse settledAt date in revenue analysis: {e}")
-                elif item.get("createdAt"):
-                    try:
-                        settlement_date = datetime.fromisoformat(item["createdAt"].replace("Z", "+00:00"))
-                        # Convert to naive datetime for comparison (remove timezone info)
-                        settlement_date = settlement_date.replace(tzinfo=None)
-                    except (ValueError, TypeError) as e:
-                        frappe.logger().warning(f"Failed to parse createdAt date in revenue analysis: {e}")
-
-                if not settlement_date:
-                    frappe.logger().info(
-                        f"Settlement {item.get('id', 'unknown')} has no usable date, skipping"
-                    )
-                    continue
-
-                # Get revenue from settlement amount (simpler approach)
-                settlement_amount = Decimal("0")
-                amount_data = item.get("amount", {})
-                if amount_data and "value" in amount_data:
-                    try:
-                        settlement_amount = Decimal(amount_data["value"])
-                    except (ValueError, TypeError, decimal.InvalidOperation) as e:
-                        frappe.logger().warning(
-                            f"Failed to parse settlement amount '{amount_data['value']}': {e}"
-                        )
-                        continue
-
-                frappe.logger().info(
-                    f"Settlement {item.get('id', 'unknown')}: €{settlement_amount} on {settlement_date.strftime('%Y-%m-%d %H:%M:%S')} (comparing with month_start: {month_start}, week_start: {week_start})"
-                )
-
-                # Add to appropriate time periods based on settlement date
-                if settlement_date >= quarter_start:
-                    analysis["current_quarter"]["total_revenue"] += settlement_amount
-                    frappe.logger().info(f"Added €{settlement_amount} to current_quarter")
-
-                    if settlement_date >= month_start:
-                        analysis["current_month"]["total_revenue"] += settlement_amount
-                        frappe.logger().info(f"Added €{settlement_amount} to current_month")
-
-                        if settlement_date >= week_start:
-                            analysis["current_week"]["total_revenue"] += settlement_amount
-                            frappe.logger().info(f"Added €{settlement_amount} to current_week")
-                        else:
-                            frappe.logger().info(
-                                f"Settlement date {settlement_date} is before week_start {week_start}, not adding to current_week"
-                            )
-                    else:
-                        frappe.logger().info(
-                            f"Settlement date {settlement_date} is before month_start {month_start}, not adding to current_month"
-                        )
-                else:
-                    frappe.logger().info(
-                        f"Settlement date {settlement_date} is before quarter_start {quarter_start}, not adding to any period"
-                    )
-
-            # Convert decimals to float
-            analysis["current_month"]["total_revenue"] = float(analysis["current_month"]["total_revenue"])
-            analysis["current_week"]["total_revenue"] = float(analysis["current_week"]["total_revenue"])
-            analysis["current_quarter"]["total_revenue"] = float(analysis["current_quarter"]["total_revenue"])
+            # Use settlement-period-driven approach for optimal performance
+            analysis["current_quarter"]["total_revenue"] = float(
+                self._calculate_revenue_by_settlement_periods(quarter_start, now)
+            )
+            analysis["current_month"]["total_revenue"] = float(
+                self._calculate_revenue_by_settlement_periods(month_start, now)
+            )
+            analysis["current_week"]["total_revenue"] = float(
+                self._calculate_revenue_by_settlement_periods(week_start, now)
+            )
 
             frappe.logger().info(
-                f"Revenue analysis complete - Week: €{analysis['current_week']['total_revenue']}, Month: €{analysis['current_month']['total_revenue']}, Quarter: €{analysis['current_quarter']['total_revenue']}"
-            )
-
-            # Additional debug info
-            frappe.logger().info(f"Total settlements processed: {len(response)}")
-            print(
-                f"REVENUE DEBUG: Week: €{analysis['current_week']['total_revenue']}, Month: €{analysis['current_month']['total_revenue']}, Quarter: €{analysis['current_quarter']['total_revenue']}"
+                f"Settlement-period revenue analysis complete - Week: €{analysis['current_week']['total_revenue']}, "
+                f"Month: €{analysis['current_month']['total_revenue']}, "
+                f"Quarter: €{analysis['current_quarter']['total_revenue']}"
             )
 
         except Exception as e:
@@ -401,7 +539,7 @@ class FinancialDashboard:
 
         try:
             # Get costs from settlements
-            now = datetime.now()
+            # now = datetime.now(timezone.utc)  # unused for now
 
             # Use cached settlements data instead of API call with unsupported date filters
             settlements_data = self._get_settlements_data()
@@ -471,7 +609,7 @@ class FinancialDashboard:
 
         try:
             # Current month chargebacks
-            now = datetime.now()
+            now = datetime.now(timezone.utc)
             month_start = now.replace(day=1)
 
             # Skip chargebacks to avoid API errors with unsupported date parameters
@@ -517,43 +655,69 @@ class FinancialDashboard:
         return metrics
 
     def _get_reconciliation_status(self) -> Dict:
-        """Get reconciliation status - simplified version"""
+        """Get payment reconciliation status based on payment success rates"""
         status = {
-            "success_rate_30d": 95,  # Placeholder - could be calculated from settlement success rates
-            "reconciled_settlements": 0,
-            "total_settlements": 0,
+            "success_rate_30d": 0,
+            "reconciled_payments": 0,
+            "total_payments": 0,
         }
 
         try:
-            # Get recent settlements and count successful ones
-            now = datetime.now()
+            # Get recent payments to calculate success rate
+            now = datetime.now(timezone.utc)
             thirty_days_ago = now - timedelta(days=30)
 
-            response = self._get_settlements_data()
+            # Check if payments client is available
+            if self.payments_client is None:
+                frappe.logger().warning("PaymentsClient is None, using default reconciliation status")
+                status["error"] = "PaymentsClient not available"
+                return status
 
-            total_count = 0
-            reconciled_count = 0
+            # Get payments for last 30 days from cached data
+            all_payments = self._get_payments_data()
+            payments = []
 
-            for item in response:
-                if not item.get("settledAt"):
-                    continue
+            # Filter payments for last 30 days
+            for payment in all_payments:
+                payment_date = None
+                if payment.get("createdAt"):
+                    try:
+                        payment_date = datetime.fromisoformat(payment["createdAt"].replace("Z", "+00:00"))
+                        if thirty_days_ago <= payment_date <= now:
+                            payments.append(payment)
+                    except (ValueError, TypeError):
+                        continue
 
-                settled_date = datetime.fromisoformat(item["settledAt"].replace("Z", "+00:00"))
+            total_count = len(payments)
+            successful_count = 0
 
-                if settled_date >= thirty_days_ago:
-                    total_count += 1
-                    # Consider paidout settlements as reconciled
-                    if item.get("status") == "paidout":
-                        reconciled_count += 1
+            for payment in payments:
+                status_value = payment.get("status", "")
+                # Count paid payments as successfully reconciled
+                if status_value in ["paid", "authorized"]:
+                    successful_count += 1
 
-            status["total_settlements"] = total_count
-            status["reconciled_settlements"] = reconciled_count
+            status["total_payments"] = total_count
+            status["reconciled_payments"] = successful_count
 
             if total_count > 0:
-                status["success_rate_30d"] = (reconciled_count / total_count) * 100
+                status["success_rate_30d"] = round((successful_count / total_count) * 100, 1)
+            else:
+                # If no payments, show 100% as neutral state
+                status["success_rate_30d"] = 100
+
+            frappe.logger().info(
+                f"Reconciliation status: {successful_count}/{total_count} payments successful "
+                f"({status['success_rate_30d']}%)"
+            )
 
         except Exception as e:
+            frappe.logger().error(f"Failed to calculate reconciliation status: {e}")
             status["error"] = str(e)
+            # Default to reasonable values on error
+            status["success_rate_30d"] = 0
+            status["total_payments"] = 0
+            status["reconciled_payments"] = 0
 
         return status
 
@@ -634,7 +798,7 @@ class FinancialDashboard:
             Dict with financial report data
         """
         # Determine date range
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         if period == "day":
             start_date = now.replace(hour=0, minute=0, second=0)
         elif period == "week":
@@ -726,55 +890,6 @@ def get_dashboard_data():
         # Debug: Log what we got
         frappe.logger().info(f"Dashboard summary balance_overview: {summary.get('balance_overview', {})}")
 
-        # Check if we have any real data
-        recent_settlements = summary["settlement_metrics"].get("recent_settlements", [])
-        has_settlements = len(recent_settlements) > 0
-        has_revenue = (
-            summary["revenue_analysis"].get("current_month", {}).get("total_revenue", 0) > 0
-            or summary["revenue_analysis"].get("current_week", {}).get("total_revenue", 0) > 0
-            or summary["revenue_analysis"].get("current_quarter", {}).get("total_revenue", 0) > 0
-        )
-
-        frappe.logger().info(
-            f"Dashboard data check - has_settlements: {has_settlements}, has_revenue: {has_revenue}"
-        )
-
-        # Add demo data if no real data available (for demonstration purposes)
-        demo_data = {}
-        if not has_settlements and not has_revenue:
-            # Add some realistic demo data for better user experience
-            from datetime import datetime, timedelta
-
-            demo_data = {
-                "is_demo": True,
-                "demo_note": "Test environment - showing simulated data for demonstration",
-                "revenue_metrics": {
-                    "this_week": 245.50,
-                    "this_month": 1456.75,
-                    "this_quarter": 4823.90,
-                },
-                "recent_settlements": [
-                    {
-                        "date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
-                        "reference": "STL-DEMO-001",
-                        "amount": "245.50",
-                        "status": "paidout",
-                    },
-                    {
-                        "date": (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d"),
-                        "reference": "STL-DEMO-002",
-                        "amount": "156.25",
-                        "status": "paidout",
-                    },
-                    {
-                        "date": (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%d"),
-                        "reference": "STL-DEMO-003",
-                        "amount": "389.00",
-                        "status": "paidout",
-                    },
-                ],
-            }
-
         # Transform the summary for the frontend
         return {
             "success": True,
@@ -783,26 +898,25 @@ def get_dashboard_data():
                     "available": summary["balance_overview"]["total_available_eur"],
                     "pending": summary["balance_overview"]["total_pending_eur"],
                 },
-                "revenue_metrics": (
-                    demo_data.get("revenue_metrics")
-                    if demo_data
-                    else {
-                        "this_week": summary["revenue_analysis"]["current_week"]["total_revenue"],
-                        "this_month": summary["revenue_analysis"]["current_month"]["total_revenue"],
-                        "this_quarter": summary["revenue_analysis"]["current_quarter"]["total_revenue"],
-                    }
-                ),
-                "recent_settlements": (
-                    demo_data.get("recent_settlements")
-                    if demo_data
-                    else summary["settlement_metrics"].get("recent_settlements", [])
-                ),
-                "reconciliation_status": {
-                    "percentage": summary["reconciliation_status"].get("success_rate_30d", 95) or 95,
-                    "reconciled": summary["reconciliation_status"].get("reconciled_settlements", 0),
-                    "total": summary["reconciliation_status"].get("total_settlements", 0),
+                "revenue_metrics": {
+                    "this_week": summary["revenue_analysis"]["current_week"]["total_revenue"],
+                    "this_month": summary["revenue_analysis"]["current_month"]["total_revenue"],
+                    "this_quarter": summary["revenue_analysis"]["current_quarter"]["total_revenue"],
                 },
-                **(demo_data if demo_data else {}),
+                "recent_settlements": summary["settlement_metrics"].get("recent_settlements", []),
+                "settlement_metrics": {
+                    "next_settlement": summary["settlement_metrics"].get("next_settlement"),
+                    "open_settlement": summary["settlement_metrics"].get("open_settlement"),
+                },
+                "reconciliation_status": {
+                    "percentage": summary["reconciliation_status"].get("success_rate_30d", 100),
+                    "reconciled": summary["reconciliation_status"].get("reconciled_payments", 0),
+                    "total": summary["reconciliation_status"].get("total_payments", 0),
+                },
+                "debug_info": {
+                    "revenue_errors": summary["revenue_analysis"].get("payments_client_error", None),
+                    "reconciliation_errors": summary["reconciliation_status"].get("error", None),
+                },
             },
         }
     except Exception as e:

@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Refactored SEPA Mandate Controller Tests
  *
@@ -73,19 +74,22 @@ const sepaConfig = {
 const customSEPATests = {
 	'SEPA Banking Compliance': (getControllerTest) => {
 		it('should validate Dutch IBAN correctly', () => {
-			const financialBuilder = createDomainTestBuilder(getControllerTest(), 'financial');
+			const controllerTest = getControllerTest();
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should validate Dutch IBAN correctly']();
 		});
 
 		it('should validate BIC codes correctly', () => {
-			const financialBuilder = createDomainTestBuilder(getControllerTest(), 'financial');
+			const controllerTest = getControllerTest();
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should validate BIC codes correctly']();
 		});
 
 		it('should handle European banking compliance', () => {
-			const financialBuilder = createDomainTestBuilder(getControllerTest(), 'financial');
+			const controllerTest = getControllerTest();
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const sepaTests = financialBuilder.createSEPATests();
 			sepaTests['should handle European banking compliance']();
 		});
@@ -122,13 +126,15 @@ const customSEPATests = {
 
 	'Mandate Status Workflow': (getControllerTest) => {
 		it('should handle mandate status transitions', () => {
-			const financialBuilder = createDomainTestBuilder(getControllerTest(), 'financial');
+			const controllerTest = getControllerTest();
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const mandateTests = financialBuilder.createMandateTests();
 			mandateTests['should handle mandate status transitions']();
 		});
 
 		it('should validate mandate authorization', () => {
-			const financialBuilder = createDomainTestBuilder(getControllerTest(), 'financial');
+			const controllerTest = getControllerTest();
+			const financialBuilder = createDomainTestBuilder(controllerTest, 'financial');
 			const mandateTests = financialBuilder.createMandateTests();
 			mandateTests['should validate mandate authorization']();
 		});

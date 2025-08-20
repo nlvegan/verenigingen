@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Member Controller Simple API Contract Integration Tests
  *

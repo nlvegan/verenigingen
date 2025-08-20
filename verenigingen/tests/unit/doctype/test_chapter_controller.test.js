@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Real Chapter Controller Tests
  *

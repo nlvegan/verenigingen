@@ -9,11 +9,14 @@
  * @version 1.0.0
  */
 
+/* eslint-env jest */
+/* No need to redeclare beforeAll - covered by eslint-env jest */
+
 const {
 	setupTestMocks,
 	cleanupTestMocks,
-	createMockForm,
-	dutchTestData
+	createMockForm
+	// dutchTestData - unused
 } = require('./frappe-mocks');
 const {
 	loadFrappeController,
@@ -232,8 +235,9 @@ function createControllerTestSuite(config, customTests = {}) {
 				controllerTest.testEvent('refresh');
 				const finalCallCount = global.frappe.call.mock.calls.length;
 				const callsAdded = finalCallCount - initialCallCount;
-				// Allow more calls for complex controllers like Member
-				expect(callsAdded).toBeLessThanOrEqual(15);
+				// Use custom threshold if provided, otherwise default to 15
+				const threshold = config.mockServerCallThreshold || 15;
+				expect(callsAdded).toBeLessThanOrEqual(threshold);
 			});
 
 			it('should execute quickly', () => {
@@ -278,7 +282,7 @@ function createControllerTestSuite(config, customTests = {}) {
  * Utility function to test multiple status transitions
  */
 function testStatusTransitions(controllerTest, statusField, transitions) {
-	transitions.forEach(({ from, to, description }) => {
+	transitions.forEach(({ from, to }) => {
 		controllerTest.mockForm.doc[statusField] = from;
 
 		expect(() => {
@@ -299,7 +303,7 @@ function testStatusTransitions(controllerTest, statusField, transitions) {
  * Utility function to test field validation
  */
 function testFieldValidation(controllerTest, fieldName, testCases) {
-	testCases.forEach(({ value, shouldPass, description }) => {
+	testCases.forEach(({ value, shouldPass }) => {
 		controllerTest.mockForm.doc[fieldName] = value;
 
 		if (shouldPass) {

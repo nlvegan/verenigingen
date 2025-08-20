@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Refactored Volunteer Controller Tests
  *

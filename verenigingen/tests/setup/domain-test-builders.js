@@ -433,17 +433,36 @@ function createDomainTestBuilder(controllerTest, domain) {
 		createVolunteerExpenseData: (overrides) => dataFactory.createVolunteerExpenseData(overrides)
 	};
 
+	let domainBuilder;
 	switch (domain) {
 		case 'financial':
-			return { ...builder, ...new FinancialControllerTestBuilder(controllerTest) };
+			domainBuilder = new FinancialControllerTestBuilder(controllerTest);
+			break;
 		case 'association':
-			return { ...builder, ...new AssociationControllerTestBuilder(controllerTest) };
+			domainBuilder = new AssociationControllerTestBuilder(controllerTest);
+			break;
 		case 'workflow':
-			return { ...builder, ...new WorkflowControllerTestBuilder(controllerTest) };
+			domainBuilder = new WorkflowControllerTestBuilder(controllerTest);
+			break;
 		default:
 			// Return just the data factory for general use
 			return builder;
 	}
+
+	// Properly merge prototype methods from the domain builder
+	const result = { ...builder };
+
+	// Copy all methods from the domain builder's prototype
+	const prototype = Object.getPrototypeOf(domainBuilder);
+	const methodNames = Object.getOwnPropertyNames(prototype).filter(name =>
+		name !== 'constructor' && typeof prototype[name] === 'function'
+	);
+
+	methodNames.forEach(methodName => {
+		result[methodName] = domainBuilder[methodName].bind(domainBuilder);
+	});
+
+	return result;
 }
 
 module.exports = {

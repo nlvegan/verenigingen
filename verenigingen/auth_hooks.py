@@ -71,6 +71,8 @@ Version: 1.0
 import frappe
 from frappe import _
 
+from verenigingen.utils.security_wrappers import safe_get_roles
+
 
 def on_session_creation(login_manager):
     """
@@ -78,7 +80,17 @@ def on_session_creation(login_manager):
     Redirects members to the member portal
     """
     try:
+        # Validate login_manager and session state
+        if not login_manager or not hasattr(frappe.session, "user"):
+            frappe.logger().error("Invalid session state in auth hook")
+            return
+
         user = frappe.session.user
+
+        # Validate user is properly set (CRITICAL: prevents "User None is disabled" error)
+        if not user or user in ["", "None", None] or not isinstance(user, str):
+            frappe.logger().error(f"Session created with invalid user value: {repr(user)}")
+            return
 
         # Skip for Guest users
         if user == "Guest":
@@ -122,23 +134,32 @@ def on_session_creation(login_manager):
 def has_member_role(user):
     """Check if user has Member role"""
     try:
-        user_roles = frappe.get_roles(user)
+        # CRITICAL: Validate user before checking roles
+        if not user or not isinstance(user, str) or user in ["", "None", "Guest"]:
+            return False
+
+        user_roles = safe_get_roles(user)
         return "Member" in user_roles
-    except Exception:
+    except Exception as e:
+        frappe.logger().error(f"Error checking member role for user {repr(user)}: {str(e)}")
         return False
 
 
 def has_volunteer_role(user):
     """Check if user has Volunteer-related roles"""
     try:
-        user_roles = frappe.get_roles(user)
+        # CRITICAL: Validate user before checking roles
+        if not user or not isinstance(user, str) or user in ["", "None", "Guest"]:
+            return False
+
+        user_roles = safe_get_roles(user)
         volunteer_roles = [
-            "Volunteer",
             "Volunteer",
             "Chapter Board Member",
         ]
         return any(role in user_roles for role in volunteer_roles)
-    except Exception:
+    except Exception as e:
+        frappe.logger().error(f"Error checking volunteer role for user {repr(user)}: {str(e)}")
         return False
 
 
@@ -150,17 +171,29 @@ def get_default_home_page(user=None):
     if not user:
         user = frappe.session.user
 
+    # CRITICAL: Validate user parameter
+    if not user or not isinstance(user, str) or user in ["", "None", None]:
+        return "/web"
+
     if user == "Guest":
         return "/web"
 
     # Check if user is a member
-    member_record = frappe.db.get_value("Member", {"user": user}, "name")
+    try:
+        member_record = frappe.db.get_value("Member", {"user": user}, "name")
+    except Exception as e:
+        frappe.logger().error(f"Error getting member record for user {repr(user)}: {str(e)}")
+        member_record = None
 
     if member_record or has_member_role(user):
         return "/member_portal"
 
     # Check if user is a volunteer
-    volunteer_record = frappe.db.get_value("Volunteer", {"user": user}, "name")
+    try:
+        volunteer_record = frappe.db.get_value("Volunteer", {"user": user}, "name")
+    except Exception as e:
+        frappe.logger().error(f"Error getting volunteer record for user {repr(user)}: {str(e)}")
+        volunteer_record = None
 
     if volunteer_record or has_volunteer_role(user):
         # Could return volunteer-specific dashboard
@@ -216,12 +249,17 @@ def before_request():
         if frappe.local.request.path.startswith("/api/"):
             return
 
+        # CRITICAL: Validate session user before proceeding
+        user = getattr(frappe.session, "user", None)
+        if not user or not isinstance(user, str) or user in ["", "None", None]:
+            frappe.logger().error(f"before_request called with invalid user: {repr(user)}")
+            return
+
         # Skip for admin/system users
-        if frappe.session.user in ["Administrator", "Guest"]:
+        if user in ["Administrator", "Guest"]:
             return
 
         # Check if member is trying to access restricted areas
-        user = frappe.session.user
 
         # If user is a member but trying to access /app (backend)
         # and doesn't have system roles, redirect to member portal
@@ -242,7 +280,11 @@ def before_request():
 def has_system_access(user):
     """Check if user has roles that grant system access"""
     try:
-        user_roles = frappe.get_roles(user)
+        # CRITICAL: Validate user before checking roles (prevents security bypass)
+        if not user or not isinstance(user, str) or user in ["", "None", "Guest"]:
+            return False
+
+        user_roles = safe_get_roles(user)
         system_roles = [
             "System Manager",
             "Verenigingen Administrator",
@@ -250,5 +292,6 @@ def has_system_access(user):
             "Verenigingen Governance Auditor",
         ]
         return any(role in user_roles for role in system_roles)
-    except Exception:
+    except Exception as e:
+        frappe.logger().error(f"Error checking system access for user {repr(user)}: {str(e)}")
         return False

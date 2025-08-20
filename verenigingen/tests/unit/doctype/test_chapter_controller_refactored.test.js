@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Chapter Controller Tests (Refactored Infrastructure)
  *
@@ -226,7 +227,8 @@ const customChapterTests = {
 		});
 
 		it('should handle postal code format validation', () => {
-			const associationBuilder = createDomainTestBuilder(getControllerTest(), 'association');
+			const controllerTest = getControllerTest();
+			const associationBuilder = createDomainTestBuilder(controllerTest, 'association');
 			const dutchTests = associationBuilder.createDutchValidationTests();
 			dutchTests['should validate Dutch postal codes']();
 		});

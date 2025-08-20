@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Comprehensive Donation Controller Tests
  *

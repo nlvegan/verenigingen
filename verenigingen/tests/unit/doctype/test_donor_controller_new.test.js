@@ -1,3 +1,4 @@
+/* eslint-env jest */
 /**
  * @fileoverview Donor Controller Tests (New Infrastructure)
  *

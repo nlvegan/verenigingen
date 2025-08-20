@@ -37,13 +37,35 @@ title: Mollie Financial Dashboard
             </div>
         </div>
 
-        <!-- Revenue Metrics -->
+        <!-- Next Payout Information -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">Next Payout</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h3 id="next-payout-amount" class="text-success">€0.00</h3>
+                                <small class="text-muted">Expected amount</small>
+                            </div>
+                            <div class="col-md-6">
+                                <p id="next-payout-status" class="mb-1"><span class="badge badge-secondary">No payout scheduled</span></p>
+                                <small id="next-payout-date" class="text-muted">-</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Payment Revenue Metrics -->
         <div class="row mb-4">
             <div class="col-md-4">
                 <div class="card">
                     <div class="card-body">
                         <h6 class="card-subtitle mb-2 text-muted">This Week</h6>
                         <h4 id="week-revenue">€0.00</h4>
+                        <small class="text-muted">Total payments received</small>
                     </div>
                 </div>
             </div>
@@ -52,6 +74,7 @@ title: Mollie Financial Dashboard
                     <div class="card-body">
                         <h6 class="card-subtitle mb-2 text-muted">This Month</h6>
                         <h4 id="month-revenue">€0.00</h4>
+                        <small class="text-muted">Total payments received</small>
                     </div>
                 </div>
             </div>
@@ -60,6 +83,7 @@ title: Mollie Financial Dashboard
                     <div class="card-body">
                         <h6 class="card-subtitle mb-2 text-muted">This Quarter</h6>
                         <h4 id="quarter-revenue">€0.00</h4>
+                        <small class="text-muted">Total payments received</small>
                     </div>
                 </div>
             </div>
@@ -91,17 +115,17 @@ title: Mollie Financial Dashboard
             </div>
         </div>
 
-        <!-- Reconciliation Status -->
+        <!-- Payment Success Rate -->
         <div class="card">
             <div class="card-header">
-                <h5>Reconciliation Status</h5>
+                <h5>Payment Success Rate (30 days)</h5>
             </div>
             <div class="card-body">
                 <div class="progress mb-2">
                     <div id="reconciliation-progress" class="progress-bar" role="progressbar" style="width: 0%">0%</div>
                 </div>
                 <small class="text-muted">
-                    <span id="reconciled-count">0</span> of <span id="total-count">0</span> transactions reconciled
+                    <span id="reconciled-count">0</span> of <span id="total-count">0</span> payments successful
                 </small>
             </div>
         </div>
@@ -180,6 +204,62 @@ function displayDashboard(data) {
         document.getElementById('reconciliation-progress').textContent = percentage + '%';
         document.getElementById('reconciled-count').textContent = data.reconciliation_status.reconciled || 0;
         document.getElementById('total-count').textContent = data.reconciliation_status.total || 0;
+    }
+
+    // Update next payout information
+    // For monthly payouts, show total balance (available + pending) as next payout amount
+    const availableBalance = data.balances.available || 0;
+    const pendingBalance = data.balances.pending || 0;
+    const totalBalance = availableBalance + pendingBalance;
+
+    // Update amount - use total balance as expected payout amount
+    document.getElementById('next-payout-amount').textContent = '€' + totalBalance.toFixed(2);
+
+    // Check if there's a scheduled next settlement
+    if (data.settlement_metrics && data.settlement_metrics.next_settlement) {
+        const nextSettlement = data.settlement_metrics.next_settlement;
+
+        // Update status badge based on actual settlement
+        const statusElement = document.getElementById('next-payout-status');
+        const status = nextSettlement.status || 'pending';
+        statusElement.innerHTML = `<span class="badge badge-${getStatusBadge(status)}">Settlement ${status}</span>`;
+
+        // Update date information
+        const dateElement = document.getElementById('next-payout-date');
+        if (nextSettlement.settled_at_datetime) {
+            const settledDate = new Date(nextSettlement.settled_at_datetime);
+            dateElement.textContent = `Scheduled for: ${settledDate.toLocaleDateString()}`;
+        } else if (nextSettlement.created_at_datetime) {
+            const createdDate = new Date(nextSettlement.created_at_datetime);
+            dateElement.textContent = `Settlement created: ${createdDate.toLocaleDateString()}`;
+        } else {
+            // Estimate based on monthly payout schedule
+            const today = new Date();
+            const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+            // Find first weekday of next month
+            while (nextMonth.getDay() === 0 || nextMonth.getDay() === 6) {
+                nextMonth.setDate(nextMonth.getDate() + 1);
+            }
+            dateElement.textContent = `Next payout: ${nextMonth.toLocaleDateString()} (first weekday)`;
+        }
+    } else {
+        // No scheduled settlement - show estimated monthly payout
+        const statusElement = document.getElementById('next-payout-status');
+        if (totalBalance > 0) {
+            statusElement.innerHTML = '<span class="badge badge-info">Accumulating</span>';
+        } else {
+            statusElement.innerHTML = '<span class="badge badge-secondary">No balance</span>';
+        }
+
+        // Estimate next monthly payout date
+        const dateElement = document.getElementById('next-payout-date');
+        const today = new Date();
+        const nextMonth = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+        // Find first weekday of next month
+        while (nextMonth.getDay() === 0 || nextMonth.getDay() === 6) {
+            nextMonth.setDate(nextMonth.getDate() + 1);
+        }
+        dateElement.textContent = `Estimated next payout: ${nextMonth.toLocaleDateString()}`;
     }
 }
 
