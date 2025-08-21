@@ -245,7 +245,6 @@
    "doc_view": "List",
    "label": "Active SEPA Mandates",
    "link_to": "SEPA Mandate",
-   "stats_filter": "{\"status\": \"Active\"}",
    "type": "DocType"
   },
   {
@@ -253,7 +252,6 @@
    "doc_view": "List",
    "label": "Pending Batches",
    "link_to": "Direct Debit Batch",
-   "stats_filter": "{\"status\": [\"in\", [\"Draft\", \"Queued\"]]}",
    "type": "DocType"
   },
   {
@@ -261,7 +259,6 @@
    "doc_view": "List",
    "label": "Failed Payments",
    "link_to": "Payment Entry",
-   "stats_filter": "{\"status\": \"Failed\"}",
    "type": "DocType"
   },
   {
@@ -269,7 +266,6 @@
    "doc_view": "List",
    "label": "Completed Batches",
    "link_to": "Direct Debit Batch",
-   "stats_filter": "{\"status\": \"Completed\"}",
    "type": "DocType"
   },
   {
@@ -277,7 +273,6 @@
    "doc_view": "List",
    "label": "Active Mollie Subscriptions",
    "link_to": "Member",
-   "stats_filter": "{\"payment_method\": \"Mollie\", \"subscription_status\": \"active\"}",
    "type": "DocType"
   },
   {
@@ -285,7 +280,6 @@
    "doc_view": "List",
    "label": "Cancelled Mollie Subscriptions",
    "link_to": "Member",
-   "stats_filter": "{\"payment_method\": \"Mollie\", \"subscription_status\": \"cancelled\"}",
    "type": "DocType"
   }
  ],

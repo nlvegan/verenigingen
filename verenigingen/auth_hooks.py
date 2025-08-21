@@ -73,41 +73,22 @@ from frappe import _
 
 from verenigingen.utils.security_wrappers import safe_get_roles
 
-
-def validate_session_before_request():
-    """
-    Early session validation to prevent 'User None is disabled' errors
-
-    This function runs before each request to catch and handle corrupted
-    session data that could cause authentication failures.
-    """
-    try:
-        # Check if we have a valid session context
-        if not hasattr(frappe, "session") or not frappe.session:
-            return
-
-        # Check if the session user is valid
-        user = getattr(frappe.session, "user", None)
-
-        # If user is None, empty, or invalid, clear the session
-        if not user or not isinstance(user, str) or user.strip() in ["", "None", "null", "undefined"]:
-            frappe.logger().warning(f"Detected corrupted session with invalid user: {repr(user)}")
-
-            # Clear the problematic session
-            if hasattr(frappe, "local") and hasattr(frappe.local, "session_obj"):
-                try:
-                    if hasattr(frappe.local.session_obj, "delete"):
-                        frappe.local.session_obj.delete()
-                except Exception:
-                    pass  # Ignore errors during session cleanup
-
-            # Set to Guest user to prevent further issues
-            frappe.session.user = "Guest"
-
-    except Exception as e:
-        # Log the error but don't fail the request
-        frappe.logger().error(f"Session validation error: {e}")
-        pass  # Continue with request processing
+# REMOVED: validate_session_before_request function (August 21, 2025)
+#
+# This function was causing "User None is disabled" errors because it interfered
+# with Frappe's core session initialization process. The function attempted to
+# validate and "fix" sessions by checking if frappe.session.user was None and
+# setting it to "Guest", but this created a race condition where normal session
+# initialization was interrupted.
+#
+# KEY DISTINCTION: This is different from the enforce_member_portal_access()
+# function below, which handles portal access rules without session validation.
+#
+# PROPER ALTERNATIVES:
+# - Session validation: Use on_session_creation hook (runs after session setup)
+# - Session cleanup: Use utils/session_cleanup.py background jobs
+# - Role checking: Use security_wrappers.py safe functions
+# - Portal access: Use enforce_member_portal_access() function
 
 
 def on_session_creation(login_manager):
@@ -271,10 +252,13 @@ def validate_auth_via_api(user, password):
     return True
 
 
-def before_request():
+def enforce_member_portal_access():
     """
-    Hook called before each request
-    Can be used to enforce member portal access rules
+    Hook called before each request to enforce member portal access rules
+
+    This function is different from the REMOVED validate_session_before_request()
+    function. This one handles portal access enforcement, while the removed one
+    was attempting session validation and causing race conditions.
     """
     try:
         # Skip for non-web requests

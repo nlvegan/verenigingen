@@ -930,7 +930,10 @@ on_session_creation = "verenigingen.auth_hooks.on_session_creation"
 on_logout = "verenigingen.auth_hooks.on_logout"
 
 # Optional: Request hooks to enforce member portal access
-before_request = "verenigingen.auth_hooks.validate_session_before_request"
+# DISABLED: The before_request hook was causing "User None is disabled" errors
+# because it interfered with Frappe's core session initialization process.
+# Session validation is now handled properly in the on_session_creation hook.
+# before_request = "verenigingen.auth_hooks.validate_session_before_request"
 
 # Custom auth validation (if needed)
 # auth_hooks = [
