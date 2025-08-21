@@ -239,49 +239,6 @@
  "quick_lists": [],
  "roles": [],
  "sequence_id": 2.0,
- "shortcuts": [
-  {
-   "color": "Blue",
-   "doc_view": "List",
-   "label": "Active SEPA Mandates",
-   "link_to": "SEPA Mandate",
-   "type": "DocType"
-  },
-  {
-   "color": "Orange",
-   "doc_view": "List",
-   "label": "Pending Batches",
-   "link_to": "Direct Debit Batch",
-   "type": "DocType"
-  },
-  {
-   "color": "Purple",
-   "doc_view": "List",
-   "label": "Failed Payments",
-   "link_to": "Payment Entry",
-   "type": "DocType"
-  },
-  {
-   "color": "Green",
-   "doc_view": "List",
-   "label": "Completed Batches",
-   "link_to": "Direct Debit Batch",
-   "type": "DocType"
-  },
-  {
-   "color": "Cyan",
-   "doc_view": "List",
-   "label": "Active Mollie Subscriptions",
-   "link_to": "Member",
-   "type": "DocType"
-  },
-  {
-   "color": "Yellow",
-   "doc_view": "List",
-   "label": "Cancelled Mollie Subscriptions",
-   "link_to": "Member",
-   "type": "DocType"
-  }
- ],
+ "shortcuts": [],
  "title": "Verenigingen Payments"
 }
